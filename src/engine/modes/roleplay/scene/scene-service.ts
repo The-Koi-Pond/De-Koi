@@ -319,19 +319,25 @@ export async function concludeRoleplayScene(
   const sceneMeta = parseJsonObject(sceneChat.metadata);
   const originChatId = stringValue(sceneMeta.sceneOriginChatId);
   if (!originChatId) throw new Error("Not a scene chat");
+  const originChat = await requireChat(capabilities.storage, originChatId);
+  const originMeta = parseJsonObject(originChat.metadata);
+  const storyConsolidationEnabled = getEffectiveStoryConsolidationEnabled(
+    stringValue(originChat.mode || originChat.chatMode),
+    originMeta,
+  );
+  if (storyConsolidationEnabled) {
+    if (!capabilities.storage.createMemory || !capabilities.storage.queryMemories) {
+      throw new Error("Story Continuity is enabled, but canonical memory persistence is unavailable");
+    }
+  }
+
   const storySummary = await summarizeScene(capabilities, input.sceneChatId, input.connectionId ?? null);
   const summary = storySummary.summary;
 
-  const originChat = await requireChat(capabilities.storage, originChatId);
-  const originMeta = parseJsonObject(originChat.metadata);
-  if (
-    getEffectiveStoryConsolidationEnabled(stringValue(originChat.mode || originChat.chatMode), originMeta) &&
-    capabilities.storage.createMemory &&
-    capabilities.storage.queryMemories
-  ) {
+  if (storyConsolidationEnabled) {
     const connectionId = await resolveConnectionId(capabilities.storage, sceneChat, input.connectionId ?? null);
     const connection = await capabilities.storage.get<JsonRecord>("connections", connectionId).catch(() => null);
-    await persistCompletedSceneStoryEpisode(capabilities, {
+    const episode = await persistCompletedSceneStoryEpisode(capabilities, {
       ownerChatId: originChatId,
       sceneChatId: input.sceneChatId,
       messages: await messagesForChat(capabilities.storage, input.sceneChatId),
@@ -341,6 +347,7 @@ export async function concludeRoleplayScene(
       provider: stringValue(connection?.provider) || null,
       model: stringValue(connection?.model) || null,
     });
+    if (!episode) throw new Error("Story Continuity could not persist a source-backed scene episode");
   }
 
   await createChatMessage(capabilities.storage, originChatId, {
@@ -1021,21 +1028,34 @@ function parseSceneStorySummary(raw: string): SceneStorySummary {
     currentState: [],
   };
   const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const looksStructured = /^```(?:json)?\b/i.test(raw.trim()) || /^[{[]/.test(unfenced);
   try {
     const parsed = JSON.parse(unfenced) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const record = parsed as JsonRecord;
-      const summary = sanitizeSceneSummary(stringValue(record.summary), SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
-      const sectionRecord = parseJsonObject(record.sections);
-      const sections = { ...emptySections };
-      for (const key of SCENE_STORY_SECTION_KEYS) {
-        sections[key] = parseJsonArray(sectionRecord[key])
-          .map((entry) => compactPromptText(typeof entry === "string" ? entry : parseJsonObject(entry).text, 600))
-          .filter(Boolean);
-      }
-      return { summary, sections };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("The model returned an invalid structured scene summary");
     }
+    const record = parsed as JsonRecord;
+    const summary = sanitizeSceneSummary(stringValue(record.summary), SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+    if (!record.sections || typeof record.sections !== "object" || Array.isArray(record.sections)) {
+      throw new Error("The model returned invalid scene summary sections");
+    }
+    const sectionRecord = record.sections as JsonRecord;
+    const sections = { ...emptySections };
+    for (const key of SCENE_STORY_SECTION_KEYS) {
+      if (!Array.isArray(sectionRecord[key])) throw new Error(`The model returned invalid ${key} scene summary details`);
+      sections[key] = sectionRecord[key]
+        .map((entry) => {
+          if (typeof entry === "string") return compactPromptText(entry, 600);
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            throw new Error(`The model returned invalid ${key} scene summary details`);
+          }
+          return compactPromptText((entry as JsonRecord).text, 600);
+        })
+        .filter(Boolean);
+    }
+    return { summary, sections };
   } catch {
+    if (looksStructured) throw new Error("The model returned malformed structured scene summary JSON");
     // Older/custom providers may still return the pre-v1 plain summary contract.
   }
   return {

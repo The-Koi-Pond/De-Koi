@@ -106,6 +106,7 @@ import {
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
 import { enqueueAndScheduleStoryEpisode } from "./story-consolidation-queue";
+import { getEffectiveStoryConsolidationEnabled } from "./story-projections";
 import { beginForegroundGeneration } from "./background-generation-coordinator";
 import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
@@ -2651,7 +2652,12 @@ async function enqueueStoryConsolidationSafely(
 ): Promise<void> {
   try {
     const chatId = readString(chat.id).trim();
-    if (!chatId) return;
+    if (
+      !chatId ||
+      !getEffectiveStoryConsolidationEnabled(readString(chat.mode || chat.chatMode), parseRecord(chat.metadata))
+    ) {
+      return;
+    }
     const messages = await deps.storage.listChatMessages<JsonRecord>(chatId);
     await enqueueAndScheduleStoryEpisode(deps, {
       chat,

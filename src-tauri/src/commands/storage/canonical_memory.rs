@@ -10,9 +10,9 @@ use std::hash::{Hash, Hasher};
 mod semantic;
 pub(crate) use semantic::query_memories_semantic;
 
-const MEMORY_COLLECTION: &str = "canonical-memories";
-const INDEX_COLLECTION: &str = "memory-index-rows";
-const STORY_JOBS_COLLECTION: &str = "story-consolidation-jobs";
+pub(crate) const MEMORY_COLLECTION: &str = "canonical-memories";
+pub(crate) const INDEX_COLLECTION: &str = "memory-index-rows";
+pub(crate) const STORY_JOBS_COLLECTION: &str = "story-consolidation-jobs";
 const INDEX_METADATA_COLLECTION: &str = "memory-index-metadata";
 const INDEX_HEALTH_ID: &str = "lexical-v1";
 const LEXICAL_PROVIDER: &str = "lexical";
@@ -680,6 +680,12 @@ fn mark_story_row_stale(row: &mut Value, reason: &str, now: &str) -> AppResult<b
     ) {
         return Ok(false);
     }
+    #[cfg(test)]
+    if read_string(row.get("id")) == "__fail_story_invalidation__" {
+        return Err(AppError::invalid_input(
+            "injected story projection invalidation failure",
+        ));
+    }
     let object = row
         .as_object_mut()
         .ok_or_else(|| AppError::invalid_input("Story projection row is not an object"))?;
@@ -694,13 +700,11 @@ fn mark_story_row_stale(row: &mut Value, reason: &str, now: &str) -> AppResult<b
     Ok(true)
 }
 
-/// Invalidates only story projections derived from edited/deleted transcript rows.
-/// Atomic memories and unrelated story slots are intentionally untouched.
-pub(crate) fn stale_story_projections_for_messages(
-    state: &AppState,
+fn stale_story_memory_rows(
+    memories: &mut [Value],
     message_ids: &[String],
     reason: &str,
-) -> AppResult<usize> {
+) -> AppResult<(HashSet<String>, HashSet<String>, usize, String)> {
     let source_ids = message_ids
         .iter()
         .map(|id| id.trim())
@@ -708,67 +712,159 @@ pub(crate) fn stale_story_projections_for_messages(
         .map(ToOwned::to_owned)
         .collect::<HashSet<_>>();
     if source_ids.is_empty() {
-        return Ok(0);
+        return Ok((HashSet::new(), HashSet::new(), 0, now_iso()));
     }
-    let reason = reason.to_string();
     let now = now_iso();
+    let mut affected_episode_ids = HashSet::new();
+    let mut stale_memory_ids = HashSet::new();
+    let mut stale_count = 0usize;
+
+    for memory in memories.iter_mut() {
+        let Some(payload) = story_projection_payload(memory) else {
+            continue;
+        };
+        if payload.get("level").and_then(Value::as_str) != Some("episode")
+            || !string_array_intersects(payload.get("messageIds"), &source_ids)
+        {
+            continue;
+        }
+        let id = read_string(memory.get("id"));
+        if !id.is_empty() {
+            affected_episode_ids.insert(id.clone());
+        }
+        if mark_story_row_stale(memory, reason, &now)? {
+            stale_memory_ids.insert(id);
+            stale_count += 1;
+        }
+    }
+
+    for memory in memories.iter_mut() {
+        let Some(payload) = story_projection_payload(memory) else {
+            continue;
+        };
+        if payload.get("level").and_then(Value::as_str) != Some("arc")
+            || !string_array_intersects(payload.get("sourceEpisodeIds"), &affected_episode_ids)
+        {
+            continue;
+        }
+        let id = read_string(memory.get("id"));
+        if mark_story_row_stale(memory, "source_episode_stale", &now)? {
+            stale_memory_ids.insert(id);
+            stale_count += 1;
+        }
+    }
+    Ok((affected_episode_ids, stale_memory_ids, stale_count, now))
+}
+
+fn stale_story_job_rows(
+    jobs: &mut [Value],
+    message_ids: &[String],
+    affected_episode_ids: &HashSet<String>,
+    reason: &str,
+    now: &str,
+) -> AppResult<()> {
+    let source_ids = message_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<HashSet<_>>();
+    for job in jobs {
+        let affected = string_array_intersects(job.get("sourceMessageIds"), &source_ids)
+            || string_array_intersects(job.get("sourceEpisodeIds"), affected_episode_ids);
+        if affected {
+            mark_story_row_stale(job, reason, now)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn stale_story_projections_in_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    index_collection_index: usize,
+    story_jobs_collection_index: usize,
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<usize> {
+    let (affected_episode_ids, stale_memory_ids, stale_count, now) = stale_story_memory_rows(
+        collections
+            .get_mut(memory_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Canonical memory collection missing"))?
+            .rows_mut(),
+        message_ids,
+        reason,
+    )?;
+
+    collections
+        .get_mut(index_collection_index)
+        .ok_or_else(|| AppError::new("storage_error", "Memory index collection missing"))?
+        .rows_mut()
+        .retain(|row| !stale_memory_ids.contains(&read_string(row.get("memoryId"))));
+    stale_story_job_rows(
+        collections
+            .get_mut(story_jobs_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Story job collection missing"))?
+            .rows_mut(),
+        message_ids,
+        &affected_episode_ids,
+        reason,
+        &now,
+    )?;
+    Ok(stale_count)
+}
+
+pub(crate) fn stale_story_projections_in_journaled_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    story_jobs_collection_index: usize,
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<usize> {
+    if memory_collection_index >= story_jobs_collection_index {
+        return Err(AppError::new(
+            "storage_error",
+            "Story collection order is invalid",
+        ));
+    }
+    let (memory_collections, job_collections) =
+        collections.split_at_mut(story_jobs_collection_index);
+    let (affected_episode_ids, _stale_memory_ids, stale_count, now) = stale_story_memory_rows(
+        memory_collections
+            .get_mut(memory_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Canonical memory collection missing"))?
+            .rows_mut(),
+        message_ids,
+        reason,
+    )?;
+    stale_story_job_rows(
+        job_collections
+            .get_mut(0)
+            .ok_or_else(|| AppError::new("storage_error", "Story job collection missing"))?
+            .rows_mut(),
+        message_ids,
+        &affected_episode_ids,
+        reason,
+        &now,
+    )?;
+    // Staling changes canonical updatedAt, so every old lexical row immediately
+    // fails the canonicalUpdatedAt freshness check without rewriting its index file.
+    Ok(stale_count)
+}
+
+/// Invalidates only story projections derived from edited/deleted transcript rows.
+/// Atomic memories and unrelated story slots are intentionally untouched.
+#[cfg(test)]
+pub(crate) fn stale_story_projections_for_messages(
+    state: &AppState,
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<usize> {
+    let reason = reason.to_string();
     state.storage.update_collections_atomically(
         vec![MEMORY_COLLECTION, INDEX_COLLECTION, STORY_JOBS_COLLECTION],
         move |collections| {
-            let memories = collections[0].rows_mut();
-            let mut affected_episode_ids = HashSet::new();
-            let mut stale_memory_ids = HashSet::new();
-            let mut stale_count = 0usize;
-
-            for memory in memories.iter_mut() {
-                let Some(payload) = story_projection_payload(memory) else {
-                    continue;
-                };
-                if payload.get("level").and_then(Value::as_str) != Some("episode")
-                    || !string_array_intersects(payload.get("messageIds"), &source_ids)
-                {
-                    continue;
-                }
-                let id = read_string(memory.get("id"));
-                if !id.is_empty() {
-                    affected_episode_ids.insert(id.clone());
-                }
-                if mark_story_row_stale(memory, &reason, &now)? {
-                    stale_memory_ids.insert(id);
-                    stale_count += 1;
-                }
-            }
-
-            for memory in memories.iter_mut() {
-                let Some(payload) = story_projection_payload(memory) else {
-                    continue;
-                };
-                if payload.get("level").and_then(Value::as_str) != Some("arc")
-                    || !string_array_intersects(
-                        payload.get("sourceEpisodeIds"),
-                        &affected_episode_ids,
-                    )
-                {
-                    continue;
-                }
-                let id = read_string(memory.get("id"));
-                if mark_story_row_stale(memory, "source_episode_stale", &now)? {
-                    stale_memory_ids.insert(id);
-                    stale_count += 1;
-                }
-            }
-
-            collections[1]
-                .rows_mut()
-                .retain(|row| !stale_memory_ids.contains(&read_string(row.get("memoryId"))));
-            for job in collections[2].rows_mut().iter_mut() {
-                let affected = string_array_intersects(job.get("sourceMessageIds"), &source_ids)
-                    || string_array_intersects(job.get("sourceEpisodeIds"), &affected_episode_ids);
-                if affected {
-                    mark_story_row_stale(job, &reason, &now)?;
-                }
-            }
-            Ok(stale_count)
+            stale_story_projections_in_collections(collections, 0, 1, 2, message_ids, &reason)
         },
     )
 }

@@ -660,11 +660,20 @@ fn replace_message_with_swipes_and_chat_cleanup(
     swipes: Vec<Value>,
     prune_memories: bool,
     deleted_swipe_index: Option<i64>,
+    invalidate_story: bool,
 ) -> AppResult<Value> {
-    let mut updated = if prune_memories || deleted_swipe_index.is_some() {
+    let mut updated = if prune_memories || deleted_swipe_index.is_some() || invalidate_story {
         let mut extra_collections = vec!["chats"];
         if deleted_swipe_index.is_some() {
             extra_collections.push("game-state-snapshots");
+        }
+        let story_collection_index = 2 + extra_collections.len();
+        if invalidate_story {
+            extra_collections.extend([
+                canonical_memory::MEMORY_COLLECTION,
+                canonical_memory::INDEX_COLLECTION,
+                canonical_memory::STORY_JOBS_COLLECTION,
+            ]);
         }
         message_swipe_storage::replace_message_with_swipes_and_update_collections(
             state,
@@ -687,6 +696,16 @@ fn replace_message_with_swipes_and_chat_cleanup(
                         index,
                     )?;
                 }
+                if invalidate_story {
+                    canonical_memory::stale_story_projections_in_collections(
+                        collections,
+                        story_collection_index,
+                        story_collection_index + 1,
+                        story_collection_index + 2,
+                        &[message_id.to_string()],
+                        "source_message_edited",
+                    )?;
+                }
                 Ok(())
             },
         )?
@@ -694,13 +713,6 @@ fn replace_message_with_swipes_and_chat_cleanup(
         message_swipe_storage::replace_message_with_swipes(state, message, swipes)?
     };
     message_swipe_storage::materialize_message(state, &mut updated, true)?;
-    if prune_memories {
-        canonical_memory::stale_story_projections_for_messages(
-            state,
-            &[message_id.to_string()],
-            "source_message_edited",
-        )?;
-    }
     Ok(updated)
 }
 
@@ -815,18 +827,38 @@ pub(crate) fn message_swipes(
     let swipes = message_swipe_storage::take_swipes_for_storage(&mut message)?.unwrap_or_default();
     let updated = if append_only_storage_compatible {
         let message_for_memory_cleanup = message.clone();
-        message_swipe_storage::append_message_with_swipes_and_update_record(
+        let mut extra_collections = vec!["chats"];
+        if story_source_changed {
+            extra_collections.extend([
+                canonical_memory::MEMORY_COLLECTION,
+                canonical_memory::STORY_JOBS_COLLECTION,
+            ]);
+        }
+        message_swipe_storage::append_message_with_swipes_and_update_collections(
             state,
             message,
             swipes,
-            "chats",
-            &owner_chat_id,
-            visible_content_changed,
-            move |chat| {
+            extra_collections,
+            move |collections, _written_message| {
+                let chat = collections[0].rows_mut().iter_mut().find(|row| {
+                    row.get("id").and_then(Value::as_str) == Some(owner_chat_id.as_str())
+                });
                 if visible_content_changed {
+                    let chat = chat.ok_or_else(|| {
+                        AppError::not_found(format!("chats/{owner_chat_id} was not found"))
+                    })?;
                     chat_memory::apply_chat_memory_invalidation_from_message(
                         chat,
                         &message_for_memory_cleanup,
+                    )?;
+                }
+                if story_source_changed {
+                    canonical_memory::stale_story_projections_in_journaled_collections(
+                        collections,
+                        1,
+                        2,
+                        &[message_id.to_string()],
+                        "source_message_edited",
                     )?;
                 }
                 Ok(())
@@ -841,15 +873,9 @@ pub(crate) fn message_swipes(
             swipes,
             visible_content_changed,
             None,
+            story_source_changed,
         )?
     };
-    if story_source_changed && (append_only_storage_compatible || !visible_content_changed) {
-        canonical_memory::stale_story_projections_for_messages(
-            state,
-            &[message_id.to_string()],
-            "source_message_edited",
-        )?;
-    }
     Ok(updated)
 }
 
@@ -861,11 +887,20 @@ pub(crate) fn update_message_content_if_unchanged(
     content: &str,
 ) -> AppResult<Value> {
     let normalized_content = collapse_excess_blank_lines(content);
+    let invalidate_story = expected_content != normalized_content;
+    let mut extra_collections = vec!["chats"];
+    if invalidate_story {
+        extra_collections.extend([
+            canonical_memory::MEMORY_COLLECTION,
+            canonical_memory::INDEX_COLLECTION,
+            canonical_memory::STORY_JOBS_COLLECTION,
+        ]);
+    }
     let Some(mut message) =
         message_swipe_storage::update_message_content_if_current_and_update_collections(
             state,
             message_id,
-            vec!["chats"],
+            extra_collections,
             chat_id,
             expected_content,
             &normalized_content,
@@ -877,6 +912,16 @@ pub(crate) fn update_message_content_if_unchanged(
                         written_message,
                     )?;
                 }
+                if invalidate_story {
+                    canonical_memory::stale_story_projections_in_collections(
+                        collections,
+                        3,
+                        4,
+                        5,
+                        &[message_id.to_string()],
+                        "source_message_edited",
+                    )?;
+                }
                 Ok(())
             },
         )?
@@ -884,13 +929,6 @@ pub(crate) fn update_message_content_if_unchanged(
         return Ok(json!({ "updated": false }));
     };
     message_swipe_storage::materialize_message(state, &mut message, true)?;
-    if expected_content != normalized_content {
-        canonical_memory::stale_story_projections_for_messages(
-            state,
-            &[message_id.to_string()],
-            "source_message_edited",
-        )?;
-    }
     Ok(json!({ "updated": true, "message": message }))
 }
 
@@ -921,9 +959,21 @@ fn story_projection_source_signature(message: &Value) -> (String, String, String
             || extra.get("hidden_from_user").and_then(Value::as_bool) == Some(true)
     });
     (
-        message.get("role").and_then(Value::as_str).unwrap_or_default().to_string(),
-        message.get("content").and_then(Value::as_str).unwrap_or_default().to_string(),
-        message.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string(),
+        message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        message
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        message
+            .get("createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         hidden_from_ai,
         hidden_from_user,
     )
@@ -985,22 +1035,44 @@ pub(crate) fn patch_message_update_with_memory_prune(
     patch: Value,
 ) -> AppResult<Value> {
     let normalized = normalize_update_patch("messages", patch)?;
-    let patch_object = normalized.as_object().cloned().unwrap_or_default();
+    let mut patch_object = normalized.as_object().cloned().unwrap_or_default();
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
     let previous_story_source = story_projection_source_signature(&message);
     if !message_patch_requires_swipe_transaction(&patch_object)
         && !message_extra_patch_changes_active_swipe(&message, &patch_object)
     {
-        let updated = journal_backed_message_patch(state, message_id, patch_object, &message)?;
-        if story_projection_source_signature(&updated) != previous_story_source {
-            canonical_memory::stale_story_projections_for_messages(
-                state,
-                &[message_id.to_string()],
-                "source_message_edited",
-            )?;
+        let has_swipes = message
+            .get("swipes")
+            .and_then(Value::as_array)
+            .is_some_and(|swipes| !swipes.is_empty());
+        if has_swipes && patch_object.contains_key("extra") {
+            let base_extra = clear_swipe_scoped_extra(patch_object.get("extra"));
+            patch_object.insert("extra".to_string(), base_extra);
         }
-        return Ok(updated);
+        let mut preview = message.clone();
+        let object = preview
+            .as_object_mut()
+            .ok_or_else(|| AppError::invalid_input("Message is not an object"))?;
+        for (key, value) in patch_object.clone() {
+            object.insert(key, value);
+        }
+        if story_projection_source_signature(&preview) != previous_story_source {
+            if let Some(chat_id) = preview
+                .get("chatId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(ToOwned::to_owned)
+            {
+                let swipes = message_swipe_storage::take_swipes_for_storage(&mut preview)?
+                    .unwrap_or_default();
+                return replace_message_with_swipes_and_chat_cleanup(
+                    state, &chat_id, message_id, preview, swipes, false, None, true,
+                );
+            }
+        }
+        return journal_backed_message_patch(state, message_id, patch_object, &message);
     }
     let previous_visible_content = message
         .get("content")
@@ -1037,14 +1109,8 @@ pub(crate) fn patch_message_update_with_memory_prune(
             swipes,
             previous_visible_content != next_visible_content,
             None,
+            story_source_changed,
         )?;
-        if story_source_changed && previous_visible_content == next_visible_content {
-            canonical_memory::stale_story_projections_for_messages(
-                state,
-                &[message_id.to_string()],
-                "source_message_edited",
-            )?;
-        }
         return Ok(updated);
     }
     let mut updated = message_swipe_storage::replace_message_with_swipes(state, message, swipes)?;
@@ -1147,14 +1213,8 @@ pub(crate) fn set_active_swipe(
         swipes,
         visible_content_changed,
         None,
+        story_source_changed,
     )?;
-    if story_source_changed && !visible_content_changed {
-        canonical_memory::stale_story_projections_for_messages(
-            state,
-            &[message_id.to_string()],
-            "source_message_edited",
-        )?;
-    }
     Ok(active_swipe_update_response(&updated))
 }
 
@@ -1221,14 +1281,8 @@ pub(crate) fn delete_swipe(
         swipes,
         visible_content_changed,
         Some(index as i64),
+        story_source_changed,
     )?;
-    if story_source_changed && !visible_content_changed {
-        canonical_memory::stale_story_projections_for_messages(
-            state,
-            &[message_id.to_string()],
-            "source_message_edited",
-        )?;
-    }
     Ok(updated)
 }
 
@@ -1255,6 +1309,9 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             message_swipe_storage::COLLECTION,
             "chats",
             "game-state-snapshots",
+            canonical_memory::MEMORY_COLLECTION,
+            canonical_memory::INDEX_COLLECTION,
+            canonical_memory::STORY_JOBS_COLLECTION,
         ],
         move |collections| {
             let messages = collections[0].rows_mut();
@@ -1300,48 +1357,48 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             )
             .unwrap_or(Value::Null);
 
-            let Some(chat) = collections[2]
+            if let Some(chat) = collections[2]
                 .rows_mut()
                 .iter_mut()
                 .find(|row| row.get("id").and_then(Value::as_str) == Some(chat_id))
-            else {
-                let mut ids = deleted_ids.into_iter().collect::<Vec<_>>();
-                ids.sort();
-                return Ok((deleted_messages.len(), ids));
-            };
-            let memories = chat_memory::chat_memory_values_for_mutation(chat)?;
-            if let Some(retained) = chat_memory::prune_chat_memory_values_for_deleted_messages(
-                memories,
-                &deleted_messages,
-            ) {
-                #[cfg(test)]
-                if retained.iter().any(|memory| {
-                    memory.get("id").and_then(Value::as_str)
-                        == Some("__fail_after_delete_mutation__")
-                }) {
-                    return Err(AppError::invalid_input(
-                        "injected message delete cleanup failure",
-                    ));
+            {
+                let memories = chat_memory::chat_memory_values_for_mutation(chat)?;
+                if let Some(retained) = chat_memory::prune_chat_memory_values_for_deleted_messages(
+                    memories,
+                    &deleted_messages,
+                ) {
+                    #[cfg(test)]
+                    if retained.iter().any(|memory| {
+                        memory.get("id").and_then(Value::as_str)
+                            == Some("__fail_after_delete_mutation__")
+                    }) {
+                        return Err(AppError::invalid_input(
+                            "injected message delete cleanup failure",
+                        ));
+                    }
+                    let object = chat
+                        .as_object_mut()
+                        .ok_or_else(|| AppError::invalid_input("Chat is not an object"))?;
+                    object.insert("memories".to_string(), Value::Array(retained));
                 }
-                let object = chat
-                    .as_object_mut()
-                    .ok_or_else(|| AppError::invalid_input("Chat is not an object"))?;
-                object.insert("memories".to_string(), Value::Array(retained));
-            }
-            if let Some(object) = chat.as_object_mut() {
-                object.insert("lastMessageAt".to_string(), Value::String(now.clone()));
-                object.insert("gameState".to_string(), visible_tracker);
+                if let Some(object) = chat.as_object_mut() {
+                    object.insert("lastMessageAt".to_string(), Value::String(now.clone()));
+                    object.insert("gameState".to_string(), visible_tracker);
+                }
             }
 
             let mut ids = deleted_ids.into_iter().collect::<Vec<_>>();
             ids.sort();
+            canonical_memory::stale_story_projections_in_collections(
+                collections,
+                4,
+                5,
+                6,
+                &ids,
+                "source_message_deleted",
+            )?;
             Ok((deleted_messages.len(), ids))
         },
-    )?;
-    canonical_memory::stale_story_projections_for_messages(
-        state,
-        &result.1,
-        "source_message_deleted",
     )?;
     Ok(result)
 }
@@ -4134,11 +4191,56 @@ mod tests {
                 }),
             )
             .expect("unrelated message should seed");
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "episode-journal-source",
+                "kind": "episode",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "first",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+                "tags": ["story-continuity", "episode"],
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-journal-source",
+                    "sourceFingerprint": "fingerprint-journal-source",
+                    "messageIds": ["message-1"],
+                    "firstMessageId": "message-1",
+                    "lastMessageId": "message-1",
+                    "sourceEpisodeIds": []
+                }
+            }),
+        )
+        .expect("story episode should seed");
+        state
+            .storage
+            .create(
+                canonical_memory::STORY_JOBS_COLLECTION,
+                json!({
+                    "id": "story-job-journal-source",
+                    "status": "pending",
+                    "sourceMessageIds": ["message-1"],
+                    "sourceEpisodeIds": []
+                }),
+            )
+            .expect("story job should seed");
 
         let data_root = state.storage.root().to_path_buf();
         state.storage.flush().expect("seed data should flush");
         let collections = data_root.join("collections");
-        let primary_before = ["messages", "message-swipes", "chats"].map(|collection| {
+        let primary_before = [
+            "messages",
+            "message-swipes",
+            "chats",
+            canonical_memory::MEMORY_COLLECTION,
+            canonical_memory::INDEX_COLLECTION,
+            canonical_memory::STORY_JOBS_COLLECTION,
+        ]
+        .map(|collection| {
             (
                 collection,
                 std::fs::read(collections.join(format!("{collection}.json"))).unwrap(),
@@ -4163,6 +4265,32 @@ mod tests {
             Vec::<String>::new()
         );
         assert_eq!(stored_chat(&state)["name"], json!("Large history"));
+        assert_eq!(
+            state
+                .storage
+                .get(
+                    canonical_memory::MEMORY_COLLECTION,
+                    "episode-journal-source"
+                )
+                .unwrap()
+                .unwrap()["status"],
+            json!("stale")
+        );
+        assert_eq!(
+            state
+                .storage
+                .get(
+                    canonical_memory::STORY_JOBS_COLLECTION,
+                    "story-job-journal-source"
+                )
+                .unwrap()
+                .unwrap()["status"],
+            json!("stale")
+        );
+        assert_eq!(
+            canonical_memory::query_memory_index(&state, json!({})).unwrap(),
+            json!([])
+        );
         for (collection, before) in &primary_before {
             assert_eq!(
                 std::fs::read(collections.join(format!("{collection}.json"))).unwrap(),
@@ -4185,6 +4313,17 @@ mod tests {
         assert_eq!(persisted["swipeCount"], json!(2));
         assert_eq!(persisted["content"], json!("second"));
         assert_eq!(persisted["swipes"][1]["extra"]["model"], json!("two"));
+        assert_eq!(
+            reopened
+                .storage
+                .get(
+                    canonical_memory::MEMORY_COLLECTION,
+                    "episode-journal-source"
+                )
+                .unwrap()
+                .unwrap()["status"],
+            json!("stale")
+        );
         assert_eq!(
             reopened
                 .storage
@@ -6490,6 +6629,197 @@ mod tests {
                 .unwrap()
                 .unwrap()["status"],
             json!("stale")
+        );
+    }
+
+    #[test]
+    fn story_invalidation_failure_rolls_back_the_source_message_patch() {
+        let state = test_state("story-source-atomic-rollback");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "Visible story beat",
+                    "createdAt": "2026-08-27T00:00:00Z",
+                    "extra": {}
+                }),
+            )
+            .expect("message should seed");
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "__fail_story_invalidation__",
+                "kind": "episode",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "Visible story beat",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+                "tags": ["story-continuity", "episode"],
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-1",
+                    "sourceFingerprint": "fingerprint-1",
+                    "messageIds": ["message-1"],
+                    "firstMessageId": "message-1",
+                    "lastMessageId": "message-1",
+                    "sourceEpisodeIds": []
+                }
+            }),
+        )
+        .expect("episode should seed");
+
+        let error = patch_message_update_with_memory_prune(
+            &state,
+            "message-1",
+            json!({ "extra": { "hiddenFromAI": true } }),
+        )
+        .expect_err("invalidation failure must abort the source patch");
+
+        assert_eq!(
+            error.message,
+            "injected story projection invalidation failure"
+        );
+        let message = state.storage.get("messages", "message-1").unwrap().unwrap();
+        assert_ne!(message["extra"]["hiddenFromAI"], json!(true));
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "__fail_story_invalidation__")
+                .unwrap()
+                .unwrap()["status"],
+            json!("active")
+        );
+    }
+
+    #[test]
+    fn story_invalidation_failure_rolls_back_a_journaled_active_swipe() {
+        let state = test_state("story-swipe-journal-atomic-rollback");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "memories": [] }))
+            .unwrap();
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first",
+                "createdAt": "2026-08-27T00:00:00Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{ "content": "first" }]
+            }),
+        )
+        .unwrap();
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "__fail_story_invalidation__",
+                "kind": "episode",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "first",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+                "tags": ["story-continuity", "episode"],
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-swipe-rollback",
+                    "sourceFingerprint": "fingerprint-swipe-rollback",
+                    "messageIds": ["message-1"],
+                    "firstMessageId": "message-1",
+                    "lastMessageId": "message-1",
+                    "sourceEpisodeIds": []
+                }
+            }),
+        )
+        .unwrap();
+
+        message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second" }),
+        )
+        .expect_err("invalidation failure must abort the grouped journal transaction");
+
+        let mut stored = state.storage.get("messages", "message-1").unwrap().unwrap();
+        message_swipe_storage::materialize_message(&state, &mut stored, true).unwrap();
+        assert_eq!(stored["content"], json!("first"));
+        assert_eq!(stored["swipeCount"], json!(1));
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "__fail_story_invalidation__")
+                .unwrap()
+                .unwrap()["status"],
+            json!("active")
+        );
+    }
+
+    #[test]
+    fn story_invalidation_failure_rolls_back_source_message_deletion() {
+        let state = test_state("story-delete-atomic-rollback");
+        let message = json!({
+            "id": "message-1",
+            "chatId": "chat-1",
+            "role": "assistant",
+            "content": "Keep this story beat",
+            "createdAt": "2026-08-27T00:00:00Z",
+            "extra": {}
+        });
+        state.storage.create("messages", message.clone()).unwrap();
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "__fail_story_invalidation__",
+                "kind": "episode",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "Keep this story beat",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+                "tags": ["story-continuity", "episode"],
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-delete",
+                    "sourceFingerprint": "fingerprint-delete",
+                    "messageIds": ["message-1"],
+                    "firstMessageId": "message-1",
+                    "lastMessageId": "message-1",
+                    "sourceEpisodeIds": []
+                }
+            }),
+        )
+        .unwrap();
+
+        delete_message_rows_with_memory_prune(&state, "chat-1", &[message])
+            .expect_err("invalidation failure must abort deletion");
+
+        assert!(state
+            .storage
+            .get("messages", "message-1")
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "__fail_story_invalidation__")
+                .unwrap()
+                .unwrap()["status"],
+            json!("active")
         );
     }
 }

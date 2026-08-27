@@ -112,7 +112,7 @@
       },
       {
         "claim": "A source edit, delete, hidden-state change, or active-swipe change must not stale unrelated projections or ordinary atomic memories.",
-        "evidence": "canonical_memory.rs and chats.rs focused Rust tests pass affected-chain-only invalidation assertions."
+        "evidence": "canonical_memory.rs and chats.rs focused Rust tests pass affected-chain-only invalidation, transaction rollback, journal fast-path, stale-index rejection, and restart-recovery assertions."
       },
       {
         "claim": "A failed initial or replacement job must not displace the last valid active projection.",
@@ -162,15 +162,15 @@
   "userActionCopy": [
     {
       "description": "Story consolidation is non-destructive, but Pi operators who want a pre-deploy snapshot can copy the mounted De-Koi data directory before updating.",
-      "source": "/home/chai/de-koi-data",
-      "destination": "/home/chai/de-koi-data-backup-1266",
+      "source": "<configured-de-koi-data-directory>",
+      "destination": "<backup-destination-directory>",
       "folders": [
-        "/home/chai/de-koi-data"
+        "<configured-de-koi-data-directory>"
       ],
-      "action": "With De-Koi stopped, run cp -a /home/chai/de-koi-data /home/chai/de-koi-data-backup-1266 before deployment; normal deployment does not require this optional backup.",
+      "action": "With De-Koi stopped, copy the complete configured De-Koi data directory to a separately chosen backup destination; replace both placeholders before running any copy command. Normal deployment does not require this optional backup.",
       "companionFiles": "Copy the entire mounted directory so canonical memories, jobs, indexes, chats, messages, and sidecars stay together.",
       "detectedLayouts": [
-        "Current Pi layout mounts /home/chai/de-koi-data to /data.",
+        "Pi deployments mount their configured host data directory to /data.",
         "Desktop and other host layouts use their configured De-Koi data directory; this PR does not migrate either layout."
       ]
     }
@@ -200,7 +200,10 @@
       "lease loss and retry",
       "replacement failure",
       "explicit opt-out and backfill bypass",
-      "raw-history and atomic-memory prompt priority"
+      "raw-history and atomic-memory prompt priority",
+      "active-swipe journal invalidation and restart recovery",
+      "parent-arc enqueue retry after episode commit",
+      "arc source revalidation before summarization"
     ],
     "negativeRowsTested": [
       "No internal or hidden source capture",
@@ -211,13 +214,14 @@
       "No Conversation or Game automatic consolidation"
     ],
     "afterEvidence": [
-      "pnpm vitest run across 9 focused files (101 tests)",
-      "cargo test --manifest-path src-tauri/Cargo.toml story_ (7 tests)",
-      "cargo test --manifest-path src-tauri/Cargo.toml --workspace (1495 app tests passed, 1 ignored, and all workspace crate suites passed)",
+      "pnpm vitest run across 10 focused files (113 tests)",
+      "cargo test --manifest-path src-tauri/Cargo.toml story_ (focused story chain passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage (162 tests passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml --workspace -- --test-threads=1 (all app, crate, and doc-test suites passed)",
       "pnpm check",
       "pnpm build (3273 modules)",
-      "cargo check --manifest-path src-tauri/Cargo.toml",
-      "git diff --check origin/main...HEAD"
+      "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+      "git diff --check"
     ]
   },
   "checks": {
@@ -258,7 +262,7 @@
     "reportOnlyWhenComplete": true
   },
   "notes": [
-    "The local Bunny pass found no blocking issue on the pushed feature commit.",
+    "Final-head Bunny review on 2089a267 identified ten concrete findings; the repair pass adds atomic source invalidation, arc freshness and retry guarantees, strict scene persistence, and consistent edit and supersede behavior before a new final-head review.",
     "Hosted Linux nextest exposed an incomplete chat-expunge receipt assertion; the regression now seeds, clears, and reports story-consolidation-jobs in both exhaustive receipt tests.",
     "Validation checkboxes remain unchecked for human verification, as required by repository guidance.",
     "No real chat data was edited or deleted during manual validation."

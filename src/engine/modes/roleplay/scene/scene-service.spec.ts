@@ -715,6 +715,89 @@ describe("roleplay scene conclusion summaries", () => {
     ]);
   });
 
+  it("keeps an enabled scene retryable when canonical memory capabilities are missing", async () => {
+    const { storage, createdMessages, createdRecords } = storageForScene({
+      chats: [
+        { id: "origin", name: "Origin", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+        {
+          id: "scene",
+          name: "Scene: Missing Storage",
+          mode: "roleplay",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "Mara opens the archive." },
+          { id: "choice", role: "user", content: "She rescues the ledger." },
+        ],
+      },
+    });
+    (storage as { createMemory?: StorageGateway["createMemory"] }).createMemory = undefined;
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce("The section records the archive rescue.")
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            summary: "Mara rescued the archive ledger.",
+            sections: {
+              events: ["Mara rescued the ledger."],
+              choices: [], relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [], currentState: [],
+            },
+          }),
+        ),
+      async *stream() {},
+      async listModels() { return []; },
+    } as unknown as LlmGateway;
+
+    await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(
+      "canonical memory persistence is unavailable",
+    );
+
+    expect(createdMessages.filter((message) => message.chatId === "origin")).toHaveLength(0);
+    expect(createdRecords.filter((record) => record.entity === "canonical-memories")).toHaveLength(0);
+    await expect(storage.get<JsonRecord>("chats", "scene")).resolves.toMatchObject({
+      metadata: expect.objectContaining({ sceneStatus: "active" }),
+    });
+  });
+
+  it.each([
+    ["missing summary", JSON.stringify({ sections: { events: [], choices: [], relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [], currentState: [] } })],
+    ["malformed fenced JSON", "```json\n{\"summary\": \"The archive closes\""],
+    ["malformed sections", JSON.stringify({ summary: "The archive closes.", sections: { events: "not-an-array" } })],
+  ])("rejects %s instead of displaying machine payload as scene prose", async (_label, finalRaw) => {
+    const { storage, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Origin", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+        {
+          id: "scene",
+          name: "Scene: Invalid Summary",
+          mode: "roleplay",
+          connectionId: "conn-1",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "conn-1" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "Mara opens the archive." },
+          { id: "choice", role: "user", content: "She rescues the ledger." },
+        ],
+      },
+    });
+    const llm = {
+      complete: vi.fn().mockResolvedValueOnce("The section records the archive rescue.").mockResolvedValueOnce(finalRaw),
+      async *stream() {},
+      async listModels() { return []; },
+    } as unknown as LlmGateway;
+
+    await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(
+      /structured scene summary/i,
+    );
+    expect(createdMessages.filter((message) => message.chatId === "origin")).toHaveLength(0);
+  });
+
   it("resolves a Random summary override before sending requests to the LLM", async () => {
     const connectionIds: Array<string | null | undefined> = [];
     const { storage } = storageForScene({

@@ -70,7 +70,10 @@ async function storyMemories(storage: StorageGateway, chatId: string): Promise<C
 function coveredMessageIds(memories: CanonicalMemoryRecord[]): Set<string> {
   return new Set(
     memories
-      .filter((memory) => storyPayload(memory)?.level === "episode" && memory.status !== "deleted")
+      .filter(
+        (memory) =>
+          storyPayload(memory)?.level === "episode" && (memory.status === "active" || memory.status === "pinned"),
+      )
       .flatMap((memory) => storyPayload(memory)?.messageIds ?? []),
   );
 }
@@ -97,8 +100,11 @@ async function coverageId(chatId: string, messageIds: string[]): Promise<string>
   return sha256MemoryId("story-coverage", `${chatId}\u001f${messageIds.join("\u001f")}`);
 }
 
-function sameJobIdentity(job: StoryProjectionJob, expected: Pick<StoryProjectionJob, "coverageId" | "sourceFingerprint">) {
-  return job.coverageId === expected.coverageId && job.sourceFingerprint === expected.sourceFingerprint;
+function sameJobIdentity(
+  job: StoryProjectionJob,
+  expected: Pick<StoryProjectionJob, "level" | "coverageId" | "sourceFingerprint">,
+) {
+  return job.level === expected.level && job.coverageId === expected.coverageId && job.sourceFingerprint === expected.sourceFingerprint;
 }
 
 export async function enqueueStoryEpisodeJob(
@@ -154,7 +160,7 @@ export async function enqueueStoryEpisodeJob(
   );
   const existing = (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
   if (existing) {
-    if (!sameJobIdentity(existing, { coverageId: stableCoverageId, sourceFingerprint: fingerprint })) {
+    if (!sameJobIdentity(existing, { level: "episode", coverageId: stableCoverageId, sourceFingerprint: fingerprint })) {
       throw new Error("Story consolidation SHA-256 job id collision");
     }
     return existing;
@@ -246,7 +252,12 @@ export async function enqueueStoryArcJob(
     `${STORY_SUMMARIZER_VERSION}\u001farc\u001f${stableCoverageId}\u001f${fingerprint}`,
   );
   const existing = (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
-  if (existing) return existing;
+  if (existing) {
+    if (!sameJobIdentity(existing, { level: "arc", coverageId: stableCoverageId, sourceFingerprint: fingerprint })) {
+      throw new Error("Story consolidation SHA-256 job id collision");
+    }
+    return existing;
+  }
   const job: StoryProjectionJob = {
     id,
     status: "pending",
@@ -339,19 +350,45 @@ function summarizerPrompt(job: StoryProjectionJob): string {
 }
 
 async function currentSourcesStillMatch(storage: StorageGateway, job: StoryProjectionJob): Promise<boolean> {
-  if (job.level !== "episode" || typeof storage.getChatMessage !== "function") return true;
-  const current = [];
-  let priorTimestamp = Number.NEGATIVE_INFINITY;
-  for (const snapshot of job.sourceMessages) {
-    const row = await storage.getChatMessage<JsonRecord>(snapshot.id).catch(() => null);
-    if (!row) return false;
-    const next = sourceSnapshot(row);
-    const timestamp = next.createdAt ? Date.parse(next.createdAt) : priorTimestamp;
-    if (Number.isFinite(timestamp) && timestamp < priorTimestamp) return false;
-    if (Number.isFinite(timestamp)) priorTimestamp = timestamp;
-    current.push(next);
+  if (job.level === "episode") {
+    if (typeof storage.getChatMessage !== "function") return false;
+    const current = [];
+    let priorTimestamp = Number.NEGATIVE_INFINITY;
+    for (const snapshot of job.sourceMessages) {
+      const row = await storage.getChatMessage<JsonRecord>(snapshot.id).catch(() => null);
+      if (!row) return false;
+      const next = sourceSnapshot(row);
+      const timestamp = next.createdAt ? Date.parse(next.createdAt) : priorTimestamp;
+      if (Number.isFinite(timestamp) && timestamp < priorTimestamp) return false;
+      if (Number.isFinite(timestamp)) priorTimestamp = timestamp;
+      current.push(next);
+    }
+    return (await sourceFingerprint(current)) === job.sourceFingerprint;
   }
-  return (await sourceFingerprint(current)) === job.sourceFingerprint;
+
+  const memories = await storyMemories(storage, job.ownerChatId);
+  if (job.sourceEpisodes.length !== job.sourceEpisodeIds.length) return false;
+  const currentEpisodes = [];
+  for (const snapshot of job.sourceEpisodes) {
+    const memory = memories.find((candidate) => candidate.id === snapshot.id);
+    const payload = memory ? storyPayload(memory) : null;
+    if (
+      !memory ||
+      !payload ||
+      payload.level !== "episode" ||
+      (memory.status !== "active" && memory.status !== "pinned") ||
+      !job.sourceEpisodeIds.includes(memory.id) ||
+      payload.messageIds.join("\u001f") !== snapshot.messageIds.join("\u001f")
+    ) {
+      return false;
+    }
+    currentEpisodes.push({ id: memory.id, content: memory.content });
+  }
+  const fingerprint = await sha256MemoryId(
+    "story-source",
+    currentEpisodes.map((episode) => `${episode.id}\u001f${episode.content}`).join("\u001e"),
+  );
+  return fingerprint === job.sourceFingerprint;
 }
 
 function due(job: StoryProjectionJob, now: string): boolean {
@@ -503,6 +540,24 @@ export async function processStoryConsolidationQueue(
         updatedAt: now,
       });
       try {
+        if (job.followUp === "arc_enqueue") {
+          await enqueueStoryArcJob(storage, {
+            chatId: job.ownerChatId,
+            connectionId: job.connectionId ?? null,
+            provider: job.provider ?? null,
+            model: job.model ?? null,
+          });
+          await updateJob(job.id, {
+            status: "completed",
+            followUp: null,
+            lastError: null,
+            nextAttemptAt: null,
+            completedAt: now,
+            updatedAt: now,
+          });
+          result.completed += 1;
+          continue;
+        }
         if (!(await currentSourcesStillMatch(storage, job))) {
           await updateJob(job.id, {
             status: "stale",
@@ -559,7 +614,18 @@ export async function processStoryConsolidationQueue(
               model: job.model ?? null,
             });
           } catch (error) {
-            console.warn("[story-consolidation] arc enqueue failed after episode commit", error);
+            const terminal = isTerminalBackgroundGenerationError(error) || attempts >= job.maxAttempts;
+            await updateJob(job.id, {
+              status: terminal ? "failed" : "retryable",
+              followUp: "arc_enqueue",
+              projectionMemoryId: created.id,
+              lastError: error instanceof Error ? error.message : String(error),
+              nextAttemptAt: terminal ? null : retryAt(now, attempts),
+              updatedAt: now,
+            });
+            if (terminal) result.failed += 1;
+            else result.retryable += 1;
+            continue;
           }
         }
         result.completed += 1;
@@ -638,7 +704,16 @@ export async function persistCompletedSceneStoryEpisode(
   const now = input.now ?? nowIso();
   const existingMemories = await storyMemories(storage, input.ownerChatId);
   const existing = existingMemories.find((memory) => memory.id === id);
-  if (existing) return existing;
+  if (existing) {
+    await enqueueStoryArcJob(storage, {
+      chatId: input.ownerChatId,
+      connectionId: input.connectionId ?? null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+    });
+    scheduleStoryConsolidationQueueProcessing(dependencies);
+    return existing;
+  }
   const citations = (key: keyof StoryProjectionSections): StoryProjectionCitation[] =>
     (input.sections?.[key] ?? [])
       .map((text) => text.trim())
@@ -711,16 +786,12 @@ export async function persistCompletedSceneStoryEpisode(
   assertProjectionOverlapAllowed(syntheticJob, memoryInput, existingMemories);
   const created = await storage.createMemory(memoryInput);
   await storage.rebuildMemoryIndex?.({ scope: { kind: "chat", id: input.ownerChatId } }).catch(() => undefined);
-  try {
-    await enqueueStoryArcJob(storage, {
-      chatId: input.ownerChatId,
-      connectionId: input.connectionId ?? null,
-      provider: input.provider ?? null,
-      model: input.model ?? null,
-    });
-    scheduleStoryConsolidationQueueProcessing(dependencies);
-  } catch (error) {
-    console.warn("[story-consolidation] arc enqueue failed after scene episode commit", error);
-  }
+  await enqueueStoryArcJob(storage, {
+    chatId: input.ownerChatId,
+    connectionId: input.connectionId ?? null,
+    provider: input.provider ?? null,
+    model: input.model ?? null,
+  });
+  scheduleStoryConsolidationQueueProcessing(dependencies);
   return created;
 }

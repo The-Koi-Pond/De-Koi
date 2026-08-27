@@ -6,6 +6,7 @@ import type { CanonicalMemoryInput, CanonicalMemoryRecord, StoryProjectionJob } 
 import {
   enqueueStoryArcJob,
   enqueueStoryEpisodeJob,
+  persistCompletedSceneStoryEpisode,
   processStoryConsolidationQueue,
   STORY_CONSOLIDATION_JOBS_COLLECTION,
 } from "./story-consolidation-queue";
@@ -20,9 +21,56 @@ function sourceMessage(index: number) {
   };
 }
 
+function episodeMemory(index: number, status: CanonicalMemoryRecord["status"] = "active"): CanonicalMemoryInput {
+  const first = index * 2 - 1;
+  return {
+    id: `episode-${index}`,
+    kind: "episode",
+    status,
+    scope: { kind: "chat", id: "chat-1" },
+    title: `Episode ${index}`,
+    content: `Episode ${index} summary`,
+    confidence: 0.9,
+    provenance: { sourceChatId: "chat-1", messageIds: [`message-${first}`, `message-${first + 1}`] },
+    tags: ["story-continuity", "episode"],
+    payload: {
+      storyProjectionVersion: 1,
+      level: "episode",
+      ownerChatId: "chat-1",
+      coverageId: `coverage-${index}`,
+      sourceFingerprint: `fingerprint-${index}`,
+      messageIds: [`message-${first}`, `message-${first + 1}`],
+      sourceMessages: [
+        {
+          id: `message-${first}`,
+          role: "user",
+          content: `Story beat ${first}`,
+          createdAt: `2026-08-27T0${index - 1}:00:00.000Z`,
+        },
+      ],
+      firstMessageId: `message-${first}`,
+      lastMessageId: `message-${first + 1}`,
+      sourceEpisodeIds: [],
+      sections: {
+        events: [],
+        choices: [],
+        relationshipShifts: [],
+        promises: [],
+        reveals: [],
+        unresolvedHooks: [],
+        currentState: [],
+      },
+      summarizer: { version: "story-projection-v1", completedAt: `2026-08-27T0${index - 1}:00:00.000Z` },
+    },
+    createdAt: `2026-08-27T0${index - 1}:00:00.000Z`,
+    updatedAt: `2026-08-27T0${index - 1}:00:00.000Z`,
+  };
+}
+
 function harness() {
   const jobs = new Map<string, StoryProjectionJob>();
   const memories = new Map<string, CanonicalMemoryRecord>();
+  let failArcCreate = false;
   const storeMemory = async (body: CanonicalMemoryInput) => {
     const record = {
       ...body,
@@ -50,6 +98,7 @@ function harness() {
     },
     async create(entity: string, body: Record<string, unknown>) {
       if (entity !== STORY_CONSOLIDATION_JOBS_COLLECTION) throw new Error(`unexpected collection ${entity}`);
+      if (failArcCreate && body.level === "arc") throw new Error("temporary arc enqueue failure");
       jobs.set(String(body.id), body as StoryProjectionJob);
       return body;
     },
@@ -61,6 +110,10 @@ function harness() {
     },
     async queryMemories() {
       return Array.from(memories.values());
+    },
+    async getChatMessage(id: string) {
+      const index = Number(id.replace("message-", ""));
+      return Number.isFinite(index) ? sourceMessage(index) : null;
     },
     async createMemory(body: CanonicalMemoryInput) {
       return storeMemory(body);
@@ -95,11 +148,11 @@ function harness() {
       return { memory: record, job };
     },
   } as unknown as StorageGateway;
-  return { storage, jobs, memories };
+  return { storage, jobs, memories, setFailArcCreate: (value: boolean) => (failArcCreate = value) };
 }
 
-function llmResult(): string {
-  const cited = [{ text: "A concrete story beat occurred.", sourceMessageIds: ["message-1"] }];
+function llmResult(sourceId = "message-1"): string {
+  const cited = [{ text: "A concrete story beat occurred.", sourceMessageIds: [sourceId] }];
   return JSON.stringify({
     title: "The First Turn",
     summary: "The characters crossed a threshold and left one question unresolved.",
@@ -211,44 +264,7 @@ describe("story consolidation queue", () => {
   it("enqueues one arc from four active consecutive episode projections", async () => {
     const test = harness();
     for (let index = 0; index < 4; index += 1) {
-      const first = index * 2 + 1;
-      await test.storage.createMemory?.({
-        id: `episode-${index + 1}`,
-        kind: "episode",
-        status: "active",
-        scope: { kind: "chat", id: "chat-1" },
-        title: `Episode ${index + 1}`,
-        content: `Episode ${index + 1} summary`,
-        confidence: 0.9,
-        provenance: { sourceChatId: "chat-1", messageIds: [`message-${first}`, `message-${first + 1}`] },
-        tags: ["story-continuity", "episode"],
-        payload: {
-          storyProjectionVersion: 1,
-          level: "episode",
-          ownerChatId: "chat-1",
-          coverageId: `coverage-${index + 1}`,
-          sourceFingerprint: `fingerprint-${index + 1}`,
-          messageIds: [`message-${first}`, `message-${first + 1}`],
-          sourceMessages: [
-            { id: `message-${first}`, role: "user", content: `Story beat ${first}`, createdAt: `2026-08-27T0${index}:00:00.000Z` },
-          ],
-          firstMessageId: `message-${first}`,
-          lastMessageId: `message-${first + 1}`,
-          sourceEpisodeIds: [],
-          sections: {
-            events: [],
-            choices: [],
-            relationshipShifts: [],
-            promises: [],
-            reveals: [],
-            unresolvedHooks: [],
-            currentState: [],
-          },
-          summarizer: { version: "story-projection-v1", completedAt: `2026-08-27T0${index}:00:00.000Z` },
-        },
-        createdAt: index === 1 ? "2026-08-28T00:00:00.000Z" : `2026-08-27T0${index}:00:00.000Z`,
-        updatedAt: `2026-08-27T0${index}:00:00.000Z`,
-      });
+      await test.storage.createMemory?.(episodeMemory(index + 1));
     }
 
     const job = await enqueueStoryArcJob(test.storage, { chatId: "chat-1" });
@@ -256,6 +272,132 @@ describe("story consolidation queue", () => {
     expect(job?.level).toBe("arc");
     expect(job?.sourceEpisodeIds).toEqual(["episode-1", "episode-2", "episode-3", "episode-4"]);
     expect(job?.sourceMessageIds).toEqual(Array.from({ length: 8 }, (_, index) => `message-${index + 1}`));
+  });
+
+  it("does not let stale episode projections reserve message coverage", async () => {
+    const test = harness();
+    await test.storage.createMemory?.(episodeMemory(1, "stale"));
+
+    const job = await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: [sourceMessage(1), sourceMessage(2)],
+      requestedBoundary: "manual",
+    });
+
+    expect(job?.sourceMessageIds).toEqual(["message-1", "message-2"]);
+  });
+
+  it("keeps active episode projections reserved", async () => {
+    const test = harness();
+    await test.storage.createMemory?.(episodeMemory(1));
+
+    await expect(
+      enqueueStoryEpisodeJob(test.storage, {
+        chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+        messages: [sourceMessage(1), sourceMessage(2)],
+        requestedBoundary: "manual",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects a deterministic arc job row with mismatched identity", async () => {
+    const test = harness();
+    for (let index = 1; index <= 4; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    const first = await enqueueStoryArcJob(test.storage, { chatId: "chat-1" });
+    test.jobs.set(first!.id, { ...first!, level: "episode" });
+
+    await expect(enqueueStoryArcJob(test.storage, { chatId: "chat-1" })).rejects.toThrow(
+      "Story consolidation SHA-256 job id collision",
+    );
+  });
+
+  it("stales an arc job before summarization when a source episode changes", async () => {
+    const test = harness();
+    for (let index = 1; index <= 4; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    const job = await enqueueStoryArcJob(test.storage, { chatId: "chat-1" });
+    const changed = test.memories.get("episode-2")!;
+    test.memories.set("episode-2", { ...changed, status: "superseded", content: "Changed after enqueue" });
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T04:00:00.000Z" },
+    );
+
+    expect(result.stale).toBe(1);
+    expect(test.jobs.get(job!.id)?.status).toBe("stale");
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it("records and retries a failed parent-arc enqueue after the episode commit", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    const episodeJob = await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 30 }, (_, index) => sourceMessage(index + 1)),
+    });
+    test.setFailArcCreate(true);
+    const llm = { complete: vi.fn(async () => llmResult("message-7")) } as unknown as LlmGateway;
+
+    const first = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T04:00:00.000Z" },
+    );
+
+    expect(first.retryable).toBe(1);
+    const retryJob = test.jobs.get(episodeJob!.id);
+    expect(test.memories.has(String(retryJob?.projectionMemoryId))).toBe(true);
+    expect(retryJob).toEqual(
+      expect.objectContaining({ status: "retryable", followUp: "arc_enqueue", projectionMemoryId: expect.any(String) }),
+    );
+
+    test.setFailArcCreate(false);
+    const second = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T04:02:00.000Z" },
+    );
+
+    expect(second.completed).toBe(1);
+    expect(test.jobs.get(episodeJob!.id)?.status).toBe("completed");
+    expect(Array.from(test.jobs.values()).some((job) => job.level === "arc")).toBe(true);
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a formal-scene parent arc enqueue without duplicating its committed episode", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    const input = {
+      ownerChatId: "chat-1",
+      sceneChatId: "scene-1",
+      messages: [sourceMessage(7), sourceMessage(8)],
+      summary: "The characters recovered the archive ledger.",
+      sections: {
+        events: ["They recovered the ledger."],
+        choices: [],
+        relationshipShifts: [],
+        promises: [],
+        reveals: [],
+        unresolvedHooks: [],
+        currentState: ["They now hold the ledger."],
+      },
+      now: "2026-08-27T04:00:00.000Z",
+    };
+    const dependencies = { storage: test.storage, llm: {} as LlmGateway };
+    test.setFailArcCreate(true);
+
+    await expect(persistCompletedSceneStoryEpisode(dependencies, input)).rejects.toThrow(
+      "temporary arc enqueue failure",
+    );
+    expect(test.memories.size).toBe(4);
+
+    test.setFailArcCreate(false);
+    await expect(persistCompletedSceneStoryEpisode(dependencies, input)).resolves.toMatchObject({
+      kind: "episode",
+      content: input.summary,
+    });
+
+    expect(test.memories.size).toBe(4);
+    expect(Array.from(test.jobs.values()).some((job) => job.level === "arc")).toBe(true);
   });
 
   it("rejects overlapping active episode coverage without replacing the valid projection", async () => {

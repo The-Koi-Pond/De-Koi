@@ -93,7 +93,29 @@ export const storyContinuityApi = {
   async edit(memoryId: string, content: string) {
     const memory = await storageApi.get<CanonicalMemoryRecord>("canonical-memories", memoryId);
     if (!memory || !isStoryProjection(memory)) throw new Error("Story projection not found");
-    return storageApi.updateMemory?.(memoryId, { content: content.trim() });
+    const editedContent = content.trim();
+    if (!editedContent) throw new Error("Story projection content cannot be empty");
+    const story = memory.payload as StoryProjectionPayload;
+    const citation = {
+      text: editedContent,
+      ...(story.level === "episode" ? { sourceMessageIds: story.messageIds } : { sourceEpisodeIds: story.sourceEpisodeIds }),
+    };
+    return storageApi.updateMemory?.(memoryId, {
+      content: editedContent,
+      payload: {
+        ...story,
+        sections: {
+          events: [citation],
+          choices: [],
+          relationshipShifts: [],
+          promises: [],
+          reveals: [],
+          unresolvedHooks: [],
+          currentState: [citation],
+        },
+        editedAt: new Date().toISOString(),
+      },
+    });
   },
 
   async setPinned(memory: CanonicalMemoryRecord, pinned: boolean) {
@@ -103,24 +125,10 @@ export const storyContinuityApi = {
   },
 
   async supersede(memory: CanonicalMemoryRecord) {
-    const updated = await storageApi.updateMemory?.(memory.id, { status: "superseded" });
-    const story = memory.payload as StoryProjectionPayload;
-    if (story.level === "episode") {
-      const rows = await storageApi.queryMemories?.({ scope: memory.scope, includeInactive: true }) ?? [];
-      await Promise.all(
-        rows
-          .filter((candidate) => {
-            const payload = parseRecord(candidate.payload);
-            return payload.storyProjectionVersion === 1 &&
-              payload.level === "arc" &&
-              (candidate.status === "active" || candidate.status === "pinned") &&
-              Array.isArray(payload.sourceEpisodeIds) && payload.sourceEpisodeIds.includes(memory.id);
-          })
-          .map((arc) => storageApi.updateMemory?.(arc.id, { status: "stale" })),
-      );
-    }
-    await storageApi.rebuildMemoryIndex?.({ scope: memory.scope });
-    return updated;
+    if (!storageApi.updateMemory) throw new Error("Canonical memory updates are unavailable");
+    // The Rust canonical-memory command atomically supersedes the episode,
+    // stales dependent arcs/jobs, and refreshes their lexical index rows.
+    return storageApi.updateMemory(memory.id, { status: "superseded" });
   },
 
   async regenerate(chatId: string, memory: CanonicalMemoryRecord) {

@@ -82,6 +82,9 @@ export interface StoryProjectionJob extends Record<string, unknown> {
   sourceEpisodes: Array<{ id: string; title?: string | null; content: string; messageIds: string[] }>;
   boundaryReason?: StoryEpisodeBoundaryReason | null;
   supersedesMemoryId?: string | null;
+  projectionMemoryId?: string | null;
+  followUp?: "arc_enqueue" | null;
+  lastError?: string | null;
   connectionId?: string | null;
   provider?: string | null;
   model?: string | null;
