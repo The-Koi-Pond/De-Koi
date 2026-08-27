@@ -46,10 +46,7 @@ const panelTargetSet = new Set<string>(DISCOVERY_PANEL_TARGETS);
 const modeSet = new Set(["conversation", "roleplay", "game"]);
 const chatDestinationSet = new Set([
   "chat-settings",
-  "chat-settings-prompt-preset",
   "chat-settings-continuity",
-  "chat-settings-agents",
-  "chat-settings-workflow-profile",
   "slash-commands",
   "prompt-inspector",
   "message-actions",

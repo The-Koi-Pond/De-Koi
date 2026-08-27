@@ -18,9 +18,6 @@ const validModes = new Set(["conversation", "roleplay", "game"]);
 const validChatDestinations = new Set([
   "chat-settings",
   "chat-settings-continuity",
-  "chat-settings-prompt-preset",
-  "chat-settings-agents",
-  "chat-settings-workflow-profile",
   "slash-commands",
   "prompt-inspector",
   "message-actions",

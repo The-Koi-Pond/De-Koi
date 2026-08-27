@@ -15,7 +15,6 @@ export function openDiscover() {
 }
 
 const DESTINATION_MODES: Partial<Record<DiscoveryChatDestination, readonly DiscoveryMode[]>> = {
-  "chat-settings-workflow-profile": ["roleplay"],
   "slash-commands": ["conversation", "roleplay"],
   "game-tutorial": ["game"],
   "game-journal": ["game"],
@@ -31,10 +30,7 @@ function modeLabel(mode: DiscoveryMode) {
 function destinationLabel(destination: DiscoveryChatDestination) {
   const labels: Record<DiscoveryChatDestination, string> = {
     "chat-settings": "Chat Settings",
-    "chat-settings-prompt-preset": "Prompt Preset",
     "chat-settings-continuity": "Chat Continuity",
-    "chat-settings-agents": "Chat Agents",
-    "chat-settings-workflow-profile": "Roleplay Workflow Profiles",
     "slash-commands": "Slash Commands",
     "prompt-inspector": "Prompt Inspector",
     "message-actions": "Message Actions",

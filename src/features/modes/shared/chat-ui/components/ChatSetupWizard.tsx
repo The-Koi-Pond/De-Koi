@@ -38,11 +38,7 @@ import { getInlineCardTokenWarning } from "../../../../catalog/lib/card-token-re
 import { PersonaAvatarImage, usePersonaSummaries } from "../../../../catalog/personas/index";
 import { useLorebooks } from "../../../../catalog/lorebooks/index";
 import { useUpdateChat, useUpdateChatMetadata, useCreateMessage, chatKeys } from "../../../../catalog/chats/index";
-import {
-  RoleplayWorkflowProfileChooser,
-  useChatPresets,
-  useApplyChatPreset,
-} from "../../../../catalog/chat-presets/index";
+import { useChatPresets, useApplyChatPreset } from "../../../../catalog/chat-presets/index";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { boolish } from "../../../../../engine/generation/runtime-records";
@@ -114,12 +110,6 @@ const ALL_STEPS: WizardStep[] = [
     key: "lorebooks",
     title: "Attach Lorebooks",
     body: "Lorebooks inject world info and lore into the AI's context when relevant keywords appear. Optional but great for rich worlds!",
-    sprite: ASSISTANT_MARK_URL,
-  },
-  {
-    key: "workflow-profile",
-    title: "Choose a Workflow Profile",
-    body: "Optional: review a ready-made set of Roleplay helpers before starting. Nothing changes until you confirm the ledger.",
     sprite: ASSISTANT_MARK_URL,
   },
 ];
@@ -1658,17 +1648,12 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     );
   }
 
-  function renderWorkflowProfile() {
-    return <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onNavigateAway={onFinish} />;
-  }
-
   const stepRenderers: Record<string, () => React.ReactNode> = {
     connection: renderConnection,
     preset: renderPreset,
     persona: renderPersona,
     characters: renderCharacters,
     lorebooks: renderLorebooks,
-    "workflow-profile": renderWorkflowProfile,
   };
 
   return (
@@ -1914,10 +1899,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -12, scale: 0.97 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className={cn(
-                "pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]",
-                currentStep.key === "workflow-profile" ? "max-w-lg sm:max-w-4xl" : "max-w-lg",
-              )}
+              className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
             >
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 pt-5">
                 {/* Sprite */}

@@ -2,10 +2,7 @@ export type DiscoveryMode = "conversation" | "roleplay" | "game";
 
 export type DiscoveryChatDestination =
   | "chat-settings"
-  | "chat-settings-prompt-preset"
   | "chat-settings-continuity"
-  | "chat-settings-agents"
-  | "chat-settings-workflow-profile"
   | "slash-commands"
   | "prompt-inspector"
   | "message-actions"
