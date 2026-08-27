@@ -595,6 +595,7 @@ mod tests {
             ("agent-runs", "run-1"),
             ("agent-memory", "memory-1"),
             ("memory-capture-jobs", "memory-job-1"),
+            ("story-consolidation-jobs", "story-job-1"),
             ("memory-maintenance-jobs", "maintenance-job-1"),
             ("game-checkpoints", "checkpoint-1"),
             ("game-state-snapshots", "snapshot-1"),
@@ -626,7 +627,8 @@ mod tests {
                 "memory-capture-jobs",
                 "memory-maintenance-jobs",
                 "message-swipes",
-                "messages"
+                "messages",
+                "story-consolidation-jobs"
             ])
         );
         for collection in [
@@ -638,6 +640,7 @@ mod tests {
             "agent-runs",
             "agent-memory",
             "memory-capture-jobs",
+            "story-consolidation-jobs",
             "memory-maintenance-jobs",
             "game-checkpoints",
             "game-state-snapshots",
@@ -723,7 +726,8 @@ mod tests {
                 "memory-capture-jobs",
                 "memory-maintenance-jobs",
                 "message-swipes",
-                "messages"
+                "messages",
+                "story-consolidation-jobs"
             ])
         );
     }

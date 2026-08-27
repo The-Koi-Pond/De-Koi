@@ -213,6 +213,7 @@
     "afterEvidence": [
       "pnpm vitest run across 9 focused files (101 tests)",
       "cargo test --manifest-path src-tauri/Cargo.toml story_ (7 tests)",
+      "cargo test --manifest-path src-tauri/Cargo.toml --workspace (1495 app tests passed, 1 ignored, and all workspace crate suites passed)",
       "pnpm check",
       "pnpm build (3273 modules)",
       "cargo check --manifest-path src-tauri/Cargo.toml",
@@ -258,6 +259,7 @@
   },
   "notes": [
     "The local Bunny pass found no blocking issue on the pushed feature commit.",
+    "Hosted Linux nextest exposed an incomplete chat-expunge receipt assertion; the regression now seeds, clears, and reports story-consolidation-jobs in both exhaustive receipt tests.",
     "Validation checkboxes remain unchecked for human verification, as required by repository guidance.",
     "No real chat data was edited or deleted during manual validation."
   ]
