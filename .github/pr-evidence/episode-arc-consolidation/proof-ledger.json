@@ -218,6 +218,7 @@
       "cargo test --manifest-path src-tauri/Cargo.toml story_ (focused story chain passed)",
       "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage (162 tests passed)",
       "cargo test --manifest-path src-tauri/Cargo.toml --workspace -- --test-threads=1 (all app, crate, and doc-test suites passed)",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code",
       "pnpm check",
       "pnpm build (3273 modules)",
       "cargo check --manifest-path src-tauri/Cargo.toml --workspace",

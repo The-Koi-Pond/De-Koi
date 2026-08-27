@@ -652,16 +652,25 @@ fn apply_deleted_swipe_tracker_cleanup_in_collections(
     Ok(())
 }
 
+struct MessageReplacementCleanup {
+    prune_memories: bool,
+    deleted_swipe_index: Option<i64>,
+    invalidate_story: bool,
+}
+
 fn replace_message_with_swipes_and_chat_cleanup(
     state: &AppState,
     chat_id: &str,
     message_id: &str,
     message: Value,
     swipes: Vec<Value>,
-    prune_memories: bool,
-    deleted_swipe_index: Option<i64>,
-    invalidate_story: bool,
+    cleanup: MessageReplacementCleanup,
 ) -> AppResult<Value> {
+    let MessageReplacementCleanup {
+        prune_memories,
+        deleted_swipe_index,
+        invalidate_story,
+    } = cleanup;
     let mut updated = if prune_memories || deleted_swipe_index.is_some() || invalidate_story {
         let mut extra_collections = vec!["chats"];
         if deleted_swipe_index.is_some() {
@@ -871,9 +880,11 @@ pub(crate) fn message_swipes(
             message_id,
             message,
             swipes,
-            visible_content_changed,
-            None,
-            story_source_changed,
+            MessageReplacementCleanup {
+                prune_memories: visible_content_changed,
+                deleted_swipe_index: None,
+                invalidate_story: story_source_changed,
+            },
         )?
     };
     Ok(updated)
@@ -1068,7 +1079,16 @@ pub(crate) fn patch_message_update_with_memory_prune(
                 let swipes = message_swipe_storage::take_swipes_for_storage(&mut preview)?
                     .unwrap_or_default();
                 return replace_message_with_swipes_and_chat_cleanup(
-                    state, &chat_id, message_id, preview, swipes, false, None, true,
+                    state,
+                    &chat_id,
+                    message_id,
+                    preview,
+                    swipes,
+                    MessageReplacementCleanup {
+                        prune_memories: false,
+                        deleted_swipe_index: None,
+                        invalidate_story: true,
+                    },
                 );
             }
         }
@@ -1107,9 +1127,11 @@ pub(crate) fn patch_message_update_with_memory_prune(
             message_id,
             message,
             swipes,
-            previous_visible_content != next_visible_content,
-            None,
-            story_source_changed,
+            MessageReplacementCleanup {
+                prune_memories: previous_visible_content != next_visible_content,
+                deleted_swipe_index: None,
+                invalidate_story: story_source_changed,
+            },
         )?;
         return Ok(updated);
     }
@@ -1211,9 +1233,11 @@ pub(crate) fn set_active_swipe(
         message_id,
         message,
         swipes,
-        visible_content_changed,
-        None,
-        story_source_changed,
+        MessageReplacementCleanup {
+            prune_memories: visible_content_changed,
+            deleted_swipe_index: None,
+            invalidate_story: story_source_changed,
+        },
     )?;
     Ok(active_swipe_update_response(&updated))
 }
@@ -1279,9 +1303,11 @@ pub(crate) fn delete_swipe(
         message_id,
         message,
         swipes,
-        visible_content_changed,
-        Some(index as i64),
-        story_source_changed,
+        MessageReplacementCleanup {
+            prune_memories: visible_content_changed,
+            deleted_swipe_index: Some(index as i64),
+            invalidate_story: story_source_changed,
+        },
     )?;
     Ok(updated)
 }
