@@ -275,6 +275,7 @@ type ChatCommonOverlaysProps = {
   chat: ChatData | null | undefined;
   activeChatId: string;
   settingsOpen: boolean;
+  settingsDestination?: string | null;
   filesOpen: boolean;
   galleryOpen: boolean;
   wizardOpen: boolean;
@@ -311,6 +312,7 @@ export function ChatCommonOverlays({
   chat,
   activeChatId,
   settingsOpen,
+  settingsDestination,
   filesOpen,
   galleryOpen,
   wizardOpen,
@@ -349,6 +351,7 @@ export function ChatCommonOverlays({
             <ChatSettingsDrawer
               chat={chat}
               open={settingsOpen}
+              settingsDestination={settingsDestination}
               onClose={onCloseSettings}
               spriteArrangeMode={sceneSettings.spriteArrangeMode}
               onToggleSpriteArrange={sceneSettings.onToggleSpriteArrange}

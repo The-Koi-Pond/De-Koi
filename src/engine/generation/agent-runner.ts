@@ -514,6 +514,21 @@ function agentSettings(agent: JsonRecord): Record<string, unknown> {
   return parseRecord(agent.settings);
 }
 
+interface ChatAgentOverride<T> {
+  present: boolean;
+  value: T | null;
+}
+
+function chatAgentOverride<T>(value: unknown, agentId: string, agentType: string): ChatAgentOverride<T> {
+  const overrides = parseRecord(value);
+  for (const key of [agentId, agentType]) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+      return { present: true, value: (overrides[key] as T | null | undefined) ?? null };
+    }
+  }
+  return { present: false, value: null };
+}
+
 function normalizeMaxParallelJobs(value: unknown): number {
   const parsed = readNumber(value, 1);
   if (!Number.isFinite(parsed)) return 1;
@@ -877,7 +892,11 @@ function automaticIntervalGate(
     const messageRole: AutomaticIntervalMessageRole = USER_INTERVAL_AGENT_TYPES.has(type) ? "user" : "assistant";
     const maxInterval = messageRole === "user" ? MAX_CUSTOM_AGENT_USER_RUN_INTERVAL : MAX_ASSISTANT_RUN_INTERVAL;
     const fallback = positiveInteger(BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS[type], 5, maxInterval);
-    const runInterval = positiveInteger(settings.runInterval, fallback, maxInterval);
+    const storedRunInterval = positiveInteger(settings.runInterval, fallback, maxInterval);
+    const override = chatAgentOverride<unknown>(chatMetadata(input).agentRunIntervalOverrides, id, type);
+    const runInterval = override.present
+      ? positiveInteger(override.value, storedRunInterval, maxInterval)
+      : storedRunInterval;
     return runInterval > 1
       ? {
           agentId: id,
@@ -889,7 +908,11 @@ function automaticIntervalGate(
       : null;
   }
   if (!builtInAgent) {
-    const runInterval = positiveInteger(settings.runInterval, 1, MAX_CUSTOM_AGENT_USER_RUN_INTERVAL);
+    const storedRunInterval = positiveInteger(settings.runInterval, 1, MAX_CUSTOM_AGENT_USER_RUN_INTERVAL);
+    const override = chatAgentOverride<unknown>(chatMetadata(input).agentRunIntervalOverrides, id, type);
+    const runInterval = override.present
+      ? positiveInteger(override.value, storedRunInterval, MAX_CUSTOM_AGENT_USER_RUN_INTERVAL)
+      : storedRunInterval;
     return runInterval > 1
       ? {
           agentId: id,
@@ -1238,8 +1261,17 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
       }
       continue;
     }
-    const requestedConnectionId = readString(agent.connectionId).trim();
-    if (!requestedConnectionId && defaultAgentConnection === undefined) {
+    const storedConnectionId = readString(agent.connectionId).trim();
+    const chatConnectionOverride = chatAgentOverride<unknown>(
+      chatMetadata(input).agentConnectionOverrides,
+      id,
+      type,
+    );
+    const requestedConnectionId = chatConnectionOverride.present
+      ? readString(chatConnectionOverride.value).trim()
+      : storedConnectionId;
+    const skipsStoredConnection = chatConnectionOverride.present && chatConnectionOverride.value === null;
+    if ((!requestedConnectionId || skipsStoredConnection) && defaultAgentConnection === undefined) {
       defaultAgentConnection = await loadDefaultAgentConnection(deps.storage);
     }
     const fallbackConnection = defaultAgentConnection ?? input.connection;
@@ -1247,6 +1279,10 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const connectionId = requestedConnectionId || fallbackConnectionId;
     const usesDefaultAgentConnection = !requestedConnectionId && !!defaultAgentConnection;
     let connection: JsonRecord;
+    if (chatConnectionOverride.present && chatConnectionOverride.value !== null && !requestedConnectionId) {
+      skippedResults.push(skippedDanglingConnectionResult(agent, readString(chatConnectionOverride.value)));
+      continue;
+    }
     if (requestedConnectionId) {
       const loadedConnection = await loadRequestedAgentConnection(deps.storage, requestedConnectionId);
       if (!loadedConnection) {

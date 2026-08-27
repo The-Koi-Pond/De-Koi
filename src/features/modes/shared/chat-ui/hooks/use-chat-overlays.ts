@@ -89,12 +89,15 @@ export function useChatOverlays(activeChatId: string) {
       if (detail?.type !== "open-chat-destination") return;
       if (
         detail.destination !== "chat-settings" &&
+        detail.destination !== "chat-settings-prompt-preset" &&
         detail.destination !== "chat-settings-continuity" &&
+        detail.destination !== "chat-settings-agents" &&
+        detail.destination !== "chat-settings-workflow-profile" &&
         detail.destination !== "roleplay-context"
       ) {
         return;
       }
-      const nextSection = detail.destination === "chat-settings-continuity" ? "chat-settings-continuity" : null;
+      const nextSection = detail.destination.startsWith("chat-settings-") ? detail.destination : null;
       if (pendingDiscoverySectionRef.current !== nextSection) cancelPendingDiscoveryReveal();
       pendingDiscoverySectionRef.current = nextSection;
       setPendingDiscoverySection(nextSection);
@@ -240,6 +243,7 @@ export function useChatOverlays(activeChatId: string) {
     wizardOpen,
     spriteArrangeMode,
     newChatSetupChatId,
+    pendingDiscoverySection,
     setSettingsOpen,
     setFilesOpen,
     setGalleryOpen,

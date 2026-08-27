@@ -94,6 +94,32 @@
     "coverage": "core"
   },
   {
+    "id": "roleplay-workflow-profiles",
+    "title": "Roleplay workflow profiles",
+    "category": "Chat modes",
+    "summary": "Preview and selectively apply a clear ledger of Roleplay prompt, continuity, agent, media, and local-sidecar helpers without replacing your writer connection.",
+    "keywords": [
+      "roleplay workflow",
+      "workflow profile",
+      "minimal clean",
+      "longform continuity",
+      "cinematic",
+      "local assist",
+      "setup helpers",
+      "agent bundle"
+    ],
+    "audience": "Roleplay users who want a guided setup with visible costs, prerequisites, data destinations, and reversible changes.",
+    "where": "Open an active Roleplay chat > Chat Settings > Workflow profile, or use the final optional setup-wizard step.",
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings-workflow-profile",
+        "label": "Open Workflow Profiles"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "characters",
     "title": "Characters",
     "category": "Library",

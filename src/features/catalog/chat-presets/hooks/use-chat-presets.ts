@@ -14,7 +14,17 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { chatPresetApi } from "../../../../shared/api/chat-preset-api";
 import { chatKeys } from "../../chats/query-keys";
+import type { StorageGateway } from "../../../../engine/capabilities/storage";
 import type { Chat, ChatMode } from "../../../../engine/contracts/types/chat";
+import {
+  buildRoleplayWorkflowProfilePatch,
+  buildRoleplayWorkflowProfileRevertPatch,
+  resolveRoleplayWorkflowProfile,
+  selectedLocalAssistAgentIds,
+  type RoleplayWorkflowCapabilities,
+  type RoleplayWorkflowProfileId,
+  type RoleplayWorkflowProfileResolution,
+} from "../../../../engine/modes/roleplay/workflow-profiles";
 import {
   CHAT_PRESET_EXCLUDED_METADATA_KEYS,
   type ChatPreset,
@@ -24,6 +34,8 @@ import {
 const EXCLUDED_METADATA_KEYS = new Set<string>(CHAT_PRESET_EXCLUDED_METADATA_KEYS);
 const CHAT_PRESET_METADATA_DEFAULTS: Record<string, unknown> = {
   agentOverrides: {},
+  agentConnectionOverrides: {},
+  agentRunIntervalOverrides: {},
   activeAgentIds: [],
   activeToolIds: [],
 };
@@ -125,7 +137,7 @@ export function createChatPresetExportEnvelope(preset: ChatPreset): ChatPresetEx
   };
 }
 
-function importPayloadFromEnvelope(envelope: unknown): Record<string, unknown> {
+export function parseChatPresetImportEnvelope(envelope: unknown): Record<string, unknown> {
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {
     throw new Error("Invalid chat preset envelope");
   }
@@ -143,7 +155,6 @@ function importPayloadFromEnvelope(envelope: unknown): Record<string, unknown> {
     settings: sanitizeChatPresetSettings(parseSettings(data.settings, mode), mode),
   });
 }
-
 
 export function useChatPresets(mode?: ChatMode | null, enabled = true) {
   return useQuery({
@@ -227,9 +238,36 @@ export function useImportChatPreset() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (envelope: unknown) =>
-      storageApi.create<ChatPreset>("chat-presets", importPayloadFromEnvelope(envelope)),
+      storageApi.create<ChatPreset>("chat-presets", parseChatPresetImportEnvelope(envelope)),
     onSuccess: () => qc.invalidateQueries({ queryKey: chatPresetKeys.all }),
   });
+}
+
+export function buildChatPresetApplicationPatch(
+  preset: ChatPreset,
+  chat: Pick<Chat, "mode" | "connectionId" | "promptPresetId" | "metadata">,
+): Record<string, unknown> {
+  const settings = sanitizeChatPresetSettings(preset.settings, preset.mode);
+  const currentMetadata =
+    chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
+  const preservedMetadata = Object.fromEntries(
+    Object.entries(currentMetadata).filter(([key]) => isPresetExcludedMetadataKey(key)),
+  );
+  const nextMetadata: Record<string, unknown> = {
+    ...CHAT_PRESET_METADATA_DEFAULTS,
+    ...(settings.metadata ?? {}),
+    ...preservedMetadata,
+    appliedChatPresetId: preset.id,
+  };
+  if (!Object.prototype.hasOwnProperty.call(nextMetadata, "enableAgents")) {
+    nextMetadata.enableAgents = Array.isArray(nextMetadata.activeAgentIds) && nextMetadata.activeAgentIds.length > 0;
+  }
+  return {
+    metadata: nextMetadata,
+    connectionId: "connectionId" in settings ? (settings.connectionId ?? null) : null,
+    promptPresetId:
+      chat.mode === "conversation" ? null : "promptPresetId" in settings ? (settings.promptPresetId ?? null) : null,
+  };
 }
 
 /** Apply a preset's settings to an existing chat. Refetches the chat afterward. */
@@ -244,31 +282,7 @@ export function useApplyChatPreset() {
       if (!preset) throw new Error(`Chat preset ${presetId} was not found`);
       if (!chat) throw new Error(`Chat ${chatId} was not found`);
 
-      const settings = sanitizeChatPresetSettings(preset.settings, preset.mode);
-      const currentMetadata =
-        chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
-      const preservedMetadata = Object.fromEntries(
-        Object.entries(currentMetadata).filter(([key]) => isPresetExcludedMetadataKey(key)),
-      );
-      const nextMetadata: Record<string, unknown> = {
-        ...CHAT_PRESET_METADATA_DEFAULTS,
-        ...(settings.metadata ?? {}),
-        ...preservedMetadata,
-        appliedChatPresetId: presetId,
-      };
-      if (!Object.prototype.hasOwnProperty.call(nextMetadata, "enableAgents")) {
-        nextMetadata.enableAgents = Array.isArray(nextMetadata.activeAgentIds) && nextMetadata.activeAgentIds.length > 0;
-      }
-      const patch: Record<string, unknown> = {
-        metadata: nextMetadata,
-      };
-      patch.connectionId = "connectionId" in settings ? (settings.connectionId ?? null) : null;
-      if (chat.mode === "conversation") {
-        patch.promptPresetId = null;
-      } else {
-        patch.promptPresetId = "promptPresetId" in settings ? (settings.promptPresetId ?? null) : null;
-      }
-      return storageApi.update<Chat>("chats", chatId, patch);
+      return storageApi.update<Chat>("chats", chatId, buildChatPresetApplicationPatch(preset, chat));
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
@@ -296,4 +310,168 @@ export function useApplyUserStarredChatPreset() {
     },
     [applyChatPreset, queryClient],
   );
+}
+
+type RoleplayWorkflowProfileStorage = Pick<StorageGateway, "get" | "update">;
+
+export interface ApplyRoleplayWorkflowProfileInput {
+  chatId: string;
+  profileId: RoleplayWorkflowProfileId;
+  preview: RoleplayWorkflowProfileResolution;
+  selectedItemIds: readonly string[];
+  /** Loaded at mutation time so prerequisites cannot be stale from the preview UI. */
+  resolveCapabilities: (chat: Chat) => Promise<RoleplayWorkflowCapabilities>;
+  /** Rechecks each Local Assist assignment immediately before the single durable write. */
+  isLocalSidecarAssignmentReady?: (agentId: string, chat: Chat) => Promise<boolean>;
+  storage?: RoleplayWorkflowProfileStorage;
+  now?: () => string;
+}
+
+export type ApplyRoleplayWorkflowProfileResult =
+  | {
+      outcome: "stale";
+      resolution: RoleplayWorkflowProfileResolution;
+      selectedItemIds: readonly string[];
+      omittedLocalAgentIds: readonly string[];
+      skippedLocalRoutingAgentIds: readonly string[];
+    }
+  | {
+      outcome: "applied";
+      chat: Chat;
+      resolution: RoleplayWorkflowProfileResolution;
+      selectedItemIds: readonly string[];
+      omittedLocalAgentIds: readonly string[];
+      skippedLocalRoutingAgentIds: readonly string[];
+    };
+
+export interface RevertRoleplayWorkflowProfileInput {
+  chatId: string;
+  storage?: RoleplayWorkflowProfileStorage;
+}
+
+export type RevertRoleplayWorkflowProfileResult =
+  | { outcome: "not_applied"; chat: Chat; skippedConflicts: readonly string[] }
+  | { outcome: "reverted"; chat: Chat; skippedConflicts: readonly string[] };
+
+function sameWorkflowResolution(
+  left: RoleplayWorkflowProfileResolution,
+  right: RoleplayWorkflowProfileResolution,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function roleplayWorkflowPatchForChat(
+  chat: Chat,
+  patch: ReturnType<typeof buildRoleplayWorkflowProfilePatch>,
+): Record<string, unknown> {
+  const { metadata, ...topLevel } = patch;
+  return {
+    ...topLevel,
+    metadata: { ...chat.metadata, ...metadata },
+  };
+}
+
+/**
+ * Applies a caller-confirmed workflow preview only if the freshly resolved preview still matches.
+ * Its only durable mutation is one complete chat patch, so embedded and remote storage share the path.
+ */
+export async function applyRoleplayWorkflowProfile(
+  input: ApplyRoleplayWorkflowProfileInput,
+): Promise<ApplyRoleplayWorkflowProfileResult> {
+  const storage = input.storage ?? storageApi;
+  const chat = await storage.get<Chat>("chats", input.chatId);
+  if (!chat) throw new Error(`Chat ${input.chatId} was not found`);
+  if (chat.mode !== "roleplay") {
+    throw new Error("Roleplay workflow profiles can only be applied to Roleplay chats.");
+  }
+  const capabilities = await input.resolveCapabilities(chat);
+
+  const resolution = resolveRoleplayWorkflowProfile(input.profileId, { chat, capabilities });
+  const selectedItemIds = [...new Set(input.selectedItemIds)];
+  if (!sameWorkflowResolution(input.preview, resolution)) {
+    return {
+      outcome: "stale",
+      resolution,
+      selectedItemIds,
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+    };
+  }
+
+  const selected = new Set(selectedItemIds);
+  const omittedLocalAgentIds: string[] = [];
+  const skippedLocalRoutingAgentIds: string[] = [];
+  const localAssistAgentIds = selectedLocalAssistAgentIds(resolution, selected);
+  if (input.profileId === "local-assist" && localAssistAgentIds.length > 0 && !input.isLocalSidecarAssignmentReady) {
+    throw new Error("Local Assist requires a per-assignment local sidecar readiness resolver.");
+  }
+  for (const agentId of localAssistAgentIds) {
+    const ready = capabilities.localSidecarReady && (await input.isLocalSidecarAssignmentReady!(agentId, chat));
+    if (ready) continue;
+    selected.delete(`agent:${agentId}`);
+    selected.delete(`connection:${agentId}`);
+    if (resolution.baseline.metadata.activeAgentIds?.includes(agentId)) {
+      skippedLocalRoutingAgentIds.push(agentId);
+    } else {
+      omittedLocalAgentIds.push(agentId);
+    }
+  }
+
+  const acceptedItemIds = selectedItemIds.filter((itemId) => selected.has(itemId));
+  const patch = buildRoleplayWorkflowProfilePatch(
+    resolution,
+    acceptedItemIds,
+    (input.now ?? (() => new Date().toISOString()))(),
+  );
+  const updated = await storage.update<Chat>("chats", input.chatId, roleplayWorkflowPatchForChat(chat, patch));
+  return {
+    outcome: "applied",
+    chat: updated,
+    resolution,
+    selectedItemIds: acceptedItemIds,
+    omittedLocalAgentIds,
+    skippedLocalRoutingAgentIds,
+  };
+}
+
+/** Reverts the latest workflow receipt without overwriting fields subsequently changed by the user. */
+export async function revertRoleplayWorkflowProfile(
+  input: RevertRoleplayWorkflowProfileInput,
+): Promise<RevertRoleplayWorkflowProfileResult> {
+  const storage = input.storage ?? storageApi;
+  const chat = await storage.get<Chat>("chats", input.chatId);
+  if (!chat) throw new Error(`Chat ${input.chatId} was not found`);
+  const receipt = chat.metadata.roleplayWorkflowApplication;
+  if (!receipt) return { outcome: "not_applied", chat, skippedConflicts: [] };
+
+  const { patch, skippedConflicts } = buildRoleplayWorkflowProfileRevertPatch(chat, receipt);
+  const updated = await storage.update<Chat>("chats", input.chatId, roleplayWorkflowPatchForChat(chat, patch));
+  return { outcome: "reverted", chat: updated, skippedConflicts };
+}
+
+export function useApplyRoleplayWorkflowProfile(
+  options: Omit<ApplyRoleplayWorkflowProfileInput, "storage" | "chatId" | "profileId" | "preview" | "selectedItemIds">,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      input: Pick<ApplyRoleplayWorkflowProfileInput, "chatId" | "profileId" | "preview" | "selectedItemIds">,
+    ) => applyRoleplayWorkflowProfile({ ...options, ...input, storage: storageApi }),
+    onSuccess: (result, variables) => {
+      if (result.outcome !== "applied") return;
+      qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
+      qc.invalidateQueries({ queryKey: chatKeys.list() });
+    },
+  });
+}
+
+export function useRevertRoleplayWorkflowProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chatId: string) => revertRoleplayWorkflowProfile({ chatId, storage: storageApi }),
+    onSuccess: (_result, chatId) => {
+      qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+      qc.invalidateQueries({ queryKey: chatKeys.list() });
+    },
+  });
 }
