@@ -20,6 +20,7 @@ const CHAT_MESSAGE_TIMELINE_FIELDS = [
 
 const CHAT_MESSAGE_TIMELINE_EXTRA_FIELDS = [
   "generationInterrupted",
+  "memoryCapture",
   "characterWebResearchRequest",
   "characterWebResearchSources",
   "displayText",
