@@ -1152,6 +1152,18 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "story_consolidation_job_update" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::update_story_job(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "story_consolidation_projection_commit" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                memory_capture::commit_story_projection(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_capture_memory_create" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 memory_capture::create_memory(state, optional_value(args, "body"))
@@ -1967,6 +1979,8 @@ mod tests {
         "memory_capture_index_rebuild",
         "memory_capture_job_update",
         "memory_capture_worker_release",
+        "story_consolidation_job_update",
+        "story_consolidation_projection_commit",
         "memory_maintenance_worker_acquire",
         "memory_maintenance_job_update",
         "memory_maintenance_worker_release",

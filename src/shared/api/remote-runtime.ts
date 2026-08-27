@@ -189,6 +189,8 @@ const REMOTE_COMMANDS = new Set([
   "memory_capture_index_rebuild",
   "memory_capture_job_update",
   "memory_capture_worker_release",
+  "story_consolidation_job_update",
+  "story_consolidation_projection_commit",
   "memory_maintenance_worker_acquire",
   "memory_maintenance_job_update",
   "memory_maintenance_worker_release",

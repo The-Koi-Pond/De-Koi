@@ -214,6 +214,18 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   queryMemoryIndexBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   memoryIndexHealth?(): Promise<MemoryIndexHealth>;
+  acquireStoryConsolidationWorker?(workerId: string, leaseId?: string): Promise<string | null>;
+  releaseStoryConsolidationWorker?(workerId: string, leaseId: string): Promise<void>;
+  updateStoryConsolidationJob?(
+    leaseId: string,
+    jobId: string,
+    patch: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  commitStoryProjection?(
+    leaseId: string,
+    jobId: string,
+    body: CanonicalMemoryInput,
+  ): Promise<{ memory: CanonicalMemoryRecord; job: Record<string, unknown> }>;
   listChatMemories<T = unknown>(chatId: string, options?: ListChatMemoriesOptions): Promise<T[]>;
   refreshChatMemories?<T = unknown>(chatId: string, options?: RefreshChatMemoriesOptions): Promise<T>;
   previewChatMemoryCapture?(chatId: string, sourceMessageIds: string[]): Promise<ChatMemoryCapturePreview>;

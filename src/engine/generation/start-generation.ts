@@ -105,6 +105,8 @@ import {
   enqueueAndScheduleAutomaticMemoryCapture,
   scheduleAutomaticMemoryCaptureQueueProcessing,
 } from "./automatic-memory-capture-queue";
+import { enqueueAndScheduleStoryEpisode } from "./story-consolidation-queue";
+import { getEffectiveStoryConsolidationEnabled } from "./story-projections";
 import { beginForegroundGeneration } from "./background-generation-coordinator";
 import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
@@ -2640,6 +2642,32 @@ async function enqueueAutomaticMemoryCaptureSafely(
     });
   } catch (error) {
     console.warn("[generation] automatic memory capture enqueue failed", error);
+  }
+}
+
+async function enqueueStoryConsolidationSafely(
+  deps: Pick<GenerationEngineDeps, "storage" | "llm">,
+  chat: JsonRecord,
+  connection: JsonRecord,
+): Promise<void> {
+  try {
+    const chatId = readString(chat.id).trim();
+    if (
+      !chatId ||
+      !getEffectiveStoryConsolidationEnabled(readString(chat.mode || chat.chatMode), parseRecord(chat.metadata))
+    ) {
+      return;
+    }
+    const messages = await deps.storage.listChatMessages<JsonRecord>(chatId);
+    await enqueueAndScheduleStoryEpisode(deps, {
+      chat,
+      messages,
+      connectionId: readString(connection.id).trim() || null,
+      provider: readString(connection.provider).trim() || null,
+      model: readString(connection.model).trim() || null,
+    });
+  } catch (error) {
+    console.warn("[generation] story consolidation enqueue failed", error);
   }
 }
 async function persistLorebookTimingStatesSafely(
@@ -5375,8 +5403,9 @@ async function* startGenerationImpl(
             latestSaved,
             connection,
           );
+          await enqueueStoryConsolidationSafely(deps, chat, connection);
           scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
-          scheduledTaskCount += 2;
+          scheduledTaskCount += 3;
           if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
             scheduleSparseCharacterInterpretations(
               { storage: deps.storage, llm: deps.llm },
@@ -5671,8 +5700,9 @@ async function* startGenerationImpl(
           saved,
           connection,
         );
+        await enqueueStoryConsolidationSafely(deps, chat, connection);
         scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
-        scheduledTaskCount += 2;
+        scheduledTaskCount += 3;
         if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
           scheduleSparseCharacterInterpretations(
             { storage: deps.storage, llm: deps.llm },

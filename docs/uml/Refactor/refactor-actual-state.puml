@@ -49,7 +49,7 @@ package "React application and feature layer" {
     package "src/features/modes" {
         component "[file]\nrouter/components/ModeSurface.tsx\n121 lines\nchat selection + lazy mode routing" as ModeSurface <<healthy>>
         component "[folder]\nconversation\nConversationModeRoute + ChatConversationSurface" as ConversationUI <<healthy>>
-        component "[folder]\nroleplay\nRoleplayModeRoute + ChatRoleplaySurface" as RoleplayUI <<mixed>>
+        component "[folder]\nroleplay + shared/chat-ui Story modal\nRoleplay surface, HUD close action,\nprojection inspection and controls" as RoleplayUI <<mixed>>
         component "[file]\ngame/components/GameSurface.tsx\n8951 lines\ngame UI orchestration hotspot" as GameSurface <<pressure>>
         component "[folder]\nshared/chat-ui\nshared transcript primitives" as SharedModeUI <<mixed>>
     }
@@ -74,7 +74,7 @@ package "TypeScript product engine" {
     component "[folder]\nsrc/engine/contracts\nDTOs, schemas, constants" as Contracts <<healthy>>
     component "[folder]\nsrc/engine/capabilities\nStorage, LLM, assets, integrations ports" as Ports <<healthy>>
     component "[folder]\nsrc/engine/generation-core\nprompt, lorebook, regex, context assembly" as GenerationCore <<healthy>>
-    component "[folder]\nsrc/engine/generation\nuse cases and orchestration" as EngineGeneration <<healthy>>
+    component "[folder]\nsrc/engine/generation\nturn orchestration, story boundaries,\ndurable consolidation queue, prompt selector" as EngineGeneration <<healthy>>
     component "[folder]\nsrc/engine/agents-runtime\nagent execution pipeline" as AgentRuntime <<healthy>>
     component "[folder]\nsrc/engine/modes/chat" as ChatEngine <<healthy>>
     component "[folder]\nsrc/engine/modes/roleplay" as RoleplayEngine <<healthy>>
@@ -85,7 +85,7 @@ package "Tauri and Rust capability layer" {
     component "[file]\nsrc-tauri/src/lib.rs\ncentral generate_handler! list" as CommandRegistry <<mixed>>
 
     package "src-tauri/src/commands" {
-        component "[group]\ncommand facades\nthin Tauri command entrypoints" as Commands <<mixed>>
+        component "[group]\ncommand facades + canonical memory\nstory overlap, invalidation, indexes;\nthin Tauri command entrypoints" as Commands <<mixed>>
         component "[folder]\nstorage/imports\nsplit import service modules" as ImportModules <<mixed>>
     }
 

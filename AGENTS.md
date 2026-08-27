@@ -89,6 +89,9 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/features/catalog/library-folders`: Shared durable library-folder hooks for organizing lorebooks and prompt presets.
 - `src/features/catalog/regex-scripts`: Neutral catalog owner for regex script listing, editor routes, storage hooks, scoped filtering, and chat/game runtime application hooks.
 - `src/features/catalog/memory-maintenance`: Shared cleanup review UI, catalog-edge LLM/API binding, chat and canonical memory adapters, and preview/apply/undo workflow used by the chat Memory Console and Character Memories tab.
+- `src/engine/generation/story-projections.ts`, `story-consolidation-queue.ts`, and `story-continuity-context.ts`: Roleplay episode/arc boundaries, deterministic background consolidation, and the independent bounded Story Continuity prompt selector.
+- `src/features/modes/shared/chat-ui/components/settings/StoryContinuityModal.tsx` and `src/shared/api/story-continuity-api.ts`: Story inspection/actions UI and its focused embedded/remote-capable adapter.
+- `src-tauri/src/commands/storage/canonical_memory.rs`: Canonical story overlap enforcement, supersession cascades, and source edit/delete invalidation alongside ordinary canonical-memory persistence.
 - `src/shared/api`: Embedded Tauri and hostable runtime wrappers. Feature code should call these wrappers instead of raw Tauri or raw remote-runtime fetch.
 - `src-tauri`: Rust command facades, hostable runtime dispatch, storage, LLM/provider transport, assets, imports, integrations, and other privileged capabilities.
 - `src-tauri/src/commands/storage/sidecar.rs`: Thin Tauri/AppState adapter for Local Model sidecar commands and constants.

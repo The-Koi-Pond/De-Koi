@@ -57,7 +57,11 @@ fn validate(transaction: &UpsertTransaction) -> AppResult<()> {
         validate_collection_name(&upsert.collection)?;
         if !matches!(
             upsert.collection.as_str(),
-            "messages" | "message-swipes" | "chats"
+            "messages"
+                | "message-swipes"
+                | "chats"
+                | "canonical-memories"
+                | "story-consolidation-jobs"
         ) {
             return Err(AppError::invalid_input(format!(
                 "Collection upsert transactions do not support {}",

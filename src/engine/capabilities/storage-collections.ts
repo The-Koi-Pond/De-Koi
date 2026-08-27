@@ -79,6 +79,15 @@ const STORAGE_COLLECTIONS = {
       { name: "sourceMessages", kind: "array" },
     ],
   },
+  "story-consolidation-jobs": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "sourceMessageIds", kind: "array" },
+      { name: "sourceEpisodeIds", kind: "array" },
+      { name: "sourceMessages", kind: "array" },
+      { name: "sourceEpisodes", kind: "array" },
+    ],
+  },
   "memory-maintenance-jobs": {
     genericApi: true,
     readJsonFields: [

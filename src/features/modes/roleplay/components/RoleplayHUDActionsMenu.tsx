@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  BookMarked,
   Check,
   ChevronDown,
   Code2,
@@ -11,6 +12,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import {
   isCustomAgentConfig,
@@ -26,6 +28,7 @@ import {
 } from "../../../../shared/lib/agent-failures";
 import { ContinuityIssueChecklist } from "../../../catalog/agents/activity";
 import { ContextInjectionPanel } from "./ContextInjectionPanel";
+import { storyContinuityApi } from "../../../../shared/api/story-continuity-api";
 
 interface ThoughtBubble {
   agentId: string;
@@ -96,6 +99,7 @@ export function RoleplayHUDActionsMenu({
   showInjectionsTab,
 }: RoleplayHUDActionsMenuProps) {
   const [tab, setTab] = useState<AgentsMenuTab>("activity");
+  const [closingEpisode, setClosingEpisode] = useState(false);
   const uniqueAgentCount = new Set([
     ...thoughtBubbles.map((bubble) => bubble.agentId),
     ...customAgentRuns.map(customAgentRunIdentity),
@@ -330,6 +334,28 @@ export function RoleplayHUDActionsMenu({
                   {echoMessageCount}
                 </span>
               )}
+            </button>
+          )}
+          {showTrackerActions && (
+            <button
+              type="button"
+              disabled={closingEpisode || isGenerationBusy}
+              onClick={async () => {
+                setClosingEpisode(true);
+                try {
+                  await storyContinuityApi.closeEpisode(chatId);
+                  toast.success("Episode queued for consolidation.");
+                  onClose();
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Could not close this episode.");
+                } finally {
+                  setClosingEpisode(false);
+                }
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] font-medium text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground/75 disabled:opacity-50"
+            >
+              <BookMarked size="0.75rem" className={closingEpisode ? "animate-pulse" : "text-[var(--primary)]"} />
+              {closingEpisode ? "Closing episode…" : "Close Story Episode"}
             </button>
           )}
           {showTrackerActions && (

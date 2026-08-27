@@ -614,30 +614,25 @@ pub(crate) fn replace_message_with_swipes(
     write_message_and_swipes(state, message, swipes, true)
 }
 
-pub(crate) fn append_message_with_swipes_and_update_record<F>(
+pub(crate) fn append_message_with_swipes_and_update_collections<F>(
     state: &AppState,
     message: Value,
     swipes: Vec<Value>,
-    collection: &str,
-    id: &str,
-    require_related_record: bool,
-    update: F,
+    extra_collections: Vec<&str>,
+    update_collections: F,
 ) -> AppResult<Value>
 where
-    F: FnOnce(&mut Value) -> AppResult<()>,
+    F: FnOnce(&mut [AtomicCollectionRows], &Value) -> AppResult<()>,
 {
     let (_, stored_message) = message_row_for_write(message, true)?;
     let sidecars = swipe_rows_for_message(&stored_message, &swipes)?;
-    let upserts = vec![
-        ("messages", vec![stored_message.clone()]),
-        (COLLECTION, sidecars.clone()),
-    ];
-    state.storage.upsert_many_journaled_with_record(
-        upserts,
-        collection,
-        id,
-        require_related_record,
-        update,
+    state.storage.upsert_many_journaled_with_collections(
+        vec![
+            ("messages", vec![stored_message.clone()]),
+            (COLLECTION, sidecars.clone()),
+        ],
+        extra_collections,
+        |collections| update_collections(collections, &stored_message),
     )?;
 
     let mut materialized = stored_message;

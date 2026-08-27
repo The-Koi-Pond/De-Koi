@@ -123,6 +123,8 @@ function defaultPriority(kind: string): number {
     case "summary":
     case "canonical_memory":
       return 700;
+    case "story_projection":
+      return 450;
     case "memory":
     case "memory_recall":
       return 650;
@@ -218,6 +220,7 @@ function optionalKind(kind: string): boolean {
   return [
     "summary",
     "canonical_memory",
+    "story_projection",
     "memory",
     "memory_recall",
     "lorebook",
@@ -228,7 +231,7 @@ function optionalKind(kind: string): boolean {
 }
 
 function truncatableKind(kind: string): boolean {
-  return ["summary", "canonical_memory", "memory", "memory_recall", "lorebook", "injection", "optional"].includes(kind);
+  return ["summary", "canonical_memory", "story_projection", "memory", "memory_recall", "lorebook", "injection", "optional"].includes(kind);
 }
 
 function truncatedMessageToBudget(message: ContextMessage, availableTokens: number): ContextMessage | null {

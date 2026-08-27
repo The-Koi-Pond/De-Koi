@@ -155,6 +155,12 @@ const collectionMetadata = {
     notes:
       "Durable automatic memory-capture queue rows keyed by source chat/message evidence. Jobs record source snapshots, retry status, attempts, backoff timestamps, capture version, and terminal stale/completed/failed outcomes.",
   },
+  "story-consolidation-jobs": {
+    model: "`StoryProjectionJob`",
+    confidence: "Type-backed",
+    notes:
+      "Durable Roleplay episode/arc queue. Jobs retain deterministic coverage/fingerprint identity, exact message or episode sources, boundary reason, provider/model choice, retries, and pending/processing/completed/failed/stale state.",
+  },
   "memory-maintenance-jobs": {
     model: "`MemoryMaintenanceJob`",
     confidence: "Type-backed",

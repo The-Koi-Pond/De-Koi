@@ -841,10 +841,7 @@ impl FileStorage {
             && collection == "messages"
             && !had_id
             && !self.is_collection_cached(collection)?
-            && self.append_many_uncached_locked(vec![(
-                collection,
-                vec![record.clone()],
-            )])?
+            && self.append_many_uncached_locked(vec![(collection, vec![record.clone()])])?
         {
             return Ok(record);
         }
@@ -1385,6 +1382,108 @@ impl FileStorage {
         self.upsert_many_journaled_locked(upserts)
     }
 
+    /// Durably groups record-local upserts with updates to small related
+    /// collections without checkpointing the large message primaries.
+    pub fn upsert_many_journaled_with_collections<'a, F, T>(
+        &self,
+        upserts: Vec<(&'a str, Vec<Value>)>,
+        collections: Vec<&'a str>,
+        update: F,
+    ) -> AppResult<T>
+    where
+        F: FnOnce(&mut [AtomicCollectionRows]) -> AppResult<T>,
+    {
+        let mut seen = HashSet::new();
+        for (collection, _) in &upserts {
+            validate_collection_name(collection)?;
+            seen.insert(*collection);
+        }
+        for collection in &collections {
+            validate_collection_name(collection)?;
+            if !matches!(
+                *collection,
+                "chats" | "canonical-memories" | "story-consolidation-jobs"
+            ) {
+                return Err(AppError::invalid_input(format!(
+                    "Journaled related collection updates are not supported for {collection}"
+                )));
+            }
+            if !seen.insert(*collection) {
+                return Err(AppError::invalid_input(format!(
+                    "Duplicate journaled collection update: {collection}"
+                )));
+            }
+        }
+
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        let mut loaded = Vec::with_capacity(collections.len());
+        let mut original_rows = Vec::with_capacity(collections.len());
+        for collection in collections {
+            let rows = self.read_collection(collection)?;
+            original_rows.push(rows.clone());
+            loaded.push(AtomicCollectionRows {
+                collection: collection.to_string(),
+                rows,
+                write_requested: false,
+            });
+        }
+
+        let output = update(&mut loaded)?;
+        let mut owned_upserts = upserts
+            .into_iter()
+            .map(|(collection, rows)| (collection.to_string(), rows))
+            .collect::<Vec<_>>();
+        for (entry, before) in loaded.into_iter().zip(original_rows) {
+            if !entry.write_requested {
+                continue;
+            }
+            let after_ids = entry
+                .rows
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str))
+                .collect::<HashSet<_>>();
+            if before.iter().any(|row| {
+                row.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !after_ids.contains(id))
+            }) {
+                return Err(AppError::invalid_input(format!(
+                    "Journaled related updates cannot delete from {}",
+                    entry.collection
+                )));
+            }
+            let before_by_id = before
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str).map(|id| (id, row)))
+                .collect::<HashMap<_, _>>();
+            let changed = entry
+                .rows
+                .into_iter()
+                .filter(|row| {
+                    row.get("id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| before_by_id.get(id).is_none_or(|before| **before != *row))
+                })
+                .collect::<Vec<_>>();
+            if !changed.is_empty() {
+                owned_upserts.push((entry.collection, changed));
+            }
+        }
+        if owned_upserts.is_empty() {
+            return Ok(output);
+        }
+        let borrowed = owned_upserts
+            .iter()
+            .map(|(collection, rows)| (collection.as_str(), rows.clone()))
+            .collect();
+        self.upsert_many_journaled_locked(borrowed)?;
+        Ok(output)
+    }
+
     pub fn update_collections_atomically<F, T>(
         &self,
         collections: Vec<&str>,
@@ -1699,10 +1798,7 @@ impl FileStorage {
         Ok(())
     }
 
-    fn upsert_cached_collection_rows(
-        cache: &mut StorageCache,
-        upserts: &[(&str, Vec<Value>)],
-    ) {
+    fn upsert_cached_collection_rows(cache: &mut StorageCache, upserts: &[(&str, Vec<Value>)]) {
         for (collection, rows) in upserts {
             cache.id_indexes.remove(*collection);
             cache
@@ -3370,9 +3466,15 @@ impl FileStorage {
 
     fn upsert_many_journaled_locked(&self, upserts: Vec<(&str, Vec<Value>)>) -> AppResult<()> {
         if upserts.iter().any(|(collection, _)| {
-            !matches!(*collection, "messages" | "message-swipes" | "chats")
-        })
-        {
+            !matches!(
+                *collection,
+                "messages"
+                    | "message-swipes"
+                    | "chats"
+                    | "canonical-memories"
+                    | "story-consolidation-jobs"
+            )
+        }) {
             return Err(AppError::invalid_input(
                 "Journaled atomic upserts require checkpoint-tracked collections",
             ));
@@ -5890,11 +5992,7 @@ mod tests {
             .patch("messages", "message-1", json!({ "content": "After" }))
             .unwrap();
         storage
-            .patch(
-                "message-swipes",
-                "swipe-1",
-                json!({ "content": "After" }),
-            )
+            .patch("message-swipes", "swipe-1", json!({ "content": "After" }))
             .unwrap();
         storage
             .patch("characters", "character-1", json!({ "name": "After" }))
@@ -5902,16 +6000,9 @@ mod tests {
         storage.flush_deferred_writes().unwrap();
 
         assert_eq!(fs::read(&messages).unwrap(), original_messages);
-        assert_eq!(
-            fs::read(&message_swipes).unwrap(),
-            original_message_swipes
-        );
+        assert_eq!(fs::read(&message_swipes).unwrap(), original_message_swipes);
         assert!(collections.join("messages.pending.jsonl").exists());
-        assert!(
-            collections
-                .join("message-swipes.pending.jsonl")
-                .exists()
-        );
+        assert!(collections.join("message-swipes.pending.jsonl").exists());
         assert!(
             !collections.join("characters.pending.jsonl").exists(),
             "ordinary collections must retain bounded deferred compaction"
@@ -5923,11 +6014,7 @@ mod tests {
 
         storage.flush().unwrap();
         assert!(!collections.join("messages.pending.jsonl").exists());
-        assert!(
-            !collections
-                .join("message-swipes.pending.jsonl")
-                .exists()
-        );
+        assert!(!collections.join("message-swipes.pending.jsonl").exists());
         assert_eq!(
             parse_collection_file("messages", &messages).unwrap()[0]["content"],
             "After"
@@ -6291,8 +6378,7 @@ mod tests {
         storage
             .append_many_uncached(vec![("messages", vec![json!({ "id": "message-2" })])])
             .unwrap();
-        let checkpoint_backup =
-            append_journal::checkpoint_backup_path(&collections, "messages");
+        let checkpoint_backup = append_journal::checkpoint_backup_path(&collections, "messages");
         assert!(backup_path_for(&messages).unwrap().exists());
         fs::remove_file(checkpoint_backup).unwrap();
         fs::write(&messages, b"{ damaged primary").unwrap();

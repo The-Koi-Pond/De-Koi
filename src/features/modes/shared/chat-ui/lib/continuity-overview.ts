@@ -8,6 +8,7 @@ import { memoryRecallContinuityDetail } from "./memory-recall-copy";
 
 export type ContinuityOverviewAction =
   | "open_memories"
+  | "open_story"
   | "open_summaries"
   | "manage_lorebooks"
   | "manage_agents"
@@ -16,7 +17,7 @@ export type ContinuityOverviewAction =
 type ContinuityOverviewStatus = "active" | "idle" | "warning";
 
 export interface ContinuityOverviewSection {
-  id: "memory" | "summary" | "lorebooks" | "trackers";
+  id: "memory" | "story" | "summary" | "lorebooks" | "trackers";
   label: string;
   status: ContinuityOverviewStatus;
   value: string;
@@ -34,6 +35,7 @@ interface ContinuityOverviewInput {
   metadata: Partial<ChatMetadata>;
   activeLorebookCount: number;
   totalMessageCount?: number | null;
+  storyCounts?: { episodes: number; arcs: number; stale: number; pending: number };
 }
 
 const TRACKER_AGENT_NAMES = new Map(
@@ -107,6 +109,20 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
       detail: memoryRecallContinuityDetail(memoryEnabled, readBehindMessages(input.metadata)),
       action: "open_memories",
     },
+    ...(input.chatMode === "roleplay" && input.storyCounts
+      ? [{
+          id: "story" as const,
+          label: "Story",
+          status: input.storyCounts.stale > 0 ? "warning" as const : input.storyCounts.episodes > 0 || input.storyCounts.pending > 0 ? "active" as const : "idle" as const,
+          value: input.storyCounts.episodes > 0 ? `${pluralize(input.storyCounts.episodes, "episode")} · ${pluralize(input.storyCounts.arcs, "arc")}` : input.storyCounts.pending > 0 ? `${input.storyCounts.pending} pending` : "Not built",
+          detail: input.storyCounts.stale > 0
+            ? `${pluralize(input.storyCounts.stale, "stale projection")} ${input.storyCounts.stale === 1 ? "needs" : "need"} review or regeneration.`
+            : input.storyCounts.pending > 0
+              ? `${pluralize(input.storyCounts.pending, "background job")} queued or running.`
+              : "Durable episodes and arcs carry long-form Roleplay continuity.",
+          action: "open_story" as const,
+        }]
+      : []),
     {
       id: "summary",
       label: "Summary",

@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BookOpen, Brain, CalendarClock } from "lucide-react";
+import { Activity, ArrowRight, BookMarked, BookOpen, Brain, CalendarClock } from "lucide-react";
 
 import { cn } from "../../../../../../shared/lib/utils";
 import type {
@@ -11,10 +11,12 @@ interface ContinuityOverviewPanelProps {
   model: ContinuityOverviewViewModel;
   onOpenMemories: () => void;
   onOpenSummaries: () => void;
+  onOpenStory: () => void;
 }
 
 const SECTION_ICONS: Record<ContinuityOverviewSection["id"], typeof Brain> = {
   memory: Brain,
+  story: BookMarked,
   summary: CalendarClock,
   lorebooks: BookOpen,
   trackers: Activity,
@@ -22,6 +24,7 @@ const SECTION_ICONS: Record<ContinuityOverviewSection["id"], typeof Brain> = {
 
 const ACTION_LABELS: Record<ContinuityOverviewAction, string> = {
   open_memories: "Open memories",
+  open_story: "Open story",
   open_summaries: "Open summaries",
   manage_lorebooks: "Lorebooks",
   manage_agents: "Agents",
@@ -36,6 +39,7 @@ export function ContinuityOverviewPanel({
   model,
   onOpenMemories,
   onOpenSummaries,
+  onOpenStory,
 }: ContinuityOverviewPanelProps) {
   const handleAction = (action: ContinuityOverviewAction) => {
     if (action === "open_memories") {
@@ -44,6 +48,10 @@ export function ContinuityOverviewPanel({
     }
     if (action === "open_summaries") {
       onOpenSummaries();
+      return;
+    }
+    if (action === "open_story") {
+      onOpenStory();
       return;
     }
     if (action === "manage_lorebooks") {

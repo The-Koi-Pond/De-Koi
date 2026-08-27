@@ -30,6 +30,7 @@ import { blobToDataUrl } from "../lib/url-blob";
 import { chatCommandApi } from "./chat-command-api";
 import { canonicalMemoryApi } from "./canonical-memory-api";
 import { memoryCaptureApi } from "./memory-capture-api";
+import { storyConsolidationRuntimeApi } from "./story-consolidation-runtime-api";
 import { invokeTauri } from "./tauri-client";
 import { trackerSnapshotApi, type TrackerSnapshotInput } from "./tracker-snapshot-api";
 import { urlBinaryApi } from "./url-binary-api";
@@ -348,6 +349,17 @@ const DURABLE_STORAGE_REQUEST_OPTIONS = { timeoutMs: null } as const;
 export const storageApi: StorageGateway = {
   acquireMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.acquireWorker(workerId, leaseId),
   releaseMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.releaseWorker(workerId, leaseId),
+  // Story consolidation owns a distinct durable queue while sharing the existing
+  // fenced background-writer lease. This keeps story and atomic-memory commits
+  // serialized without introducing a second mutable lease authority.
+  acquireStoryConsolidationWorker: (workerId, leaseId) =>
+    memoryCaptureApi.acquireWorker(`story:${workerId}`, leaseId),
+  releaseStoryConsolidationWorker: (workerId, leaseId) =>
+    memoryCaptureApi.releaseWorker(`story:${workerId}`, leaseId),
+  updateStoryConsolidationJob: (leaseId, jobId, patch) =>
+    storyConsolidationRuntimeApi.updateJob(leaseId, jobId, patch),
+  commitStoryProjection: (leaseId, jobId, body) =>
+    storyConsolidationRuntimeApi.commitProjection(leaseId, jobId, body),
   updateMemoryCaptureJob: (leaseId, jobId, patch) => memoryCaptureApi.updateJob(leaseId, jobId, patch),
   createMemoryCaptureMemory: (leaseId, body) => memoryCaptureApi.createMemory(leaseId, body),
   updateMemoryCaptureMemory: (leaseId, memoryId, patch) => memoryCaptureApi.updateMemory(leaseId, memoryId, patch),

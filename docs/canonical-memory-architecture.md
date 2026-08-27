@@ -33,6 +33,16 @@ Scopes:
 
 Provenance stores the source chat, message IDs, scene, character, and timestamp when known. These fields explain where the memory came from; they do not make transcript chunks authoritative.
 
+## Story Episodes and Arcs
+
+Roleplay Story Continuity uses canonical records rather than a second summary store. Episodes are `episode` memories; four consecutive, non-overlapping episodes produce one `summary` memory whose versioned payload identifies it as an arc. Both use `storyProjectionVersion: 1`, a stable coverage ID and source fingerprint, exact ordered message IDs, first/last boundaries, summarizer identity, source-backed structured details, and readable prose in `content`. Arc payloads also retain the exact source episode IDs. Formal scenes create one whole-scene episode from the same final scene-summary model pass.
+
+`story-consolidation-jobs` is the durable, chronologically processed background queue. It shares the fenced background-memory writer authority while retaining independent jobs, retries, source snapshots, and terminal state. Ordinary Roleplay closes an episode on the first saved assistant boundary at or after 24 eligible uncovered messages. Active formal scenes pause thresholding. Existing chats catch up one oldest uncovered episode after each new reply; **Build existing story** explicitly drains the backlog.
+
+Source edits and deletes stale the affected episode, dependent arcs, matching queued jobs, and rebuildable index rows together. Unrelated story slots and atomic memories are not changed. Regeneration requires every ordered source to remain available, writes the deterministic replacement before superseding the old projection, and permits overlap only for the same coverage slot through that explicit supersession link.
+
+Prompt assembly retrieves Story Continuity through its own bounded selector and attribution kind. It does not consume the atomic-memory candidate count or token budget. Active or pinned projections overlapping retained raw history are excluded, duplicate represented sentences are removed, and the context block explicitly says recent transcript and canonical atomic memory win conflicts.
+
 ## Projection Rows
 
 Retrieval projection rows live in `memory-index-rows`. They are rebuildable and never authoritative. Every row points back to `memoryId` and stores provider/model/dimensions metadata, content and projection hashes, `canonicalUpdatedAt`, and either vector data or lexical fallback payloads.

@@ -10,8 +10,9 @@ use std::hash::{Hash, Hasher};
 mod semantic;
 pub(crate) use semantic::query_memories_semantic;
 
-const MEMORY_COLLECTION: &str = "canonical-memories";
-const INDEX_COLLECTION: &str = "memory-index-rows";
+pub(crate) const MEMORY_COLLECTION: &str = "canonical-memories";
+pub(crate) const INDEX_COLLECTION: &str = "memory-index-rows";
+pub(crate) const STORY_JOBS_COLLECTION: &str = "story-consolidation-jobs";
 const INDEX_METADATA_COLLECTION: &str = "memory-index-metadata";
 const INDEX_HEALTH_ID: &str = "lexical-v1";
 const LEXICAL_PROVIDER: &str = "lexical";
@@ -282,6 +283,7 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
                     "{MEMORY_COLLECTION}/{memory_id} already exists"
                 )));
             }
+            validate_story_projection_overlap(memories, &record)?;
             memories.push(record.clone());
             replace_memory_lexical_index(collections[1].rows_mut(), &record)?;
             Ok(record)
@@ -289,6 +291,183 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
     )?;
     enqueue_canonical_memory_maintenance(state, &created)?;
     Ok(created)
+}
+
+/// Commits a story worker result and retires the replaced projection in one
+/// storage transaction. The caller must hold the background-writer lease.
+pub(crate) fn commit_story_projection_job(
+    state: &AppState,
+    job_id: &str,
+    body: Value,
+) -> AppResult<Value> {
+    let mut record = marinara_core::ensure_object(normalize_memory_record(
+        marinara_core::ensure_object(body)?,
+        true,
+    )?)?;
+    let memory_id = require_string(&record, "id")?;
+    let now = now_iso();
+    record
+        .entry("createdAt".to_string())
+        .or_insert_with(|| Value::String(now.clone()));
+    record.insert("updatedAt".to_string(), Value::String(now.clone()));
+    let record = Value::Object(record);
+    let job_id = job_id.to_string();
+
+    let committed = state.storage.update_collections_atomically(
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION, STORY_JOBS_COLLECTION],
+        move |collections| {
+            let (memory_collections, remaining) = collections.split_at_mut(1);
+            let (index_collections, job_collections) = remaining.split_at_mut(1);
+            let memories = memory_collections[0].rows_mut();
+            let index_rows = index_collections[0].rows_mut();
+            let story_jobs = job_collections[0].rows_mut();
+            let job_index = story_jobs
+                .iter()
+                .position(|job| read_string(job.get("id")) == job_id)
+                .ok_or_else(|| {
+                    AppError::not_found(format!("{STORY_JOBS_COLLECTION}/{job_id} was not found"))
+                })?;
+            let job = &story_jobs[job_index];
+            let job_status = read_string(job.get("status"));
+            if job_status == "completed" && read_string(job.get("projectionMemoryId")) == memory_id
+            {
+                let memory = memories
+                    .iter()
+                    .find(|memory| read_string(memory.get("id")) == memory_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AppError::invalid_input("Completed story job is missing its projection")
+                    })?;
+                return Ok(json!({ "memory": memory, "job": job.clone() }));
+            }
+            if job_status != "processing" {
+                return Err(AppError::invalid_input(
+                    "Story projection job must be processing before commit",
+                ));
+            }
+            let payload = story_projection_payload(&record)
+                .ok_or_else(|| AppError::invalid_input("Story projection payload is required"))?;
+            for (job_key, payload_key) in [
+                ("level", "level"),
+                ("ownerChatId", "ownerChatId"),
+                ("coverageId", "coverageId"),
+                ("sourceFingerprint", "sourceFingerprint"),
+            ] {
+                if read_string(job.get(job_key)) != read_string(payload.get(payload_key)) {
+                    return Err(AppError::invalid_input(format!(
+                        "Story projection {payload_key} does not match its job"
+                    )));
+                }
+            }
+            if read_string(job.get("supersedesMemoryId"))
+                != read_string(record.get("supersedesMemoryId"))
+            {
+                return Err(AppError::invalid_input(
+                    "Story projection supersession does not match its job",
+                ));
+            }
+
+            let created = if let Some(existing) = memories
+                .iter()
+                .find(|memory| read_string(memory.get("id")) == memory_id)
+            {
+                if story_projection_payload(existing).is_none()
+                    || read_string(
+                        existing
+                            .get("payload")
+                            .and_then(|value| value.get("coverageId")),
+                    ) != read_string(payload.get("coverageId"))
+                    || read_string(
+                        existing
+                            .get("payload")
+                            .and_then(|value| value.get("sourceFingerprint")),
+                    ) != read_string(payload.get("sourceFingerprint"))
+                {
+                    return Err(AppError::invalid_input(
+                        "Story projection deterministic id collision",
+                    ));
+                }
+                existing.clone()
+            } else {
+                validate_story_projection_overlap(memories, &record)?;
+                memories.push(record.clone());
+                replace_memory_lexical_index(index_rows, &record)?;
+                record.clone()
+            };
+
+            let supersedes = read_string(created.get("supersedesMemoryId"));
+            if !supersedes.is_empty() {
+                let old = memories
+                    .iter_mut()
+                    .find(|memory| read_string(memory.get("id")) == supersedes)
+                    .ok_or_else(|| {
+                        AppError::not_found(format!(
+                            "Replacement source {MEMORY_COLLECTION}/{supersedes} was not found"
+                        ))
+                    })?;
+                let object = old.as_object_mut().ok_or_else(|| {
+                    AppError::invalid_input("Stored story projection is not an object")
+                })?;
+                object.insert(
+                    "status".to_string(),
+                    Value::String("superseded".to_string()),
+                );
+                object.insert(
+                    "supersededByMemoryId".to_string(),
+                    Value::String(memory_id.clone()),
+                );
+                object.insert("updatedAt".to_string(), Value::String(now.clone()));
+
+                let source_episode_ids = HashSet::from([supersedes.clone()]);
+                let mut stale_arc_ids = HashSet::new();
+                for candidate in memories.iter_mut() {
+                    let Some(candidate_payload) = story_projection_payload(candidate) else {
+                        continue;
+                    };
+                    if candidate_payload.get("level").and_then(Value::as_str) == Some("arc")
+                        && string_array_intersects(
+                            candidate_payload.get("sourceEpisodeIds"),
+                            &source_episode_ids,
+                        )
+                    {
+                        let arc_id = read_string(candidate.get("id"));
+                        if mark_story_row_stale(candidate, "source_episode_superseded", &now)? {
+                            stale_arc_ids.insert(arc_id);
+                        }
+                    }
+                }
+                stale_arc_ids.insert(supersedes.clone());
+                index_rows.retain(|row| !stale_arc_ids.contains(&read_string(row.get("memoryId"))));
+                for candidate_job in story_jobs.iter_mut() {
+                    if read_string(candidate_job.get("id")) != job_id
+                        && string_array_intersects(
+                            candidate_job.get("sourceEpisodeIds"),
+                            &source_episode_ids,
+                        )
+                    {
+                        mark_story_row_stale(candidate_job, "source_episode_superseded", &now)?;
+                    }
+                }
+            }
+
+            let job = story_jobs[job_index]
+                .as_object_mut()
+                .ok_or_else(|| AppError::invalid_input("Stored story job is not an object"))?;
+            job.insert("status".to_string(), Value::String("completed".to_string()));
+            job.insert(
+                "projectionMemoryId".to_string(),
+                Value::String(memory_id.clone()),
+            );
+            job.insert("completedAt".to_string(), Value::String(now.clone()));
+            job.insert("nextAttemptAt".to_string(), Value::Null);
+            job.insert("updatedAt".to_string(), Value::String(now.clone()));
+            Ok(json!({ "memory": created, "job": Value::Object(job.clone()) }))
+        },
+    )?;
+    if let Err(error) = enqueue_canonical_memory_maintenance(state, &committed["memory"]) {
+        eprintln!("story projection maintenance enqueue failed after commit: {error}");
+    }
+    Ok(committed)
 }
 
 pub(crate) fn get_memory(state: &AppState, memory_id: &str) -> AppResult<Value> {
@@ -303,9 +482,13 @@ pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> 
     let memory_id = memory_id.to_string();
 
     let updated = state.storage.update_collections_atomically(
-        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION, STORY_JOBS_COLLECTION],
         move |collections| {
-            let memories = collections[0].rows_mut();
+            let (memory_collections, remaining_collections) = collections.split_at_mut(1);
+            let (index_collections, job_collections) = remaining_collections.split_at_mut(1);
+            let memories = memory_collections[0].rows_mut();
+            let index_rows = index_collections[0].rows_mut();
+            let story_jobs = job_collections[0].rows_mut();
             let memory = memories
                 .iter_mut()
                 .find(|memory| read_string(memory.get("id")) == memory_id)
@@ -324,7 +507,38 @@ pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> 
             normalized.insert("updatedAt".to_string(), Value::String(now_iso()));
             let updated = Value::Object(normalized);
             *memory = updated.clone();
-            replace_memory_lexical_index(collections[1].rows_mut(), &updated)?;
+            replace_memory_lexical_index(index_rows, &updated)?;
+            let superseded_episode_id = story_projection_payload(&updated)
+                .filter(|payload| payload.get("level").and_then(Value::as_str) == Some("episode"))
+                .filter(|_| updated.get("status").and_then(Value::as_str) == Some("superseded"))
+                .map(|_| memory_id.clone());
+            if let Some(episode_id) = superseded_episode_id {
+                let source_episode_ids = HashSet::from([episode_id.clone()]);
+                let now = now_iso();
+                let mut stale_arc_ids = HashSet::new();
+                for candidate in memories.iter_mut() {
+                    let Some(payload) = story_projection_payload(candidate) else {
+                        continue;
+                    };
+                    if payload.get("level").and_then(Value::as_str) == Some("arc")
+                        && string_array_intersects(
+                            payload.get("sourceEpisodeIds"),
+                            &source_episode_ids,
+                        )
+                    {
+                        let arc_id = read_string(candidate.get("id"));
+                        if mark_story_row_stale(candidate, "source_episode_superseded", &now)? {
+                            stale_arc_ids.insert(arc_id);
+                        }
+                    }
+                }
+                index_rows.retain(|row| !stale_arc_ids.contains(&read_string(row.get("memoryId"))));
+                for job in story_jobs.iter_mut() {
+                    if string_array_intersects(job.get("sourceEpisodeIds"), &source_episode_ids) {
+                        mark_story_row_stale(job, "source_episode_superseded", &now)?;
+                    }
+                }
+            }
             Ok(updated)
         },
     )?;
@@ -383,6 +597,274 @@ pub(crate) fn purge_memory(state: &AppState, memory_id: &str) -> AppResult<()> {
                 .rows_mut()
                 .retain(|row| read_string(row.get("memoryId")) != memory_id);
             Ok(())
+        },
+    )
+}
+
+fn story_projection_payload(memory: &Value) -> Option<&Map<String, Value>> {
+    let payload = memory.get("payload")?.as_object()?;
+    (payload
+        .get("storyProjectionVersion")
+        .and_then(Value::as_u64)
+        == Some(1))
+    .then_some(payload)
+}
+
+fn validate_story_projection_overlap(memories: &[Value], candidate: &Value) -> AppResult<()> {
+    let Some(payload) = story_projection_payload(candidate) else {
+        return Ok(());
+    };
+    let level = read_string(payload.get("level"));
+    let source_key = if level == "episode" {
+        "messageIds"
+    } else if level == "arc" {
+        "sourceEpisodeIds"
+    } else {
+        return Ok(());
+    };
+    let candidate_ids = payload
+        .get(source_key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(ToOwned::to_owned)
+        .collect::<HashSet<_>>();
+    let conflicts = memories
+        .iter()
+        .filter(|memory| {
+            matches!(
+                memory.get("status").and_then(Value::as_str),
+                Some("active" | "pinned")
+            )
+        })
+        .filter(|memory| {
+            story_projection_payload(memory).is_some_and(|existing| {
+                existing.get("level").and_then(Value::as_str) == Some(level.as_str())
+                    && string_array_intersects(existing.get(source_key), &candidate_ids)
+            })
+        })
+        .collect::<Vec<_>>();
+    if conflicts.is_empty() {
+        return Ok(());
+    }
+    let supersedes = read_string(candidate.get("supersedesMemoryId"));
+    let coverage = read_string(payload.get("coverageId"));
+    let valid_replacement = conflicts.len() == 1
+        && read_string(conflicts[0].get("id")) == supersedes
+        && story_projection_payload(conflicts[0])
+            .is_some_and(|existing| read_string(existing.get("coverageId")) == coverage);
+    if valid_replacement {
+        Ok(())
+    } else {
+        Err(AppError::invalid_input(
+            "Story projection coverage overlaps an active story slot",
+        ))
+    }
+}
+
+fn string_array_intersects(value: Option<&Value>, ids: &HashSet<String>) -> bool {
+    value.and_then(Value::as_array).is_some_and(|values| {
+        values
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|id| ids.contains(id))
+    })
+}
+
+fn mark_story_row_stale(row: &mut Value, reason: &str, now: &str) -> AppResult<bool> {
+    let status = read_string(row.get("status"));
+    if !matches!(
+        status.as_str(),
+        "active" | "pinned" | "pending" | "processing" | "retryable"
+    ) {
+        return Ok(false);
+    }
+    #[cfg(test)]
+    if read_string(row.get("id")) == "__fail_story_invalidation__" {
+        return Err(AppError::invalid_input(
+            "injected story projection invalidation failure",
+        ));
+    }
+    let object = row
+        .as_object_mut()
+        .ok_or_else(|| AppError::invalid_input("Story projection row is not an object"))?;
+    object.insert("status".to_string(), Value::String("stale".to_string()));
+    object.insert("staleReason".to_string(), Value::String(reason.to_string()));
+    object.insert("staleAt".to_string(), Value::String(now.to_string()));
+    object.insert("updatedAt".to_string(), Value::String(now.to_string()));
+    if let Some(payload) = object.get_mut("payload").and_then(Value::as_object_mut) {
+        payload.insert("staleReason".to_string(), Value::String(reason.to_string()));
+        payload.insert("staleAt".to_string(), Value::String(now.to_string()));
+    }
+    Ok(true)
+}
+
+fn stale_story_memory_rows(
+    memories: &mut [Value],
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<(HashSet<String>, HashSet<String>, usize, String)> {
+    let source_ids = message_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<HashSet<_>>();
+    if source_ids.is_empty() {
+        return Ok((HashSet::new(), HashSet::new(), 0, now_iso()));
+    }
+    let now = now_iso();
+    let mut affected_episode_ids = HashSet::new();
+    let mut stale_memory_ids = HashSet::new();
+    let mut stale_count = 0usize;
+
+    for memory in memories.iter_mut() {
+        let Some(payload) = story_projection_payload(memory) else {
+            continue;
+        };
+        if payload.get("level").and_then(Value::as_str) != Some("episode")
+            || !string_array_intersects(payload.get("messageIds"), &source_ids)
+        {
+            continue;
+        }
+        let id = read_string(memory.get("id"));
+        if !id.is_empty() {
+            affected_episode_ids.insert(id.clone());
+        }
+        if mark_story_row_stale(memory, reason, &now)? {
+            stale_memory_ids.insert(id);
+            stale_count += 1;
+        }
+    }
+
+    for memory in memories.iter_mut() {
+        let Some(payload) = story_projection_payload(memory) else {
+            continue;
+        };
+        if payload.get("level").and_then(Value::as_str) != Some("arc")
+            || !string_array_intersects(payload.get("sourceEpisodeIds"), &affected_episode_ids)
+        {
+            continue;
+        }
+        let id = read_string(memory.get("id"));
+        if mark_story_row_stale(memory, "source_episode_stale", &now)? {
+            stale_memory_ids.insert(id);
+            stale_count += 1;
+        }
+    }
+    Ok((affected_episode_ids, stale_memory_ids, stale_count, now))
+}
+
+fn stale_story_job_rows(
+    jobs: &mut [Value],
+    message_ids: &[String],
+    affected_episode_ids: &HashSet<String>,
+    reason: &str,
+    now: &str,
+) -> AppResult<()> {
+    let source_ids = message_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<HashSet<_>>();
+    for job in jobs {
+        let affected = string_array_intersects(job.get("sourceMessageIds"), &source_ids)
+            || string_array_intersects(job.get("sourceEpisodeIds"), affected_episode_ids);
+        if affected {
+            mark_story_row_stale(job, reason, now)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn stale_story_projections_in_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    index_collection_index: usize,
+    story_jobs_collection_index: usize,
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<usize> {
+    let (affected_episode_ids, stale_memory_ids, stale_count, now) = stale_story_memory_rows(
+        collections
+            .get_mut(memory_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Canonical memory collection missing"))?
+            .rows_mut(),
+        message_ids,
+        reason,
+    )?;
+
+    collections
+        .get_mut(index_collection_index)
+        .ok_or_else(|| AppError::new("storage_error", "Memory index collection missing"))?
+        .rows_mut()
+        .retain(|row| !stale_memory_ids.contains(&read_string(row.get("memoryId"))));
+    stale_story_job_rows(
+        collections
+            .get_mut(story_jobs_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Story job collection missing"))?
+            .rows_mut(),
+        message_ids,
+        &affected_episode_ids,
+        reason,
+        &now,
+    )?;
+    Ok(stale_count)
+}
+
+pub(crate) fn stale_story_projections_in_journaled_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    story_jobs_collection_index: usize,
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<usize> {
+    if memory_collection_index >= story_jobs_collection_index {
+        return Err(AppError::new(
+            "storage_error",
+            "Story collection order is invalid",
+        ));
+    }
+    let (memory_collections, job_collections) =
+        collections.split_at_mut(story_jobs_collection_index);
+    let (affected_episode_ids, _stale_memory_ids, stale_count, now) = stale_story_memory_rows(
+        memory_collections
+            .get_mut(memory_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Canonical memory collection missing"))?
+            .rows_mut(),
+        message_ids,
+        reason,
+    )?;
+    stale_story_job_rows(
+        job_collections
+            .get_mut(0)
+            .ok_or_else(|| AppError::new("storage_error", "Story job collection missing"))?
+            .rows_mut(),
+        message_ids,
+        &affected_episode_ids,
+        reason,
+        &now,
+    )?;
+    // Staling changes canonical updatedAt, so every old lexical row immediately
+    // fails the canonicalUpdatedAt freshness check without rewriting its index file.
+    Ok(stale_count)
+}
+
+/// Invalidates only story projections derived from edited/deleted transcript rows.
+/// Atomic memories and unrelated story slots are intentionally untouched.
+#[cfg(test)]
+pub(crate) fn stale_story_projections_for_messages(
+    state: &AppState,
+    message_ids: &[String],
+    reason: &str,
+) -> AppResult<usize> {
+    let reason = reason.to_string();
+    state.storage.update_collections_atomically(
+        vec![MEMORY_COLLECTION, INDEX_COLLECTION, STORY_JOBS_COLLECTION],
+        move |collections| {
+            stale_story_projections_in_collections(collections, 0, 1, 2, message_ids, &reason)
         },
     )
 }
@@ -976,6 +1458,175 @@ mod tests {
             }),
         )
         .unwrap()
+    }
+
+    fn seed_story_projection(
+        state: &AppState,
+        id: &str,
+        level: &str,
+        message_ids: &[&str],
+        source_episode_ids: &[&str],
+    ) -> Value {
+        create_memory(
+            state,
+            json!({
+                "id": id,
+                "kind": if level == "episode" { "episode" } else { "summary" },
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": format!("{id} story projection"),
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": message_ids },
+                "tags": ["story-continuity", level],
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": level,
+                    "ownerChatId": "chat-1",
+                    "coverageId": format!("{id}-coverage"),
+                    "sourceFingerprint": format!("{id}-fingerprint"),
+                    "messageIds": message_ids,
+                    "firstMessageId": message_ids.first().copied().unwrap_or(""),
+                    "lastMessageId": message_ids.last().copied().unwrap_or(""),
+                    "sourceEpisodeIds": source_episode_ids,
+                    "sections": {},
+                    "summarizer": { "version": "story-projection-v1", "completedAt": "2026-08-27T00:00:00Z" }
+                }
+            }),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn source_mutation_stales_only_affected_story_chain_and_queued_jobs() {
+        let state = test_state("story-source-invalidation");
+        seed_memory(&state, "atomic-fact", "chat", "chat-1", "active");
+        seed_story_projection(&state, "episode-affected", "episode", &["message-1"], &[]);
+        seed_story_projection(&state, "episode-other", "episode", &["message-2"], &[]);
+        seed_story_projection(
+            &state,
+            "arc-affected",
+            "arc",
+            &["message-1"],
+            &["episode-affected"],
+        );
+        state
+            .storage
+            .create(
+                STORY_JOBS_COLLECTION,
+                json!({
+                    "id": "story-job",
+                    "status": "pending",
+                    "sourceMessageIds": ["message-1"],
+                    "sourceEpisodeIds": []
+                }),
+            )
+            .unwrap();
+
+        let stale = stale_story_projections_for_messages(
+            &state,
+            &["message-1".to_string()],
+            "source_message_edited",
+        )
+        .unwrap();
+
+        assert_eq!(stale, 2);
+        assert_eq!(
+            get_memory(&state, "atomic-fact").unwrap()["status"],
+            json!("active")
+        );
+        assert_eq!(
+            get_memory(&state, "episode-affected").unwrap()["status"],
+            json!("stale")
+        );
+        assert_eq!(
+            get_memory(&state, "arc-affected").unwrap()["status"],
+            json!("stale")
+        );
+        assert_eq!(
+            get_memory(&state, "episode-other").unwrap()["status"],
+            json!("active")
+        );
+        let indexed = state.storage.list(INDEX_COLLECTION).unwrap();
+        let indexed_ids = indexed
+            .iter()
+            .filter_map(|row| row.get("memoryId").and_then(Value::as_str))
+            .collect::<HashSet<_>>();
+        assert!(indexed_ids.contains("atomic-fact"));
+        assert!(indexed_ids.contains("episode-other"));
+        assert!(!indexed_ids.contains("episode-affected"));
+        assert!(!indexed_ids.contains("arc-affected"));
+        assert_eq!(
+            state
+                .storage
+                .get(STORY_JOBS_COLLECTION, "story-job")
+                .unwrap()
+                .unwrap()["status"],
+            json!("stale")
+        );
+    }
+
+    #[test]
+    fn story_overlap_requires_same_slot_supersession_and_cascades_arcs() {
+        let state = test_state("story-overlap");
+        seed_story_projection(&state, "episode-original", "episode", &["message-1"], &[]);
+        seed_story_projection(
+            &state,
+            "arc-original",
+            "arc",
+            &["message-1"],
+            &["episode-original"],
+        );
+        let conflicting = json!({
+            "id": "episode-conflict",
+            "kind": "episode",
+            "status": "active",
+            "scope": { "kind": "chat", "id": "chat-1" },
+            "content": "Conflicting projection",
+            "confidence": 0.9,
+            "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+            "payload": {
+                "storyProjectionVersion": 1,
+                "level": "episode",
+                "coverageId": "different-coverage",
+                "messageIds": ["message-1"],
+                "sourceEpisodeIds": []
+            }
+        });
+        assert!(create_memory(&state, conflicting).is_err());
+
+        let replacement = create_memory(
+            &state,
+            json!({
+                "id": "episode-replacement",
+                "kind": "episode",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "Regenerated projection",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+                "supersedesMemoryId": "episode-original",
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": "episode",
+                    "coverageId": "episode-original-coverage",
+                    "messageIds": ["message-1"],
+                    "sourceEpisodeIds": []
+                }
+            }),
+        )
+        .unwrap();
+        assert_eq!(replacement["status"], json!("active"));
+
+        update_memory(
+            &state,
+            "episode-original",
+            json!({ "status": "superseded", "supersededByMemoryId": "episode-replacement" }),
+        )
+        .unwrap();
+        assert_eq!(
+            get_memory(&state, "arc-original").unwrap()["status"],
+            json!("stale")
+        );
     }
 
     #[test]

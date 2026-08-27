@@ -143,6 +143,22 @@ pub fn memory_capture_job_update(
 }
 
 #[tauri::command]
+pub fn story_consolidation_job_update(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_capture::update_story_job(&state, body)
+}
+
+#[tauri::command]
+pub fn story_consolidation_projection_commit(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    memory_capture::commit_story_projection(&state, body)
+}
+
+#[tauri::command]
 pub fn memory_capture_memory_create(
     state: State<'_, AppState>,
     body: Value,

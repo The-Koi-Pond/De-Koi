@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Episode and arc consolidation",
+    "source": "GitHub issue #1266",
+    "classification": "cross-boundary Roleplay storage, prompt assembly, remote runtime, and UI change",
+    "status": "pr_open"
+  },
+  "coreClaim": "Eligible Roleplay transcripts consolidate into deterministic, non-overlapping episode and arc projections without displacing recent transcript or atomic memory, while source mutations safely stale only the affected story chain.",
+  "rootCause": "Roleplay had atomic memories and scene or rolling summaries, but no canonical long-form story projection with stable coverage, invalidation, regeneration, or bounded prompt ownership.",
+  "scope": {
+    "inScope": [
+      "Ordinary 24-message episode boundaries and manual assistant-boundary closure",
+      "Whole-scene episodes from the existing formal scene conclusion pass",
+      "Four consecutive episode arc boundaries",
+      "Deterministic canonical provenance, overlap enforcement, stale cascades, and supersession",
+      "Fenced chronological background consolidation with retry and backfill",
+      "Independent bounded Story Continuity prompt selection and attribution",
+      "Roleplay Story inspection and actions with a per-chat automatic-build opt-out",
+      "Embedded Tauri and hostable HTTP runtime parity"
+    ],
+    "outOfScope": [
+      "Conversation and Game modes",
+      "Migration or deletion of legacy summaries",
+      "Configurable episode or arc cadence",
+      "Silent mass backfill of existing chats",
+      "Provider-specific prose quality tuning"
+    ],
+    "riskFlags": [
+      "storage",
+      "prompt assembly",
+      "source edit and delete invalidation",
+      "cross-entrypoint behavior",
+      "legacy chat defaults",
+      "background lease concurrency"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "Active Roleplay story slots have exact ordered source provenance, cannot overlap unrelated slots, stale safely after source changes, and enter prompts only through an independent lower-priority bounded selector.",
+    "riskType": "canonical storage projections, prompt continuity, legacy defaults, and cross-entrypoint mutation behavior",
+    "entrypoints": [
+      "Saved Roleplay assistant replies",
+      "Formal scene conclusion",
+      "Story Continuity modal and Roleplay HUD actions",
+      "Prompt assembly",
+      "Embedded Tauri commands",
+      "Hostable /api/invoke dispatch"
+    ],
+    "currentPathsOrFormats": [
+      "canonical-memories episode records remain authoritative story projections",
+      "canonical-memories summary records with level arc remain authoritative arc projections",
+      "story-consolidation-jobs owns durable background state",
+      "story_projection prompt attribution carries exact source coverage"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing chats without enableStoryConsolidation use the effective Roleplay plus Memory Recall default",
+      "Legacy visual_novel chats normalize to Roleplay behavior",
+      "Existing rolling summaries, scene summaries, atomic memories, and scene-history records remain compatible and are not migrated",
+      "Conversation and Game chats remain outside automatic consolidation"
+    ],
+    "outOfScopeClaims": [
+      "The change does not claim model prose is deterministic.",
+      "The change does not claim existing chats are silently fully backfilled.",
+      "The change does not reactivate stale or superseded projections.",
+      "The change does not replace atomic canonical memory."
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "src/engine had no owner for durable long-form Roleplay coverage and no way to coordinate it with src-tauri canonical persistence or prompt selection.",
+    "producer": "src/engine generation modules own eligibility, boundaries, deterministic job intent, summarization, and bounded selection; src-tauri atomically persists and invalidates projections.",
+    "consumer": "src/features exposes Roleplay-only controls through src/shared/api, and prompt assembly consumes the independent Story Continuity selection.",
+    "impliedContract": "src/engine owns product meaning, src/shared/api owns runtime adaptation, src-features owns interaction, and src-tauri owns privileged storage, lease, overlap, and transaction mechanics.",
+    "actualEnforcement": "Typed ports schedule one chronological fenced job; explicit shared adapters route embedded and remote commands; Rust validates leases, exact coverage, source ordering, overlap, and replacement commit ordering atomically.",
+    "primaryOwnerLane": "cross-boundary",
+    "primaryOwnerDetail": "src/engine is the primary product owner, with src-tauri as the native persistence owner and src/shared/api as the transport boundary.",
+    "consumerOnlyLanes": [
+      "src/features"
+    ],
+    "wrongLaneFixToAvoid": "Do not move boundary cadence, summarization policy, prompt priority, or Roleplay enablement into src-tauri; Rust owns native mechanics and atomic validation, not product meaning.",
+    "regressionProof": [
+      "story-projections.spec.ts proves eligible message filtering, assistant boundaries, formal-scene exclusion, exact contiguity, and four-episode arcs.",
+      "story-consolidation-queue.spec.ts proves deterministic scheduling, retries, chronological backfill, foreground yielding, regeneration, and opt-out boundaries.",
+      "canonical_memory.rs and memory_capture.rs tests prove overlap rejection, stale cascades, atomic replacement ordering, and failed-replacement preservation.",
+      "story-continuity-context.spec.ts and context-window.spec.ts prove independent bounded selection and lower prompt priority.",
+      "story-consolidation-runtime-api.spec.ts, remote-runtime.spec.ts, and architecture checks prove transport parity."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "An ordinary Roleplay episode closes at 24 eligible messages only on a saved assistant boundary.",
+        "evidence": "story-projections.spec.ts passes threshold, hidden-row exclusion, active-swipe, exact contiguity, and assistant-boundary cases."
+      },
+      {
+        "claim": "A formal scene produces one source-backed episode from the same structured summary pass.",
+        "evidence": "scene-service.spec.ts passes the whole-scene canonical episode assertion without a second model call."
+      },
+      {
+        "claim": "Four consecutive active episode slots form one non-overlapping arc and remain idempotent.",
+        "evidence": "story-projections.spec.ts and story-consolidation-queue.spec.ts pass exact source-episode and stale-gap cases."
+      },
+      {
+        "claim": "Desktop and Pi runtime entrypoints expose the same fenced update and atomic commit commands.",
+        "evidence": "story-consolidation-runtime-api.spec.ts, remote-runtime.spec.ts, pnpm check:architecture, and cargo check pass."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Hidden instructions, internal rows, inactive swipes, empty messages, and incomplete assistant boundaries must not enter episode coverage.",
+        "evidence": "story-projections.spec.ts passes negative eligibility and boundary rows."
+      },
+      {
+        "claim": "A source edit, delete, hidden-state change, or active-swipe change must not stale unrelated projections or ordinary atomic memories.",
+        "evidence": "canonical_memory.rs and chats.rs focused Rust tests pass affected-chain-only invalidation, transaction rollback, journal fast-path, stale-index rejection, and restart-recovery assertions."
+      },
+      {
+        "claim": "A failed initial or replacement job must not displace the last valid active projection.",
+        "evidence": "memory_capture.rs failed_story_replacement_keeps_the_last_projection_and_job passes."
+      },
+      {
+        "claim": "Story projections must not consume the atomic-memory candidate limit or outrank mandatory recent history.",
+        "evidence": "story-continuity-context.spec.ts and context-window.spec.ts pass independent budget, raw-overlap, duplicate-removal, and priority rows."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing Roleplay and legacy visual_novel chats enable automatic consolidation only when Memory Recall is effectively enabled, unless explicitly opted out.",
+        "evidence": "story-consolidation-queue.spec.ts passes effective enablement, legacy normalization, explicit opt-out, and manual-action bypass cases."
+      },
+      {
+        "claim": "Existing scene history, character memory, rolling summaries, and atomic memory behavior remain available.",
+        "evidence": "scene-service.spec.ts passes compatibility writes; prompt/context focused suites and full pnpm check pass."
+      },
+      {
+        "claim": "Existing chats catch up one oldest uncovered episode per new reply unless the user explicitly requests full backfill.",
+        "evidence": "story-consolidation-queue.spec.ts passes chronological single-catch-up and Build existing story cases."
+      }
+    ],
+    "untestedRows": [
+      "A live provider-backed Story modal workflow was not run against a real chat because it would create or mutate durable user chat data.",
+      "Model-specific narrative summary quality remains provider-dependent."
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Story projections are stored in canonical-memories while durable queue state is stored separately in story-consolidation-jobs.",
+      "sourceType": "derived",
+      "evidence": "Storage collection constants, Rust contracts, canonical commit commands, generated schema, and storage-contract checks align."
+    },
+    {
+      "description": "Replacement activation and old-projection supersession happen in one Rust atomic update after the replacement content exists.",
+      "sourceType": "harness-proven",
+      "evidence": "story_projection_commit_atomically_replaces_and_completes and failed_story_replacement_keeps_the_last_projection_and_job pass."
+    },
+    {
+      "description": "Story Continuity is a separate prompt source below recent history and atomic canonical memory.",
+      "sourceType": "harness-proven",
+      "evidence": "Focused story-continuity and context-window tests pass, including exact attribution and overlap removal."
+    }
+  ],
+  "userActionCopy": [
+    {
+      "description": "Story consolidation is non-destructive, but Pi operators who want a pre-deploy snapshot can copy the mounted De-Koi data directory before updating.",
+      "source": "<configured-de-koi-data-directory>",
+      "destination": "<backup-destination-directory>",
+      "folders": [
+        "<configured-de-koi-data-directory>"
+      ],
+      "action": "With De-Koi stopped, copy the complete configured De-Koi data directory to a separately chosen backup destination; replace both placeholders before running any copy command. Normal deployment does not require this optional backup.",
+      "companionFiles": "Copy the entire mounted directory so canonical memories, jobs, indexes, chats, messages, and sidecars stay together.",
+      "detectedLayouts": [
+        "Pi deployments mount their configured host data directory to /data.",
+        "Desktop and other host layouts use their configured De-Koi data directory; this PR does not migrate either layout."
+      ]
+    }
+  ],
+  "manualBlockers": [
+    {
+      "item": "Live provider-backed Story modal workflow",
+      "blockingCoreClaim": false,
+      "status": "not-blocking",
+      "reason": "Deterministic owner tests prove persistence and UI data contracts. The live mutation was deliberately skipped to avoid altering a real chat; Discover was browser-smoked."
+    }
+  ],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed on the final feature diff; warning-only knip output remained non-blocking.",
+    "githubValidationPassed": false,
+    "edgeRowsTested": [
+      "24-message assistant boundary",
+      "manual two-message close",
+      "formal scene conclusion",
+      "hidden and inactive swipe exclusion",
+      "exact contiguity and stale gap",
+      "four-episode arc",
+      "lease loss and retry",
+      "replacement failure",
+      "explicit opt-out and backfill bypass",
+      "raw-history and atomic-memory prompt priority",
+      "active-swipe journal invalidation and restart recovery",
+      "parent-arc enqueue retry after episode commit",
+      "arc source revalidation before summarization",
+      "immediate scene arc eligibility race remains retryable",
+      "failed scene episode write leaves no orphan follow-up job",
+      "failed post-commit follow-up write returns an explicit replayable failure and leaves the scene open",
+      "verified completed parent-arc linkage remains monotonic across scene replay"
+    ],
+    "negativeRowsTested": [
+      "No internal or hidden source capture",
+      "No unrelated overlap",
+      "No unrelated atomic-memory invalidation",
+      "No stale or superseded prompt injection",
+      "No replacement on failed job",
+      "No Conversation or Game automatic consolidation"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run across 10 focused files (121 tests)",
+      "cargo test --manifest-path src-tauri/Cargo.toml story_ (focused story chain passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage (162 tests passed)",
+      "cargo test --manifest-path src-tauri/Cargo.toml --workspace -- --test-threads=1 (all app, crate, and doc-test suites passed)",
+      "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings -A dead_code",
+      "pnpm check",
+      "pnpm build (3273 modules)",
+      "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+      "git diff --check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 1271,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1271",
+    "headRefName": "feature/episode-arc-consolidation-1266",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": false,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "Final-head Bunny review on c286bc83 identified two remaining follow-up state defects; post-commit follow-up creation failures now surface explicitly for idempotent replay, and completed follow-ups verify and retain their concrete parent-arc linkage without regressing to retryable state.",
+    "Final-head Bunny review on 70f8c9f9 identified two remaining parent-arc durability defects; formal scene persistence now commits the episode before creating its follow-up, leaves no orphan job after a failed episode write, and keeps both immediate and queued null arc plans retryable until concrete parent work exists.",
+    "Final-head Bunny retry on 5f5a9a18 identified two parent-arc follow-up defects; formal scene persistence keeps visible closure successful after enqueue failure and completes follow-up work only after a concrete arc job is returned.",
+    "Final-head Bunny review on 2089a267 identified ten concrete findings; the repair pass adds atomic source invalidation, arc freshness and retry guarantees, strict scene persistence, and consistent edit and supersede behavior before a new final-head review.",
+    "Hosted Linux nextest exposed an incomplete chat-expunge receipt assertion; the regression now seeds, clears, and reports story-consolidation-jobs in both exhaustive receipt tests.",
+    "Validation checkboxes remain unchecked for human verification, as required by repository guidance.",
+    "No real chat data was edited or deleted during manual validation."
+  ]
+}
