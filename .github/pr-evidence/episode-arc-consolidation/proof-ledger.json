@@ -205,7 +205,9 @@
       "parent-arc enqueue retry after episode commit",
       "arc source revalidation before summarization",
       "immediate scene arc eligibility race remains retryable",
-      "failed scene episode write leaves no orphan follow-up job"
+      "failed scene episode write leaves no orphan follow-up job",
+      "failed post-commit follow-up write returns an explicit replayable failure and leaves the scene open",
+      "verified completed parent-arc linkage remains monotonic across scene replay"
     ],
     "negativeRowsTested": [
       "No internal or hidden source capture",
@@ -216,7 +218,7 @@
       "No Conversation or Game automatic consolidation"
     ],
     "afterEvidence": [
-      "pnpm vitest run across 10 focused files (118 tests)",
+      "pnpm vitest run across 10 focused files (121 tests)",
       "cargo test --manifest-path src-tauri/Cargo.toml story_ (focused story chain passed)",
       "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage (162 tests passed)",
       "cargo test --manifest-path src-tauri/Cargo.toml --workspace -- --test-threads=1 (all app, crate, and doc-test suites passed)",
@@ -265,6 +267,7 @@
     "reportOnlyWhenComplete": true
   },
   "notes": [
+    "Final-head Bunny review on c286bc83 identified two remaining follow-up state defects; post-commit follow-up creation failures now surface explicitly for idempotent replay, and completed follow-ups verify and retain their concrete parent-arc linkage without regressing to retryable state.",
     "Final-head Bunny review on 70f8c9f9 identified two remaining parent-arc durability defects; formal scene persistence now commits the episode before creating its follow-up, leaves no orphan job after a failed episode write, and keeps both immediate and queued null arc plans retryable until concrete parent work exists.",
     "Final-head Bunny retry on 5f5a9a18 identified two parent-arc follow-up defects; formal scene persistence keeps visible closure successful after enqueue failure and completes follow-up work only after a concrete arc job is returned.",
     "Final-head Bunny review on 2089a267 identified ten concrete findings; the repair pass adds atomic source invalidation, arc freshness and retry guarantees, strict scene persistence, and consistent edit and supersede behavior before a new final-head review.",

@@ -20,6 +20,7 @@ function storageForScene(args: {
   connections?: JsonRecord[];
   characters?: JsonRecord[];
   failStoryArcCreate?: boolean;
+  failStoryFollowUpCreate?: boolean;
 }): {
   storage: StorageGateway;
   createdRecords: Array<{ entity: StorageEntity; value: JsonRecord }>;
@@ -115,6 +116,9 @@ function storageForScene(args: {
       }
       if (args.failStoryArcCreate && entity === "story-consolidation-jobs" && value.level === "arc") {
         throw new Error("temporary arc enqueue failure");
+      }
+      if (args.failStoryFollowUpCreate && entity === "story-consolidation-jobs" && value.followUp === "arc_enqueue") {
+        throw new Error("follow-up write failed");
       }
       createdRecords.push({ entity, value });
       return { id: "created-" + createdRecords.length, ...value } as T;
@@ -838,6 +842,66 @@ describe("roleplay scene conclusion summaries", () => {
         projectionMemoryId: expect.any(String),
       }),
     );
+  });
+
+  it("keeps the scene open for replay when its durable parent-arc follow-up cannot be written", async () => {
+    const { storage, createdRecords, createdMessages } = storageForScene({
+      chats: [
+        { id: "origin", name: "Origin", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+        {
+          id: "scene",
+          name: "Scene: The Archive",
+          mode: "roleplay",
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main", provider: "openai", model: "model-1" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "Mara opens the flooded archive." },
+          { id: "choice", role: "user", content: "She chooses to rescue the ledger." },
+        ],
+      },
+      failStoryFollowUpCreate: true,
+    });
+    for (let index = 1; index <= 3; index += 1) {
+      await storage.createMemory?.(priorSceneEpisode(index));
+    }
+    const llm = {
+      complete: vi.fn()
+        .mockResolvedValueOnce("Mara entered the flooded archive and chose to rescue the ledger.")
+        .mockResolvedValueOnce(JSON.stringify({
+          summary: "Mara entered the flooded archive and chose to rescue the ledger.",
+          sections: {
+            events: ["Mara entered the flooded archive."],
+            choices: ["Mara chose to rescue the ledger."],
+            relationshipShifts: [],
+            promises: [],
+            reveals: [],
+            unresolvedHooks: [],
+            currentState: ["Mara still holds the rescued ledger."],
+          },
+        })),
+      async *stream() {},
+      async listModels() { return []; },
+    } as unknown as LlmGateway;
+
+    await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(
+      "follow-up write failed",
+    );
+
+    expect(createdMessages.filter((message) => message.chatId === "origin")).toHaveLength(0);
+    await expect(storage.get<JsonRecord>("chats", "scene")).resolves.toMatchObject({
+      metadata: expect.objectContaining({ sceneStatus: "active" }),
+    });
+    expect(
+      createdRecords.filter(
+        (record) => record.entity === "canonical-memories" && record.value.payload &&
+          (record.value.payload as JsonRecord).boundaryReason === "scene_conclusion",
+      ),
+    ).toHaveLength(1);
+    expect(createdRecords.filter((record) => record.entity === "story-consolidation-jobs")).toHaveLength(0);
   });
 
   it("keeps an enabled scene retryable when canonical memory capabilities are missing", async () => {

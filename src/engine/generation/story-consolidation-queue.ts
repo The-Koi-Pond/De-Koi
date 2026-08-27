@@ -396,6 +396,23 @@ async function settleSceneArcFollowUp(
   scheduleStoryConsolidationQueueProcessing(dependencies);
 }
 
+async function completedSceneArcFollowUpIsMaterialized(
+  storage: StorageGateway,
+  followUp: StoryProjectionJob,
+): Promise<boolean> {
+  const parentArcJobId = followUp.parentArcJobId?.trim();
+  const projectionMemoryId = followUp.projectionMemoryId?.trim();
+  if (followUp.status !== "completed" || !parentArcJobId || !projectionMemoryId) return false;
+  const parent = await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, parentArcJobId);
+  return Boolean(
+    parent &&
+      parent.id === parentArcJobId &&
+      parent.level === "arc" &&
+      parent.ownerChatId === followUp.ownerChatId &&
+      parent.sourceEpisodeIds.includes(projectionMemoryId),
+  );
+}
+
 function citation(value: unknown, allowedMessageIds: Set<string>, allowedEpisodeIds: Set<string>): StoryProjectionCitation | null {
   const record = parseRecord(value);
   const text = readString(record.text).trim();
@@ -912,32 +929,29 @@ export async function persistCompletedSceneStoryEpisode(
     return created;
   }
   const ensureAndSettleFollowUp = async () => {
-    try {
-      const followUp = await ensureSceneArcFollowUpJob(
-        storage,
-        {
-          memoryId: id,
-          payload,
-          connectionId: input.connectionId ?? null,
-          provider: input.provider ?? null,
-          model: input.model ?? null,
-        },
-        now,
-      );
-      await settleSceneArcFollowUp(
-        dependencies,
-        followUp,
-        {
-          chatId: input.ownerChatId,
-          connectionId: input.connectionId ?? null,
-          provider: input.provider ?? null,
-          model: input.model ?? null,
-        },
-        now,
-      );
-    } catch (error) {
-      console.warn("[story-consolidation] scene arc follow-up enqueue failed after episode commit", error);
-    }
+    const followUp = await ensureSceneArcFollowUpJob(
+      storage,
+      {
+        memoryId: id,
+        payload,
+        connectionId: input.connectionId ?? null,
+        provider: input.provider ?? null,
+        model: input.model ?? null,
+      },
+      now,
+    );
+    if (await completedSceneArcFollowUpIsMaterialized(storage, followUp)) return;
+    await settleSceneArcFollowUp(
+      dependencies,
+      followUp,
+      {
+        chatId: input.ownerChatId,
+        connectionId: input.connectionId ?? null,
+        provider: input.provider ?? null,
+        model: input.model ?? null,
+      },
+      now,
+    );
   };
   if (existing) {
     await ensureAndSettleFollowUp();

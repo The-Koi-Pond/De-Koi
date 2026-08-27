@@ -517,6 +517,69 @@ describe("story consolidation queue", () => {
     expect(test.memories.size).toBe(3);
   });
 
+  it("surfaces follow-up creation failure after the scene episode commits", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    const create = test.storage.create.bind(test.storage);
+    test.storage.create = vi.fn(async (entity, body) => {
+      if (entity === STORY_CONSOLIDATION_JOBS_COLLECTION && body.followUp === "arc_enqueue") {
+        throw new Error("follow-up write failed");
+      }
+      return create(entity, body);
+    }) as StorageGateway["create"];
+
+    await expect(
+      persistCompletedSceneStoryEpisode(
+        { storage: test.storage, llm: {} as LlmGateway },
+        {
+          ownerChatId: "chat-1",
+          sceneChatId: "scene-1",
+          messages: [sourceMessage(7), sourceMessage(8)],
+          summary: "The characters recovered the archive ledger.",
+          now: "2026-08-27T04:00:00.000Z",
+        },
+      ),
+    ).rejects.toThrow("follow-up write failed");
+
+    expect(test.memories.size).toBe(4);
+    expect(Array.from(test.jobs.values()).filter((job) => job.followUp === "arc_enqueue")).toHaveLength(0);
+  });
+
+  it("keeps a verified completed scene follow-up monotonic across replay", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    test.storage.acquireStoryConsolidationWorker = vi.fn(async () => null);
+    const dependencies = { storage: test.storage, llm: {} as LlmGateway };
+    const input = {
+      ownerChatId: "chat-1",
+      sceneChatId: "scene-1",
+      messages: [sourceMessage(7), sourceMessage(8)],
+      summary: "The characters recovered the archive ledger.",
+      now: "2026-08-27T04:00:00.000Z",
+    };
+    await persistCompletedSceneStoryEpisode(dependencies, input);
+    const followUp = Array.from(test.jobs.values()).find((job) => job.boundaryReason === "scene_conclusion")!;
+    const parentArcJobId = followUp.parentArcJobId;
+    expect(parentArcJobId).toEqual(expect.any(String));
+
+    let queryCount = 0;
+    test.storage.queryMemories = vi.fn(async () => {
+      queryCount += 1;
+      const memories = Array.from(test.memories.values());
+      return queryCount === 2 ? memories.filter((memory) => memory.id !== "episode-3") : memories;
+    });
+    await persistCompletedSceneStoryEpisode(dependencies, { ...input, now: "2026-08-27T04:02:00.000Z" });
+
+    expect(test.jobs.get(followUp.id)).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        followUp: null,
+        parentArcJobId,
+      }),
+    );
+    expect(Array.from(test.jobs.values()).filter((job) => job.level === "arc")).toHaveLength(1);
+  });
+
   it("completes an arc follow-up only after verifying an existing matching arc job", async () => {
     const test = harness();
     for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
