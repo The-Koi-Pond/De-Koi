@@ -196,39 +196,7 @@ export async function enqueueStoryArcJob(
   now = nowIso(),
 ): Promise<StoryProjectionJob | null> {
   const memories = await storyMemories(storage, input.chatId);
-  const episodeSlots = new Map<
-    string,
-    { memory: CanonicalMemoryRecord; payload: StoryProjectionPayload; active: boolean }
-  >();
-  for (const memory of memories) {
-    const payload = storyPayload(memory);
-    if (!payload || payload.level !== "episode" || memory.status === "deleted") continue;
-    const active = memory.status === "active" || memory.status === "pinned";
-    const existing = episodeSlots.get(payload.coverageId);
-    if (!existing || (active && !existing.active) || (active === existing.active && memory.updatedAt > existing.memory.updatedAt)) {
-      episodeSlots.set(payload.coverageId, { memory, payload, active });
-    }
-  }
-  const episodes = Array.from(episodeSlots.values()).map(({ memory, payload, active }) => ({
-    episodeId: memory.id,
-    coverageId: payload.coverageId,
-    messageIds: payload.messageIds,
-    firstMessageId: payload.firstMessageId,
-    lastMessageId: payload.lastMessageId,
-    createdAt: payload.sourceMessages?.[0]?.createdAt ?? memory.createdAt,
-    active,
-  }));
-  const coveredEpisodeIds = new Set(
-    memories
-      .flatMap((memory) => {
-        const payload = storyPayload(memory);
-        return payload?.level === "arc" && (memory.status === "active" || memory.status === "pinned")
-          ? payload.sourceEpisodeIds
-          : [];
-      })
-      .filter(Boolean),
-  );
-  const plan = planArcCoverage({ chatId: input.chatId, episodes, coveredEpisodeIds });
+  const plan = storyArcCoveragePlan(memories, input.chatId);
   if (!plan) return null;
   const sourceEpisodes = plan.sourceEpisodeIds.map((episodeId) => {
     const memory = memories.find((candidate) => candidate.id === episodeId)!;
@@ -281,6 +249,151 @@ export async function enqueueStoryArcJob(
     updatedAt: now,
   };
   return storage.create<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, job);
+}
+
+function storyArcCoveragePlan(memories: CanonicalMemoryRecord[], chatId: string) {
+  const episodeSlots = new Map<
+    string,
+    { memory: CanonicalMemoryRecord; payload: StoryProjectionPayload; active: boolean }
+  >();
+  for (const memory of memories) {
+    const payload = storyPayload(memory);
+    if (!payload || payload.level !== "episode" || memory.status === "deleted") continue;
+    const active = memory.status === "active" || memory.status === "pinned";
+    const existing = episodeSlots.get(payload.coverageId);
+    if (!existing || (active && !existing.active) || (active === existing.active && memory.updatedAt > existing.memory.updatedAt)) {
+      episodeSlots.set(payload.coverageId, { memory, payload, active });
+    }
+  }
+  const episodes = Array.from(episodeSlots.values()).map(({ memory, payload, active }) => ({
+    episodeId: memory.id,
+    coverageId: payload.coverageId,
+    messageIds: payload.messageIds,
+    firstMessageId: payload.firstMessageId,
+    lastMessageId: payload.lastMessageId,
+    createdAt: payload.sourceMessages?.[0]?.createdAt ?? memory.createdAt,
+    active,
+  }));
+  const coveredEpisodeIds = new Set(
+    memories
+      .flatMap((memory) => {
+        const payload = storyPayload(memory);
+        return payload?.level === "arc" && (memory.status === "active" || memory.status === "pinned")
+          ? payload.sourceEpisodeIds
+          : [];
+      })
+      .filter(Boolean),
+  );
+  return planArcCoverage({ chatId, episodes, coveredEpisodeIds });
+}
+
+async function ensureSceneArcFollowUpJob(
+  storage: StorageGateway,
+  input: {
+    memoryId: string;
+    payload: StoryProjectionPayload;
+    connectionId?: string | null;
+    provider?: string | null;
+    model?: string | null;
+  },
+  now: string,
+): Promise<StoryProjectionJob> {
+  const id = await sha256MemoryId(
+    "story-job",
+    `${STORY_SUMMARIZER_VERSION}\u001farc-follow-up\u001f${input.payload.coverageId}\u001f${input.payload.sourceFingerprint}`,
+  );
+  const existing =
+    (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
+  if (existing) {
+    if (
+      !sameJobIdentity(existing, {
+        level: "episode",
+        coverageId: input.payload.coverageId,
+        sourceFingerprint: input.payload.sourceFingerprint,
+      }) ||
+      existing.projectionMemoryId !== input.memoryId
+    ) {
+      throw new Error("Story consolidation SHA-256 follow-up job id collision");
+    }
+    return existing;
+  }
+  const job: StoryProjectionJob = {
+    id,
+    status: "pending",
+    level: "episode",
+    ownerChatId: input.payload.ownerChatId,
+    coverageId: input.payload.coverageId,
+    sourceFingerprint: input.payload.sourceFingerprint,
+    sourceMessageIds: input.payload.messageIds,
+    sourceEpisodeIds: [],
+    sourceMessages: input.payload.sourceMessages ?? [],
+    sourceEpisodes: [],
+    boundaryReason: "scene_conclusion",
+    supersedesMemoryId: null,
+    projectionMemoryId: input.memoryId,
+    followUp: "arc_enqueue",
+    parentArcJobId: null,
+    lastError: null,
+    connectionId: input.connectionId ?? null,
+    provider: input.provider ?? null,
+    model: input.model ?? null,
+    attempts: 0,
+    maxAttempts: MAX_ATTEMPTS,
+    nextAttemptAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+  return storage.create<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, job);
+}
+
+async function settleSceneArcFollowUp(
+  dependencies: StoryConsolidationDependencies,
+  followUp: StoryProjectionJob,
+  input: { chatId: string; connectionId?: string | null; provider?: string | null; model?: string | null },
+  now: string,
+): Promise<void> {
+  const { storage } = dependencies;
+  const updateFollowUp = async (patch: Record<string, unknown>) => {
+    try {
+      await storage.update(STORY_CONSOLIDATION_JOBS_COLLECTION, followUp.id, patch);
+    } catch (error) {
+      console.warn("[story-consolidation] scene arc follow-up update failed; pending intent retained", error);
+    }
+  };
+  try {
+    const arcJob = await enqueueStoryArcJob(storage, input, now);
+    if (!arcJob) {
+      await updateFollowUp({
+        status: "stale",
+        followUp: null,
+        parentArcJobId: null,
+        staleReason: "arc_not_eligible",
+        lastError: null,
+        nextAttemptAt: null,
+        updatedAt: now,
+      });
+    } else {
+      await updateFollowUp({
+        status: "completed",
+        followUp: null,
+        parentArcJobId: arcJob.id,
+        lastError: null,
+        nextAttemptAt: null,
+        completedAt: now,
+        updatedAt: now,
+      });
+    }
+  } catch (error) {
+    await updateFollowUp({
+      status: "retryable",
+      followUp: "arc_enqueue",
+      parentArcJobId: null,
+      lastError: error instanceof Error ? error.message : String(error),
+      nextAttemptAt: retryAt(now, 1),
+      updatedAt: now,
+    });
+  }
+  scheduleStoryConsolidationQueueProcessing(dependencies);
 }
 
 function citation(value: unknown, allowedMessageIds: Set<string>, allowedEpisodeIds: Set<string>): StoryProjectionCitation | null {
@@ -541,15 +654,30 @@ export async function processStoryConsolidationQueue(
       });
       try {
         if (job.followUp === "arc_enqueue") {
-          await enqueueStoryArcJob(storage, {
+          const arcJob = await enqueueStoryArcJob(storage, {
             chatId: job.ownerChatId,
             connectionId: job.connectionId ?? null,
             provider: job.provider ?? null,
             model: job.model ?? null,
           });
+          if (!arcJob) {
+            const terminal = attempts >= job.maxAttempts;
+            await updateJob(job.id, {
+              status: terminal ? "failed" : "retryable",
+              followUp: "arc_enqueue",
+              parentArcJobId: null,
+              lastError: "Parent arc is not currently eligible",
+              nextAttemptAt: terminal ? null : retryAt(now, attempts),
+              updatedAt: now,
+            });
+            if (terminal) result.failed += 1;
+            else result.retryable += 1;
+            continue;
+          }
           await updateJob(job.id, {
             status: "completed",
             followUp: null,
+            parentArcJobId: arcJob.id,
             lastError: null,
             nextAttemptAt: null,
             completedAt: now,
@@ -704,16 +832,6 @@ export async function persistCompletedSceneStoryEpisode(
   const now = input.now ?? nowIso();
   const existingMemories = await storyMemories(storage, input.ownerChatId);
   const existing = existingMemories.find((memory) => memory.id === id);
-  if (existing) {
-    await enqueueStoryArcJob(storage, {
-      chatId: input.ownerChatId,
-      connectionId: input.connectionId ?? null,
-      provider: input.provider ?? null,
-      model: input.model ?? null,
-    });
-    scheduleStoryConsolidationQueueProcessing(dependencies);
-    return existing;
-  }
   const citations = (key: keyof StoryProjectionSections): StoryProjectionCitation[] =>
     (input.sections?.[key] ?? [])
       .map((text) => text.trim())
@@ -783,15 +901,53 @@ export async function persistCompletedSceneStoryEpisode(
     supersedesMemoryId: null,
     coverageId: stableCoverageId,
   };
-  assertProjectionOverlapAllowed(syntheticJob, memoryInput, existingMemories);
+  if (!existing) assertProjectionOverlapAllowed(syntheticJob, memoryInput, existingMemories);
+  const prospectiveMemories = existing
+    ? existingMemories
+    : [...existingMemories, memoryInput as CanonicalMemoryRecord];
+  if (!storyArcCoveragePlan(prospectiveMemories, input.ownerChatId)) {
+    if (existing) return existing;
+    const created = await storage.createMemory(memoryInput);
+    await storage.rebuildMemoryIndex?.({ scope: { kind: "chat", id: input.ownerChatId } }).catch(() => undefined);
+    return created;
+  }
+  const followUp = await ensureSceneArcFollowUpJob(
+    storage,
+    {
+      memoryId: id,
+      payload,
+      connectionId: input.connectionId ?? null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+    },
+    now,
+  );
+  if (existing) {
+    await settleSceneArcFollowUp(
+      dependencies,
+      followUp,
+      {
+        chatId: input.ownerChatId,
+        connectionId: input.connectionId ?? null,
+        provider: input.provider ?? null,
+        model: input.model ?? null,
+      },
+      now,
+    );
+    return existing;
+  }
   const created = await storage.createMemory(memoryInput);
   await storage.rebuildMemoryIndex?.({ scope: { kind: "chat", id: input.ownerChatId } }).catch(() => undefined);
-  await enqueueStoryArcJob(storage, {
-    chatId: input.ownerChatId,
-    connectionId: input.connectionId ?? null,
-    provider: input.provider ?? null,
-    model: input.model ?? null,
-  });
-  scheduleStoryConsolidationQueueProcessing(dependencies);
+  await settleSceneArcFollowUp(
+    dependencies,
+    followUp,
+    {
+      chatId: input.ownerChatId,
+      connectionId: input.connectionId ?? null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+    },
+    now,
+  );
   return created;
 }

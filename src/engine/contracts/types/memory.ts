@@ -84,6 +84,7 @@ export interface StoryProjectionJob extends Record<string, unknown> {
   supersedesMemoryId?: string | null;
   projectionMemoryId?: string | null;
   followUp?: "arc_enqueue" | null;
+  parentArcJobId?: string | null;
   lastError?: string | null;
   connectionId?: string | null;
   provider?: string | null;

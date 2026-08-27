@@ -363,7 +363,7 @@ describe("story consolidation queue", () => {
     expect(llm.complete).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a formal-scene parent arc enqueue without duplicating its committed episode", async () => {
+  it("keeps formal-scene persistence successful and durably retries parent arc enqueue", async () => {
     const test = harness();
     for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
     const input = {
@@ -385,19 +385,106 @@ describe("story consolidation queue", () => {
     const dependencies = { storage: test.storage, llm: {} as LlmGateway };
     test.setFailArcCreate(true);
 
-    await expect(persistCompletedSceneStoryEpisode(dependencies, input)).rejects.toThrow(
-      "temporary arc enqueue failure",
-    );
-    expect(test.memories.size).toBe(4);
-
-    test.setFailArcCreate(false);
     await expect(persistCompletedSceneStoryEpisode(dependencies, input)).resolves.toMatchObject({
       kind: "episode",
       content: input.summary,
     });
+    expect(test.memories.size).toBe(4);
+    const followUp = Array.from(test.jobs.values()).find((job) => job.followUp === "arc_enqueue");
+    expect(followUp).toEqual(
+      expect.objectContaining({
+        level: "episode",
+        status: "retryable",
+        projectionMemoryId: expect.any(String),
+      }),
+    );
 
+    test.setFailArcCreate(false);
+    const retried = await processStoryConsolidationQueue(
+      dependencies,
+      { now: "2026-08-27T04:02:00.000Z" },
+    );
+
+    expect(retried.completed).toBe(1);
     expect(test.memories.size).toBe(4);
     expect(Array.from(test.jobs.values()).some((job) => job.level === "arc")).toBe(true);
+    expect(test.jobs.get(followUp!.id)).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        followUp: null,
+        parentArcJobId: expect.any(String),
+      }),
+    );
+    await expect(persistCompletedSceneStoryEpisode(dependencies, input)).resolves.toMatchObject({
+      kind: "episode",
+      content: input.summary,
+    });
+    expect(test.memories.size).toBe(4);
+  });
+
+  it("keeps an arc follow-up retryable when coverage is temporarily ineligible", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    test.setFailArcCreate(true);
+    await persistCompletedSceneStoryEpisode(
+      { storage: test.storage, llm: {} as LlmGateway },
+      {
+        ownerChatId: "chat-1",
+        sceneChatId: "scene-1",
+        messages: [sourceMessage(7), sourceMessage(8)],
+        summary: "The characters recovered the archive ledger.",
+        now: "2026-08-27T04:00:00.000Z",
+      },
+    );
+    const followUp = Array.from(test.jobs.values()).find((job) => job.followUp === "arc_enqueue")!;
+    const staleEpisode = test.memories.get("episode-3")!;
+    test.memories.set("episode-3", { ...staleEpisode, status: "stale" });
+    test.setFailArcCreate(false);
+
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm: {} as LlmGateway },
+      { now: "2026-08-27T04:02:00.000Z" },
+    );
+
+    expect(result.retryable).toBe(1);
+    expect(Array.from(test.jobs.values()).filter((job) => job.level === "arc")).toHaveLength(0);
+    expect(test.jobs.get(followUp.id)).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        followUp: "arc_enqueue",
+        parentArcJobId: null,
+      }),
+    );
+  });
+
+  it("completes an arc follow-up only after verifying an existing matching arc job", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    test.setFailArcCreate(true);
+    const dependencies = { storage: test.storage, llm: {} as LlmGateway };
+    await persistCompletedSceneStoryEpisode(dependencies, {
+      ownerChatId: "chat-1",
+      sceneChatId: "scene-1",
+      messages: [sourceMessage(7), sourceMessage(8)],
+      summary: "The characters recovered the archive ledger.",
+      now: "2026-08-27T04:00:00.000Z",
+    });
+    const followUp = Array.from(test.jobs.values()).find((job) => job.followUp === "arc_enqueue")!;
+    test.setFailArcCreate(false);
+    const existingArc = await enqueueStoryArcJob(test.storage, { chatId: "chat-1" }, "2026-08-27T04:01:00.000Z");
+
+    const result = await processStoryConsolidationQueue(
+      dependencies,
+      { now: "2026-08-27T04:02:00.000Z" },
+    );
+
+    expect(result.completed).toBe(1);
+    expect(test.jobs.get(followUp.id)).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        parentArcJobId: existingArc!.id,
+      }),
+    );
   });
 
   it("rejects overlapping active episode coverage without replacing the valid projection", async () => {
