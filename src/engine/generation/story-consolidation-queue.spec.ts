@@ -457,6 +457,66 @@ describe("story consolidation queue", () => {
     );
   });
 
+  it("keeps the immediate scene arc follow-up retryable when the arc plan disappears", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    let queryCount = 0;
+    test.storage.queryMemories = vi.fn(async () => {
+      queryCount += 1;
+      const memories = Array.from(test.memories.values());
+      return queryCount === 2
+        ? memories.filter((memory) => !memory.tags.includes("formal-scene"))
+        : memories;
+    });
+
+    await expect(
+      persistCompletedSceneStoryEpisode(
+        { storage: test.storage, llm: {} as LlmGateway },
+        {
+          ownerChatId: "chat-1",
+          sceneChatId: "scene-1",
+          messages: [sourceMessage(7), sourceMessage(8)],
+          summary: "The characters recovered the archive ledger.",
+          now: "2026-08-27T04:00:00.000Z",
+        },
+      ),
+    ).resolves.toMatchObject({ kind: "episode" });
+
+    const followUp = Array.from(test.jobs.values()).find((job) => job.boundaryReason === "scene_conclusion");
+    expect(followUp).toEqual(
+      expect.objectContaining({
+        status: "retryable",
+        followUp: "arc_enqueue",
+        parentArcJobId: null,
+        nextAttemptAt: expect.any(String),
+      }),
+    );
+  });
+
+  it("does not persist a scene arc follow-up when the episode write fails", async () => {
+    const test = harness();
+    for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
+    test.storage.createMemory = vi.fn(async () => {
+      throw new Error("episode write failed");
+    });
+
+    await expect(
+      persistCompletedSceneStoryEpisode(
+        { storage: test.storage, llm: {} as LlmGateway },
+        {
+          ownerChatId: "chat-1",
+          sceneChatId: "scene-1",
+          messages: [sourceMessage(7), sourceMessage(8)],
+          summary: "The characters recovered the archive ledger.",
+          now: "2026-08-27T04:00:00.000Z",
+        },
+      ),
+    ).rejects.toThrow("episode write failed");
+
+    expect(Array.from(test.jobs.values()).filter((job) => job.followUp === "arc_enqueue")).toHaveLength(0);
+    expect(test.memories.size).toBe(3);
+  });
+
   it("completes an arc follow-up only after verifying an existing matching arc job", async () => {
     const test = harness();
     for (let index = 1; index <= 3; index += 1) await test.storage.createMemory?.(episodeMemory(index));
@@ -473,18 +533,19 @@ describe("story consolidation queue", () => {
     test.setFailArcCreate(false);
     const existingArc = await enqueueStoryArcJob(test.storage, { chatId: "chat-1" }, "2026-08-27T04:01:00.000Z");
 
-    const result = await processStoryConsolidationQueue(
+    await processStoryConsolidationQueue(
       dependencies,
       { now: "2026-08-27T04:02:00.000Z" },
     );
 
-    expect(result.completed).toBe(1);
-    expect(test.jobs.get(followUp.id)).toEqual(
-      expect.objectContaining({
-        status: "completed",
-        parentArcJobId: existingArc!.id,
-      }),
-    );
+    await vi.waitFor(() => {
+      expect(test.jobs.get(followUp.id)).toEqual(
+        expect.objectContaining({
+          status: "completed",
+          parentArcJobId: existingArc!.id,
+        }),
+      );
+    });
   });
 
   it("rejects overlapping active episode coverage without replacing the valid projection", async () => {

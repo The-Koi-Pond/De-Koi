@@ -364,12 +364,12 @@ async function settleSceneArcFollowUp(
     const arcJob = await enqueueStoryArcJob(storage, input, now);
     if (!arcJob) {
       await updateFollowUp({
-        status: "stale",
-        followUp: null,
+        status: "retryable",
+        followUp: "arc_enqueue",
         parentArcJobId: null,
-        staleReason: "arc_not_eligible",
-        lastError: null,
-        nextAttemptAt: null,
+        staleReason: null,
+        lastError: "Parent arc is not currently eligible",
+        nextAttemptAt: retryAt(now, 1),
         updatedAt: now,
       });
     } else {
@@ -911,43 +911,40 @@ export async function persistCompletedSceneStoryEpisode(
     await storage.rebuildMemoryIndex?.({ scope: { kind: "chat", id: input.ownerChatId } }).catch(() => undefined);
     return created;
   }
-  const followUp = await ensureSceneArcFollowUpJob(
-    storage,
-    {
-      memoryId: id,
-      payload,
-      connectionId: input.connectionId ?? null,
-      provider: input.provider ?? null,
-      model: input.model ?? null,
-    },
-    now,
-  );
+  const ensureAndSettleFollowUp = async () => {
+    try {
+      const followUp = await ensureSceneArcFollowUpJob(
+        storage,
+        {
+          memoryId: id,
+          payload,
+          connectionId: input.connectionId ?? null,
+          provider: input.provider ?? null,
+          model: input.model ?? null,
+        },
+        now,
+      );
+      await settleSceneArcFollowUp(
+        dependencies,
+        followUp,
+        {
+          chatId: input.ownerChatId,
+          connectionId: input.connectionId ?? null,
+          provider: input.provider ?? null,
+          model: input.model ?? null,
+        },
+        now,
+      );
+    } catch (error) {
+      console.warn("[story-consolidation] scene arc follow-up enqueue failed after episode commit", error);
+    }
+  };
   if (existing) {
-    await settleSceneArcFollowUp(
-      dependencies,
-      followUp,
-      {
-        chatId: input.ownerChatId,
-        connectionId: input.connectionId ?? null,
-        provider: input.provider ?? null,
-        model: input.model ?? null,
-      },
-      now,
-    );
+    await ensureAndSettleFollowUp();
     return existing;
   }
   const created = await storage.createMemory(memoryInput);
   await storage.rebuildMemoryIndex?.({ scope: { kind: "chat", id: input.ownerChatId } }).catch(() => undefined);
-  await settleSceneArcFollowUp(
-    dependencies,
-    followUp,
-    {
-      chatId: input.ownerChatId,
-      connectionId: input.connectionId ?? null,
-      provider: input.provider ?? null,
-      model: input.model ?? null,
-    },
-    now,
-  );
+  await ensureAndSettleFollowUp();
   return created;
 }

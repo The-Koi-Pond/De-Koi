@@ -203,7 +203,9 @@
       "raw-history and atomic-memory prompt priority",
       "active-swipe journal invalidation and restart recovery",
       "parent-arc enqueue retry after episode commit",
-      "arc source revalidation before summarization"
+      "arc source revalidation before summarization",
+      "immediate scene arc eligibility race remains retryable",
+      "failed scene episode write leaves no orphan follow-up job"
     ],
     "negativeRowsTested": [
       "No internal or hidden source capture",
@@ -214,7 +216,7 @@
       "No Conversation or Game automatic consolidation"
     ],
     "afterEvidence": [
-      "pnpm vitest run across 10 focused files (116 tests)",
+      "pnpm vitest run across 10 focused files (118 tests)",
       "cargo test --manifest-path src-tauri/Cargo.toml story_ (focused story chain passed)",
       "cargo test --manifest-path src-tauri/Cargo.toml -p marinara-storage (162 tests passed)",
       "cargo test --manifest-path src-tauri/Cargo.toml --workspace -- --test-threads=1 (all app, crate, and doc-test suites passed)",
@@ -263,7 +265,8 @@
     "reportOnlyWhenComplete": true
   },
   "notes": [
-    "Final-head Bunny retry on 5f5a9a18 identified two parent-arc follow-up defects; formal scene persistence now records the retry intent before episode commit, keeps visible closure successful after enqueue failure, and completes follow-up work only after a concrete arc job is returned.",
+    "Final-head Bunny review on 70f8c9f9 identified two remaining parent-arc durability defects; formal scene persistence now commits the episode before creating its follow-up, leaves no orphan job after a failed episode write, and keeps both immediate and queued null arc plans retryable until concrete parent work exists.",
+    "Final-head Bunny retry on 5f5a9a18 identified two parent-arc follow-up defects; formal scene persistence keeps visible closure successful after enqueue failure and completes follow-up work only after a concrete arc job is returned.",
     "Final-head Bunny review on 2089a267 identified ten concrete findings; the repair pass adds atomic source invalidation, arc freshness and retry guarantees, strict scene persistence, and consistent edit and supersede behavior before a new final-head review.",
     "Hosted Linux nextest exposed an incomplete chat-expunge receipt assertion; the regression now seeds, clears, and reports story-consolidation-jobs in both exhaustive receipt tests.",
     "Validation checkboxes remain unchecked for human verification, as required by repository guidance.",
