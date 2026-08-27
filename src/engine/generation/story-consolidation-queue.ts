@@ -330,7 +330,7 @@ function summarizerPrompt(job: StoryProjectionJob): string {
     `Create a source-grounded ${job.level} projection for long-form roleplay continuity.`,
     "Return JSON only with title, summary, and sections.",
     "sections must contain arrays named events, choices, relationshipShifts, promises, reveals, unresolvedHooks, and currentState.",
-    `Every section item must be {\"text\": string, \"${citationField}\": string[]} and cite only IDs shown below.`,
+    `Every section item must be {"text": string, "${citationField}": string[]} and cite only IDs shown below.`,
     "Capture concrete events and current state without inventing facts. Narrative projections are not authoritative over atomic memories.",
     "Keep summary readable, third-person, and under 260 words.",
     "",
