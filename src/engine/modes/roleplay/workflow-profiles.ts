@@ -254,12 +254,19 @@ export function resolveRoleplayWorkflowProfile(
   }
 
   for (const [agentId, connectionId] of Object.entries(recipe.connectionOverrides ?? {})) {
+    const agentSelectedByDefault = rows.some(
+      (row) => row.id === `agent:${agentId}` && row.kind === "change" && row.selectedByDefault,
+    );
     rows.push({
       id: `connection:${agentId}`,
       kind: "change",
       before: agentConnectionOverrides[agentId],
       after: connectionId,
-      selectedByDefault: input.capabilities.localSidecarReady && agentConnectionOverrides[agentId] === undefined,
+      selectedByDefault:
+        metadata.enableAgents !== false &&
+        input.capabilities.localSidecarReady &&
+        agentConnectionOverrides[agentId] === undefined &&
+        (activeAgentIds.includes(agentId) || agentSelectedByDefault),
       selectable: input.capabilities.localSidecarReady,
       expectedExtraCalls: 0,
       destination: "Local sidecar model",

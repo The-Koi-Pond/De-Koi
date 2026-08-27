@@ -248,6 +248,26 @@ describe("roleplay workflow profile recipes", () => {
     ).toMatchObject({ enableAgents: true, activeAgentIds: ["continuity"] });
   });
 
+  it("keeps Local Assist agent and route defaults paired when automatic agents are explicitly disabled", () => {
+    const explicitlyDisabled = resolveRoleplayWorkflowProfile("local-assist", {
+      chat: { ...chat, metadata: { ...chat.metadata, enableAgents: false } },
+      capabilities,
+    });
+    const selectedItemIds = explicitlyDisabled.rows
+      .filter((row) => row.kind === "change" && row.selectedByDefault)
+      .map((row) => row.id);
+
+    expect(selectedItemIds).not.toContain("agent:world-state");
+    expect(selectedItemIds).not.toContain("connection:world-state");
+    expect(selectedItemIds).not.toContain("agent:expression");
+    expect(selectedItemIds).not.toContain("connection:expression");
+    expect(selectedItemIds).not.toContain("agent:character-tracker");
+    expect(selectedItemIds).not.toContain("connection:character-tracker");
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(explicitlyDisabled, selectedItemIds, "2026-08-26T12:00:00.000Z"),
+    ).not.toThrow();
+  });
+
   it("builds a selected-only Local Assist patch without changing the writer connection", () => {
     const localAssist = resolveRoleplayWorkflowProfile("local-assist", {
       chat: {
