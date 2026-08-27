@@ -1,0 +1,368 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1,
+  buildRoleplayWorkflowProfilePatch,
+  buildRoleplayWorkflowProfileRevertPatch,
+  resolveRoleplayWorkflowProfile,
+} from "./workflow-profiles";
+
+const capabilities = {
+  hasUniversalPreset: true,
+  localSidecarReady: true,
+  hasImageConnection: true,
+  hasUsableBackgroundAssets: true,
+  musicModuleEnabled: true,
+  ttsReady: true,
+};
+
+const chat = {
+  mode: "roleplay" as const,
+  promptPresetId: null,
+  metadata: {
+    agentOverrides: {},
+    activeAgentIds: [],
+    activeToolIds: [],
+    presetChoices: {},
+    summary: null,
+    tags: [],
+  },
+};
+
+describe("roleplay workflow profile recipes", () => {
+  it("rejects non-Roleplay chats at the resolver boundary", () => {
+    expect(() =>
+      resolveRoleplayWorkflowProfile("minimal-clean", {
+        chat: { ...chat, mode: "game" },
+        capabilities,
+      }),
+    ).toThrow("Roleplay workflow profiles can only be resolved for Roleplay chats");
+  });
+
+  it("defines the exact v1 recipes and their expected extra calls", () => {
+    expect(ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1).toEqual({
+      "minimal-clean": { version: 1, agentIds: [] },
+      "longform-continuity": {
+        version: 1,
+        agentIds: ["continuity", "world-state", "chat-summary"],
+        runIntervalOverrides: { "chat-summary": 5 },
+      },
+      cinematic: {
+        version: 1,
+        agentIds: ["expression", "background"],
+        optionalAgentIds: ["illustrator", "music-dj"],
+      },
+      "local-assist": {
+        version: 1,
+        agentIds: ["world-state", "expression", "character-tracker"],
+        connectionOverrides: {
+          "world-state": "sidecar:local",
+          expression: "sidecar:local",
+          "character-tracker": "sidecar:local",
+        },
+      },
+    });
+
+    const longform = resolveRoleplayWorkflowProfile("longform-continuity", { chat, capabilities });
+    expect(longform.rows.filter((row) => row.kind === "change").map((row) => [row.id, row.expectedExtraCalls])).toEqual(
+      [
+        ["prompt-preset", 0],
+        ["memory-recall", 0],
+        ["enable-automatic-agents", 0],
+        ["agent:continuity", 1],
+        ["agent:world-state", 1],
+        ["agent:chat-summary", 1],
+        ["cadence:chat-summary", 0],
+      ],
+    );
+  });
+
+  it("defaults only absent matching values and keeps Minimal agent disabling opt-in for existing agents", () => {
+    const longform = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: {
+        ...chat,
+        promptPresetId: "custom-roleplay-preset",
+        metadata: {
+          ...chat.metadata,
+          enableMemoryRecall: false,
+          activeAgentIds: ["world-state"],
+        },
+      },
+      capabilities,
+    });
+
+    expect(
+      Object.fromEntries(
+        longform.rows.filter((row) => row.kind === "change").map((row) => [row.id, row.selectedByDefault]),
+      ),
+    ).toEqual({
+      "prompt-preset": false,
+      "memory-recall": false,
+      "enable-automatic-agents": true,
+      "agent:continuity": true,
+      "agent:world-state": false,
+      "agent:chat-summary": true,
+      "cadence:chat-summary": true,
+    });
+
+    const minimal = resolveRoleplayWorkflowProfile("minimal-clean", {
+      chat: { ...chat, metadata: { ...chat.metadata, activeAgentIds: ["continuity"] } },
+      capabilities,
+    });
+    expect(minimal.rows.find((row) => row.id === "disable-automatic-agents")).toMatchObject({
+      selectedByDefault: false,
+      selectable: true,
+    });
+
+    const minimalWithExplicitAgentsEnabled = resolveRoleplayWorkflowProfile("minimal-clean", {
+      chat: { ...chat, metadata: { ...chat.metadata, enableAgents: true, activeAgentIds: [] } },
+      capabilities,
+    });
+    expect(minimalWithExplicitAgentsEnabled.rows.find((row) => row.id === "disable-automatic-agents")).toMatchObject({
+      selectedByDefault: false,
+      selectable: true,
+    });
+  });
+
+  it("discloses unavailable model and media prerequisites without making informational rows changes", () => {
+    const cinematic = resolveRoleplayWorkflowProfile("cinematic", {
+      chat,
+      capabilities: {
+        ...capabilities,
+        hasUniversalPreset: false,
+        hasImageConnection: false,
+        hasUsableBackgroundAssets: false,
+        musicModuleEnabled: false,
+        ttsReady: false,
+      },
+    });
+
+    expect(cinematic.rows.find((row) => row.id === "prompt-preset")).toMatchObject({ selectable: false });
+    expect(cinematic.rows.find((row) => row.id === "agent:background")).toMatchObject({
+      selectable: false,
+      prerequisites: [expect.stringContaining("background")],
+    });
+    expect(cinematic.rows.find((row) => row.id === "agent:illustrator")).toMatchObject({
+      selectable: false,
+      selectedByDefault: false,
+      prerequisites: [expect.stringContaining("image")],
+    });
+    expect(cinematic.rows.find((row) => row.id === "agent:music-dj")).toMatchObject({
+      selectable: false,
+      selectedByDefault: false,
+      destination: expect.stringContaining("YouTube"),
+      prerequisites: [expect.stringContaining("Music module")],
+    });
+    expect(cinematic.rows.filter((row) => row.kind === "information").map((row) => row.id)).toEqual(
+      expect.arrayContaining(["prerequisite:music-module", "information:tts-readiness"]),
+    );
+
+    const configuredIllustrator = resolveRoleplayWorkflowProfile("cinematic", {
+      chat,
+      capabilities: {
+        ...capabilities,
+        imageConnection: { label: "Studio Image Cloud", mayUsePaidOrExternalService: true },
+      },
+    });
+    expect(configuredIllustrator.rows.find((row) => row.id === "agent:illustrator")).toMatchObject({
+      destination: "Studio Image Cloud (configured image connection)",
+      warnings: ["Image generation may use paid or external provider services."],
+    });
+
+    const selfHostedIllustrator = resolveRoleplayWorkflowProfile("cinematic", {
+      chat,
+      capabilities: {
+        ...capabilities,
+        imageConnection: { label: "Local Image Server", mayUsePaidOrExternalService: false },
+      },
+    });
+    expect(selfHostedIllustrator.rows.find((row) => row.id === "agent:illustrator")).toMatchObject({
+      destination: "Local Image Server (configured image connection)",
+      warnings: ["Configured image connection reports no paid or external provider use."],
+    });
+  });
+
+  it("keeps Local Assist agent rows unavailable until the local sidecar is ready", () => {
+    const unavailable = resolveRoleplayWorkflowProfile("local-assist", {
+      chat,
+      capabilities: { ...capabilities, localSidecarReady: false },
+    });
+
+    for (const agentId of ["world-state", "expression", "character-tracker"]) {
+      expect(unavailable.rows.find((row) => row.id === `agent:${agentId}`)).toMatchObject({
+        selectable: false,
+        selectedByDefault: false,
+        prerequisites: ["The local sidecar must be ready before adding Local Assist agents."],
+      });
+    }
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(unavailable, ["agent:world-state"], "2026-08-26T12:00:00.000Z"),
+    ).toThrow("not selectable");
+  });
+
+  it("offers an individual agent activation row and applies it for normal chats while respecting explicit disablement", () => {
+    const normal = resolveRoleplayWorkflowProfile("longform-continuity", { chat, capabilities });
+    expect(normal.rows.find((row) => row.id === "enable-automatic-agents")).toMatchObject({
+      selectable: true,
+      selectedByDefault: true,
+      before: undefined,
+      after: true,
+    });
+    expect(
+      buildRoleplayWorkflowProfilePatch(
+        normal,
+        ["enable-automatic-agents", "agent:continuity"],
+        "2026-08-26T12:00:00.000Z",
+      ).metadata,
+    ).toMatchObject({ enableAgents: true, activeAgentIds: ["continuity"] });
+
+    const explicitlyDisabled = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: { ...chat, metadata: { ...chat.metadata, enableAgents: false } },
+      capabilities,
+    });
+    expect(explicitlyDisabled.rows.find((row) => row.id === "enable-automatic-agents")).toMatchObject({
+      selectedByDefault: false,
+      selectable: true,
+    });
+  });
+
+  it("does not let selected profile agents bypass explicit automatic-agent disablement", () => {
+    const explicitlyDisabled = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: { ...chat, metadata: { ...chat.metadata, enableAgents: false } },
+      capabilities,
+    });
+
+    expect(explicitlyDisabled.rows.find((row) => row.id === "agent:continuity")).toMatchObject({
+      selectedByDefault: false,
+      selectable: true,
+    });
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(explicitlyDisabled, ["agent:continuity"], "2026-08-26T12:00:00.000Z"),
+    ).toThrow("enable-automatic-agents");
+    expect(
+      buildRoleplayWorkflowProfilePatch(
+        explicitlyDisabled,
+        ["enable-automatic-agents", "agent:continuity"],
+        "2026-08-26T12:00:00.000Z",
+      ).metadata,
+    ).toMatchObject({ enableAgents: true, activeAgentIds: ["continuity"] });
+  });
+
+  it("builds a selected-only Local Assist patch without changing the writer connection", () => {
+    const localAssist = resolveRoleplayWorkflowProfile("local-assist", {
+      chat: {
+        ...chat,
+        connectionId: "writer-cloud",
+        metadata: {
+          ...chat.metadata,
+          enableAgents: true,
+          activeAgentIds: ["continuity"],
+          agentConnectionOverrides: { continuity: "review" },
+        },
+      },
+      capabilities,
+    });
+    const patch = buildRoleplayWorkflowProfilePatch(
+      localAssist,
+      [
+        "agent:world-state",
+        "agent:expression",
+        "agent:character-tracker",
+        "connection:world-state",
+        "connection:expression",
+        "connection:character-tracker",
+      ],
+      "2026-08-26T12:00:00.000Z",
+    );
+
+    expect(patch).not.toHaveProperty("connectionId");
+    expect(patch.metadata).toMatchObject({
+      activeAgentIds: ["continuity", "world-state", "expression", "character-tracker"],
+      agentConnectionOverrides: {
+        continuity: "review",
+        "world-state": "sidecar:local",
+        expression: "sidecar:local",
+        "character-tracker": "sidecar:local",
+      },
+      roleplayWorkflowApplication: {
+        profileId: "local-assist",
+        profileVersion: 1,
+        appliedAt: "2026-08-26T12:00:00.000Z",
+        selectedItemIds: expect.arrayContaining(["connection:world-state"]),
+      },
+    });
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(localAssist, ["agent:illustrator"], "2026-08-26T12:00:00.000Z"),
+    ).toThrow("not selectable");
+  });
+
+  it("accepts only dependency-safe Local Assist selections for absent, active, and already-routed baselines", () => {
+    const absent = resolveRoleplayWorkflowProfile("local-assist", { chat, capabilities });
+    expect(() => buildRoleplayWorkflowProfilePatch(absent, ["agent:world-state"], "2026-08-26T12:00:00.000Z")).toThrow(
+      "local sidecar route",
+    );
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(absent, ["connection:world-state"], "2026-08-26T12:00:00.000Z"),
+    ).toThrow("active agent");
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(
+        absent,
+        ["enable-automatic-agents", "agent:world-state", "connection:world-state"],
+        "2026-08-26T12:00:00.000Z",
+      ),
+    ).not.toThrow();
+
+    const alreadyActive = resolveRoleplayWorkflowProfile("local-assist", {
+      chat: { ...chat, metadata: { ...chat.metadata, activeAgentIds: ["world-state"] } },
+      capabilities,
+    });
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(alreadyActive, ["connection:world-state"], "2026-08-26T12:00:00.000Z"),
+    ).not.toThrow();
+
+    const alreadyRouted = resolveRoleplayWorkflowProfile("local-assist", {
+      chat: {
+        ...chat,
+        metadata: {
+          ...chat.metadata,
+          enableAgents: true,
+          agentConnectionOverrides: { "world-state": "sidecar:local" },
+        },
+      },
+      capabilities,
+    });
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(alreadyRouted, ["agent:world-state"], "2026-08-26T12:00:00.000Z"),
+    ).not.toThrow();
+  });
+
+  it("reverts only values still owned by the recorded application and clears its receipt", () => {
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: { ...chat, metadata: { ...chat.metadata, enableAgents: true, activeAgentIds: ["existing"] } },
+      capabilities,
+    });
+    const applied = buildRoleplayWorkflowProfilePatch(
+      resolution,
+      ["prompt-preset", "memory-recall", "agent:continuity"],
+      "2026-08-26T12:00:00.000Z",
+    );
+    const reverted = buildRoleplayWorkflowProfileRevertPatch(
+      {
+        promptPresetId: "preset_universal_v2",
+        metadata: {
+          ...chat.metadata,
+          activeAgentIds: ["existing", "continuity"],
+          enableMemoryRecall: false,
+          roleplayWorkflowApplication: applied.metadata.roleplayWorkflowApplication,
+        },
+      },
+      applied.metadata.roleplayWorkflowApplication!,
+    );
+
+    expect(reverted.patch).toMatchObject({
+      promptPresetId: null,
+      metadata: { activeAgentIds: ["existing"], roleplayWorkflowApplication: null },
+    });
+    expect(reverted.skippedConflicts).toEqual(["memory-recall"]);
+  });
+});

@@ -1,5 +1,6 @@
 import { BUILT_IN_AGENT_IDS } from "../../contracts/types/agent";
 import type {
+  ChatMode,
   ChatMetadata,
   RoleplayWorkflowApplicationChange,
   RoleplayWorkflowApplicationReceipt,
@@ -57,6 +58,7 @@ export interface RoleplayWorkflowCapabilities {
 
 export interface RoleplayWorkflowProfileInput {
   chat: {
+    mode: ChatMode;
     promptPresetId: string | null;
     connectionId?: string | null;
     metadata: Partial<ChatMetadata>;
@@ -108,6 +110,9 @@ export function resolveRoleplayWorkflowProfile(
   profileId: RoleplayWorkflowProfileId,
   input: RoleplayWorkflowProfileInput,
 ): RoleplayWorkflowProfileResolution {
+  if (input.chat.mode !== "roleplay") {
+    throw new Error("Roleplay workflow profiles can only be resolved for Roleplay chats.");
+  }
   const recipe = ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1[profileId];
   const metadata = input.chat.metadata;
   const activeAgentIds = metadata.activeAgentIds ?? [];
@@ -217,7 +222,8 @@ export function resolveRoleplayWorkflowProfile(
       kind: "change",
       before: activeAgentIds,
       after: [...new Set([...activeAgentIds, agentId])],
-      selectedByDefault: selectable && !isIllustrator && !isMusic && !activeAgentIds.includes(agentId),
+      selectedByDefault:
+        selectable && metadata.enableAgents !== false && !isIllustrator && !isMusic && !activeAgentIds.includes(agentId),
       selectable,
       expectedExtraCalls: 1,
       destination,
@@ -309,6 +315,7 @@ export function buildRoleplayWorkflowProfilePatch(
 
   const selected = new Set(selectedItemIds);
   validateLocalAssistSelection(resolution, selected);
+  validateAgentEnablementSelection(resolution, selected);
   const changes: RoleplayWorkflowApplicationChange[] = [];
   const metadata: Partial<ChatMetadata> = {};
   const patch: RoleplayWorkflowProfilePatch = { metadata };
@@ -447,6 +454,20 @@ function validateLocalAssistSelection(
   selectedItemIds: ReadonlySet<string>,
 ): void {
   selectedLocalAssistAgentIds(resolution, selectedItemIds);
+}
+
+function validateAgentEnablementSelection(
+  resolution: RoleplayWorkflowProfileResolution,
+  selectedItemIds: ReadonlySet<string>,
+): void {
+  const selectsAgent = [...selectedItemIds].some((itemId) => itemId.startsWith("agent:"));
+  if (
+    selectsAgent &&
+    resolution.baseline.metadata.enableAgents !== true &&
+    !selectedItemIds.has("enable-automatic-agents")
+  ) {
+    throw new Error("Selected profile agents require enable-automatic-agents to be selected.");
+  }
 }
 
 export function buildRoleplayWorkflowProfileRevertPatch(

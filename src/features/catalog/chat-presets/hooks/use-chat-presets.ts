@@ -381,6 +381,9 @@ export async function applyRoleplayWorkflowProfile(
   const storage = input.storage ?? storageApi;
   const chat = await storage.get<Chat>("chats", input.chatId);
   if (!chat) throw new Error(`Chat ${input.chatId} was not found`);
+  if (chat.mode !== "roleplay") {
+    throw new Error("Roleplay workflow profiles can only be applied to Roleplay chats.");
+  }
   const capabilities = await input.resolveCapabilities(chat);
 
   const resolution = resolveRoleplayWorkflowProfile(input.profileId, { chat, capabilities });
