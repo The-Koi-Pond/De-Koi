@@ -97,6 +97,28 @@ describe("settings discovery actions", () => {
     });
   });
 
+  it("routes workflow profiles only for an active Roleplay chat", () => {
+    useChatStore.setState({
+      activeChatId: "conversation-chat",
+      activeChat: { id: "conversation-chat", mode: "conversation" } as never,
+    });
+    expect(
+      resolveDiscoveryAction({ type: "open-chat-destination", destination: "chat-settings-workflow-profile" as never }),
+    ).toEqual({
+      status: "blocked",
+      message: "Roleplay Workflow Profiles needs an active Roleplay chat.",
+      fallback: { type: "open-mode-setup", mode: "roleplay", label: "Set up Roleplay" },
+    });
+
+    useChatStore.setState({
+      activeChatId: "roleplay-chat",
+      activeChat: { id: "roleplay-chat", mode: "roleplay" } as never,
+    });
+    expect(
+      resolveDiscoveryAction({ type: "open-chat-destination", destination: "chat-settings-workflow-profile" as never }),
+    ).toEqual({ status: "handled" });
+  });
+
   it("keeps malformed runtime destinations readable instead of rendering undefined", () => {
     expect(
       getDiscoveryActionLabel({

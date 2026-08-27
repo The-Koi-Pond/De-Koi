@@ -1,0 +1,538 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  apply: vi.fn(),
+  revert: vi.fn(),
+  resolveCapabilities: vi.fn(),
+}));
+
+vi.mock("../hooks/use-chat-presets", () => ({
+  useApplyRoleplayWorkflowProfile: () => ({ mutateAsync: mocks.apply, isPending: false }),
+  useRevertRoleplayWorkflowProfile: () => ({ mutateAsync: mocks.revert, isPending: false }),
+}));
+
+vi.mock("../roleplay-workflow-capabilities", () => ({
+  resolveRoleplayWorkflowCapabilities: mocks.resolveCapabilities,
+  isLocalSidecarAssignmentReady: vi.fn(async () => true),
+}));
+
+import type { Chat } from "../../../../engine/contracts/types/chat";
+import { resolveRoleplayWorkflowProfile } from "../../../../engine/modes/roleplay/workflow-profiles";
+import { useUIStore } from "../../../../shared/stores/ui.store";
+import { RoleplayWorkflowProfileChooser } from "./RoleplayWorkflowProfileChooser";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const chat = {
+  id: "roleplay-chat",
+  mode: "roleplay",
+  promptPresetId: null,
+  metadata: {
+    activeAgentIds: [],
+    activeToolIds: [],
+    agentOverrides: {},
+    presetChoices: {},
+    summary: null,
+    tags: [],
+  },
+} as unknown as Chat;
+
+describe("RoleplayWorkflowProfileChooser", () => {
+  let root: Root;
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    mocks.resolveCapabilities.mockResolvedValue({
+      hasUniversalPreset: true,
+      localSidecarReady: true,
+      hasImageConnection: true,
+      imageConnection: { label: "Studio Image Cloud", mayUsePaidOrExternalService: true },
+      hasUsableBackgroundAssets: true,
+      musicModuleEnabled: true,
+      ttsReady: true,
+    });
+    useUIStore.setState({ rightPanelOpen: false, pendingSettingsDestination: null });
+  });
+
+  afterEach(() => {
+    act(() => root?.unmount());
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  it("shows all four profiles and keeps optional media changes unchecked by default", async () => {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+
+    for (const label of ["Minimal / Clean", "Longform Continuity", "Cinematic", "Local Assist"]) {
+      expect(container.querySelector(`[aria-label="Choose ${label}"]`)).toBeTruthy();
+    }
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+    });
+
+    expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).checked).toBe(false);
+    expect((container.querySelector('[aria-label="Music Player"]') as HTMLInputElement).checked).toBe(false);
+    expect(container.textContent).toContain("Studio Image Cloud (configured image connection)");
+    expect(container.textContent).toContain("Image generation may use paid or external provider services.");
+  });
+
+  it("shows disabled prerequisites, honest costs and destinations, settings links, and mobile-first structure", async () => {
+    mocks.resolveCapabilities.mockResolvedValue({
+      hasUniversalPreset: true,
+      localSidecarReady: false,
+      hasImageConnection: false,
+      imageConnection: null,
+      hasUsableBackgroundAssets: false,
+      musicModuleEnabled: false,
+      ttsReady: false,
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+    });
+
+    expect((container.querySelector('[aria-label="Background"]') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "Background needs usable background assets or a configured image connection.",
+    );
+    expect(container.textContent).toContain("+1 model call per run");
+    expect(container.textContent).toContain("May add response latency when it runs");
+    expect(container.textContent).toContain("YouTube/external music data");
+    expect(container.textContent).toContain("Music Player uses YouTube/external music data.");
+    expect(container.querySelector('[aria-label="Roleplay workflow profile chooser"]')?.className).toContain(
+      "@container",
+    );
+    expect(container.querySelector('[data-layout="workflow-profile-grid"]')?.className).toContain("@[36rem]:grid-cols");
+    expect(container.querySelector('[data-layout="workflow-profile-grid"]')?.className).not.toContain("md:grid-cols");
+    expect(container.querySelector('[data-region="profile-list"]')?.className).toContain("order-1");
+    expect(container.querySelector('[data-region="change-ledger"]')?.className).toContain("order-2");
+
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Modules"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(useUIStore.getState()).toMatchObject({
+      rightPanelOpen: true,
+      rightPanel: "settings",
+      settingsTab: "plugins",
+      pendingSettingsDestination: "modules",
+    });
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+    });
+    expect((container.querySelector('[aria-label="World State"]') as HTMLInputElement).disabled).toBe(true);
+    expect(container.textContent).toContain("local sidecar must be ready");
+    expect(container.textContent).toContain("writer connection remains unchanged");
+  });
+
+  it("preserves toggles during review and requires explicit confirmation before applying", async () => {
+    mocks.apply.mockRejectedValueOnce(new Error("storage update failed: disk is read-only"));
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).click();
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(mocks.apply).not.toHaveBeenCalled();
+    expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).checked).toBe(true);
+
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(mocks.apply).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "storage update failed: disk is read-only",
+    );
+  });
+
+  it("keeps Local Assist agent and local-route toggles dependency-safe in both directions", async () => {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+    });
+
+    const agent = () => container.querySelector('[aria-label="World State"]') as HTMLInputElement;
+    const route = () => container.querySelector('[aria-label="World State local route"]') as HTMLInputElement;
+    expect(agent().checked).toBe(true);
+    expect(route().checked).toBe(true);
+
+    await act(async () => route().click());
+    expect(agent().checked).toBe(false);
+    expect(route().checked).toBe(false);
+
+    await act(async () => agent().click());
+    expect(agent().checked).toBe(true);
+    expect(route().checked).toBe(true);
+
+    await act(async () => agent().click());
+    expect(agent().checked).toBe(false);
+    expect(route().checked).toBe(false);
+  });
+
+  it("revokes confirmation and resets the ledger when a changed live chat arrives", async () => {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(container.textContent).toContain("Confirm and apply");
+
+    const changedChat = {
+      ...chat,
+      metadata: { ...chat.metadata, activeAgentIds: ["illustrator"] },
+    } as Chat;
+    await act(async () => {
+      root.render(<RoleplayWorkflowProfileChooser chat={changedChat} entryPoint="drawer" />);
+    });
+
+    expect(container.textContent).not.toContain("Confirm and apply");
+    expect(container.textContent).toContain("Chat settings changed. Review the refreshed ledger before applying.");
+    expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("keeps Music Player disabled and unchecked until the optional module is enabled", async () => {
+    mocks.resolveCapabilities.mockResolvedValue({
+      hasUniversalPreset: true,
+      localSidecarReady: true,
+      hasImageConnection: true,
+      imageConnection: { label: "Studio Image Cloud", mayUsePaidOrExternalService: true },
+      hasUsableBackgroundAssets: true,
+      musicModuleEnabled: false,
+      ttsReady: true,
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+    });
+
+    expect((container.querySelector('[aria-label="Music Player"]') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('[aria-label="Music Player"]') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("replaces a stale preview and forces the refreshed ledger through review again", async () => {
+    const staleCapabilities = {
+      hasUniversalPreset: true,
+      localSidecarReady: true,
+      hasImageConnection: false,
+      imageConnection: null,
+      hasUsableBackgroundAssets: false,
+      musicModuleEnabled: true,
+      ttsReady: true,
+    };
+    mocks.apply.mockImplementationOnce(async (input: { profileId: "cinematic"; selectedItemIds: string[] }) => ({
+      outcome: "stale",
+      resolution: resolveRoleplayWorkflowProfile(input.profileId, { chat, capabilities: staleCapabilities }),
+      selectedItemIds: input.selectedItemIds,
+      omittedLocalAgentIds: [],
+    }));
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(container.textContent).toContain("Settings changed since this preview");
+    expect((container.querySelector('[aria-label="Background"]') as HTMLInputElement).disabled).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Confirm and apply"),
+      ),
+    ).toBe(false);
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Review and apply"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names omitted Local Assist assignments and says no external fallback was used", async () => {
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: ["world-state", "character-tracker"],
+      skippedLocalRoutingAgentIds: [],
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(container.textContent).toContain("World State");
+    expect(container.textContent).toContain("Character Tracker");
+    expect(container.textContent).toContain("no external fallback was used");
+  });
+
+  it("reports skipped local routing precisely when an already-active agent keeps its existing connection", async () => {
+    const activeChat = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        activeAgentIds: ["world-state"],
+        agentConnectionOverrides: { "world-state": "writer-cloud" },
+      },
+    } as Chat;
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat: activeChat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: ["world-state"],
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={activeChat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(container.textContent).toContain(
+      "Local routing was skipped for World State. It remains active on its existing connection; this profile chose no substitute or fallback.",
+    );
+    expect(container.textContent).not.toContain("Applied without World State");
+  });
+
+  it("preserves apply status when query refetch returns a semantically equivalent chat object", async () => {
+    const appliedChat = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        enableMemoryRecall: true,
+        roleplayWorkflowApplication: {
+          profileId: "minimal-clean",
+          profileVersion: 1,
+          appliedAt: "2026-08-26T12:34:00.000Z",
+          selectedItemIds: ["memory-recall"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat: appliedChat,
+      resolution: null,
+      selectedItemIds: ["memory-recall"],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(container.textContent).toContain("Minimal / Clean applied.");
+
+    await act(async () => {
+      root.render(
+        <RoleplayWorkflowProfileChooser
+          chat={{ ...appliedChat, metadata: { ...appliedChat.metadata } }}
+          entryPoint="drawer"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Minimal / Clean applied.");
+    expect(container.textContent).not.toContain("Chat settings changed. Review the refreshed ledger");
+  });
+
+  it("shows active receipt details and reports readable conflicts while preserving later edits", async () => {
+    const chatWithReceipt = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 1,
+          appliedAt: "2026-08-26T12:34:00.000Z",
+          selectedItemIds: ["memory-recall"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    const revertedChat = {
+      ...chatWithReceipt,
+      metadata: { ...chatWithReceipt.metadata, roleplayWorkflowApplication: null },
+    } as Chat;
+    mocks.revert.mockResolvedValueOnce({
+      outcome: "reverted",
+      chat: revertedChat,
+      skippedConflicts: ["memory-recall", "agent:world-state"],
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chatWithReceipt} entryPoint="drawer" />);
+    });
+
+    expect(container.textContent).toContain("Applied Longform Continuity, version 1");
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Revert"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    expect(container.textContent).toContain("Kept your later edits to Memory Recall, World State");
+
+    await act(async () => {
+      root.render(
+        <RoleplayWorkflowProfileChooser
+          chat={{ ...revertedChat, metadata: { ...revertedChat.metadata } }}
+          entryPoint="drawer"
+        />,
+      );
+    });
+    expect(container.textContent).toContain("Kept your later edits to Memory Recall, World State");
+    expect(container.textContent).not.toContain("Chat settings changed. Review the refreshed ledger");
+  });
+
+  it("refreshes honestly when a receipt disappeared before revert", async () => {
+    const chatWithReceipt = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "minimal-clean",
+          profileVersion: 1,
+          appliedAt: "2026-08-26T12:34:00.000Z",
+          selectedItemIds: ["prompt-preset"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    const refreshedChat = {
+      ...chatWithReceipt,
+      metadata: { ...chatWithReceipt.metadata, roleplayWorkflowApplication: null },
+    } as Chat;
+    mocks.revert.mockResolvedValueOnce({ outcome: "not_applied", chat: refreshedChat, skippedConflicts: [] });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chatWithReceipt} entryPoint="drawer" />);
+    });
+
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Revert"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(container.textContent).toContain(
+      "No workflow profile is currently applied. Current chat state was refreshed.",
+    );
+    expect(container.textContent).not.toContain("Applied Minimal / Clean");
+  });
+});

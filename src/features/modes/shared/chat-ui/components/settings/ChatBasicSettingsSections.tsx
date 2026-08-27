@@ -135,6 +135,7 @@ export function ChatBasicSettingsSections({
 
       {!isConversation && !isGame && !sceneSystemPrompt && (
         <Section
+          id="chat-settings-prompt-preset"
           label="Prompt Preset"
           icon={<Sliders size="0.875rem" />}
           help="Presets control how the system prompt is structured and what generation parameters are used. Different presets produce different AI behaviors."

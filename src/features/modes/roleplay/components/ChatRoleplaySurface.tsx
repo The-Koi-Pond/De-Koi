@@ -650,6 +650,7 @@ type RoleplaySurfaceProps = {
   totalMessageCount: number;
   lastAssistantMessageId: string | null;
   settingsOpen: boolean;
+  settingsDestination?: string | null;
   filesOpen: boolean;
   galleryOpen: boolean;
   wizardOpen: boolean;
@@ -753,6 +754,7 @@ export function ChatRoleplaySurface({
   totalMessageCount,
   lastAssistantMessageId,
   settingsOpen,
+  settingsDestination,
   filesOpen,
   galleryOpen,
   wizardOpen,
@@ -1675,6 +1677,7 @@ export function ChatRoleplaySurface({
         chat={chat}
         activeChatId={activeChatId}
         settingsOpen={settingsOpen}
+        settingsDestination={settingsDestination}
         filesOpen={filesOpen}
         galleryOpen={galleryOpen}
         wizardOpen={wizardOpen}
