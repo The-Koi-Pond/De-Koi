@@ -189,6 +189,7 @@ export function RoleplayWorkflowProfileChooser({
   const [status, setStatus] = useState<{ tone: "info" | "success" | "error"; message: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const displayedChatRef = useRef(chat);
+  const capabilityRequestRef = useRef(0);
 
   const applyMutation = useApplyRoleplayWorkflowProfile({
     resolveCapabilities: resolveRoleplayWorkflowCapabilities,
@@ -209,20 +210,23 @@ export function RoleplayWorkflowProfileChooser({
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++capabilityRequestRef.current;
     setLoadingCapabilities(true);
     setCapabilityError(null);
+    setPreview(null);
+    setSelectedItemIds(new Set());
     resolveRoleplayWorkflowCapabilities(displayedChat)
       .then((capabilities) => {
-        if (cancelled) return;
+        if (cancelled || capabilityRequestRef.current !== requestId) return;
         const next = resolveRoleplayWorkflowProfile(profileId, { chat: displayedChat, capabilities });
         setPreview(next);
         setSelectedItemIds(defaultSelections(next));
       })
       .catch((error) => {
-        if (!cancelled) setCapabilityError(completeError(error));
+        if (!cancelled && capabilityRequestRef.current === requestId) setCapabilityError(completeError(error));
       })
       .finally(() => {
-        if (!cancelled) setLoadingCapabilities(false);
+        if (!cancelled && capabilityRequestRef.current === requestId) setLoadingCapabilities(false);
       });
     return () => {
       cancelled = true;
@@ -233,20 +237,24 @@ export function RoleplayWorkflowProfileChooser({
 
   const selectProfile = useCallback(
     async (nextProfileId: RoleplayWorkflowProfileId) => {
+      const requestId = ++capabilityRequestRef.current;
       setProfileId(nextProfileId);
       setConfirming(false);
       setStatus(null);
       setLoadingCapabilities(true);
+      setCapabilityError(null);
+      setPreview(null);
+      setSelectedItemIds(new Set());
       try {
         const capabilities = await resolveRoleplayWorkflowCapabilities(displayedChat);
+        if (capabilityRequestRef.current !== requestId) return;
         const next = resolveRoleplayWorkflowProfile(nextProfileId, { chat: displayedChat, capabilities });
         setPreview(next);
         setSelectedItemIds(defaultSelections(next));
-        setCapabilityError(null);
       } catch (error) {
-        setCapabilityError(completeError(error));
+        if (capabilityRequestRef.current === requestId) setCapabilityError(completeError(error));
       } finally {
-        setLoadingCapabilities(false);
+        if (capabilityRequestRef.current === requestId) setLoadingCapabilities(false);
       }
     },
     [displayedChat],

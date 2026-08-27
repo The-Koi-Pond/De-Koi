@@ -19,7 +19,10 @@ vi.mock("../roleplay-workflow-capabilities", () => ({
 }));
 
 import type { Chat } from "../../../../engine/contracts/types/chat";
-import { resolveRoleplayWorkflowProfile } from "../../../../engine/modes/roleplay/workflow-profiles";
+import {
+  buildRoleplayWorkflowProfilePatch,
+  resolveRoleplayWorkflowProfile,
+} from "../../../../engine/modes/roleplay/workflow-profiles";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { RoleplayWorkflowProfileChooser } from "./RoleplayWorkflowProfileChooser";
 
@@ -38,6 +41,16 @@ const chat = {
     tags: [],
   },
 } as unknown as Chat;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("RoleplayWorkflowProfileChooser", () => {
   let root: Root;
@@ -203,6 +216,140 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(agent().checked).toBe(false);
     expect(route().checked).toBe(false);
   });
+
+  it("ignores reordered profile capability results and applies one internally consistent profile", async () => {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
+    });
+    const cinematic = deferred<Awaited<ReturnType<typeof mocks.resolveCapabilities>>>();
+    const localAssist = deferred<Awaited<ReturnType<typeof mocks.resolveCapabilities>>>();
+    mocks.resolveCapabilities.mockReturnValueOnce(cinematic.promise).mockReturnValueOnce(localAssist.promise);
+
+    act(() => {
+      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+    });
+
+    await act(async () => {
+      localAssist.resolve({
+        hasUniversalPreset: true,
+        localSidecarReady: true,
+        hasImageConnection: true,
+        imageConnection: { label: "Studio Image Cloud", mayUsePaidOrExternalService: true },
+        hasUsableBackgroundAssets: true,
+        musicModuleEnabled: true,
+        ttsReady: true,
+      });
+      await localAssist.promise;
+    });
+    await act(async () => {
+      cinematic.resolve({
+        hasUniversalPreset: true,
+        localSidecarReady: true,
+        hasImageConnection: true,
+        imageConnection: { label: "Studio Image Cloud", mayUsePaidOrExternalService: true },
+        hasUsableBackgroundAssets: true,
+        musicModuleEnabled: true,
+        ttsReady: true,
+      });
+      await cinematic.promise;
+    });
+
+    expect(container.querySelector('[aria-label="Choose Local Assist"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector('[aria-label="Character Tracker"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Background"]')).toBeNull();
+    mocks.apply.mockRejectedValueOnce(new Error("inspection stop"));
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(mocks.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profileId: "local-assist",
+        preview: expect.objectContaining({ profileId: "local-assist" }),
+        selectedItemIds: expect.arrayContaining(["agent:character-tracker", "connection:character-tracker"]),
+      }),
+    );
+  });
+
+  it.each(["drawer", "wizard"] as const)(
+    "keeps explicit automatic-agent disablement valid through the %s chooser entry point",
+    async (entryPoint) => {
+      const disabledChat = {
+        ...chat,
+        metadata: { ...chat.metadata, enableAgents: false },
+      } as Chat;
+      mocks.apply.mockImplementationOnce(async (input) => {
+        expect(() =>
+          buildRoleplayWorkflowProfilePatch(input.preview, input.selectedItemIds, "2026-08-26T12:00:00.000Z"),
+        ).not.toThrow();
+        return {
+          outcome: "applied",
+          chat: disabledChat,
+          skippedLocalRoutingAgentIds: [],
+          omittedLocalAgentIds: [],
+        };
+      });
+      await act(async () => {
+        root = createRoot(container);
+        root.render(<RoleplayWorkflowProfileChooser chat={disabledChat} entryPoint={entryPoint} />);
+      });
+      await act(async () => {
+        (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+      });
+
+      expect(container.querySelector('[aria-label="Roleplay workflow profile chooser"]')?.getAttribute("data-entry-point"))
+        .toBe(entryPoint);
+      expect((container.querySelector('[aria-label="Enable automatic agents"]') as HTMLInputElement).checked).toBe(
+        false,
+      );
+      expect((container.querySelector('[aria-label="World State"]') as HTMLInputElement).checked).toBe(false);
+      expect((container.querySelector('[aria-label="World State local route"]') as HTMLInputElement).checked).toBe(
+        false,
+      );
+      await act(async () => {
+        (
+          Array.from(container.querySelectorAll("button")).find((button) =>
+            button.textContent?.includes("Review and apply"),
+          ) as HTMLButtonElement
+        ).click();
+      });
+      await act(async () => {
+        (
+          Array.from(container.querySelectorAll("button")).find((button) =>
+            button.textContent?.includes("Confirm and apply"),
+          ) as HTMLButtonElement
+        ).click();
+      });
+
+      expect(mocks.apply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profileId: "local-assist",
+          preview: expect.objectContaining({ profileId: "local-assist" }),
+          selectedItemIds: expect.not.arrayContaining([
+            "agent:world-state",
+            "connection:world-state",
+            "agent:expression",
+            "connection:expression",
+            "agent:character-tracker",
+            "connection:character-tracker",
+          ]),
+        }),
+      );
+    },
+  );
 
   it("revokes confirmation and resets the ledger when a changed live chat arrives", async () => {
     await act(async () => {
