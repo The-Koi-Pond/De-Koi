@@ -21,6 +21,8 @@ import {
   type TrackerSnapshotMessageRebase,
 } from "../../../generation/tracker-snapshots";
 import { resolveSceneUniversalPreset } from "./universal-preset";
+import { getEffectiveStoryConsolidationEnabled } from "../../../generation/story-projections";
+import { persistCompletedSceneStoryEpisode } from "../../../generation/story-consolidation-queue";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -317,7 +319,29 @@ export async function concludeRoleplayScene(
   const sceneMeta = parseJsonObject(sceneChat.metadata);
   const originChatId = stringValue(sceneMeta.sceneOriginChatId);
   if (!originChatId) throw new Error("Not a scene chat");
-  const summary = await summarizeScene(capabilities, input.sceneChatId, input.connectionId ?? null);
+  const storySummary = await summarizeScene(capabilities, input.sceneChatId, input.connectionId ?? null);
+  const summary = storySummary.summary;
+
+  const originChat = await requireChat(capabilities.storage, originChatId);
+  const originMeta = parseJsonObject(originChat.metadata);
+  if (
+    getEffectiveStoryConsolidationEnabled(stringValue(originChat.mode || originChat.chatMode), originMeta) &&
+    capabilities.storage.createMemory &&
+    capabilities.storage.queryMemories
+  ) {
+    const connectionId = await resolveConnectionId(capabilities.storage, sceneChat, input.connectionId ?? null);
+    const connection = await capabilities.storage.get<JsonRecord>("connections", connectionId).catch(() => null);
+    await persistCompletedSceneStoryEpisode(capabilities, {
+      ownerChatId: originChatId,
+      sceneChatId: input.sceneChatId,
+      messages: await messagesForChat(capabilities.storage, input.sceneChatId),
+      summary,
+      sections: storySummary.sections,
+      connectionId,
+      provider: stringValue(connection?.provider) || null,
+      model: stringValue(connection?.model) || null,
+    });
+  }
 
   await createChatMessage(capabilities.storage, originChatId, {
     role: "assistant",
@@ -461,7 +485,7 @@ async function summarizeScene(
   capabilities: RoleplaySceneCapabilities,
   sceneChatId: string,
   connectionOverride?: string | null,
-): Promise<string> {
+): Promise<SceneStorySummary> {
   const sceneChat = await requireChat(capabilities.storage, sceneChatId);
   const sceneMeta = parseJsonObject(sceneChat.metadata);
   const plannerContext = await buildScenePlannerContext(capabilities.storage, sceneChat);
@@ -562,7 +586,31 @@ type SceneFinalSummaryContext = SceneSummaryContext & {
   transcriptCharCount: number;
 };
 
-async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promise<string> {
+type SceneStorySectionKey =
+  | "events"
+  | "choices"
+  | "relationshipShifts"
+  | "promises"
+  | "reveals"
+  | "unresolvedHooks"
+  | "currentState";
+
+type SceneStorySummary = {
+  summary: string;
+  sections: Record<SceneStorySectionKey, string[]>;
+};
+
+const SCENE_STORY_SECTION_KEYS: SceneStorySectionKey[] = [
+  "events",
+  "choices",
+  "relationshipShifts",
+  "promises",
+  "reveals",
+  "unresolvedHooks",
+  "currentState",
+];
+
+async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promise<SceneStorySummary> {
   const raw = await completeSceneSummaryText(
     context.capabilities.llm,
     {
@@ -575,13 +623,14 @@ async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promis
       retryMaxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
     },
   );
-  let summary = sanitizeSceneSummary(raw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+  let result = parseSceneStorySummary(raw);
+  let summary = result.summary;
   const revisionReason = isFinalSceneSummaryTooLong(summary)
     ? "too_long"
     : requiresSubstantialFinalSummary(context) && isFinalSceneSummaryTooBrief(summary)
       ? "too_brief"
       : null;
-  if (!revisionReason) return limitFinalSceneSummaryWords(summary);
+  if (!revisionReason) return { ...result, summary: limitFinalSceneSummaryWords(summary) };
 
   const retryRaw = await completeSceneSummaryText(
     context.capabilities.llm,
@@ -595,9 +644,10 @@ async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promis
       retryMaxTokens: SCENE_SUMMARY_FINAL_RETRY_MAX_TOKENS,
     },
   );
-  summary = sanitizeSceneSummary(retryRaw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+  result = parseSceneStorySummary(retryRaw);
+  summary = result.summary;
   if (isFinalSceneSummaryTooBrief(summary)) throw new Error("The model returned an incomplete scene summary");
-  return limitFinalSceneSummaryWords(summary);
+  return { ...result, summary: limitFinalSceneSummaryWords(summary) };
 }
 
 type FinalSceneSummaryRevision = {
@@ -623,7 +673,8 @@ function finalSceneSummaryMessages(
           : revision?.reason === "too_long"
             ? "Your previous answer was too long. Compress it to 120-220 words while preserving the beginning, ending, concrete outcomes, and unresolved hooks."
             : "Do not collapse the scene into a one-sentence takeaway when the section summaries contain multiple beats.",
-        "Do not invent events. Return only the final summary.",
+        "Do not invent events. Return JSON only with summary and sections.",
+        "sections must contain string arrays named events, choices, relationshipShifts, promises, reveals, unresolvedHooks, and currentState.",
       ].join("\n"),
     },
     {
@@ -957,6 +1008,40 @@ function appendLabeledLine(lines: string[], label: string, value: string): void 
 function compactPromptText(value: unknown, limit: number): string {
   const text = stringValue(value).replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
+}
+
+function parseSceneStorySummary(raw: string): SceneStorySummary {
+  const emptySections: Record<SceneStorySectionKey, string[]> = {
+    events: [],
+    choices: [],
+    relationshipShifts: [],
+    promises: [],
+    reveals: [],
+    unresolvedHooks: [],
+    currentState: [],
+  };
+  const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    const parsed = JSON.parse(unfenced) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as JsonRecord;
+      const summary = sanitizeSceneSummary(stringValue(record.summary), SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS);
+      const sectionRecord = parseJsonObject(record.sections);
+      const sections = { ...emptySections };
+      for (const key of SCENE_STORY_SECTION_KEYS) {
+        sections[key] = parseJsonArray(sectionRecord[key])
+          .map((entry) => compactPromptText(typeof entry === "string" ? entry : parseJsonObject(entry).text, 600))
+          .filter(Boolean);
+      }
+      return { summary, sections };
+    }
+  } catch {
+    // Older/custom providers may still return the pre-v1 plain summary contract.
+  }
+  return {
+    summary: sanitizeSceneSummary(raw, SCENE_SUMMARY_FINAL_MAX_SUMMARY_CHARS),
+    sections: emptySections,
+  };
 }
 
 function sanitizeSceneSummary(raw: string, maxChars = SCENE_SUMMARY_CHUNK_MAX_SUMMARY_CHARS): string {

@@ -458,6 +458,8 @@ pub fn run() {
             storage_commands::memory_commands::memory_capture_message_extra_patch,
             storage_commands::memory_commands::memory_capture_index_rebuild,
             storage_commands::memory_commands::memory_capture_worker_release,
+            storage_commands::memory_commands::story_consolidation_job_update,
+            storage_commands::memory_commands::story_consolidation_projection_commit,
             storage_commands::memory_commands::memory_index_upsert,
             storage_commands::memory_commands::memory_index_delete_for_memory,
             storage_commands::memory_commands::memory_index_rebuild_lexical,

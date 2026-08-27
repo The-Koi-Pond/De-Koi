@@ -98,6 +98,30 @@ describe("fitLlmRequestToContextWindow", () => {
     expect(text).toContain("current user");
   });
 
+  it("drops story projections before canonical memory or the newest two raw exchanges", () => {
+    const messages = [
+      message("system", "Core", "prompt"),
+      message("system", "Atomic fact. ".repeat(45), "canonical_memory"),
+      message("system", "Story projection. ".repeat(90), "story_projection"),
+      message("user", "recent user one ".repeat(18), "history"),
+      message("assistant", "recent assistant one ".repeat(18), "history"),
+      message("user", "recent user two ".repeat(18), "history"),
+      message("assistant", "recent assistant two ".repeat(18), "history"),
+      message("user", "current user", "history"),
+    ];
+
+    const result = fitLlmRequestToContextWindow(messages, { maxTokens: 300 }, connection);
+    const text = result.messages.map((entry) => entry.content).join("\n");
+
+    expect(text).not.toContain("Story projection");
+    expect(text).toContain("Atomic fact");
+    expect(text).toContain("recent user one");
+    expect(text).toContain("recent assistant one");
+    expect(text).toContain("recent user two");
+    expect(text).toContain("recent assistant two");
+    expect(text).toContain("current user");
+  });
+
   it("does not mutate caller-owned messages while fitting", () => {
     const messages = [
       message("system", "Core", "prompt"),

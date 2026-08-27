@@ -341,6 +341,8 @@ export interface ChatMetadata {
   enableMemoryRecall?: boolean;
   /** Whether canonical durable memories are retrieved into generation prompts. Default: false. */
   enableCanonicalMemoryRecall?: boolean;
+  /** Automatically consolidate long Roleplay transcripts into canonical episodes and arcs. */
+  enableStoryConsolidation?: boolean;
   /** Whether high-confidence Roleplay agency violations receive a focused automatic repair. Default: true. */
   automaticRoleplayQualityCorrection?: boolean;
   /** Optional token budget for canonical memory prompt context. Missing uses a bounded context-share default. */
@@ -771,6 +773,7 @@ export type GenerationContextAttributionKind =
   | "chat_history"
   | "chat_summary"
   | "memory_recall"
+  | "story_projection"
   | "behavioral_example"
   | "lorebook"
   | "knowledge_retrieval"

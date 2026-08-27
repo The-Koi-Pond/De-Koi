@@ -93,6 +93,9 @@ describe("discovery showcase registry", () => {
     expect(summary).toContain("speaker-labeled exchanges");
     expect(summary).toContain("rank");
     expect(summary).toContain("automatic memory hygiene");
+    expect(summary).toContain("episodes");
+    expect(summary).toContain("four-episode arcs");
+    expect(entry?.where).toContain("Roleplay HUD");
     expect(summary).toContain("automatically rejects");
     expect(summary).toContain("pinned");
     expect(summary).toContain("quietly combines or removes");

@@ -51,6 +51,7 @@ fn execute_expunge_scope(
                 "agent-runs",
                 "agent-memory",
                 "memory-capture-jobs",
+                "story-consolidation-jobs",
                 "memory-maintenance-jobs",
                 "game-checkpoints",
                 "game-state-snapshots",

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { LlmGateway } from "../../../capabilities/llm";
+import type { LlmGateway, LlmRequest } from "../../../capabilities/llm";
 import type { ChatMessageListOptions, StorageEntity, StorageGateway } from "../../../capabilities/storage";
 import {
   abandonRoleplayScene,
@@ -147,6 +147,18 @@ function storageForScene(args: {
     },
     async listChatMemories<T>() {
       return [] as T[];
+    },
+    async queryMemories() {
+      return createdRecords
+        .filter((record) => record.entity === "canonical-memories")
+        .map((record, index) => ({ id: `canonical-${index + 1}`, ...record.value })) as never[];
+    },
+    async createMemory<T>(value: JsonRecord) {
+      createdRecords.push({ entity: "canonical-memories" as StorageEntity, value });
+      return value as T;
+    },
+    async rebuildMemoryIndex() {
+      return { rebuilt: 1 };
     },
     async getWorldState<T>() {
       return null as T | null;
@@ -642,6 +654,67 @@ describe("createRoleplayScene", () => {
   });
 });
 describe("roleplay scene conclusion summaries", () => {
+  it("stores one source-backed canonical episode from the same scene summary pass", async () => {
+    const calls: LlmRequest[] = [];
+    const { storage, createdRecords } = storageForScene({
+      chats: [
+        { id: "origin", name: "Origin", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+        {
+          id: "scene",
+          name: "Scene: The Archive",
+          mode: "roleplay",
+          connectionId: "main",
+          metadata: { sceneOriginChatId: "origin", sceneStatus: "active" },
+        },
+      ],
+      connections: [{ id: "main", provider: "openai", model: "model-1" }],
+      messages: {
+        scene: [
+          { id: "opening", role: "assistant", content: "Mara opens the flooded archive." },
+          { id: "choice", role: "user", content: "She chooses to rescue the ledger." },
+        ],
+      },
+    });
+    const llm = {
+      complete: vi.fn(async (request: LlmRequest) => {
+        calls.push(request);
+        if (calls.length === 1) return "Mara entered the flooded archive and chose to rescue the ledger.";
+        return JSON.stringify({
+          summary: "Mara entered the flooded archive and chose to rescue the ledger.",
+          sections: {
+            events: ["Mara entered the flooded archive."],
+            choices: ["Mara chose to rescue the ledger."],
+            relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [],
+            currentState: ["Mara still holds the rescued ledger."],
+          },
+        });
+      }),
+      async *stream() {},
+      async listModels() { return []; },
+    } as LlmGateway;
+
+    await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
+
+    expect(calls).toHaveLength(2);
+    expect(createdRecords.filter((record) => record.entity === "canonical-memories")).toEqual([
+      expect.objectContaining({
+        value: expect.objectContaining({
+          kind: "episode",
+          scope: { kind: "chat", id: "origin" },
+          provenance: expect.objectContaining({ sceneId: "scene", messageIds: ["opening", "choice"] }),
+          payload: expect.objectContaining({
+            level: "episode",
+            boundaryReason: "scene_conclusion",
+            sections: expect.objectContaining({
+              choices: [expect.objectContaining({ text: "Mara chose to rescue the ledger.", sourceMessageIds: ["opening", "choice"] })],
+            }),
+            summarizer: expect.objectContaining({ provider: "openai", model: "model-1" }),
+          }),
+        }),
+      }),
+    ]);
+  });
+
   it("resolves a Random summary override before sending requests to the LLM", async () => {
     const connectionIds: Array<string | null | undefined> = [];
     const { storage } = storageForScene({

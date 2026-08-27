@@ -25,6 +25,73 @@ export interface MemoryProvenance {
   timestamp?: string | null;
 }
 
+export type StoryProjectionLevel = "episode" | "arc";
+export type StoryEpisodeBoundaryReason = "message_threshold" | "manual" | "scene_conclusion";
+export type StoryProjectionJobStatus = "pending" | "processing" | "retryable" | "completed" | "failed" | "stale";
+
+export interface StoryProjectionCitation {
+  text: string;
+  sourceMessageIds?: string[];
+  sourceEpisodeIds?: string[];
+}
+
+export interface StoryProjectionSections {
+  events: StoryProjectionCitation[];
+  choices: StoryProjectionCitation[];
+  relationshipShifts: StoryProjectionCitation[];
+  promises: StoryProjectionCitation[];
+  reveals: StoryProjectionCitation[];
+  unresolvedHooks: StoryProjectionCitation[];
+  currentState: StoryProjectionCitation[];
+}
+
+export interface StoryProjectionPayload extends Record<string, unknown> {
+  storyProjectionVersion: 1;
+  level: StoryProjectionLevel;
+  ownerChatId: string;
+  coverageId: string;
+  sourceFingerprint: string;
+  messageIds: string[];
+  sourceMessages?: Array<{ id: string; role: string; content: string; createdAt?: string | null }>;
+  firstMessageId: string;
+  lastMessageId: string;
+  boundaryReason?: StoryEpisodeBoundaryReason | null;
+  sourceEpisodeIds: string[];
+  sections: StoryProjectionSections;
+  summarizer: {
+    version: string;
+    connectionId?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    completedAt: string;
+  };
+  staleReason?: string | null;
+  staleAt?: string | null;
+}
+
+export interface StoryProjectionJob extends Record<string, unknown> {
+  id: string;
+  status: StoryProjectionJobStatus;
+  level: StoryProjectionLevel;
+  ownerChatId: string;
+  coverageId: string;
+  sourceFingerprint: string;
+  sourceMessageIds: string[];
+  sourceEpisodeIds: string[];
+  sourceMessages: Array<{ id: string; role: string; content: string; createdAt?: string | null }>;
+  sourceEpisodes: Array<{ id: string; title?: string | null; content: string; messageIds: string[] }>;
+  boundaryReason?: StoryEpisodeBoundaryReason | null;
+  supersedesMemoryId?: string | null;
+  connectionId?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CanonicalMemoryRecord {
   id: string;
   kind: MemoryKind;

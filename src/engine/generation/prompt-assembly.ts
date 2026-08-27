@@ -61,6 +61,7 @@ import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
+import { buildStoryContinuityContext } from "./story-continuity-context";
 import {
   buildBehavioralExamplePool,
   selectBehavioralExamples,
@@ -231,6 +232,7 @@ interface PromptAssemblyReusableContext {
   summaryCoversPriorHistory: boolean;
   memoryRecallBlock: string | null;
   canonicalMemoryBlock: string | null;
+  storyContinuityBlock: string | null;
   contextAttributionItems: GenerationContextAttributionItem[];
   history: ChatMLMessage[];
   greetingPromptVariables: Record<string, string>;
@@ -1320,6 +1322,8 @@ function contextPriorityForKind(kind: NonNullable<ChatMLMessage["contextKind"]>)
     case "memory_recall":
     case "canonical_memory":
       return 650;
+    case "story_projection":
+      return 450;
     case "injection":
     case "optional":
       return 300;
@@ -4682,6 +4686,24 @@ export async function assembleGenerationPrompt(
           "recalled fragments from relevant earlier context",
         )
       : (memoryRecallContext?.block ?? null);
+  const storyContinuityContext = canReuseSourceSensitiveContext && reusableContext
+    ? {
+        block: reusableContext.storyContinuityBlock,
+        attributionItems: reusableContext.contextAttributionItems.filter((item) => item.kind === "story_projection"),
+      }
+    : await buildStoryContinuityContext(storage, {
+        chat: input.chat,
+        storedMessages: input.storedMessages,
+        retainedRawMessageIds: historySelection.sourceMessages.map((message) => readString(message.id).trim()).filter(Boolean),
+        latestUserInput: input.latestUserInput,
+        representedText: [
+          summary ?? "",
+          ...(memoryRecallContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
+          ...(canonicalMemoryContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
+        ],
+        maxContext,
+      });
+  const storyContinuityBlock = storyContinuityContext?.block ?? null;
   const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
@@ -4940,6 +4962,17 @@ export async function assembleGenerationPrompt(
     });
   }
 
+  if (storyContinuityBlock) {
+    const insertAt = messages.findIndex((message) => message.role === "user" || message.role === "assistant");
+    messages.splice(insertAt >= 0 ? insertAt : messages.length, 0, {
+      role: "system",
+      content: storyContinuityBlock,
+      contextKind: "story_projection",
+      contextPriority: 450,
+      displayName: "Story Continuity",
+    });
+  }
+
   const roleplayQualityContext = buildRoleplayQualityContext(input, wrapFormat);
   insertBeforeLastUser(messages, [
     ...conversationContextBlocks,
@@ -5012,6 +5045,7 @@ export async function assembleGenerationPrompt(
     ...historyAndSummaryAttributionItems,
     ...(memoryRecallContext?.attributionItems ?? []),
     ...(canonicalMemoryContext?.attributionItems ?? []),
+    ...(storyContinuityContext?.attributionItems ?? []),
     ...behavioralExampleAttributionItems,
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
     ...(roleplayQualityContext ? [roleplayQualityContext.attribution] : []),
@@ -5046,6 +5080,7 @@ export async function assembleGenerationPrompt(
       summaryProjection.coversPriorHistory || Boolean(compactedSourceHistory?.coversPriorHistory),
     memoryRecallBlock,
     canonicalMemoryBlock,
+    storyContinuityBlock,
     contextAttributionItems,
     history,
     greetingPromptVariables,

@@ -62,6 +62,7 @@ import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal"
 import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
 import { ChatPresetBar } from "./settings/ChatPresetBar";
 import { ContinuityOverviewPanel } from "./settings/ContinuityOverviewPanel";
+import { StoryContinuityModal, storyContinuityQueryKey } from "./settings/StoryContinuityModal";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
 import {
   ScopedRegexCharacterGroups,
@@ -134,6 +135,7 @@ import { conversationCommandPromptEnabled } from "../../../../../engine/modes/ch
 import { coreModulesApi } from "../../../../../shared/api/core-modules-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
+import { storyContinuityApi } from "../../../../../shared/api/story-continuity-api";
 import { spotifyApi } from "../../../../../shared/api/integration-utility-api";
 import { spriteApi } from "../../../../../shared/api/image-generation-api";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
@@ -168,6 +170,8 @@ import {
   type ChatMetadata,
   type ChatMode,
 } from "../../../../../engine/contracts/types/chat";
+import { getEffectiveStoryConsolidationEnabled } from "../../../../../engine/generation/story-projections";
+import type { StoryProjectionPayload } from "../../../../../engine/contracts/types/memory";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
 import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
@@ -599,14 +603,31 @@ function ChatSettingsDrawerInner({
       ? Math.max(0, Math.floor(metadata.lorebookTokenBudget))
       : LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET;
   const activeAgentIds = useMemo<string[]>(() => enabledChatAgentIds(metadata, chatMode), [chatMode, metadata]);
+  const storyStateQuery = useQuery({
+    queryKey: storyContinuityQueryKey(chat.id),
+    queryFn: () => storyContinuityApi.getState(chat.id),
+    enabled: isRoleplayMode,
+  });
+  const storyCounts = useMemo(() => {
+    if (!isRoleplayMode) return undefined;
+    const projections = storyStateQuery.data?.projections ?? [];
+    const jobs = storyStateQuery.data?.jobs ?? [];
+    return {
+      episodes: projections.filter((memory) => (memory.payload as StoryProjectionPayload).level === "episode" && (memory.status === "active" || memory.status === "pinned")).length,
+      arcs: projections.filter((memory) => (memory.payload as StoryProjectionPayload).level === "arc" && (memory.status === "active" || memory.status === "pinned")).length,
+      stale: projections.filter((memory) => memory.status === "stale").length,
+      pending: jobs.filter((job) => job.status === "pending" || job.status === "processing" || job.status === "retryable").length,
+    };
+  }, [isRoleplayMode, storyStateQuery.data]);
   const continuityOverviewModel = useMemo(
     () =>
       buildContinuityOverviewViewModel({
         chatMode,
         metadata: metadata as Partial<ChatMetadata>,
         activeLorebookCount: activeLorebooks.length,
+        storyCounts,
       }),
-    [activeLorebooks.length, chatMode, metadata],
+    [activeLorebooks.length, chatMode, metadata, storyCounts],
   );
   const continuityOverviewActiveCount = useMemo(
     () => continuityOverviewModel.sections.filter((section) => section.status === "active").length,
@@ -1392,6 +1413,7 @@ function ChatSettingsDrawerInner({
   const [showConnectionPicker, setShowConnectionPicker] = useState(false);
   const [showSummariesModal, setShowSummariesModal] = useState(false);
   const [showMemoriesModal, setShowMemoriesModal] = useState(false);
+  const [showStoryModal, setShowStoryModal] = useState(false);
   // Session-ephemeral: did the user change Day Rollover Hour in this drawer mount?
   // Used to gate the "transitional duplication" warning so it only appears
   // immediately after a change (when the warning is operationally useful) and
@@ -1925,6 +1947,7 @@ function ChatSettingsDrawerInner({
 
   const renderMemoryRecallControls = () => {
     const effectiveValue = getEffectiveMemoryRecallEnabled(chat.mode, metadata);
+    const storyEffective = getEffectiveStoryConsolidationEnabled(chat.mode, metadata as Partial<ChatMetadata>);
     return (
       <div className="space-y-2">
         <button
@@ -1956,6 +1979,26 @@ function ChatSettingsDrawerInner({
             />
           </div>
         </button>
+        {isRoleplayMode && effectiveValue && (
+          <button
+            type="button"
+            onClick={() => updateMeta.mutate({ id: chat.id, enableStoryConsolidation: !storyEffective })}
+            className={cn(
+              "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+              storyEffective
+                ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+            )}
+          >
+            <div className="min-w-0 flex-1">
+              <span className="text-[0.6875rem] font-medium">Build Story Continuity</span>
+              <p className="text-[0.625rem] text-[var(--muted-foreground)]">Create durable episodes and four-episode arcs in the background.</p>
+            </div>
+            <div className={cn("h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors", storyEffective ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50")}>
+              <div className={cn("h-4 w-4 rounded-full bg-white shadow-sm transition-transform", storyEffective && "translate-x-3.5")} />
+            </div>
+          </button>
+        )}
         {effectiveValue &&
           memoryEmbeddingGuidanceIsDefinitive &&
           !connectionsLoading &&
@@ -2096,6 +2139,7 @@ function ChatSettingsDrawerInner({
               model={continuityOverviewModel}
               onOpenMemories={() => setShowMemoriesModal(true)}
               onOpenSummaries={() => setShowSummariesModal(true)}
+              onOpenStory={() => setShowStoryModal(true)}
             />
           </Section>
 
@@ -5970,6 +6014,8 @@ function ChatSettingsDrawerInner({
         open={showMemoriesModal}
         onClose={() => setShowMemoriesModal(false)}
       />
+
+      <StoryContinuityModal chatId={chat.id} open={showStoryModal} onClose={() => setShowStoryModal(false)} />
 
       <Modal
         open={!!agentAddPreview}

@@ -117,4 +117,22 @@ describe("continuity overview view model", () => {
       }),
     );
   });
+
+  it("shows Roleplay story counts and warns when a projection is stale", () => {
+    const model = buildContinuityOverviewViewModel({
+      chatMode: "roleplay",
+      metadata: { summary: null },
+      activeLorebookCount: 0,
+      storyCounts: { episodes: 5, arcs: 1, stale: 2, pending: 1 },
+    });
+
+    expect(model.sections.find((section) => section.id === "story")).toEqual({
+      id: "story",
+      label: "Story",
+      status: "warning",
+      value: "5 episodes · 1 arc",
+      detail: "2 stale projections need review or regeneration.",
+      action: "open_story",
+    });
+  });
 });

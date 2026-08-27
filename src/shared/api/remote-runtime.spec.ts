@@ -43,6 +43,8 @@ describe("memory maintenance remote routing", () => {
     expect(isRemoteCommand("memory_capture_index_rebuild")).toBe(true);
     expect(isRemoteCommand("memory_capture_job_update")).toBe(true);
     expect(isRemoteCommand("memory_capture_worker_release")).toBe(true);
+    expect(isRemoteCommand("story_consolidation_job_update")).toBe(true);
+    expect(isRemoteCommand("story_consolidation_projection_commit")).toBe(true);
     expect(isRemoteCommand("memory_index_health")).toBe(true);
   });
 

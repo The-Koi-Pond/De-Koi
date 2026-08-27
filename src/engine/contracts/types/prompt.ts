@@ -243,6 +243,7 @@ export interface ChatMLMessage {
     | "injection"
     | "summary"
     | "canonical_memory"
+    | "story_projection"
     | "memory"
     | "memory_recall"
     | "lorebook"

@@ -694,6 +694,13 @@ fn replace_message_with_swipes_and_chat_cleanup(
         message_swipe_storage::replace_message_with_swipes(state, message, swipes)?
     };
     message_swipe_storage::materialize_message(state, &mut updated, true)?;
+    if prune_memories {
+        canonical_memory::stale_story_projections_for_messages(
+            state,
+            &[message_id.to_string()],
+            "source_message_edited",
+        )?;
+    }
     Ok(updated)
 }
 
@@ -706,6 +713,7 @@ pub(crate) fn message_swipes(
 ) -> AppResult<Value> {
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    let previous_story_source = story_projection_source_signature(&message);
     let append_only_storage_compatible =
         message_swipe_storage::has_canonical_append_only_swipes(&message);
     let owner_chat_id = owned_message_chat_id(&message, chat_id)?;
@@ -803,6 +811,7 @@ pub(crate) fn message_swipes(
     if let Some(character_id) = active_character_id {
         object.insert("characterId".to_string(), character_id);
     }
+    let story_source_changed = story_projection_source_signature(&message) != previous_story_source;
     let swipes = message_swipe_storage::take_swipes_for_storage(&mut message)?.unwrap_or_default();
     let updated = if append_only_storage_compatible {
         let message_for_memory_cleanup = message.clone();
@@ -834,6 +843,13 @@ pub(crate) fn message_swipes(
             None,
         )?
     };
+    if story_source_changed && (append_only_storage_compatible || !visible_content_changed) {
+        canonical_memory::stale_story_projections_for_messages(
+            state,
+            &[message_id.to_string()],
+            "source_message_edited",
+        )?;
+    }
     Ok(updated)
 }
 
@@ -868,6 +884,13 @@ pub(crate) fn update_message_content_if_unchanged(
         return Ok(json!({ "updated": false }));
     };
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    if expected_content != normalized_content {
+        canonical_memory::stale_story_projections_for_messages(
+            state,
+            &[message_id.to_string()],
+            "source_message_edited",
+        )?;
+    }
     Ok(json!({ "updated": true, "message": message }))
 }
 
@@ -885,6 +908,25 @@ fn message_patch_requires_swipe_transaction(patch: &Map<String, Value>) -> bool 
     ]
     .into_iter()
     .any(|field| patch.contains_key(field))
+}
+
+fn story_projection_source_signature(message: &Value) -> (String, String, String, bool, bool) {
+    let extra = message.get("extra").and_then(Value::as_object);
+    let hidden_from_ai = extra.is_some_and(|extra| {
+        extra.get("hiddenFromAI").and_then(Value::as_bool) == Some(true)
+            || extra.get("hiddenFromAi").and_then(Value::as_bool) == Some(true)
+    });
+    let hidden_from_user = extra.is_some_and(|extra| {
+        extra.get("hiddenFromUser").and_then(Value::as_bool) == Some(true)
+            || extra.get("hidden_from_user").and_then(Value::as_bool) == Some(true)
+    });
+    (
+        message.get("role").and_then(Value::as_str).unwrap_or_default().to_string(),
+        message.get("content").and_then(Value::as_str).unwrap_or_default().to_string(),
+        message.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string(),
+        hidden_from_ai,
+        hidden_from_user,
+    )
 }
 
 fn message_extra_patch_changes_active_swipe(message: &Value, patch: &Map<String, Value>) -> bool {
@@ -946,10 +988,19 @@ pub(crate) fn patch_message_update_with_memory_prune(
     let patch_object = normalized.as_object().cloned().unwrap_or_default();
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    let previous_story_source = story_projection_source_signature(&message);
     if !message_patch_requires_swipe_transaction(&patch_object)
         && !message_extra_patch_changes_active_swipe(&message, &patch_object)
     {
-        return journal_backed_message_patch(state, message_id, patch_object, &message);
+        let updated = journal_backed_message_patch(state, message_id, patch_object, &message)?;
+        if story_projection_source_signature(&updated) != previous_story_source {
+            canonical_memory::stale_story_projections_for_messages(
+                state,
+                &[message_id.to_string()],
+                "source_message_edited",
+            )?;
+        }
+        return Ok(updated);
     }
     let previous_visible_content = message
         .get("content")
@@ -965,6 +1016,7 @@ pub(crate) fn patch_message_update_with_memory_prune(
         sync_message_patch_content_to_active_swipe(object, &patch_object);
     }
     materialize_message_swipe_fields(&mut message);
+    let story_source_changed = story_projection_source_signature(&message) != previous_story_source;
     let next_visible_content = message
         .get("content")
         .and_then(Value::as_str)
@@ -977,7 +1029,7 @@ pub(crate) fn patch_message_update_with_memory_prune(
         .map(ToOwned::to_owned);
     let swipes = message_swipe_storage::take_swipes_for_storage(&mut message)?.unwrap_or_default();
     if let Some(chat_id) = owner_chat_id {
-        return replace_message_with_swipes_and_chat_cleanup(
+        let updated = replace_message_with_swipes_and_chat_cleanup(
             state,
             &chat_id,
             message_id,
@@ -985,7 +1037,15 @@ pub(crate) fn patch_message_update_with_memory_prune(
             swipes,
             previous_visible_content != next_visible_content,
             None,
-        );
+        )?;
+        if story_source_changed && previous_visible_content == next_visible_content {
+            canonical_memory::stale_story_projections_for_messages(
+                state,
+                &[message_id.to_string()],
+                "source_message_edited",
+            )?;
+        }
+        return Ok(updated);
     }
     let mut updated = message_swipe_storage::replace_message_with_swipes(state, message, swipes)?;
     message_swipe_storage::materialize_message(state, &mut updated, true)?;
@@ -1005,6 +1065,7 @@ pub(crate) fn set_active_swipe(
         .unwrap_or(0);
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    let previous_story_source = story_projection_source_signature(&message);
     let owner_chat_id = owned_message_chat_id(&message, chat_id)?;
     let object = message
         .as_object_mut()
@@ -1076,6 +1137,7 @@ pub(crate) fn set_active_swipe(
     }
     let visible_content_changed =
         object.get("content").and_then(Value::as_str) != Some(previous_visible_content.as_str());
+    let story_source_changed = story_projection_source_signature(&message) != previous_story_source;
     let swipes = message_swipe_storage::take_swipes_for_storage(&mut message)?.unwrap_or_default();
     let updated = replace_message_with_swipes_and_chat_cleanup(
         state,
@@ -1086,6 +1148,13 @@ pub(crate) fn set_active_swipe(
         visible_content_changed,
         None,
     )?;
+    if story_source_changed && !visible_content_changed {
+        canonical_memory::stale_story_projections_for_messages(
+            state,
+            &[message_id.to_string()],
+            "source_message_edited",
+        )?;
+    }
     Ok(active_swipe_update_response(&updated))
 }
 
@@ -1100,6 +1169,7 @@ pub(crate) fn delete_swipe(
         .map_err(|_| AppError::invalid_input("Invalid swipe index"))?;
     let mut message = get_required(state, "messages", message_id)?;
     message_swipe_storage::materialize_message(state, &mut message, true)?;
+    let previous_story_source = story_projection_source_signature(&message);
     let owner_chat_id = owned_message_chat_id(&message, chat_id)?;
     let previous_visible_content = message
         .get("content")
@@ -1141,6 +1211,7 @@ pub(crate) fn delete_swipe(
     materialize_message_swipe_fields(&mut message);
     let visible_content_changed =
         message.get("content").and_then(Value::as_str) != Some(previous_visible_content.as_str());
+    let story_source_changed = story_projection_source_signature(&message) != previous_story_source;
     let swipes = message_swipe_storage::take_swipes_for_storage(&mut message)?.unwrap_or_default();
     let updated = replace_message_with_swipes_and_chat_cleanup(
         state,
@@ -1151,6 +1222,13 @@ pub(crate) fn delete_swipe(
         visible_content_changed,
         Some(index as i64),
     )?;
+    if story_source_changed && !visible_content_changed {
+        canonical_memory::stale_story_projections_for_messages(
+            state,
+            &[message_id.to_string()],
+            "source_message_edited",
+        )?;
+    }
     Ok(updated)
 }
 
@@ -1171,7 +1249,7 @@ pub(crate) fn delete_message_rows_with_memory_prune(
     }
 
     let now = now_iso();
-    state.storage.update_collections_atomically(
+    let result = state.storage.update_collections_atomically(
         vec![
             "messages",
             message_swipe_storage::COLLECTION,
@@ -1259,7 +1337,13 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             ids.sort();
             Ok((deleted_messages.len(), ids))
         },
-    )
+    )?;
+    canonical_memory::stale_story_projections_for_messages(
+        state,
+        &result.1,
+        "source_message_deleted",
+    )?;
+    Ok(result)
 }
 
 pub(crate) fn bulk_delete_messages(
@@ -6345,6 +6429,67 @@ mod tests {
                 .get("sceneChatId")
                 .and_then(Value::as_str),
             Some("other-scene")
+        );
+    }
+
+    #[test]
+    fn hiding_a_story_source_stales_its_projection_without_changing_content() {
+        let state = test_state("story-source-visibility");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({
+                    "id": "message-1",
+                    "chatId": "chat-1",
+                    "role": "assistant",
+                    "content": "Visible story beat",
+                    "createdAt": "2026-08-27T00:00:00Z",
+                    "extra": {}
+                }),
+            )
+            .expect("message should seed");
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "episode-1",
+                "kind": "episode",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "Visible story beat",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] },
+                "tags": ["story-continuity", "episode"],
+                "payload": {
+                    "storyProjectionVersion": 1,
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-1",
+                    "sourceFingerprint": "fingerprint-1",
+                    "messageIds": ["message-1"],
+                    "firstMessageId": "message-1",
+                    "lastMessageId": "message-1",
+                    "sourceEpisodeIds": []
+                }
+            }),
+        )
+        .expect("episode should seed");
+
+        let updated = patch_message_update_with_memory_prune(
+            &state,
+            "message-1",
+            json!({ "extra": { "hiddenFromAI": true } }),
+        )
+        .expect("visibility update should succeed");
+
+        assert_eq!(updated["content"], json!("Visible story beat"));
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "episode-1")
+                .unwrap()
+                .unwrap()["status"],
+            json!("stale")
         );
     }
 }

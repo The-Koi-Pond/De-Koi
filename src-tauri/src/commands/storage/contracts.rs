@@ -155,6 +155,12 @@ const CANONICAL_MEMORY_FIELDS: &[TypedJsonField] = &[
 ];
 const MEMORY_CAPTURE_JOB_FIELDS: &[TypedJsonField] =
     &[array("sourceMessageIds"), array("sourceMessages")];
+const STORY_CONSOLIDATION_JOB_FIELDS: &[TypedJsonField] = &[
+    array("sourceMessageIds"),
+    array("sourceEpisodeIds"),
+    array("sourceMessages"),
+    array("sourceEpisodes"),
+];
 const MEMORY_MAINTENANCE_JOB_FIELDS: &[TypedJsonField] = &[
     object("target"),
     array("recentFingerprints"),
@@ -442,6 +448,14 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         false,
         EMPTY_DEFAULTS,
         MEMORY_CAPTURE_JOB_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
+        "story-consolidation-jobs",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        STORY_CONSOLIDATION_JOB_FIELDS,
         EMPTY_CLEANUP,
     ),
     contract(

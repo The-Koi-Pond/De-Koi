@@ -4,6 +4,7 @@ use marinara_core::{now_iso, AppError, AppResult};
 use serde_json::{json, Map, Value};
 
 const JOBS_COLLECTION: &str = "memory-capture-jobs";
+const STORY_JOBS_COLLECTION: &str = "story-consolidation-jobs";
 
 fn merge_object_patch(target: &mut Map<String, Value>, patch: Map<String, Value>) {
     for (key, value) in patch {
@@ -65,6 +66,43 @@ pub(crate) fn update_job(state: &AppState, body: Value) -> AppResult<Value> {
         state
             .storage
             .patch(JOBS_COLLECTION, job_id, Value::Object(patch))
+    })
+}
+
+pub(crate) fn update_story_job(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let job_id = body
+        .get("jobId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Story consolidation job id is required"))?;
+    let patch = body
+        .get("patch")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Story consolidation job patch is required"))?;
+    state.with_memory_capture_lease(lease_id, || {
+        state
+            .storage
+            .patch(STORY_JOBS_COLLECTION, job_id, Value::Object(patch))
+    })
+}
+
+pub(crate) fn commit_story_projection(state: &AppState, body: Value) -> AppResult<Value> {
+    let lease_id = lease_id(&body)?;
+    let job_id = body
+        .get("jobId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::invalid_input("Story consolidation job id is required"))?;
+    let memory = body
+        .get("memory")
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Story projection memory body is required"))?;
+    state.with_memory_capture_lease(lease_id, || {
+        canonical_memory::commit_story_projection_job(state, job_id, memory)
     })
 }
 
@@ -170,6 +208,13 @@ mod tests {
         state
             .storage
             .create(
+                STORY_JOBS_COLLECTION,
+                json!({ "id": "story-job-1", "status": "pending" }),
+            )
+            .expect("story job should seed");
+        state
+            .storage
+            .create(
                 "messages",
                 json!({ "id": "message-1", "chatId": "chat-1", "content": "hello", "extra": {} }),
             )
@@ -205,6 +250,18 @@ mod tests {
         )
         .expect_err("released lease must not update");
         assert_eq!(stale.code, "memory_capture_lease_lost");
+        let stale_story_job = update_story_job(
+            &state,
+            json!({ "leaseId": lease_id, "jobId": "story-job-1", "patch": { "status": "processing" } }),
+        )
+        .expect_err("released lease must not update a story job");
+        assert_eq!(stale_story_job.code, "memory_capture_lease_lost");
+        let stale_story_commit = commit_story_projection(
+            &state,
+            json!({ "leaseId": lease_id, "jobId": "story-job-1", "memory": {} }),
+        )
+        .expect_err("released lease must not commit a story projection");
+        assert_eq!(stale_story_commit.code, "memory_capture_lease_lost");
         let stale_memory = create_memory(&state, json!({ "leaseId": lease_id, "memory": {} }))
             .expect_err("released lease must not create canonical memory");
         assert_eq!(stale_memory.code, "memory_capture_lease_lost");
@@ -261,6 +318,125 @@ mod tests {
         assert_eq!(
             message["extra"]["memoryCapture"]["status"],
             json!("completed")
+        );
+    }
+
+    fn story_episode(id: &str, fingerprint: &str, supersedes: Option<&str>) -> Value {
+        json!({
+            "id": id,
+            "kind": "episode",
+            "status": "active",
+            "scope": { "kind": "chat", "id": "chat-1" },
+            "title": "Episode",
+            "content": "A durable episode summary.",
+            "confidence": 0.9,
+            "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1", "message-2"] },
+            "tags": ["story-continuity", "episode"],
+            "supersedesMemoryId": supersedes,
+            "payload": {
+                "storyProjectionVersion": 1,
+                "level": "episode",
+                "ownerChatId": "chat-1",
+                "coverageId": "coverage-1",
+                "sourceFingerprint": fingerprint,
+                "messageIds": ["message-1", "message-2"],
+                "firstMessageId": "message-1",
+                "lastMessageId": "message-2",
+                "sourceEpisodeIds": [],
+                "sections": {},
+                "summarizer": { "version": "story-projection-v1", "completedAt": "2026-08-27T00:00:00Z" }
+            }
+        })
+    }
+
+    #[test]
+    fn story_projection_commit_atomically_replaces_and_completes() {
+        let state = test_state("story-atomic-commit");
+        canonical_memory::create_memory(&state, story_episode("episode-old", "old", None))
+            .expect("old projection should seed");
+        state
+            .storage
+            .create(
+                STORY_JOBS_COLLECTION,
+                json!({
+                    "id": "story-job-1",
+                    "status": "processing",
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-1",
+                    "sourceFingerprint": "new",
+                    "supersedesMemoryId": "episode-old"
+                }),
+            )
+            .expect("story job should seed");
+        let lease = acquire_worker(&state, json!({ "workerId": "story:browser-a" }))
+            .expect("lease should be acquired");
+        let lease_id = lease["leaseId"].as_str().expect("lease should exist");
+
+        let result = commit_story_projection(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "jobId": "story-job-1",
+                "memory": story_episode("episode-new", "new", Some("episode-old"))
+            }),
+        )
+        .expect("story projection should commit");
+
+        assert_eq!(result["memory"]["id"], json!("episode-new"));
+        assert_eq!(result["job"]["status"], json!("completed"));
+        let old = state
+            .storage
+            .get("canonical-memories", "episode-old")
+            .unwrap()
+            .unwrap();
+        assert_eq!(old["status"], json!("superseded"));
+        assert_eq!(old["supersededByMemoryId"], json!("episode-new"));
+    }
+
+    #[test]
+    fn failed_story_replacement_keeps_the_last_projection_and_job() {
+        let state = test_state("story-atomic-rollback");
+        state
+            .storage
+            .create(
+                STORY_JOBS_COLLECTION,
+                json!({
+                    "id": "story-job-1",
+                    "status": "processing",
+                    "level": "episode",
+                    "ownerChatId": "chat-1",
+                    "coverageId": "coverage-1",
+                    "sourceFingerprint": "new",
+                    "supersedesMemoryId": "missing-episode"
+                }),
+            )
+            .expect("story job should seed");
+        let lease = acquire_worker(&state, json!({ "workerId": "story:browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().unwrap();
+
+        commit_story_projection(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "jobId": "story-job-1",
+                "memory": story_episode("episode-new", "new", Some("missing-episode"))
+            }),
+        )
+        .expect_err("missing replacement source must abort the transaction");
+
+        assert!(state
+            .storage
+            .get("canonical-memories", "episode-new")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            state
+                .storage
+                .get(STORY_JOBS_COLLECTION, "story-job-1")
+                .unwrap()
+                .unwrap()["status"],
+            json!("processing")
         );
     }
 }
