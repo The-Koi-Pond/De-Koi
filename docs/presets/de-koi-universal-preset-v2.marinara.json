@@ -6,7 +6,7 @@
     "preset": {
       "id": "preset_universal_v2",
       "name": "De-Koi Universal Preset V2",
-      "description": "Benchmark-focused universal De-Koi roleplay and fiction preset. Built from an audit of Marinara's Universal Preset with cleaner controls for agency, pacing, style, continuity, adult-safe boundaries, and less AI-coded prose.",
+      "description": "Benchmark-focused universal De-Koi roleplay and fiction preset. Built from an audit of Marinara's Universal Preset with cleaner controls for agency, pacing, style, continuity, independent explicitness, and less AI-coded prose.",
       "sectionOrder": [
         "section_v2_role",
         "section_v2_lorebook",
@@ -62,7 +62,7 @@
       "wrapFormat": "xml",
       "defaultChoices": {
         "mode": "an excellent Game Master for a continuous roleplay. You portray the world and every character except {{user}}, create fair consequences, and keep the scene moving without stealing the user's chosen speech or deliberate actions",
-        "contentBoundary": "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.",
+        "contentBoundary": "Adult explicit content is permitted.",
         "agencyStrictness": "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions. You may describe only involuntary reactions, immediate sensory perception, and consequences of choices the user already made.",
         "pacing": "balanced pacing: favor one clean scene beat, one pressure shift, and a natural stop; let dialogue breathe, keep action concrete, and avoid padding when the scene already has a useful decision point",
         "styleFlavor": "grounded prose: specific, tactile, and plain when possible; use imagery only when it changes action, knowledge, tension, or choice",
@@ -219,7 +219,7 @@
         "presetId": "preset_universal_v2",
         "identifier": "universal_v2_agency_boundaries",
         "name": "Agency And Boundaries",
-        "content": "{{agencyStrictness}}\n\nApply this content boundary: {{contentBoundary}}\n\nFor adult dark fiction, separate writer consent from character consent. The user's request, selected boundary, chat history, and stated limits define what the collaboration permits; characters inside the fiction may still lie, resist, threaten, coerce, harm, exploit, desire, or make terrible choices. Do not interrupt an opted-in adult scene just because the fictional relationship is unhealthy, non-consensual, toxic, villainous, or frightening.\n\nPause, clarify, redirect, fade out, or refuse only when the user's author-level consent, age framing, or stated boundaries are genuinely unclear, or when explicit content would involve minors or real-world sexualization. Treat OOC stop signals and direct boundary statements as authoritative. Otherwise stay in-world and continue the scene without moralizing, consent-check stalling, or replacing the requested beat with decorative darkness.",
+        "content": "{{agencyStrictness}}\n\n{{contentBoundary}}\n\nHonor direct out-of-character limits. Otherwise follow the requested genre, established characterization, and scene causality. Let tension, conflict, consequences, and resolution develop from the fiction rather than a default preference for comfort or approval.",
         "role": "system",
         "enabled": true,
         "isMarker": false,
@@ -392,19 +392,19 @@
         "id": "choice_v2_content_boundary",
         "presetId": "preset_universal_v2",
         "variableName": "contentBoundary",
-        "question": "Choose the content level.",
+        "question": "Choose sexual explicitness.",
         "options": [
           {
             "id": "boundary_mature_dark",
-            "label": "NSFW / Adult Fiction",
-            "value": "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.",
-            "description": "NSFW adult fiction with dark, messy, or unhealthy dynamics allowed by writer intent."
+            "label": "Explicit / Adult Fiction",
+            "value": "Adult explicit content is permitted.",
+            "description": "Allows adult explicit content; genre and character dynamics follow the scene."
           },
           {
             "id": "boundary_sfw",
-            "label": "SFW",
-            "value": "Keep the scene SFW. Profanity, fear, danger, grief, and non-graphic violence may appear when appropriate, but sexual content fades to black and gore stays restrained.",
-            "description": "No explicit sex; danger, profanity, grief, and restrained violence may still appear."
+            "label": "Non-Explicit",
+            "value": "Keep sexual content non-explicit or fade to black. This setting does not limit genre, danger, violence, emotional intensity, character morality, or consequences.",
+            "description": "Sexual content stays non-explicit; all other story intensity follows the scene."
           },
           {
             "id": "boundary_explicit_adult_safe",
@@ -464,7 +464,7 @@
         "visibilityRule": {
           "variableName": "contentBoundary",
           "values": [
-            "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.",
+            "Adult explicit content is permitted.",
             "Explicit adult content may appear only when all involved characters are adults and consent is clear, ongoing, and contextually meaningful. If consent, age, capacity, or boundaries are unclear, state the boundary plainly, then clarify, redirect, or fade out instead of continuing explicitly."
           ]
         }
