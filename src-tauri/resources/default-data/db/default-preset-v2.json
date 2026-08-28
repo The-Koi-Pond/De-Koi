@@ -395,7 +395,7 @@
           {
             "id": "boundary_mature_dark",
             "label": "Explicit / Adult Fiction",
-            "value": "Adult explicit content is permitted.",
+            "value": "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
             "description": "Allows adult explicit content; genre and character dynamics follow the scene."
           },
           {
@@ -462,7 +462,7 @@
         "visibilityRule": {
           "variableName": "contentBoundary",
           "values": [
-            "Adult explicit content is permitted.",
+            "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
             "Explicit adult content may appear only when all involved characters are adults and consent is clear, ongoing, and contextually meaningful. If consent, age, capacity, or boundaries are unclear, state the boundary plainly, then clarify, redirect, or fade out instead of continuing explicitly."
           ]
         }

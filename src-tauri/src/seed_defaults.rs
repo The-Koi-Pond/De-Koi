@@ -17,6 +17,7 @@ const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset-v2.json");
 const HISTORICAL_UNIVERSAL_V2_SFW_BOUNDARY: &str = "Keep the scene SFW. Profanity, fear, danger, grief, and non-graphic violence may appear when appropriate, but sexual content fades to black and gore stays restrained.";
 const HISTORICAL_UNIVERSAL_V2_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
+const HISTORICAL_UNIVERSAL_V2_SHORT_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed.";
 const HISTORICAL_UNIVERSAL_V2_AGENCY_SECTION: &str = "{{agencyStrictness}}\n\nApply this content boundary: {{contentBoundary}}\n\nFor adult dark fiction, separate writer consent from character consent. The user's request, selected boundary, chat history, and stated limits define what the collaboration permits; characters inside the fiction may still lie, resist, threaten, coerce, harm, exploit, desire, or make terrible choices. Do not interrupt an opted-in adult scene just because the fictional relationship is unhealthy, non-consensual, toxic, villainous, or frightening.\n\nPause, clarify, redirect, fade out, or refuse only when the user's author-level consent, age framing, or stated boundaries are genuinely unclear, or when explicit content would involve minors or real-world sexualization. Treat OOC stop signals and direct boundary statements as authoritative. Otherwise stay in-world and continue the scene without moralizing, consent-check stalling, or replacing the requested beat with decorative darkness.";
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
@@ -425,6 +426,7 @@ fn managed_universal_v2_boundary_id(value: &str) -> Option<&'static str> {
     if value == "Keep the scene SFW." || value == HISTORICAL_UNIVERSAL_V2_SFW_BOUNDARY {
         Some("boundary_sfw")
     } else if value == HISTORICAL_UNIVERSAL_V2_ADULT_BOUNDARY
+        || value == HISTORICAL_UNIVERSAL_V2_SHORT_ADULT_BOUNDARY
         || looks_like_legacy_v2_boundary(value)
     {
         Some("boundary_mature_dark")
@@ -827,7 +829,7 @@ mod tests {
     #[test]
     fn refreshes_existing_universal_v2_boundary_rows() {
         let (storage, root) = temp_storage();
-        let old_boundary = HISTORICAL_UNIVERSAL_V2_ADULT_BOUNDARY;
+        let old_boundary = "Adult dark fiction is allowed.";
         let old_agency = HISTORICAL_UNIVERSAL_V2_AGENCY_SECTION;
 
         storage
@@ -906,7 +908,7 @@ mod tests {
             default_choices
                 .get("contentBoundary")
                 .and_then(Value::as_str),
-            Some("Adult explicit content is permitted.")
+            Some("Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.")
         );
         assert!(default_choices
             .get("eroticTone")
@@ -994,7 +996,7 @@ mod tests {
         );
         assert_eq!(
             explicit_adult.get("value").and_then(Value::as_str),
-            Some("Adult explicit content is permitted.")
+            Some("Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.")
         );
         let sfw = options
             .iter()
@@ -1059,7 +1061,7 @@ mod tests {
                     "options": [
                         {
                             "id": "boundary_mature_dark",
-                            "label": "Custom Adult",
+                            "label": "Mature Dark",
                             "value": "Keep this custom adult option exactly."
                         },
                         {
@@ -1081,7 +1083,7 @@ mod tests {
             .expect("managed prompt should exist");
         assert_eq!(
             managed["defaultChoices"]["contentBoundary"].as_str(),
-            Some("Adult explicit content is permitted.")
+            Some("Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.")
         );
         assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(8192));
         assert_eq!(

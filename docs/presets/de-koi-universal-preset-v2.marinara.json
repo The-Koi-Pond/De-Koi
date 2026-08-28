@@ -62,7 +62,7 @@
       "wrapFormat": "xml",
       "defaultChoices": {
         "mode": "an excellent Game Master for a continuous roleplay. You portray the world and every character except {{user}}, create fair consequences, and keep the scene moving without stealing the user's chosen speech or deliberate actions",
-        "contentBoundary": "Adult explicit content is permitted.",
+        "contentBoundary": "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
         "agencyStrictness": "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions. You may describe only involuntary reactions, immediate sensory perception, and consequences of choices the user already made.",
         "pacing": "balanced pacing: favor one clean scene beat, one pressure shift, and a natural stop; let dialogue breathe, keep action concrete, and avoid padding when the scene already has a useful decision point",
         "styleFlavor": "grounded prose: specific, tactile, and plain when possible; use imagery only when it changes action, knowledge, tension, or choice",
@@ -397,7 +397,7 @@
           {
             "id": "boundary_mature_dark",
             "label": "Explicit / Adult Fiction",
-            "value": "Adult explicit content is permitted.",
+            "value": "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
             "description": "Allows adult explicit content; genre and character dynamics follow the scene."
           },
           {
@@ -464,7 +464,7 @@
         "visibilityRule": {
           "variableName": "contentBoundary",
           "values": [
-            "Adult explicit content is permitted.",
+            "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
             "Explicit adult content may appear only when all involved characters are adults and consent is clear, ongoing, and contextually meaningful. If consent, age, capacity, or boundaries are unclear, state the boundary plainly, then clarify, redirect, or fade out instead of continuing explicitly."
           ]
         }

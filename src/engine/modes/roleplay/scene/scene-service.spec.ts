@@ -69,7 +69,8 @@ function storageForScene(args: {
               },
               {
                 id: "boundary_mature_dark",
-                value: "Adult explicit content is permitted.",
+                value:
+                  "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
               },
               { id: "boundary_explicit_adult_safe", value: "Explicit adult content may appear only with consent." },
             ],
@@ -346,7 +347,8 @@ describe("roleplay scene recent history", () => {
     expect(createdScene).toMatchObject({
       metadata: {
         presetChoices: {
-          contentBoundary: "Adult explicit content is permitted.",
+          contentBoundary:
+            "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
           eroticTone: "filthy erotic tone",
         },
       },
@@ -739,7 +741,8 @@ describe("createRoleplayScene", () => {
       metadata: {
         sceneUniversalPresetId: "preset_universal_v2",
         presetChoices: {
-          contentBoundary: "Adult explicit content is permitted.",
+          contentBoundary:
+            "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
           eroticTone: "filthy erotic tone",
           narration: "second-person",
         },
