@@ -62,8 +62,16 @@ function storageForScene(args: {
           {
             variableName: "contentBoundary",
             options: [
-              { id: "boundary_sfw", value: "Keep the scene SFW." },
-              { id: "boundary_mature_dark", value: "Adult dark fiction is allowed." },
+              {
+                id: "boundary_sfw",
+                value:
+                  "Keep sexual content non-explicit or fade to black. This setting does not limit genre, danger, violence, emotional intensity, character morality, or consequences.",
+              },
+              {
+                id: "boundary_mature_dark",
+                value:
+                  "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
+              },
               { id: "boundary_explicit_adult_safe", value: "Explicit adult content may appear only with consent." },
             ],
           },
@@ -339,8 +347,57 @@ describe("roleplay scene recent history", () => {
     expect(createdScene).toMatchObject({
       metadata: {
         presetChoices: {
-          contentBoundary: "Adult dark fiction is allowed.",
+          contentBoundary:
+            "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
           eroticTone: "filthy erotic tone",
+        },
+      },
+    });
+  });
+
+  it("keeps non-explicit scenes genre-neutral instead of softening the fiction", async () => {
+    const { storage, createdRecords } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
+      messages: {
+        "chat-1": [{ id: "message-1", role: "user", content: "Start the political betrayal scene." }],
+      },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Broken Alliance",
+            description: "An ally carries out a ruthless betrayal.",
+            scenario: "The alliance collapses under the consequences of the betrayal.",
+            firstMessage: "The sealed orders land on the table.",
+            background: null,
+            characterIds: [],
+            systemPrompt: "Keep the character motives intact.",
+            rating: "sfw",
+            relationshipHistory: "Their trust has been eroding.",
+            participationGuide: "",
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "a ruthless political betrayal", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    await createRoleplayScene(storage, {
+      originChatId: "chat-1",
+      initiatorCharId: null,
+      connectionId: null,
+      plan: response.plan,
+    });
+
+    const createdScene = createdRecords.find((record) => record.entity === "chats")?.value;
+    expect(createdScene).toMatchObject({
+      metadata: {
+        presetChoices: {
+          contentBoundary:
+            "Keep sexual content non-explicit or fade to black. This setting does not limit genre, danger, violence, emotional intensity, character morality, or consequences.",
         },
       },
     });
@@ -684,7 +741,8 @@ describe("createRoleplayScene", () => {
       metadata: {
         sceneUniversalPresetId: "preset_universal_v2",
         presetChoices: {
-          contentBoundary: "Adult dark fiction is allowed.",
+          contentBoundary:
+            "Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.",
           eroticTone: "filthy erotic tone",
           narration: "second-person",
         },

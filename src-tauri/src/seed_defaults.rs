@@ -15,6 +15,10 @@ const LEGACY_DEKI_CHARACTER_ID: &str = "__professor_mari__";
 const LEGACY_CLEANUP_MAX_COLLECTION_BYTES: u64 = 4 * 1024 * 1024;
 const BUNDLED_UNIVERSAL_V2_PRESET_JSON: &str =
     include_str!("../resources/default-data/db/default-preset-v2.json");
+const HISTORICAL_UNIVERSAL_V2_SFW_BOUNDARY: &str = "Keep the scene SFW. Profanity, fear, danger, grief, and non-graphic violence may appear when appropriate, but sexual content fades to black and gore stays restrained.";
+const HISTORICAL_UNIVERSAL_V2_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
+const HISTORICAL_UNIVERSAL_V2_SHORT_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed.";
+const HISTORICAL_UNIVERSAL_V2_AGENCY_SECTION: &str = "{{agencyStrictness}}\n\nApply this content boundary: {{contentBoundary}}\n\nFor adult dark fiction, separate writer consent from character consent. The user's request, selected boundary, chat history, and stated limits define what the collaboration permits; characters inside the fiction may still lie, resist, threaten, coerce, harm, exploit, desire, or make terrible choices. Do not interrupt an opted-in adult scene just because the fictional relationship is unhealthy, non-consensual, toxic, villainous, or frightening.\n\nPause, clarify, redirect, fade out, or refuse only when the user's author-level consent, age framing, or stated boundaries are genuinely unclear, or when explicit content would involve minors or real-world sexualization. Treat OOC stop signals and direct boundary statements as authoritative. Otherwise stay in-world and continue the scene without moralizing, consent-check stalling, or replacing the requested beat with decorative darkness.";
 
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
@@ -113,7 +117,7 @@ fn refresh_universal_v2_boundary_rows(storage: &FileStorage, data: &Value) -> Ap
         refresh_universal_v2_agency_section(storage, desired_agency)?;
     }
 
-    let desired_boundary_option = data
+    let desired_boundary_options = data
         .get("choiceBlocks")
         .and_then(Value::as_array)
         .and_then(|blocks| {
@@ -123,14 +127,21 @@ fn refresh_universal_v2_boundary_rows(storage: &FileStorage, data: &Value) -> Ap
         })
         .and_then(|block| block.get("options"))
         .and_then(Value::as_array)
-        .and_then(|options| {
-            options.iter().find(|option| {
-                option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark")
-            })
+        .map(|options| {
+            options
+                .iter()
+                .filter(|option| {
+                    matches!(
+                        option.get("id").and_then(Value::as_str),
+                        Some("boundary_mature_dark") | Some("boundary_sfw")
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>()
         })
-        .cloned();
-    if let Some(desired_boundary_option) = desired_boundary_option {
-        refresh_universal_v2_boundary_choice(storage, desired_boundary_option)?;
+        .unwrap_or_default();
+    if !desired_boundary_options.is_empty() {
+        refresh_universal_v2_boundary_choices(storage, &desired_boundary_options)?;
     }
     refresh_universal_v2_choice_metadata(storage, data)?;
 
@@ -153,6 +164,19 @@ fn refresh_universal_v2_prompt_metadata(storage: &FileStorage, data: &Value) -> 
         .cloned()
         .unwrap_or_default();
     let mut default_choices_changed = false;
+
+    let managed_boundary_id = default_choices
+        .get("contentBoundary")
+        .and_then(Value::as_str)
+        .and_then(managed_universal_v2_boundary_id);
+    if let Some(desired_boundary) =
+        managed_boundary_id.and_then(|id| desired_universal_v2_boundary_value(data, id))
+    {
+        if default_choices.get("contentBoundary") != Some(&desired_boundary) {
+            default_choices.insert("contentBoundary".to_string(), desired_boundary);
+            default_choices_changed = true;
+        }
+    }
 
     if let Some(desired_erotic_tone) = desired_default_choices
         .and_then(|choices| choices.get("eroticTone"))
@@ -238,6 +262,25 @@ fn value_array_contains_str(values: &[Value], expected: &str) -> bool {
     values.iter().any(|value| value.as_str() == Some(expected))
 }
 
+fn desired_universal_v2_boundary_value(data: &Value, id: &str) -> Option<Value> {
+    data.get("choiceBlocks")
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            blocks.iter().find(|block| {
+                block.get("id").and_then(Value::as_str) == Some("choice_v2_content_boundary")
+            })
+        })
+        .and_then(|block| block.get("options"))
+        .and_then(Value::as_array)
+        .and_then(|options| {
+            options
+                .iter()
+                .find(|option| option.get("id").and_then(Value::as_str) == Some(id))
+        })
+        .and_then(|option| option.get("value"))
+        .cloned()
+}
+
 fn refresh_universal_v2_agency_section(
     storage: &FileStorage,
     desired_content: Value,
@@ -248,7 +291,7 @@ fn refresh_universal_v2_agency_section(
     let Some(current) = section.get("content").and_then(Value::as_str) else {
         return Ok(());
     };
-    if looks_like_legacy_v2_boundary(current) {
+    if current == HISTORICAL_UNIVERSAL_V2_AGENCY_SECTION || looks_like_legacy_v2_boundary(current) {
         storage.patch(
             "prompt-sections",
             "section_v2_agency_boundaries",
@@ -258,9 +301,9 @@ fn refresh_universal_v2_agency_section(
     Ok(())
 }
 
-fn refresh_universal_v2_boundary_choice(
+fn refresh_universal_v2_boundary_choices(
     storage: &FileStorage,
-    desired_boundary_option: Value,
+    desired_boundary_options: &[Value],
 ) -> AppResult<()> {
     let Some(choice) = storage.get("prompt-variables", "choice_v2_content_boundary")? else {
         return Ok(());
@@ -273,20 +316,23 @@ fn refresh_universal_v2_boundary_choice(
     let options = current_options
         .iter()
         .map(|option| {
-            if option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark") {
-                let should_refresh = option
-                    .get("label")
-                    .and_then(Value::as_str)
-                    .map(|label| label == "Mature Dark" || label == "Adult Dark")
-                    .unwrap_or(false)
-                    || option
-                        .get("value")
-                        .and_then(Value::as_str)
-                        .map(looks_like_legacy_v2_boundary)
-                        .unwrap_or(false);
-                if should_refresh {
-                    changed = true;
-                    return desired_boundary_option.clone();
+            let Some(id) = option.get("id").and_then(Value::as_str) else {
+                return option.clone();
+            };
+            let is_managed_value = option
+                .get("value")
+                .and_then(Value::as_str)
+                .and_then(managed_universal_v2_boundary_id)
+                == Some(id);
+            let desired_option = desired_boundary_options
+                .iter()
+                .find(|desired| desired.get("id").and_then(Value::as_str) == Some(id));
+            if is_managed_value {
+                if let Some(desired_option) = desired_option {
+                    if desired_option != option {
+                        changed = true;
+                        return desired_option.clone();
+                    }
                 }
             }
             option.clone()
@@ -374,6 +420,19 @@ fn looks_like_legacy_v2_boundary(value: &str) -> bool {
     value.contains("Sexual content must involve adult characters with clear, ongoing consent")
         || value.contains("Keep consent, age, capacity, and boundaries legible")
         || value.contains("Do not eroticize coercion, minors, impaired consent, or unclear consent")
+}
+
+fn managed_universal_v2_boundary_id(value: &str) -> Option<&'static str> {
+    if value == "Keep the scene SFW." || value == HISTORICAL_UNIVERSAL_V2_SFW_BOUNDARY {
+        Some("boundary_sfw")
+    } else if value == HISTORICAL_UNIVERSAL_V2_ADULT_BOUNDARY
+        || value == HISTORICAL_UNIVERSAL_V2_SHORT_ADULT_BOUNDARY
+        || looks_like_legacy_v2_boundary(value)
+    {
+        Some("boundary_mature_dark")
+    } else {
+        None
+    }
 }
 
 fn set_bundled_prompt_default(storage: &FileStorage) -> AppResult<()> {
@@ -749,7 +808,7 @@ mod tests {
             .and_then(|value| value.get("contentBoundary"))
             .and_then(Value::as_str)
             .expect("content boundary default should be present")
-            .starts_with("Keep the scene SFW."));
+            .starts_with("Keep sexual content non-explicit or fade to black."));
         assert_eq!(
             prompts
                 .iter()
@@ -770,8 +829,8 @@ mod tests {
     #[test]
     fn refreshes_existing_universal_v2_boundary_rows() {
         let (storage, root) = temp_storage();
-        let old_boundary = "Mature-dark fiction is allowed: danger, profanity, moral ambiguity, fear, injury, and severe consequences may appear when they fit the story. Sexual content must involve adult characters with clear, ongoing consent and capacity. If age, consent, capacity, or boundaries are unclear, state the boundary plainly, then clarify, redirect, or fade out. Do not eroticize coercion, minors, impaired consent, or unclear consent.";
-        let old_agency = "{{agencyStrictness}}\n\nApply this content boundary: {{contentBoundary}}\n\nKeep consent, age, capacity, and boundaries legible. If explicit sexual content is requested while age, consent, capacity, or boundaries are unclear, do not continue the explicit content.";
+        let old_boundary = "Adult dark fiction is allowed.";
+        let old_agency = HISTORICAL_UNIVERSAL_V2_AGENCY_SECTION;
 
         storage
             .create(
@@ -823,7 +882,7 @@ mod tests {
                         {
                             "id": "boundary_sfw",
                             "label": "SFW",
-                            "value": "Keep the scene SFW."
+                            "value": HISTORICAL_UNIVERSAL_V2_SFW_BOUNDARY
                         }
                     ]
                 }),
@@ -849,7 +908,7 @@ mod tests {
             default_choices
                 .get("contentBoundary")
                 .and_then(Value::as_str),
-            Some(old_boundary)
+            Some("Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.")
         );
         assert!(default_choices
             .get("eroticTone")
@@ -917,7 +976,7 @@ mod tests {
             .get("content")
             .and_then(Value::as_str)
             .expect("agency content should be present")
-            .contains("separate writer consent from character consent"));
+            .contains("default preference for comfort or approval"));
 
         let boundary_choice = storage
             .get("prompt-variables", "choice_v2_content_boundary")
@@ -927,39 +986,42 @@ mod tests {
             .get("options")
             .and_then(Value::as_array)
             .expect("options should stay an array");
-        let adult_dark = options
+        let explicit_adult = options
             .iter()
             .find(|option| option.get("id").and_then(Value::as_str) == Some("boundary_mature_dark"))
             .expect("adult dark option should remain available");
         assert_eq!(
-            adult_dark.get("label").and_then(Value::as_str),
-            Some("NSFW / Adult Fiction")
+            explicit_adult.get("label").and_then(Value::as_str),
+            Some("Explicit / Adult Fiction")
         );
-        assert!(adult_dark
-            .get("value")
-            .and_then(Value::as_str)
-            .expect("adult dark value should be present")
-            .contains("author-level consent"));
+        assert_eq!(
+            explicit_adult.get("value").and_then(Value::as_str),
+            Some("Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.")
+        );
         let sfw = options
             .iter()
             .find(|option| option.get("id").and_then(Value::as_str) == Some("boundary_sfw"))
-            .expect("SFW option should remain available");
+            .expect("non-explicit option should remain available");
+        assert_eq!(
+            sfw.get("label").and_then(Value::as_str),
+            Some("Non-Explicit")
+        );
         assert_eq!(
             sfw.get("value").and_then(Value::as_str),
-            Some("Keep the scene SFW.")
+            Some("Keep sexual content non-explicit or fade to black. This setting does not limit genre, danger, violence, emotional intensity, character morality, or consequences.")
         );
         assert_eq!(
             sfw.get("description").and_then(Value::as_str),
-            Some("No explicit sex; danger, profanity, grief, and restrained violence may still appear.")
+            Some("Sexual content stays non-explicit; all other story intensity follows the scene.")
         );
         assert_eq!(
-            adult_dark.get("description").and_then(Value::as_str),
-            Some("NSFW adult fiction with dark, messy, or unhealthy dynamics allowed by writer intent.")
+            explicit_adult.get("description").and_then(Value::as_str),
+            Some("Allows adult explicit content; genre and character dynamics follow the scene.")
         );
     }
 
     #[test]
-    fn preserves_existing_managed_and_custom_defaults_without_a_version_marker() {
+    fn upgrades_existing_managed_default_and_preserves_custom_defaults_without_a_version_marker() {
         let (storage, root) = temp_storage();
         let historical_adult_boundary = "Adult dark fiction is allowed for mature audiences when the user has opted into it. Treat the user's author-level consent and stated boundaries as the safety layer; do not require fictional relationships or character behavior to be healthy, gentle, morally approved, or consensual inside the story. Adult characters may be cruel, selfish, coercive, violent, deceptive, obsessive, toxic, or exploitative when the scenario calls for it. Keep minors and real-world sexualization out of explicit content, respect any user-stated stop or boundary, and otherwise continue the fictional scene without moralizing, safety lectures, or consent-check stalling.";
 
@@ -980,6 +1042,37 @@ mod tests {
                 )
                 .expect("prompt should insert");
         }
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": "section_v2_agency_boundaries",
+                    "presetId": UNIVERSAL_V2_PRESET_ID,
+                    "content": "Keep this custom agency contract exactly."
+                }),
+            )
+            .expect("custom agency section should insert");
+        storage
+            .create(
+                "prompt-variables",
+                json!({
+                    "id": "choice_v2_content_boundary",
+                    "presetId": UNIVERSAL_V2_PRESET_ID,
+                    "options": [
+                        {
+                            "id": "boundary_mature_dark",
+                            "label": "Mature Dark",
+                            "value": "Keep this custom adult option exactly."
+                        },
+                        {
+                            "id": "boundary_sfw",
+                            "label": "Custom Non-Explicit",
+                            "value": "Keep this custom non-explicit option exactly."
+                        }
+                    ]
+                }),
+            )
+            .expect("custom boundary choices should insert");
 
         seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
             .expect("defaults should seed");
@@ -990,7 +1083,7 @@ mod tests {
             .expect("managed prompt should exist");
         assert_eq!(
             managed["defaultChoices"]["contentBoundary"].as_str(),
-            Some(historical_adult_boundary)
+            Some("Adult explicit content is permitted. Keep explicit sexual content limited to fictional adults; exclude minors and real-world sexualization.")
         );
         assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(8192));
         assert_eq!(
@@ -1010,6 +1103,29 @@ mod tests {
             custom["parameters"]["reasoningEffort"].as_str(),
             Some("maximum")
         );
+        let custom_agency = storage
+            .get("prompt-sections", "section_v2_agency_boundaries")
+            .expect("custom agency should read")
+            .expect("custom agency should exist");
+        assert_eq!(
+            custom_agency["content"].as_str(),
+            Some("Keep this custom agency contract exactly.")
+        );
+        let custom_choices = storage
+            .get("prompt-variables", "choice_v2_content_boundary")
+            .expect("custom choices should read")
+            .expect("custom choices should exist");
+        let custom_options = custom_choices["options"]
+            .as_array()
+            .expect("custom options should stay an array");
+        assert!(custom_options.iter().any(|option| {
+            option["id"] == "boundary_mature_dark"
+                && option["value"] == "Keep this custom adult option exactly."
+        }));
+        assert!(custom_options.iter().any(|option| {
+            option["id"] == "boundary_sfw"
+                && option["value"] == "Keep this custom non-explicit option exactly."
+        }));
 
         storage
             .patch(
@@ -1017,16 +1133,16 @@ mod tests {
                 UNIVERSAL_V2_PRESET_ID,
                 json!({
                     "defaultChoices": {
-                        "contentBoundary": historical_adult_boundary
+                        "contentBoundary": HISTORICAL_UNIVERSAL_V2_SFW_BOUNDARY
                     },
                     "parameters": {
                         "maxTokens": 4096
                     }
                 }),
             )
-            .expect("current adult selection should patch");
+            .expect("current non-explicit selection should patch");
         seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
-            .expect("defaults should seed with a current adult selection");
+            .expect("defaults should seed with a current non-explicit selection");
 
         let managed = storage
             .get("prompts", UNIVERSAL_V2_PRESET_ID)
@@ -1034,7 +1150,7 @@ mod tests {
             .expect("managed prompt should exist");
         assert_eq!(
             managed["defaultChoices"]["contentBoundary"].as_str(),
-            Some(historical_adult_boundary)
+            Some("Keep sexual content non-explicit or fade to black. This setting does not limit genre, danger, violence, emotional intensity, character morality, or consequences.")
         );
         assert_eq!(managed["parameters"]["maxTokens"].as_i64(), Some(4096));
         assert_eq!(managed["parameters"]["reasoningEffort"].as_str(), None);
