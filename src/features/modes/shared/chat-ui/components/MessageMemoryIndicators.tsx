@@ -87,7 +87,10 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
   const savedPopoverRef = useRef<HTMLDivElement | null>(null);
   const savedTitleId = useId();
   const savedCapture = memoryCapture?.capture;
-  const consequenceEntries = memoryCapture?.consequences?.affected ?? [];
+  const affectedConsequences = memoryCapture?.consequences?.affected;
+  const consequenceEntries = Array.isArray(affectedConsequences) ? affectedConsequences : [];
+  const completedConsequenceList =
+    memoryCapture?.consequences?.status === "completed" && Array.isArray(affectedConsequences);
   const savedConsequences = consequenceEntries.filter(completeSavedMemory);
   const completeCapture =
     savedCapture?.memory &&
@@ -103,7 +106,7 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
     memoryCapture?.consequences?.status === "skipped" ||
     savedConsequences.length < consequenceEntries.length ||
     (!!savedCapture && !completeCapture) ||
-    (savedMemories.length === 0 && !completeCapture && memoryCapture?.consequences?.status !== "completed");
+    (savedMemories.length === 0 && !completeCapture && !completedConsequenceList);
   const partialCapture = captureStatus === "completed" && savedMemories.length > 0 && captureHasProblems;
   const unavailableCapture = captureStatus === "completed" && savedMemories.length === 0 && captureHasProblems;
   const lifecycleStatus: MessageMemoryLifecycleStatus | null =

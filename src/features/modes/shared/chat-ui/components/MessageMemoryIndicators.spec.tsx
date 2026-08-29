@@ -42,6 +42,31 @@ describe("MessageMemoryIndicators", () => {
   });
 
   it.each([
+    ["missing", undefined],
+    ["null", null],
+  ])("keeps the unavailable warning when a completed capture has a %s affected list", (_label, affected) => {
+    const memoryCapture = {
+      status: "completed",
+      jobId: "job-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+      completedAt: "2026-08-29T00:00:00.000Z",
+      consequences: {
+        status: "completed",
+        ...(affected === undefined ? {} : { affected }),
+      },
+    } as unknown as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    const button = container.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(button?.textContent).toContain("memory unavailable");
+  });
+
+  it.each([
     ["missing kind", { id: "memory-2", status: "active", content: "Miso is a cat." }],
     ["invalid kind", { id: "memory-2", kind: "legacy", status: "active", content: "Miso is a cat." }],
     ["non-consequence kind", { id: "memory-2", kind: "episode", status: "active", content: "Miso is a cat." }],
