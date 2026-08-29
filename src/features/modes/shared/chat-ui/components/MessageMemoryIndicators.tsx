@@ -103,7 +103,7 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
     memoryCapture?.consequences?.status === "skipped" ||
     savedConsequences.length < consequenceEntries.length ||
     (!!savedCapture && !completeCapture) ||
-    (savedMemories.length === 0 && !completeCapture);
+    (savedMemories.length === 0 && !completeCapture && memoryCapture?.consequences?.status !== "completed");
   const partialCapture = captureStatus === "completed" && savedMemories.length > 0 && captureHasProblems;
   const unavailableCapture = captureStatus === "completed" && savedMemories.length === 0 && captureHasProblems;
   const lifecycleStatus: MessageMemoryLifecycleStatus | null =
