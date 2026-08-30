@@ -4,6 +4,7 @@ import type {
   CanonicalMemoryPatch,
   CanonicalMemoryQuery,
   CanonicalMemoryRecord,
+  KnowledgeEdgeInput,
   MemoryLexicalRebuildResult,
 } from "../../engine/contracts/types/memory";
 
@@ -19,11 +20,18 @@ export const memoryCaptureApi = {
   },
   updateJob: (leaseId: string, jobId: string, patch: Record<string, unknown>) =>
     invokeTauri<Record<string, unknown>>("memory_capture_job_update", { body: { leaseId, jobId, patch } }),
-  createMemory: (leaseId: string, memory: CanonicalMemoryInput) =>
-    invokeTauri<CanonicalMemoryRecord>("memory_capture_memory_create", { body: { leaseId, memory } }),
-  updateMemory: (leaseId: string, memoryId: string, patch: CanonicalMemoryPatch) =>
+  createMemory: (leaseId: string, memory: CanonicalMemoryInput, knowledgeEdges: KnowledgeEdgeInput[] = []) =>
+    invokeTauri<CanonicalMemoryRecord>("memory_capture_memory_create", {
+      body: { leaseId, memory, knowledgeEdges },
+    }),
+  updateMemory: (
+    leaseId: string,
+    memoryId: string,
+    patch: CanonicalMemoryPatch,
+    knowledgeEdges: KnowledgeEdgeInput[] = [],
+  ) =>
     invokeTauri<CanonicalMemoryRecord>("memory_capture_memory_update", {
-      body: { leaseId, memoryId, patch },
+      body: { leaseId, memoryId, patch, knowledgeEdges },
     }),
   patchMessageExtra: <T = unknown>(leaseId: string, messageId: string, patch: Record<string, unknown>) =>
     invokeTauri<T>("memory_capture_message_extra_patch", { body: { leaseId, messageId, patch } }),

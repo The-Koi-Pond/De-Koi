@@ -5,6 +5,9 @@ import type {
   CanonicalMemoryRecord,
   CanonicalMemorySemanticMatch,
   CanonicalMemorySemanticQuery,
+  KnowledgeEdge,
+  KnowledgeEdgeInput,
+  KnowledgeEdgeQuery,
   MemoryIndexDeleteResult,
   MemoryIndexRow,
   MemoryIndexRowInput,
@@ -24,6 +27,14 @@ export const canonicalMemoryApi = {
     invokeTauri<CanonicalMemoryRecord[]>("memory_query_batch", { body: { queries } }),
   querySemantic: (body: CanonicalMemorySemanticQuery) =>
     invokeTauri<CanonicalMemorySemanticMatch[]>("memory_query_semantic", { body }),
+  knowledge: {
+    capabilities: () => invokeTauri<{ knowledge_edges_v1: boolean }>("knowledge_edge_capabilities"),
+    upsert: (body: KnowledgeEdgeInput) => invokeTauri<KnowledgeEdge>("knowledge_edge_upsert", { body }),
+    query: (body: KnowledgeEdgeQuery = {}) => invokeTauri<KnowledgeEdge[]>("knowledge_edge_query", { body }),
+    approve: (edgeId: string) => invokeTauri<KnowledgeEdge>("knowledge_edge_approve", { edgeId }),
+    invalidate: (edgeId: string, reason: string) =>
+      invokeTauri<KnowledgeEdge>("knowledge_edge_invalidate", { edgeId, reason }),
+  },
   index: {
     health: () => invokeTauri<MemoryIndexHealth>("memory_index_health"),
     upsert: (row: MemoryIndexRowInput) => invokeTauri<MemoryIndexRow>("memory_index_upsert", { row }),

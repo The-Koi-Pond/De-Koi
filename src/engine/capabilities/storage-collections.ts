@@ -105,6 +105,13 @@ const STORAGE_COLLECTIONS = {
       { name: "payload", kind: "object", fallback: "empty-object" },
     ],
   },
+  "memory-knowledge-edges": {
+    genericApi: true,
+    readJsonFields: [
+      { name: "holder", kind: "object", fallback: "empty-object" },
+      { name: "provenance", kind: "array" },
+    ],
+  },
   "memory-index-rows": {
     genericApi: true,
     readJsonFields: [

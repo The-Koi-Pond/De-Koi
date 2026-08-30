@@ -4,6 +4,7 @@ import type {
   CanonicalMemoryInput,
   CanonicalMemoryPatch,
   CanonicalMemoryRecord,
+  KnowledgeEdgeInput,
 } from "../../../../engine/contracts/types/memory";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -101,7 +102,16 @@ export function useRebuildCharacterMemoryIndex(characterId: string) {
 export function useImportCharacterMemories(characterId: string) {
   const invalidate = useInvalidateCharacterMemoryScope(characterId);
   return useMutation({
-    mutationFn: async (inputs: Array<CanonicalMemoryInput & { id: string }>) => {
+    mutationFn: async (
+      input:
+        | Array<CanonicalMemoryInput & { id: string }>
+        | { memories: Array<CanonicalMemoryInput & { id: string }>; edges: KnowledgeEdgeInput[] },
+    ) => {
+      const inputs = Array.isArray(input) ? input : input.memories;
+      if (!Array.isArray(input) && input.edges.length > 0) {
+        const capabilities = await canonicalMemoryApi.knowledge.capabilities();
+        if (!capabilities.knowledge_edges_v1) throw new Error("This runtime cannot import knowledge assignments.");
+      }
       const existing = await canonicalMemoryApi.query({
         scope: { kind: "character", id: characterId },
         includeInactive: true,
@@ -115,6 +125,9 @@ export function useImportCharacterMemories(characterId: string) {
           stored.push(await canonicalMemoryApi.create(input));
           existingIds.add(input.id);
         }
+      }
+      if (!Array.isArray(input)) {
+        for (const edge of input.edges) await canonicalMemoryApi.knowledge.upsert(edge);
       }
       await canonicalMemoryApi.index.rebuildLexical({
         scope: { kind: "character", id: characterId },

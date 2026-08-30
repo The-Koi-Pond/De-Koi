@@ -5,6 +5,7 @@ import type {
   CanonicalMemoryInput,
   CanonicalMemoryPatch,
   CanonicalMemoryRecord,
+  KnowledgeEdgeInput,
   MemoryKind,
   MemoryScope,
 } from "../contracts/types/memory";
@@ -257,8 +258,13 @@ export async function persistCanonicalMemoryConsequences(input: {
   candidates: CanonicalMemoryInput[];
   eligibleMemories: CanonicalMemoryRecord[];
   now: string;
-  createMemory?: (body: CanonicalMemoryInput) => Promise<CanonicalMemoryRecord>;
-  updateMemory?: (memoryId: string, patch: CanonicalMemoryPatch) => Promise<CanonicalMemoryRecord>;
+  createMemory?: (body: CanonicalMemoryInput, knowledgeEdges?: KnowledgeEdgeInput[]) => Promise<CanonicalMemoryRecord>;
+  updateMemory?: (
+    memoryId: string,
+    patch: CanonicalMemoryPatch,
+    knowledgeEdges?: KnowledgeEdgeInput[],
+  ) => Promise<CanonicalMemoryRecord>;
+  knowledgeEdgesForMemory?: (candidate: CanonicalMemoryInput, memoryId: string) => KnowledgeEdgeInput[];
 }): Promise<{ affected: PersistedCanonicalConsequence[] }> {
   if (input.candidates.length === 0) return { affected: [] };
   const createMemory = input.createMemory ?? input.storage.createMemory?.bind(input.storage);
@@ -335,17 +341,18 @@ export async function persistCanonicalMemoryConsequences(input: {
         tags: Array.from(new Set([...existing.tags, ...(candidate.tags ?? [])])),
         supersedesMemoryId,
         payload,
-      });
+      }, input.knowledgeEdgesForMemory?.(candidate, existing.id) ?? []);
       operation = "updated";
     } else {
-      memory = await createMemory({
+      const createBody = {
         ...candidate,
         id: memoryId,
         supersedesMemoryId,
         payload,
         createdAt: input.now,
         updatedAt: input.now,
-      });
+      };
+      memory = await createMemory(createBody, input.knowledgeEdgesForMemory?.(createBody, memoryId) ?? []);
       operation = "created";
     }
     const superseded = supersedesMemoryId ? eligibleById.get(supersedesMemoryId) : undefined;

@@ -33,6 +33,18 @@ Scopes:
 
 Provenance stores the source chat, message IDs, scene, character, and timestamp when known. These fields explain where the memory came from; they do not make transcript chunks authoritative.
 
+## Knowledge, Beliefs, and Secrets
+
+Epistemic assignments live separately in the profile-scoped `memory-knowledge-edges` collection. A deterministic edge links one canonical memory to one character, persona, character group, or the fixed `world` holder. The memory text stays canonical; De-Koi never creates per-holder copies. Edges record `knows`, `believes`, `suspects`, `disbelieves`, or `unknown`, an active/proposed/invalidated lifecycle, optional confidence, and source-backed provenance.
+
+Memory scope controls where a memory persists and can be searched. Knowledge edges control which Roleplay responder may use it. A memory with no active or invalidated edges keeps legacy scope visibility. The first active assignment classifies it; from then on, an absent assignment denies access. Proposed-only assignments neither classify nor expose a memory, while invalidated assignments continue classification so deleted evidence cannot reopen a secret through legacy fallback.
+
+One engine-owned resolver filters canonical recall and Story Continuity before prompt injection. Direct character or impersonated-persona assignments win, current character-group assignments are the fallback, conflicting groups and `unknown` deny access, and world truth never grants knowledge. Merged Roleplay admits a memory only when every possible responder is allowed. Admitted text is framed as knowledge, belief, suspicion, or disbelief instead of flattening every claim into truth. Game generation is unchanged.
+
+Policy-aware queries send `epistemicPolicyVersion: 1`. The Rust boundary hides classified memories from legacy query clients, including semantic and index-backed paths. `memoryIds` permits exact retrieval of superseded claims that remain an active holder belief without enabling inactive memories broadly.
+
+Content edits, source evidence changes, deletion, holder deletion, supersession, and purge update edges atomically with their owning lifecycle operation. Supersession invalidates world truth and downgrades surviving non-world `knows` assignments to `believes`. Automatic V1 evidence is deliberately deterministic: formal-scene witnesses know witnessed events, while the targeted character and active persona believe directly exchanged claims. Ordinary merged membership, offscreen characters, and tracker state do not establish presence.
+
 ## Story Episodes and Arcs
 
 Roleplay Story Continuity uses canonical records rather than a second summary store. Episodes are `episode` memories; four consecutive, non-overlapping episodes produce one `summary` memory whose versioned payload identifies it as an arc. Both use `storyProjectionVersion: 1`, a stable coverage ID and source fingerprint, exact ordered message IDs, first/last boundaries, summarizer identity, source-backed structured details, and readable prose in `content`. Arc payloads also retain the exact source episode IDs. Formal scenes create one whole-scene episode from the same final scene-summary model pass.
@@ -41,7 +53,7 @@ Roleplay Story Continuity uses canonical records rather than a second summary st
 
 Source edits and deletes stale the affected episode, dependent arcs, matching queued jobs, and rebuildable index rows together. Unrelated story slots and atomic memories are not changed. Regeneration requires every ordered source to remain available, writes the deterministic replacement before superseding the old projection, and permits overlap only for the same coverage slot through that explicit supersession link.
 
-Prompt assembly retrieves Story Continuity through its own bounded selector and attribution kind. It does not consume the atomic-memory candidate count or token budget. Active or pinned projections overlapping retained raw history are excluded, duplicate represented sentences are removed, and the context block explicitly says recent transcript and canonical atomic memory win conflicts.
+Prompt assembly retrieves Story Continuity through its own bounded selector and attribution kind. It does not consume the atomic-memory candidate count or token budget. Active or pinned projections overlapping retained raw history are excluded, duplicate represented sentences are removed, and the context block explicitly says recent transcript and canonical atomic memory win conflicts. Story Continuity uses the same epistemic resolver as atomic canonical recall, so excluded secrets never reach either prompt block.
 
 ## Projection Rows
 

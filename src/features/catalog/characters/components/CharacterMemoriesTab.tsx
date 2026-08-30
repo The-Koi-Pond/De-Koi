@@ -1,9 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Brain, Check, Copy, Download, Pencil, Pin, Plus, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { Brain, Check, Copy, Download, Eye, Pencil, Pin, Plus, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { CharacterMemoryPersistence } from "../../../../engine/contracts/types/character";
 import type { CanonicalMemoryRecord, MemoryStatus } from "../../../../engine/contracts/types/memory";
+import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { triggerDownload } from "../../../../shared/api/download-payload";
 import { showAlertDialog, showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
@@ -18,11 +19,12 @@ import {
   useUpdateCharacterMemory,
 } from "../hooks/use-character-memories";
 import { MemoryMaintenanceRecovery } from "../../memory-maintenance";
+import { KnowledgeEdgeEditor } from "../../knowledge";
 import {
   characterMemoryStatusLabel,
   createCharacterMemoryExport,
   normalizeChatMemoriesForCharacter,
-  normalizeCharacterMemoryImport,
+  normalizeCharacterMemoryImportPackage,
 } from "../lib/character-memory-model";
 
 type MemoryFilter = "active" | "pinned" | "deleted" | "all";
@@ -73,6 +75,7 @@ export function CharacterMemoriesTab({
   const [filter, setFilter] = useState<MemoryFilter>("active");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
+  const [knowledgeEditingId, setKnowledgeEditingId] = useState<string | null>(null);
   const [newMemoryOpen, setNewMemoryOpen] = useState(false);
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [newMemoryNeedsIndex, setNewMemoryNeedsIndex] = useState(false);
@@ -176,25 +179,32 @@ export function CharacterMemoriesTab({
     await updateMemory.mutateAsync({ memoryId: memory.id, patch: { status } });
   };
 
-  const exportMemories = () => {
-    const envelope = createCharacterMemoryExport({
-      character: { id: characterId, name: characterName },
-      memories: memoriesQuery.data ?? [],
-    });
-    triggerDownload({
-      blob: new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" }),
-      filename: `${safeFilename(characterName)}-memories.json`,
-    });
+  const exportMemories = async () => {
+    try {
+      const memoryRows = memoriesQuery.data ?? [];
+      const edges = memoryRows.length
+        ? await canonicalMemoryApi.knowledge.query({ memoryIds: memoryRows.map((memory) => memory.id) }).catch(() => null)
+        : [];
+      const envelope = edges === null
+        ? createCharacterMemoryExport({ character: { id: characterId, name: characterName }, memories: memoryRows })
+        : createCharacterMemoryExport({ character: { id: characterId, name: characterName }, memories: memoryRows, edges });
+      triggerDownload({
+        blob: new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" }),
+        filename: `${safeFilename(characterName)}-memories.json`,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export memories.");
+    }
   };
 
   const importFile = async (file: File | undefined) => {
     if (!file) return;
     try {
       const envelope = JSON.parse(await file.text()) as unknown;
-      const inputs = normalizeCharacterMemoryImport(envelope, { characterId });
-      if (inputs.length === 0) throw new Error("The file contains no importable memories.");
-      await importMemories.mutateAsync(inputs);
-      toast.success(`Imported ${inputs.length} ${inputs.length === 1 ? "memory" : "memories"}`);
+      const imported = normalizeCharacterMemoryImportPackage(envelope, { characterId });
+      if (imported.memories.length === 0) throw new Error("The file contains no importable memories.");
+      await importMemories.mutateAsync(imported);
+      toast.success(`Imported ${imported.memories.length} ${imported.memories.length === 1 ? "memory" : "memories"}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not import memories.";
       toast.error(message);
@@ -310,7 +320,7 @@ export function CharacterMemoriesTab({
         </button>
         <button
           type="button"
-          onClick={exportMemories}
+          onClick={() => void exportMemories()}
           className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)]"
         >
           <Upload size="0.9rem" /> Export
@@ -456,6 +466,15 @@ export function CharacterMemoriesTab({
                   </>
                 ) : (
                   <>
+                    <button
+                      type="button"
+                      aria-label="Who knows this?"
+                      aria-expanded={knowledgeEditingId === memory.id}
+                      onClick={() => setKnowledgeEditingId((current) => current === memory.id ? null : memory.id)}
+                      className="rounded-lg p-2 hover:bg-[var(--accent)]"
+                    >
+                      <Eye size="0.9rem" />
+                    </button>
                     {memory.status !== "deleted" && (
                       <>
                         <button
@@ -500,6 +519,11 @@ export function CharacterMemoriesTab({
                 )}
               </div>
             </div>
+            {knowledgeEditingId === memory.id && (
+              <div className="mt-3 border-t border-[var(--border)] pt-3">
+                <KnowledgeEdgeEditor memoryId={memory.id} />
+              </div>
+            )}
           </article>
         ))}
       </div>

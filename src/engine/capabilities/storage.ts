@@ -6,6 +6,9 @@ import type {
   CanonicalMemoryRecord,
   CanonicalMemorySemanticMatch,
   CanonicalMemorySemanticQuery,
+  KnowledgeEdge,
+  KnowledgeEdgeInput,
+  KnowledgeEdgeQuery,
   MemoryLexicalRebuildResult,
   MemoryIndexHealth,
 } from "../contracts/types/memory";
@@ -193,11 +196,16 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
     jobId: string,
     patch: Record<string, unknown>,
   ): Promise<Record<string, unknown>>;
-  createMemoryCaptureMemory?(leaseId: string, body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
+  createMemoryCaptureMemory?(
+    leaseId: string,
+    body: CanonicalMemoryInput,
+    knowledgeEdges?: KnowledgeEdgeInput[],
+  ): Promise<CanonicalMemoryRecord>;
   updateMemoryCaptureMemory?(
     leaseId: string,
     memoryId: string,
     patch: CanonicalMemoryPatch,
+    knowledgeEdges?: KnowledgeEdgeInput[],
   ): Promise<CanonicalMemoryRecord>;
   patchMemoryCaptureMessageExtra?<T = unknown>(
     leaseId: string,
@@ -210,6 +218,10 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoriesBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   querySemanticMemories?(body: CanonicalMemorySemanticQuery): Promise<CanonicalMemorySemanticMatch[]>;
+  upsertKnowledgeEdge?(body: KnowledgeEdgeInput): Promise<KnowledgeEdge>;
+  queryKnowledgeEdges?(body?: KnowledgeEdgeQuery): Promise<KnowledgeEdge[]>;
+  approveKnowledgeEdge?(edgeId: string): Promise<KnowledgeEdge>;
+  invalidateKnowledgeEdge?(edgeId: string, reason: string): Promise<KnowledgeEdge>;
   queryMemoryIndex?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoryIndexBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   rebuildMemoryIndex?(body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;

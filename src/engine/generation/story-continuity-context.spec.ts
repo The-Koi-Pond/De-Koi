@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryRecord, StoryProjectionPayload } from "../contracts/types/memory";
+import type { CanonicalMemoryRecord, KnowledgeEdge, StoryProjectionPayload } from "../contracts/types/memory";
 import { buildStoryContinuityContext } from "./story-continuity-context";
 
 function projection(
@@ -66,6 +66,41 @@ describe("story continuity prompt context", () => {
     });
     expect(result?.selectedMemoryIds).toEqual(["ep-3", "ep-1", "arc-2"]);
     expect(result?.attributionItems[0]?.kind).toBe("story_projection");
+  });
+
+  it("filters classified story projections for the responding character", async () => {
+    const row = projection("secret-episode", "episode", ["m1"], "Alice hid the crown under the chapel.");
+    const edge: KnowledgeEdge = {
+      id: "edge-alice",
+      memoryId: row.id,
+      holder: { kind: "character", id: "alice" },
+      stance: "knows",
+      status: "active",
+      provenance: [{ kind: "scene_witness", author: "system", messageIds: ["m1"], createdAt: "2026-08-30T12:00:00Z" }],
+      createdAt: "2026-08-30T12:00:00Z",
+      updatedAt: "2026-08-30T12:00:00Z",
+    };
+    const epistemicStorage = {
+      ...storage([row]),
+      list: async () => [],
+      queryKnowledgeEdges: async () => [edge],
+    } as unknown as StorageGateway;
+
+    const result = await buildStoryContinuityContext(epistemicStorage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the crown?",
+      epistemicSubjects: [{ kind: "character", id: "bob", name: "Bob" }],
+    });
+
+    expect(result?.block).toBe("");
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        sourceId: "secret-episode",
+        status: "skipped",
+        metadata: expect.objectContaining({ epistemicReason: "missing_edge" }),
+      }),
+    );
   });
 
   it("excludes stale projections and coverage overlapping retained raw history", async () => {

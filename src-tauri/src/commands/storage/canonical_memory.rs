@@ -1,4 +1,5 @@
 use crate::state::AppState;
+use crate::storage_commands::knowledge_edges;
 use marinara_core::{new_id, now_iso, AppError, AppResult};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -227,7 +228,36 @@ fn memory_allowed_by_query(memory: &Value, body: &Value) -> bool {
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    statuses.contains(status) && scope_matches(memory, body.get("scope"))
+    let memory_ids = body.get("memoryIds").and_then(Value::as_array);
+    let id_matches = memory_ids.is_none_or(|ids| {
+        let memory_id = read_string(memory.get("id"));
+        ids.iter()
+            .filter_map(Value::as_str)
+            .any(|id| id == memory_id)
+    });
+    statuses.contains(status) && scope_matches(memory, body.get("scope")) && id_matches
+}
+
+fn query_uses_epistemic_policy(body: &Value) -> bool {
+    body.get("epistemicPolicyVersion").and_then(Value::as_u64) == Some(1)
+}
+
+fn classified_memory_ids(state: &AppState) -> AppResult<HashSet<String>> {
+    Ok(state
+        .storage
+        .list(super::knowledge_edges::COLLECTION)?
+        .into_iter()
+        .filter(|edge| {
+            matches!(
+                read_string(edge.get("status")).as_str(),
+                "active" | "invalidated"
+            )
+        })
+        .filter_map(|edge| {
+            let id = read_string(edge.get("memoryId"));
+            (!id.is_empty()).then_some(id)
+        })
+        .collect())
 }
 
 fn batch_queries(body: Value) -> AppResult<Vec<Value>> {
@@ -257,6 +287,14 @@ fn batch_queries(body: Value) -> AppResult<Vec<Value>> {
 }
 
 pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
+    create_memory_with_edges(state, body, Vec::new())
+}
+
+pub(crate) fn create_memory_with_edges(
+    state: &AppState,
+    body: Value,
+    knowledge_edges: Vec<Value>,
+) -> AppResult<Value> {
     let mut record = marinara_core::ensure_object(normalize_memory_record(
         marinara_core::ensure_object(body)?,
         true,
@@ -272,9 +310,15 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
     let record = Value::Object(record);
 
     let created = state.storage.update_collections_atomically(
-        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        vec![
+            MEMORY_COLLECTION,
+            INDEX_COLLECTION,
+            super::knowledge_edges::COLLECTION,
+        ],
         move |collections| {
-            let memories = collections[0].rows_mut();
+            let (memory_collections, remaining_collections) = collections.split_at_mut(1);
+            let (index_collections, edge_collections) = remaining_collections.split_at_mut(1);
+            let memories = memory_collections[0].rows_mut();
             if memories
                 .iter()
                 .any(|memory| read_string(memory.get("id")) == memory_id)
@@ -285,7 +329,13 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
             }
             validate_story_projection_overlap(memories, &record)?;
             memories.push(record.clone());
-            replace_memory_lexical_index(collections[1].rows_mut(), &record)?;
+            replace_memory_lexical_index(index_collections[0].rows_mut(), &record)?;
+            super::knowledge_edges::upsert_edges_for_memory_in_rows(
+                edge_collections[0].rows_mut(),
+                &memory_id,
+                knowledge_edges,
+                &read_string(record.get("updatedAt")),
+            )?;
             Ok(record)
         },
     )?;
@@ -314,13 +364,20 @@ pub(crate) fn commit_story_projection_job(
     let job_id = job_id.to_string();
 
     let committed = state.storage.update_collections_atomically(
-        vec![MEMORY_COLLECTION, INDEX_COLLECTION, STORY_JOBS_COLLECTION],
+        vec![
+            MEMORY_COLLECTION,
+            INDEX_COLLECTION,
+            STORY_JOBS_COLLECTION,
+            knowledge_edges::COLLECTION,
+        ],
         move |collections| {
             let (memory_collections, remaining) = collections.split_at_mut(1);
-            let (index_collections, job_collections) = remaining.split_at_mut(1);
+            let (index_collections, remaining) = remaining.split_at_mut(1);
+            let (job_collections, edge_collections) = remaining.split_at_mut(1);
             let memories = memory_collections[0].rows_mut();
             let index_rows = index_collections[0].rows_mut();
             let story_jobs = job_collections[0].rows_mut();
+            let knowledge_edge_rows = edge_collections[0].rows_mut();
             let job_index = story_jobs
                 .iter()
                 .position(|job| read_string(job.get("id")) == job_id)
@@ -417,6 +474,14 @@ pub(crate) fn commit_story_projection_job(
                     Value::String(memory_id.clone()),
                 );
                 object.insert("updatedAt".to_string(), Value::String(now.clone()));
+                knowledge_edges::apply_memory_lifecycle(
+                    knowledge_edge_rows,
+                    &supersedes,
+                    false,
+                    "active",
+                    "superseded",
+                    &now,
+                )?;
 
                 let source_episode_ids = HashSet::from([supersedes.clone()]);
                 let mut stale_arc_ids = HashSet::new();
@@ -478,14 +543,29 @@ pub(crate) fn get_memory(state: &AppState, memory_id: &str) -> AppResult<Value> 
 }
 
 pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> AppResult<Value> {
+    update_memory_with_edges(state, memory_id, patch, Vec::new())
+}
+
+pub(crate) fn update_memory_with_edges(
+    state: &AppState,
+    memory_id: &str,
+    patch: Value,
+    knowledge_edges: Vec<Value>,
+) -> AppResult<Value> {
     let patch_object = marinara_core::ensure_object(patch)?;
     let memory_id = memory_id.to_string();
 
     let updated = state.storage.update_collections_atomically(
-        vec![MEMORY_COLLECTION, INDEX_COLLECTION, STORY_JOBS_COLLECTION],
+        vec![
+            MEMORY_COLLECTION,
+            INDEX_COLLECTION,
+            STORY_JOBS_COLLECTION,
+            super::knowledge_edges::COLLECTION,
+        ],
         move |collections| {
             let (memory_collections, remaining_collections) = collections.split_at_mut(1);
-            let (index_collections, job_collections) = remaining_collections.split_at_mut(1);
+            let (index_collections, remaining_collections) = remaining_collections.split_at_mut(1);
+            let (job_collections, edge_collections) = remaining_collections.split_at_mut(1);
             let memories = memory_collections[0].rows_mut();
             let index_rows = index_collections[0].rows_mut();
             let story_jobs = job_collections[0].rows_mut();
@@ -496,6 +576,8 @@ pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> 
                     AppError::not_found(format!("{MEMORY_COLLECTION}/{memory_id} was not found"))
                 })?;
             let current = memory.clone();
+            let previous_content = read_string(current.get("content"));
+            let previous_status = read_string(current.get("status"));
             let mut normalized = marinara_core::ensure_object(normalize_memory_record(
                 marinara_core::ensure_object(merge_patch(
                     &current,
@@ -506,7 +588,24 @@ pub(crate) fn update_memory(state: &AppState, memory_id: &str, patch: Value) -> 
             normalized.insert("id".to_string(), Value::String(memory_id.clone()));
             normalized.insert("updatedAt".to_string(), Value::String(now_iso()));
             let updated = Value::Object(normalized);
+            let next_content = read_string(updated.get("content"));
+            let next_status = read_string(updated.get("status"));
+            let updated_at = read_string(updated.get("updatedAt"));
             *memory = updated.clone();
+            super::knowledge_edges::apply_memory_lifecycle(
+                edge_collections[0].rows_mut(),
+                &memory_id,
+                previous_content != next_content,
+                &previous_status,
+                &next_status,
+                &updated_at,
+            )?;
+            super::knowledge_edges::upsert_edges_for_memory_in_rows(
+                edge_collections[0].rows_mut(),
+                &memory_id,
+                knowledge_edges,
+                &updated_at,
+            )?;
             replace_memory_lexical_index(index_rows, &updated)?;
             let superseded_episode_id = story_projection_payload(&updated)
                 .filter(|payload| payload.get("level").and_then(Value::as_str) == Some("episode"))
@@ -587,15 +686,21 @@ pub(crate) fn delete_memory(state: &AppState, memory_id: &str) -> AppResult<Valu
 pub(crate) fn purge_memory(state: &AppState, memory_id: &str) -> AppResult<()> {
     let memory_id = memory_id.to_string();
     state.storage.update_collections_atomically(
-        vec![MEMORY_COLLECTION, INDEX_COLLECTION],
+        vec![
+            MEMORY_COLLECTION,
+            INDEX_COLLECTION,
+            super::knowledge_edges::COLLECTION,
+        ],
         move |collections| {
-            let (memory_collections, index_collections) = collections.split_at_mut(1);
+            let (memory_collections, remaining_collections) = collections.split_at_mut(1);
+            let (index_collections, edge_collections) = remaining_collections.split_at_mut(1);
             memory_collections[0]
                 .rows_mut()
                 .retain(|memory| read_string(memory.get("id")) != memory_id);
             index_collections[0]
                 .rows_mut()
                 .retain(|row| read_string(row.get("memoryId")) != memory_id);
+            super::knowledge_edges::purge_memory_edges(edge_collections[0].rows_mut(), &memory_id);
             Ok(())
         },
     )
@@ -1047,7 +1152,15 @@ pub(crate) fn query_memories(state: &AppState, body: Value) -> AppResult<Value> 
         ));
     }
     let mut memories = state.storage.list(MEMORY_COLLECTION)?;
-    memories.retain(|memory| memory_allowed_by_query(memory, &body));
+    let classified = (!query_uses_epistemic_policy(&body))
+        .then(|| classified_memory_ids(state))
+        .transpose()?;
+    memories.retain(|memory| {
+        memory_allowed_by_query(memory, &body)
+            && classified
+                .as_ref()
+                .is_none_or(|ids| !ids.contains(&read_string(memory.get("id"))))
+    });
     Ok(Value::Array(memories))
 }
 
@@ -1057,6 +1170,7 @@ pub(crate) fn query_memories_batch(state: &AppState, body: Value) -> AppResult<V
         return Ok(Value::Array(Vec::new()));
     }
     let stored = state.storage.list(MEMORY_COLLECTION)?;
+    let classified = classified_memory_ids(state)?;
     let mut emitted = HashSet::new();
     let mut memories = Vec::new();
     // The request array is the batch's explicit scope ordinal. Preserve it so
@@ -1066,6 +1180,7 @@ pub(crate) fn query_memories_batch(state: &AppState, body: Value) -> AppResult<V
             let memory_id = read_string(memory.get("id"));
             if !memory_id.is_empty()
                 && memory_allowed_by_query(memory, query)
+                && (query_uses_epistemic_policy(query) || !classified.contains(&memory_id))
                 && emitted.insert(memory_id)
             {
                 memories.push(memory.clone());
@@ -1348,6 +1463,9 @@ pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Val
     }
     let mut seen = HashSet::new();
     let mut memories = Vec::new();
+    let classified = (!query_uses_epistemic_policy(&body))
+        .then(|| classified_memory_ids(state))
+        .transpose()?;
     for row in state.storage.list(INDEX_COLLECTION)? {
         let memory_id = read_string(row.get("memoryId"));
         if memory_id.is_empty() || seen.contains(&memory_id) {
@@ -1360,7 +1478,11 @@ pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Val
             continue;
         }
         seen.insert(memory_id);
-        if memory_allowed_by_query(&memory, &body) {
+        if memory_allowed_by_query(&memory, &body)
+            && classified
+                .as_ref()
+                .is_none_or(|ids| !ids.contains(&read_string(memory.get("id"))))
+        {
             memories.push(memory);
         }
     }
@@ -1390,6 +1512,7 @@ pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResu
     }
     let mut emitted = HashSet::new();
     let mut memories = Vec::new();
+    let classified = classified_memory_ids(state)?;
     // Match `query_memories_batch`: scope-query order, not index storage order,
     // is the stable tie-break contract for a mixed-scope batch.
     for query in &queries {
@@ -1397,6 +1520,7 @@ pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResu
             let memory_id = read_string(memory.get("id"));
             if !memory_id.is_empty()
                 && memory_allowed_by_query(memory, query)
+                && (query_uses_epistemic_policy(query) || !classified.contains(&memory_id))
                 && emitted.insert(memory_id)
             {
                 memories.push(memory.clone());
@@ -1817,6 +1941,188 @@ mod tests {
             .unwrap();
             assert_eq!(ids(&result), vec![id.to_string()]);
         }
+    }
+
+    #[test]
+    fn legacy_queries_hide_classified_memories_until_epistemic_policy_v1() {
+        let state = test_state("epistemic-policy");
+        seed_memory(&state, "legacy", "chat", "chat-1", "active");
+        seed_memory(&state, "secret", "chat", "chat-1", "active");
+        crate::storage_commands::knowledge_edges::upsert_edge(
+            &state,
+            json!({
+                "memoryId": "secret",
+                "holder": { "kind": "character", "id": "alice" },
+                "stance": "knows",
+                "status": "active",
+                "provenance": [{
+                    "kind": "user_edit",
+                    "author": "user",
+                    "messageIds": [],
+                    "createdAt": "2026-08-30T12:00:00.000Z"
+                }]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            ids(&query_memories(
+                &state,
+                json!({ "scope": { "kind": "chat", "id": "chat-1" } })
+            )
+            .unwrap()),
+            vec!["legacy"]
+        );
+        assert_eq!(
+            ids(&query_memories(
+                &state,
+                json!({
+                    "scope": { "kind": "chat", "id": "chat-1" },
+                    "epistemicPolicyVersion": 1
+                })
+            )
+            .unwrap()),
+            vec!["legacy", "secret"]
+        );
+    }
+
+    #[test]
+    fn memory_id_queries_can_retrieve_selected_inactive_claims() {
+        let state = test_state("memory-ids");
+        seed_memory(&state, "active", "chat", "chat-1", "active");
+        seed_memory(&state, "old-belief", "chat", "chat-1", "superseded");
+        seed_memory(&state, "unrelated", "chat", "chat-1", "superseded");
+
+        assert_eq!(
+            ids(&query_memories(
+                &state,
+                json!({
+                    "memoryIds": ["old-belief"],
+                    "statuses": ["superseded"],
+                    "epistemicPolicyVersion": 1
+                })
+            )
+            .unwrap()),
+            vec!["old-belief"]
+        );
+    }
+
+    #[test]
+    fn canonical_content_edits_and_deletes_invalidate_edges_without_restore_reactivation() {
+        let state = test_state("edge-lifecycle");
+        seed_memory(&state, "memory-1", "chat", "chat-1", "active");
+        let edge = crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+            "memoryId": "memory-1",
+            "holder": { "kind": "character", "id": "alice" },
+            "stance": "knows",
+            "status": "active",
+            "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:00:00.000Z" }]
+        })).unwrap();
+        let edge_id = edge["id"].as_str().unwrap().to_string();
+
+        update_memory(&state, "memory-1", json!({ "content": "Corrected claim" })).unwrap();
+        let edited = state
+            .storage
+            .get(
+                crate::storage_commands::knowledge_edges::COLLECTION,
+                &edge_id,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(edited["status"], json!("invalidated"));
+        assert_eq!(edited["invalidatedReason"], json!("memory_content_changed"));
+
+        crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+            "memoryId": "memory-1",
+            "holder": { "kind": "character", "id": "alice" },
+            "stance": "believes",
+            "status": "active",
+            "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:01:00.000Z" }]
+        })).unwrap();
+        delete_memory(&state, "memory-1").unwrap();
+        assert_eq!(
+            state
+                .storage
+                .get(
+                    crate::storage_commands::knowledge_edges::COLLECTION,
+                    &edge_id
+                )
+                .unwrap()
+                .unwrap()["invalidatedReason"],
+            json!("memory_deleted")
+        );
+        update_memory(&state, "memory-1", json!({ "status": "active" })).unwrap();
+        assert_eq!(
+            state
+                .storage
+                .get(
+                    crate::storage_commands::knowledge_edges::COLLECTION,
+                    &edge_id
+                )
+                .unwrap()
+                .unwrap()["status"],
+            json!("invalidated")
+        );
+    }
+
+    #[test]
+    fn supersession_retires_world_truth_and_preserves_character_claim_as_belief() {
+        let state = test_state("edge-supersession");
+        seed_memory(&state, "memory-1", "chat", "chat-1", "active");
+        for (kind, id) in [("world", "world"), ("character", "alice")] {
+            crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+                "memoryId": "memory-1",
+                "holder": { "kind": kind, "id": id },
+                "stance": "knows",
+                "status": "active",
+                "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:00:00.000Z" }]
+            })).unwrap();
+        }
+
+        update_memory(&state, "memory-1", json!({ "status": "superseded" })).unwrap();
+        let edges = crate::storage_commands::knowledge_edges::query_edges(
+            &state,
+            json!({ "memoryIds": ["memory-1"] }),
+        )
+        .unwrap();
+        let rows = edges.as_array().unwrap();
+        let world = rows
+            .iter()
+            .find(|edge| edge["holder"]["kind"] == "world")
+            .unwrap();
+        let alice = rows
+            .iter()
+            .find(|edge| edge["holder"]["id"] == "alice")
+            .unwrap();
+        assert_eq!(world["status"], json!("invalidated"));
+        assert_eq!(alice["status"], json!("active"));
+        assert_eq!(alice["stance"], json!("believes"));
+        assert!(alice["provenance"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["kind"] == "supersession"));
+    }
+
+    #[test]
+    fn purging_a_memory_removes_its_edges() {
+        let state = test_state("edge-purge");
+        seed_memory(&state, "memory-1", "chat", "chat-1", "active");
+        crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+            "memoryId": "memory-1",
+            "holder": { "kind": "character", "id": "alice" },
+            "stance": "knows",
+            "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:00:00.000Z" }]
+        })).unwrap();
+        purge_memory(&state, "memory-1").unwrap();
+        assert!(crate::storage_commands::knowledge_edges::query_edges(
+            &state,
+            json!({ "memoryIds": ["memory-1"] })
+        )
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .is_empty());
     }
 
     #[test]

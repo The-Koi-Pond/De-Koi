@@ -5,12 +5,20 @@ import type {
   CanonicalMemoryQuery,
   CanonicalMemoryRecord,
   CanonicalMemorySemanticMatch,
+  KnowledgeEdge,
   MemoryKind,
   MemoryScope,
 } from "../contracts/types/memory";
 import { hiddenFromAi, isRecord, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import { effectiveCharacterMemoryPersistence } from "./character-memory-scope";
 import { prepareMemoryPromptContent, resolveMemoryUserIdentity } from "./memory-prompt-content";
+import {
+  formatEpistemicMemory,
+  resolveEpistemicAccess,
+  type EpistemicAccessResult,
+  type EpistemicSubject,
+} from "./epistemic-access";
+import { loadEpistemicContext } from "./epistemic-context";
 
 type MemoryIndexSource = "index" | "lexical";
 
@@ -33,6 +41,7 @@ interface CanonicalMemoryCandidate {
   retrievalSource: "semantic" | "lexical" | "lexical-fallback" | "pinned";
   semanticEvidence?: Omit<CanonicalMemorySemanticMatch, "memory" | "similarity">;
   semanticFallback?: string;
+  epistemicAccess?: EpistemicAccessResult;
 }
 
 export interface CanonicalMemoryContextInput {
@@ -43,6 +52,7 @@ export interface CanonicalMemoryContextInput {
   personaName?: string | null;
   connectionId?: string | null;
   maxContext?: number | null;
+  epistemicSubjects?: EpistemicSubject[];
 }
 
 export interface CanonicalMemoryPromptContext {
@@ -316,7 +326,7 @@ function dedupeAndFilterCandidates(
   return Array.from(byId.values()).filter((candidate) => !activeSupersededIds.has(candidate.memory.id));
 }
 
-function scopeQueries(input: CanonicalMemoryContextInput): CanonicalMemoryQuery[] {
+function scopeQueries(input: CanonicalMemoryContextInput, epistemicPolicy: boolean): CanonicalMemoryQuery[] {
   const chatId = readString(input.chat.id).trim();
   const meta = parseRecord(input.chat.metadata);
   const sceneId =
@@ -339,14 +349,13 @@ function scopeQueries(input: CanonicalMemoryContextInput): CanonicalMemoryQuery[
       seen.add(key);
       return true;
     })
-    .map((scope) => ({ scope }));
+    .map((scope) => ({ scope, ...(epistemicPolicy ? { epistemicPolicyVersion: 1 as const } : {}) }));
 }
 
 async function collectMemoryRows(
   storage: StorageGateway,
-  input: CanonicalMemoryContextInput,
+  queries: CanonicalMemoryQuery[],
 ): Promise<Array<{ memory: CanonicalMemoryRecord; source: MemoryIndexSource }>> {
-  const queries = scopeQueries(input);
   const scopeOrdinal = new Map(
     queries.map((query, index) => {
       const scope = query.scope;
@@ -447,7 +456,10 @@ function formatMemoryLine(
   const prefix = title ? `${title}: ` : "";
   const promptContent = prepareMemoryPromptContent(resolveMemoryUserIdentity(candidate.memory.content, personaName));
   if (!promptContent) return null;
-  const content = budgetTokens ? truncateForTokens(promptContent, Math.max(1, budgetTokens - 2)) : promptContent;
+  const framedContent = candidate.epistemicAccess?.classified
+    ? formatEpistemicMemory(promptContent, candidate.epistemicAccess.decisions)
+    : promptContent;
+  const content = budgetTokens ? truncateForTokens(framedContent, Math.max(1, budgetTokens - 2)) : framedContent;
   return `- ${prefix}${content}`;
 }
 
@@ -523,8 +535,43 @@ function attributionForCandidate(
       metadataScore: candidate.metadataScore,
       score: candidate.score,
       reasons: candidate.reasons,
+      epistemicPolicyVersion: candidate.epistemicAccess ? 1 : undefined,
+      epistemicReason: candidate.epistemicAccess?.reason,
+      epistemicClassified: candidate.epistemicAccess?.classified,
+      epistemicEdgeIds: candidate.epistemicAccess?.edgeIds,
+      epistemicDecisions: candidate.epistemicAccess?.decisions,
     },
   };
+}
+
+function excludedAttribution(
+  candidate: CanonicalMemoryCandidate,
+  consideredCount: number,
+): GenerationContextAttributionItem {
+  return {
+    kind: "memory_recall",
+    label: "Canonical memory excluded",
+    status: "skipped",
+    sourceId: candidate.memory.id,
+    sourceCollection: "canonical-memories",
+    snippet: candidate.memory.content,
+    metadata: {
+      source: "canonical_memory",
+      consideredCount,
+      epistemicPolicyVersion: 1,
+      epistemicReason: candidate.epistemicAccess?.reason ?? "missing_edge",
+      epistemicClassified: candidate.epistemicAccess?.classified ?? true,
+      epistemicEdgeIds: candidate.epistemicAccess?.edgeIds ?? [],
+      epistemicDecisions: candidate.epistemicAccess?.decisions ?? [],
+    },
+  };
+}
+
+function epistemicSubjects(input: CanonicalMemoryContextInput): EpistemicSubject[] {
+  return (
+    input.epistemicSubjects ??
+    input.characters.map((character) => ({ kind: "character" as const, id: character.id, name: character.name }))
+  ).filter((subject) => subject.id.trim());
 }
 
 function semanticFallbackCode(error: unknown): string {
@@ -549,7 +596,8 @@ export async function buildCanonicalMemoryContext(
   const semanticQuery = storage.querySemanticMemories;
   if (queryTokens.length === 0 && (!semanticQuery || !connectionId)) return null;
 
-  const queries = scopeQueries(input);
+  const epistemic = await loadEpistemicContext(storage, epistemicSubjects(input));
+  const queries = scopeQueries(input, epistemic.enabled);
   const semanticResultPromise =
     semanticQuery && connectionId
       ? semanticQuery({
@@ -558,6 +606,7 @@ export async function buildCanonicalMemoryContext(
           connectionId,
           limit: SEMANTIC_CANDIDATE_LIMIT,
           similarityThreshold: SEMANTIC_SIMILARITY_THRESHOLD,
+          ...(epistemic.enabled ? { epistemicPolicyVersion: 1 as const } : {}),
         })
           .then((matches) => ({ matches, fallback: undefined as string | undefined }))
           .catch((error: unknown) => ({
@@ -565,7 +614,27 @@ export async function buildCanonicalMemoryContext(
             fallback: semanticFallbackCode(error),
           }))
       : Promise.resolve({ matches: [] as CanonicalMemorySemanticMatch[], fallback: undefined as string | undefined });
-  const [collectedRows, semanticResult] = await Promise.all([collectMemoryRows(storage, input), semanticResultPromise]);
+  const [collectedRows, semanticResult] = await Promise.all([
+    collectMemoryRows(storage, queries),
+    semanticResultPromise,
+  ]);
+  const epistemicSupersededIds = new Set(
+    epistemic.holderEdges
+      .filter((edge) => edge.status === "active" && edge.stance !== "unknown")
+      .map((edge) => edge.memoryId),
+  );
+  if (epistemic.enabled && storage.queryMemories && epistemicSupersededIds.size > 0) {
+    const existingIds = new Set(collectedRows.map((row) => row.memory.id));
+    const missingIds = Array.from(epistemicSupersededIds).filter((id) => !existingIds.has(id));
+    if (missingIds.length > 0) {
+      const beliefs = await storage.queryMemories({
+        memoryIds: missingIds,
+        statuses: ["superseded"],
+        epistemicPolicyVersion: 1,
+      });
+      collectedRows.push(...beliefs.map((memory) => ({ memory, source: "lexical" as const })));
+    }
+  }
   const allowedScopeKeys = new Set(
     queries.map((query) => (query.scope ? `${query.scope.kind}:${query.scope.id}` : "")),
   );
@@ -597,7 +666,19 @@ export async function buildCanonicalMemoryContext(
       ),
     );
   const consideredCount = candidates.length;
-  const ranked = dedupeAndFilterCandidates(candidates, input)
+  const ordinaryRanked = dedupeAndFilterCandidates(candidates, input);
+  const supersededBeliefs = candidates.filter(
+    (candidate) =>
+      candidate.memory.status === "superseded" &&
+      epistemicSupersededIds.has(candidate.memory.id) &&
+      !overlapsRecentMessages(candidate.memory, recentMessageIds(input.chat, input.storedMessages)),
+  );
+  const rankedById = new Map<string, CanonicalMemoryCandidate>();
+  for (const candidate of [...ordinaryRanked, ...supersededBeliefs]) {
+    const existing = rankedById.get(candidate.memory.id);
+    if (!existing || candidate.score > existing.score) rankedById.set(candidate.memory.id, candidate);
+  }
+  let ranked = Array.from(rankedById.values())
     .filter(
       (candidate) =>
         candidate.lexicalScore > 0 ||
@@ -609,13 +690,35 @@ export async function buildCanonicalMemoryContext(
     .slice(0, MAX_CANDIDATE_MEMORIES);
   if (ranked.length === 0) return null;
 
+  let excluded: CanonicalMemoryCandidate[] = [];
+  if (epistemic.enabled && storage.queryKnowledgeEdges) {
+    let edges: KnowledgeEdge[];
+    try {
+      edges = await storage.queryKnowledgeEdges({ memoryIds: ranked.map((candidate) => candidate.memory.id) });
+    } catch {
+      return null;
+    }
+    ranked = ranked.map((candidate) => ({
+      ...candidate,
+      epistemicAccess: resolveEpistemicAccess({
+        memoryId: candidate.memory.id,
+        edges,
+        subjects: epistemic.subjects,
+        groups: epistemic.groups,
+      }),
+    }));
+    excluded = ranked.filter((candidate) => candidate.epistemicAccess?.admitted === false);
+    ranked = ranked.filter((candidate) => candidate.epistemicAccess?.admitted !== false);
+  }
+
   const packed = packCanonicalMemories(ranked, tokenBudget(input.chat, input.maxContext), input.personaName);
-  if (packed.retained.length === 0) return null;
+  if (packed.retained.length === 0 && excluded.length === 0) return null;
   return {
-    block: buildBlock(packed.sections),
-    attributionItems: packed.retained.map((candidate, index) =>
-      attributionForCandidate(candidate, index, consideredCount),
-    ),
+    block: packed.retained.length > 0 ? buildBlock(packed.sections) : "",
+    attributionItems: [
+      ...packed.retained.map((candidate, index) => attributionForCandidate(candidate, index, consideredCount)),
+      ...excluded.map((candidate) => excludedAttribution(candidate, consideredCount)),
+    ],
     estimatedTokens: packed.estimatedTokens,
     consideredCount,
   };

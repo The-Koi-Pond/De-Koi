@@ -173,6 +173,12 @@ const collectionMetadata = {
     notes:
       "Authoritative memory source of truth. Records have kind, status, scope, confidence, provenance, content, tags, supersession links, and kind-specific payloads. Legacy `chats.memories[]` rows are not backfilled in Phase 2.",
   },
+  "memory-knowledge-edges": {
+    model: "`KnowledgeEdge`",
+    confidence: "Type-backed",
+    notes:
+      "Profile-scoped epistemic assignments linking one canonical memory to a character, persona, group, or world holder. Deterministic IDs, stance/status, confidence, and source-backed provenance keep access separate from canonical text.",
+  },
   "memory-index-rows": {
     model: "`MemoryIndexRow`",
     confidence: "Type-backed",

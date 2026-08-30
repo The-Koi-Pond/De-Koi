@@ -19,6 +19,7 @@ import { resolveBackgroundTextConnection } from "./background-llm-connection";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
+import { knowledgeEdgesForCapturedMemory } from "./automatic-memory-knowledge";
 
 export { beginForegroundGeneration } from "./background-generation-coordinator";
 
@@ -55,6 +56,8 @@ interface MemoryCaptureJob extends JsonRecord {
   scopeReason: "attributed_character" | "character_chat_only" | "ambiguous_scene" | "ambiguous_chat";
   characterId?: string | null;
   sceneId?: string | null;
+  personaId?: string | null;
+  participantCharacterIds: string[];
   connectionId?: string | null;
   model?: string | null;
   captureVersion: number;
@@ -402,7 +405,16 @@ export async function enqueueAutomaticMemoryCaptureJob(
   const chatId = readString(chat.id).trim() || assistant.chatId;
   if (!chatId || sourceMessageIds.length === 0) return null;
   const mode = readString(chat.mode || chat.chatMode).trim();
-  const sceneId = readString(chat.sceneId || chat.activeSceneId).trim() || null;
+  const metadata = parseRecord(chat.metadata);
+  const formalScene =
+    mode === "roleplay" &&
+    Boolean(
+      readString(metadata.sceneOriginChatId).trim() ||
+        readString(metadata.sceneStatus).trim() ||
+        readString(chat.sceneId).trim(),
+    );
+  const sceneId =
+    readString(chat.sceneId || chat.activeSceneId).trim() || (formalScene ? chatId : null);
   const resolvedScope = resolveAutomaticMemoryScope({
     chatId,
     mode,
@@ -444,6 +456,10 @@ export async function enqueueAutomaticMemoryCaptureJob(
     scopeReason: resolvedScope.reason,
     characterId: resolvedScope.characterId,
     sceneId,
+    personaId: readString(chat.personaId).trim() || null,
+    participantCharacterIds: formalScene
+      ? Array.from(new Set(input.characters.map((character) => character.id.trim()).filter(Boolean)))
+      : [],
     connectionId: input.connectionId ?? null,
     model: input.model ?? null,
     captureVersion: AUTOMATIC_MEMORY_CAPTURE_VERSION,
@@ -614,8 +630,25 @@ export async function processAutomaticMemoryCaptureQueue(
           candidates: valueGate.acceptedCanonicalCandidates,
           eligibleMemories: extracted.eligibleMemories,
           now,
-          createMemory: (body) => storage.createMemoryCaptureMemory!(leaseId, body),
-          updateMemory: (memoryId, patch) => storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch),
+          knowledgeEdgesForMemory: (candidate, memoryId) =>
+            knowledgeEdgesForCapturedMemory({
+              memoryId,
+              memoryKind: candidate.kind,
+              scopeReason: readString(job.scopeReason).trim() as MemoryCaptureJob["scopeReason"],
+              characterId: readString(job.characterId).trim() || null,
+              personaId: readString(job.personaId).trim() || null,
+              sceneId: readString(job.sceneId).trim() || null,
+              participantCharacterIds: parseArray(job.participantCharacterIds)
+                .map((id) => readString(id).trim())
+                .filter(Boolean),
+              sourceChatId: chatId,
+              sourceMessageIds,
+              now,
+            }),
+          createMemory: (body, knowledgeEdges) =>
+            storage.createMemoryCaptureMemory!(leaseId, body, knowledgeEdges),
+          updateMemory: (memoryId, patch, knowledgeEdges) =>
+            storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch, knowledgeEdges),
         });
         const consequences: PersistedCanonicalConsequence[] = persisted.affected;
         if (consequences.length > 0) {

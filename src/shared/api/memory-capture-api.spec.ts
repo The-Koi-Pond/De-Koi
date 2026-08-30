@@ -26,8 +26,9 @@ describe("memoryCaptureApi", () => {
     await expect(memoryCaptureApi.acquireWorker("browser-a", "lease-a")).resolves.toBe("lease-a");
     await memoryCaptureApi.releaseWorker("browser-a", "lease-a");
     await memoryCaptureApi.updateJob("lease-a", "job-1", { status: "processing" });
-    await memoryCaptureApi.createMemory("lease-a", { id: "memory-1" } as never);
-    await memoryCaptureApi.updateMemory("lease-a", "memory-1", { content: "updated" });
+    const knowledgeEdges = [{ memoryId: "memory-1", holder: { kind: "character", id: "alice" } }] as never;
+    await memoryCaptureApi.createMemory("lease-a", { id: "memory-1" } as never, knowledgeEdges);
+    await memoryCaptureApi.updateMemory("lease-a", "memory-1", { content: "updated" }, knowledgeEdges);
     await memoryCaptureApi.patchMessageExtra("lease-a", "message-1", {
       memoryCapture: { status: "completed" },
     });
@@ -46,10 +47,10 @@ describe("memoryCaptureApi", () => {
       body: { leaseId: "lease-a", jobId: "job-1", patch: { status: "processing" } },
     });
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(5, "memory_capture_memory_create", {
-      body: { leaseId: "lease-a", memory: { id: "memory-1" } },
+      body: { leaseId: "lease-a", memory: { id: "memory-1" }, knowledgeEdges },
     });
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(6, "memory_capture_memory_update", {
-      body: { leaseId: "lease-a", memoryId: "memory-1", patch: { content: "updated" } },
+      body: { leaseId: "lease-a", memoryId: "memory-1", patch: { content: "updated" }, knowledgeEdges },
     });
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(7, "memory_capture_message_extra_patch", {
       body: { leaseId: "lease-a", messageId: "message-1", patch: { memoryCapture: { status: "completed" } } },

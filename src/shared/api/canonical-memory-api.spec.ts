@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanonicalMemoryInput, MemoryIndexRowInput } from "../../engine/contracts/types/memory";
+import type { CanonicalMemoryInput, KnowledgeEdgeInput, MemoryIndexRowInput } from "../../engine/contracts/types/memory";
 
 const mocks = vi.hoisted(() => ({
   invokeTauri: vi.fn(),
@@ -89,5 +89,37 @@ describe("canonicalMemoryApi", () => {
     await canonicalMemoryApi.querySemantic(body);
 
     expect(mocks.invokeTauri).toHaveBeenCalledWith("memory_query_semantic", { body });
+  });
+
+  it("routes knowledge-edge lifecycle through focused commands", async () => {
+    const { canonicalMemoryApi } = await import("./canonical-memory-api");
+    const body: KnowledgeEdgeInput = {
+      memoryId: "memory-1",
+      holder: { kind: "character", id: "alice" },
+      stance: "believes",
+      provenance: [
+        {
+          kind: "user_edit",
+          author: "user",
+          messageIds: [],
+          createdAt: "2026-08-30T12:00:00.000Z",
+        },
+      ],
+    };
+
+    await canonicalMemoryApi.knowledge.upsert(body);
+    await canonicalMemoryApi.knowledge.query({ memoryIds: ["memory-1"], statuses: ["active"] });
+    await canonicalMemoryApi.knowledge.approve("edge-1");
+    await canonicalMemoryApi.knowledge.invalidate("edge-1", "source_message_deleted");
+
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "knowledge_edge_upsert", { body });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(2, "knowledge_edge_query", {
+      body: { memoryIds: ["memory-1"], statuses: ["active"] },
+    });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(3, "knowledge_edge_approve", { edgeId: "edge-1" });
+    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(4, "knowledge_edge_invalidate", {
+      edgeId: "edge-1",
+      reason: "source_message_deleted",
+    });
   });
 });

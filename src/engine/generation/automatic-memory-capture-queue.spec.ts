@@ -72,6 +72,7 @@ function queueStorage(
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
   const commitCalls: CommitChatMemoryCaptureInput[] = [];
   const releaseCalls: Array<{ workerId: string; leaseId: string }> = [];
+  const knowledgeEdgeCalls: unknown[][] = [];
   let refreshFailures = options.refreshFailures ?? 0;
   let captureLease: { workerId: string; leaseId: string } | null = null;
 
@@ -272,16 +273,23 @@ function queueStorage(
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.update("memory-capture-jobs", jobId, patch);
     },
-    async createMemoryCaptureMemory(leaseId: string, body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0]) {
+    async createMemoryCaptureMemory(
+      leaseId: string,
+      body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0],
+      knowledgeEdges = [],
+    ) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      knowledgeEdgeCalls.push(knowledgeEdges);
       return storage.createMemory!(body);
     },
     async updateMemoryCaptureMemory(
       leaseId: string,
       memoryId: string,
       patch: Parameters<NonNullable<StorageGateway["updateMemory"]>>[1],
+      knowledgeEdges = [],
     ) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      knowledgeEdgeCalls.push(knowledgeEdges);
       return storage.updateMemory!(memoryId, patch);
     },
     async patchMemoryCaptureMessageExtra(
@@ -323,6 +331,7 @@ function queueStorage(
     previewCalls,
     commitCalls,
     releaseCalls,
+    knowledgeEdgeCalls,
     revokeCaptureLease: () => {
       captureLease = null;
     },
@@ -331,6 +340,31 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("commits deterministic target and persona disclosure edges", async () => {
+    const harness = queueStorage({ chat: { id: "chat-1", mode: "roleplay", personaId: "persona-1" } });
+    await harness.enqueue();
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "{{user}}'s cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      }),
+    );
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm });
+
+    expect(harness.knowledgeEdgeCalls).toHaveLength(1);
+    expect(harness.knowledgeEdgeCalls[0]).toEqual([
+      expect.objectContaining({ holder: { kind: "character", id: "char-1" }, stance: "believes" }),
+      expect.objectContaining({ holder: { kind: "persona", id: "persona-1" }, stance: "believes" }),
+    ]);
+  });
   it("does not schedule durable capture on runtimes without lease support", async () => {
     vi.useFakeTimers();
     try {

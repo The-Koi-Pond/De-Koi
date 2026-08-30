@@ -682,6 +682,7 @@ fn replace_message_with_swipes_and_chat_cleanup(
                 canonical_memory::MEMORY_COLLECTION,
                 canonical_memory::INDEX_COLLECTION,
                 canonical_memory::STORY_JOBS_COLLECTION,
+                knowledge_edges::COLLECTION,
             ]);
         }
         message_swipe_storage::replace_message_with_swipes_and_update_collections(
@@ -711,6 +712,12 @@ fn replace_message_with_swipes_and_chat_cleanup(
                         story_collection_index,
                         story_collection_index + 1,
                         story_collection_index + 2,
+                        &[message_id.to_string()],
+                        "source_message_edited",
+                    )?;
+                    knowledge_edges::invalidate_message_sources_in_collections(
+                        collections,
+                        story_collection_index + 3,
                         &[message_id.to_string()],
                         "source_message_edited",
                     )?;
@@ -841,6 +848,7 @@ pub(crate) fn message_swipes(
             extra_collections.extend([
                 canonical_memory::MEMORY_COLLECTION,
                 canonical_memory::STORY_JOBS_COLLECTION,
+                knowledge_edges::COLLECTION,
             ]);
         }
         message_swipe_storage::append_message_with_swipes_and_update_collections(
@@ -866,6 +874,12 @@ pub(crate) fn message_swipes(
                         collections,
                         1,
                         2,
+                        &[message_id.to_string()],
+                        "source_message_edited",
+                    )?;
+                    knowledge_edges::invalidate_message_sources_in_collections(
+                        collections,
+                        3,
                         &[message_id.to_string()],
                         "source_message_edited",
                     )?;
@@ -905,6 +919,7 @@ pub(crate) fn update_message_content_if_unchanged(
             canonical_memory::MEMORY_COLLECTION,
             canonical_memory::INDEX_COLLECTION,
             canonical_memory::STORY_JOBS_COLLECTION,
+            knowledge_edges::COLLECTION,
         ]);
     }
     let Some(mut message) =
@@ -929,6 +944,12 @@ pub(crate) fn update_message_content_if_unchanged(
                         3,
                         4,
                         5,
+                        &[message_id.to_string()],
+                        "source_message_edited",
+                    )?;
+                    knowledge_edges::invalidate_message_sources_in_collections(
+                        collections,
+                        6,
                         &[message_id.to_string()],
                         "source_message_edited",
                     )?;
@@ -1338,6 +1359,7 @@ pub(crate) fn delete_message_rows_with_memory_prune(
             canonical_memory::MEMORY_COLLECTION,
             canonical_memory::INDEX_COLLECTION,
             canonical_memory::STORY_JOBS_COLLECTION,
+            knowledge_edges::COLLECTION,
         ],
         move |collections| {
             let messages = collections[0].rows_mut();
@@ -1420,6 +1442,12 @@ pub(crate) fn delete_message_rows_with_memory_prune(
                 4,
                 5,
                 6,
+                &ids,
+                "source_message_deleted",
+            )?;
+            knowledge_edges::invalidate_message_sources_in_collections(
+                collections,
+                7,
                 &ids,
                 "source_message_deleted",
             )?;
@@ -6639,6 +6667,23 @@ mod tests {
             }),
         )
         .expect("episode should seed");
+        let edge = knowledge_edges::upsert_edge(
+            &state,
+            json!({
+                "memoryId": "episode-1",
+                "holder": { "kind": "character", "id": "alice" },
+                "stance": "knows",
+                "status": "active",
+                "provenance": [{
+                    "kind": "scene_witness",
+                    "author": "system",
+                    "sourceChatId": "chat-1",
+                    "messageIds": ["message-1"],
+                    "createdAt": "2026-08-27T00:00:00Z"
+                }]
+            }),
+        )
+        .expect("edge should seed");
 
         let updated = patch_message_update_with_memory_prune(
             &state,
@@ -6655,6 +6700,14 @@ mod tests {
                 .unwrap()
                 .unwrap()["status"],
             json!("stale")
+        );
+        assert_eq!(
+            state
+                .storage
+                .get(knowledge_edges::COLLECTION, edge["id"].as_str().unwrap())
+                .unwrap()
+                .unwrap()["invalidatedReason"],
+            json!("source_message_edited")
         );
     }
 

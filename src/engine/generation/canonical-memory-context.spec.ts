@@ -5,6 +5,7 @@ import type {
   CanonicalMemoryQuery,
   CanonicalMemoryRecord,
   CanonicalMemorySemanticMatch,
+  KnowledgeEdge,
 } from "../contracts/types/memory";
 import { assembleGenerationPrompt } from "./prompt-assembly";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
@@ -171,6 +172,116 @@ function groupPromptStorage(memories: CanonicalMemoryRecord[]): StorageGateway {
 }
 
 describe("canonical memory context", () => {
+  const edge = (overrides: Partial<KnowledgeEdge>): KnowledgeEdge => ({
+    id: "edge-1",
+    memoryId: "memory-secret",
+    holder: { kind: "character", id: "alice" },
+    stance: "knows",
+    status: "active",
+    confidence: null,
+    provenance: [{ kind: "user_edit", author: "user", messageIds: [], createdAt: "2026-08-30T12:00:00Z" }],
+    createdAt: "2026-08-30T12:00:00Z",
+    updatedAt: "2026-08-30T12:00:00Z",
+    ...overrides,
+  });
+
+  it("excludes another character's classified secret and attributes the decision", async () => {
+    const secret = memory({ id: "memory-secret", content: "The brass key is under the chapel." });
+    const rumor = memory({ id: "memory-rumor", content: "The brass key was thrown into the river." });
+    const storage = {
+      ...storageWithMemories({ indexed: [secret, rumor] }),
+      queryKnowledgeEdges: vi.fn(async () => [
+        edge({ memoryId: "memory-secret", holder: { kind: "character", id: "alice" } }),
+        edge({ id: "edge-rumor", memoryId: "memory-rumor", holder: { kind: "character", id: "bob" } }),
+      ]),
+    } as StorageGateway;
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [{ id: "alice", name: "Alice", tags: [] }],
+    });
+
+    expect(result?.block).toContain("Alice knows: The brass key is under the chapel.");
+    expect(result?.block).not.toContain("thrown into the river");
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        sourceId: "memory-rumor",
+        status: "skipped",
+        metadata: expect.objectContaining({ epistemicReason: "missing_edge", epistemicPolicyVersion: 1 }),
+      }),
+    );
+    expect(storage.queryMemoryIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ epistemicPolicyVersion: 1 }),
+    );
+  });
+
+  it("uses intersection semantics for an untargeted merged Roleplay prompt", async () => {
+    const secret = memory({ id: "memory-secret", content: "The brass key is under the chapel." });
+    const storage = {
+      ...storageWithMemories({ indexed: [secret] }),
+      queryKnowledgeEdges: vi.fn(async () => [edge({})]),
+    } as StorageGateway;
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [
+        { id: "alice", name: "Alice", tags: [] },
+        { id: "bob", name: "Bob", tags: [] },
+      ],
+    });
+
+    expect(result?.block).toBe("");
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        sourceId: "memory-secret",
+        status: "skipped",
+        metadata: expect.objectContaining({ epistemicReason: "merged_intersection_failed" }),
+      }),
+    );
+  });
+
+  it("can retrieve a superseded claim that the responder still believes", async () => {
+    const oldClaim = memory({
+      id: "memory-old-claim",
+      status: "superseded",
+      supersededByMemoryId: "memory-correction",
+      content: "The duke is a traitor.",
+    });
+    const belief = edge({
+      id: "edge-belief",
+      memoryId: oldClaim.id,
+      holder: { kind: "character", id: "alice" },
+      stance: "believes",
+    });
+    const storage = {
+      ...storageWithMemories({ indexed: [] }),
+      queryMemories: vi.fn(async (query: CanonicalMemoryQuery) =>
+        query.memoryIds?.includes(oldClaim.id) ? [oldClaim] : [],
+      ),
+      queryKnowledgeEdges: vi.fn(async () => [belief]),
+    } as StorageGateway;
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Is the duke a traitor?",
+      characters: [{ id: "alice", name: "Alice", tags: [] }],
+    });
+
+    expect(result?.block).toContain("Alice believes: The duke is a traitor.");
+    expect(storage.queryMemories).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memoryIds: ["memory-old-claim"],
+        statuses: ["superseded"],
+        epistemicPolicyVersion: 1,
+      }),
+    );
+  });
+
   it("returns null by default so existing prompt behavior is preserved", async () => {
     const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [] }), {
       chat: { id: "chat-1", mode: "conversation", metadata: {} },
