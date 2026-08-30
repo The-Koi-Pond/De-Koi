@@ -1402,7 +1402,10 @@ impl FileStorage {
             validate_collection_name(collection)?;
             if !matches!(
                 *collection,
-                "chats" | "canonical-memories" | "story-consolidation-jobs"
+                "chats"
+                    | "canonical-memories"
+                    | "story-consolidation-jobs"
+                    | "memory-knowledge-edges"
             ) {
                 return Err(AppError::invalid_input(format!(
                     "Journaled related collection updates are not supported for {collection}"
@@ -3473,6 +3476,7 @@ impl FileStorage {
                     | "chats"
                     | "canonical-memories"
                     | "story-consolidation-jobs"
+                    | "memory-knowledge-edges"
             )
         }) {
             return Err(AppError::invalid_input(

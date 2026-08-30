@@ -2022,7 +2022,6 @@ mod tests {
         "memory_index_upsert",
         "memory_query",
         "memory_update",
-        "knowledge_edge_capabilities",
         "knowledge_edge_upsert",
         "knowledge_edge_query",
         "knowledge_edge_approve",
