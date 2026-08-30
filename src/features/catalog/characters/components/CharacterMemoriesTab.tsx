@@ -320,7 +320,7 @@ export function CharacterMemoriesTab({
         </button>
         <button
           type="button"
-          onClick={() => void exportMemories()}
+          onClick={exportMemories}
           className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--accent)]"
         >
           <Upload size="0.9rem" /> Export
