@@ -6,6 +6,8 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
+import time
 import tempfile
 from types import SimpleNamespace
 
@@ -198,17 +200,31 @@ def valid_review(label):
 
 
 class ChunkReviewCompletions:
-    def __init__(self, *, fail_once=None, fail_always=None, invalid_then_valid=None):
+    def __init__(
+        self,
+        *,
+        fail_once=None,
+        fail_always=None,
+        invalid_then_valid=None,
+        delay_seconds=0,
+        delay_by_chunk=None,
+    ):
         self.calls = []
         self.fail_once = fail_once
         self.fail_always = fail_always
         self.invalid_then_valid = invalid_then_valid
+        self.delay_seconds = delay_seconds
+        self.delay_by_chunk = delay_by_chunk or {}
         self.chunk_attempts = {}
+        self.active_chunk_calls = 0
+        self.max_active_chunk_calls = 0
+        self.lock = threading.Lock()
 
     def create(self, **kwargs):
-        self.calls.append(kwargs)
         prompt = "\n".join(message["content"] for message in kwargs["messages"])
         if "# Chunk Review Results" in prompt:
+            with self.lock:
+                self.calls.append(kwargs)
             payload = valid_review("final judge")
             if "PRIOR_CONTRACT_MARKER" in prompt:
                 payload["findings"] = [
@@ -227,15 +243,32 @@ class ChunkReviewCompletions:
                 for index in range(1, 9)
                 if f"BUNNY_CHUNK_PACKET_{index}" in prompt
             )
-            self.chunk_attempts[chunk_index] = self.chunk_attempts.get(chunk_index, 0) + 1
-            if chunk_index == self.fail_always:
-                raise TimeoutError("scripted exhausted chunk timeout")
-            if chunk_index == self.fail_once and self.chunk_attempts[chunk_index] == 1:
-                raise TimeoutError("scripted transient chunk timeout")
-            if chunk_index == self.invalid_then_valid and self.chunk_attempts[chunk_index] <= 2:
-                payload = {"findings": []}
-            else:
-                payload = valid_review(f"chunk {chunk_index}")
+            with self.lock:
+                self.calls.append(kwargs)
+                self.chunk_attempts[chunk_index] = (
+                    self.chunk_attempts.get(chunk_index, 0) + 1
+                )
+                attempt = self.chunk_attempts[chunk_index]
+                self.active_chunk_calls += 1
+                self.max_active_chunk_calls = max(
+                    self.max_active_chunk_calls,
+                    self.active_chunk_calls,
+                )
+            try:
+                delay = self.delay_by_chunk.get(chunk_index, self.delay_seconds)
+                if delay:
+                    time.sleep(delay)
+                if chunk_index == self.fail_always:
+                    raise TimeoutError("scripted exhausted chunk timeout")
+                if chunk_index == self.fail_once and attempt == 1:
+                    raise TimeoutError("scripted transient chunk timeout")
+                if chunk_index == self.invalid_then_valid and attempt <= 2:
+                    payload = {"findings": []}
+                else:
+                    payload = valid_review(f"chunk {chunk_index}")
+            finally:
+                with self.lock:
+                    self.active_chunk_calls -= 1
         return SimpleNamespace(
             usage=None,
             choices=[
@@ -247,6 +280,44 @@ class ChunkReviewCompletions:
             ],
         )
 
+
+class CancellableChunkClient:
+    def __init__(self):
+        self.started = threading.Barrier(4)
+        self.release = threading.Event()
+        self.closed = threading.Event()
+        self.calls = []
+        self.lock = threading.Lock()
+        self.chat = SimpleNamespace(completions=self)
+
+    def create(self, **kwargs):
+        prompt = "\n".join(message["content"] for message in kwargs["messages"])
+        chunk_index = next(
+            index
+            for index in range(1, 9)
+            if f"BUNNY_CHUNK_PACKET_{index}" in prompt
+        )
+        with self.lock:
+            self.calls.append(chunk_index)
+            attempt = self.calls.count(chunk_index)
+        if attempt == 1:
+            self.started.wait(timeout=1)
+        if chunk_index == 2:
+            raise TimeoutError("scripted exhausted chunk timeout")
+        self.release.wait(timeout=1)
+        if self.closed.is_set():
+            raise RuntimeError("scripted client closed")
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="FINAL_REVIEW\n"
+                        + json.dumps(valid_review(f"chunk {chunk_index}"))
+                    )
+                )
+            ],
+        )
 
 def chunk_inputs():
     return [
@@ -276,7 +347,7 @@ def run_chunk_orchestration_case(module):
         "PRIOR_CONTRACT_MARKER",
     )
 
-    normal_completions = ChunkReviewCompletions()
+    normal_completions = ChunkReviewCompletions(delay_seconds=0.02)
     normal_client = SimpleNamespace(
         chat=SimpleNamespace(completions=normal_completions)
     )
@@ -294,6 +365,12 @@ def run_chunk_orchestration_case(module):
     assert normal_review["findings"][0]["title"] == "Prior contract remains open"
     assert len(normal_completions.calls) == 9, "eight chunks should need one call each plus one judge"
     assert normal_stats["model_calls"] == 9
+    assert normal_completions.max_active_chunk_calls >= 2, (
+        "large-PR chunks must overlap instead of consuming the workflow budget sequentially"
+    )
+    assert module.MAX_CHUNK_REVIEW_WORKERS == 4
+    assert module.CHUNK_REVIEW_WORKERS == module.MAX_CHUNK_REVIEW_WORKERS
+    assert normal_completions.max_active_chunk_calls == module.CHUNK_REVIEW_WORKERS
     judge_prompt = "\n".join(
         message["content"] for message in normal_completions.calls[-1]["messages"]
     )
@@ -301,6 +378,12 @@ def run_chunk_orchestration_case(module):
     assert "# Prior Bunny Repair Contracts\nPRIOR_CONTRACT_MARKER" in judge_prompt
     assert "BUNNY_CHUNK_PACKET_" not in judge_prompt
     assert "PRIVATE_PACKET_TEXT_" not in judge_prompt
+    chunk_positions = [
+        judge_prompt.index(f'"chunk_index":{index}') for index in range(1, 9)
+    ]
+    assert chunk_positions == sorted(chunk_positions), (
+        "parallel chunk completion must not reorder final-judge evidence"
+    )
     telemetry = normal_output.getvalue()
     assert "chunk=1/8" in telemetry
     assert "chunk=8/8" in telemetry
@@ -347,7 +430,10 @@ def run_chunk_orchestration_case(module):
         for index, attempts in schema_completions.chunk_attempts.items()
     )
 
-    exhausted_completions = ChunkReviewCompletions(fail_always=2)
+    exhausted_completions = ChunkReviewCompletions(
+        fail_always=2,
+        delay_by_chunk={1: 0.05, 3: 0.05, 4: 0.05},
+    )
     exhausted_client = SimpleNamespace(
         chat=SimpleNamespace(completions=exhausted_completions)
     )
@@ -365,12 +451,90 @@ def run_chunk_orchestration_case(module):
             pass
         else:
             raise AssertionError("an exhausted chunk must fail the full review")
-    assert exhausted_completions.chunk_attempts == {1: 1, 2: 2}
+    assert exhausted_completions.chunk_attempts[2] == 2
+    assert max(exhausted_completions.chunk_attempts) <= module.CHUNK_REVIEW_WORKERS
+    assert sum(exhausted_completions.chunk_attempts.values()) <= (
+        module.CHUNK_REVIEW_WORKERS + 1
+    ), "an exhausted chunk must cancel queued work beyond the active worker window"
     assert not any(
         "# Chunk Review Results"
         in "\n".join(message["content"] for message in call["messages"])
         for call in exhausted_completions.calls
     ), "final judging must not run after incomplete chunk coverage"
+
+    in_flight_client = CancellableChunkClient()
+    in_flight_started = time.monotonic()
+    try:
+        module.review_chunked_packets(
+            in_flight_client,
+            "review skill",
+            chunk_inputs(),
+            module.build_stats(""),
+            review_context,
+        )
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("an exhausted chunk must fail the in-flight review")
+    assert time.monotonic() - in_flight_started < 0.5, (
+        "daemon chunk workers must not keep the orchestrator waiting after failure"
+    )
+    assert set(in_flight_client.calls) == set(
+        range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "cancellation must prevent retries and new calls beyond the active window"
+    assert all(
+        in_flight_client.calls.count(index) == (2 if index == 2 else 1)
+        for index in range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "peer cancellation must not enter the retry path"
+    in_flight_client.release.set()
+    time.sleep(0.05)
+
+    no_op_close_client = CancellableChunkClient()
+    no_op_stats = module.build_stats("")
+    with contextlib.redirect_stdout(io.StringIO()):
+        no_op_started = time.monotonic()
+        try:
+            module.review_chunked_packets(
+                no_op_close_client,
+                "review skill",
+                chunk_inputs(),
+                no_op_stats,
+                review_context,
+            )
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("a root failure must escape active daemon workers")
+        no_op_elapsed = time.monotonic() - no_op_started
+        stable_failure_stats = dict(no_op_stats)
+        no_op_close_client.release.set()
+        time.sleep(0.05)
+    assert no_op_elapsed < 0.5, (
+        "the orchestrator must not drain unrelated in-flight calls"
+    )
+    assert set(no_op_close_client.calls) == set(
+        range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "active daemon workers must not allow retries or another chunk to start"
+    assert all(
+        no_op_close_client.calls.count(index) == (2 if index == 2 else 1)
+        for index in range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "late peer cancellation must not enter the retry path"
+    assert no_op_stats == stable_failure_stats, (
+        "late worker completion must not mutate merged failure telemetry"
+    )
+
+    try:
+        module.review_chunked_packets(
+            normal_client,
+            "review skill",
+            [],
+            module.build_stats(""),
+            review_context,
+        )
+    except ValueError as exc:
+        assert "at least one chunk" in str(exc)
+    else:
+        raise AssertionError("empty chunk coverage must fail with an explicit contract error")
 
     three_pass_completions = ChunkReviewCompletions()
     three_pass_client = SimpleNamespace(

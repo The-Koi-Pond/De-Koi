@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from queue import Empty, Queue
+from threading import Event, Thread
 
 REPO_ROOT = pathlib.Path.cwd().resolve()
 BUNNY_MARKER = "<!-- bunny-review:walkthrough -->"
@@ -40,6 +42,7 @@ MAX_CONTRACT_STATE_LIST_ITEMS = 3
 DEFAULT_MODEL_REQUEST_TIMEOUT = 120
 MODEL_MAX_RETRIES = 1
 CHUNK_REVIEW_MAX_ATTEMPTS = 2
+MAX_CHUNK_REVIEW_WORKERS = 4
 SECRET_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|passwd|authorization|bearer|client[_-]?secret)"
     r"(\s*[:=]\s*|\s+)([^\s'\"`;&|]+)"
@@ -50,6 +53,10 @@ SECRET_FILE_PART_RE = re.compile(
 
 
 class ReviewTooLarge(Exception):
+    pass
+
+
+class ChunkReviewCancelled(Exception):
     pass
 
 
@@ -77,6 +84,10 @@ def positive_int_env(name, default):
 MODEL_REQUEST_TIMEOUT = positive_int_env(
     "BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS",
     DEFAULT_MODEL_REQUEST_TIMEOUT,
+)
+CHUNK_REVIEW_WORKERS = min(
+    positive_int_env("BUNNY_CHUNK_REVIEW_WORKERS", MAX_CHUNK_REVIEW_WORKERS),
+    MAX_CHUNK_REVIEW_WORKERS,
 )
 
 
@@ -594,6 +605,20 @@ def build_stats(review_packet):
     }
 
 
+def merge_stats(totals, partial):
+    for key in (
+        "model_calls",
+        "extra_context_chars",
+        "context_files",
+        "context_searches",
+        "prompt_tokens",
+        "completion_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+    ):
+        totals[key] += partial[key]
+
+
 def print_telemetry(stats):
     elapsed = time.monotonic() - stats["started_at"]
     print(
@@ -612,12 +637,21 @@ def print_telemetry(stats):
     )
 
 
-def model_call(client, messages, stats):
+def raise_if_model_call_cancelled(stop_event):
+    if stop_event is not None and stop_event.is_set():
+        raise ChunkReviewCancelled(
+            "model call cancelled after another chunk exhausted"
+        )
+
+
+def model_call(client, messages, stats, *, stop_event=None):
+    raise_if_model_call_cancelled(stop_event)
     resp = client.chat.completions.create(
         model=os.environ.get("LLM_MODEL", "gpt-5.5"),
         messages=messages,
         timeout=MODEL_REQUEST_TIMEOUT,
     )
+    raise_if_model_call_cancelled(stop_event)
     stats["model_calls"] += 1
     add_usage(stats, getattr(resp, "usage", None))
     if isinstance(resp, str):
@@ -641,7 +675,9 @@ def review_contract_gaps(review_obj):
     return gaps
 
 
-def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
+def semantic_repair_review_object(
+    client, messages, review_obj, gaps, stats, *, stop_event=None
+):
     gap_text = "\n".join(f"- {gap}" for gap in gaps)
     repair_messages = [
         *messages,
@@ -665,7 +701,9 @@ def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
         },
     ]
     try:
-        repaired = extract_json(model_call(client, repair_messages, stats))
+        repaired = extract_json(
+            model_call(client, repair_messages, stats, stop_event=stop_event)
+        )
     except Exception as exc:
         review_obj["_schema_repair_gaps"] = gaps
         review_obj["_schema_repair_error"] = " ".join(str(exc).split())
@@ -679,7 +717,9 @@ def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
     return repaired
 
 
-def extract_json_or_repair(client, messages, content, stats):
+def extract_json_or_repair(
+    client, messages, content, stats, *, stop_event=None
+):
     try:
         parsed = extract_json(content)
     except ValueError:
@@ -696,22 +736,39 @@ def extract_json_or_repair(client, messages, content, stats):
                 ),
             },
         ]
-        parsed = extract_json(model_call(client, repair_messages, stats))
+        parsed = extract_json(
+            model_call(client, repair_messages, stats, stop_event=stop_event)
+        )
     gaps = review_contract_gaps(parsed)
     if gaps:
-        return semantic_repair_review_object(client, messages, parsed, gaps, stats)
+        return semantic_repair_review_object(
+            client,
+            messages,
+            parsed,
+            gaps,
+            stats,
+            stop_event=stop_event,
+        )
     return parsed
 
 
-def review_packet_with_model(client, skill, triage_content, stats):
+def review_packet_with_model(
+    client, skill, triage_content, stats, *, stop_event=None
+):
     messages = [
         {"role": "system", "content": skill},
         {"role": "user", "content": triage_content},
     ]
-    first_response = model_call(client, messages, stats)
+    first_response = model_call(client, messages, stats, stop_event=stop_event)
     request = parse_context_request(first_response)
     if request is None:
-        return extract_json_or_repair(client, messages, first_response, stats)
+        return extract_json_or_repair(
+            client,
+            messages,
+            first_response,
+            stats,
+            stop_event=stop_event,
+        )
     extra_context = build_extra_context(request, stats)
     final_messages = [
         {"role": "system", "content": skill},
@@ -726,8 +783,16 @@ def review_packet_with_model(client, skill, triage_content, stats):
             ),
         },
     ]
-    final_response = model_call(client, final_messages, stats)
-    return extract_json_or_repair(client, final_messages, final_response, stats)
+    final_response = model_call(
+        client, final_messages, stats, stop_event=stop_event
+    )
+    return extract_json_or_repair(
+        client,
+        final_messages,
+        final_response,
+        stats,
+        stop_event=stop_event,
+    )
 
 
 def skeptical_review_pass(client, skill, triage_content, stats):
@@ -798,6 +863,7 @@ def review_chunk_with_retry(
     stats,
     *,
     max_attempts=CHUNK_REVIEW_MAX_ATTEMPTS,
+    stop_event=None,
 ):
     index = chunk_input["index"]
     count = chunk_input["count"]
@@ -811,6 +877,16 @@ def review_chunk_with_retry(
         "because only one lens exposes it."
     )
     for attempt in range(1, max_attempts + 1):
+        if stop_event is not None and stop_event.is_set():
+            print(
+                "Bunny chunk telemetry: "
+                f"chunk={index}/{count}; attempt={attempt}/{max_attempts}; "
+                f"packet_chars={packet_chars}; state=cancelled; reason=peer_failure",
+                flush=True,
+            )
+            raise ChunkReviewCancelled(
+                f"chunk {index} cancelled after another chunk exhausted"
+            )
         started_at = time.monotonic()
         print(
             "Bunny chunk telemetry: "
@@ -820,13 +896,21 @@ def review_chunk_with_retry(
             flush=True,
         )
         try:
-            review = review_packet_with_model(client, skill, combined_triage, stats)
+            review = review_packet_with_model(
+                client,
+                skill,
+                combined_triage,
+                stats,
+                stop_event=stop_event,
+            )
             gaps = review_contract_gaps(review)
             if gaps:
                 raise ValueError(
                     "chunk review remained schema-invalid after repair: "
                     + "; ".join(gaps)
                 )
+        except ChunkReviewCancelled:
+            raise
         except Exception as exc:
             elapsed = time.monotonic() - started_at
             print(
@@ -907,16 +991,99 @@ def judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats):
 
 
 def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
-    chunk_reviews = []
-    for chunk_input in chunk_inputs:
-        review = review_chunk_with_retry(client, skill, chunk_input, stats)
-        chunk_reviews.append(
-            {
-                "chunk_index": chunk_input["index"],
-                "focus_files": chunk_input["focus_files"],
-                "review": review,
-            }
+    if not chunk_inputs:
+        raise ValueError("chunked review requires at least one chunk")
+    worker_count = min(CHUNK_REVIEW_WORKERS, len(chunk_inputs))
+    print(
+        "Bunny chunk concurrency: "
+        f"workers={worker_count}; chunks={len(chunk_inputs)}",
+        flush=True,
+    )
+    chunk_reviews_by_index = {}
+    failures = []
+    stop_event = Event()
+    completed = Queue()
+    active = {}
+    next_chunk = 0
+
+    def submit_next_chunk():
+        nonlocal next_chunk
+        if stop_event.is_set():
+            return False
+        chunk_input = chunk_inputs[next_chunk]
+        next_chunk += 1
+        chunk_stats = build_stats("")
+        index = chunk_input["index"]
+
+        def run_chunk():
+            try:
+                review = review_chunk_with_retry(
+                    client,
+                    skill,
+                    chunk_input,
+                    chunk_stats,
+                    stop_event=stop_event,
+                )
+            except Exception as exc:
+                if not isinstance(exc, ChunkReviewCancelled):
+                    stop_event.set()
+                completed.put((chunk_input, chunk_stats, None, exc))
+            else:
+                completed.put((chunk_input, chunk_stats, review, None))
+
+        worker = Thread(
+            target=run_chunk,
+            name=f"bunny-chunk-{index}",
+            daemon=True,
         )
+        active[index] = worker
+        worker.start()
+        return True
+
+    def record_completed(result):
+        chunk_input, chunk_stats, review, error = result
+        active.pop(chunk_input["index"], None)
+        merge_stats(stats, dict(chunk_stats))
+        if error is not None:
+            failures.append((chunk_input["index"], error))
+            return
+        chunk_reviews_by_index[chunk_input["index"]] = {
+            "chunk_index": chunk_input["index"],
+            "focus_files": chunk_input["focus_files"],
+            "review": review,
+        }
+
+    while next_chunk < len(chunk_inputs) and len(active) < worker_count:
+        if not submit_next_chunk():
+            break
+    while active:
+        record_completed(completed.get())
+        while True:
+            try:
+                record_completed(completed.get_nowait())
+            except Empty:
+                break
+        if failures:
+            stop_event.set()
+            break
+        while next_chunk < len(chunk_inputs) and len(active) < worker_count:
+            if not submit_next_chunk():
+                break
+
+    if failures:
+        root_failures = [
+            failure
+            for failure in failures
+            if not isinstance(failure[1], ChunkReviewCancelled)
+        ]
+        failures = root_failures or failures
+        failures.sort(key=lambda item: item[0])
+        raise failures[0][1]
+
+    chunk_reviews = [
+        chunk_reviews_by_index[index]
+        for index in sorted(chunk_reviews_by_index)
+    ]
     return judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats)
 
 
