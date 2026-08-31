@@ -64,7 +64,7 @@ const SCENE_GUIDELINES = [
   "- Treat this as a focused roleplay scene branched from the originating conversation.",
   "- Preserve character knowledge boundaries and relationship continuity from the origin chat.",
   "- The user controls their persona. Never decide their strategic choices or exact dialogue.",
-  "- Keep narration in third person unless the origin chat or requested scene explicitly uses another POV.",
+  "- Follow the active preset, originating chat, and explicit scene request for narration and point of view. When they differ, prefer the newest explicit scene direction.",
   "- Spoken dialogue must be wrapped in quotation marks. Do not leave spoken lines as bare prose.",
   "- First messages should establish the scene and then hand the next meaningful choice back to the user.",
   "- Continue naturally until the scene concludes or returns to the origin conversation.",

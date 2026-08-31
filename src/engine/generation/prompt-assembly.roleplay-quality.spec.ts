@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import { assembleGenerationPrompt } from "./prompt-assembly";
+import { withModeProseShapeGuidance } from "./prose-shape-guidance";
+
+const CHARACTER_FIRST_MESSAGE = "MIRA_FIRST_MESSAGE_SENTINEL: The archive doors complain before Mira does.";
+const CHARACTER_EXAMPLE_DIALOGUE =
+  'MIRA_EXAMPLE_SENTINEL: {{char}}: "Catalog the lie first. The truth will still be there when we finish."';
 
 function storage(): StorageGateway {
   return {
@@ -11,7 +16,15 @@ function storage(): StorageGateway {
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "characters" && id === "mira") {
-        return { id: "mira", data: { name: "Mira", description: "A careful archivist." } } as T;
+        return {
+          id: "mira",
+          data: {
+            name: "Mira",
+            description: "A careful archivist.",
+            first_mes: CHARACTER_FIRST_MESSAGE,
+            mes_example: CHARACTER_EXAMPLE_DIALOGUE,
+          },
+        } as T;
       }
       return null;
     },
@@ -89,6 +102,24 @@ function promptText(result: Awaited<ReturnType<typeof assembleGenerationPrompt>>
 }
 
 describe("Roleplay quality prompt guidance", () => {
+  it("preserves character-owned voice examples beside one generic prose guide", async () => {
+    const assembled = await assembleGenerationPrompt(storage(), {
+      chat: { id: "chat-voice", mode: "roleplay", characterIds: ["mira"], metadata: {} },
+      storedMessages: [],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "Open the archive.",
+    });
+    const messages = withModeProseShapeGuidance(assembled.messages, "roleplay");
+    const text = messages.map((message) => message.content).join("\n");
+
+    expect(text).toContain(CHARACTER_FIRST_MESSAGE);
+    expect(text).toContain('MIRA_EXAMPLE_SENTINEL: Mira: "Catalog the lie first.');
+    expect(text).not.toContain("Automatic:");
+    expect(text).not.toContain("Cleaner:");
+    expect(messages.filter((message) => message.displayName === "Roleplay Prose Guidance")).toHaveLength(1);
+  });
+
   it("defaults roleplay history to the latest 50 messages", async () => {
     const history = Array.from({ length: 60 }, (_, index) => ({
       id: `history-${index + 1}`,

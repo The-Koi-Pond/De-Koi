@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Align spawned-scene POV with active Roleplay direction",
+    "source": "Direct user report that Roleplay prose remained formulaic after prior prompt fixes.",
+    "classification": "Roleplay prompt assembly and scene creation",
+    "status": "waiting_on_pr"
+  },
+  "coreClaim": "New spawned scenes no longer inject an unconditional third-person instruction that conflicts with the active preset, originating chat, or explicit scene direction.",
+  "rootCause": "The scene service persisted a hardcoded third-person guideline while Universal V2 could select second-person narration and limited user POV for the same scene.",
+  "scope": {
+    "inScope": [
+      "Spawned-scene POV instruction ownership",
+      "Regression proof for character first-message and example-dialogue visibility",
+      "Roleplay prompt contract documentation"
+    ],
+    "outOfScope": [
+      "Changing writer models or provider parameters",
+      "Rewriting existing saved scene prompts or chat history",
+      "Adding a critic, planner, blacklist, rewrite pass, or global prose example",
+      "Changing Conversation or Game behavior"
+    ],
+    "intendedFiles": [
+      "src/engine/modes/roleplay/scene/scene-service.ts",
+      "src/engine/modes/roleplay/scene/scene-service.spec.ts",
+      "src/engine/generation/prompt-assembly.roleplay-quality.spec.ts",
+      "docs/superpowers/specs/2026-08-31-roleplay-pov-style-contract-design.md",
+      "docs/superpowers/plans/2026-08-31-roleplay-pov-style-contract.md",
+      ".github/pr-evidence/roleplay-pov-style-contract/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "user-visible Roleplay behavior",
+      "existing durable scene data",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "New scene prompts defer narration and POV to current explicit direction and do not demand third person.",
+    "riskType": "prompt assembly",
+    "entrypoints": [
+      "Conversation-to-Roleplay scene creation",
+      "Roleplay-to-Roleplay scene creation",
+      "Roleplay writer prompt assembly"
+    ],
+    "currentPathsOrFormats": [
+      "chat.metadata.sceneSystemPrompt",
+      "chat.metadata.presetChoices.narration",
+      "character data.first_mes",
+      "character data.mes_example"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing saved sceneSystemPrompt values containing the old third-person guideline"
+    ],
+    "outOfScopeClaims": [
+      "Existing scenes are rewritten",
+      "Every model stops producing AI-associated prose",
+      "Old assistant history stops reinforcing prior style"
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Two simultaneous high-level prompt sources selected incompatible points of view.",
+    "producer": "src/engine/modes/roleplay/scene/scene-service.ts",
+    "consumer": "Roleplay writer-model requests assembled from persisted scene metadata and Universal preset choices",
+    "impliedContract": "The active preset and newest explicit scene direction own narration and point of view.",
+    "actualEnforcement": "The durable scene guideline defers to the active preset, originating chat, and explicit scene request, preferring the newest explicit scene direction.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The Roleplay engine owns scene prompt semantics.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not patch React, provider transport, Rust storage, or post-generation output.",
+    "regressionProof": [
+      "Scene creation test rejects the old unconditional third-person wording and requires the new authority rule.",
+      "Prompt assembly test proves first_mes and macro-resolved mes_example remain visible beside exactly one generic Roleplay Prose Guidance message."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "A Universal V2 scene selecting second-person narration receives a non-conflicting durable scene prompt.",
+        "evidence": "scene-service.spec.ts passed after failing against the former hardcoded third-person line."
+      },
+      {
+        "claim": "Character-owned positive voice evidence reaches the writer prompt.",
+        "evidence": "prompt-assembly.roleplay-quality.spec.ts proves first_mes and macro-resolved mes_example are present with one Roleplay prose guide."
+      },
+      {
+        "claim": "Repository contracts remain healthy.",
+        "evidence": "51 focused tests, pnpm typecheck, pnpm check:architecture, git diff --check, and full pnpm check passed."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "The old third-person authority cannot remain in newly created scene prompts.",
+        "evidence": "Focused test asserts sceneSystemPrompt does not match keep narration in third person."
+      },
+      {
+        "claim": "The fix must not introduce another universal imitation template.",
+        "evidence": "Prompt contract rejects Automatic: and Cleaner: examples and requires exactly one generic prose guide."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing durable prompts are preserved.",
+        "evidence": "No storage migration or existing-record rewrite is included; the change applies when new scenes are created."
+      }
+    ],
+    "untestedRows": [
+      "Subjective prose improvement across every writer model",
+      "Live Pi behavior before exact merge-SHA images are deployed"
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "Universal V2 can select second-person narration for a spawned Roleplay scene.",
+      "sourceType": "test-proven",
+      "evidence": "The scene creation fixture persists presetChoices.narration as second-person."
+    }
+  ],
+  "userActionCopy": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny checked prompt authority, mode isolation, legacy durability, character example visibility, and diff scope.",
+      "disposition": "passed",
+      "fix": "No corrective change required after the focused red-green implementation.",
+      "humanResolutionRequired": false
+    }
+  ],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm vitest run src/engine/modes/roleplay/scene/scene-service.spec.ts src/engine/generation/prompt-assembly.roleplay-quality.spec.ts src/engine/generation/prose-shape-guidance.spec.ts; pnpm typecheck; pnpm check:architecture; pnpm check; git diff --check",
+    "baselineEvidence": "51 focused tests passed and the full repository gate completed successfully; unused-code output remained warning-only.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Old third-person scene guideline absent",
+      "No fixed Automatic/Cleaner prose examples",
+      "Exactly one Roleplay prose guide"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed_local",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": 0,
+    "url": "",
+    "headRefName": "fix/roleplay-pov-style-contract",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "passed_local",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": true,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "No private chat text, provider secrets, or API keys are included.",
+    "Production Pi deployment must wait for the exact merge revision's matched server and web image batch."
+  ]
+}

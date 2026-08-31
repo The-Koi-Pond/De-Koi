@@ -748,6 +748,11 @@ describe("createRoleplayScene", () => {
         },
       },
     });
+    const sceneSystemPrompt = String((createdScene?.metadata as JsonRecord | undefined)?.sceneSystemPrompt ?? "");
+    expect(sceneSystemPrompt).toContain(
+      "Follow the active preset, originating chat, and explicit scene request for narration and point of view",
+    );
+    expect(sceneSystemPrompt).not.toMatch(/keep narration in third person/i);
   });
 
   it.each([
