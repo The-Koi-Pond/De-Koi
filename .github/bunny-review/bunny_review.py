@@ -39,6 +39,7 @@ MAX_CONTRACT_STATE_TEXT_CHARS = 320
 MAX_CONTRACT_STATE_LIST_ITEMS = 3
 DEFAULT_MODEL_REQUEST_TIMEOUT = 120
 MODEL_MAX_RETRIES = 1
+CHUNK_REVIEW_MAX_ATTEMPTS = 2
 SECRET_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|passwd|authorization|bearer|client[_-]?secret)"
     r"(\s*[:=]\s*|\s+)([^\s'\"`;&|]+)"
@@ -787,6 +788,156 @@ def three_pass_review(client, skill, triage_content, stats):
         broad_review,
         skeptical_review,
         stats,
+    )
+
+
+def review_chunk_with_retry(
+    client,
+    skill,
+    chunk_input,
+    stats,
+    *,
+    max_attempts=CHUNK_REVIEW_MAX_ATTEMPTS,
+):
+    index = chunk_input["index"]
+    count = chunk_input["count"]
+    packet_chars = chunk_input["packet_chars"]
+    combined_triage = (
+        chunk_input["triage_content"]
+        + "\n\nFor this chunk, combine Bunny's broad maintainer review and independent "
+        "skeptical specialist challenge in one pass. Inspect correctness, invariants, "
+        "fallback divergence, rollback and partial-write paths, contract drift, and proof "
+        "gaps. Reject speculation, but do not omit a concrete changed-line defect merely "
+        "because only one lens exposes it."
+    )
+    for attempt in range(1, max_attempts + 1):
+        started_at = time.monotonic()
+        print(
+            "Bunny chunk telemetry: "
+            f"chunk={index}/{count}; attempt={attempt}/{max_attempts}; "
+            f"packet_chars={packet_chars}; state=start; "
+            f"model_calls={stats['model_calls']}",
+            flush=True,
+        )
+        try:
+            review = review_packet_with_model(client, skill, combined_triage, stats)
+            gaps = review_contract_gaps(review)
+            if gaps:
+                raise ValueError(
+                    "chunk review remained schema-invalid after repair: "
+                    + "; ".join(gaps)
+                )
+        except Exception as exc:
+            elapsed = time.monotonic() - started_at
+            print(
+                "Bunny chunk telemetry: "
+                f"chunk={index}/{count}; attempt={attempt}/{max_attempts}; "
+                f"packet_chars={packet_chars}; state=failed; elapsed_s={elapsed:.1f}; "
+                f"model_calls={stats['model_calls']}; error_type={type(exc).__name__}",
+                flush=True,
+            )
+            if attempt == max_attempts:
+                raise
+            continue
+        elapsed = time.monotonic() - started_at
+        print(
+            "Bunny chunk telemetry: "
+            f"chunk={index}/{count}; attempt={attempt}/{max_attempts}; "
+            f"packet_chars={packet_chars}; state=complete; elapsed_s={elapsed:.1f}; "
+            f"model_calls={stats['model_calls']}",
+            flush=True,
+        )
+        return review
+    raise RuntimeError("chunk review attempts exhausted")
+
+
+def judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats):
+    compact_reviews = json.dumps(chunk_reviews, separators=(",", ":"), sort_keys=True)
+    judge_prompt = (
+        "Act as the final PR-wide Bunny judge over the completed chunk reviews below. "
+        "Every changed file was inspected in exactly one raw chunk using both broad and "
+        "skeptical lenses. Deduplicate overlaps, resolve conflicts, normalize severity, "
+        "reject weak or speculative claims, and preserve every concrete actionable finding. "
+        "Every finding and nitpick must cite a changed line already identified by a chunk; "
+        "do not invent paths, lines, or evidence absent from the chunk results. Preserve up "
+        "to 2 actionable nitpicks, combine useful checks and questions without repetition, "
+        "and emit only FINAL_REVIEW followed by one JSON object matching Bunny's schema. "
+        "Do not request raw packets or additional context."
+        f"\n\n# Chunk Review Results\n{compact_reviews}"
+    )
+    messages = [
+        {"role": "system", "content": skill},
+        {"role": "user", "content": review_context},
+        {"role": "user", "content": judge_prompt},
+    ]
+    started_at = time.monotonic()
+    print(
+        "Bunny final judge telemetry: "
+        f"chunks={len(chunk_reviews)}; input_chars={len(compact_reviews)}; state=start; "
+        f"model_calls={stats['model_calls']}",
+        flush=True,
+    )
+    try:
+        response = model_call(client, messages, stats)
+        review = extract_json_or_repair(client, messages, response, stats)
+        gaps = review_contract_gaps(review)
+        if gaps:
+            raise ValueError(
+                "final chunk judge remained schema-invalid after repair: "
+                + "; ".join(gaps)
+            )
+    except Exception as exc:
+        elapsed = time.monotonic() - started_at
+        print(
+            "Bunny final judge telemetry: "
+            f"chunks={len(chunk_reviews)}; input_chars={len(compact_reviews)}; "
+            f"state=failed; elapsed_s={elapsed:.1f}; model_calls={stats['model_calls']}; "
+            f"error_type={type(exc).__name__}",
+            flush=True,
+        )
+        raise
+    elapsed = time.monotonic() - started_at
+    print(
+        "Bunny final judge telemetry: "
+        f"chunks={len(chunk_reviews)}; input_chars={len(compact_reviews)}; "
+        f"state=complete; elapsed_s={elapsed:.1f}; model_calls={stats['model_calls']}",
+        flush=True,
+    )
+    return review
+
+
+def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
+    chunk_reviews = []
+    for chunk_input in chunk_inputs:
+        review = review_chunk_with_retry(client, skill, chunk_input, stats)
+        chunk_reviews.append(
+            {
+                "chunk_index": chunk_input["index"],
+                "focus_files": chunk_input["focus_files"],
+                "review": review,
+            }
+        )
+    return judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats)
+
+
+def build_chunk_judge_context(
+    pr_num,
+    base,
+    base_ref,
+    head_sha,
+    mode,
+    files,
+    chunk_count,
+    prior_contract_context,
+):
+    return (
+        f"Judge the completed Bunny chunk reviews for PR {pr_num or 'unknown'}. "
+        f"The review base is '{base}' from target branch '{base_ref}', head is "
+        f"'{head_sha}', mode is '{mode}', and {len(files)} changed file(s) were "
+        f"divided across {chunk_count} chunks. Changed paths: "
+        + ", ".join(files)
+        + "."
+        + f"\n\n# Prior Bunny Repair Contracts\n{prior_contract_context}"
     )
 
 
@@ -2326,7 +2477,7 @@ def produce_review(args):
 
     if use_chunked_review:
         stats = build_stats("")
-        chunk_reviews = []
+        chunk_inputs = []
         for index, chunk in enumerate(chunks, 1):
             review_packet = build_review_packet(
                 base,
@@ -2342,28 +2493,50 @@ def produce_review(args):
                 + "."
             )
             triage_content = triage_for_packet(review_packet, focus_note)
-            try:
-                chunk_reviews.append(
-                    three_pass_review(client, skill, triage_content, stats)
-                )
-            except Exception as exc:
-                write_skipped_review(
-                    "Review Failed",
-                    model_failure_detail(exc),
-                    status="fail",
-                    metadata={
-                        "head_sha": head_sha,
-                        "head_commit_message": commit_subject(head_sha),
-                        "review_base": base,
-                        "base_ref": base_ref,
-                        "mode": effective_mode,
-                    },
-                )
-                print_telemetry(stats)
-                return
-        review_obj = merge_review_objects(chunk_reviews)
+            chunk_inputs.append(
+                {
+                    "index": index,
+                    "count": len(chunks),
+                    "focus_files": chunk,
+                    "packet_chars": len(review_packet),
+                    "triage_content": triage_content,
+                }
+            )
+        review_context = build_chunk_judge_context(
+            pr_num,
+            base,
+            base_ref,
+            head_sha,
+            effective_mode,
+            files,
+            len(chunks),
+            prior_contract_context,
+        )
+        try:
+            review_obj = review_chunked_packets(
+                client,
+                skill,
+                chunk_inputs,
+                stats,
+                review_context,
+            )
+        except Exception as exc:
+            write_skipped_review(
+                "Review Failed",
+                model_failure_detail(exc),
+                status="fail",
+                metadata={
+                    "head_sha": head_sha,
+                    "head_commit_message": commit_subject(head_sha),
+                    "review_base": base,
+                    "base_ref": base_ref,
+                    "mode": effective_mode,
+                },
+            )
+            print_telemetry(stats)
+            return
         review_obj.setdefault("what_i_checked", []).append(
-            f"Examined the PR in {len(chunks)} file chunk(s) so the large diff did not contaminate context retention."
+            f"Examined the PR in {len(chunks)} file chunk(s), then applied one PR-wide final judge."
         )
     else:
         review_packet = (
