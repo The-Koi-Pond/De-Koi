@@ -127,14 +127,20 @@ describe("story continuity prompt context", () => {
       queryKnowledgeEdges,
     } as unknown as StorageGateway;
 
-    await expect(
-      buildStoryContinuityContext(epistemicStorage, {
-        chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
-        storedMessages: [],
-        latestUserInput: "Where is the crown?",
-        epistemicSubjects: [{ kind: "character", id: "bob", name: "Bob" }],
+    const result = await buildStoryContinuityContext(epistemicStorage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the crown?",
+      epistemicSubjects: [{ kind: "character", id: "bob", name: "Bob" }],
+    });
+    expect(result?.block).toBe("");
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        sourceId: "secret-episode",
+        status: "skipped",
+        metadata: expect.objectContaining({ epistemicReason: "epistemic_unavailable" }),
       }),
-    ).rejects.toThrow("knowledge edge storage unavailable");
+    );
   });
 
   it("excludes stale projections and coverage overlapping retained raw history", async () => {

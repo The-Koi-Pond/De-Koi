@@ -7,7 +7,8 @@ export type EpistemicAccessReason =
   | "missing_edge"
   | "unknown"
   | "group_conflict"
-  | "merged_intersection_failed";
+  | "merged_intersection_failed"
+  | "epistemic_unavailable";
 
 export interface EpistemicSubject {
   kind: Extract<KnowledgeHolderKind, "character" | "persona">;
@@ -25,7 +26,7 @@ export interface EpistemicSubjectDecision {
   admitted: boolean;
   stance?: KnowledgeStance;
   edgeIds: string[];
-  reason: Exclude<EpistemicAccessReason, "legacy_fallback" | "merged_intersection_failed">;
+  reason: Exclude<EpistemicAccessReason, "legacy_fallback" | "merged_intersection_failed" | "epistemic_unavailable">;
 }
 
 export interface EpistemicAccessResult {
@@ -50,9 +51,7 @@ function subjectDecision(
   activeEdges: KnowledgeEdge[],
   groups: EpistemicGroup[],
 ): EpistemicSubjectDecision {
-  const direct = activeEdges.find(
-    (edge) => edge.holder.kind === subject.kind && edge.holder.id === subject.id,
-  );
+  const direct = activeEdges.find((edge) => edge.holder.kind === subject.kind && edge.holder.id === subject.id);
   if (direct) {
     return {
       subject,
@@ -68,9 +67,7 @@ function subjectDecision(
       ? groups.filter((group) => group.characterIds.includes(subject.id)).map((group) => group.id)
       : [],
   );
-  const groupEdges = activeEdges.filter(
-    (edge) => edge.holder.kind === "group" && groupIds.has(edge.holder.id),
-  );
+  const groupEdges = activeEdges.filter((edge) => edge.holder.kind === "group" && groupIds.has(edge.holder.id));
   if (groupEdges.length === 0) {
     return { subject, admitted: false, edgeIds: [], reason: "missing_edge" };
   }
@@ -111,7 +108,7 @@ export function resolveEpistemicAccess(input: ResolveEpistemicAccessInput): Epis
       : "group_edge"
     : decisions.length > 1
       ? "merged_intersection_failed"
-      : failedReasons[0] ?? "missing_edge";
+      : (failedReasons[0] ?? "missing_edge");
   return {
     admitted,
     classified: true,

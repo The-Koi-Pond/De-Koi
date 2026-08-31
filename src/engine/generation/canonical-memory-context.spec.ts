@@ -226,14 +226,20 @@ describe("canonical memory context", () => {
       queryKnowledgeEdges,
     } as StorageGateway;
 
-    await expect(
-      buildCanonicalMemoryContext(storage, {
-        chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
-        storedMessages: [],
-        latestUserInput: "Where is the brass key?",
-        characters: [{ id: "alice", name: "Alice", tags: [] }],
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [{ id: "alice", name: "Alice", tags: [] }],
+    });
+    expect(result?.block).toBe("");
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        sourceId: "memory-secret",
+        status: "skipped",
+        metadata: expect.objectContaining({ epistemicReason: "epistemic_unavailable" }),
       }),
-    ).rejects.toThrow("knowledge edge storage unavailable");
+    );
     expect(queryKnowledgeEdges).toHaveBeenCalledTimes(2);
   });
 

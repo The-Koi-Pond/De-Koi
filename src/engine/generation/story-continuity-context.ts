@@ -139,18 +139,33 @@ export async function buildStoryContinuityContext(
   });
   let accessByMemoryId = new Map<string, EpistemicAccessResult>();
   if (epistemic.enabled && storage.queryKnowledgeEdges) {
-    const edges = await storage.queryKnowledgeEdges({ memoryIds: queried.map((memory) => memory.id) });
-    accessByMemoryId = new Map(
-      queried.map((memory) => [
-        memory.id,
-        resolveEpistemicAccess({
-          memoryId: memory.id,
-          edges,
-          subjects: epistemic.subjects,
-          groups: epistemic.groups,
-        }),
-      ]),
-    );
+    try {
+      const edges = await storage.queryKnowledgeEdges({ memoryIds: queried.map((memory) => memory.id) });
+      accessByMemoryId = new Map(
+        queried.map((memory) => [
+          memory.id,
+          resolveEpistemicAccess({
+            memoryId: memory.id,
+            edges,
+            subjects: epistemic.subjects,
+            groups: epistemic.groups,
+          }),
+        ]),
+      );
+    } catch {
+      accessByMemoryId = new Map(
+        queried.map((memory) => [
+          memory.id,
+          {
+            admitted: false,
+            classified: true,
+            reason: "epistemic_unavailable" as const,
+            decisions: [],
+            edgeIds: [],
+          },
+        ]),
+      );
+    }
   }
   const candidateRows = queried
     .filter((memory) => memory.status === "active" || memory.status === "pinned")

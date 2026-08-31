@@ -692,20 +692,37 @@ export async function buildCanonicalMemoryContext(
 
   let excluded: CanonicalMemoryCandidate[] = [];
   if (epistemic.enabled && storage.queryKnowledgeEdges) {
-    const edges: KnowledgeEdge[] = await storage.queryKnowledgeEdges({
-      memoryIds: ranked.map((candidate) => candidate.memory.id),
-    });
-    ranked = ranked.map((candidate) => ({
-      ...candidate,
-      epistemicAccess: resolveEpistemicAccess({
-        memoryId: candidate.memory.id,
-        edges,
-        subjects: epistemic.subjects,
-        groups: epistemic.groups,
-      }),
-    }));
-    excluded = ranked.filter((candidate) => candidate.epistemicAccess?.admitted === false);
-    ranked = ranked.filter((candidate) => candidate.epistemicAccess?.admitted !== false);
+    let edges: KnowledgeEdge[];
+    try {
+      edges = await storage.queryKnowledgeEdges({ memoryIds: ranked.map((candidate) => candidate.memory.id) });
+    } catch {
+      ranked = ranked.map((candidate) => ({
+        ...candidate,
+        epistemicAccess: {
+          admitted: false,
+          classified: true,
+          reason: "epistemic_unavailable",
+          decisions: [],
+          edgeIds: [],
+        },
+      }));
+      excluded = ranked;
+      ranked = [];
+      edges = [];
+    }
+    if (ranked.length > 0) {
+      ranked = ranked.map((candidate) => ({
+        ...candidate,
+        epistemicAccess: resolveEpistemicAccess({
+          memoryId: candidate.memory.id,
+          edges,
+          subjects: epistemic.subjects,
+          groups: epistemic.groups,
+        }),
+      }));
+      excluded = ranked.filter((candidate) => candidate.epistemicAccess?.admitted === false);
+      ranked = ranked.filter((candidate) => candidate.epistemicAccess?.admitted !== false);
+    }
   }
 
   const packed = packCanonicalMemories(ranked, tokenBudget(input.chat, input.maxContext), input.personaName);
