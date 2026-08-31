@@ -113,7 +113,7 @@
   "ownedFacts": [
     {
       "description": "Universal V2 can select second-person narration for a spawned Roleplay scene.",
-      "sourceType": "test-proven",
+      "sourceType": "harness-proven",
       "evidence": "The scene creation fixture persists presetChoices.narration as second-person."
     }
   ],
