@@ -909,6 +909,8 @@ def review_chunk_with_retry(
                     "chunk review remained schema-invalid after repair: "
                     + "; ".join(gaps)
                 )
+        except ChunkReviewCancelled:
+            raise
         except Exception as exc:
             elapsed = time.monotonic() - started_at
             print(
@@ -1006,6 +1008,8 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
 
     def submit_next_chunk():
         nonlocal next_chunk
+        if stop_event.is_set():
+            return False
         chunk_input = chunk_inputs[next_chunk]
         next_chunk += 1
         chunk_stats = build_stats("")
@@ -1021,6 +1025,8 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
                     stop_event=stop_event,
                 )
             except Exception as exc:
+                if not isinstance(exc, ChunkReviewCancelled):
+                    stop_event.set()
                 completed.put((chunk_input, chunk_stats, None, exc))
             else:
                 completed.put((chunk_input, chunk_stats, review, None))
@@ -1032,6 +1038,7 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
         )
         active[index] = worker
         worker.start()
+        return True
 
     def record_completed(result):
         chunk_input, chunk_stats, review, error = result
@@ -1047,19 +1054,21 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
         }
 
     while next_chunk < len(chunk_inputs) and len(active) < worker_count:
-        submit_next_chunk()
+        if not submit_next_chunk():
+            break
     while active:
         record_completed(completed.get())
+        while True:
+            try:
+                record_completed(completed.get_nowait())
+            except Empty:
+                break
         if failures:
             stop_event.set()
-            while True:
-                try:
-                    record_completed(completed.get_nowait())
-                except Empty:
-                    break
             break
         while next_chunk < len(chunk_inputs) and len(active) < worker_count:
-            submit_next_chunk()
+            if not submit_next_chunk():
+                break
 
     if failures:
         root_failures = [

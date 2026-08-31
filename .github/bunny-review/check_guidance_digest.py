@@ -482,6 +482,10 @@ def run_chunk_orchestration_case(module):
     assert set(in_flight_client.calls) == set(
         range(1, module.CHUNK_REVIEW_WORKERS + 1)
     ), "cancellation must prevent retries and new calls beyond the active window"
+    assert all(
+        in_flight_client.calls.count(index) == (2 if index == 2 else 1)
+        for index in range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "peer cancellation must not enter the retry path"
     in_flight_client.release.set()
     time.sleep(0.05)
 
@@ -511,6 +515,10 @@ def run_chunk_orchestration_case(module):
     assert set(no_op_close_client.calls) == set(
         range(1, module.CHUNK_REVIEW_WORKERS + 1)
     ), "active daemon workers must not allow retries or another chunk to start"
+    assert all(
+        no_op_close_client.calls.count(index) == (2 if index == 2 else 1)
+        for index in range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "late peer cancellation must not enter the retry path"
     assert no_op_stats == stable_failure_stats, (
         "late worker completion must not mutate merged failure telemetry"
     )
