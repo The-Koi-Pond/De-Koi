@@ -637,12 +637,21 @@ def print_telemetry(stats):
     )
 
 
-def model_call(client, messages, stats):
+def raise_if_model_call_cancelled(stop_event):
+    if stop_event is not None and stop_event.is_set():
+        raise ChunkReviewCancelled(
+            "model call cancelled after another chunk exhausted"
+        )
+
+
+def model_call(client, messages, stats, *, stop_event=None):
+    raise_if_model_call_cancelled(stop_event)
     resp = client.chat.completions.create(
         model=os.environ.get("LLM_MODEL", "gpt-5.5"),
         messages=messages,
         timeout=MODEL_REQUEST_TIMEOUT,
     )
+    raise_if_model_call_cancelled(stop_event)
     stats["model_calls"] += 1
     add_usage(stats, getattr(resp, "usage", None))
     if isinstance(resp, str):
@@ -666,7 +675,9 @@ def review_contract_gaps(review_obj):
     return gaps
 
 
-def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
+def semantic_repair_review_object(
+    client, messages, review_obj, gaps, stats, *, stop_event=None
+):
     gap_text = "\n".join(f"- {gap}" for gap in gaps)
     repair_messages = [
         *messages,
@@ -690,7 +701,9 @@ def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
         },
     ]
     try:
-        repaired = extract_json(model_call(client, repair_messages, stats))
+        repaired = extract_json(
+            model_call(client, repair_messages, stats, stop_event=stop_event)
+        )
     except Exception as exc:
         review_obj["_schema_repair_gaps"] = gaps
         review_obj["_schema_repair_error"] = " ".join(str(exc).split())
@@ -704,7 +717,9 @@ def semantic_repair_review_object(client, messages, review_obj, gaps, stats):
     return repaired
 
 
-def extract_json_or_repair(client, messages, content, stats):
+def extract_json_or_repair(
+    client, messages, content, stats, *, stop_event=None
+):
     try:
         parsed = extract_json(content)
     except ValueError:
@@ -721,22 +736,39 @@ def extract_json_or_repair(client, messages, content, stats):
                 ),
             },
         ]
-        parsed = extract_json(model_call(client, repair_messages, stats))
+        parsed = extract_json(
+            model_call(client, repair_messages, stats, stop_event=stop_event)
+        )
     gaps = review_contract_gaps(parsed)
     if gaps:
-        return semantic_repair_review_object(client, messages, parsed, gaps, stats)
+        return semantic_repair_review_object(
+            client,
+            messages,
+            parsed,
+            gaps,
+            stats,
+            stop_event=stop_event,
+        )
     return parsed
 
 
-def review_packet_with_model(client, skill, triage_content, stats):
+def review_packet_with_model(
+    client, skill, triage_content, stats, *, stop_event=None
+):
     messages = [
         {"role": "system", "content": skill},
         {"role": "user", "content": triage_content},
     ]
-    first_response = model_call(client, messages, stats)
+    first_response = model_call(client, messages, stats, stop_event=stop_event)
     request = parse_context_request(first_response)
     if request is None:
-        return extract_json_or_repair(client, messages, first_response, stats)
+        return extract_json_or_repair(
+            client,
+            messages,
+            first_response,
+            stats,
+            stop_event=stop_event,
+        )
     extra_context = build_extra_context(request, stats)
     final_messages = [
         {"role": "system", "content": skill},
@@ -751,8 +783,16 @@ def review_packet_with_model(client, skill, triage_content, stats):
             ),
         },
     ]
-    final_response = model_call(client, final_messages, stats)
-    return extract_json_or_repair(client, final_messages, final_response, stats)
+    final_response = model_call(
+        client, final_messages, stats, stop_event=stop_event
+    )
+    return extract_json_or_repair(
+        client,
+        final_messages,
+        final_response,
+        stats,
+        stop_event=stop_event,
+    )
 
 
 def skeptical_review_pass(client, skill, triage_content, stats):
@@ -856,7 +896,13 @@ def review_chunk_with_retry(
             flush=True,
         )
         try:
-            review = review_packet_with_model(client, skill, combined_triage, stats)
+            review = review_packet_with_model(
+                client,
+                skill,
+                combined_triage,
+                stats,
+                stop_event=stop_event,
+            )
             gaps = review_contract_gaps(review)
             if gaps:
                 raise ValueError(
@@ -994,6 +1040,16 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
                     }
             if failures:
                 stop_event.set()
+                close_client = getattr(client, "close", None)
+                if callable(close_client):
+                    try:
+                        close_client()
+                    except Exception as exc:
+                        print(
+                            "Bunny chunk cancellation: "
+                            f"client_close_failed={type(exc).__name__}",
+                            flush=True,
+                        )
                 for future in pending:
                     future.cancel()
                 break

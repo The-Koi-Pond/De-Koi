@@ -281,6 +281,49 @@ class ChunkReviewCompletions:
         )
 
 
+class CancellableChunkClient:
+    def __init__(self):
+        self.started = threading.Barrier(4)
+        self.release = threading.Event()
+        self.closed = threading.Event()
+        self.calls = []
+        self.lock = threading.Lock()
+        self.chat = SimpleNamespace(completions=self)
+
+    def create(self, **kwargs):
+        prompt = "\n".join(message["content"] for message in kwargs["messages"])
+        chunk_index = next(
+            index
+            for index in range(1, 9)
+            if f"BUNNY_CHUNK_PACKET_{index}" in prompt
+        )
+        with self.lock:
+            self.calls.append(chunk_index)
+            attempt = self.calls.count(chunk_index)
+        if attempt == 1:
+            self.started.wait(timeout=1)
+        if chunk_index == 2:
+            raise TimeoutError("scripted exhausted chunk timeout")
+        self.release.wait(timeout=1)
+        if self.closed.is_set():
+            raise RuntimeError("scripted client closed")
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="FINAL_REVIEW\n"
+                        + json.dumps(valid_review(f"chunk {chunk_index}"))
+                    )
+                )
+            ],
+        )
+
+    def close(self):
+        self.closed.set()
+        self.release.set()
+
+
 def chunk_inputs():
     return [
         {
@@ -423,6 +466,28 @@ def run_chunk_orchestration_case(module):
         in "\n".join(message["content"] for message in call["messages"])
         for call in exhausted_completions.calls
     ), "final judging must not run after incomplete chunk coverage"
+
+    in_flight_client = CancellableChunkClient()
+    in_flight_started = time.monotonic()
+    try:
+        module.review_chunked_packets(
+            in_flight_client,
+            "review skill",
+            chunk_inputs(),
+            module.build_stats(""),
+            review_context,
+        )
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("an exhausted chunk must fail the in-flight review")
+    assert time.monotonic() - in_flight_started < 0.5, (
+        "closing the shared client must promptly release in-flight chunk calls"
+    )
+    assert in_flight_client.closed.is_set()
+    assert set(in_flight_client.calls) == set(
+        range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "cancellation must prevent retries and new calls beyond the active window"
 
     try:
         module.review_chunked_packets(
