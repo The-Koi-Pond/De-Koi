@@ -282,12 +282,13 @@ class ChunkReviewCompletions:
 
 
 class CancellableChunkClient:
-    def __init__(self):
+    def __init__(self, *, close_releases=True):
         self.started = threading.Barrier(4)
         self.release = threading.Event()
         self.closed = threading.Event()
         self.calls = []
         self.lock = threading.Lock()
+        self.close_releases = close_releases
         self.chat = SimpleNamespace(completions=self)
 
     def create(self, **kwargs):
@@ -321,7 +322,8 @@ class CancellableChunkClient:
 
     def close(self):
         self.closed.set()
-        self.release.set()
+        if self.close_releases:
+            self.release.set()
 
 
 def chunk_inputs():
@@ -488,6 +490,31 @@ def run_chunk_orchestration_case(module):
     assert set(in_flight_client.calls) == set(
         range(1, module.CHUNK_REVIEW_WORKERS + 1)
     ), "cancellation must prevent retries and new calls beyond the active window"
+
+    no_op_close_client = CancellableChunkClient(close_releases=False)
+    with contextlib.redirect_stdout(io.StringIO()):
+        no_op_started = time.monotonic()
+        try:
+            module.review_chunked_packets(
+                no_op_close_client,
+                "review skill",
+                chunk_inputs(),
+                module.build_stats(""),
+                review_context,
+            )
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("a root failure must escape a no-op client close")
+        no_op_elapsed = time.monotonic() - no_op_started
+        no_op_close_client.release.set()
+        time.sleep(0.05)
+    assert no_op_elapsed < 0.5, (
+        "the orchestrator must not wait for unrelated in-flight calls when close is a no-op"
+    )
+    assert set(no_op_close_client.calls) == set(
+        range(1, module.CHUNK_REVIEW_WORKERS + 1)
+    ), "a no-op client close must not allow retries or another chunk to start"
 
     try:
         module.review_chunked_packets(

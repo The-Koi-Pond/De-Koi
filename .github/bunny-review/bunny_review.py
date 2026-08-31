@@ -1001,6 +1001,7 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
     failures = []
     stop_event = Event()
     executor = ThreadPoolExecutor(max_workers=worker_count)
+    wait_for_workers = True
     pending = {}
     chunk_stats_records = []
     next_chunk = 0
@@ -1039,6 +1040,7 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
                         "review": review,
                     }
             if failures:
+                wait_for_workers = False
                 stop_event.set()
                 close_client = getattr(client, "close", None)
                 if callable(close_client):
@@ -1056,7 +1058,7 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
             while next_chunk < len(chunk_inputs) and len(pending) < worker_count:
                 submit_next_chunk()
     finally:
-        executor.shutdown(wait=True, cancel_futures=True)
+        executor.shutdown(wait=wait_for_workers, cancel_futures=True)
         for chunk_stats in chunk_stats_records:
             merge_stats(stats, chunk_stats)
 
