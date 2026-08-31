@@ -207,12 +207,14 @@ class ChunkReviewCompletions:
         fail_always=None,
         invalid_then_valid=None,
         delay_seconds=0,
+        delay_by_chunk=None,
     ):
         self.calls = []
         self.fail_once = fail_once
         self.fail_always = fail_always
         self.invalid_then_valid = invalid_then_valid
         self.delay_seconds = delay_seconds
+        self.delay_by_chunk = delay_by_chunk or {}
         self.chunk_attempts = {}
         self.active_chunk_calls = 0
         self.max_active_chunk_calls = 0
@@ -253,8 +255,9 @@ class ChunkReviewCompletions:
                     self.active_chunk_calls,
                 )
             try:
-                if self.delay_seconds:
-                    time.sleep(self.delay_seconds)
+                delay = self.delay_by_chunk.get(chunk_index, self.delay_seconds)
+                if delay:
+                    time.sleep(delay)
                 if chunk_index == self.fail_always:
                     raise TimeoutError("scripted exhausted chunk timeout")
                 if chunk_index == self.fail_once and attempt == 1:
@@ -327,7 +330,9 @@ def run_chunk_orchestration_case(module):
     assert normal_completions.max_active_chunk_calls >= 2, (
         "large-PR chunks must overlap instead of consuming the workflow budget sequentially"
     )
-    assert normal_completions.max_active_chunk_calls <= module.MAX_CHUNK_REVIEW_WORKERS
+    assert module.MAX_CHUNK_REVIEW_WORKERS == 4
+    assert module.CHUNK_REVIEW_WORKERS == module.MAX_CHUNK_REVIEW_WORKERS
+    assert normal_completions.max_active_chunk_calls == module.CHUNK_REVIEW_WORKERS
     judge_prompt = "\n".join(
         message["content"] for message in normal_completions.calls[-1]["messages"]
     )
@@ -387,7 +392,10 @@ def run_chunk_orchestration_case(module):
         for index, attempts in schema_completions.chunk_attempts.items()
     )
 
-    exhausted_completions = ChunkReviewCompletions(fail_always=2)
+    exhausted_completions = ChunkReviewCompletions(
+        fail_always=2,
+        delay_by_chunk={1: 0.05, 3: 0.05, 4: 0.05},
+    )
     exhausted_client = SimpleNamespace(
         chat=SimpleNamespace(completions=exhausted_completions)
     )
@@ -405,14 +413,29 @@ def run_chunk_orchestration_case(module):
             pass
         else:
             raise AssertionError("an exhausted chunk must fail the full review")
-    assert exhausted_completions.chunk_attempts == {
-        index: (2 if index == 2 else 1) for index in range(1, 9)
-    }
+    assert exhausted_completions.chunk_attempts[2] == 2
+    assert max(exhausted_completions.chunk_attempts) <= module.CHUNK_REVIEW_WORKERS
+    assert sum(exhausted_completions.chunk_attempts.values()) <= (
+        module.CHUNK_REVIEW_WORKERS + 1
+    ), "an exhausted chunk must cancel queued work beyond the active worker window"
     assert not any(
         "# Chunk Review Results"
         in "\n".join(message["content"] for message in call["messages"])
         for call in exhausted_completions.calls
     ), "final judging must not run after incomplete chunk coverage"
+
+    try:
+        module.review_chunked_packets(
+            normal_client,
+            "review skill",
+            [],
+            module.build_stats(""),
+            review_context,
+        )
+    except ValueError as exc:
+        assert "at least one chunk" in str(exc)
+    else:
+        raise AssertionError("empty chunk coverage must fail with an explicit contract error")
 
     three_pass_completions = ChunkReviewCompletions()
     three_pass_client = SimpleNamespace(

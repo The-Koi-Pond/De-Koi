@@ -10,8 +10,9 @@ import re
 import shutil
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from threading import Event
 
 REPO_ROOT = pathlib.Path.cwd().resolve()
 BUNNY_MARKER = "<!-- bunny-review:walkthrough -->"
@@ -52,6 +53,10 @@ SECRET_FILE_PART_RE = re.compile(
 
 
 class ReviewTooLarge(Exception):
+    pass
+
+
+class ChunkReviewCancelled(Exception):
     pass
 
 
@@ -818,6 +823,7 @@ def review_chunk_with_retry(
     stats,
     *,
     max_attempts=CHUNK_REVIEW_MAX_ATTEMPTS,
+    stop_event=None,
 ):
     index = chunk_input["index"]
     count = chunk_input["count"]
@@ -831,6 +837,16 @@ def review_chunk_with_retry(
         "because only one lens exposes it."
     )
     for attempt in range(1, max_attempts + 1):
+        if stop_event is not None and stop_event.is_set():
+            print(
+                "Bunny chunk telemetry: "
+                f"chunk={index}/{count}; attempt={attempt}/{max_attempts}; "
+                f"packet_chars={packet_chars}; state=cancelled; reason=peer_failure",
+                flush=True,
+            )
+            raise ChunkReviewCancelled(
+                f"chunk {index} cancelled after another chunk exhausted"
+            )
         started_at = time.monotonic()
         print(
             "Bunny chunk telemetry: "
@@ -927,44 +943,81 @@ def judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats):
 
 
 def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
+    if not chunk_inputs:
+        raise ValueError("chunked review requires at least one chunk")
     worker_count = min(CHUNK_REVIEW_WORKERS, len(chunk_inputs))
     print(
         "Bunny chunk concurrency: "
         f"workers={worker_count}; chunks={len(chunk_inputs)}",
         flush=True,
     )
-    chunk_reviews = []
+    chunk_reviews_by_index = {}
     failures = []
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        pending = []
-        for chunk_input in chunk_inputs:
-            chunk_stats = build_stats("")
-            future = executor.submit(
-                review_chunk_with_retry,
-                client,
-                skill,
-                chunk_input,
-                chunk_stats,
-            )
-            pending.append((chunk_input, chunk_stats, future))
-        for chunk_input, chunk_stats, future in pending:
-            try:
-                review = future.result()
-            except Exception as exc:
-                failures.append((chunk_input["index"], exc))
-            else:
-                chunk_reviews.append(
-                    {
+    stop_event = Event()
+    executor = ThreadPoolExecutor(max_workers=worker_count)
+    pending = {}
+    chunk_stats_records = []
+    next_chunk = 0
+
+    def submit_next_chunk():
+        nonlocal next_chunk
+        chunk_input = chunk_inputs[next_chunk]
+        next_chunk += 1
+        chunk_stats = build_stats("")
+        chunk_stats_records.append(chunk_stats)
+        future = executor.submit(
+            review_chunk_with_retry,
+            client,
+            skill,
+            chunk_input,
+            chunk_stats,
+            stop_event=stop_event,
+        )
+        pending[future] = (chunk_input, chunk_stats)
+
+    try:
+        while next_chunk < len(chunk_inputs) and len(pending) < worker_count:
+            submit_next_chunk()
+        while pending:
+            completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in completed:
+                chunk_input, _ = pending.pop(future)
+                try:
+                    review = future.result()
+                except Exception as exc:
+                    failures.append((chunk_input["index"], exc))
+                else:
+                    chunk_reviews_by_index[chunk_input["index"]] = {
                         "chunk_index": chunk_input["index"],
                         "focus_files": chunk_input["focus_files"],
                         "review": review,
                     }
-                )
-            finally:
-                merge_stats(stats, chunk_stats)
+            if failures:
+                stop_event.set()
+                for future in pending:
+                    future.cancel()
+                break
+            while next_chunk < len(chunk_inputs) and len(pending) < worker_count:
+                submit_next_chunk()
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+        for chunk_stats in chunk_stats_records:
+            merge_stats(stats, chunk_stats)
+
     if failures:
+        root_failures = [
+            failure
+            for failure in failures
+            if not isinstance(failure[1], ChunkReviewCancelled)
+        ]
+        failures = root_failures or failures
         failures.sort(key=lambda item: item[0])
         raise failures[0][1]
+
+    chunk_reviews = [
+        chunk_reviews_by_index[index]
+        for index in sorted(chunk_reviews_by_index)
+    ]
     return judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats)
 
 
