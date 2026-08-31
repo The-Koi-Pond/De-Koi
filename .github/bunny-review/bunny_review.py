@@ -920,6 +920,27 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
     return judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats)
 
 
+def build_chunk_judge_context(
+    pr_num,
+    base,
+    base_ref,
+    head_sha,
+    mode,
+    files,
+    chunk_count,
+    prior_contract_context,
+):
+    return (
+        f"Judge the completed Bunny chunk reviews for PR {pr_num or 'unknown'}. "
+        f"The review base is '{base}' from target branch '{base_ref}', head is "
+        f"'{head_sha}', mode is '{mode}', and {len(files)} changed file(s) were "
+        f"divided across {chunk_count} chunks. Changed paths: "
+        + ", ".join(files)
+        + "."
+        + f"\n\n# Prior Bunny Repair Contracts\n{prior_contract_context}"
+    )
+
+
 def parse_context_request(content):
     marker = "CONTEXT_REQUEST"
     if marker not in content:
@@ -2481,13 +2502,15 @@ def produce_review(args):
                     "triage_content": triage_content,
                 }
             )
-        review_context = (
-            f"Judge the completed Bunny chunk reviews for PR {pr_num or 'unknown'}. "
-            f"The review base is '{base}' from target branch '{base_ref}', head is "
-            f"'{head_sha}', mode is '{effective_mode}', and {len(files)} changed file(s) "
-            f"were divided across {len(chunks)} chunks. Changed paths: "
-            + ", ".join(files)
-            + "."
+        review_context = build_chunk_judge_context(
+            pr_num,
+            base,
+            base_ref,
+            head_sha,
+            effective_mode,
+            files,
+            len(chunks),
+            prior_contract_context,
         )
         try:
             review_obj = review_chunked_packets(

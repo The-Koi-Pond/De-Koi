@@ -210,6 +210,17 @@ class ChunkReviewCompletions:
         prompt = "\n".join(message["content"] for message in kwargs["messages"])
         if "# Chunk Review Results" in prompt:
             payload = valid_review("final judge")
+            if "PRIOR_CONTRACT_MARKER" in prompt:
+                payload["findings"] = [
+                    {
+                        "severity": "medium",
+                        "path": "src/chunk-1.ts",
+                        "line": 1,
+                        "title": "Prior contract remains open",
+                        "body": "The prior Bunny repair contract still requires action.",
+                        "fix_hint": "Preserve the unresolved contract.",
+                    }
+                ]
         else:
             chunk_index = next(
                 index
@@ -254,7 +265,16 @@ def chunk_inputs():
 
 
 def run_chunk_orchestration_case(module):
-    review_context = "PR metadata without raw patch text"
+    review_context = module.build_chunk_judge_context(
+        "1275",
+        "origin/main",
+        "main",
+        "a" * 40,
+        "full",
+        [f"src/chunk-{index}.ts" for index in range(1, 9)],
+        8,
+        "PRIOR_CONTRACT_MARKER",
+    )
 
     normal_completions = ChunkReviewCompletions()
     normal_client = SimpleNamespace(
@@ -271,12 +291,14 @@ def run_chunk_orchestration_case(module):
             review_context,
         )
     assert normal_review["change_summary"] == ["Reviewed final judge."]
+    assert normal_review["findings"][0]["title"] == "Prior contract remains open"
     assert len(normal_completions.calls) == 9, "eight chunks should need one call each plus one judge"
     assert normal_stats["model_calls"] == 9
     judge_prompt = "\n".join(
         message["content"] for message in normal_completions.calls[-1]["messages"]
     )
     assert "# Chunk Review Results" in judge_prompt
+    assert "# Prior Bunny Repair Contracts\nPRIOR_CONTRACT_MARKER" in judge_prompt
     assert "BUNNY_CHUNK_PACKET_" not in judge_prompt
     assert "PRIVATE_PACKET_TEXT_" not in judge_prompt
     telemetry = normal_output.getvalue()
