@@ -16,6 +16,18 @@ import type {
 } from "../../engine/contracts/types/memory";
 import { invokeTauri } from "./tauri-client";
 
+async function knowledgeEdgeCapabilities(): Promise<{ knowledge_edges_v1: boolean }> {
+  try {
+    return await invokeTauri<{ knowledge_edges_v1: boolean }>("knowledge_edge_capabilities");
+  } catch (error) {
+    const status = error && typeof error === "object" ? Number((error as { status?: unknown }).status) : 0;
+    if (status === 404 || status === 501) {
+      return { knowledge_edges_v1: false };
+    }
+    throw error;
+  }
+}
+
 export const canonicalMemoryApi = {
   create: (body: CanonicalMemoryInput) => invokeTauri<CanonicalMemoryRecord>("memory_create", { body }),
   get: (memoryId: string) => invokeTauri<CanonicalMemoryRecord>("memory_get", { memoryId }),
@@ -28,7 +40,7 @@ export const canonicalMemoryApi = {
   querySemantic: (body: CanonicalMemorySemanticQuery) =>
     invokeTauri<CanonicalMemorySemanticMatch[]>("memory_query_semantic", { body }),
   knowledge: {
-    capabilities: () => invokeTauri<{ knowledge_edges_v1: boolean }>("knowledge_edge_capabilities"),
+    capabilities: knowledgeEdgeCapabilities,
     upsert: (body: KnowledgeEdgeInput) => invokeTauri<KnowledgeEdge>("knowledge_edge_upsert", { body }),
     query: (body: KnowledgeEdgeQuery = {}) => invokeTauri<KnowledgeEdge[]>("knowledge_edge_query", { body }),
     approve: (edgeId: string) => invokeTauri<KnowledgeEdge>("knowledge_edge_approve", { edgeId }),

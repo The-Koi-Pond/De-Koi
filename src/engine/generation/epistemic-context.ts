@@ -36,6 +36,12 @@ export async function loadEpistemicContext(
   if (!storage.queryKnowledgeEdges || validSubjects.length === 0) {
     return { enabled: false, subjects: validSubjects, groups: [], holderEdges: [] };
   }
+  if (storage.knowledgeEdgeCapabilities) {
+    const capabilities = await storage.knowledgeEdgeCapabilities();
+    if (!capabilities.knowledge_edges_v1) {
+      return { enabled: false, subjects: validSubjects, groups: [], holderEdges: [] };
+    }
+  }
   const rawGroups = await storage.list<unknown>("character-groups");
   const groups = rawGroups
     .filter(isRecord)

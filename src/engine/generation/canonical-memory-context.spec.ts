@@ -237,6 +237,26 @@ describe("canonical memory context", () => {
     expect(queryKnowledgeEdges).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps legacy recall when the runtime explicitly lacks knowledge-edge support", async () => {
+    const legacy = memory({ id: "memory-legacy", content: "The brass key is under the chapel." });
+    const queryKnowledgeEdges = vi.fn(async () => []);
+    const storage = {
+      ...storageWithMemories({ indexed: [legacy] }),
+      knowledgeEdgeCapabilities: vi.fn(async () => ({ knowledge_edges_v1: false })),
+      queryKnowledgeEdges,
+    } as StorageGateway;
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key?",
+      characters: [{ id: "alice", name: "Alice", tags: [] }],
+    });
+
+    expect(result?.block).toContain("The brass key is under the chapel.");
+    expect(queryKnowledgeEdges).not.toHaveBeenCalled();
+  });
+
   it("uses intersection semantics for an untargeted merged Roleplay prompt", async () => {
     const secret = memory({ id: "memory-secret", content: "The brass key is under the chapel." });
     const storage = {

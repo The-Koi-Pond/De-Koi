@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanonicalMemoryInput, KnowledgeEdgeInput, MemoryIndexRowInput } from "../../engine/contracts/types/memory";
+import { ApiError } from "./api-errors";
+import type {
+  CanonicalMemoryInput,
+  KnowledgeEdgeInput,
+  MemoryIndexRowInput,
+} from "../../engine/contracts/types/memory";
 
 const mocks = vi.hoisted(() => ({
   invokeTauri: vi.fn(),
@@ -121,5 +126,19 @@ describe("canonicalMemoryApi", () => {
       edgeId: "edge-1",
       reason: "source_message_deleted",
     });
+  });
+
+  it("reports an explicitly unsupported knowledge-edge capability as legacy-only", async () => {
+    mocks.invokeTauri.mockRejectedValueOnce(new ApiError("command unavailable", 501));
+    const { canonicalMemoryApi } = await import("./canonical-memory-api");
+
+    await expect(canonicalMemoryApi.knowledge.capabilities()).resolves.toEqual({ knowledge_edges_v1: false });
+  });
+
+  it("does not disguise capability transport failures as legacy mode", async () => {
+    mocks.invokeTauri.mockRejectedValueOnce(new ApiError("runtime unavailable", 503));
+    const { canonicalMemoryApi } = await import("./canonical-memory-api");
+
+    await expect(canonicalMemoryApi.knowledge.capabilities()).rejects.toThrow("runtime unavailable");
   });
 });

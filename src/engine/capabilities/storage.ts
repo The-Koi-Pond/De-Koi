@@ -218,6 +218,7 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;
   queryMemoriesBatch?(queries: CanonicalMemoryQuery[]): Promise<CanonicalMemoryRecord[]>;
   querySemanticMemories?(body: CanonicalMemorySemanticQuery): Promise<CanonicalMemorySemanticMatch[]>;
+  knowledgeEdgeCapabilities?(): Promise<{ knowledge_edges_v1: boolean }>;
   upsertKnowledgeEdge?(body: KnowledgeEdgeInput): Promise<KnowledgeEdge>;
   queryKnowledgeEdges?(body?: KnowledgeEdgeQuery): Promise<KnowledgeEdge[]>;
   approveKnowledgeEdge?(edgeId: string): Promise<KnowledgeEdge>;
