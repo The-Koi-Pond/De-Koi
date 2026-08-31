@@ -341,12 +341,18 @@ describe("roleplay scene recent history", () => {
 
     const systemPrompt = requests[0].messages.find((message) => message.role === "system")?.content || "";
     expect(systemPrompt).toContain("compact beat brief, not finished prose");
+    expect(systemPrompt).toContain("Participants:");
     expect(systemPrompt).toContain("Do not script dialogue");
     expect(response.plan.firstMessage.length).toBeLessThanOrEqual(360);
     expect(response.plan.firstMessage).not.toContain("The exchange ends");
   });
 
   it("keeps an unpunctuated planned opening inside the hard character ceiling", async () => {
+    const longStructuredBeat = [
+      `Participants: ${"monster ".repeat(30)}`,
+      `Action: ${"shares ice cream ".repeat(20)}`,
+      `Pressure: ${"choose a flavor ".repeat(20)}`,
+    ].join("\n");
     const { storage } = storageForScene({
       chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
       messages: { "chat-1": [] },
@@ -360,7 +366,7 @@ describe("roleplay scene recent history", () => {
             name: "Scene: Long Beat",
             description: "The scene begins.",
             scenario: "A crowded room.",
-            firstMessage: "opening beat ".repeat(80),
+            firstMessage: longStructuredBeat,
             background: null,
             characterIds: [],
             rating: "sfw",
@@ -410,8 +416,42 @@ describe("roleplay scene recent history", () => {
     );
   });
 
+  it("replaces short finished prose without dialogue with an actual beat brief", async () => {
+    const proseOpening =
+      "Harlequin raises the vanilla cup with theatrical offense. Pierrot watches the room tighten around the choice.";
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Everyone gets ice cream." }] },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Everybody Gets Ice Cream",
+            description: "The circus shares an ice-cream delivery.",
+            scenario: "Five monsters negotiate flavors around Jester's table.",
+            firstMessage: proseOpening,
+            background: null,
+            characterIds: [],
+            rating: "sfw",
+            relationshipHistory: "",
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "Everyone gets ice cream.", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    expect(response.plan.firstMessage).toBe(
+      "Open on the planned scene's immediate situation and pressure, with the listed participants already present.",
+    );
+  });
+
   it("preserves brief exact dialogue when the user explicitly supplied it", async () => {
-    const requestedOpening = 'Harlequin offers the cup and says, "This flavor has no teeth."';
+    const requestedOpening =
+      'Participants: Harlequin and the user\nAction: Harlequin offers the cup and says, "This flavor has no teeth."\nPressure: The user must react to the insult.';
     const { storage } = storageForScene({
       chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
       messages: { "chat-1": [] },
@@ -556,7 +596,7 @@ describe("roleplay scene recent history", () => {
             name: "Scene: Multiline",
             description: "The scene begins.",
             scenario: "A private room.",
-            firstMessage: "First line\\n\\nSecond line",
+            firstMessage: "Participants: Harlequin\\nAction: Offers the cup\\nPressure: The user must choose",
             background: null,
             characterIds: [],
             systemPrompt: "Keep the character voice sharp.",
@@ -577,9 +617,11 @@ describe("roleplay scene recent history", () => {
       plan: response.plan,
     });
 
-    expect(response.plan.firstMessage).toBe("First line\n\nSecond line");
+    expect(response.plan.firstMessage).toBe(
+      "Participants: Harlequin\nAction: Offers the cup\nPressure: The user must choose",
+    );
     expect(createdMessages.map((message) => message.value.content)).toEqual([
-      "The scene begins.\n\nFirst line\n\nSecond line",
+      "The scene begins.\n\nParticipants: Harlequin\nAction: Offers the cup\nPressure: The user must choose",
     ]);
   });
 
