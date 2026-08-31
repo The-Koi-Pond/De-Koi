@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Keep generated Roleplay openings as beat briefs",
+    "source": "Live inspection of Scene: Everybody Gets Ice Cream on the Pi.",
+    "classification": "Roleplay scene planning prompt contract",
+    "status": "waiting_on_ci"
+  },
+  "coreClaim": "New generated Roleplay scenes cannot pass a near-complete planner-written response into the Roleplay writer as the planned opening beat.",
+  "rootCause": "The scene planner defined firstMessage as narration-style prose with no size boundary, so the Narrator Guide supplied the writer with a second, nearly complete response that overrode the intended fresh prose behavior.",
+  "scope": {
+    "inScope": [
+      "Roleplay scene-planner firstMessage semantics",
+      "Deterministic opening-beat size enforcement",
+      "Focused regression proof for the planner-to-writer contract"
+    ],
+    "outOfScope": [
+      "Rewriting existing scenes or history",
+      "Changing character cards, presets, providers, Conversation, or Game",
+      "Guaranteeing subjective prose quality across every model"
+    ],
+    "intendedFiles": [
+      "src/engine/modes/roleplay/scene/scene-service.ts",
+      "src/engine/modes/roleplay/scene/scene-service.spec.ts",
+      "docs/superpowers/specs/2026-08-31-roleplay-opening-beat-contract-design.md",
+      "docs/superpowers/plans/2026-08-31-roleplay-opening-beat-contract.md",
+      ".github/pr-evidence/roleplay-opening-beat-contract/proof-ledger.json"
+    ],
+    "riskFlags": [
+      "prompt assembly",
+      "user-visible Roleplay behavior",
+      "Bunny review"
+    ]
+  },
+  "claimBoundary": {
+    "coreClaim": "The planner supplies a compact beat brief rather than a finished opening response.",
+    "riskType": "prompt assembly",
+    "entrypoints": [
+      "Conversation-to-Roleplay generated scene creation",
+      "Roleplay-to-Roleplay generated scene creation"
+    ],
+    "currentPathsOrFormats": [
+      "SceneFullPlan.firstMessage",
+      "scene_created.openingGenerationGuide",
+      "Roleplay Narrator Guide"
+    ],
+    "legacyPathsOrFormats": [
+      "Existing saved scene openings and prompt snapshots"
+    ],
+    "outOfScopeClaims": [
+      "Existing scenes are rewritten",
+      "Every AI-associated phrase disappears",
+      "Character-authored examples are changed"
+    ]
+  },
+  "contractLaneGate": {
+    "brokenContract": "A planning value described as intent was allowed to become a full competing prose sample.",
+    "producer": "src/engine/modes/roleplay/scene/scene-service.ts",
+    "consumer": "Roleplay opening generation through buildRoleplaySceneOpeningGuide",
+    "impliedContract": "The planner chooses the opening situation and the Roleplay writer realizes it using current scene and style context.",
+    "actualEnforcement": "The planner requests a one-to-three-sentence beat brief and the scene service sentence-bounds overlong output to 360 characters.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "The Roleplay scene service owns scene-plan semantics.",
+    "consumerOnlyLanes": [],
+    "wrongLaneFixToAvoid": "Do not add another universal anti-AI prose instruction or patch provider output after generation.",
+    "regressionProof": [
+      "The focused test captures the planner request and requires the beat-brief contract.",
+      "The same test returns an overlong scripted plan and proves the persisted firstMessage is bounded before writer consumption.",
+      "Existing multiline normalization coverage proves short planner text remains unchanged."
+    ]
+  },
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "An overlong planner-written opening is reduced to a compact beat.",
+        "evidence": "scene-service.spec.ts returns the ice-cream-style four-sentence plan and requires firstMessage <= 360 characters."
+      },
+      {
+        "claim": "The planner is explicitly asked for planning intent rather than finished prose.",
+        "evidence": "The captured LLM system request contains compact beat brief, not finished prose and the no-scripted-dialogue rule."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Short valid planner messages must not be rewritten by the limiter.",
+        "evidence": "Existing double-escaped multiline regression remains byte-for-byte green after the conditional limiter fix."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Existing saved scenes are preserved.",
+        "evidence": "No storage migration or existing-record update is included; enforcement occurs only while planning a new scene."
+      }
+    ],
+    "untestedRows": [
+      "Subjective output quality across every writer model",
+      "Live newly generated scene behavior before exact merge-SHA images are deployed"
+    ]
+  },
+  "ownedFacts": [
+    {
+      "description": "The live ice-cream scene's Narrator Guide contained nearly the complete final response as its planned opening beat.",
+      "sourceType": "measured",
+      "evidence": "Pi prompt preview showed the long scripted ice-cream allocation and dialogue inside Narrator Guide immediately beside the matching generated reply."
+    }
+  ],
+  "userActionCopy": [],
+  "reviewThreadLedger": [],
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm vitest run src/engine/modes/roleplay/scene/scene-service.spec.ts; pnpm typecheck; pnpm check:architecture; pnpm check; git diff --check",
+    "baselineEvidence": "42 focused scene-service tests, pnpm typecheck, pnpm check:architecture, git diff --check, and full pnpm check passed; unused-code output remained warning-only.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Overlong finished-prose opening cannot pass through unchanged",
+      "Short multiline planner text remains unchanged"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "passed_local",
+    "prHealthStatus": "pending"
+  },
+  "pr": {
+    "number": null,
+    "url": "",
+    "headRefName": "fix/roleplay-opening-beat-contract",
+    "baseRefName": "main",
+    "healthStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "checksStatus": "pending",
+    "merged": false,
+    "mergeCommit": ""
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": true,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "Private roleplay text is summarized in proof language and is not copied into the repository.",
+    "Production deployment must wait for the exact merge revision's matched server and web image batch."
+  ]
+}

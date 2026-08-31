@@ -301,6 +301,81 @@ describe("roleplay scene recent history", () => {
     expect(messageReads.map((read) => read.options?.limit)).toEqual([8, 20]);
   });
 
+  it("keeps the planned opening as a compact beat brief instead of finished prose", async () => {
+    const requests: LlmRequest[] = [];
+    const longOpening = [
+      "Ticket Taker arranges five numbered cups across Jester's table while everyone watches the allocation.",
+      "Harlequin rejects vanilla with a polished complaint and turns the flavor dispute into a performance for Chai.",
+      "Pierrot offers a trade while Doctor imposes a one-scoop rule and Jester quietly keeps the argument contained.",
+      "The exchange ends with each character delivering a tailored line and waiting for Chai to settle the dispute.",
+    ].join(" ");
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
+      messages: { "chat-1": [{ id: "message-1", role: "user", content: "Everyone gets ice cream." }] },
+      connections: [{ id: "conn-1" }],
+    });
+
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: {
+          ...llmWithResponse(""),
+          complete: vi.fn(async (request: LlmRequest) => {
+            requests.push(request);
+            return JSON.stringify({
+              name: "Scene: Everybody Gets Ice Cream",
+              description: "The circus shares an ice-cream delivery.",
+              scenario: "Five monsters negotiate flavors around Jester's table.",
+              firstMessage: longOpening,
+              background: null,
+              characterIds: [],
+              rating: "sfw",
+              relationshipHistory: "",
+            });
+          }),
+        },
+      },
+      { chatId: "chat-1", prompt: "Everyone gets ice cream.", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    const systemPrompt = requests[0].messages.find((message) => message.role === "system")?.content || "";
+    expect(systemPrompt).toContain("compact beat brief, not finished prose");
+    expect(systemPrompt).toContain("Do not script dialogue");
+    expect(response.plan.firstMessage.length).toBeLessThanOrEqual(360);
+    expect(response.plan.firstMessage).not.toContain("The exchange ends");
+  });
+
+  it("keeps an unpunctuated planned opening inside the hard character ceiling", async () => {
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
+      messages: { "chat-1": [] },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Long Beat",
+            description: "The scene begins.",
+            scenario: "A crowded room.",
+            firstMessage: "opening beat ".repeat(80),
+            background: null,
+            characterIds: [],
+            rating: "sfw",
+            relationshipHistory: "",
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    expect(response.plan.firstMessage.length).toBeLessThanOrEqual(360);
+    expect(response.plan.firstMessage).toMatch(/\.\.\.$/);
+  });
+
   it("does not let planner preset choices override explicit adult-scene inference", async () => {
     const { storage, createdRecords } = storageForScene({
       chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {}, mode: "conversation" }],
