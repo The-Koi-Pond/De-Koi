@@ -400,7 +400,10 @@ fn insert_memory_embedding_fields(memory: &mut Map<String, Value>, result: Memor
     memory.insert("embeddingSource".to_string(), json!(result.source));
     memory.insert(
         "embeddingConnectionId".to_string(),
-        result.connection_id.map(Value::String).unwrap_or(Value::Null),
+        result
+            .connection_id
+            .map(Value::String)
+            .unwrap_or(Value::Null),
     );
     memory.insert(
         "embeddingModel".to_string(),

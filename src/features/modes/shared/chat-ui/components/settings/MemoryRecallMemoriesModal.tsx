@@ -37,6 +37,7 @@ import {
   useUpdateChatMemory,
 } from "../../../../../catalog/chats/index";
 import { MemoryMaintenanceRecovery } from "../../../../../catalog/memory-maintenance";
+import { KnowledgeEdgeEditor } from "../../../../../catalog/knowledge";
 import { useUIStore } from "../../../../../../shared/stores/ui.store";
 import { MEMORY_RECALL_CONSOLE_DESCRIPTION } from "../../lib/memory-recall-copy";
 
@@ -944,6 +945,15 @@ export function MemoryRecallMemoriesModal({
                     />
                     <DetailRow label="Edited" value={selected.userEdited ? "User edited" : "Original"} />
                   </dl>
+
+                  {selected.canonicalMemory ? (
+                    <KnowledgeEdgeEditor memoryId={selected.canonicalMemory.id} />
+                  ) : (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 p-3 text-[0.6875rem] text-[var(--muted-foreground)]">
+                      <span className="font-semibold text-[var(--foreground)]">Who knows this?</span>
+                      <span className="ml-1">Knowledge assignments apply to canonical memories. This row is local to the chat.</span>
+                    </div>
+                  )}
 
                   <div>
                     <div className="mb-1 flex items-center justify-between gap-2">

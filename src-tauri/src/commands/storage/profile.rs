@@ -2884,6 +2884,53 @@ mod tests {
     }
 
     #[test]
+    fn profile_export_import_round_trips_all_knowledge_holder_kinds() {
+        let source = test_state("knowledge-edges-export-source");
+        crate::storage_commands::canonical_memory::create_memory(
+            &source,
+            json!({
+                "id": "memory-1",
+                "kind": "fact",
+                "scope": { "kind": "world", "id": "world" },
+                "content": "The vault is beneath the library.",
+                "confidence": 1.0,
+                "provenance": { "messageIds": [] }
+            }),
+        )
+        .unwrap();
+        for (kind, id) in [
+            ("character", "character-1"),
+            ("persona", "persona-1"),
+            ("group", "group-1"),
+            ("world", "world"),
+        ] {
+            crate::storage_commands::knowledge_edges::upsert_edge(&source, json!({
+                "memoryId": "memory-1",
+                "holder": { "kind": kind, "id": id },
+                "stance": "believes",
+                "status": "active",
+                "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:00:00Z" }]
+            })).unwrap();
+        }
+
+        let snapshot = profile_snapshot(&source).unwrap();
+        assert_eq!(
+            snapshot["data"]["collections"]["memory-knowledge-edges"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+
+        let target = test_state("knowledge-edges-export-target");
+        import_profile(&target, snapshot).unwrap();
+        assert_eq!(
+            target.storage.list("memory-knowledge-edges").unwrap().len(),
+            4
+        );
+    }
+
+    #[test]
     fn profile_exports_redact_custom_tool_webhook_urls() {
         let state = test_state("custom-tool-webhook-export");
         state

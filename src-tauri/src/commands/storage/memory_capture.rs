@@ -35,6 +35,16 @@ fn lease_id(body: &Value) -> AppResult<&str> {
         .ok_or_else(|| AppError::invalid_input("Memory capture lease id is required"))
 }
 
+fn knowledge_edges(body: &Value) -> AppResult<Vec<Value>> {
+    match body.get("knowledgeEdges") {
+        None => Ok(Vec::new()),
+        Some(Value::Array(edges)) => Ok(edges.clone()),
+        Some(_) => Err(AppError::invalid_input(
+            "Memory capture knowledgeEdges must be an array",
+        )),
+    }
+}
+
 pub(crate) fn acquire_worker(state: &AppState, body: Value) -> AppResult<Value> {
     let worker_id = worker_id(&body)?;
     let requested_lease = body.get("leaseId").and_then(Value::as_str);
@@ -112,7 +122,10 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .get("memory")
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Canonical memory body is required"))?;
-    state.with_memory_capture_lease(lease_id, || canonical_memory::create_memory(state, memory))
+    let knowledge_edges = knowledge_edges(&body)?;
+    state.with_memory_capture_lease(lease_id, || {
+        canonical_memory::create_memory_with_edges(state, memory, knowledge_edges)
+    })
 }
 
 pub(crate) fn update_memory(state: &AppState, body: Value) -> AppResult<Value> {
@@ -127,8 +140,9 @@ pub(crate) fn update_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .get("patch")
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Canonical memory patch is required"))?;
+    let knowledge_edges = knowledge_edges(&body)?;
     state.with_memory_capture_lease(lease_id, || {
-        canonical_memory::update_memory(state, memory_id, patch)
+        canonical_memory::update_memory_with_edges(state, memory_id, patch, knowledge_edges)
     })
 }
 
@@ -321,6 +335,68 @@ mod tests {
         );
     }
 
+    #[test]
+    fn memory_capture_creation_commits_deterministic_edges_with_the_memory() {
+        let state = test_state("memory-with-edges");
+        let lease = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().unwrap();
+        create_memory(&state, json!({
+            "leaseId": lease_id,
+            "memory": {
+                "id": "memory-1",
+                "kind": "scene_event",
+                "scope": { "kind": "scene", "id": "scene-1" },
+                "content": "Alice saw the brass key.",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"], "sceneId": "scene-1" }
+            },
+            "knowledgeEdges": [{
+                "memoryId": "memory-1",
+                "holder": { "kind": "character", "id": "alice" },
+                "stance": "knows",
+                "status": "active",
+                "provenance": [{ "kind": "scene_witness", "author": "system", "messageIds": ["message-1"], "sceneId": "scene-1", "createdAt": "2026-08-30T12:00:00Z" }]
+            }]
+        })).expect("capture should commit");
+
+        let edges = state
+            .storage
+            .list(crate::storage_commands::knowledge_edges::COLLECTION)
+            .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0]["memoryId"], json!("memory-1"));
+    }
+
+    #[test]
+    fn memory_capture_rejects_malformed_present_knowledge_edges() {
+        let state = test_state("malformed-edges");
+        let lease = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().unwrap();
+
+        let create_error = create_memory(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "memory": {},
+                "knowledgeEdges": { "not": "an array" }
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(create_error.code, "invalid_input");
+
+        let update_error = update_memory(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "memoryId": "memory-1",
+                "patch": {},
+                "knowledgeEdges": "not an array"
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(update_error.code, "invalid_input");
+    }
+
     fn story_episode(id: &str, fingerprint: &str, supersedes: Option<&str>) -> Value {
         json!({
             "id": id,
@@ -354,6 +430,20 @@ mod tests {
         let state = test_state("story-atomic-commit");
         canonical_memory::create_memory(&state, story_episode("episode-old", "old", None))
             .expect("old projection should seed");
+        crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+            "memoryId": "episode-old",
+            "holder": { "kind": "character", "id": "alice" },
+            "stance": "knows",
+            "status": "active",
+            "provenance": [{ "kind": "scene_witness", "author": "system", "messageIds": ["message-1"], "createdAt": "2026-08-30T12:00:00Z" }]
+        })).unwrap();
+        crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+            "memoryId": "episode-old",
+            "holder": { "kind": "world", "id": "world" },
+            "stance": "knows",
+            "status": "active",
+            "provenance": [{ "kind": "scene_witness", "author": "system", "messageIds": ["message-1"], "createdAt": "2026-08-30T12:00:00Z" }]
+        })).unwrap();
         state
             .storage
             .create(
@@ -392,6 +482,24 @@ mod tests {
             .unwrap();
         assert_eq!(old["status"], json!("superseded"));
         assert_eq!(old["supersededByMemoryId"], json!("episode-new"));
+        let edges = crate::storage_commands::knowledge_edges::query_edges(
+            &state,
+            json!({ "memoryIds": ["episode-old"] }),
+        )
+        .unwrap();
+        let rows = edges.as_array().unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row["holder"]["kind"] == json!("character"))
+                .unwrap()["stance"],
+            json!("believes")
+        );
+        assert_eq!(
+            rows.iter()
+                .find(|row| row["holder"]["kind"] == json!("world"))
+                .unwrap()["status"],
+            json!("invalidated")
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ import type {
   StorageGateway,
 } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
-import type { CanonicalMemoryInput, CanonicalMemoryPatch, CanonicalMemoryRecord } from "../contracts/types/memory";
+import type { CanonicalMemoryInput, CanonicalMemoryPatch, CanonicalMemoryRecord, KnowledgeEdge } from "../contracts/types/memory";
 import { startGeneration } from "./start-generation";
 
 type StoredMessage = {
@@ -65,6 +65,7 @@ function memoryRecallStorage(
   const messages: StoredMessage[] = [];
   const memoryCaptureJobs = new Map<string, Record<string, unknown>>();
   const canonicalMemories = new Map<string, CanonicalMemoryRecord>();
+  const knowledgeEdges = new Map<string, KnowledgeEdge>();
   let memoryCaptureLease: { workerId: string; leaseId: string } | null = null;
   let nextMessageId = 1;
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
@@ -380,6 +381,13 @@ function memoryRecallStorage(
           (!query?.statuses || query.statuses.includes(memory.status)),
       );
     },
+    async queryKnowledgeEdges(query = {}): Promise<KnowledgeEdge[]> {
+      return [...knowledgeEdges.values()].filter((edge) =>
+        (!query.memoryIds || query.memoryIds.includes(edge.memoryId)) &&
+        (!query.holders || query.holders.some((holder) => holder.kind === edge.holder.kind && holder.id === edge.holder.id)) &&
+        (!query.statuses || query.statuses.includes(edge.status))
+      );
+    },
     querySemanticMemories: semanticQueries,
     async rebuildMemoryIndex(): Promise<{ rebuilt: number }> {
       return { rebuilt: canonicalMemories.size };
@@ -409,6 +417,7 @@ function memoryRecallStorage(
     messages,
     memoryCaptureJobs,
     canonicalMemories,
+    knowledgeEdges,
     previewCalls,
     semanticQueries,
     seedLegacyImportedChat,
@@ -451,6 +460,40 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Memory Recall preflight", () => {
+  it("keeps a classified secret out of the actual model request for the wrong character", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage({
+      mode: "roleplay",
+      metadata: { enableMemoryRecall: true, automaticRoleplayQualityCorrection: false },
+    });
+    await harness.storage.createMemory!({
+      id: "memory-secret",
+      kind: "fact",
+      scope: { kind: "chat", id: "chat-1" },
+      content: "The forbidden password is swordfish.",
+      confidence: 1,
+      provenance: { sourceChatId: "chat-1", messageIds: ["old-message"] },
+    });
+    harness.knowledgeEdges.set("edge-secret", {
+      id: "edge-secret",
+      memoryId: "memory-secret",
+      holder: { kind: "character", id: "someone-else" },
+      stance: "knows",
+      status: "active",
+      provenance: [{ kind: "targeted_disclosure", author: "system", sourceChatId: "chat-1", messageIds: ["old-message"], createdAt: "2026-08-30T12:00:00Z" }],
+      createdAt: "2026-08-30T12:00:00Z",
+      updatedAt: "2026-08-30T12:00:00Z",
+    });
+
+    await collectEvents(startGeneration(
+      { storage: harness.storage, llm: memoryAwareLlm(calls), integrations: {} as IntegrationGateway },
+      { chatId: "chat-1", connectionId: "conn-1", userMessage: "What is the password?" },
+    ));
+
+    const modelRequest = calls.at(-1)?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(modelRequest).not.toContain("swordfish");
+  });
+
   it("uses the preceding visible user turn for canonical recall during assistant regeneration", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage({

@@ -352,17 +352,15 @@ export const storageApi: StorageGateway = {
   // Story consolidation owns a distinct durable queue while sharing the existing
   // fenced background-writer lease. This keeps story and atomic-memory commits
   // serialized without introducing a second mutable lease authority.
-  acquireStoryConsolidationWorker: (workerId, leaseId) =>
-    memoryCaptureApi.acquireWorker(`story:${workerId}`, leaseId),
-  releaseStoryConsolidationWorker: (workerId, leaseId) =>
-    memoryCaptureApi.releaseWorker(`story:${workerId}`, leaseId),
-  updateStoryConsolidationJob: (leaseId, jobId, patch) =>
-    storyConsolidationRuntimeApi.updateJob(leaseId, jobId, patch),
-  commitStoryProjection: (leaseId, jobId, body) =>
-    storyConsolidationRuntimeApi.commitProjection(leaseId, jobId, body),
+  acquireStoryConsolidationWorker: (workerId, leaseId) => memoryCaptureApi.acquireWorker(`story:${workerId}`, leaseId),
+  releaseStoryConsolidationWorker: (workerId, leaseId) => memoryCaptureApi.releaseWorker(`story:${workerId}`, leaseId),
+  updateStoryConsolidationJob: (leaseId, jobId, patch) => storyConsolidationRuntimeApi.updateJob(leaseId, jobId, patch),
+  commitStoryProjection: (leaseId, jobId, body) => storyConsolidationRuntimeApi.commitProjection(leaseId, jobId, body),
   updateMemoryCaptureJob: (leaseId, jobId, patch) => memoryCaptureApi.updateJob(leaseId, jobId, patch),
-  createMemoryCaptureMemory: (leaseId, body) => memoryCaptureApi.createMemory(leaseId, body),
-  updateMemoryCaptureMemory: (leaseId, memoryId, patch) => memoryCaptureApi.updateMemory(leaseId, memoryId, patch),
+  createMemoryCaptureMemory: (leaseId, body, knowledgeEdges) =>
+    memoryCaptureApi.createMemory(leaseId, body, knowledgeEdges),
+  updateMemoryCaptureMemory: (leaseId, memoryId, patch, knowledgeEdges) =>
+    memoryCaptureApi.updateMemory(leaseId, memoryId, patch, knowledgeEdges),
   patchMemoryCaptureMessageExtra: (leaseId, messageId, patch) =>
     memoryCaptureApi.patchMessageExtra(leaseId, messageId, patch),
   rebuildMemoryCaptureIndex: (leaseId, body) => memoryCaptureApi.rebuildIndex(leaseId, body),
@@ -371,6 +369,11 @@ export const storageApi: StorageGateway = {
   queryMemories: (body) => canonicalMemoryApi.query(body),
   queryMemoriesBatch: (queries) => canonicalMemoryApi.queryBatch(queries),
   querySemanticMemories: (body) => canonicalMemoryApi.querySemantic(body),
+  knowledgeEdgeCapabilities: () => canonicalMemoryApi.knowledge.capabilities(),
+  upsertKnowledgeEdge: (body) => canonicalMemoryApi.knowledge.upsert(body),
+  queryKnowledgeEdges: (body) => canonicalMemoryApi.knowledge.query(body),
+  approveKnowledgeEdge: (edgeId) => canonicalMemoryApi.knowledge.approve(edgeId),
+  invalidateKnowledgeEdge: (edgeId, reason) => canonicalMemoryApi.knowledge.invalidate(edgeId, reason),
   queryMemoryIndex: (body) => canonicalMemoryApi.index.query(body),
   queryMemoryIndexBatch: (queries) => canonicalMemoryApi.index.queryBatch(queries),
   rebuildMemoryIndex: (body) => canonicalMemoryApi.index.rebuildLexical(body),

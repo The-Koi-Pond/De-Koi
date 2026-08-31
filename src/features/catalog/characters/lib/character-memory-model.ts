@@ -2,6 +2,8 @@ import type {
   CanonicalMemoryInput,
   CanonicalMemoryPatch,
   CanonicalMemoryRecord,
+  KnowledgeEdge,
+  KnowledgeEdgeInput,
   MemoryStatus,
 } from "../../../../engine/contracts/types/memory";
 
@@ -11,6 +13,15 @@ export type CharacterMemoryExportV1 = {
   exportedAt: string;
   character: { id: string; name: string };
   memories: CanonicalMemoryRecord[];
+};
+
+export type CharacterMemoryExportV2 = {
+  type: "de_koi_character_memories";
+  version: 2;
+  exportedAt: string;
+  character: { id: string; name: string };
+  memories: CanonicalMemoryRecord[];
+  edges: KnowledgeEdge[];
 };
 
 type CharacterMemoryImportInput = CanonicalMemoryInput & { id: string };
@@ -101,14 +112,45 @@ function portableMemory(memory: CanonicalMemoryRecord): CanonicalMemoryRecord {
 export function createCharacterMemoryExport(input: {
   character: { id: string; name: string };
   memories: CanonicalMemoryRecord[];
+  edges: KnowledgeEdge[];
   exportedAt?: string;
-}): CharacterMemoryExportV1 {
-  return {
+}): CharacterMemoryExportV2;
+export function createCharacterMemoryExport(input: {
+  character: { id: string; name: string };
+  memories: CanonicalMemoryRecord[];
+  exportedAt?: string;
+}): CharacterMemoryExportV1;
+export function createCharacterMemoryExport(input: {
+  character: { id: string; name: string };
+  memories: CanonicalMemoryRecord[];
+  edges?: KnowledgeEdge[];
+  exportedAt?: string;
+}): CharacterMemoryExportV1 | CharacterMemoryExportV2 {
+  const base = {
     type: "de_koi_character_memories",
-    version: 1,
     exportedAt: input.exportedAt ?? new Date().toISOString(),
     character: { ...input.character },
     memories: input.memories.map(portableMemory),
+  } as const;
+  if (!input.edges) return { ...base, version: 1 };
+  const memoryIds = new Set(input.memories.map((memory) => memory.id));
+  return {
+    ...base,
+    version: 2,
+    edges: input.edges
+      .filter((edge) => memoryIds.has(edge.memoryId))
+      // Character-memory packages are intentionally portable for one character:
+      // direct-character and world edges only. Full-profile backup owns every holder kind.
+      .filter(
+        (edge) =>
+          edge.holder.kind === "world" ||
+          (edge.holder.kind === "character" && edge.holder.id === input.character.id),
+      )
+      .map((edge) => ({
+        ...edge,
+        holder: { ...edge.holder },
+        provenance: edge.provenance.map((item) => ({ ...item, messageIds: [...item.messageIds] })),
+      })),
   };
 }
 
@@ -125,24 +167,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function validEnvelope(value: unknown): value is CharacterMemoryExportV1 {
-  if (!isRecord(value) || value.type !== "de_koi_character_memories" || value.version !== 1) return false;
+function validEnvelope(value: unknown): value is CharacterMemoryExportV1 | CharacterMemoryExportV2 {
+  if (!isRecord(value) || value.type !== "de_koi_character_memories" || ![1, 2].includes(Number(value.version))) return false;
   if (!isRecord(value.character) || typeof value.character.id !== "string") return false;
-  return Array.isArray(value.memories);
+  return Array.isArray(value.memories) && (value.version === 1 || Array.isArray(value.edges));
 }
 
-export function normalizeCharacterMemoryImport(
+export function normalizeCharacterMemoryImportPackage(
   value: unknown,
   target: { characterId: string; importedAt?: string },
-): CharacterMemoryImportInput[] {
+): { memories: CharacterMemoryImportInput[]; edges: KnowledgeEdgeInput[] } {
   if (!validEnvelope(value)) {
-    throw new Error("Import must be a De-Koi character memories v1 file.");
+    throw new Error("Import must be a De-Koi character memories v1 or v2 file.");
   }
   const characterId = target.characterId.trim();
   if (!characterId) throw new Error("Choose a character before importing memories.");
   const importedAt = target.importedAt ?? new Date().toISOString();
 
-  return value.memories.map((memory, index) => {
+  const memoryIdMap = new Map<string, string>();
+  const memories = value.memories.map((memory, index) => {
     if (
       !isRecord(memory) ||
       typeof memory.id !== "string" ||
@@ -162,6 +205,7 @@ export function normalizeCharacterMemoryImport(
         ? sourceScope.id
         : value.character.id;
     const id = `character-memory-import-${stableHash(`${characterId}\u001f${memory.id}\u001f${memory.content}`)}`;
+    memoryIdMap.set(memory.id, id);
     const payload = isRecord(memory.payload) ? portableValue(memory.payload) as Record<string, unknown> : {};
     return {
       id,
@@ -197,6 +241,33 @@ export function normalizeCharacterMemoryImport(
       updatedAt: importedAt,
     };
   });
+  const edges = value.version === 2
+    ? value.edges.flatMap((edge): KnowledgeEdgeInput[] => {
+        if (!isRecord(edge) || typeof edge.memoryId !== "string" || !isRecord(edge.holder)) return [];
+        const memoryId = memoryIdMap.get(edge.memoryId);
+        const holderKind = edge.holder.kind;
+        if (!memoryId || (holderKind !== "character" && holderKind !== "world")) return [];
+        if (typeof edge.stance !== "string" || !Array.isArray(edge.provenance)) return [];
+        return [{
+          memoryId,
+          holder: holderKind === "world"
+            ? { kind: "world", id: "world" }
+            : { kind: "character", id: characterId },
+          stance: edge.stance as KnowledgeEdgeInput["stance"],
+          status: edge.status === "proposed" || edge.status === "invalidated" ? edge.status : "active",
+          confidence: typeof edge.confidence === "number" ? edge.confidence : null,
+          provenance: edge.provenance as KnowledgeEdgeInput["provenance"],
+        }];
+      })
+    : [];
+  return { memories, edges };
+}
+
+export function normalizeCharacterMemoryImport(
+  value: unknown,
+  target: { characterId: string; importedAt?: string },
+): CharacterMemoryImportInput[] {
+  return normalizeCharacterMemoryImportPackage(value, target).memories;
 }
 
 export function characterMemoryStatusLabel(status: MemoryStatus): string {

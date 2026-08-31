@@ -95,6 +95,12 @@ pub(crate) fn delete_entity_with_options(
         } else {
             false
         }
+    } else if entity == "characters" {
+        knowledge_edges::delete_holder_atomically(state, "characters", "character", id)?
+    } else if entity == "personas" {
+        knowledge_edges::delete_holder_atomically(state, "personas", "persona", id)?
+    } else if entity == "character-groups" {
+        knowledge_edges::delete_holder_atomically(state, "character-groups", "group", id)?
     } else {
         state.storage.delete(entity, id)?
     };

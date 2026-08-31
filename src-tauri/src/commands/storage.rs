@@ -63,6 +63,8 @@ pub(crate) mod imports;
 pub(crate) mod integrations;
 #[path = "storage/knowledge.rs"]
 pub(crate) mod knowledge;
+#[path = "storage/knowledge_edges.rs"]
+pub(crate) mod knowledge_edges;
 #[path = "storage/llm.rs"]
 pub(crate) mod llm;
 #[path = "storage/lorebook_images.rs"]

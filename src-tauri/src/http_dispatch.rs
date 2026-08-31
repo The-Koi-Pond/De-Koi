@@ -3,9 +3,9 @@ use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
     chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
-    exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge, llm,
-    lorebook_images, managed_thumbnails, memory_capture, memory_maintenance, personas, profile,
-    prompts, shared, sidecar, sprites, translation, updates, web_research,
+    exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge,
+    knowledge_edges, llm, lorebook_images, managed_thumbnails, memory_capture, memory_maintenance,
+    personas, profile, prompts, shared, sidecar, sprites, translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1093,6 +1093,35 @@ pub(crate) async fn dispatch_for_runtime_owner(
         "memory_query_semantic" => {
             canonical_memory::query_memories_semantic(state, optional_value(&args, "body")).await
         }
+        "knowledge_edge_capabilities" => Ok(knowledge_edges::capabilities()),
+        "knowledge_edge_upsert" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                knowledge_edges::upsert_edge(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "knowledge_edge_query" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                knowledge_edges::query_edges(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "knowledge_edge_approve" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                knowledge_edges::approve_edge(state, required_string(args, "edgeId")?)
+            })
+            .await
+        }
+        "knowledge_edge_invalidate" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                knowledge_edges::invalidate_edge(
+                    state,
+                    required_string(args, "edgeId")?,
+                    required_string(args, "reason")?,
+                )
+            })
+            .await
+        }
         "memory_cleanup_apply" => {
             memory_maintenance::apply_memory_cleanup(
                 state,
@@ -1993,6 +2022,10 @@ mod tests {
         "memory_index_upsert",
         "memory_query",
         "memory_update",
+        "knowledge_edge_upsert",
+        "knowledge_edge_query",
+        "knowledge_edge_approve",
+        "knowledge_edge_invalidate",
         "lorebook_folder_reorder",
         "storage_create",
         "storage_delete",

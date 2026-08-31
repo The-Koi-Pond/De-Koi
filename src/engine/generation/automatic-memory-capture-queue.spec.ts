@@ -72,6 +72,7 @@ function queueStorage(
   const previewCalls: Array<{ chatId: string; sourceMessageIds: string[] }> = [];
   const commitCalls: CommitChatMemoryCaptureInput[] = [];
   const releaseCalls: Array<{ workerId: string; leaseId: string }> = [];
+  const knowledgeEdgeCalls: unknown[][] = [];
   let refreshFailures = options.refreshFailures ?? 0;
   let captureLease: { workerId: string; leaseId: string } | null = null;
 
@@ -272,27 +273,33 @@ function queueStorage(
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.update("memory-capture-jobs", jobId, patch);
     },
-    async createMemoryCaptureMemory(leaseId: string, body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0]) {
+    async createMemoryCaptureMemory(
+      leaseId: string,
+      body: Parameters<NonNullable<StorageGateway["createMemory"]>>[0],
+      knowledgeEdges = [],
+    ) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      knowledgeEdgeCalls.push(knowledgeEdges);
       return storage.createMemory!(body);
     },
     async updateMemoryCaptureMemory(
       leaseId: string,
       memoryId: string,
       patch: Parameters<NonNullable<StorageGateway["updateMemory"]>>[1],
+      knowledgeEdges = [],
     ) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
+      knowledgeEdgeCalls.push(knowledgeEdges);
       return storage.updateMemory!(memoryId, patch);
     },
-    async patchMemoryCaptureMessageExtra(
-      leaseId: string,
-      messageId: string,
-      patch: Record<string, unknown>,
-    ) {
+    async patchMemoryCaptureMessageExtra(leaseId: string, messageId: string, patch: Record<string, unknown>) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.patchChatMessageExtra(messageId, patch);
     },
-    async rebuildMemoryCaptureIndex(leaseId: string, body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0]) {
+    async rebuildMemoryCaptureIndex(
+      leaseId: string,
+      body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0],
+    ) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.rebuildMemoryIndex!(body);
     },
@@ -323,6 +330,7 @@ function queueStorage(
     previewCalls,
     commitCalls,
     releaseCalls,
+    knowledgeEdgeCalls,
     revokeCaptureLease: () => {
       captureLease = null;
     },
@@ -331,6 +339,73 @@ function queueStorage(
 }
 
 describe("automatic memory capture queue", () => {
+  it("commits deterministic target and persona disclosure edges", async () => {
+    const harness = queueStorage({ chat: { id: "chat-1", mode: "roleplay", personaId: "persona-1" } });
+    await harness.enqueue();
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "{{user}}'s cat is named Miso.",
+            confidence: 0.97,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["user-1"],
+          },
+        ],
+      }),
+    );
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm });
+
+    expect(harness.knowledgeEdgeCalls).toHaveLength(1);
+    expect(harness.knowledgeEdgeCalls[0]).toEqual([
+      expect.objectContaining({ holder: { kind: "character", id: "char-1" }, stance: "believes" }),
+      expect.objectContaining({ holder: { kind: "persona", id: "persona-1" }, stance: "believes" }),
+    ]);
+  });
+
+  it("recovers formal-scene witnesses from queued jobs created before the participant field", async () => {
+    const harness = queueStorage({
+      chat: { id: "chat-1", mode: "roleplay", sceneId: "scene-1" },
+      characters: [
+        { id: "char-1", name: "Mira" },
+        { id: "char-2", name: "Sol" },
+      ],
+    });
+    harness.messages.set("assistant-1", {
+      ...message("assistant-1", "assistant", "Mira revealed the brass key."),
+      characterId: "char-1",
+    });
+    const queued = await harness.enqueue();
+    const legacyQueued = { ...queued };
+    delete legacyQueued.participantCharacterIds;
+    harness.jobs.set(queued!.id as string, legacyQueued);
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "scene_event",
+            content: "Mira revealed the brass key.",
+            confidence: 0.97,
+            evidence: "explicit_screen_event",
+            sourceMessageIds: ["assistant-1"],
+          },
+        ],
+      }),
+    );
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm });
+
+    expect(harness.knowledgeEdgeCalls[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ holder: { kind: "character", id: "char-1" }, stance: "knows" }),
+        expect.objectContaining({ holder: { kind: "character", id: "char-2" }, stance: "knows" }),
+        expect.objectContaining({ holder: { kind: "world", id: "world" }, stance: "knows" }),
+      ]),
+    );
+  });
+
   it("does not schedule durable capture on runtimes without lease support", async () => {
     vi.useFakeTimers();
     try {
@@ -479,10 +554,7 @@ describe("automatic memory capture queue", () => {
       leaseExpiresAt: "2000-01-01T00:00:00.000Z",
     });
     await expect(
-      processAutomaticMemoryCaptureQueue(
-        { storage: harness.storage, llm },
-        { now: "2100-01-01T00:00:00.000Z" },
-      ),
+      processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2100-01-01T00:00:00.000Z" }),
     ).resolves.toMatchObject({ completed: 1, retryable: 0 });
 
     const persisted = Array.from(harness.canonicalMemories.values());

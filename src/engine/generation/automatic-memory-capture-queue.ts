@@ -19,6 +19,7 @@ import { resolveBackgroundTextConnection } from "./background-llm-connection";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
+import { knowledgeEdgesForCapturedMemory } from "./automatic-memory-knowledge";
 
 export { beginForegroundGeneration } from "./background-generation-coordinator";
 
@@ -55,6 +56,8 @@ interface MemoryCaptureJob extends JsonRecord {
   scopeReason: "attributed_character" | "character_chat_only" | "ambiguous_scene" | "ambiguous_chat";
   characterId?: string | null;
   sceneId?: string | null;
+  personaId?: string | null;
+  participantCharacterIds: string[];
   connectionId?: string | null;
   model?: string | null;
   captureVersion: number;
@@ -252,6 +255,21 @@ function jobSourceIds(job: JsonRecord): string[] {
     .filter(Boolean);
 }
 
+function participantCharacterIdsFromJob(job: JsonRecord): string[] {
+  if (Array.isArray(job.participantCharacterIds)) {
+    return parseArray(job.participantCharacterIds)
+      .map((id) => readString(id).trim())
+      .filter(Boolean);
+  }
+  const formalScene = readString(job.mode).trim() === "roleplay" && Boolean(readString(job.sceneId).trim());
+  if (!formalScene) return [];
+  // Capture V2 jobs written before epistemic fields still retain the explicit
+  // formal-scene participant snapshot as characterLabels.
+  return Object.keys(parseRecord(job.characterLabels))
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
 async function updateJob(
   storage: StorageGateway,
   id: string,
@@ -402,7 +420,15 @@ export async function enqueueAutomaticMemoryCaptureJob(
   const chatId = readString(chat.id).trim() || assistant.chatId;
   if (!chatId || sourceMessageIds.length === 0) return null;
   const mode = readString(chat.mode || chat.chatMode).trim();
-  const sceneId = readString(chat.sceneId || chat.activeSceneId).trim() || null;
+  const metadata = parseRecord(chat.metadata);
+  const formalScene =
+    mode === "roleplay" &&
+    Boolean(
+      readString(metadata.sceneOriginChatId).trim() ||
+      readString(metadata.sceneStatus).trim() ||
+      readString(chat.sceneId).trim(),
+    );
+  const sceneId = readString(chat.sceneId || chat.activeSceneId).trim() || (formalScene ? chatId : null);
   const resolvedScope = resolveAutomaticMemoryScope({
     chatId,
     mode,
@@ -444,6 +470,10 @@ export async function enqueueAutomaticMemoryCaptureJob(
     scopeReason: resolvedScope.reason,
     characterId: resolvedScope.characterId,
     sceneId,
+    personaId: readString(chat.personaId).trim() || null,
+    participantCharacterIds: formalScene
+      ? Array.from(new Set(input.characters.map((character) => character.id.trim()).filter(Boolean)))
+      : [],
     connectionId: input.connectionId ?? null,
     model: input.model ?? null,
     captureVersion: AUTOMATIC_MEMORY_CAPTURE_VERSION,
@@ -552,13 +582,19 @@ export async function processAutomaticMemoryCaptureQueue(
       );
 
       try {
-        await patchMemoryCaptureStatus(storage, job, "processing", {
-          status: "processing",
-          jobId: id,
-          sourceMessageIds: jobSourceIds(job),
-          attempts,
-          updatedAt: now,
-        }, leaseId);
+        await patchMemoryCaptureStatus(
+          storage,
+          job,
+          "processing",
+          {
+            status: "processing",
+            jobId: id,
+            sourceMessageIds: jobSourceIds(job),
+            attempts,
+            updatedAt: now,
+          },
+          leaseId,
+        );
         const staleReason = await validateSourceMessages(storage, job);
         if (staleReason) {
           await updateJob(
@@ -572,14 +608,20 @@ export async function processAutomaticMemoryCaptureQueue(
             },
             leaseId,
           );
-          await patchMemoryCaptureStatus(storage, job, "failed", {
-            status: "failed",
-            jobId: id,
-            sourceMessageIds: jobSourceIds(job),
-            attempts,
-            failureCategory: "capture_unavailable",
-            updatedAt: now,
-          }, leaseId).catch(() => {});
+          await patchMemoryCaptureStatus(
+            storage,
+            job,
+            "failed",
+            {
+              status: "failed",
+              jobId: id,
+              sourceMessageIds: jobSourceIds(job),
+              attempts,
+              failureCategory: "capture_unavailable",
+              updatedAt: now,
+            },
+            leaseId,
+          ).catch(() => {});
           result.stale += 1;
           continue;
         }
@@ -614,8 +656,22 @@ export async function processAutomaticMemoryCaptureQueue(
           candidates: valueGate.acceptedCanonicalCandidates,
           eligibleMemories: extracted.eligibleMemories,
           now,
-          createMemory: (body) => storage.createMemoryCaptureMemory!(leaseId, body),
-          updateMemory: (memoryId, patch) => storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch),
+          knowledgeEdgesForMemory: (candidate, memoryId) =>
+            knowledgeEdgesForCapturedMemory({
+              memoryId,
+              memoryKind: candidate.kind,
+              scopeReason: readString(job.scopeReason).trim() as MemoryCaptureJob["scopeReason"],
+              characterId: readString(job.characterId).trim() || null,
+              personaId: readString(job.personaId).trim() || null,
+              sceneId: readString(job.sceneId).trim() || null,
+              participantCharacterIds: participantCharacterIdsFromJob(job),
+              sourceChatId: chatId,
+              sourceMessageIds,
+              now,
+            }),
+          createMemory: (body, knowledgeEdges) => storage.createMemoryCaptureMemory!(leaseId, body, knowledgeEdges),
+          updateMemory: (memoryId, patch, knowledgeEdges) =>
+            storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch, knowledgeEdges),
         });
         const consequences: PersistedCanonicalConsequence[] = persisted.affected;
         if (consequences.length > 0) {
@@ -724,16 +780,22 @@ export async function processAutomaticMemoryCaptureQueue(
           },
           leaseId,
         );
-        await patchMemoryCaptureStatus(storage, job, terminal ? "failed" : "retryable", {
-          status: terminal ? "failed" : "retryable",
-          jobId: id,
-          sourceMessageIds: jobSourceIds(job),
-          attempts,
-          ...(terminal
-            ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
-            : { nextAttemptAt }),
-          updatedAt: now,
-        }, leaseId).catch(() => {});
+        await patchMemoryCaptureStatus(
+          storage,
+          job,
+          terminal ? "failed" : "retryable",
+          {
+            status: terminal ? "failed" : "retryable",
+            jobId: id,
+            sourceMessageIds: jobSourceIds(job),
+            attempts,
+            ...(terminal
+              ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
+              : { nextAttemptAt }),
+            updatedAt: now,
+          },
+          leaseId,
+        ).catch(() => {});
         if (terminal) result.failed += 1;
         else result.retryable += 1;
       }

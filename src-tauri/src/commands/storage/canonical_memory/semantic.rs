@@ -254,9 +254,16 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
     let body = Value::Object(marinara_core::ensure_object(body)?);
     let query_text = require_body_string(&body, "queryText")?;
     let requested_connection_id = require_body_string(&body, "connectionId")?;
-    let queries = batch_queries(json!({
+    let mut queries = batch_queries(json!({
         "queries": body.get("queries").cloned().unwrap_or(Value::Null)
     }))?;
+    if body.get("epistemicPolicyVersion").and_then(Value::as_u64) == Some(1) {
+        for query in &mut queries {
+            if let Some(object) = query.as_object_mut() {
+                object.insert("epistemicPolicyVersion".to_string(), json!(1));
+            }
+        }
+    }
     if queries.is_empty() {
         return Ok(Value::Array(Vec::new()));
     }
@@ -734,7 +741,11 @@ mod tests {
 
         assert_eq!(selected.len(), MAX_SEMANTIC_CANDIDATES);
         assert_eq!(selected[0]["id"], json!("memory-00"));
-        assert!(selected.iter().any(|memory| memory["id"] == json!("memory-61")));
-        assert!(!selected.iter().any(|memory| memory["id"] == json!("memory-01")));
+        assert!(selected
+            .iter()
+            .any(|memory| memory["id"] == json!("memory-61")));
+        assert!(!selected
+            .iter()
+            .any(|memory| memory["id"] == json!("memory-01")));
     }
 }

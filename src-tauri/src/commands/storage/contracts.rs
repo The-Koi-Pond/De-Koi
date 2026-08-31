@@ -153,6 +153,7 @@ const CANONICAL_MEMORY_FIELDS: &[TypedJsonField] = &[
     array("tags"),
     object("payload"),
 ];
+const KNOWLEDGE_EDGE_FIELDS: &[TypedJsonField] = &[object("holder"), array("provenance")];
 const MEMORY_CAPTURE_JOB_FIELDS: &[TypedJsonField] =
     &[array("sourceMessageIds"), array("sourceMessages")];
 const STORY_CONSOLIDATION_JOB_FIELDS: &[TypedJsonField] = &[
@@ -475,6 +476,14 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         EMPTY_CLEANUP,
     ),
     contract(
+        "memory-knowledge-edges",
+        true,
+        false,
+        EMPTY_DEFAULTS,
+        KNOWLEDGE_EDGE_FIELDS,
+        EMPTY_CLEANUP,
+    ),
+    contract(
         "memory-index-rows",
         true,
         false,
@@ -778,5 +787,16 @@ mod tests {
             .typed_json_fields
             .iter()
             .any(|field| field.name == "active" && field.kind == TypedJsonKind::Boolish));
+
+        let edges = collection_contract("memory-knowledge-edges").expect("knowledge edge contract");
+        assert!(edges.profile);
+        assert!(edges
+            .typed_json_fields
+            .iter()
+            .any(|field| field.name == "holder" && field.kind == TypedJsonKind::JsonObject));
+        assert!(edges
+            .typed_json_fields
+            .iter()
+            .any(|field| field.name == "provenance" && field.kind == TypedJsonKind::JsonArray));
     }
 }

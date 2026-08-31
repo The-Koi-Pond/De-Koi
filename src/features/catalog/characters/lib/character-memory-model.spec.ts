@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/memory";
+import type { CanonicalMemoryRecord, KnowledgeEdge } from "../../../../engine/contracts/types/memory";
 import {
   characterMemoryImportPatch,
   characterMemoryStatusLabel,
@@ -8,6 +8,7 @@ import {
   createCharacterMemoryExport,
   normalizeChatMemoriesForCharacter,
   normalizeCharacterMemoryImport,
+  normalizeCharacterMemoryImportPackage,
 } from "./character-memory-model";
 
 describe("manual character memory", () => {
@@ -113,6 +114,50 @@ describe("character memory export", () => {
       nested: { keep: "yes" },
     });
   });
+
+  it("exports v2 with only the character's direct and world edges", () => {
+    const edges: KnowledgeEdge[] = [
+      {
+        id: "edge-character",
+        memoryId: "memory-1",
+        holder: { kind: "character", id: "source-character" },
+        stance: "believes",
+        status: "active",
+        provenance: [{ kind: "user_edit", author: "user", messageIds: [], createdAt: "2026-07-17T12:00:00.000Z" }],
+        createdAt: "2026-07-17T12:00:00.000Z",
+        updatedAt: "2026-07-17T12:00:00.000Z",
+      },
+      {
+        id: "edge-world",
+        memoryId: "memory-1",
+        holder: { kind: "world", id: "world" },
+        stance: "knows",
+        status: "active",
+        provenance: [{ kind: "user_edit", author: "user", messageIds: [], createdAt: "2026-07-17T12:00:00.000Z" }],
+        createdAt: "2026-07-17T12:00:00.000Z",
+        updatedAt: "2026-07-17T12:00:00.000Z",
+      },
+      {
+        id: "edge-other",
+        memoryId: "memory-1",
+        holder: { kind: "group", id: "group-1" },
+        stance: "suspects",
+        status: "active",
+        provenance: [],
+        createdAt: "2026-07-17T12:00:00.000Z",
+        updatedAt: "2026-07-17T12:00:00.000Z",
+      },
+    ];
+
+    const exported = createCharacterMemoryExport({
+      character: { id: "source-character", name: "Mira" },
+      memories: [memory()],
+      edges,
+    });
+
+    expect(exported.version).toBe(2);
+    expect(exported.edges.map((edge) => edge.id)).toEqual(["edge-character", "edge-world"]);
+  });
 });
 
 describe("character memory import", () => {
@@ -149,6 +194,38 @@ describe("character memory import", () => {
         }),
       }),
     );
+  });
+
+  it("accepts v2 and remaps memory and direct-character edge IDs", () => {
+    const exported = createCharacterMemoryExport({
+      character: { id: "source-character", name: "Mira" },
+      memories: [memory()],
+      edges: [{
+        id: "old-edge",
+        memoryId: "memory-1",
+        holder: { kind: "character", id: "source-character" },
+        stance: "believes",
+        status: "active",
+        confidence: 0.8,
+        provenance: [{ kind: "import", author: "system", messageIds: [], createdAt: "2026-07-17T12:00:00.000Z" }],
+        createdAt: "2026-07-17T12:00:00.000Z",
+        updatedAt: "2026-07-17T12:00:00.000Z",
+      }],
+    });
+
+    const imported = normalizeCharacterMemoryImportPackage(exported, {
+      characterId: "target-character",
+      importedAt: "2026-07-18T12:00:00.000Z",
+    });
+
+    expect(imported.edges).toEqual([
+      expect.objectContaining({
+        memoryId: imported.memories[0]?.id,
+        holder: { kind: "character", id: "target-character" },
+        stance: "believes",
+        status: "active",
+      }),
+    ]);
   });
 
   it("rejects non-character-memory envelopes", () => {

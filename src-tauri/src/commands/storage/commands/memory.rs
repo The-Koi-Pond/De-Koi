@@ -1,4 +1,4 @@
-use super::{canonical_memory, memory_capture, memory_maintenance};
+use super::{canonical_memory, knowledge_edges, memory_capture, memory_maintenance};
 use crate::state::AppState;
 use marinara_core::AppError;
 use serde_json::Value;
@@ -44,6 +44,38 @@ pub async fn memory_query_semantic(
     body: Value,
 ) -> Result<Value, AppError> {
     canonical_memory::query_memories_semantic(&state, body).await
+}
+
+#[tauri::command]
+pub fn knowledge_edge_capabilities() -> Result<Value, AppError> {
+    Ok(knowledge_edges::capabilities())
+}
+
+#[tauri::command]
+pub fn knowledge_edge_upsert(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    knowledge_edges::upsert_edge(&state, body)
+}
+
+#[tauri::command]
+pub fn knowledge_edge_query(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    knowledge_edges::query_edges(&state, body)
+}
+
+#[tauri::command]
+pub fn knowledge_edge_approve(
+    state: State<'_, AppState>,
+    edge_id: String,
+) -> Result<Value, AppError> {
+    knowledge_edges::approve_edge(&state, &edge_id)
+}
+
+#[tauri::command]
+pub fn knowledge_edge_invalidate(
+    state: State<'_, AppState>,
+    edge_id: String,
+    reason: String,
+) -> Result<Value, AppError> {
+    knowledge_edges::invalidate_edge(&state, &edge_id, &reason)
 }
 
 #[tauri::command]

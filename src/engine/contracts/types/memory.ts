@@ -12,6 +12,52 @@ export type MemoryKind =
 export type MemoryStatus = "active" | "superseded" | "stale" | "pinned" | "deleted";
 export type MemoryScopeKind = "user" | "character" | "chat" | "scene" | "world" | "agent";
 
+export type KnowledgeHolderKind = "character" | "persona" | "group" | "world";
+export type KnowledgeStance = "knows" | "believes" | "suspects" | "disbelieves" | "unknown";
+export type KnowledgeEdgeStatus = "active" | "proposed" | "invalidated";
+export type KnowledgeEvidenceKind =
+  | "user_edit"
+  | "targeted_disclosure"
+  | "scene_witness"
+  | "import"
+  | "supersession";
+
+export interface KnowledgeHolder {
+  kind: KnowledgeHolderKind;
+  id: string;
+}
+
+export interface KnowledgeEdgeProvenance {
+  kind: KnowledgeEvidenceKind;
+  author: "user" | "system";
+  sourceChatId?: string | null;
+  messageIds: string[];
+  sceneId?: string | null;
+  createdAt: string;
+}
+
+export interface KnowledgeEdge {
+  id: string;
+  memoryId: string;
+  holder: KnowledgeHolder;
+  stance: KnowledgeStance;
+  status: KnowledgeEdgeStatus;
+  confidence?: number | null;
+  provenance: KnowledgeEdgeProvenance[];
+  invalidatedReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type KnowledgeEdgeInput = Pick<KnowledgeEdge, "memoryId" | "holder" | "stance" | "provenance"> &
+  Partial<Pick<KnowledgeEdge, "status" | "confidence">>;
+
+export interface KnowledgeEdgeQuery {
+  memoryIds?: string[];
+  holders?: KnowledgeHolder[];
+  statuses?: KnowledgeEdgeStatus[];
+}
+
 export interface MemoryScope {
   kind: MemoryScopeKind;
   id: string;
@@ -146,6 +192,8 @@ export interface CanonicalMemoryQuery {
   scope?: MemoryScope;
   statuses?: MemoryStatus[];
   includeInactive?: boolean;
+  memoryIds?: string[];
+  epistemicPolicyVersion?: 1;
 }
 
 export interface CanonicalMemorySemanticQuery {
@@ -154,6 +202,7 @@ export interface CanonicalMemorySemanticQuery {
   connectionId: string;
   limit?: number;
   similarityThreshold?: number;
+  epistemicPolicyVersion?: 1;
 }
 
 export interface CanonicalMemorySemanticMatch {

@@ -1,8 +1,8 @@
 use super::{
     agents, avatars, canonical_memory, character_version_media, characters, chats,
     connection_secrets, contracts, customization, entity_images, game_state_snapshots,
-    integrations, lorebook_images, managed_thumbnails, media_uploads, memory_maintenance,
-    message_swipes, personas, prompts, shared, sprites,
+    integrations, knowledge_edges, lorebook_images, managed_thumbnails, media_uploads,
+    memory_maintenance, message_swipes, personas, prompts, shared, sprites,
 };
 use crate::builtins::is_protected_record;
 use crate::performance_diagnostics::{approx_json_bytes, log_span};
@@ -1438,6 +1438,7 @@ pub async fn storage_duplicate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage_commands::knowledge_edges;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state(label: &str) -> AppState {
@@ -1497,6 +1498,15 @@ mod tests {
             )
             .expect("index should seed");
         }
+        for character_id in ["char-1", "char-2"] {
+            knowledge_edges::upsert_edge(&state, json!({
+                "memoryId": "memory-char-2",
+                "holder": { "kind": "character", "id": character_id },
+                "stance": "knows",
+                "status": "active",
+                "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:00:00.000Z" }]
+            })).expect("edge should seed");
+        }
 
         delete_entity(&state, "characters", "char-1", false).expect("character should delete");
 
@@ -1519,6 +1529,23 @@ mod tests {
         assert!(remaining_index_rows
             .iter()
             .any(|row| row["id"] == json!("index-char-2")));
+        let edges = knowledge_edges::query_edges(&state, json!({ "memoryIds": ["memory-char-2"] }))
+            .expect("edges should list");
+        let edges = edges.as_array().unwrap();
+        assert_eq!(
+            edges
+                .iter()
+                .find(|edge| edge["holder"]["id"] == "char-1")
+                .unwrap()["invalidatedReason"],
+            json!("holder_deleted")
+        );
+        assert_eq!(
+            edges
+                .iter()
+                .find(|edge| edge["holder"]["id"] == "char-2")
+                .unwrap()["status"],
+            json!("active")
+        );
     }
 
     #[test]

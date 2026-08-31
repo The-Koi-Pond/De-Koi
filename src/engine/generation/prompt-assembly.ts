@@ -62,6 +62,7 @@ import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint"
 import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import { buildStoryContinuityContext } from "./story-continuity-context";
+import { epistemicSubjectsForGeneration } from "./epistemic-context";
 import {
   buildBehavioralExamplePool,
   selectBehavioralExamples,
@@ -4440,6 +4441,13 @@ export async function assembleGenerationPrompt(
   const canonicalMemoryCharacters = sourceSensitiveGroupTarget
     ? characters.filter((character) => character.id === sourceSensitiveGroupTarget)
     : characters;
+  const canonicalEpistemicSubjects = epistemicSubjectsForGeneration({
+    impersonate: input.request.impersonate === true,
+    persona: readString(input.chat.personaId).trim()
+      ? { id: readString(input.chat.personaId).trim(), name: persona?.name }
+      : null,
+    characters: canonicalMemoryCharacters,
+  });
   let embeddingSource =
     reusableContext && canReuseMacroSensitiveContext ? null : memoizedEmbeddingSource(input.embeddingSource);
   const macros = macroContext({
@@ -4671,6 +4679,7 @@ export async function assembleGenerationPrompt(
                   conversationFocus.canonicalMemoryMaxContext,
                 )
               : maxContext,
+            epistemicSubjects: canonicalEpistemicSubjects,
           }),
       buildConversationContextBlocks(storage, input, characters, wrapFormat, !!conversationFocus),
       loadPromptRegexScripts(),
@@ -4702,6 +4711,7 @@ export async function assembleGenerationPrompt(
           ...(canonicalMemoryContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
         ],
         maxContext,
+        epistemicSubjects: canonicalEpistemicSubjects,
       });
   const storyContinuityBlock = storyContinuityContext?.block ?? null;
   const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
