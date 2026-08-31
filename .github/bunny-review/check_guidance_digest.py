@@ -6,6 +6,8 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
+import time
 import tempfile
 from types import SimpleNamespace
 
@@ -198,17 +200,29 @@ def valid_review(label):
 
 
 class ChunkReviewCompletions:
-    def __init__(self, *, fail_once=None, fail_always=None, invalid_then_valid=None):
+    def __init__(
+        self,
+        *,
+        fail_once=None,
+        fail_always=None,
+        invalid_then_valid=None,
+        delay_seconds=0,
+    ):
         self.calls = []
         self.fail_once = fail_once
         self.fail_always = fail_always
         self.invalid_then_valid = invalid_then_valid
+        self.delay_seconds = delay_seconds
         self.chunk_attempts = {}
+        self.active_chunk_calls = 0
+        self.max_active_chunk_calls = 0
+        self.lock = threading.Lock()
 
     def create(self, **kwargs):
-        self.calls.append(kwargs)
         prompt = "\n".join(message["content"] for message in kwargs["messages"])
         if "# Chunk Review Results" in prompt:
+            with self.lock:
+                self.calls.append(kwargs)
             payload = valid_review("final judge")
             if "PRIOR_CONTRACT_MARKER" in prompt:
                 payload["findings"] = [
@@ -227,15 +241,31 @@ class ChunkReviewCompletions:
                 for index in range(1, 9)
                 if f"BUNNY_CHUNK_PACKET_{index}" in prompt
             )
-            self.chunk_attempts[chunk_index] = self.chunk_attempts.get(chunk_index, 0) + 1
-            if chunk_index == self.fail_always:
-                raise TimeoutError("scripted exhausted chunk timeout")
-            if chunk_index == self.fail_once and self.chunk_attempts[chunk_index] == 1:
-                raise TimeoutError("scripted transient chunk timeout")
-            if chunk_index == self.invalid_then_valid and self.chunk_attempts[chunk_index] <= 2:
-                payload = {"findings": []}
-            else:
-                payload = valid_review(f"chunk {chunk_index}")
+            with self.lock:
+                self.calls.append(kwargs)
+                self.chunk_attempts[chunk_index] = (
+                    self.chunk_attempts.get(chunk_index, 0) + 1
+                )
+                attempt = self.chunk_attempts[chunk_index]
+                self.active_chunk_calls += 1
+                self.max_active_chunk_calls = max(
+                    self.max_active_chunk_calls,
+                    self.active_chunk_calls,
+                )
+            try:
+                if self.delay_seconds:
+                    time.sleep(self.delay_seconds)
+                if chunk_index == self.fail_always:
+                    raise TimeoutError("scripted exhausted chunk timeout")
+                if chunk_index == self.fail_once and attempt == 1:
+                    raise TimeoutError("scripted transient chunk timeout")
+                if chunk_index == self.invalid_then_valid and attempt <= 2:
+                    payload = {"findings": []}
+                else:
+                    payload = valid_review(f"chunk {chunk_index}")
+            finally:
+                with self.lock:
+                    self.active_chunk_calls -= 1
         return SimpleNamespace(
             usage=None,
             choices=[
@@ -276,7 +306,7 @@ def run_chunk_orchestration_case(module):
         "PRIOR_CONTRACT_MARKER",
     )
 
-    normal_completions = ChunkReviewCompletions()
+    normal_completions = ChunkReviewCompletions(delay_seconds=0.02)
     normal_client = SimpleNamespace(
         chat=SimpleNamespace(completions=normal_completions)
     )
@@ -294,6 +324,10 @@ def run_chunk_orchestration_case(module):
     assert normal_review["findings"][0]["title"] == "Prior contract remains open"
     assert len(normal_completions.calls) == 9, "eight chunks should need one call each plus one judge"
     assert normal_stats["model_calls"] == 9
+    assert normal_completions.max_active_chunk_calls >= 2, (
+        "large-PR chunks must overlap instead of consuming the workflow budget sequentially"
+    )
+    assert normal_completions.max_active_chunk_calls <= module.MAX_CHUNK_REVIEW_WORKERS
     judge_prompt = "\n".join(
         message["content"] for message in normal_completions.calls[-1]["messages"]
     )
@@ -301,6 +335,12 @@ def run_chunk_orchestration_case(module):
     assert "# Prior Bunny Repair Contracts\nPRIOR_CONTRACT_MARKER" in judge_prompt
     assert "BUNNY_CHUNK_PACKET_" not in judge_prompt
     assert "PRIVATE_PACKET_TEXT_" not in judge_prompt
+    chunk_positions = [
+        judge_prompt.index(f'"chunk_index":{index}') for index in range(1, 9)
+    ]
+    assert chunk_positions == sorted(chunk_positions), (
+        "parallel chunk completion must not reorder final-judge evidence"
+    )
     telemetry = normal_output.getvalue()
     assert "chunk=1/8" in telemetry
     assert "chunk=8/8" in telemetry
@@ -365,7 +405,9 @@ def run_chunk_orchestration_case(module):
             pass
         else:
             raise AssertionError("an exhausted chunk must fail the full review")
-    assert exhausted_completions.chunk_attempts == {1: 1, 2: 2}
+    assert exhausted_completions.chunk_attempts == {
+        index: (2 if index == 2 else 1) for index in range(1, 9)
+    }
     assert not any(
         "# Chunk Review Results"
         in "\n".join(message["content"] for message in call["messages"])

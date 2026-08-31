@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 REPO_ROOT = pathlib.Path.cwd().resolve()
@@ -40,6 +41,7 @@ MAX_CONTRACT_STATE_LIST_ITEMS = 3
 DEFAULT_MODEL_REQUEST_TIMEOUT = 120
 MODEL_MAX_RETRIES = 1
 CHUNK_REVIEW_MAX_ATTEMPTS = 2
+MAX_CHUNK_REVIEW_WORKERS = 4
 SECRET_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|passwd|authorization|bearer|client[_-]?secret)"
     r"(\s*[:=]\s*|\s+)([^\s'\"`;&|]+)"
@@ -77,6 +79,10 @@ def positive_int_env(name, default):
 MODEL_REQUEST_TIMEOUT = positive_int_env(
     "BUNNY_MODEL_REQUEST_TIMEOUT_SECONDS",
     DEFAULT_MODEL_REQUEST_TIMEOUT,
+)
+CHUNK_REVIEW_WORKERS = min(
+    positive_int_env("BUNNY_CHUNK_REVIEW_WORKERS", MAX_CHUNK_REVIEW_WORKERS),
+    MAX_CHUNK_REVIEW_WORKERS,
 )
 
 
@@ -594,6 +600,20 @@ def build_stats(review_packet):
     }
 
 
+def merge_stats(totals, partial):
+    for key in (
+        "model_calls",
+        "extra_context_chars",
+        "context_files",
+        "context_searches",
+        "prompt_tokens",
+        "completion_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+    ):
+        totals[key] += partial[key]
+
+
 def print_telemetry(stats):
     elapsed = time.monotonic() - stats["started_at"]
     print(
@@ -907,16 +927,44 @@ def judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats):
 
 
 def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
+    worker_count = min(CHUNK_REVIEW_WORKERS, len(chunk_inputs))
+    print(
+        "Bunny chunk concurrency: "
+        f"workers={worker_count}; chunks={len(chunk_inputs)}",
+        flush=True,
+    )
     chunk_reviews = []
-    for chunk_input in chunk_inputs:
-        review = review_chunk_with_retry(client, skill, chunk_input, stats)
-        chunk_reviews.append(
-            {
-                "chunk_index": chunk_input["index"],
-                "focus_files": chunk_input["focus_files"],
-                "review": review,
-            }
-        )
+    failures = []
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        pending = []
+        for chunk_input in chunk_inputs:
+            chunk_stats = build_stats("")
+            future = executor.submit(
+                review_chunk_with_retry,
+                client,
+                skill,
+                chunk_input,
+                chunk_stats,
+            )
+            pending.append((chunk_input, chunk_stats, future))
+        for chunk_input, chunk_stats, future in pending:
+            try:
+                review = future.result()
+            except Exception as exc:
+                failures.append((chunk_input["index"], exc))
+            else:
+                chunk_reviews.append(
+                    {
+                        "chunk_index": chunk_input["index"],
+                        "focus_files": chunk_input["focus_files"],
+                        "review": review,
+                    }
+                )
+            finally:
+                merge_stats(stats, chunk_stats)
+    if failures:
+        failures.sort(key=lambda item: item[0])
+        raise failures[0][1]
     return judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats)
 
 
