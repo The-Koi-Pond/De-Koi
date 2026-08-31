@@ -130,8 +130,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": null,
-    "url": "",
+    "number": 1279,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1279",
     "headRefName": "fix/roleplay-opening-beat-contract",
     "baseRefName": "main",
     "healthStatus": "pending",
