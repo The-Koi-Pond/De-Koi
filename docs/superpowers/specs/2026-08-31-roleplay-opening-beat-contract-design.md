@@ -10,15 +10,15 @@ The live `Scene: Everybody Gets Ice Cream` prompt demonstrated the failure: its 
 
 Keep `firstMessage` for schema compatibility, but define it as a compact beat brief rather than publishable prose. The planner prompt will request one to three plain sentences describing concrete participants, actions, and immediate pressure; it will reject scripted dialogue, figurative flourishes, editorial asides, and camera-like staging. A brief exact line is allowed only when the user explicitly requested those words, and it remains inside the same hard limit.
 
-Enforce the contract at the Roleplay scene-plan owner with a sentence-aware character ceiling. This prevents an overlong or noncompliant planner response from becoming a second high-authority prose sample. The downstream Roleplay writer, preset, character examples, and scene-opening routing remain unchanged.
+Enforce the contract at the Roleplay scene-plan owner with a sentence-aware character ceiling and script-shape validation. Planner output with unrequested quoted dialogue or more than three sentences is replaced by a neutral beat directive; exact dialogue remains allowed only when those words appear in the user's request. The local fallback uses the same neutral directive. This prevents both long and short scripted planner responses from becoming a second high-authority prose sample. The downstream Roleplay writer, preset, character examples, and scene-opening routing remain unchanged.
 
 ## Scope and Risk
 
 - Owner: `src/engine/modes/roleplay/scene/scene-service.ts`.
 - Affected path: generated openings for newly planned Roleplay scenes.
 - Not affected: existing scenes, normal Conversation replies, Game mode, character cards, presets, or provider transport.
-- Residual risk: a short beat can still contain weak wording, but it can no longer dominate the writer with a near-complete scripted response.
+- Residual risk: a short non-dialogue beat can still contain weak wording, but it can no longer dominate the writer with a long response or unrequested scripted dialogue.
 
 ## Proof
 
-A focused scene-service regression will capture the planner request and return an intentionally overlong `firstMessage`. It must prove both sides of the contract: the planner is told to produce a brief rather than prose, and the sanitized plan cannot carry a near-complete opening into the writer.
+Focused scene-service regressions capture the planner request and exercise both an overlong `firstMessage` and a short dialogue-heavy script. They prove the planner is told to produce a brief, invalid script-shaped output is replaced before writer consumption, exact user-requested dialogue survives, and the fallback cannot introduce its own prose sample.

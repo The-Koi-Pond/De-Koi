@@ -5,7 +5,7 @@
     "title": "Keep generated Roleplay openings as beat briefs",
     "source": "Live inspection of Scene: Everybody Gets Ice Cream on the Pi.",
     "classification": "Roleplay scene planning prompt contract",
-    "status": "waiting_on_ci"
+    "status": "ready_to_push_review_fix"
   },
   "coreClaim": "New generated Roleplay scenes cannot pass a near-complete planner-written response into the Roleplay writer as the planned opening beat.",
   "rootCause": "The scene planner defined firstMessage as narration-style prose with no size boundary, so the Narrator Guide supplied the writer with a second, nearly complete response that overrode the intended fresh prose behavior.",
@@ -59,7 +59,7 @@
     "producer": "src/engine/modes/roleplay/scene/scene-service.ts",
     "consumer": "Roleplay opening generation through buildRoleplaySceneOpeningGuide",
     "impliedContract": "The planner chooses the opening situation and the Roleplay writer realizes it using current scene and style context.",
-    "actualEnforcement": "The planner requests a one-to-three-sentence beat brief and the scene service sentence-bounds overlong output to 360 characters.",
+    "actualEnforcement": "The planner requests a one-to-three-sentence beat brief; the scene service bounds output to 360 characters and replaces unrequested dialogue or more than three sentences with a neutral beat directive.",
     "primaryOwnerLane": "src/engine",
     "primaryOwnerDetail": "The Roleplay scene service owns scene-plan semantics.",
     "consumerOnlyLanes": [],
@@ -67,6 +67,8 @@
     "regressionProof": [
       "The focused test captures the planner request and requires the beat-brief contract.",
       "The same test returns an overlong scripted plan and proves the persisted firstMessage is bounded before writer consumption.",
+      "A short dialogue-heavy planner response is replaced even though it fits under the character ceiling.",
+      "Exact dialogue is preserved only when the user supplied those words, and the local fallback uses the neutral beat directive.",
       "Existing multiline normalization coverage proves short planner text remains unchanged."
     ]
   },
@@ -79,6 +81,10 @@
       {
         "claim": "The planner is explicitly asked for planning intent rather than finished prose.",
         "evidence": "The captured LLM system request contains compact beat brief, not finished prose and the no-scripted-dialogue rule."
+      },
+      {
+        "claim": "A short scripted opening cannot evade the size limit.",
+        "evidence": "scene-service.spec.ts returns a sub-360-character ice-cream script with unrequested dialogue and requires the neutral beat directive instead."
       }
     ],
     "contradictionRows": [
@@ -106,17 +112,28 @@
     }
   ],
   "userActionCopy": [],
-  "reviewThreadLedger": [],
+  "reviewThreadLedger": [
+    {
+      "finding": "Bunny found that the character ceiling still allowed a short dialogue-heavy finished opening through unchanged.",
+      "disposition": "fixed",
+      "fix": "The sanitizer now checks beat shape, replaces unrequested scripted dialogue, and covers the local fallback; focused negative and exact-dialogue tests pass.",
+      "humanResolutionRequired": false,
+      "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1279#discussion_r3898813194"
+    }
+  ],
   "manualBlockers": [],
   "verification": {
     "originalReproPassed": true,
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm vitest run src/engine/modes/roleplay/scene/scene-service.spec.ts; pnpm typecheck; pnpm check:architecture; pnpm check; git diff --check",
-    "baselineEvidence": "42 focused scene-service tests, pnpm typecheck, pnpm check:architecture, git diff --check, and full pnpm check passed; unused-code output remained warning-only.",
+    "baselineEvidence": "45 focused scene-service tests and full pnpm check passed after the Bunny follow-up; unused-code output remained warning-only.",
     "githubValidationPassed": false,
     "negativeRowsTested": [
       "Overlong finished-prose opening cannot pass through unchanged",
+      "Short dialogue-heavy opening cannot evade the character ceiling",
+      "Exact user-requested dialogue remains allowed",
+      "Local fallback does not contribute finished opening prose",
       "Short multiline planner text remains unchanged"
     ]
   },
@@ -126,7 +143,7 @@
     "versionCheckStatus": "not_applicable",
     "dbPushStatus": "not_applicable",
     "ciStatus": "pending",
-    "bunnyReviewStatus": "passed_local",
+    "bunnyReviewStatus": "passed_local_after_fix",
     "prHealthStatus": "pending"
   },
   "pr": {

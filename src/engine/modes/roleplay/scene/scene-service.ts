@@ -75,6 +75,8 @@ const SCENE_PARTICIPATION_GUIDE = "";
 
 const SCENE_PLAN_HISTORY_LIMIT = 20;
 const SCENE_OPENING_BEAT_MAX_CHARS = 360;
+const SCENE_GENERIC_OPENING_BEAT =
+  "Open on the planned scene's immediate situation and pressure, with the listed participants already present.";
 const SCENE_FALLBACK_HISTORY_LIMIT = 8;
 const SCENE_CONVERSATION_CONTEXT_LIMIT = 24;
 
@@ -174,7 +176,7 @@ export async function planRoleplayScene(
         error: "The model did not return valid scene-plan JSON, so De-Koi used a local fallback plan.",
       };
     }
-    return { plan: sanitizeScenePlan(parsed, fallback, allowedCharacterIds) };
+    return { plan: sanitizeScenePlan(parsed, fallback, allowedCharacterIds, prompt) };
   } catch (error) {
     return {
       plan: fallback,
@@ -892,7 +894,7 @@ async function fallbackScenePlan(storage: StorageGateway, chatId: string, prompt
     scenario: history
       ? `Use the recent conversation as continuity and develop this premise: ${premise}\n\nRecent context:\n${history}`
       : premise,
-    firstMessage: `The moment settles into focus. ${premise}`,
+    firstMessage: SCENE_GENERIC_OPENING_BEAT,
     background: null,
     characterIds,
     systemPrompt: SCENE_SYSTEM_PROMPT,
@@ -1114,7 +1116,12 @@ function uniqueStrings(values: string[]): string[] {
   return result;
 }
 
-function sanitizeScenePlan(parsed: JsonRecord, fallback: SceneFullPlan, allowedCharacterIds: string[]): SceneFullPlan {
+function sanitizeScenePlan(
+  parsed: JsonRecord,
+  fallback: SceneFullPlan,
+  allowedCharacterIds: string[],
+  request: string,
+): SceneFullPlan {
   const requestedIds = stringArray(parsed.characterIds);
   const characterIds =
     requestedIds.length === 0
@@ -1128,6 +1135,7 @@ function sanitizeScenePlan(parsed: JsonRecord, fallback: SceneFullPlan, allowedC
     scenario: normalizePlannerText(stringValue(parsed.scenario)) || fallback.scenario,
     firstMessage: trimSceneOpeningBeat(
       normalizePlannerText(stringValue(parsed.firstMessage)) || fallback.firstMessage,
+      request,
     ),
     background: null,
     characterIds,
@@ -1146,10 +1154,22 @@ function normalizePlannerText(value: string): string {
     .replace(/\\t/g, "\t");
 }
 
-function trimSceneOpeningBeat(value: string): string {
-  return value.length <= SCENE_OPENING_BEAT_MAX_CHARS
-    ? value
-    : sentenceBoundaryTrim(value, SCENE_OPENING_BEAT_MAX_CHARS - 3);
+function trimSceneOpeningBeat(value: string, request: string): string {
+  const beat = isScriptedSceneOpening(value, request) ? SCENE_GENERIC_OPENING_BEAT : value;
+  return beat.length <= SCENE_OPENING_BEAT_MAX_CHARS
+    ? beat
+    : sentenceBoundaryTrim(beat, SCENE_OPENING_BEAT_MAX_CHARS - 3);
+}
+
+function isScriptedSceneOpening(value: string, request: string): boolean {
+  const sentenceCount = value.match(/[.!?](?:\s|$)/g)?.length ?? 0;
+  if (sentenceCount > 3) return true;
+
+  const dialogue = [...value.matchAll(/["“]([^"”]+)["”]/g)].map((match) => match[1]?.trim()).filter(Boolean);
+  if (dialogue.length === 0) return false;
+
+  const normalizedRequest = request.toLocaleLowerCase().replace(/\s+/g, " ");
+  return dialogue.some((line) => !normalizedRequest.includes(line.toLocaleLowerCase().replace(/\s+/g, " ")));
 }
 
 function safeTitle(value: string, fallback: string): string {

@@ -26,19 +26,19 @@
 - Consumes: planner JSON field `firstMessage: string`.
 - Produces: `SceneFullPlan.firstMessage` as a compact, sentence-bounded beat brief.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Capture the outgoing `LlmRequest`, return an overlong multi-sentence opening, and assert that the system contract requests a beat brief while the returned plan is bounded.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `pnpm vitest run src/engine/modes/roleplay/scene/scene-service.spec.ts`
 
 Expected: the new contract assertion fails against the current planner prompt and unbounded response.
 
-- [ ] **Step 3: Implement the minimal owner fix**
+- [x] **Step 3: Implement the minimal owner fix**
 
-Add a named opening-beat character limit, update the planner system instruction, and apply the existing sentence-aware trimming helper when sanitizing `firstMessage`.
+Add a named opening-beat character limit, update the planner system instruction, apply the existing sentence-aware trimming helper, and replace short script-shaped output unless its dialogue was supplied verbatim by the user.
 
 - [ ] **Step 4: Verify GREEN and the shipping baseline**
 
