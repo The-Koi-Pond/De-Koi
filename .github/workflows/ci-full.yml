@@ -167,7 +167,7 @@ jobs:
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.0.10
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
@@ -217,7 +217,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - uses: taiki-e/install-action@v2.85.2
+      - uses: taiki-e/install-action@v2.86.7
         with:
           tool: nextest,cargo-deny,cargo-machete
       - name: Install Tauri Linux dependencies
@@ -260,7 +260,7 @@ jobs:
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.0.10
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
