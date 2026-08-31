@@ -282,13 +282,12 @@ class ChunkReviewCompletions:
 
 
 class CancellableChunkClient:
-    def __init__(self, *, close_releases=True):
+    def __init__(self):
         self.started = threading.Barrier(4)
         self.release = threading.Event()
         self.closed = threading.Event()
         self.calls = []
         self.lock = threading.Lock()
-        self.close_releases = close_releases
         self.chat = SimpleNamespace(completions=self)
 
     def create(self, **kwargs):
@@ -319,12 +318,6 @@ class CancellableChunkClient:
                 )
             ],
         )
-
-    def close(self):
-        self.closed.set()
-        if self.close_releases:
-            self.release.set()
-
 
 def chunk_inputs():
     return [
@@ -484,14 +477,16 @@ def run_chunk_orchestration_case(module):
     else:
         raise AssertionError("an exhausted chunk must fail the in-flight review")
     assert time.monotonic() - in_flight_started < 0.5, (
-        "closing the shared client must promptly release in-flight chunk calls"
+        "daemon chunk workers must not keep the orchestrator waiting after failure"
     )
-    assert in_flight_client.closed.is_set()
     assert set(in_flight_client.calls) == set(
         range(1, module.CHUNK_REVIEW_WORKERS + 1)
     ), "cancellation must prevent retries and new calls beyond the active window"
+    in_flight_client.release.set()
+    time.sleep(0.05)
 
-    no_op_close_client = CancellableChunkClient(close_releases=False)
+    no_op_close_client = CancellableChunkClient()
+    no_op_stats = module.build_stats("")
     with contextlib.redirect_stdout(io.StringIO()):
         no_op_started = time.monotonic()
         try:
@@ -499,22 +494,26 @@ def run_chunk_orchestration_case(module):
                 no_op_close_client,
                 "review skill",
                 chunk_inputs(),
-                module.build_stats(""),
+                no_op_stats,
                 review_context,
             )
         except TimeoutError:
             pass
         else:
-            raise AssertionError("a root failure must escape a no-op client close")
+            raise AssertionError("a root failure must escape active daemon workers")
         no_op_elapsed = time.monotonic() - no_op_started
+        stable_failure_stats = dict(no_op_stats)
         no_op_close_client.release.set()
         time.sleep(0.05)
     assert no_op_elapsed < 0.5, (
-        "the orchestrator must not wait for unrelated in-flight calls when close is a no-op"
+        "the orchestrator must not drain unrelated in-flight calls"
     )
     assert set(no_op_close_client.calls) == set(
         range(1, module.CHUNK_REVIEW_WORKERS + 1)
-    ), "a no-op client close must not allow retries or another chunk to start"
+    ), "active daemon workers must not allow retries or another chunk to start"
+    assert no_op_stats == stable_failure_stats, (
+        "late worker completion must not mutate merged failure telemetry"
+    )
 
     try:
         module.review_chunked_packets(

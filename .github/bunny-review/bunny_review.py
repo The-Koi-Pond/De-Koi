@@ -10,9 +10,9 @@ import re
 import shutil
 import subprocess
 import time
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from threading import Event
+from queue import Empty, Queue
+from threading import Event, Thread
 
 REPO_ROOT = pathlib.Path.cwd().resolve()
 BUNNY_MARKER = "<!-- bunny-review:walkthrough -->"
@@ -1000,10 +1000,8 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
     chunk_reviews_by_index = {}
     failures = []
     stop_event = Event()
-    executor = ThreadPoolExecutor(max_workers=worker_count)
-    wait_for_workers = True
-    pending = {}
-    chunk_stats_records = []
+    completed = Queue()
+    active = {}
     next_chunk = 0
 
     def submit_next_chunk():
@@ -1011,56 +1009,57 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
         chunk_input = chunk_inputs[next_chunk]
         next_chunk += 1
         chunk_stats = build_stats("")
-        chunk_stats_records.append(chunk_stats)
-        future = executor.submit(
-            review_chunk_with_retry,
-            client,
-            skill,
-            chunk_input,
-            chunk_stats,
-            stop_event=stop_event,
-        )
-        pending[future] = (chunk_input, chunk_stats)
+        index = chunk_input["index"]
 
-    try:
-        while next_chunk < len(chunk_inputs) and len(pending) < worker_count:
-            submit_next_chunk()
-        while pending:
-            completed, _ = wait(pending, return_when=FIRST_COMPLETED)
-            for future in completed:
-                chunk_input, _ = pending.pop(future)
+        def run_chunk():
+            try:
+                review = review_chunk_with_retry(
+                    client,
+                    skill,
+                    chunk_input,
+                    chunk_stats,
+                    stop_event=stop_event,
+                )
+            except Exception as exc:
+                completed.put((chunk_input, chunk_stats, None, exc))
+            else:
+                completed.put((chunk_input, chunk_stats, review, None))
+
+        worker = Thread(
+            target=run_chunk,
+            name=f"bunny-chunk-{index}",
+            daemon=True,
+        )
+        active[index] = worker
+        worker.start()
+
+    def record_completed(result):
+        chunk_input, chunk_stats, review, error = result
+        active.pop(chunk_input["index"], None)
+        merge_stats(stats, dict(chunk_stats))
+        if error is not None:
+            failures.append((chunk_input["index"], error))
+            return
+        chunk_reviews_by_index[chunk_input["index"]] = {
+            "chunk_index": chunk_input["index"],
+            "focus_files": chunk_input["focus_files"],
+            "review": review,
+        }
+
+    while next_chunk < len(chunk_inputs) and len(active) < worker_count:
+        submit_next_chunk()
+    while active:
+        record_completed(completed.get())
+        if failures:
+            stop_event.set()
+            while True:
                 try:
-                    review = future.result()
-                except Exception as exc:
-                    failures.append((chunk_input["index"], exc))
-                else:
-                    chunk_reviews_by_index[chunk_input["index"]] = {
-                        "chunk_index": chunk_input["index"],
-                        "focus_files": chunk_input["focus_files"],
-                        "review": review,
-                    }
-            if failures:
-                wait_for_workers = False
-                stop_event.set()
-                close_client = getattr(client, "close", None)
-                if callable(close_client):
-                    try:
-                        close_client()
-                    except Exception as exc:
-                        print(
-                            "Bunny chunk cancellation: "
-                            f"client_close_failed={type(exc).__name__}",
-                            flush=True,
-                        )
-                for future in pending:
-                    future.cancel()
-                break
-            while next_chunk < len(chunk_inputs) and len(pending) < worker_count:
-                submit_next_chunk()
-    finally:
-        executor.shutdown(wait=wait_for_workers, cancel_futures=True)
-        for chunk_stats in chunk_stats_records:
-            merge_stats(stats, chunk_stats)
+                    record_completed(completed.get_nowait())
+                except Empty:
+                    break
+            break
+        while next_chunk < len(chunk_inputs) and len(active) < worker_count:
+            submit_next_chunk()
 
     if failures:
         root_failures = [
