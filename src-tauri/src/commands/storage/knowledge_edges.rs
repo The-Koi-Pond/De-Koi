@@ -204,6 +204,8 @@ fn upsert_normalized(
         );
         if string(record.get("status")) != "invalidated" {
             record.insert("invalidatedReason".to_string(), Value::Null);
+        } else if let Some(reason) = existing_object.get("invalidatedReason") {
+            record.insert("invalidatedReason".to_string(), reason.clone());
         }
         record.insert("updatedAt".to_string(), Value::String(now.to_string()));
         *existing = Value::Object(record);
@@ -453,21 +455,31 @@ pub(crate) fn invalidate_message_sources(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
+        let mut changed = false;
         let retained = provenance
             .iter()
-            .filter(|evidence| {
-                !evidence
-                    .get("messageIds")
-                    .and_then(Value::as_array)
-                    .is_some_and(|ids| {
-                        ids.iter()
-                            .filter_map(Value::as_str)
-                            .any(|id| source_ids.contains(id))
-                    })
+            .filter_map(|evidence| {
+                let Some(message_ids) = evidence.get("messageIds").and_then(Value::as_array) else {
+                    return Some(evidence.clone());
+                };
+                let remaining = message_ids
+                    .iter()
+                    .filter(|id| id.as_str().is_none_or(|id| !source_ids.contains(id)))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if remaining.len() == message_ids.len() {
+                    return Some(evidence.clone());
+                }
+                changed = true;
+                if remaining.is_empty() {
+                    return None;
+                }
+                let mut trimmed = evidence.clone();
+                trimmed["messageIds"] = Value::Array(remaining);
+                Some(trimmed)
             })
-            .cloned()
             .collect::<Vec<_>>();
-        if retained.len() == provenance.len() {
+        if !changed {
             continue;
         }
         let object = row
@@ -681,5 +693,48 @@ mod tests {
         assert_eq!(rows[0]["status"], json!("active"));
         assert_eq!(rows[0]["provenance"].as_array().unwrap().len(), 1);
         assert_eq!(rows[0]["provenance"][0]["messageIds"], json!(["message-2"]));
+    }
+
+    #[test]
+    fn removing_one_message_from_shared_evidence_preserves_the_other_reference() {
+        let state = test_state("shared-evidence");
+        seed_memory(&state, "memory-1");
+        upsert_edge(&state, input("active", &["message-1", "message-2"])).unwrap();
+
+        state
+            .storage
+            .update_collections_atomically(vec![COLLECTION], |collections| {
+                invalidate_message_sources_in_collections(
+                    collections,
+                    0,
+                    &["message-1".to_string()],
+                    "source_message_edited",
+                )
+            })
+            .unwrap();
+
+        let rows = query_edges(&state, json!({ "memoryIds": ["memory-1"] })).unwrap();
+        assert_eq!(rows[0]["status"], json!("active"));
+        assert_eq!(rows[0]["provenance"][0]["messageIds"], json!(["message-2"]));
+    }
+
+    #[test]
+    fn replaying_an_invalidated_edge_preserves_its_reason() {
+        let state = test_state("invalidated-replay");
+        seed_memory(&state, "memory-1");
+        let edge = upsert_edge(&state, input("active", &["message-1"])).unwrap();
+        invalidate_edge(
+            &state,
+            edge["id"].as_str().unwrap(),
+            "source_message_deleted",
+        )
+        .unwrap();
+
+        let replayed = upsert_edge(&state, input("invalidated", &["message-1"])).unwrap();
+        assert_eq!(replayed["status"], json!("invalidated"));
+        assert_eq!(
+            replayed["invalidatedReason"],
+            json!("source_message_deleted")
+        );
     }
 }

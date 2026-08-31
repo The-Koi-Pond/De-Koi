@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryRecord, KnowledgeEdge, StoryProjectionPayload } from "../contracts/types/memory";
 import { buildStoryContinuityContext } from "./story-continuity-context";
@@ -22,7 +22,13 @@ function projection(
     boundaryReason: level === "episode" ? "message_threshold" : null,
     sourceEpisodeIds: options.sourceEpisodeIds ?? [],
     sections: {
-      events: [], choices: [], relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [], currentState: [],
+      events: [],
+      choices: [],
+      relationshipShifts: [],
+      promises: [],
+      reveals: [],
+      unresolvedHooks: [],
+      currentState: [],
     },
     summarizer: { version: "story-projection-v1", completedAt: options.createdAt ?? "2026-01-01T00:00:00.000Z" },
   };
@@ -50,13 +56,19 @@ describe("story continuity prompt context", () => {
   it("selects a recent episode, relevant older episode, and a non-duplicating arc", async () => {
     const rows = [
       projection("ep-1", "episode", ["m1", "m2"], "Mara found the brass key.", { createdAt: "2026-01-01T00:00:00Z" }),
-      projection("ep-2", "episode", ["m3", "m4"], "The party crossed the frozen lake.", { createdAt: "2026-01-02T00:00:00Z" }),
-      projection("ep-3", "episode", ["m5", "m6"], "Mara promised to return the brass key.", { createdAt: "2026-01-03T00:00:00Z" }),
+      projection("ep-2", "episode", ["m3", "m4"], "The party crossed the frozen lake.", {
+        createdAt: "2026-01-02T00:00:00Z",
+      }),
+      projection("ep-3", "episode", ["m5", "m6"], "Mara promised to return the brass key.", {
+        createdAt: "2026-01-03T00:00:00Z",
+      }),
       projection("arc-1", "arc", ["m1", "m2", "m3", "m4"], "The northern journey began.", {
-        sourceEpisodeIds: ["ep-1", "ep-2"], createdAt: "2026-01-04T00:00:00Z",
+        sourceEpisodeIds: ["ep-1", "ep-2"],
+        createdAt: "2026-01-04T00:00:00Z",
       }),
       projection("arc-2", "arc", ["m7", "m8"], "The court conspiracy deepened.", {
-        sourceEpisodeIds: ["ep-4", "ep-5"], createdAt: "2026-01-05T00:00:00Z",
+        sourceEpisodeIds: ["ep-4", "ep-5"],
+        createdAt: "2026-01-05T00:00:00Z",
       }),
     ];
     const result = await buildStoryContinuityContext(storage(rows), {
@@ -103,6 +115,28 @@ describe("story continuity prompt context", () => {
     );
   });
 
+  it("fails closed when Story Continuity cannot resolve knowledge edges", async () => {
+    const row = projection("secret-episode", "episode", ["m1"], "The crown is below the chapel.");
+    const queryKnowledgeEdges = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("knowledge edge storage unavailable"));
+    const epistemicStorage = {
+      ...storage([row]),
+      list: async () => [],
+      queryKnowledgeEdges,
+    } as unknown as StorageGateway;
+
+    await expect(
+      buildStoryContinuityContext(epistemicStorage, {
+        chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+        storedMessages: [],
+        latestUserInput: "Where is the crown?",
+        epistemicSubjects: [{ kind: "character", id: "bob", name: "Bob" }],
+      }),
+    ).rejects.toThrow("knowledge edge storage unavailable");
+  });
+
   it("excludes stale projections and coverage overlapping retained raw history", async () => {
     const result = await buildStoryContinuityContext(
       storage([
@@ -138,14 +172,30 @@ describe("story continuity prompt context", () => {
 
   it("is disabled outside Roleplay or Memory Recall but keeps existing projections when automatic building is off", async () => {
     const rows = [projection("ep", "episode", ["m1", "m2"], "Something happened.")];
-    await expect(buildStoryContinuityContext(storage(rows), {
-      chat: { id: "chat-1", mode: "conversation", metadata: { enableMemoryRecall: true } }, storedMessages: [], latestUserInput: "what",
-    })).resolves.toBeNull();
-    await expect(buildStoryContinuityContext(storage(rows), {
-      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true, enableStoryConsolidation: false } }, storedMessages: [], latestUserInput: "what",
-    })).resolves.toEqual(expect.objectContaining({ selectedMemoryIds: ["ep"] }));
-    await expect(buildStoryContinuityContext(storage(rows), {
-      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: false } }, storedMessages: [], latestUserInput: "what",
-    })).resolves.toBeNull();
+    await expect(
+      buildStoryContinuityContext(storage(rows), {
+        chat: { id: "chat-1", mode: "conversation", metadata: { enableMemoryRecall: true } },
+        storedMessages: [],
+        latestUserInput: "what",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      buildStoryContinuityContext(storage(rows), {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          metadata: { enableMemoryRecall: true, enableStoryConsolidation: false },
+        },
+        storedMessages: [],
+        latestUserInput: "what",
+      }),
+    ).resolves.toEqual(expect.objectContaining({ selectedMemoryIds: ["ep"] }));
+    await expect(
+      buildStoryContinuityContext(storage(rows), {
+        chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: false } },
+        storedMessages: [],
+        latestUserInput: "what",
+      }),
+    ).resolves.toBeNull();
   });
 });

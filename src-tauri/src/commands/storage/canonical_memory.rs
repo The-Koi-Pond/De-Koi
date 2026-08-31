@@ -235,7 +235,11 @@ fn memory_allowed_by_query(memory: &Value, body: &Value) -> bool {
             .filter_map(Value::as_str)
             .any(|id| id == memory_id)
     });
-    statuses.contains(status) && scope_matches(memory, body.get("scope")) && id_matches
+    let has_explicit_status_filter = body.get("statuses").is_some()
+        || body.get("includeInactive").and_then(Value::as_bool) == Some(true);
+    let status_matches =
+        statuses.contains(status) || (memory_ids.is_some() && !has_explicit_status_filter);
+    status_matches && scope_matches(memory, body.get("scope")) && id_matches
 }
 
 fn query_uses_epistemic_policy(body: &Value) -> bool {
@@ -2004,6 +2008,30 @@ mod tests {
             )
             .unwrap()),
             vec!["old-belief"]
+        );
+
+        assert_eq!(
+            ids(&query_memories(
+                &state,
+                json!({
+                    "memoryIds": ["old-belief"],
+                    "epistemicPolicyVersion": 1
+                })
+            )
+            .unwrap()),
+            vec!["old-belief"]
+        );
+
+        crate::storage_commands::knowledge_edges::upsert_edge(&state, json!({
+            "memoryId": "old-belief",
+            "holder": { "kind": "character", "id": "alice" },
+            "stance": "believes",
+            "status": "active",
+            "provenance": [{ "kind": "user_edit", "author": "user", "messageIds": [], "createdAt": "2026-08-30T12:00:00.000Z" }]
+        })).unwrap();
+        assert!(
+            ids(&query_memories(&state, json!({ "memoryIds": ["old-belief"] })).unwrap())
+                .is_empty()
         );
     }
 

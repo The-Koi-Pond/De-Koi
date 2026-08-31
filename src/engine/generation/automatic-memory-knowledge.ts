@@ -43,7 +43,6 @@ export function knowledgeEdgesForCapturedMemory(input: CapturedMemoryKnowledgeIn
   const personaId = input.personaId?.trim() ?? "";
   const witnessedScene =
     !!input.sceneId?.trim() &&
-    input.scopeReason === "ambiguous_scene" &&
     (input.memoryKind === "scene_event" || input.memoryKind === "episode");
   if (witnessedScene) {
     const characterIds = Array.from(new Set(input.participantCharacterIds.map((id) => id.trim()).filter(Boolean)));

@@ -139,6 +139,8 @@ export function createCharacterMemoryExport(input: {
     version: 2,
     edges: input.edges
       .filter((edge) => memoryIds.has(edge.memoryId))
+      // Character-memory packages are intentionally portable for one character:
+      // direct-character and world edges only. Full-profile backup owns every holder kind.
       .filter(
         (edge) =>
           edge.holder.kind === "world" ||

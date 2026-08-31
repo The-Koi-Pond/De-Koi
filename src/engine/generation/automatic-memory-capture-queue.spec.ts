@@ -292,15 +292,14 @@ function queueStorage(
       knowledgeEdgeCalls.push(knowledgeEdges);
       return storage.updateMemory!(memoryId, patch);
     },
-    async patchMemoryCaptureMessageExtra(
-      leaseId: string,
-      messageId: string,
-      patch: Record<string, unknown>,
-    ) {
+    async patchMemoryCaptureMessageExtra(leaseId: string, messageId: string, patch: Record<string, unknown>) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.patchChatMessageExtra(messageId, patch);
     },
-    async rebuildMemoryCaptureIndex(leaseId: string, body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0]) {
+    async rebuildMemoryCaptureIndex(
+      leaseId: string,
+      body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0],
+    ) {
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.rebuildMemoryIndex!(body);
     },
@@ -365,6 +364,48 @@ describe("automatic memory capture queue", () => {
       expect.objectContaining({ holder: { kind: "persona", id: "persona-1" }, stance: "believes" }),
     ]);
   });
+
+  it("recovers formal-scene witnesses from queued jobs created before the participant field", async () => {
+    const harness = queueStorage({
+      chat: { id: "chat-1", mode: "roleplay", sceneId: "scene-1" },
+      characters: [
+        { id: "char-1", name: "Mira" },
+        { id: "char-2", name: "Sol" },
+      ],
+    });
+    harness.messages.set("assistant-1", {
+      ...message("assistant-1", "assistant", "Mira revealed the brass key."),
+      characterId: "char-1",
+    });
+    const queued = await harness.enqueue();
+    const legacyQueued = { ...queued };
+    delete legacyQueued.participantCharacterIds;
+    harness.jobs.set(queued!.id as string, legacyQueued);
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "scene_event",
+            content: "Mira revealed the brass key.",
+            confidence: 0.97,
+            evidence: "explicit_screen_event",
+            sourceMessageIds: ["assistant-1"],
+          },
+        ],
+      }),
+    );
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm });
+
+    expect(harness.knowledgeEdgeCalls[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ holder: { kind: "character", id: "char-1" }, stance: "knows" }),
+        expect.objectContaining({ holder: { kind: "character", id: "char-2" }, stance: "knows" }),
+        expect.objectContaining({ holder: { kind: "world", id: "world" }, stance: "knows" }),
+      ]),
+    );
+  });
+
   it("does not schedule durable capture on runtimes without lease support", async () => {
     vi.useFakeTimers();
     try {
@@ -513,10 +554,7 @@ describe("automatic memory capture queue", () => {
       leaseExpiresAt: "2000-01-01T00:00:00.000Z",
     });
     await expect(
-      processAutomaticMemoryCaptureQueue(
-        { storage: harness.storage, llm },
-        { now: "2100-01-01T00:00:00.000Z" },
-      ),
+      processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2100-01-01T00:00:00.000Z" }),
     ).resolves.toMatchObject({ completed: 1, retryable: 0 });
 
     const persisted = Array.from(harness.canonicalMemories.values());

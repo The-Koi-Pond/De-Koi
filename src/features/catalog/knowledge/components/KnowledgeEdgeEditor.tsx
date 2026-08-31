@@ -7,6 +7,13 @@ import { useKnowledgeEdgeActions, useKnowledgeEdges, useKnowledgeHolders } from 
 
 const STANCES: KnowledgeStance[] = ["knows", "believes", "suspects", "disbelieves", "unknown"];
 
+export function normalizeConfidencePercent(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error("Confidence must be a number from 0 to 100.");
+  return Math.min(100, Math.max(0, parsed)) / 100;
+}
+
 export function KnowledgeEdgeEditor({ memoryId }: { memoryId: string }) {
   const edges = useKnowledgeEdges(memoryId);
   const holders = useKnowledgeHolders(!edges.isError);
@@ -33,18 +40,21 @@ export function KnowledgeEdgeEditor({ memoryId }: { memoryId: string }) {
     const [kind, id] = holderKey.split(":", 2) as [KnowledgeHolderKind, string];
     if (!id) return;
     try {
+      const normalizedConfidence = normalizeConfidencePercent(confidence);
       await actions.upsert.mutateAsync({
         memoryId,
         holder: { kind, id: kind === "world" ? "world" : id },
         stance,
         status: "active",
-        confidence: confidence.trim() ? Number(confidence) / 100 : null,
-        provenance: [{
-          kind: "user_edit",
-          author: "user",
-          messageIds: [],
-          createdAt: new Date().toISOString(),
-        }],
+        confidence: normalizedConfidence,
+        provenance: [
+          {
+            kind: "user_edit",
+            author: "user",
+            messageIds: [],
+            createdAt: new Date().toISOString(),
+          },
+        ],
       });
       toast.success("Knowledge access saved");
     } catch (error) {
@@ -53,7 +63,10 @@ export function KnowledgeEdgeEditor({ memoryId }: { memoryId: string }) {
   };
 
   return (
-    <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3" aria-label="Who knows this?">
+    <section
+      className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3"
+      aria-label="Who knows this?"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-xs font-semibold">Who knows this?</h3>
@@ -74,15 +87,48 @@ export function KnowledgeEdgeEditor({ memoryId }: { memoryId: string }) {
         </div>
       )}
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1.5fr)_minmax(8rem,0.8fr)_6rem_auto]">
-        <select aria-label="Knowledge holder" value={holderKey} onChange={(event) => setHolderKey(event.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs">
-          {(holders.data ?? []).map((holder) => <option key={`${holder.kind}:${holder.id}`} value={`${holder.kind}:${holder.id}`}>{holder.name} · {holder.kind}</option>)}
+        <select
+          aria-label="Knowledge holder"
+          value={holderKey}
+          onChange={(event) => setHolderKey(event.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs"
+        >
+          {(holders.data ?? []).map((holder) => (
+            <option key={`${holder.kind}:${holder.id}`} value={`${holder.kind}:${holder.id}`}>
+              {holder.name} · {holder.kind}
+            </option>
+          ))}
         </select>
-        <select aria-label="Knowledge stance" value={stance} onChange={(event) => setStance(event.target.value as KnowledgeStance)} className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs">
-          {STANCES.map((value) => <option key={value} value={value}>{value}</option>)}
+        <select
+          aria-label="Knowledge stance"
+          value={stance}
+          onChange={(event) => setStance(event.target.value as KnowledgeStance)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs"
+        >
+          {STANCES.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
         </select>
-        <input aria-label="Confidence percent" type="number" min="0" max="100" placeholder="%" value={confidence} onChange={(event) => setConfidence(event.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs" />
-        <button type="button" onClick={() => void save()} disabled={actions.upsert.isPending || holders.isLoading} className="inline-flex items-center justify-center gap-1 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] disabled:opacity-45">
-          {actions.upsert.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Plus size="0.75rem" />} Assign
+        <input
+          aria-label="Confidence percent"
+          type="number"
+          min="0"
+          max="100"
+          placeholder="%"
+          value={confidence}
+          onChange={(event) => setConfidence(event.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={actions.upsert.isPending || holders.isLoading}
+          className="inline-flex items-center justify-center gap-1 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] disabled:opacity-45"
+        >
+          {actions.upsert.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Plus size="0.75rem" />}{" "}
+          Assign
         </button>
       </div>
       {(edges.data ?? []).length === 0 ? (
@@ -93,18 +139,57 @@ export function KnowledgeEdgeEditor({ memoryId }: { memoryId: string }) {
             <div key={edge.id} className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-2 text-xs">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <span className="font-semibold">{holderLabels.get(`${edge.holder.kind}:${edge.holder.id}`) ?? edge.holder.id}</span>
-                  <span className="ml-2 text-[var(--muted-foreground)]">{edge.holder.kind} · {edge.stance} · {edge.status}{typeof edge.confidence === "number" ? ` · ${Math.round(edge.confidence * 100)}%` : ""}</span>
+                  <span className="font-semibold">
+                    {holderLabels.get(`${edge.holder.kind}:${edge.holder.id}`) ?? edge.holder.id}
+                  </span>
+                  <span className="ml-2 text-[var(--muted-foreground)]">
+                    {edge.holder.kind} · {edge.stance} · {edge.status}
+                    {typeof edge.confidence === "number" ? ` · ${Math.round(edge.confidence * 100)}%` : ""}
+                  </span>
                 </div>
                 <div className="flex gap-1">
-                  {edge.status === "proposed" && <button type="button" aria-label="Approve proposed knowledge edge" onClick={() => void actions.approve.mutateAsync(edge.id)} className="rounded p-1 hover:bg-[var(--accent)]"><Check size="0.8rem" /></button>}
-                  {edge.status !== "invalidated" && <button type="button" aria-label={edge.status === "proposed" ? "Reject proposed knowledge edge" : "Invalidate knowledge edge"} onClick={() => void actions.invalidate.mutateAsync({ edgeId: edge.id, reason: edge.status === "proposed" ? "proposal_rejected" : "user_invalidated" })} className="rounded p-1 text-red-500 hover:bg-red-500/10"><X size="0.8rem" /></button>}
+                  {edge.status === "proposed" && (
+                    <button
+                      type="button"
+                      aria-label="Approve proposed knowledge edge"
+                      onClick={() => void actions.approve.mutateAsync(edge.id)}
+                      className="rounded p-1 hover:bg-[var(--accent)]"
+                    >
+                      <Check size="0.8rem" />
+                    </button>
+                  )}
+                  {edge.status !== "invalidated" && (
+                    <button
+                      type="button"
+                      aria-label={
+                        edge.status === "proposed" ? "Reject proposed knowledge edge" : "Invalidate knowledge edge"
+                      }
+                      onClick={() =>
+                        void actions.invalidate.mutateAsync({
+                          edgeId: edge.id,
+                          reason: edge.status === "proposed" ? "proposal_rejected" : "user_invalidated",
+                        })
+                      }
+                      className="rounded p-1 text-red-500 hover:bg-red-500/10"
+                    >
+                      <X size="0.8rem" />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="mt-1 space-y-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                {edge.provenance.length === 0 ? <div>No provenance recorded</div> : edge.provenance.map((item, index) => (
-                  <div key={`${item.createdAt}:${index}`}>{item.kind} · {item.author} · {item.createdAt}{item.sourceChatId ? ` · chat ${item.sourceChatId}` : ""}{item.sceneId ? ` · scene ${item.sceneId}` : ""}{item.messageIds.length ? ` · ${item.messageIds.length} message(s)` : ""}</div>
-                ))}
+                {edge.provenance.length === 0 ? (
+                  <div>No provenance recorded</div>
+                ) : (
+                  edge.provenance.map((item, index) => (
+                    <div key={`${item.createdAt}:${index}`}>
+                      {item.kind} · {item.author} · {item.createdAt}
+                      {item.sourceChatId ? ` · chat ${item.sourceChatId}` : ""}
+                      {item.sceneId ? ` · scene ${item.sceneId}` : ""}
+                      {item.messageIds.length ? ` · ${item.messageIds.length} message(s)` : ""}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           ))}

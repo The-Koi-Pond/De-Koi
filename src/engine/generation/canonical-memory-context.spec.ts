@@ -212,9 +212,29 @@ describe("canonical memory context", () => {
         metadata: expect.objectContaining({ epistemicReason: "missing_edge", epistemicPolicyVersion: 1 }),
       }),
     );
-    expect(storage.queryMemoryIndex).toHaveBeenCalledWith(
-      expect.objectContaining({ epistemicPolicyVersion: 1 }),
-    );
+    expect(storage.queryMemoryIndex).toHaveBeenCalledWith(expect.objectContaining({ epistemicPolicyVersion: 1 }));
+  });
+
+  it("fails closed when knowledge-edge resolution becomes unavailable", async () => {
+    const secret = memory({ id: "memory-secret", content: "The brass key is under the chapel." });
+    const queryKnowledgeEdges = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("knowledge edge storage unavailable"));
+    const storage = {
+      ...storageWithMemories({ indexed: [secret] }),
+      queryKnowledgeEdges,
+    } as StorageGateway;
+
+    await expect(
+      buildCanonicalMemoryContext(storage, {
+        chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+        storedMessages: [],
+        latestUserInput: "Where is the brass key?",
+        characters: [{ id: "alice", name: "Alice", tags: [] }],
+      }),
+    ).rejects.toThrow("knowledge edge storage unavailable");
+    expect(queryKnowledgeEdges).toHaveBeenCalledTimes(2);
   });
 
   it("uses intersection semantics for an untargeted merged Roleplay prompt", async () => {
@@ -1147,11 +1167,11 @@ describe("prompt assembly canonical memory integration", () => {
     const semanticQuery = vi.fn(async (body: { queries: CanonicalMemoryQuery[] }) => {
       void body;
       return memories.map((candidate) => ({
-          memory: candidate,
-          similarity: 0.8,
-          connectionId: "embedding-connection",
-          provider: "openai",
-          model: "text-embedding-3-small",
+        memory: candidate,
+        similarity: 0.8,
+        connectionId: "embedding-connection",
+        provider: "openai",
+        model: "text-embedding-3-small",
       }));
     });
     const storage = {

@@ -2,13 +2,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { KnowledgeEdgeEditor } from "./KnowledgeEdgeEditor";
+import { KnowledgeEdgeEditor, normalizeConfidencePercent } from "./KnowledgeEdgeEditor";
 
 const mocks = vi.hoisted(() => ({
   edges: [] as Array<Record<string, unknown>>,
   upsert: vi.fn(async () => undefined),
   approve: vi.fn(async () => undefined),
   invalidate: vi.fn(async () => undefined),
+  toastError: vi.fn(),
 }));
 
 vi.mock("../hooks/use-knowledge-edges", () => ({
@@ -27,7 +28,7 @@ vi.mock("../hooks/use-knowledge-edges", () => ({
   }),
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: mocks.toastError } }));
 
 describe("KnowledgeEdgeEditor", () => {
   let root: Root | null = null;
@@ -41,6 +42,7 @@ describe("KnowledgeEdgeEditor", () => {
     mocks.upsert.mockClear();
     mocks.approve.mockClear();
     mocks.invalidate.mockClear();
+    mocks.toastError.mockClear();
   });
 
   afterEach(() => {
@@ -69,32 +71,77 @@ describe("KnowledgeEdgeEditor", () => {
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(stance, "believes");
       stance.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    const assign = Array.from(container!.querySelectorAll("button")).find((button) => button.textContent?.includes("Assign"));
+    const assign = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Assign"),
+    );
     await act(async () => assign?.click());
 
-    expect(mocks.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      memoryId: "memory-1",
-      holder: { kind: "character", id: "char-1" },
-      stance: "believes",
-      status: "active",
-    }));
+    expect(mocks.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memoryId: "memory-1",
+        holder: { kind: "character", id: "char-1" },
+        stance: "believes",
+        status: "active",
+      }),
+    );
   });
 
   it("shows provenance and exposes approve and reject controls for a proposal", async () => {
-    mocks.edges = [{
-      id: "edge-1",
-      memoryId: "memory-1",
-      holder: { kind: "character", id: "char-1" },
-      stance: "suspects",
-      status: "proposed",
-      provenance: [{ kind: "import", author: "system", sourceChatId: "chat-1", messageIds: ["message-1"], createdAt: "2026-08-30T12:00:00Z" }],
-    }];
+    mocks.edges = [
+      {
+        id: "edge-1",
+        memoryId: "memory-1",
+        holder: { kind: "character", id: "char-1" },
+        stance: "suspects",
+        status: "proposed",
+        provenance: [
+          {
+            kind: "import",
+            author: "system",
+            sourceChatId: "chat-1",
+            messageIds: ["message-1"],
+            createdAt: "2026-08-30T12:00:00Z",
+          },
+        ],
+      },
+    ];
     renderEditor();
     expect(container?.textContent).toContain("import · system");
 
-    await act(async () => container!.querySelector<HTMLButtonElement>('button[aria-label="Approve proposed knowledge edge"]')?.click());
-    await act(async () => container!.querySelector<HTMLButtonElement>('button[aria-label="Reject proposed knowledge edge"]')?.click());
+    await act(async () =>
+      container!.querySelector<HTMLButtonElement>('button[aria-label="Approve proposed knowledge edge"]')?.click(),
+    );
+    await act(async () =>
+      container!.querySelector<HTMLButtonElement>('button[aria-label="Reject proposed knowledge edge"]')?.click(),
+    );
     expect(mocks.approve).toHaveBeenCalledWith("edge-1");
     expect(mocks.invalidate).toHaveBeenCalledWith({ edgeId: "edge-1", reason: "proposal_rejected" });
+  });
+
+  it("clamps confidence to the storage contract", async () => {
+    renderEditor();
+    const input = container!.querySelector<HTMLInputElement>('input[aria-label="Confidence percent"]')!;
+    const assign = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Assign"),
+    )!;
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "150");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => assign.click());
+    expect(mocks.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ confidence: 1 }));
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "-20");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => assign.click());
+    expect(mocks.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ confidence: 0 }));
+  });
+
+  it("rejects non-numeric confidence before mutation", () => {
+    expect(() => normalizeConfidencePercent("not-a-number")).toThrow("Confidence must be a number from 0 to 100.");
+    expect(mocks.upsert).not.toHaveBeenCalled();
   });
 });

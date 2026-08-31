@@ -56,7 +56,10 @@ function relevance(memory: CanonicalMemoryRecord, query: Set<string>): number {
 }
 
 function normalizeSentence(value: string): string {
-  return value.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
+    .trim();
 }
 
 function sentenceSet(values: string[]): Set<string> {
@@ -136,22 +139,18 @@ export async function buildStoryContinuityContext(
   });
   let accessByMemoryId = new Map<string, EpistemicAccessResult>();
   if (epistemic.enabled && storage.queryKnowledgeEdges) {
-    try {
-      const edges = await storage.queryKnowledgeEdges({ memoryIds: queried.map((memory) => memory.id) });
-      accessByMemoryId = new Map(
-        queried.map((memory) => [
-          memory.id,
-          resolveEpistemicAccess({
-            memoryId: memory.id,
-            edges,
-            subjects: epistemic.subjects,
-            groups: epistemic.groups,
-          }),
-        ]),
-      );
-    } catch {
-      return null;
-    }
+    const edges = await storage.queryKnowledgeEdges({ memoryIds: queried.map((memory) => memory.id) });
+    accessByMemoryId = new Map(
+      queried.map((memory) => [
+        memory.id,
+        resolveEpistemicAccess({
+          memoryId: memory.id,
+          edges,
+          subjects: epistemic.subjects,
+          groups: epistemic.groups,
+        }),
+      ]),
+    );
   }
   const candidateRows = queried
     .filter((memory) => memory.status === "active" || memory.status === "pinned")
@@ -170,68 +169,80 @@ export async function buildStoryContinuityContext(
     .filter((entry) => entry !== recentEpisode)
     .sort(
       (left, right) =>
-        relevance(right.memory, query) - relevance(left.memory, query) || timestamp(right.memory) - timestamp(left.memory),
+        relevance(right.memory, query) - relevance(left.memory, query) ||
+        timestamp(right.memory) - timestamp(left.memory),
     )[0];
   const selectedEpisodeIds = new Set([recentEpisode?.memory.id, olderEpisode?.memory.id].filter(Boolean));
   const selectedArc = arcs
     .filter((entry) => !entry.payload.sourceEpisodeIds.some((id) => selectedEpisodeIds.has(id)))
     .sort(
       (left, right) =>
-        relevance(right.memory, query) - relevance(left.memory, query) || timestamp(right.memory) - timestamp(left.memory),
+        relevance(right.memory, query) - relevance(left.memory, query) ||
+        timestamp(right.memory) - timestamp(left.memory),
     )[0];
   const selected = [recentEpisode, olderEpisode, selectedArc].filter(
     (entry): entry is { memory: CanonicalMemoryRecord; payload: StoryProjectionPayload } => !!entry,
   );
-  const packed = pack(selected.map((entry) => entry.memory), input.representedText ?? [], budget(input));
+  const packed = pack(
+    selected.map((entry) => entry.memory),
+    input.representedText ?? [],
+    budget(input),
+  );
   if (packed.length === 0 && excluded.length === 0) return null;
 
-  const block = packed.length > 0 ? [
-    "<story_continuity>",
-    "The following are non-authoritative narrative projections. Recent transcript and canonical atomic memories win conflicts.",
-    ...packed.map(({ memory, content }) => {
-      const story = payload(memory)!;
-      return `- [${story.level}] ${memory.title ?? "Untitled"}: ${content}`;
-    }),
-    "</story_continuity>",
-  ].join("\n") : "";
+  const block =
+    packed.length > 0
+      ? [
+          "<story_continuity>",
+          "The following are non-authoritative narrative projections. Recent transcript and canonical atomic memories win conflicts.",
+          ...packed.map(({ memory, content }) => {
+            const story = payload(memory)!;
+            return `- [${story.level}] ${memory.title ?? "Untitled"}: ${content}`;
+          }),
+          "</story_continuity>",
+        ].join("\n")
+      : "";
   return {
     block,
     selectedMemoryIds: packed.map(({ memory }) => memory.id),
     estimatedTokens: estimateTokens(block),
     consideredCount: rows.length,
-    attributionItems: [...packed.map(({ memory }, index) => {
-      const story = payload(memory)!;
-      return {
-        kind: "story_projection",
-        label: `${story.level === "episode" ? "Episode" : "Arc"} ${index + 1}`,
-        status: "injected",
+    attributionItems: [
+      ...packed.map(({ memory }, index) => {
+        const story = payload(memory)!;
+        return {
+          kind: "story_projection",
+          label: `${story.level === "episode" ? "Episode" : "Arc"} ${index + 1}`,
+          status: "injected",
+          sourceId: memory.id,
+          sourceCollection: "canonical-memories",
+          snippet: memory.content,
+          metadata: {
+            projectionLevel: story.level,
+            firstMessageId: story.firstMessageId,
+            lastMessageId: story.lastMessageId,
+            sourceMessageIds: story.messageIds,
+            sourceEpisodeIds: story.sourceEpisodeIds,
+            epistemicPolicyVersion: accessByMemoryId.has(memory.id) ? 1 : undefined,
+            epistemicReason: accessByMemoryId.get(memory.id)?.reason,
+            epistemicEdgeIds: accessByMemoryId.get(memory.id)?.edgeIds,
+          },
+        } satisfies GenerationContextAttributionItem;
+      }),
+      ...excluded.map(({ memory }) => ({
+        kind: "story_projection" as const,
+        label: "Story projection excluded",
+        status: "skipped" as const,
         sourceId: memory.id,
         sourceCollection: "canonical-memories",
         snippet: memory.content,
         metadata: {
-          projectionLevel: story.level,
-          firstMessageId: story.firstMessageId,
-          lastMessageId: story.lastMessageId,
-          sourceMessageIds: story.messageIds,
-          sourceEpisodeIds: story.sourceEpisodeIds,
-          epistemicPolicyVersion: accessByMemoryId.has(memory.id) ? 1 : undefined,
-          epistemicReason: accessByMemoryId.get(memory.id)?.reason,
-          epistemicEdgeIds: accessByMemoryId.get(memory.id)?.edgeIds,
+          epistemicPolicyVersion: 1,
+          epistemicReason: accessByMemoryId.get(memory.id)?.reason ?? "missing_edge",
+          epistemicEdgeIds: accessByMemoryId.get(memory.id)?.edgeIds ?? [],
+          epistemicDecisions: accessByMemoryId.get(memory.id)?.decisions ?? [],
         },
-      } satisfies GenerationContextAttributionItem;
-    }), ...excluded.map(({ memory }) => ({
-      kind: "story_projection" as const,
-      label: "Story projection excluded",
-      status: "skipped" as const,
-      sourceId: memory.id,
-      sourceCollection: "canonical-memories",
-      snippet: memory.content,
-      metadata: {
-        epistemicPolicyVersion: 1,
-        epistemicReason: accessByMemoryId.get(memory.id)?.reason ?? "missing_edge",
-        epistemicEdgeIds: accessByMemoryId.get(memory.id)?.edgeIds ?? [],
-        epistemicDecisions: accessByMemoryId.get(memory.id)?.decisions ?? [],
-      },
-    }))],
+      })),
+    ],
   };
 }

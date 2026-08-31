@@ -255,6 +255,21 @@ function jobSourceIds(job: JsonRecord): string[] {
     .filter(Boolean);
 }
 
+function participantCharacterIdsFromJob(job: JsonRecord): string[] {
+  if (Array.isArray(job.participantCharacterIds)) {
+    return parseArray(job.participantCharacterIds)
+      .map((id) => readString(id).trim())
+      .filter(Boolean);
+  }
+  const formalScene = readString(job.mode).trim() === "roleplay" && Boolean(readString(job.sceneId).trim());
+  if (!formalScene) return [];
+  // Capture V2 jobs written before epistemic fields still retain the explicit
+  // formal-scene participant snapshot as characterLabels.
+  return Object.keys(parseRecord(job.characterLabels))
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
 async function updateJob(
   storage: StorageGateway,
   id: string,
@@ -410,11 +425,10 @@ export async function enqueueAutomaticMemoryCaptureJob(
     mode === "roleplay" &&
     Boolean(
       readString(metadata.sceneOriginChatId).trim() ||
-        readString(metadata.sceneStatus).trim() ||
-        readString(chat.sceneId).trim(),
+      readString(metadata.sceneStatus).trim() ||
+      readString(chat.sceneId).trim(),
     );
-  const sceneId =
-    readString(chat.sceneId || chat.activeSceneId).trim() || (formalScene ? chatId : null);
+  const sceneId = readString(chat.sceneId || chat.activeSceneId).trim() || (formalScene ? chatId : null);
   const resolvedScope = resolveAutomaticMemoryScope({
     chatId,
     mode,
@@ -568,13 +582,19 @@ export async function processAutomaticMemoryCaptureQueue(
       );
 
       try {
-        await patchMemoryCaptureStatus(storage, job, "processing", {
-          status: "processing",
-          jobId: id,
-          sourceMessageIds: jobSourceIds(job),
-          attempts,
-          updatedAt: now,
-        }, leaseId);
+        await patchMemoryCaptureStatus(
+          storage,
+          job,
+          "processing",
+          {
+            status: "processing",
+            jobId: id,
+            sourceMessageIds: jobSourceIds(job),
+            attempts,
+            updatedAt: now,
+          },
+          leaseId,
+        );
         const staleReason = await validateSourceMessages(storage, job);
         if (staleReason) {
           await updateJob(
@@ -588,14 +608,20 @@ export async function processAutomaticMemoryCaptureQueue(
             },
             leaseId,
           );
-          await patchMemoryCaptureStatus(storage, job, "failed", {
-            status: "failed",
-            jobId: id,
-            sourceMessageIds: jobSourceIds(job),
-            attempts,
-            failureCategory: "capture_unavailable",
-            updatedAt: now,
-          }, leaseId).catch(() => {});
+          await patchMemoryCaptureStatus(
+            storage,
+            job,
+            "failed",
+            {
+              status: "failed",
+              jobId: id,
+              sourceMessageIds: jobSourceIds(job),
+              attempts,
+              failureCategory: "capture_unavailable",
+              updatedAt: now,
+            },
+            leaseId,
+          ).catch(() => {});
           result.stale += 1;
           continue;
         }
@@ -638,15 +664,12 @@ export async function processAutomaticMemoryCaptureQueue(
               characterId: readString(job.characterId).trim() || null,
               personaId: readString(job.personaId).trim() || null,
               sceneId: readString(job.sceneId).trim() || null,
-              participantCharacterIds: parseArray(job.participantCharacterIds)
-                .map((id) => readString(id).trim())
-                .filter(Boolean),
+              participantCharacterIds: participantCharacterIdsFromJob(job),
               sourceChatId: chatId,
               sourceMessageIds,
               now,
             }),
-          createMemory: (body, knowledgeEdges) =>
-            storage.createMemoryCaptureMemory!(leaseId, body, knowledgeEdges),
+          createMemory: (body, knowledgeEdges) => storage.createMemoryCaptureMemory!(leaseId, body, knowledgeEdges),
           updateMemory: (memoryId, patch, knowledgeEdges) =>
             storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch, knowledgeEdges),
         });
@@ -757,16 +780,22 @@ export async function processAutomaticMemoryCaptureQueue(
           },
           leaseId,
         );
-        await patchMemoryCaptureStatus(storage, job, terminal ? "failed" : "retryable", {
-          status: terminal ? "failed" : "retryable",
-          jobId: id,
-          sourceMessageIds: jobSourceIds(job),
-          attempts,
-          ...(terminal
-            ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
-            : { nextAttemptAt }),
-          updatedAt: now,
-        }, leaseId).catch(() => {});
+        await patchMemoryCaptureStatus(
+          storage,
+          job,
+          terminal ? "failed" : "retryable",
+          {
+            status: terminal ? "failed" : "retryable",
+            jobId: id,
+            sourceMessageIds: jobSourceIds(job),
+            attempts,
+            ...(terminal
+              ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
+              : { nextAttemptAt }),
+            updatedAt: now,
+          },
+          leaseId,
+        ).catch(() => {});
         if (terminal) result.failed += 1;
         else result.retryable += 1;
       }

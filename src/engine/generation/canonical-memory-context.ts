@@ -692,12 +692,9 @@ export async function buildCanonicalMemoryContext(
 
   let excluded: CanonicalMemoryCandidate[] = [];
   if (epistemic.enabled && storage.queryKnowledgeEdges) {
-    let edges: KnowledgeEdge[];
-    try {
-      edges = await storage.queryKnowledgeEdges({ memoryIds: ranked.map((candidate) => candidate.memory.id) });
-    } catch {
-      return null;
-    }
+    const edges: KnowledgeEdge[] = await storage.queryKnowledgeEdges({
+      memoryIds: ranked.map((candidate) => candidate.memory.id),
+    });
     ranked = ranked.map((candidate) => ({
       ...candidate,
       epistemicAccess: resolveEpistemicAccess({

@@ -35,6 +35,16 @@ fn lease_id(body: &Value) -> AppResult<&str> {
         .ok_or_else(|| AppError::invalid_input("Memory capture lease id is required"))
 }
 
+fn knowledge_edges(body: &Value) -> AppResult<Vec<Value>> {
+    match body.get("knowledgeEdges") {
+        None => Ok(Vec::new()),
+        Some(Value::Array(edges)) => Ok(edges.clone()),
+        Some(_) => Err(AppError::invalid_input(
+            "Memory capture knowledgeEdges must be an array",
+        )),
+    }
+}
+
 pub(crate) fn acquire_worker(state: &AppState, body: Value) -> AppResult<Value> {
     let worker_id = worker_id(&body)?;
     let requested_lease = body.get("leaseId").and_then(Value::as_str);
@@ -112,11 +122,7 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .get("memory")
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Canonical memory body is required"))?;
-    let knowledge_edges = body
-        .get("knowledgeEdges")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let knowledge_edges = knowledge_edges(&body)?;
     state.with_memory_capture_lease(lease_id, || {
         canonical_memory::create_memory_with_edges(state, memory, knowledge_edges)
     })
@@ -134,11 +140,7 @@ pub(crate) fn update_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .get("patch")
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Canonical memory patch is required"))?;
-    let knowledge_edges = body
-        .get("knowledgeEdges")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let knowledge_edges = knowledge_edges(&body)?;
     state.with_memory_capture_lease(lease_id, || {
         canonical_memory::update_memory_with_edges(state, memory_id, patch, knowledge_edges)
     })
@@ -363,6 +365,36 @@ mod tests {
             .unwrap();
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0]["memoryId"], json!("memory-1"));
+    }
+
+    #[test]
+    fn memory_capture_rejects_malformed_present_knowledge_edges() {
+        let state = test_state("malformed-edges");
+        let lease = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().unwrap();
+
+        let create_error = create_memory(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "memory": {},
+                "knowledgeEdges": { "not": "an array" }
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(create_error.code, "invalid_input");
+
+        let update_error = update_memory(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "memoryId": "memory-1",
+                "patch": {},
+                "knowledgeEdges": "not an array"
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(update_error.code, "invalid_input");
     }
 
     fn story_episode(id: &str, fingerprint: &str, supersedes: Option<&str>) -> Value {
