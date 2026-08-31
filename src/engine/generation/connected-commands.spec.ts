@@ -1437,7 +1437,7 @@ describe("persistConnectedCommandTags", () => {
         data: expect.objectContaining({
           chatId: "created-0",
           openingGenerationGuide: expect.stringContaining(
-            "The moment settles into focus. Shlo learns that the current year is Stellar Year 265.",
+            "Premise: Shlo learns that the current year is Stellar Year 265.",
           ),
         }),
       }),

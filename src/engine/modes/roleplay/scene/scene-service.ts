@@ -894,7 +894,7 @@ async function fallbackScenePlan(storage: StorageGateway, chatId: string, prompt
     scenario: history
       ? `Use the recent conversation as continuity and develop this premise: ${premise}\n\nRecent context:\n${history}`
       : premise,
-    firstMessage: SCENE_GENERIC_OPENING_BEAT,
+    firstMessage: trimSceneOpeningBeat(`Premise: ${premise}`, premise),
     background: null,
     characterIds,
     systemPrompt: SCENE_SYSTEM_PROMPT,

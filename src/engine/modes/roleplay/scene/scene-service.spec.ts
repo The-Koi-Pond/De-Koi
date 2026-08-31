@@ -634,9 +634,7 @@ describe("roleplay scene recent history", () => {
       "Write immersive roleplay prose with consistent point of view, clear character agency, and continuity from the originating conversation.",
     );
     expect(response.plan.participationGuide).toBe("");
-    expect(response.plan.firstMessage).toBe(
-      "Open on the planned scene's immediate situation and pressure, with the listed participants already present.",
-    );
+    expect(response.plan.firstMessage).toBe("Premise: an explicit adult scene");
   });
 });
 

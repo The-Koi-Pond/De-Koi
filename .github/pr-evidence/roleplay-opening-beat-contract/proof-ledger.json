@@ -23,6 +23,7 @@
     "intendedFiles": [
       "src/engine/modes/roleplay/scene/scene-service.ts",
       "src/engine/modes/roleplay/scene/scene-service.spec.ts",
+      "src/engine/generation/connected-commands.spec.ts",
       "docs/superpowers/specs/2026-08-31-roleplay-opening-beat-contract-design.md",
       "docs/superpowers/plans/2026-08-31-roleplay-opening-beat-contract.md",
       ".github/pr-evidence/roleplay-opening-beat-contract/proof-ledger.json"
@@ -68,7 +69,7 @@
       "The focused test captures the planner request and requires the beat-brief contract.",
       "The same test returns an overlong scripted plan and proves the persisted firstMessage is bounded before writer consumption.",
       "A short dialogue-heavy planner response is replaced even though it fits under the character ceiling.",
-      "Exact dialogue is preserved only when the user supplied those words, and the local fallback uses the neutral beat directive.",
+      "Exact dialogue is preserved only when the user supplied those words, and the local fallback labels the bounded user premise instead of inventing narration.",
       "Existing multiline normalization coverage proves short planner text remains unchanged."
     ]
   },
@@ -85,6 +86,10 @@
       {
         "claim": "A short scripted opening cannot evade the size limit.",
         "evidence": "scene-service.spec.ts returns a sub-360-character ice-cream script with unrequested dialogue and requires the neutral beat directive instead."
+      },
+      {
+        "claim": "The local fallback retains the user's concrete scene premise without inventing narration.",
+        "evidence": "connected-commands.spec.ts requires the character-created scene guide to contain the bounded Premise label while leaving the scene message empty for Roleplay generation."
       }
     ],
     "contradictionRows": [
@@ -116,7 +121,7 @@
     {
       "finding": "Bunny found that the character ceiling still allowed a short dialogue-heavy finished opening through unchanged.",
       "disposition": "fixed",
-      "fix": "The sanitizer now checks beat shape, replaces unrequested scripted dialogue, and covers the local fallback; focused negative and exact-dialogue tests pass.",
+      "fix": "The sanitizer now checks beat shape, replaces unrequested scripted dialogue, and makes the local fallback label the bounded user premise instead of inventing narration; focused negative and exact-dialogue tests pass.",
       "humanResolutionRequired": false,
       "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1279#discussion_r3898813194"
     }
@@ -127,13 +132,14 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm vitest run src/engine/modes/roleplay/scene/scene-service.spec.ts; pnpm typecheck; pnpm check:architecture; pnpm check; git diff --check",
-    "baselineEvidence": "45 focused scene-service tests and full pnpm check passed after the Bunny follow-up; unused-code output remained warning-only.",
+    "baselineEvidence": "45 scene-service tests, 33 connected-command tests, and full pnpm check pass after the Bunny and hosted-CI follow-ups; unused-code output remained warning-only.",
     "githubValidationPassed": false,
     "negativeRowsTested": [
       "Overlong finished-prose opening cannot pass through unchanged",
       "Short dialogue-heavy opening cannot evade the character ceiling",
       "Exact user-requested dialogue remains allowed",
       "Local fallback does not contribute finished opening prose",
+      "Character-created scene fallback retains the concrete user premise",
       "Short multiline planner text remains unchanged"
     ]
   },
