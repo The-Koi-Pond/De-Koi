@@ -186,6 +186,185 @@ def run_semantic_repair_case(module):
     return stats["model_calls"]
 
 
+def valid_review(label):
+    return {
+        "change_summary": [f"Reviewed {label}."],
+        "findings": [],
+        "nitpicks": [],
+        "pre_merge_checks": [],
+        "open_questions": [],
+        "what_i_checked": [f"Checked {label}."],
+    }
+
+
+class ChunkReviewCompletions:
+    def __init__(self, *, fail_once=None, fail_always=None, invalid_then_valid=None):
+        self.calls = []
+        self.fail_once = fail_once
+        self.fail_always = fail_always
+        self.invalid_then_valid = invalid_then_valid
+        self.chunk_attempts = {}
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        prompt = "\n".join(message["content"] for message in kwargs["messages"])
+        if "# Chunk Review Results" in prompt:
+            payload = valid_review("final judge")
+        else:
+            chunk_index = next(
+                index
+                for index in range(1, 9)
+                if f"BUNNY_CHUNK_PACKET_{index}" in prompt
+            )
+            self.chunk_attempts[chunk_index] = self.chunk_attempts.get(chunk_index, 0) + 1
+            if chunk_index == self.fail_always:
+                raise TimeoutError("scripted exhausted chunk timeout")
+            if chunk_index == self.fail_once and self.chunk_attempts[chunk_index] == 1:
+                raise TimeoutError("scripted transient chunk timeout")
+            if chunk_index == self.invalid_then_valid and self.chunk_attempts[chunk_index] <= 2:
+                payload = {"findings": []}
+            else:
+                payload = valid_review(f"chunk {chunk_index}")
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="FINAL_REVIEW\n" + json.dumps(payload)
+                    )
+                )
+            ],
+        )
+
+
+def chunk_inputs():
+    return [
+        {
+            "index": index,
+            "count": 8,
+            "focus_files": [f"src/chunk-{index}.ts"],
+            "packet_chars": 1000 + index,
+            "triage_content": (
+                f"BUNNY_CHUNK_PACKET_{index}\n"
+                f"PRIVATE_PACKET_TEXT_{index}"
+            ),
+        }
+        for index in range(1, 9)
+    ]
+
+
+def run_chunk_orchestration_case(module):
+    review_context = "PR metadata without raw patch text"
+
+    normal_completions = ChunkReviewCompletions()
+    normal_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=normal_completions)
+    )
+    normal_stats = module.build_stats("")
+    normal_output = io.StringIO()
+    with contextlib.redirect_stdout(normal_output):
+        normal_review = module.review_chunked_packets(
+            normal_client,
+            "review skill",
+            chunk_inputs(),
+            normal_stats,
+            review_context,
+        )
+    assert normal_review["change_summary"] == ["Reviewed final judge."]
+    assert len(normal_completions.calls) == 9, "eight chunks should need one call each plus one judge"
+    assert normal_stats["model_calls"] == 9
+    judge_prompt = "\n".join(
+        message["content"] for message in normal_completions.calls[-1]["messages"]
+    )
+    assert "# Chunk Review Results" in judge_prompt
+    assert "BUNNY_CHUNK_PACKET_" not in judge_prompt
+    assert "PRIVATE_PACKET_TEXT_" not in judge_prompt
+    telemetry = normal_output.getvalue()
+    assert "chunk=1/8" in telemetry
+    assert "chunk=8/8" in telemetry
+    assert "state=complete" in telemetry
+    assert "PRIVATE_PACKET_TEXT_" not in telemetry
+
+    retry_completions = ChunkReviewCompletions(fail_once=3)
+    retry_client = SimpleNamespace(chat=SimpleNamespace(completions=retry_completions))
+    retry_stats = module.build_stats("")
+    with contextlib.redirect_stdout(io.StringIO()):
+        retry_review = module.review_chunked_packets(
+            retry_client,
+            "review skill",
+            chunk_inputs(),
+            retry_stats,
+            review_context,
+        )
+    assert retry_review["change_summary"] == ["Reviewed final judge."]
+    assert retry_completions.chunk_attempts[3] == 2
+    assert all(
+        attempts == (2 if index == 3 else 1)
+        for index, attempts in retry_completions.chunk_attempts.items()
+    ), "only the failed chunk should be retried"
+    assert len(retry_completions.calls) == 10
+    assert retry_stats["model_calls"] == 9, "timed-out calls are not successful model calls"
+
+    schema_completions = ChunkReviewCompletions(invalid_then_valid=4)
+    schema_client = SimpleNamespace(chat=SimpleNamespace(completions=schema_completions))
+    schema_stats = module.build_stats("")
+    with contextlib.redirect_stdout(io.StringIO()):
+        schema_review = module.review_chunked_packets(
+            schema_client,
+            "review skill",
+            chunk_inputs(),
+            schema_stats,
+            review_context,
+        )
+    assert schema_review["change_summary"] == ["Reviewed final judge."]
+    assert schema_completions.chunk_attempts[4] == 3, (
+        "a chunk that remains schema-invalid after repair should retry only that chunk"
+    )
+    assert all(
+        attempts == (3 if index == 4 else 1)
+        for index, attempts in schema_completions.chunk_attempts.items()
+    )
+
+    exhausted_completions = ChunkReviewCompletions(fail_always=2)
+    exhausted_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=exhausted_completions)
+    )
+    exhausted_stats = module.build_stats("")
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            module.review_chunked_packets(
+                exhausted_client,
+                "review skill",
+                chunk_inputs(),
+                exhausted_stats,
+                review_context,
+            )
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("an exhausted chunk must fail the full review")
+    assert exhausted_completions.chunk_attempts == {1: 1, 2: 2}
+    assert not any(
+        "# Chunk Review Results"
+        in "\n".join(message["content"] for message in call["messages"])
+        for call in exhausted_completions.calls
+    ), "final judging must not run after incomplete chunk coverage"
+
+    three_pass_completions = ChunkReviewCompletions()
+    three_pass_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=three_pass_completions)
+    )
+    three_pass_stats = module.build_stats("BUNNY_CHUNK_PACKET_1")
+    module.three_pass_review(
+        three_pass_client,
+        "review skill",
+        "BUNNY_CHUNK_PACKET_1",
+        three_pass_stats,
+    )
+    assert three_pass_stats["model_calls"] == 3, "single-packet review must remain three-pass"
+    return len(normal_completions.calls)
+
+
 def run_model_key_case(module):
     old_llm = os.environ.get("LLM_API_KEY")
     old_openai = os.environ.get("OPENAI_API_KEY")
@@ -239,12 +418,17 @@ def main():
     module = load_bunny_review()
     packet_len = run_packet_case(module)
     repair_calls = run_semantic_repair_case(module)
+    chunk_calls = run_chunk_orchestration_case(module)
     run_model_key_case(module)
     run_status_case(module)
     print(
         "bunny_review_smoke "
         f"packet_len={packet_len} "
         f"semantic_repair_calls={repair_calls} "
+        f"chunk_review_calls={chunk_calls} "
+        "chunk_retry_scope=true "
+        "chunk_schema_retry=true "
+        "chunk_final_judge=true "
         "patch_overview_dedup=true "
         "packet_budget_chunking=true "
         "summary_fallback=true "

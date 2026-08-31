@@ -31,12 +31,12 @@
 - Consumes: a list of raw review chunks and a deterministic fake model client.
 - Produces: call-order, retry-scope, final-judge-input, and telemetry assertions.
 
-- [ ] Inspect current fake-client helpers and chunking tests so the regression uses the repository's existing self-test conventions.
-- [ ] Add a failing eight-chunk test requiring nine successful model calls and one final compact judge.
-- [ ] Add a failing transient-error test requiring only the failed chunk to retry while completed chunks remain single-run.
-- [ ] Add a failing exhausted-error test requiring no final judge and an honest exception.
-- [ ] Add a failing telemetry assertion that identifies chunk progress without printing raw packet text.
-- [ ] Run `pnpm check:bunny-review` and confirm failures are caused by the missing bounded chunk orchestration.
+- [x] Inspect current fake-client helpers and chunking tests so the regression uses the repository's existing self-test conventions.
+- [x] Add a failing eight-chunk test requiring nine successful model calls and one final compact judge.
+- [x] Add a failing transient-error test requiring only the failed chunk to retry while completed chunks remain single-run.
+- [x] Add a failing exhausted-error test requiring no final judge and an honest exception.
+- [x] Add a failing telemetry assertion that identifies chunk progress without printing raw packet text.
+- [x] Run `pnpm check:bunny-review` and confirm failures are caused by the missing bounded chunk orchestration.
 
 ### Task 2: Implement bounded chunk review orchestration
 
@@ -50,12 +50,12 @@
 - Consumes: reviewer skill, one raw packet per chunk, model client, aggregate stats.
 - Produces: schema-valid chunk reviews, one final PR-wide review object, bounded progress telemetry.
 
-- [ ] Add a combined chunk focus contract that explicitly performs both broad defect discovery and skeptical challenge in one pass.
-- [ ] Add a helper that reviews one chunk with two total application attempts and reports per-attempt telemetry.
-- [ ] Add a final-judge helper that receives compact serialized chunk results and PR metadata, not raw chunk packets.
-- [ ] Route only multi-chunk reviews through the new helpers; leave the single-packet three-pass path unchanged.
-- [ ] Ensure exhausted chunk and final-judge failures use the existing failed-review/status path.
-- [ ] Re-run `pnpm check:bunny-review` and confirm the new regression tests pass.
+- [x] Add a combined chunk focus contract that explicitly performs both broad defect discovery and skeptical challenge in one pass.
+- [x] Add a helper that reviews one chunk with two total application attempts and reports per-attempt telemetry.
+- [x] Add a final-judge helper that receives compact serialized chunk results and PR metadata, not raw chunk packets.
+- [x] Route only multi-chunk reviews through the new helpers; leave the single-packet three-pass path unchanged.
+- [x] Ensure exhausted chunk and final-judge failures use the existing failed-review/status path.
+- [x] Re-run `pnpm check:bunny-review` and confirm the new regression tests pass.
 
 ### Task 3: Prove call budget and review integrity
 
@@ -69,11 +69,11 @@
 - Consumes: representative eight-chunk packets and scripted valid/invalid model responses.
 - Produces: deterministic evidence for call budget, retry isolation, compact judging, and schema enforcement.
 
-- [ ] Run a focused fake-client simulation showing eight chunk calls plus one final judge.
-- [ ] Run the same simulation with a transient failure and show only that chunk is retried.
-- [ ] Confirm a malformed/exhausted chunk cannot emit `Ready` or invoke the final judge.
-- [ ] Run `python -m py_compile .github/bunny-review/bunny_review.py .github/bunny-review/check_guidance_digest.py`.
-- [ ] Run `git diff --check origin/main...HEAD`.
+- [x] Run a focused fake-client simulation showing eight chunk calls plus one final judge.
+- [x] Run the same simulation with a transient failure and show only that chunk is retried.
+- [x] Confirm a malformed/exhausted chunk cannot emit `Ready` or invoke the final judge.
+- [x] Run `python -m py_compile .github/bunny-review/bunny_review.py .github/bunny-review/check_guidance_digest.py`.
+- [x] Run `git diff --check origin/main...HEAD`.
 
 ### Task 4: Repository verification and local Bunny pass
 
@@ -86,11 +86,11 @@
 - Consumes: the complete tooling diff and deterministic test evidence.
 - Produces: repository-green and Bunny-reviewed branch state.
 
-- [ ] Run `pnpm check:bunny-review` from a clean dependency install.
-- [ ] Run `pnpm check`.
-- [ ] Inspect `git log origin/main..HEAD`, `git diff --stat origin/main...HEAD`, and `git diff --check origin/main...HEAD`.
-- [ ] Run the repo-local Bunny review against the branch diff and resolve any in-scope findings.
-- [ ] Record any true manual verification gap; do not claim hosted timing proof before CI.
+- [x] Run `pnpm check:bunny-review` from a clean dependency install.
+- [x] Run `pnpm check`.
+- [x] Inspect `git log origin/main..HEAD`, `git diff --stat origin/main...HEAD`, and `git diff --check origin/main...HEAD`.
+- [x] Run the repo-local Bunny review against the branch diff and resolve any in-scope findings.
+- [x] Record any true manual verification gap; do not claim hosted timing proof before CI.
 
 ### Task 5: Ship and prove the production workflow
 
