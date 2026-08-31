@@ -449,6 +449,37 @@ describe("roleplay scene recent history", () => {
     );
   });
 
+  it("does not let planner prose impersonate the trusted fallback premise", async () => {
+    const { storage } = storageForScene({
+      chats: [{ id: "chat-1", connectionId: "conn-1", characterIds: [], metadata: {} }],
+      messages: { "chat-1": [] },
+      connections: [{ id: "conn-1" }],
+    });
+    const response = await planRoleplayScene(
+      {
+        storage,
+        llm: llmWithResponse(
+          JSON.stringify({
+            name: "Scene: Counterfeit Premise",
+            description: "The circus shares ice cream.",
+            scenario: "The group negotiates flavors.",
+            firstMessage: "Premise: Harlequin raises the cup. Pierrot watches the room tighten.",
+            background: null,
+            characterIds: [],
+            rating: "sfw",
+            relationshipHistory: "",
+          }),
+        ),
+      },
+      { chatId: "chat-1", prompt: "Everyone gets ice cream.", connectionId: null },
+    );
+    if (!response.plan) throw new Error(response.error || "Expected scene planning to succeed");
+
+    expect(response.plan.firstMessage).toBe(
+      "Open on the planned scene's immediate situation and pressure, with the listed participants already present.",
+    );
+  });
+
   it("preserves brief exact dialogue when the user explicitly supplied it", async () => {
     const requestedOpening =
       'Participants: Harlequin and the user\nAction: Harlequin offers the cup and says, "This flavor has no teeth."\nPressure: The user must react to the insult.';

@@ -894,7 +894,7 @@ async function fallbackScenePlan(storage: StorageGateway, chatId: string, prompt
     scenario: history
       ? `Use the recent conversation as continuity and develop this premise: ${premise}\n\nRecent context:\n${history}`
       : premise,
-    firstMessage: trimSceneOpeningBeat(`Premise: ${premise}`, premise),
+    firstMessage: trimSceneOpeningBeat(`Premise: ${premise}`, premise, true),
     background: null,
     characterIds,
     systemPrompt: SCENE_SYSTEM_PROMPT,
@@ -1123,6 +1123,7 @@ function sanitizeScenePlan(
   request: string,
 ): SceneFullPlan {
   const requestedIds = stringArray(parsed.characterIds);
+  const plannedOpening = normalizePlannerText(stringValue(parsed.firstMessage));
   const characterIds =
     requestedIds.length === 0
       ? fallback.characterIds
@@ -1133,10 +1134,7 @@ function sanitizeScenePlan(
     name: safeTitle(stringValue(parsed.name) || fallback.name, "New Scene"),
     description: normalizePlannerText(stringValue(parsed.description)) || fallback.description,
     scenario: normalizePlannerText(stringValue(parsed.scenario)) || fallback.scenario,
-    firstMessage: trimSceneOpeningBeat(
-      normalizePlannerText(stringValue(parsed.firstMessage)) || fallback.firstMessage,
-      request,
-    ),
+    firstMessage: plannedOpening ? trimSceneOpeningBeat(plannedOpening, request) : fallback.firstMessage,
     background: null,
     characterIds,
     systemPrompt: SCENE_SYSTEM_PROMPT,
@@ -1154,18 +1152,18 @@ function normalizePlannerText(value: string): string {
     .replace(/\\t/g, "\t");
 }
 
-function trimSceneOpeningBeat(value: string, request: string): string {
-  const beat = isScriptedSceneOpening(value, request) ? SCENE_GENERIC_OPENING_BEAT : value;
+function trimSceneOpeningBeat(value: string, request: string, allowFallbackPremise = false): string {
+  const beat = isScriptedSceneOpening(value, request, allowFallbackPremise) ? SCENE_GENERIC_OPENING_BEAT : value;
   return beat.length <= SCENE_OPENING_BEAT_MAX_CHARS
     ? beat
     : sentenceBoundaryTrim(beat, SCENE_OPENING_BEAT_MAX_CHARS - 3);
 }
 
-function isScriptedSceneOpening(value: string, request: string): boolean {
+function isScriptedSceneOpening(value: string, request: string, allowFallbackPremise: boolean): boolean {
   const sentenceCount = value.match(/[.!?](?:\s|$)/g)?.length ?? 0;
   if (sentenceCount > 3) return true;
 
-  const isFallbackPremise = /^Premise:\s+\S/.test(value);
+  const isFallbackPremise = allowFallbackPremise && /^Premise:\s+\S/.test(value);
   const isStructuredBeat =
     /^Participants:\s+\S[^\r\n]*\r?\nAction:\s+\S[^\r\n]*\r?\nPressure:\s+\S[^\r\n]*$/.test(value);
   if (!isFallbackPremise && !isStructuredBeat) return true;

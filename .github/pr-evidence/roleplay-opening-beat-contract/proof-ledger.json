@@ -70,6 +70,7 @@
       "The same test returns an overlong scripted plan and proves the persisted firstMessage is bounded before writer consumption.",
       "A short dialogue-heavy planner response is replaced even though it fits under the character ceiling.",
       "A short quote-free prose opening is replaced unless it uses the machine-checkable Participants, Action, and Pressure structure.",
+      "Planner-authored Premise labels are rejected; only the locally constructed fallback receives that exemption.",
       "Exact dialogue is preserved only when the user supplied those words, and the local fallback labels the bounded user premise instead of inventing narration.",
       "Existing multiline normalization coverage proves short planner text remains unchanged."
     ]
@@ -132,6 +133,13 @@
       "fix": "Planner beats now require machine-checkable Participants, Action, and Pressure lines; unlabeled prose is replaced, with a direct short quote-free negative regression.",
       "humanResolutionRequired": false,
       "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1279#discussion_r3898950616"
+    },
+    {
+      "finding": "Bunny found that planner output could counterfeit the local fallback by prefixing finished prose with Premise.",
+      "disposition": "fixed",
+      "fix": "The Premise exemption is now passed only while constructing the trusted local fallback; parsed planner output must satisfy the three-field structure, with a direct counterfeit-label regression.",
+      "humanResolutionRequired": false,
+      "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1279#discussion_r3899178017"
     }
   ],
   "manualBlockers": [],
@@ -140,12 +148,13 @@
     "focusedReproPassed": true,
     "baselinePassed": true,
     "baselineCommand": "pnpm vitest run src/engine/modes/roleplay/scene/scene-service.spec.ts; pnpm typecheck; pnpm check:architecture; pnpm check; git diff --check",
-    "baselineEvidence": "46 scene-service tests, 33 connected-command tests, and full pnpm check pass after the second Bunny follow-up; unused-code output remained warning-only.",
+    "baselineEvidence": "47 scene-service tests, 33 connected-command tests, typecheck, and the prior full pnpm check pass after Bunny follow-ups; unused-code output remained warning-only.",
     "githubValidationPassed": false,
     "negativeRowsTested": [
       "Overlong finished-prose opening cannot pass through unchanged",
       "Short dialogue-heavy opening cannot evade the character ceiling",
       "Short quote-free finished prose cannot evade structural validation",
+      "Planner output cannot counterfeit the trusted local Premise fallback",
       "Exact user-requested dialogue remains allowed",
       "Local fallback does not contribute finished opening prose",
       "Character-created scene fallback retains the concrete user premise",
