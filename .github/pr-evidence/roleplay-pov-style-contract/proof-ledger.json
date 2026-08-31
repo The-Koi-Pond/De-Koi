@@ -5,7 +5,7 @@
     "title": "Align spawned-scene POV with active Roleplay direction",
     "source": "Direct user report that Roleplay prose remained formulaic after prior prompt fixes.",
     "classification": "Roleplay prompt assembly and scene creation",
-    "status": "waiting_on_pr"
+    "status": "waiting_on_ci"
   },
   "coreClaim": "New spawned scenes no longer inject an unconditional third-person instruction that conflicts with the active preset, originating chat, or explicit scene direction.",
   "rootCause": "The scene service persisted a hardcoded third-person guideline while Universal V2 could select second-person narration and limited user POV for the same scene.",
@@ -150,8 +150,8 @@
     "prHealthStatus": "pending"
   },
   "pr": {
-    "number": 0,
-    "url": "",
+    "number": 1278,
+    "url": "https://github.com/The-Koi-Pond/De-Koi/pull/1278",
     "headRefName": "fix/roleplay-pov-style-contract",
     "baseRefName": "main",
     "healthStatus": "pending",
