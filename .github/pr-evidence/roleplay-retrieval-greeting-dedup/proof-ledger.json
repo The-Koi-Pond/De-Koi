@@ -30,6 +30,26 @@
     ],
     "riskFlags": ["prompt assembly", "memory relevance", "roleplay continuity"]
   },
+  "claimBoundary": {
+    "coreClaim": "Only prompt admission and behavioral-example overlap comparison change; canonical records and authored card fields remain untouched.",
+    "riskType": "shared generation prompt relevance",
+    "entrypoints": ["Conversation and Roleplay canonical-memory prompt assembly", "Roleplay behavioral-example selection"],
+    "currentPathsOrFormats": ["canonical-memories records", "canonical_memories prompt block", "first_mes", "alternate_greetings", "visible chat history"],
+    "legacyPathsOrFormats": ["Pinned memories", "chat-local memories", "scene-local memories", "strong semantic paraphrases", "lexical fallback", "authored examples absent from history"],
+    "outOfScopeClaims": ["No claim that all embedding providers assign identical scores.", "No stored memory, greeting, card, lorebook, or transcript migration."]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Cross-chat Character Memories could enter a prompt from weak semantic or low-coverage generic lexical evidence, and the same greeting could enter as history plus a behavioral example when macro forms differed.",
+    "producer": "Canonical memory retrieval and authored character greeting fields provide candidate context.",
+    "consumer": "The TypeScript generation engine selects canonical memory and behavioral-example prompt blocks.",
+    "impliedContract": "Prompt assembly admits context only when it is relevant and non-duplicative without mutating or replaying transcript content.",
+    "actualEnforcement": "Cross-chat character candidates require strong semantic similarity or at least half of meaningful query tokens; behavioral candidates compare both raw and safely resolved candidate forms against untouched raw history.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "src/engine/generation owns canonical-memory ranking and behavioral-example selection.",
+    "consumerOnlyLanes": ["src/features", "src/shared/api", "src-tauri"],
+    "wrongLaneFixToAvoid": "Do not rewrite stored memories or greetings, disable Memory Recall globally, mutate history, or patch the Roleplay UI around polluted prompts.",
+    "regressionProof": ["canonical-memory-context.spec.ts covers weak semantic, low lexical coverage, strong paraphrase, pinned, and local continuity rows.", "behavioral-example-pool.spec.ts and prompt-assembly.behavioral-examples.spec.ts cover raw/resolved greeting overlap without running history macros."]
+  },
   "riskClaimMatrix": [
     {
       "coreClaim": "Cross-chat character memories require strong semantic relevance or meaningful lexical query coverage.",
@@ -56,6 +76,39 @@
       "manualBlockers": []
     }
   ],
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Strong semantic paraphrases and relevant local continuity still enter canonical memory context.",
+        "evidence": "canonical-memory-context.spec.ts passes the 0.86 paraphrase, lexical fallback, pinned, chat-local, and scene-local cases."
+      },
+      {
+        "claim": "A distinct authored behavioral example remains selectable.",
+        "evidence": "behavioral-example-pool.spec.ts and prompt-assembly.behavioral-examples.spec.ts retain relevant non-overlapping authored examples."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Weak 0.31-0.32 cross-chat semantic candidates must not enter the prompt.",
+        "evidence": "canonical-memory-context.spec.ts returns null for the live roleplay query shape."
+      },
+      {
+        "claim": "One or two generic overlapping words in a longer cross-chat turn must not qualify a Character Memory.",
+        "evidence": "canonical-memory-context.spec.ts covers both low-coverage negative controls."
+      },
+      {
+        "claim": "The active greeting must not appear as both history and a behavioral example.",
+        "evidence": "prompt-assembly.behavioral-examples.spec.ts marks the alternate greeting history_overlap when {{user}} occurs inside narration."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Pinned and relevant chat/scene-local memories preserve their prior eligibility.",
+        "evidence": "All canonical-memory-context and end-to-end memory recall suites pass."
+      }
+    ],
+    "untestedRows": ["Provider-specific similarity distributions remain a live quality observation after deployment; deterministic admission boundaries are covered locally."]
+  },
   "manualBlockers": [],
   "verification": {
     "originalReproPassed": true,
