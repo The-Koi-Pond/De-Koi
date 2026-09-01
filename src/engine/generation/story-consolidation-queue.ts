@@ -721,7 +721,16 @@ export async function processStoryConsolidationQueue(
                 { role: "system", content: "You produce auditable long-form story continuity as strict JSON." },
                 { role: "user", content: summarizerPrompt(job) },
               ],
-              parameters: { temperature: 0.25, maxTokens: 1800 },
+              parameters: {
+                temperature: 0.25,
+                maxTokens: 1800,
+                reasoningEffort: "none",
+                reasoning_effort: "none",
+                customParameters: {
+                  reasoning_effort: "none",
+                  reasoning: { exclude: true },
+                },
+              },
             }),
           ),
           job,
