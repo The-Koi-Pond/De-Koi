@@ -277,7 +277,7 @@ describe("story consolidation queue", () => {
     expect(result.completed).toBe(1);
     expect(llm.complete).toHaveBeenCalledTimes(2);
     expect(llm.complete).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      parameters: { temperature: 0.25, maxTokens: 8192 },
+      parameters: { temperature: 0.25, maxTokens: 8192, reasoningEffort: "low", reasoning_effort: "low" },
     }));
   });
 

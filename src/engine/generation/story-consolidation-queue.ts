@@ -82,7 +82,12 @@ async function completeStorySummary(llm: LlmGateway, request: Parameters<LlmGate
     if (!forcedReasoningResponse(error)) throw error;
     return llm.complete({
       ...request,
-      parameters: { temperature: 0.25, maxTokens: STORY_SUMMARY_RETRY_MAX_TOKENS },
+      parameters: {
+        temperature: 0.25,
+        maxTokens: STORY_SUMMARY_RETRY_MAX_TOKENS,
+        reasoningEffort: "low",
+        reasoning_effort: "low",
+      },
     });
   }
 }
