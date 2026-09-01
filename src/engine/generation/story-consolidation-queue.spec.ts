@@ -255,7 +255,10 @@ describe("story consolidation queue", () => {
     );
   });
 
-  it("retries an exhausted reasoning response with a larger output budget", async () => {
+  it.each([
+    "Provider returned reasoning but no final assistant text.",
+    "GLM 5.3 always thinks and does not support disabling reasoning.",
+  ])("retries a forced-reasoning response without unsupported reasoning controls: %s", async (providerError) => {
     const test = harness();
     await enqueueStoryEpisodeJob(test.storage, {
       chat: { id: "chat-1", mode: "roleplay", metadata: {} },
@@ -265,7 +268,7 @@ describe("story consolidation queue", () => {
     });
     const llm = {
       complete: vi.fn()
-        .mockRejectedValueOnce(new Error("Provider returned reasoning but no final assistant text."))
+        .mockRejectedValueOnce(new Error(providerError))
         .mockResolvedValueOnce(llmResult()),
     } as unknown as LlmGateway;
 
@@ -274,7 +277,7 @@ describe("story consolidation queue", () => {
     expect(result.completed).toBe(1);
     expect(llm.complete).toHaveBeenCalledTimes(2);
     expect(llm.complete).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      parameters: expect.objectContaining({ maxTokens: 8192, reasoningEffort: "none" }),
+      parameters: { temperature: 0.25, maxTokens: 8192 },
     }));
   });
 
