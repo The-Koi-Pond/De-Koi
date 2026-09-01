@@ -64,20 +64,26 @@ function storySummaryParameters(maxTokens: number): Record<string, unknown> {
   };
 }
 
-function exhaustedReasoningResponse(value: unknown, seen = new Set<unknown>()): boolean {
-  if (typeof value === "string") return value.toLowerCase().includes("no final assistant text");
+function forcedReasoningResponse(value: unknown, seen = new Set<unknown>()): boolean {
+  if (typeof value === "string") {
+    const text = value.toLowerCase();
+    return text.includes("no final assistant text") || text.includes("does not support disabling reasoning");
+  }
   if (!value || typeof value !== "object" || seen.has(value)) return false;
   seen.add(value);
-  if (value instanceof Error && exhaustedReasoningResponse(value.message, seen)) return true;
-  return Object.values(value as Record<string, unknown>).some((nested) => exhaustedReasoningResponse(nested, seen));
+  if (value instanceof Error && forcedReasoningResponse(value.message, seen)) return true;
+  return Object.values(value as Record<string, unknown>).some((nested) => forcedReasoningResponse(nested, seen));
 }
 
 async function completeStorySummary(llm: LlmGateway, request: Parameters<LlmGateway["complete"]>[0]): Promise<string> {
   try {
     return await llm.complete({ ...request, parameters: storySummaryParameters(STORY_SUMMARY_MAX_TOKENS) });
   } catch (error) {
-    if (!exhaustedReasoningResponse(error)) throw error;
-    return llm.complete({ ...request, parameters: storySummaryParameters(STORY_SUMMARY_RETRY_MAX_TOKENS) });
+    if (!forcedReasoningResponse(error)) throw error;
+    return llm.complete({
+      ...request,
+      parameters: { temperature: 0.25, maxTokens: STORY_SUMMARY_RETRY_MAX_TOKENS },
+    });
   }
 }
 
