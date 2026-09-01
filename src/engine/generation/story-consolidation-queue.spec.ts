@@ -255,6 +255,29 @@ describe("story consolidation queue", () => {
     );
   });
 
+  it("retries an exhausted reasoning response with a larger output budget", async () => {
+    const test = harness();
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = {
+      complete: vi.fn()
+        .mockRejectedValueOnce(new Error("Provider returned reasoning but no final assistant text."))
+        .mockResolvedValueOnce(llmResult()),
+    } as unknown as LlmGateway;
+
+    const result = await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+
+    expect(result.completed).toBe(1);
+    expect(llm.complete).toHaveBeenCalledTimes(2);
+    expect(llm.complete).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      parameters: expect.objectContaining({ maxTokens: 8192, reasoningEffort: "none" }),
+    }));
+  });
+
   it("keeps a failed summarization retryable without writing a partial projection", async () => {
     const test = harness();
     const job = await enqueueStoryEpisodeJob(test.storage, {
