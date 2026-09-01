@@ -26,6 +26,8 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
 const LEASE_HEARTBEAT_MS = 10_000;
 const ABANDONED_PROCESSING_MS = 60_000;
+const STORY_SUMMARY_MAX_TOKENS = 1800;
+const STORY_SUMMARY_RETRY_MAX_TOKENS = 8192;
 const workerId = `story-consolidation-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
 const activeWorkers = new WeakSet<StorageGateway>();
 
@@ -51,6 +53,33 @@ type StructuredStorySummary = {
   summary: string;
   sections: StoryProjectionSections;
 };
+
+function storySummaryParameters(maxTokens: number): Record<string, unknown> {
+  return {
+    temperature: 0.25,
+    maxTokens,
+    reasoningEffort: "none",
+    reasoning_effort: "none",
+    customParameters: { reasoning_effort: "none", reasoning: { exclude: true } },
+  };
+}
+
+function exhaustedReasoningResponse(value: unknown, seen = new Set<unknown>()): boolean {
+  if (typeof value === "string") return value.toLowerCase().includes("no final assistant text");
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  if (value instanceof Error && exhaustedReasoningResponse(value.message, seen)) return true;
+  return Object.values(value as Record<string, unknown>).some((nested) => exhaustedReasoningResponse(nested, seen));
+}
+
+async function completeStorySummary(llm: LlmGateway, request: Parameters<LlmGateway["complete"]>[0]): Promise<string> {
+  try {
+    return await llm.complete({ ...request, parameters: storySummaryParameters(STORY_SUMMARY_MAX_TOKENS) });
+  } catch (error) {
+    if (!exhaustedReasoningResponse(error)) throw error;
+    return llm.complete({ ...request, parameters: storySummaryParameters(STORY_SUMMARY_RETRY_MAX_TOKENS) });
+  }
+}
 
 function isStoryProjection(memory: CanonicalMemoryRecord): boolean {
   return parseRecord(memory.payload).storyProjectionVersion === STORY_PROJECTION_VERSION;
@@ -714,23 +743,13 @@ export async function processStoryConsolidationQueue(
         }
         const structured = parseSummary(
           await withStoryLeaseHeartbeat(storage, leaseId, () =>
-            llm.complete({
+            completeStorySummary(llm, {
               connectionId: job.connectionId ?? null,
               model: job.model ?? null,
               messages: [
                 { role: "system", content: "You produce auditable long-form story continuity as strict JSON." },
                 { role: "user", content: summarizerPrompt(job) },
               ],
-              parameters: {
-                temperature: 0.25,
-                maxTokens: 1800,
-                reasoningEffort: "none",
-                reasoning_effort: "none",
-                customParameters: {
-                  reasoning_effort: "none",
-                  reasoning: { exclude: true },
-                },
-              },
             }),
           ),
           job,
