@@ -87,7 +87,6 @@ export function planEpisodeCoverage(input: {
   formalSceneStatus?: "active" | "concluded" | null;
   requestedBoundary?: "manual" | "scene_conclusion";
 }): StoryEpisodePlan | null {
-  if (input.formalSceneStatus === "active" && !input.requestedBoundary) return null;
   const run = firstUncoveredRun(input.messages, input.coveredMessageIds);
   if (run.length === 0) return null;
 

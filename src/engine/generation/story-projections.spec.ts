@@ -53,12 +53,25 @@ describe("story projection coverage", () => {
     expect(plan?.lastMessageId).toBe("message-25");
   });
 
-  it("does not threshold an active formal scene and permits a completed manual close", () => {
+  it("thresholds completed chunks inside an active formal scene and preserves explicit closes", () => {
     const source = Array.from({ length: 26 }, (_, index) => message(index + 1));
     expect(
       planEpisodeCoverage({
         chatId: "scene-1",
         messages: source,
+        coveredMessageIds: new Set(),
+        formalSceneStatus: "active",
+      }),
+    ).toMatchObject({
+      boundaryReason: "message_threshold",
+      firstMessageId: "message-1",
+      lastMessageId: "message-24",
+    });
+
+    expect(
+      planEpisodeCoverage({
+        chatId: "scene-1",
+        messages: source.slice(0, 23),
         coveredMessageIds: new Set(),
         formalSceneStatus: "active",
       }),
