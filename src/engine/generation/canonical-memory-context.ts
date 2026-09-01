@@ -303,7 +303,7 @@ function relevantEnoughForPrompt(
   }
   if (candidate.semanticScore >= STRONG_SEMANTIC_RELEVANCE_THRESHOLD) return true;
   if (candidate.lexicalScore <= 0 || queryTokenCount <= 0) return false;
-  return candidate.lexicalScore >= 2 || candidate.lexicalScore / queryTokenCount >= MIN_LEXICAL_QUERY_COVERAGE;
+  return candidate.lexicalScore / queryTokenCount >= MIN_LEXICAL_QUERY_COVERAGE;
 }
 
 function recentMessageIds(chat: JsonRecord, storedMessages: JsonRecord[]): Set<string> {

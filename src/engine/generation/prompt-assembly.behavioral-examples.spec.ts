@@ -206,6 +206,47 @@ describe("prompt assembly behavioral examples", () => {
     );
   });
 
+  it("does not reinject the active greeting when its unresolved user macro is already in history", async () => {
+    const greeting = 'Doctor locks the Cyan Tent behind {{user}}.\n\n"Sit, sweetie."';
+    const result = await assembleGenerationPrompt(
+      promptStorage({
+        id: "mira",
+        data: {
+          name: "Mira",
+          description: "A guarded archivist.",
+          mes_example: "<START>\n{{user}}: Are you ready?\n{{char}}: Always.",
+          alternate_greetings: [greeting],
+        },
+      }),
+      {
+        chat: { id: "chat-1", mode: "roleplay", characterIds: ["mira"] },
+        storedMessages: [
+          { role: "assistant", content: greeting },
+          { role: "user", content: "I sit down." },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: {
+          promptPresetId: "preset-1",
+          behavioralExampleSelectionThresholdTokens: 1,
+          behavioralExampleTokenBudget: 120,
+          behavioralExampleCandidateCap: 1,
+        },
+        latestUserInput: "I sit down.",
+      },
+    );
+
+    expect(result.messages.map((message) => message.content).join("\n")).not.toContain(
+      "<START>\n    Mira: Doctor locks the Cyan Tent",
+    );
+    expect(result.contextAttributionItems).toContainEqual(
+      expect.objectContaining({
+        kind: "behavioral_example",
+        status: "skipped",
+        metadata: expect.objectContaining({ sourceField: "alternate_greeting", reason: "history_overlap" }),
+      }),
+    );
+  });
+
   it("packs only a current enabled non-duplicative sparse-card interpretation after authored fields", async () => {
     const data = {
       name: "Mira",
@@ -284,16 +325,13 @@ describe("prompt assembly behavioral examples", () => {
       "Derived behavioral interpretation",
     );
 
-    const conversationResult = await assembleGenerationPrompt(
-      promptStorage(character, true),
-      {
-        chat: { id: "chat-1", mode: "conversation", characterIds: ["mira"] },
-        storedMessages: [{ role: "user", content: "What happened to the letter?" }],
-        connection: { provider: "openai", model: "qa-model" },
-        request: { promptPresetId: "preset-1" },
-        latestUserInput: "What happened to the letter?",
-      },
-    );
+    const conversationResult = await assembleGenerationPrompt(promptStorage(character, true), {
+      chat: { id: "chat-1", mode: "conversation", characterIds: ["mira"] },
+      storedMessages: [{ role: "user", content: "What happened to the letter?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { promptPresetId: "preset-1" },
+      latestUserInput: "What happened to the letter?",
+    });
     expect(conversationResult.messages.map((message) => message.content).join("\n")).not.toContain(
       "Derived behavioral interpretation",
     );

@@ -37,8 +37,8 @@
       "entrypoints": ["Conversation and Roleplay canonical-memory prompt assembly"],
       "currentPathsOrFormats": ["canonical-memories records and canonical_memories prompt block"],
       "legacyPathsOrFormats": ["Pinned memories", "chat-local memories", "scene-local memories", "strong semantic paraphrases", "lexical fallback"],
-      "positiveRowsTested": ["0.86 semantic paraphrase", "multi-keyword lexical match", "pinned memory", "chat-local relevant memory"],
-      "negativeRowsTested": ["0.32 unrelated semantic match", "single generic word across a longer query", "zero-evidence lexical fallback row"],
+      "positiveRowsTested": ["0.86 semantic paraphrase", "high-coverage lexical match", "pinned memory", "chat-local relevant memory"],
+      "negativeRowsTested": ["0.32 unrelated semantic match", "one generic word across a longer query", "two generic words across a longer query", "zero-evidence lexical fallback row"],
       "groundTruthFacts": ["Canonical records remain unchanged; only prompt admission changes."],
       "userActionCopy": "No user action or data migration is required.",
       "manualBlockers": []
@@ -51,7 +51,7 @@
       "legacyPathsOrFormats": ["Authored dialogue examples not present in history remain eligible."],
       "positiveRowsTested": ["Distinct authored dialogue remains selectable"],
       "negativeRowsTested": ["Visible alternate greeting with {{user}} inside narration"],
-      "groundTruthFacts": ["The same macro resolver is now applied to both comparison sides."],
+      "groundTruthFacts": ["Raw and resolved candidate forms are compared against raw history without executing history macros."],
       "userActionCopy": "No user action is required.",
       "manualBlockers": []
     }

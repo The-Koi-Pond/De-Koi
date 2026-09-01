@@ -624,6 +624,31 @@ describe("canonical memory context", () => {
     expect(result).toBeNull();
   });
 
+  it("rejects two generic lexical overlaps across a longer cross-chat roleplay turn", async () => {
+    const oldMemory = memory({
+      id: "memory-generic-overlap",
+      scope: { kind: "character", id: "circus" },
+      content: "Chai looks at Harlequin and asks whether everyone is ready.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-message"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [oldMemory] }), {
+      chat: { id: "new-chat", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput:
+        "I look at Doctor's injured hand and ask Jester whether the strange wound can be treated safely.",
+      characters: [{ id: "circus", name: "The Freak Circus", tags: [] }],
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("keeps lexical recall working when provider semantic retrieval fails", async () => {
     const storage = storageWithMemories({
       indexed: [memory({ id: "memory-fallback", content: "The obsidian compass points toward the archive." })],
