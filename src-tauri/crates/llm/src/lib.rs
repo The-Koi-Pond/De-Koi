@@ -704,6 +704,10 @@ fn provider_response_headers_timeout() -> Duration {
     Duration::from_secs(PROVIDER_RESPONSE_HEADERS_TIMEOUT_SECS)
 }
 
+fn provider_non_stream_read_timeout() -> Duration {
+    provider_response_headers_timeout()
+}
+
 fn provider_stream_idle_timeout(provider: &str) -> Duration {
     let seconds = if provider == "openai_chatgpt" {
         OPENAI_CHATGPT_STREAM_IDLE_TIMEOUT_SECS
@@ -4277,6 +4281,14 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         assert_eq!(error.code, "llm_network_error");
         assert!(error.message.contains("timed out"));
         assert!(error.message.contains("response headers"));
+    }
+
+    #[test]
+    fn non_stream_completions_can_wait_longer_than_stream_idle_timeout() {
+        assert!(
+            provider_non_stream_read_timeout()
+                > provider_stream_idle_timeout("openai")
+        );
     }
 
     #[tokio::test]

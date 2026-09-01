@@ -38,7 +38,11 @@ pub(crate) async fn complete_openai_compatible_rich(
     }
     apply_openai_parameters(&mut body, &request);
     log_prompt_connection_request("openai.chat.completions", &url, &request, &body);
-    let client = provider_http_client_for_url(&url).await?;
+    let client = provider_http_client_for_url_with_read_timeout(
+        &url,
+        provider_non_stream_read_timeout(),
+    )
+    .await?;
     let mut req = client.post(url).json(&body);
     if !request.connection.api_key.trim().is_empty() {
         req = req.bearer_auth(request.connection.api_key.trim());
