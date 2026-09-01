@@ -73,6 +73,8 @@ const MAX_CANDIDATE_MEMORIES = 60;
 const MAX_PROMPT_MEMORIES = 10;
 const MIN_CANONICAL_MEMORY_SCORE = 0.12;
 const SEMANTIC_SIMILARITY_THRESHOLD = 0.28;
+const STRONG_SEMANTIC_RELEVANCE_THRESHOLD = 0.4;
+const MIN_LEXICAL_QUERY_COVERAGE = 0.5;
 const SEMANTIC_CANDIDATE_LIMIT = 24;
 
 const STOPWORDS = new Set([
@@ -285,6 +287,23 @@ function scoreCandidate(
 
 function activeMemory(memory: CanonicalMemoryRecord): boolean {
   return memory.status === "active" || memory.status === "pinned";
+}
+
+function relevantEnoughForPrompt(
+  candidate: CanonicalMemoryCandidate,
+  input: CanonicalMemoryContextInput,
+  queryTokenCount: number,
+): boolean {
+  if (candidate.memory.status === "pinned") return true;
+  if (
+    (chatScopeMatches(candidate.memory, input.chat) || sceneScopeMatches(candidate.memory, input.chat)) &&
+    (candidate.lexicalScore > 0 || candidate.semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD)
+  ) {
+    return true;
+  }
+  if (candidate.semanticScore >= STRONG_SEMANTIC_RELEVANCE_THRESHOLD) return true;
+  if (candidate.lexicalScore <= 0 || queryTokenCount <= 0) return false;
+  return candidate.lexicalScore >= 2 || candidate.lexicalScore / queryTokenCount >= MIN_LEXICAL_QUERY_COVERAGE;
 }
 
 function recentMessageIds(chat: JsonRecord, storedMessages: JsonRecord[]): Set<string> {
@@ -679,12 +698,7 @@ export async function buildCanonicalMemoryContext(
     if (!existing || candidate.score > existing.score) rankedById.set(candidate.memory.id, candidate);
   }
   let ranked = Array.from(rankedById.values())
-    .filter(
-      (candidate) =>
-        candidate.lexicalScore > 0 ||
-        candidate.semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD ||
-        candidate.memory.status === "pinned",
-    )
+    .filter((candidate) => relevantEnoughForPrompt(candidate, input, queryTokens.length))
     .filter((candidate) => candidate.score >= MIN_CANONICAL_MEMORY_SCORE || candidate.memory.status === "pinned")
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CANDIDATE_MEMORIES);

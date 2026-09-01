@@ -209,7 +209,12 @@ export async function selectBehavioralExamples(
     };
   }
 
-  const history = new Set(input.visibleHistory.map(normalizeContent).filter(Boolean));
+  const history = new Set(
+    input.visibleHistory
+      .map((text) => input.resolveForHistory?.(text) ?? text)
+      .map(normalizeContent)
+      .filter(Boolean),
+  );
   const queryTokens = lexicalTokens(input.queryText);
   const eligible: RankedBehavioralExample[] = [];
   const skipped: RankedBehavioralExample[] = [];

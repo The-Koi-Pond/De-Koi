@@ -580,6 +580,50 @@ describe("canonical memory context", () => {
     });
   });
 
+  it("rejects weak semantic and low-coverage lexical matches from character-scoped roleplay recall", async () => {
+    const venom = memory({
+      id: "memory-venom",
+      scope: { kind: "character", id: "circus" },
+      content: "Harlequin administered venom to Pierrot, leaving Pierrot conscious but paralyzed.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-venom"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const pain = memory({
+      id: "memory-pain",
+      scope: { kind: "character", id: "circus" },
+      content: "Chai asks Harlequin to hurt Chai severely during consensual roleplay.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-pain"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const storage = storageWithMemories({
+      indexed: [venom, pain],
+      semantic: [
+        { memory: venom, similarity: 0.32, provider: "nanogpt", model: "embedding", connectionId: "nano" },
+        { memory: pain, similarity: 0.31, provider: "nanogpt", model: "embedding", connectionId: "nano" },
+      ],
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "new-chat", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "I've never seen his hands under it. You're hurt.",
+      characters: [{ id: "circus", name: "The Freak Circus", tags: [] }],
+      connectionId: "nano",
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("keeps lexical recall working when provider semantic retrieval fails", async () => {
     const storage = storageWithMemories({
       indexed: [memory({ id: "memory-fallback", content: "The obsidian compass points toward the archive." })],
