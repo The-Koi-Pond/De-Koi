@@ -580,6 +580,99 @@ describe("canonical memory context", () => {
     });
   });
 
+  it("rejects weak semantic and low-coverage lexical matches from character-scoped roleplay recall", async () => {
+    const venom = memory({
+      id: "memory-venom",
+      scope: { kind: "character", id: "circus" },
+      content: "Harlequin administered venom to Pierrot, leaving Pierrot conscious but paralyzed.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-venom"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const pain = memory({
+      id: "memory-pain",
+      scope: { kind: "character", id: "circus" },
+      content: "Chai asks Harlequin to hurt Chai severely during consensual roleplay.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-pain"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const storage = storageWithMemories({
+      indexed: [venom, pain],
+      semantic: [
+        { memory: venom, similarity: 0.32, provider: "nanogpt", model: "embedding", connectionId: "nano" },
+        { memory: pain, similarity: 0.31, provider: "nanogpt", model: "embedding", connectionId: "nano" },
+      ],
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "new-chat", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "I've never seen his hands under it. You're hurt.",
+      characters: [{ id: "circus", name: "The Freak Circus", tags: [] }],
+      connectionId: "nano",
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("rejects two generic lexical overlaps across a longer cross-chat roleplay turn", async () => {
+    const oldMemory = memory({
+      id: "memory-generic-overlap",
+      scope: { kind: "character", id: "circus" },
+      content: "Chai looks at Harlequin and asks whether everyone is ready.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-message"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [oldMemory] }), {
+      chat: { id: "new-chat", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput:
+        "I look at Doctor's injured hand and ask Jester whether the strange wound can be treated safely.",
+      characters: [{ id: "circus", name: "The Freak Circus", tags: [] }],
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("recalls a named fact when the later question uses the noun form", async () => {
+    const namedFact = memory({
+      id: "memory-named-fact",
+      scope: { kind: "character", id: "circus" },
+      content: "{{user}}'s cat is named Miso.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-message"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [namedFact] }), {
+      chat: { id: "new-chat", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "What was my cat's name?",
+      characters: [{ id: "circus", name: "The Freak Circus", tags: [] }],
+    });
+
+    expect(result?.block).toContain("cat is named Miso");
+  });
+
   it("keeps lexical recall working when provider semantic retrieval fails", async () => {
     const storage = storageWithMemories({
       indexed: [memory({ id: "memory-fallback", content: "The obsidian compass points toward the archive." })],

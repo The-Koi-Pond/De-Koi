@@ -158,6 +158,38 @@ describe("selectBehavioralExamples", () => {
     );
   });
 
+  it("suppresses a visible greeting when user macros appear inside narration", async () => {
+    const greeting = 'Doctor locks the Cyan Tent behind {{user}}.\n\n"Sit, sweetie."';
+    const candidates = buildBehavioralExamplePool([
+      {
+        id: "circus",
+        name: "The Freak Circus",
+        alternateGreetings: [greeting],
+        mesExample: "<START>\n{{user}}: Are you ready?\n{{char}}: Always.",
+      },
+    ]);
+
+    const result = await selectBehavioralExamples({
+      candidates,
+      queryText: "I sit down.",
+      visibleHistory: [greeting],
+      selectionThresholdTokens: 1,
+      tokenBudget: 120,
+      candidateCap: 1,
+      resolveForHistory: (text) => text.replaceAll("{{user}}", "Chai").replaceAll("{{char}}", "The Freak Circus"),
+    });
+
+    expect(result.selected.map((entry) => entry.candidate.sourceField)).not.toContain("alternate_greeting");
+    expect(result.skipped).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: "history_overlap",
+          candidate: expect.objectContaining({ sourceField: "alternate_greeting" }),
+        }),
+      ]),
+    );
+  });
+
   it("keeps a baseline authored exchange beside the strongest turn-relevant example when budget allows", async () => {
     const candidates = buildBehavioralExamplePool([
       {

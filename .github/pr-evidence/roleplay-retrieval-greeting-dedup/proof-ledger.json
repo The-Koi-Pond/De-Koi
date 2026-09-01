@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "bugfix",
+    "title": "Tighten roleplay memory retrieval and greeting deduplication",
+    "source": "Live Pi roleplay prompt snapshot showed weak unrelated Character Memories and the active alternate greeting injected beside identical chat history.",
+    "classification": "prompt assembly and memory relevance change",
+    "status": "pr_open"
+  },
+  "coreClaim": "Roleplay prompts reject weak cross-chat Character Memory matches and do not reinject a greeting already present in visible history after macro expansion.",
+  "rootCause": "Character scope, confidence, and recency inflated weak semantic or low-coverage lexical matches, while behavioral-example history comparison expanded macros only on the candidate side.",
+  "scope": {
+    "inScope": [
+      "Canonical Character Memory prompt admission",
+      "Behavioral-example visible-history deduplication",
+      "Focused regression coverage"
+    ],
+    "outOfScope": [
+      "Memory capture or stored memory text",
+      "Chat-local transcript Memory Recall ranking",
+      "Character cards, lorebooks, or existing chat history",
+      "Provider or model selection"
+    ],
+    "intendedFiles": [
+      "src/engine/generation/canonical-memory-context.ts",
+      "src/engine/generation/canonical-memory-context.spec.ts",
+      "src/engine/generation/behavioral-example-pool.ts",
+      "src/engine/generation/behavioral-example-pool.spec.ts",
+      ".github/pr-evidence/roleplay-retrieval-greeting-dedup/proof-ledger.json"
+    ],
+    "riskFlags": ["prompt assembly", "memory relevance", "roleplay continuity"]
+  },
+  "claimBoundary": {
+    "coreClaim": "Only prompt admission and behavioral-example overlap comparison change; canonical records and authored card fields remain untouched.",
+    "riskType": "shared generation prompt relevance",
+    "entrypoints": ["Conversation and Roleplay canonical-memory prompt assembly", "Roleplay behavioral-example selection"],
+    "currentPathsOrFormats": ["canonical-memories records", "canonical_memories prompt block", "first_mes", "alternate_greetings", "visible chat history"],
+    "legacyPathsOrFormats": ["Pinned memories", "chat-local memories", "scene-local memories", "strong semantic paraphrases", "lexical fallback", "authored examples absent from history"],
+    "outOfScopeClaims": ["No claim that all embedding providers assign identical scores.", "No stored memory, greeting, card, lorebook, or transcript migration."]
+  },
+  "contractLaneGate": {
+    "brokenContract": "Cross-chat Character Memories could enter a prompt from weak semantic or low-coverage generic lexical evidence, and the same greeting could enter as history plus a behavioral example when macro forms differed.",
+    "producer": "Canonical memory retrieval and authored character greeting fields provide candidate context.",
+    "consumer": "The TypeScript generation engine selects canonical memory and behavioral-example prompt blocks.",
+    "impliedContract": "Prompt assembly admits context only when it is relevant and non-duplicative without mutating or replaying transcript content.",
+    "actualEnforcement": "Cross-chat character candidates require strong semantic similarity or at least half of meaningful query tokens; behavioral candidates compare both raw and safely resolved candidate forms against untouched raw history.",
+    "primaryOwnerLane": "src/engine",
+    "primaryOwnerDetail": "src/engine/generation owns canonical-memory ranking and behavioral-example selection.",
+    "consumerOnlyLanes": ["src/features", "src/shared/api", "src-tauri"],
+    "wrongLaneFixToAvoid": "Do not rewrite stored memories or greetings, disable Memory Recall globally, mutate history, or patch the Roleplay UI around polluted prompts.",
+    "regressionProof": ["canonical-memory-context.spec.ts covers weak semantic, low lexical coverage, strong paraphrase, pinned, and local continuity rows.", "behavioral-example-pool.spec.ts and prompt-assembly.behavioral-examples.spec.ts cover raw/resolved greeting overlap without running history macros."]
+  },
+  "riskClaimMatrix": [
+    {
+      "coreClaim": "Cross-chat character memories require strong semantic relevance or meaningful lexical query coverage.",
+      "riskType": "prompt relevance regression",
+      "entrypoints": ["Conversation and Roleplay canonical-memory prompt assembly"],
+      "currentPathsOrFormats": ["canonical-memories records and canonical_memories prompt block"],
+      "legacyPathsOrFormats": ["Pinned memories", "chat-local memories", "scene-local memories", "strong semantic paraphrases", "lexical fallback"],
+      "positiveRowsTested": ["0.86 semantic paraphrase", "high-coverage lexical match", "pinned memory", "chat-local relevant memory"],
+      "negativeRowsTested": ["0.32 unrelated semantic match", "one generic word across a longer query", "two generic words across a longer query", "zero-evidence lexical fallback row"],
+      "groundTruthFacts": ["Canonical records remain unchanged; only prompt admission changes."],
+      "userActionCopy": "No user action or data migration is required.",
+      "manualBlockers": []
+    },
+    {
+      "coreClaim": "A greeting already visible in history is excluded even when user and character macros occur inside narration.",
+      "riskType": "duplicate prompt context",
+      "entrypoints": ["Roleplay behavioral-example selection"],
+      "currentPathsOrFormats": ["first_mes", "alternate_greetings", "visible chat history"],
+      "legacyPathsOrFormats": ["Authored dialogue examples not present in history remain eligible."],
+      "positiveRowsTested": ["Distinct authored dialogue remains selectable"],
+      "negativeRowsTested": ["Visible alternate greeting with {{user}} inside narration"],
+      "groundTruthFacts": ["Raw and resolved candidate forms are compared against raw history without executing history macros."],
+      "userActionCopy": "No user action is required.",
+      "manualBlockers": []
+    }
+  ],
+  "proofRows": {
+    "positiveRows": [
+      {
+        "claim": "Strong semantic paraphrases and relevant local continuity still enter canonical memory context.",
+        "evidence": "canonical-memory-context.spec.ts passes the 0.86 paraphrase, lexical fallback, pinned, chat-local, and scene-local cases."
+      },
+      {
+        "claim": "A distinct authored behavioral example remains selectable.",
+        "evidence": "behavioral-example-pool.spec.ts and prompt-assembly.behavioral-examples.spec.ts retain relevant non-overlapping authored examples."
+      }
+    ],
+    "contradictionRows": [
+      {
+        "claim": "Weak 0.31-0.32 cross-chat semantic candidates must not enter the prompt.",
+        "evidence": "canonical-memory-context.spec.ts returns null for the live roleplay query shape."
+      },
+      {
+        "claim": "One or two generic overlapping words in a longer cross-chat turn must not qualify a Character Memory.",
+        "evidence": "canonical-memory-context.spec.ts covers both low-coverage negative controls."
+      },
+      {
+        "claim": "The active greeting must not appear as both history and a behavioral example.",
+        "evidence": "prompt-assembly.behavioral-examples.spec.ts marks the alternate greeting history_overlap when {{user}} occurs inside narration."
+      }
+    ],
+    "legacyDefaultRows": [
+      {
+        "claim": "Pinned and relevant chat/scene-local memories preserve their prior eligibility.",
+        "evidence": "All canonical-memory-context and end-to-end memory recall suites pass."
+      }
+    ],
+    "untestedRows": ["Provider-specific similarity distributions remain a live quality observation after deployment; deterministic admission boundaries are covered locally."]
+  },
+  "manualBlockers": [],
+  "verification": {
+    "originalReproPassed": true,
+    "focusedReproPassed": true,
+    "baselinePassed": true,
+    "baselineCommand": "pnpm check",
+    "baselineEvidence": "pnpm check passed; 68 focused prompt and memory tests passed.",
+    "githubValidationPassed": false,
+    "negativeRowsTested": [
+      "Weak cross-chat semantic result is absent",
+      "Low-coverage generic lexical result is absent",
+      "Visible greeting is marked history_overlap"
+    ],
+    "afterEvidence": [
+      "pnpm vitest run focused memory and behavioral-example suites (68 tests)",
+      "pnpm typecheck",
+      "pnpm check:architecture",
+      "pnpm check"
+    ]
+  },
+  "checks": {
+    "baselineCommand": "pnpm check",
+    "baselineStatus": "passed",
+    "versionCheckStatus": "not_applicable",
+    "dbPushStatus": "not_applicable",
+    "ciStatus": "pending",
+    "bunnyReviewStatus": "pending",
+    "prHealthStatus": "pending"
+  },
+  "finalGate": {
+    "coreClaimProven": true,
+    "visualProofPresent": false,
+    "visualProofRequired": false,
+    "diffFocused": true,
+    "noUnapprovedExternalText": true,
+    "readyToReportDone": false
+  },
+  "finalDoneGate": {
+    "bugfixComplete": true,
+    "prClean": false,
+    "bunnyReviewClean": false,
+    "requiredChecksPassed": false,
+    "readyOrMerged": false,
+    "noBlockingManualVerification": true,
+    "reportOnlyWhenComplete": true
+  },
+  "notes": [
+    "Feature Discoverability is N/A because this repairs invisible prompt selection behavior and adds no user-facing control.",
+    "No stored memories, greetings, cards, lorebooks, or chat history are mutated."
+  ]
+}

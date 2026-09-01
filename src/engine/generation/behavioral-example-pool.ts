@@ -222,10 +222,11 @@ export async function selectBehavioralExamples(
       semanticScore: null,
       reason: "selected",
     };
-    const historyComparableContent = normalizeContent(
+    const rawHistoryComparableContent = normalizeContent(candidate.dialogueText);
+    const resolvedHistoryComparableContent = normalizeContent(
       input.resolveForHistory?.(candidate.dialogueText) ?? candidate.dialogueText,
     );
-    if (history.has(historyComparableContent)) {
+    if (history.has(rawHistoryComparableContent) || history.has(resolvedHistoryComparableContent)) {
       skipped.push({ ...entry, reason: "history_overlap" });
     } else {
       eligible.push(entry);
