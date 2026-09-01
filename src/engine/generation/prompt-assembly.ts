@@ -2287,22 +2287,33 @@ function appendSummaryToSystemPrompt(
   return true;
 }
 
-function buildRoleplayScenePromptBlock(chat: JsonRecord, wrapFormat: WrapFormat): string | null {
+const ROLEPLAY_SCENE_BOOTSTRAP_MESSAGE_LIMIT = 12;
+
+function buildRoleplayScenePromptBlock(
+  chat: JsonRecord,
+  storedMessages: JsonRecord[],
+  wrapFormat: WrapFormat,
+): string | null {
   const meta = parseRecord(chat.metadata);
   if (readString(chat.mode || chat.chatMode) !== "roleplay" && readString(meta.sceneStatus) !== "active") return null;
   const parts: string[] = [];
+  const includeBootstrapContext = storedMessages.length <= ROLEPLAY_SCENE_BOOTSTRAP_MESSAGE_LIMIT;
 
   const awareness: string[] = [];
-  const relationship = readString(meta.sceneRelationshipHistory).trim();
-  if (relationship) awareness.push(`Relationship history:\n${relationship}`);
-  const context = readString(meta.sceneConversationContext).trim();
-  if (context) awareness.push(`Conversation context before the scene:\n${context}`);
+  if (includeBootstrapContext) {
+    const relationship = readString(meta.sceneRelationshipHistory).trim();
+    if (relationship) awareness.push(`Relationship history at scene opening:\n${relationship}`);
+    const context = readString(meta.sceneConversationContext).trim();
+    if (context) awareness.push(`Conversation context before the scene:\n${context}`);
+  }
   const previous = readString(meta.lastRoleplaySceneSummary).trim();
   if (previous) awareness.push(`Previous scene continuity:\n${previous}`);
   if (awareness.length) parts.push(wrapContent(awareness.join("\n\n"), "awareness", wrapFormat));
 
-  const scenario = readString(meta.sceneScenario).trim() || readString(meta.sceneDescription).trim();
-  if (scenario) parts.push(wrapContent(scenario, "scene_scenario", wrapFormat));
+  if (includeBootstrapContext) {
+    const scenario = readString(meta.sceneScenario).trim() || readString(meta.sceneDescription).trim();
+    if (scenario) parts.push(wrapContent(scenario, "scene_scenario", wrapFormat));
+  }
   const instructions = readString(meta.sceneSystemPrompt).trim();
   if (instructions) parts.push(wrapContent(instructions, "scene_instructions", wrapFormat));
 
@@ -4939,7 +4950,7 @@ export async function assembleGenerationPrompt(
     messages.push(gameReminder!);
   } else {
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
-    const sceneBlock = buildRoleplayScenePromptBlock(input.chat, wrapFormat);
+    const sceneBlock = buildRoleplayScenePromptBlock(input.chat, input.storedMessages, wrapFormat);
     const ensembleBlock = buildMergedRoleplayEnsemblePromptBlock(input, promptCharacters, wrapFormat);
     const roleplayBlocks = [narratorStyleBlock, sceneBlock, ensembleBlock].filter((block): block is string => !!block);
     if (roleplayBlocks.length > 0) {

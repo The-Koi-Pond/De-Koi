@@ -204,6 +204,72 @@ describe("prompt assembly merged roleplay", () => {
     expect(promptText).toContain("Avoid echoing the same signature phrase");
     expect(promptText).not.toContain("Write this turn only from");
   });
+
+  it("expires scene bootstrap context after six exchanges but keeps durable scene instructions", async () => {
+    const storedMessages = Array.from({ length: 13 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `scene message ${index + 1}`,
+    }));
+    const prompt = await assembleGenerationPrompt(promptAssemblyStorage({ sections: [] }), {
+      chat: {
+        id: "scene-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: {
+          sceneStatus: "active",
+          sceneRelationshipHistory: "Opening relationship state that the scene has since changed.",
+          sceneConversationContext: "Conversation context used to launch the scene.",
+          sceneScenario: "The characters are preparing to begin the original ritual.",
+          sceneSystemPrompt: "Keep this durable scene-specific boundary in force.",
+          lastRoleplaySceneSummary: "Current continuity says the ritual became a negotiation.",
+        },
+      },
+      storedMessages,
+      connection: { provider: "openai", model: "qa-model" },
+      request: { promptPresetId: "preset-1" },
+      latestUserInput: "scene message 13",
+    });
+
+    const promptText = prompt.messages.map((message) => message.content).join("\n");
+
+    expect(promptText).not.toContain("Opening relationship state that the scene has since changed.");
+    expect(promptText).not.toContain("Conversation context used to launch the scene.");
+    expect(promptText).not.toContain("The characters are preparing to begin the original ritual.");
+    expect(promptText).toContain("Keep this durable scene-specific boundary in force.");
+    expect(promptText).toContain("Current continuity says the ritual became a negotiation.");
+  });
+
+  it("keeps scene bootstrap context through the first six exchanges", async () => {
+    const storedMessages = Array.from({ length: 12 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `opening message ${index + 1}`,
+    }));
+    const prompt = await assembleGenerationPrompt(promptAssemblyStorage({ sections: [] }), {
+      chat: {
+        id: "scene-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: {
+          sceneStatus: "active",
+          sceneRelationshipHistory: "Opening relationship state.",
+          sceneConversationContext: "Conversation context used to launch the scene.",
+          sceneScenario: "The characters are preparing to begin the ritual.",
+          sceneSystemPrompt: "Keep this durable scene-specific boundary in force.",
+        },
+      },
+      storedMessages,
+      connection: { provider: "openai", model: "qa-model" },
+      request: { promptPresetId: "preset-1" },
+      latestUserInput: "opening message 12",
+    });
+
+    const promptText = prompt.messages.map((message) => message.content).join("\n");
+
+    expect(promptText).toContain("Opening relationship state.");
+    expect(promptText).toContain("Conversation context used to launch the scene.");
+    expect(promptText).toContain("The characters are preparing to begin the ritual.");
+    expect(promptText).toContain("Keep this durable scene-specific boundary in force.");
+  });
 });
 describe("prompt assembly preset depth sections", () => {
   it("does not append character description extensions to prompt macros", async () => {
