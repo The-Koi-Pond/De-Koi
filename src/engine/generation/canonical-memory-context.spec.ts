@@ -649,6 +649,30 @@ describe("canonical memory context", () => {
     expect(result).toBeNull();
   });
 
+  it("recalls a named fact when the later question uses the noun form", async () => {
+    const namedFact = memory({
+      id: "memory-named-fact",
+      scope: { kind: "character", id: "circus" },
+      content: "{{user}}'s cat is named Miso.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-message"],
+        sceneId: null,
+        characterId: "circus",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [namedFact] }), {
+      chat: { id: "new-chat", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "What was my cat's name?",
+      characters: [{ id: "circus", name: "The Freak Circus", tags: [] }],
+    });
+
+    expect(result?.block).toContain("cat is named Miso");
+  });
+
   it("keeps lexical recall working when provider semantic retrieval fails", async () => {
     const storage = storageWithMemories({
       indexed: [memory({ id: "memory-fallback", content: "The obsidian compass points toward the archive." })],

@@ -94,6 +94,8 @@ const STOPWORDS = new Set([
   "his",
   "how",
   "its",
+  "is",
+  "my",
   "now",
   "our",
   "recall",
@@ -144,9 +146,9 @@ function tokenBudget(chat: JsonRecord, maxContext?: number | null): number {
 }
 
 function lexicalTokens(text: string): string[] {
-  return Array.from(text.toLowerCase().matchAll(/[\p{Letter}\p{Number}]{2,}/gu), (match) => match[0]).filter(
-    (token) => !STOPWORDS.has(token),
-  );
+  return Array.from(text.toLowerCase().matchAll(/[\p{Letter}\p{Number}]{2,}/gu), (match) => match[0])
+    .filter((token) => !STOPWORDS.has(token))
+    .map((token) => (token === "named" ? "name" : token));
 }
 
 function tokenSet(text: string): Set<string> {
