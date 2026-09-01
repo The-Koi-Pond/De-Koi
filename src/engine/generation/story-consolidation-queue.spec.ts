@@ -228,6 +228,33 @@ describe("story consolidation queue", () => {
     ]);
   });
 
+  it("disables provider reasoning for bounded story projection JSON", async () => {
+    const test = harness();
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+
+    await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+
+    expect(llm.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parameters: expect.objectContaining({
+          maxTokens: 1800,
+          reasoningEffort: "none",
+          reasoning_effort: "none",
+          customParameters: {
+            reasoning_effort: "none",
+            reasoning: { exclude: true },
+          },
+        }),
+      }),
+    );
+  });
+
   it("keeps a failed summarization retryable without writing a partial projection", async () => {
     const test = harness();
     const job = await enqueueStoryEpisodeJob(test.storage, {
