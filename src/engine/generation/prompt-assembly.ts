@@ -2287,17 +2287,17 @@ function appendSummaryToSystemPrompt(
   return true;
 }
 
-const ROLEPLAY_SCENE_BOOTSTRAP_MESSAGE_LIMIT = 12;
+const ROLEPLAY_SCENE_BOOTSTRAP_VISIBLE_HISTORY_MESSAGE_LIMIT = 12;
 
 function buildRoleplayScenePromptBlock(
   chat: JsonRecord,
-  storedMessages: JsonRecord[],
+  visibleHistory: ChatMLMessage[],
   wrapFormat: WrapFormat,
 ): string | null {
   const meta = parseRecord(chat.metadata);
   if (readString(chat.mode || chat.chatMode) !== "roleplay" && readString(meta.sceneStatus) !== "active") return null;
   const parts: string[] = [];
-  const includeBootstrapContext = storedMessages.length <= ROLEPLAY_SCENE_BOOTSTRAP_MESSAGE_LIMIT;
+  const includeBootstrapContext = visibleHistory.length <= ROLEPLAY_SCENE_BOOTSTRAP_VISIBLE_HISTORY_MESSAGE_LIMIT;
 
   const awareness: string[] = [];
   if (includeBootstrapContext) {
@@ -4950,7 +4950,7 @@ export async function assembleGenerationPrompt(
     messages.push(gameReminder!);
   } else {
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
-    const sceneBlock = buildRoleplayScenePromptBlock(input.chat, input.storedMessages, wrapFormat);
+    const sceneBlock = buildRoleplayScenePromptBlock(input.chat, history, wrapFormat);
     const ensembleBlock = buildMergedRoleplayEnsemblePromptBlock(input, promptCharacters, wrapFormat);
     const roleplayBlocks = [narratorStyleBlock, sceneBlock, ensembleBlock].filter((block): block is string => !!block);
     if (roleplayBlocks.length > 0) {

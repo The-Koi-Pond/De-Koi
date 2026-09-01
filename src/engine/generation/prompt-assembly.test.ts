@@ -240,10 +240,15 @@ describe("prompt assembly merged roleplay", () => {
   });
 
   it("keeps scene bootstrap context through the first six exchanges", async () => {
-    const storedMessages = Array.from({ length: 12 }, (_, index) => ({
+    const visibleMessages = Array.from({ length: 12 }, (_, index) => ({
       role: index % 2 === 0 ? "user" : "assistant",
       content: `opening message ${index + 1}`,
     }));
+    const storedMessages = [
+      { role: "system", content: "Hidden processing row.", extra: { hiddenFromAI: true } },
+      { role: "assistant", content: "" },
+      ...visibleMessages,
+    ];
     const prompt = await assembleGenerationPrompt(promptAssemblyStorage({ sections: [] }), {
       chat: {
         id: "scene-1",
