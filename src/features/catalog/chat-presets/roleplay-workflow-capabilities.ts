@@ -17,7 +17,8 @@ function boolish(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
-function localSidecarReady(status: LocalSidecarStatusResponse): boolean {
+function localSidecarReady(status: LocalSidecarStatusResponse | null): boolean {
+  if (!status) return false;
   const hasRuntime = status.runtime.installed || Boolean(status.config.executablePath?.trim());
   return Boolean(
     status.configured &&
@@ -28,6 +29,14 @@ function localSidecarReady(status: LocalSidecarStatusResponse): boolean {
     status.ready &&
     status.baseUrl,
   );
+}
+
+async function readOptionalLocalSidecarStatus(): Promise<LocalSidecarStatusResponse | null> {
+  try {
+    return await localSidecarApi.status();
+  } catch {
+    return null;
+  }
 }
 
 function isLoopbackUrl(value: string | null | undefined): boolean {
@@ -104,7 +113,7 @@ export async function resolveRoleplayWorkflowCapabilities(chat: Chat): Promise<R
       backgroundsApi.list(),
       coreModulesApi.settings.get(),
       ttsApi.config(),
-      localSidecarApi.status(),
+      readOptionalLocalSidecarStatus(),
       storageApi.get<IllustratorAgentRecord>("agents", "illustrator").catch(() => null),
       storageApi.list<IllustratorAgentRecord>("agents").catch(() => []),
     ]);
