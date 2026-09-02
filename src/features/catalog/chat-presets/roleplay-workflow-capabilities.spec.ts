@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Chat } from "../../../engine/contracts/types/chat";
+import { ApiError } from "../../../shared/api/api-errors";
 
 const mocks = vi.hoisted(() => ({
   getStorage: vi.fn(),
@@ -126,7 +127,11 @@ describe("resolveRoleplayWorkflowCapabilities", () => {
   });
 
   it("keeps ordinary workflow profiles available when remote sidecar status requires admin access", async () => {
-    mocks.getSidecarStatus.mockRejectedValue(new Error("This remote command requires ADMIN_SECRET on the runtime."));
+    mocks.getSidecarStatus.mockRejectedValue(
+      new ApiError("This remote command requires ADMIN_SECRET on the runtime.", 403, {
+        code: "admin_access_required",
+      }),
+    );
 
     await expect(resolveRoleplayWorkflowCapabilities(roleplayChat)).resolves.toMatchObject({
       hasUniversalPreset: true,
@@ -135,6 +140,12 @@ describe("resolveRoleplayWorkflowCapabilities", () => {
       hasUsableBackgroundAssets: true,
       ttsReady: true,
     });
+  });
+
+  it("still surfaces unexpected sidecar status failures", async () => {
+    mocks.getSidecarStatus.mockRejectedValue(new Error("Sidecar IPC failed"));
+
+    await expect(resolveRoleplayWorkflowCapabilities(roleplayChat)).rejects.toThrow("Sidecar IPC failed");
   });
 
   it("still surfaces failures from required workflow capability reads", async () => {

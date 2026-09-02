@@ -6,6 +6,7 @@ import type { Chat } from "../../../engine/contracts/types/chat";
 import type { LocalSidecarStatusResponse } from "../../../engine/contracts/types/sidecar";
 import type { RoleplayWorkflowCapabilities } from "../../../engine/modes/roleplay/workflow-profiles";
 import { DE_KOI_UNIVERSAL_PRESET_ID } from "../../../engine/modes/roleplay/scene/universal-preset";
+import { ApiError } from "../../../shared/api/api-errors";
 import { connectionCatalogApi, type AvailableConnectionSummary } from "../../../shared/api/connection-catalog-api";
 import { coreModulesApi } from "../../../shared/api/core-modules-api";
 import { localSidecarApi } from "../../../shared/api/local-sidecar-api";
@@ -34,7 +35,10 @@ function localSidecarReady(status: LocalSidecarStatusResponse | null): boolean {
 async function readOptionalLocalSidecarStatus(): Promise<LocalSidecarStatusResponse | null> {
   try {
     return await localSidecarApi.status();
-  } catch {
+  } catch (error) {
+    const details = error instanceof ApiError ? error.details : null;
+    const code = details && typeof details === "object" ? (details as { code?: unknown }).code : null;
+    if (code !== "admin_access_required") throw error;
     return null;
   }
 }
