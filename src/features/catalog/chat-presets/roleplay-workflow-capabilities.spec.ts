@@ -1,6 +1,45 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Chat } from "../../../engine/contracts/types/chat";
+import { ApiError } from "../../../shared/api/api-errors";
 
-import { resolveRoleplayWorkflowImageCapability } from "./roleplay-workflow-capabilities";
+const mocks = vi.hoisted(() => ({
+  getStorage: vi.fn(),
+  listStorage: vi.fn(),
+  listConnections: vi.fn(),
+  listBackgrounds: vi.fn(),
+  getModuleSettings: vi.fn(),
+  getTtsConfig: vi.fn(),
+  getSidecarStatus: vi.fn(),
+}));
+
+vi.mock("../../../shared/api/storage-api", () => ({
+  storageApi: { get: mocks.getStorage, list: mocks.listStorage },
+}));
+
+vi.mock("../../../shared/api/connection-catalog-api", () => ({
+  connectionCatalogApi: { listAvailable: mocks.listConnections },
+}));
+
+vi.mock("../../../shared/api/settings-assets-api", () => ({
+  backgroundsApi: { list: mocks.listBackgrounds },
+}));
+
+vi.mock("../../../shared/api/core-modules-api", () => ({
+  coreModulesApi: { settings: { get: mocks.getModuleSettings } },
+}));
+
+vi.mock("../../../shared/api/tts-api", () => ({
+  ttsApi: { config: mocks.getTtsConfig },
+}));
+
+vi.mock("../../../shared/api/local-sidecar-api", () => ({
+  localSidecarApi: { status: mocks.getSidecarStatus },
+}));
+
+import {
+  resolveRoleplayWorkflowCapabilities,
+  resolveRoleplayWorkflowImageCapability,
+} from "./roleplay-workflow-capabilities";
 
 const connections = [
   { id: "local", name: "Local Images", provider: "image_generation", baseUrl: "http://127.0.0.1:8188" },
@@ -12,6 +51,30 @@ const connections = [
     defaultForAgents: true,
   },
 ] as const;
+
+const roleplayChat: Chat = {
+  id: "roleplay-1",
+  name: "Roleplay",
+  mode: "roleplay",
+  characterIds: [],
+  groupId: null,
+  personaId: null,
+  promptPresetId: null,
+  connectionId: null,
+  connectedChatId: null,
+  folderId: null,
+  sortOrder: 0,
+  createdAt: "2026-09-02T00:00:00.000Z",
+  updatedAt: "2026-09-02T00:00:00.000Z",
+  metadata: {
+    summary: null,
+    tags: [],
+    agentOverrides: {},
+    activeAgentIds: [],
+    activeToolIds: [],
+    presetChoices: {},
+  },
+};
 
 describe("resolveRoleplayWorkflowImageCapability", () => {
   it("matches Illustrator runtime precedence across agent, chat, and global defaults", () => {
@@ -45,5 +108,49 @@ describe("resolveRoleplayWorkflowImageCapability", () => {
         connections,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveRoleplayWorkflowCapabilities", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.getStorage.mockImplementation(async (collection: string, id: string) => {
+      if (collection === "prompts") return { id };
+      return null;
+    });
+    mocks.listStorage.mockResolvedValue([]);
+    mocks.listConnections.mockResolvedValue(connections);
+    mocks.listBackgrounds.mockResolvedValue([{ filename: "forest.png" }]);
+    mocks.getModuleSettings.mockResolvedValue({ enabled: {} });
+    mocks.getTtsConfig.mockResolvedValue({ enabled: true, baseUrl: "http://127.0.0.1:5002", voice: "local" });
+    mocks.getSidecarStatus.mockResolvedValue(null);
+  });
+
+  it("keeps ordinary workflow profiles available when remote sidecar status requires admin access", async () => {
+    mocks.getSidecarStatus.mockRejectedValue(
+      new ApiError("This remote command requires ADMIN_SECRET on the runtime.", 403, {
+        code: "admin_access_required",
+      }),
+    );
+
+    await expect(resolveRoleplayWorkflowCapabilities(roleplayChat)).resolves.toMatchObject({
+      hasUniversalPreset: true,
+      localSidecarReady: false,
+      hasImageConnection: true,
+      hasUsableBackgroundAssets: true,
+      ttsReady: true,
+    });
+  });
+
+  it("still surfaces unexpected sidecar status failures", async () => {
+    mocks.getSidecarStatus.mockRejectedValue(new Error("Sidecar IPC failed"));
+
+    await expect(resolveRoleplayWorkflowCapabilities(roleplayChat)).rejects.toThrow("Sidecar IPC failed");
+  });
+
+  it("still surfaces failures from required workflow capability reads", async () => {
+    mocks.getStorage.mockRejectedValueOnce(new Error("Prompt catalog unavailable"));
+
+    await expect(resolveRoleplayWorkflowCapabilities(roleplayChat)).rejects.toThrow("Prompt catalog unavailable");
   });
 });
