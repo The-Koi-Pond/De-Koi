@@ -30,7 +30,7 @@ export function RoleplayWorkflowProfileDrawerControl({
         <span className="min-w-0 flex-1">
           <span className="block text-xs font-semibold text-[var(--foreground)]">Workflow profile</span>
           <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-            Preview and apply a Roleplay helper setup
+            Choose the setup that fits this story
           </span>
         </span>
         <ChevronDown

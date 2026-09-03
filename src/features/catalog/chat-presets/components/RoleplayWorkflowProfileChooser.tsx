@@ -14,30 +14,42 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useApplyRoleplayWorkflowProfile, useRevertRoleplayWorkflowProfile } from "../hooks/use-chat-presets";
 import { isLocalSidecarAssignmentReady, resolveRoleplayWorkflowCapabilities } from "../roleplay-workflow-capabilities";
 
-const PROFILES: ReadonlyArray<{
+interface ProfilePresentation {
   id: RoleplayWorkflowProfileId;
   label: string;
-  description: string;
-}> = [
+  bestFor: string;
+  adds: string;
+  modelUse: string;
+}
+
+const PROFILES: readonly ProfilePresentation[] = [
   {
     id: "minimal-clean",
-    label: "Minimal / Clean",
-    description: "Universal roleplay prompting and memory recall, with automatic agents kept out unless you opt in.",
+    label: "Simple Roleplay",
+    bestFor: "A short or casual chat where the main model handles the story.",
+    adds: "Standard Roleplay prompting and memory recall without automatic helpers.",
+    modelUse: "No background helper calls.",
   },
   {
     id: "longform-continuity",
-    label: "Longform Continuity",
-    description: "Adds continuity, world-state, and periodic summary support for longer-running stories.",
+    label: "Long-Running Story",
+    bestFor: "A campaign or story spanning many scenes or sessions.",
+    adds: "Continuity checks, world state, summaries, and reviewable future story beats.",
+    modelUse: "Occasional background calls, including Director planning every 10 assistant replies.",
   },
   {
     id: "cinematic",
-    label: "Cinematic",
-    description: "Adds expression and background support. Illustrator and Music Player stay optional.",
+    label: "Cinematic Roleplay",
+    bestFor: "Roleplay where expressions, backgrounds, artwork, or music matter most.",
+    adds: "Visual presentation helpers; artwork and music remain optional.",
+    modelUse: "Varies by selection; image or music features may use external services.",
   },
   {
     id: "local-assist",
-    label: "Local Assist",
-    description: "Routes selected helper agents to the local sidecar. Your writer connection remains unchanged.",
+    label: "Local Helpers",
+    bestFor: "A setup with the local sidecar configured for supported background work.",
+    adds: "Local tracking and expression helpers without changing the writer connection.",
+    modelUse: "Uses local helper calls and requires a ready sidecar.",
   },
 ] as const;
 
@@ -100,6 +112,16 @@ function defaultSelections(resolution: RoleplayWorkflowProfileResolution): Set<s
       .filter((row) => row.kind === "change" && row.selectable && row.selectedByDefault)
       .map((row) => row.id),
   );
+}
+
+function appliedProfileId(chat: Chat): RoleplayWorkflowProfileId {
+  const id = chat.metadata?.roleplayWorkflowApplication?.profileId;
+  return PROFILES.some((profile) => profile.id === id) ? (id as RoleplayWorkflowProfileId) : "minimal-clean";
+}
+
+function modelActivitySummary(rows: readonly RoleplayWorkflowChangeRow[]): string {
+  if (!rows.some((row) => row.expectedExtraCalls > 0)) return "Background model activity: none";
+  return "Background model activity: occasional";
 }
 
 function emitChatDestination(destination: DiscoveryChatDestination): void {
@@ -179,7 +201,7 @@ export function RoleplayWorkflowProfileChooser({
   entryPoint,
   onNavigateAway,
 }: RoleplayWorkflowProfileChooserProps) {
-  const [profileId, setProfileId] = useState<RoleplayWorkflowProfileId>("minimal-clean");
+  const [profileId, setProfileId] = useState<RoleplayWorkflowProfileId>(() => appliedProfileId(chat));
   const [preview, setPreview] = useState<RoleplayWorkflowProfileResolution | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [displayedChat, setDisplayedChat] = useState(chat);
@@ -205,6 +227,7 @@ export function RoleplayWorkflowProfileChooser({
       tone: "info",
       message: "Chat settings changed. Review the refreshed ledger before applying.",
     });
+    setProfileId(appliedProfileId(chat));
     setDisplayedChat(chat);
   }, [chat]);
 
@@ -394,6 +417,11 @@ export function RoleplayWorkflowProfileChooser({
     [preview, selectedItemIds],
   );
   const receipt = displayedChat.metadata?.roleplayWorkflowApplication;
+  const hasLongformUpdate =
+    receipt?.profileId === "longform-continuity" &&
+    receipt.profileVersion === 1 &&
+    preview?.profileId === "longform-continuity" &&
+    preview.version === 2;
   const pending = applyMutation.isPending || revertMutation.isPending;
 
   return (
@@ -423,6 +451,9 @@ export function RoleplayWorkflowProfileChooser({
         </div>
       ) : (
         <>
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">
+            What kind of roleplay are you setting up?
+          </h3>
           <div
             className="grid min-h-0 gap-3 @[36rem]:grid-cols-[minmax(9.5rem,0.72fr)_minmax(0,1.28fr)]"
             data-layout="workflow-profile-grid"
@@ -461,7 +492,20 @@ export function RoleplayWorkflowProfileChooser({
                       </span>
                       {profile.label}
                     </span>
-                    <span className="mt-1 block text-[0.625rem] leading-relaxed">{profile.description}</span>
+                    <span className="mt-1.5 grid gap-1 text-[0.625rem] leading-relaxed">
+                      <span className="block">
+                        <span className="font-semibold">Best for: </span>
+                        {profile.bestFor}
+                      </span>
+                      <span className="block">
+                        <span className="font-semibold">Adds: </span>
+                        {profile.adds}
+                      </span>
+                      <span className="block">
+                        <span className="font-semibold">Model use: </span>
+                        {profile.modelUse}
+                      </span>
+                    </span>
                   </button>
                 );
               })}
@@ -471,7 +515,7 @@ export function RoleplayWorkflowProfileChooser({
               <div className="flex items-center justify-between gap-2">
                 <h4 className="text-xs font-semibold text-[var(--foreground)]">Change ledger</h4>
                 <span className="text-[0.625rem] text-[var(--muted-foreground)]">
-                  {selectedRows.reduce((sum, row) => sum + row.expectedExtraCalls, 0)} expected extra calls
+                  {modelActivitySummary(selectedRows)}
                 </span>
               </div>
               <div
@@ -521,18 +565,10 @@ export function RoleplayWorkflowProfileChooser({
                               <dd className="break-words text-[var(--foreground)]">
                                 {displayValue(row.after, row.id)}
                               </dd>
-                              <dt className="text-[var(--muted-foreground)]">Calls</dt>
-                              <dd>
-                                {row.expectedExtraCalls === 0
-                                  ? "No extra model call"
-                                  : `+${row.expectedExtraCalls} model call per run`}
-                              </dd>
+                              <dt className="text-[var(--muted-foreground)]">Model use</dt>
+                              <dd>{row.modelUse}</dd>
                               <dt className="text-[var(--muted-foreground)]">Latency</dt>
-                              <dd>
-                                {row.expectedExtraCalls === 0
-                                  ? "No added model latency"
-                                  : "May add response latency when it runs"}
-                              </dd>
+                              <dd>{row.addsWriterLatency ? "May add writer response latency" : "No added writer latency"}</dd>
                               <dt className="text-[var(--muted-foreground)]">Destination</dt>
                               <dd className="break-words">{row.destination ?? "No external data destination"}</dd>
                             </dl>
@@ -571,10 +607,13 @@ export function RoleplayWorkflowProfileChooser({
 
           {receipt && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--primary)]/8 px-3 py-2 ring-1 ring-[var(--primary)]/25">
-              <p className="text-[0.625rem] leading-relaxed text-[var(--foreground)]">
-                Applied {PROFILES.find((profile) => profile.id === receipt.profileId)?.label ?? receipt.profileId},
-                version {receipt.profileVersion}, {new Date(receipt.appliedAt).toLocaleString()}.
-              </p>
+              <div>
+                <p className="text-[0.625rem] leading-relaxed text-[var(--foreground)]">
+                  Applied {PROFILES.find((profile) => profile.id === receipt.profileId)?.label ?? receipt.profileId},
+                  version {receipt.profileVersion}, {new Date(receipt.appliedAt).toLocaleString()}.
+                </p>
+                {hasLongformUpdate && <p role="status">Update available: add automatic story planning</p>}
+              </div>
               <button
                 type="button"
                 onClick={() => void revert()}

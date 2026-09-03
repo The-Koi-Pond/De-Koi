@@ -56,6 +56,13 @@ describe("RoleplayWorkflowProfileChooser", () => {
   let root: Root;
   let container: HTMLDivElement;
 
+  async function renderChooser(value: Chat, entryPoint: "drawer" | "wizard") {
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<RoleplayWorkflowProfileChooser chat={value} entryPoint={entryPoint} />);
+    });
+  }
+
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -77,24 +84,76 @@ describe("RoleplayWorkflowProfileChooser", () => {
     vi.clearAllMocks();
   });
 
-  it("shows all four profiles and keeps optional media changes unchecked by default", async () => {
-    await act(async () => {
-      root = createRoot(container);
-      root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
-    });
-
-    for (const label of ["Minimal / Clean", "Longform Continuity", "Cinematic", "Local Assist"]) {
+  it.each(["drawer", "wizard"] as const)("explains when to use every workflow in the %s", async (entryPoint) => {
+    await renderChooser(chat, entryPoint);
+    expect(container.textContent).toContain("What kind of roleplay are you setting up?");
+    for (const label of ["Simple Roleplay", "Long-Running Story", "Cinematic Roleplay", "Local Helpers"]) {
       expect(container.querySelector(`[aria-label="Choose ${label}"]`)).toBeTruthy();
     }
+    expect(container.textContent).toContain("short or casual chat");
+    expect(container.textContent).toContain("many scenes or sessions");
+    expect(container.textContent).toContain("expressions, backgrounds, artwork, or music");
+    expect(container.textContent).toContain("local sidecar configured");
+    expect(container.textContent).toContain("Best for");
+    expect(container.textContent).toContain("Adds");
+    expect(container.textContent).toContain("Model use");
+  });
+
+  it("shows all four profiles and keeps optional media changes unchecked by default", async () => {
+    await renderChooser(chat, "drawer");
 
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
     });
 
     expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).checked).toBe(false);
     expect((container.querySelector('[aria-label="Music Player"]') as HTMLInputElement).checked).toBe(false);
     expect(container.textContent).toContain("Studio Image Cloud (configured image connection)");
     expect(container.textContent).toContain("Image generation may use paid or external provider services.");
+  });
+
+  it("summarizes selected background model activity without promising calls on every writer response", async () => {
+    await renderChooser(chat, "drawer");
+    expect(container.textContent).toContain("Background model activity: none");
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();
+    });
+
+    expect(container.textContent).toContain("Background model activity: occasional");
+    expect(container.textContent).toContain("One non-blocking planning call every 10 assistant replies");
+    expect(container.textContent).toContain("No added writer latency");
+  });
+
+  it("offers the version-2 Long-Running Story update without selecting existing Director settings", async () => {
+    const chatWithLongformV1Receipt = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 1,
+          appliedAt: "2026-09-03T12:00:00.000Z",
+          selectedItemIds: [],
+          changes: [],
+        },
+        roleplayContinuityDirector: {
+          enabled: true,
+          refreshMode: "cadence",
+          refreshEveryAssistantTurns: 10,
+        },
+      },
+    } as unknown as Chat;
+
+    await renderChooser(chatWithLongformV1Receipt, "drawer");
+
+    expect(container.querySelector('[aria-label="Choose Long-Running Story"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Update available: add automatic story planning",
+    );
+    expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(false);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
+    expect(mocks.apply).not.toHaveBeenCalled();
   });
 
   it("shows disabled prerequisites, honest costs and destinations, settings links, and mobile-first structure", async () => {
@@ -113,7 +172,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
     });
 
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
     });
 
     expect((container.querySelector('[aria-label="Background"]') as HTMLInputElement).disabled).toBe(true);
@@ -121,8 +180,8 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain(
       "Background needs usable background assets or a configured image connection.",
     );
-    expect(container.textContent).toContain("+1 model call per run");
-    expect(container.textContent).toContain("May add response latency when it runs");
+    expect(container.textContent).toContain("One call when this helper runs");
+    expect(container.textContent).toContain("No added writer latency");
     expect(container.textContent).toContain("YouTube/external music data");
     expect(container.textContent).toContain("Music Player uses YouTube/external music data.");
     expect(container.querySelector('[aria-label="Roleplay workflow profile chooser"]')?.className).toContain(
@@ -148,11 +207,11 @@ describe("RoleplayWorkflowProfileChooser", () => {
     });
 
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
     });
     expect((container.querySelector('[aria-label="World State"]') as HTMLInputElement).disabled).toBe(true);
     expect(container.textContent).toContain("local sidecar must be ready");
-    expect(container.textContent).toContain("writer connection remains unchanged");
+    expect(container.textContent).toContain("without changing the writer connection");
   });
 
   it("preserves toggles during review and requires explicit confirmation before applying", async () => {
@@ -162,7 +221,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
     });
     await act(async () => {
       (container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).click();
@@ -196,7 +255,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
     });
 
     const agent = () => container.querySelector('[aria-label="World State"]') as HTMLInputElement;
@@ -227,8 +286,8 @@ describe("RoleplayWorkflowProfileChooser", () => {
     mocks.resolveCapabilities.mockReturnValueOnce(cinematic.promise).mockReturnValueOnce(localAssist.promise);
 
     act(() => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
-      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
     });
 
     await act(async () => {
@@ -256,7 +315,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       await cinematic.promise;
     });
 
-    expect(container.querySelector('[aria-label="Choose Local Assist"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector('[aria-label="Choose Local Helpers"]')?.getAttribute("aria-checked")).toBe("true");
     expect(container.querySelector('[aria-label="Character Tracker"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Background"]')).toBeNull();
     mocks.apply.mockRejectedValueOnce(new Error("inspection stop"));
@@ -307,7 +366,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
         root.render(<RoleplayWorkflowProfileChooser chat={disabledChat} entryPoint={entryPoint} />);
       });
       await act(async () => {
-        (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+        (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
       });
 
       expect(container.querySelector('[aria-label="Roleplay workflow profile chooser"]')?.getAttribute("data-entry-point"))
@@ -357,7 +416,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
     });
     await act(async () => {
       (container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).click();
@@ -381,7 +440,8 @@ describe("RoleplayWorkflowProfileChooser", () => {
 
     expect(container.textContent).not.toContain("Confirm and apply");
     expect(container.textContent).toContain("Chat settings changed. Review the refreshed ledger before applying.");
-    expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).checked).toBe(false);
+    expect(container.querySelector('[aria-label="Illustrator"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Choose Simple Roleplay"]')?.getAttribute("aria-checked")).toBe("true");
   });
 
   it("keeps Music Player disabled and unchecked until the optional module is enabled", async () => {
@@ -399,7 +459,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
     });
 
     expect((container.querySelector('[aria-label="Music Player"]') as HTMLInputElement).disabled).toBe(true);
@@ -427,7 +487,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Cinematic"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
     });
     await act(async () => {
       (
@@ -472,7 +532,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
     });
     await act(async () => {
       (
@@ -516,7 +576,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={activeChat} entryPoint="drawer" />);
     });
     await act(async () => {
-      (container.querySelector('[aria-label="Choose Local Assist"]') as HTMLButtonElement).click();
+      (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
     });
     await act(async () => {
       (
@@ -580,7 +640,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
         ) as HTMLButtonElement
       ).click();
     });
-    expect(container.textContent).toContain("Minimal / Clean applied.");
+    expect(container.textContent).toContain("Simple Roleplay applied.");
 
     await act(async () => {
       root.render(
@@ -591,7 +651,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       );
     });
 
-    expect(container.textContent).toContain("Minimal / Clean applied.");
+    expect(container.textContent).toContain("Simple Roleplay applied.");
     expect(container.textContent).not.toContain("Chat settings changed. Review the refreshed ledger");
   });
 
@@ -623,7 +683,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
       root.render(<RoleplayWorkflowProfileChooser chat={chatWithReceipt} entryPoint="drawer" />);
     });
 
-    expect(container.textContent).toContain("Applied Longform Continuity, version 1");
+    expect(container.textContent).toContain("Applied Long-Running Story, version 1");
     await act(async () => {
       (
         Array.from(container.querySelectorAll("button")).find((button) =>
@@ -680,6 +740,6 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain(
       "No workflow profile is currently applied. Current chat state was refreshed.",
     );
-    expect(container.textContent).not.toContain("Applied Minimal / Clean");
+    expect(container.textContent).not.toContain("Applied Simple Roleplay");
   });
 });
