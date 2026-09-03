@@ -236,6 +236,15 @@ export function useChatOverlays(activeChatId: string) {
     }
   }, [newChatSetupIntent, queueSetupOverlayOpen, setSettingsOpen, shouldOpenSettings, shouldOpenWizard, activeChatId]);
 
+  const openSettings = useCallback(() => {
+    pendingSetupOverlayOpenRef.current?.cancel();
+    pendingSetupOverlayOpenRef.current = null;
+    useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
+    setNewChatSetupChatId(null);
+    setWizardOpen(false);
+    setSettingsOpen(true);
+  }, [activeChatId, setSettingsOpen]);
+
   return {
     settingsOpen,
     filesOpen,
@@ -250,7 +259,7 @@ export function useChatOverlays(activeChatId: string) {
     setWizardOpen,
     setSpriteArrangeMode,
     clearNewChatSetup: () => setNewChatSetupChatId(null),
-    openSettings: () => setSettingsOpen(true),
+    openSettings,
     openFiles: () => setFilesOpen(true),
     openGallery: () => setGalleryOpen(true),
     closeSettings: () => setSettingsOpen(false),

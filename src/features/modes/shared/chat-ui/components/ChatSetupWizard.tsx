@@ -481,7 +481,7 @@ export function ChatSetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardPro
     return null;
   }
 
-  return <RoleplaySetupWizard chat={chat} onFinish={onFinish} />;
+  return <RoleplaySetupWizard chat={chat} onFinish={onFinish} onCancel={onCancel} />;
 }
 
 // ──────────────────────────────────────────────
@@ -1082,8 +1082,9 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
 // Roleplay Setup Wizard — step-by-step guided setup
 // ──────────────────────────────────────────────
 
-function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
+function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps) {
   const STEPS = ALL_STEPS;
+  const cancel = onCancel ?? onFinish;
 
   const [step, setStep] = useState(0);
   const currentStep = STEPS[step]!;
@@ -1674,7 +1675,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   return (
     <>
       {/* Backdrop */}
-      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onFinish} />
+      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={cancel} />
 
       {/* Preset variable selection modal */}
       <ChoiceSelectionModal
@@ -1720,7 +1721,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                   <h3 className="text-sm font-semibold text-[var(--foreground)]">Quick Setup</h3>
                 </div>
                 <button
-                  onClick={onFinish}
+                  onClick={cancel}
                   className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
                   aria-label="Close"
                 >
