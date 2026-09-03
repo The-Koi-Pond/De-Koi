@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { RoleplayContinuityDirectorState } from "../../../contracts/types/roleplay-continuity-director";
 import {
   applyContinuityDirectorCommand,
+  applyContinuityDirectorConfiguration,
+  countProposedContinuityDirectorBeats,
   createDefaultContinuityDirectorState,
   normalizeContinuityDirectorState,
 } from "./continuity-director-state";
@@ -95,6 +97,48 @@ describe("continuity director state", () => {
     expect(
       normalizeContinuityDirectorState({ ...state, refreshEveryAssistantTurns: 7 }, NOW).refreshEveryAssistantTurns,
     ).toBe(10);
+  });
+
+  it("updates only director configuration and preserves plan content", () => {
+    const options = commandOptions();
+    const state = applyContinuityDirectorCommand(
+      createDefaultContinuityDirectorState(NOW),
+      {
+        type: "replace_director_proposals",
+        arc: "Recover the sealed archive",
+        threads: ["Who altered the map?"],
+        beats: ["The map points beneath the city."],
+      },
+      options,
+    );
+
+    const next = applyContinuityDirectorConfiguration(
+      state,
+      { enabled: true, refreshMode: "cadence", refreshEveryAssistantTurns: 10 },
+      options,
+    );
+
+    expect(next).toMatchObject({
+      enabled: true,
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      currentArc: state.currentArc,
+      openThreads: state.openThreads,
+      beats: state.beats,
+      sourceSnapshot: state.sourceSnapshot,
+      revision: state.revision + 1,
+    });
+  });
+
+  it("counts only proposed beats from normalized state", () => {
+    const state = proposedState();
+    expect(
+      countProposedContinuityDirectorBeats({
+        ...state,
+        beats: [state.beats[0]!, { ...state.beats[1]!, status: "approved" }],
+      }),
+    ).toBe(1);
+    expect(countProposedContinuityDirectorBeats(undefined)).toBe(0);
   });
 
   it("makes every user edit durable across later proposal replacement", () => {
