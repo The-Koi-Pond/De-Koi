@@ -82,6 +82,18 @@ describe("discovery showcase registry", () => {
     expect(validateDiscoveryEntries()).toEqual([]);
   });
 
+  it("routes the Roleplay Continuity Director to chat continuity", () => {
+    const entry = DISCOVERY_ENTRIES.find((item) => item.id === "roleplay-continuity-director");
+
+    expect(entry?.title).toBe("Roleplay Continuity Director");
+    expect(entry?.keywords).toEqual(expect.arrayContaining(["story beats", "approve beats", "director"]));
+    expect(entry?.actions).toContainEqual({
+      type: "open-chat-destination",
+      destination: "chat-settings-continuity",
+      label: "Open Continuity Director",
+    });
+  });
+
   it("describes both Memory Recall scopes and how automatic capture and embeddings behave", () => {
     const entry = DISCOVERY_ENTRIES.find((item) => item.id === "chat-memory-summaries");
     const summary = entry?.summary.toLowerCase() ?? "";

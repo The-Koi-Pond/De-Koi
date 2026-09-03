@@ -1,0 +1,222 @@
+import { z } from "zod";
+
+import type { LlmGateway } from "../../../capabilities/llm";
+import type { StorageGateway } from "../../../capabilities/storage";
+import type { RoleplayContinuityDirectorState } from "../../../contracts/types/roleplay-continuity-director";
+import { parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
+import { generateStructured } from "../../../generation/structured-generation";
+import { validateContinuityDirectorBeat } from "./continuity-director-safety";
+import { loadContinuityDirectorSource, type ContinuityDirectorSource } from "./continuity-director-source";
+import { applyContinuityDirectorCommand, normalizeContinuityDirectorState } from "./continuity-director-state";
+
+const candidateSchema = z
+  .object({
+    currentArc: z.string().max(600).nullable(),
+    openThreads: z.array(z.string().min(1).max(280)).max(12),
+    beats: z.array(z.string().min(1).max(280)).max(8),
+  })
+  .strict();
+
+export type ContinuityDirectorPlannerErrorCode =
+  | "disabled"
+  | "connection_unavailable"
+  | "invalid_output"
+  | "timeout"
+  | "source_unavailable"
+  | "persistence_failed";
+
+export type ContinuityDirectorPlannerResult =
+  | { ok: true; state: RoleplayContinuityDirectorState; rejectedUnsafeBeats: number }
+  | { ok: false; code: ContinuityDirectorPlannerErrorCode; message: string };
+
+export interface ContinuityDirectorPlannerCapabilities {
+  storage: StorageGateway;
+  llm: LlmGateway;
+}
+
+export interface ContinuityDirectorPlannerInput {
+  chatId: string;
+  rerollBeatId?: string;
+  timeoutMs?: number;
+  now?: () => string;
+  createId?: (prefix: string) => string;
+}
+
+interface PendingPlannerRequest {
+  operationKey: string;
+  promise: Promise<ContinuityDirectorPlannerResult>;
+}
+
+const pendingRefreshes = new WeakMap<StorageGateway, Map<string, PendingPlannerRequest>>();
+
+function stateFromChat(chat: JsonRecord, now: string): RoleplayContinuityDirectorState {
+  return normalizeContinuityDirectorState(parseRecord(chat.metadata).roleplayContinuityDirector, now);
+}
+
+function planningSystemPrompt(source: ContinuityDirectorSource): string {
+  const personas = source.personaNames.length > 0 ? source.personaNames.join(", ") : "the user persona";
+  return [
+    "You are De-Koi's visible Roleplay Continuity Director.",
+    "Propose compact story structure, not prose. Return only the requested JSON object.",
+    `Never prescribe ${personas}'s dialogue, deliberate actions, beliefs, intent, decisions, or strategy.`,
+    "Leave the user's response open. External pressure and other characters' actions are allowed.",
+    "Treat story projections as narrative context and knowledge edges as constraints on who knows or suspects what.",
+    "Do not invent approval state, IDs, timestamps, canonical memories, lorebook edits, card edits, tracker edits, or chat text.",
+  ].join("\n");
+}
+
+function planningInput(source: ContinuityDirectorSource): string {
+  return JSON.stringify(
+    {
+      task: "Propose the current arc, open threads, and up to eight next structural beats.",
+      outputShape: { currentArc: "string or null", openThreads: ["string"], beats: ["string"] },
+      characters: source.characterNames,
+      userPersonas: source.personaNames,
+      story: source.story,
+      knowledgeConstraints: source.knowledge,
+      recentTranscript: source.transcript,
+    },
+    null,
+    2,
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function runRefresh(
+  capabilities: ContinuityDirectorPlannerCapabilities,
+  input: ContinuityDirectorPlannerInput,
+): Promise<ContinuityDirectorPlannerResult> {
+  const now = input.now?.() ?? new Date().toISOString();
+  let source: ContinuityDirectorSource;
+  try {
+    source = await loadContinuityDirectorSource(capabilities.storage, input.chatId, { now: input.now });
+  } catch (error) {
+    return { ok: false, code: "source_unavailable", message: errorMessage(error) };
+  }
+
+  const initialState = stateFromChat(source.chat, now);
+  if (!initialState.enabled) {
+    return { ok: false, code: "disabled", message: "Enable Continuity Director before refreshing its plan." };
+  }
+
+  const connectionId = initialState.connectionId ?? source.writerConnectionId;
+  if (initialState.connectionId) {
+    const explicitConnection = await capabilities.storage
+      .get<JsonRecord>("connections", initialState.connectionId)
+      .catch(() => null);
+    if (!explicitConnection) {
+      return {
+        ok: false,
+        code: "connection_unavailable",
+        message: "The selected Continuity Director connection is unavailable.",
+      };
+    }
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, input.timeoutMs ?? 30_000));
+  let candidate: z.infer<typeof candidateSchema>;
+  try {
+    const generated = await generateStructured(
+      { llm: capabilities.llm },
+      {
+        taskName: "roleplay-continuity-director",
+        connectionId,
+        messages: [
+          { role: "system", content: planningSystemPrompt(source) },
+          { role: "user", content: planningInput(source) },
+        ],
+        parameters: { temperature: 0.2, max_tokens: 900 },
+        schema: candidateSchema,
+        schemaDescription: '{"currentArc":"string or null","openThreads":["string"],"beats":["string"]}',
+        maxRepairAttempts: 0,
+        failureMessage: "Continuity Director did not return a valid plan.",
+      },
+      controller.signal,
+    );
+    if (!generated.ok) {
+      return { ok: false, code: "invalid_output", message: generated.failure.message };
+    }
+    candidate = generated.data;
+  } catch (error) {
+    const timedOut = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
+    return {
+      ok: false,
+      code: timedOut ? "timeout" : "invalid_output",
+      message: timedOut ? "Continuity Director timed out." : errorMessage(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const safeBeats = candidate.beats.filter(
+    (beat) => validateContinuityDirectorBeat(beat, { personaNames: source.personaNames }).safe,
+  );
+  const rejectedUnsafeBeats = candidate.beats.length - safeBeats.length;
+
+  try {
+    const currentChat = await capabilities.storage.get<JsonRecord>("chats", input.chatId);
+    if (!currentChat) throw new Error("Chat not found while saving the plan.");
+    const currentState = stateFromChat(currentChat, input.now?.() ?? new Date().toISOString());
+    if (!currentState.enabled) {
+      return { ok: false, code: "disabled", message: "Continuity Director was disabled before refresh completed." };
+    }
+    const targetBeatId = input.rerollBeatId?.trim();
+    if (targetBeatId && !currentState.beats.some((beat) => beat.id === targetBeatId)) {
+      return { ok: false, code: "persistence_failed", message: "The beat changed before reroll completed." };
+    }
+    if (targetBeatId && safeBeats.length === 0) {
+      return {
+        ok: false,
+        code: "invalid_output",
+        message: "Continuity Director did not return a safe replacement beat.",
+      };
+    }
+    const updatedState = targetBeatId
+      ? applyContinuityDirectorCommand(
+          currentState,
+          { type: "reroll_beat", beatId: targetBeatId, replacementText: safeBeats[0]! },
+          { now: input.now, createId: input.createId },
+        )
+      : applyContinuityDirectorCommand(
+          currentState,
+          {
+            type: "replace_director_proposals",
+            arc: candidate.currentArc,
+            threads: candidate.openThreads,
+            beats: safeBeats,
+            sourceSnapshot: source.sourceSnapshot,
+          },
+          { now: input.now, createId: input.createId },
+        );
+    const nextState = targetBeatId ? { ...updatedState, sourceSnapshot: source.sourceSnapshot } : updatedState;
+    await capabilities.storage.patchChatMetadata(input.chatId, { roleplayContinuityDirector: nextState });
+    return { ok: true, state: nextState, rejectedUnsafeBeats };
+  } catch (error) {
+    return { ok: false, code: "persistence_failed", message: errorMessage(error) };
+  }
+}
+
+export function refreshContinuityDirectorPlan(
+  capabilities: ContinuityDirectorPlannerCapabilities,
+  input: ContinuityDirectorPlannerInput,
+): Promise<ContinuityDirectorPlannerResult> {
+  const chatId = readString(input.chatId).trim();
+  const operationKey = input.rerollBeatId?.trim() ? `reroll:${input.rerollBeatId.trim()}` : "refresh";
+  const pendingByChat = pendingRefreshes.get(capabilities.storage) ?? new Map<string, PendingPlannerRequest>();
+  pendingRefreshes.set(capabilities.storage, pendingByChat);
+  const existing = pendingByChat.get(chatId);
+  if (existing) {
+    if (existing.operationKey === operationKey) return existing.promise;
+    return existing.promise.then(() => refreshContinuityDirectorPlan(capabilities, input));
+  }
+  const refresh = runRefresh(capabilities, { ...input, chatId }).finally(() => {
+    if (pendingByChat.get(chatId)?.promise === refresh) pendingByChat.delete(chatId);
+    if (pendingByChat.size === 0) pendingRefreshes.delete(capabilities.storage);
+  });
+  pendingByChat.set(chatId, { operationKey, promise: refresh });
+  return refresh;
+}

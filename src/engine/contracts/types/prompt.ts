@@ -244,6 +244,7 @@ export interface ChatMLMessage {
     | "summary"
     | "canonical_memory"
     | "story_projection"
+    | "continuity_director"
     | "memory"
     | "memory_recall"
     | "lorebook"

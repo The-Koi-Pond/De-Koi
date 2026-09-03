@@ -291,6 +291,7 @@ type ChatCommonOverlaysProps = {
   onCloseSettings: () => void;
   onCloseFiles: () => void;
   onCloseGallery: () => void;
+  onOpenContinuityDirector?: () => void;
   /** Manually trigger the Illustrator agent */
   onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
   onWizardFinish: () => void;
@@ -328,6 +329,7 @@ export function ChatCommonOverlays({
   onCloseSettings,
   onCloseFiles,
   onCloseGallery,
+  onOpenContinuityDirector,
   onIllustrate,
   onWizardFinish,
   onWizardCancel,
@@ -357,6 +359,7 @@ export function ChatCommonOverlays({
               onToggleSpriteArrange={sceneSettings.onToggleSpriteArrange}
               onResetSpritePlacements={sceneSettings.onResetSpritePlacements}
               onSpriteSideChange={sceneSettings.onSpriteSideChange}
+              onOpenContinuityDirector={onOpenContinuityDirector}
             />
           </Suspense>
         </LazyOverlayBoundary>

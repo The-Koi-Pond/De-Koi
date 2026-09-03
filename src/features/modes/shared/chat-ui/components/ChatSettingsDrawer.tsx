@@ -233,6 +233,7 @@ interface ChatSettingsDrawerProps {
   onToggleSpriteArrange?: () => void;
   onResetSpritePlacements?: () => void;
   onSpriteSideChange?: (side: "left" | "right") => void;
+  onOpenContinuityDirector?: () => void;
   settingsDestination?: string | null;
 }
 
@@ -443,6 +444,7 @@ function ChatSettingsDrawerInner({
   onToggleSpriteArrange,
   onResetSpritePlacements,
   onSpriteSideChange,
+  onOpenContinuityDirector,
   settingsDestination = null,
 }: ChatSettingsDrawerProps) {
   const qc = useQueryClient();
@@ -2138,6 +2140,7 @@ function ChatSettingsDrawerInner({
             <ContinuityOverviewPanel
               model={continuityOverviewModel}
               onOpenMemories={() => setShowMemoriesModal(true)}
+              onOpenDirector={onOpenContinuityDirector}
               onOpenSummaries={() => setShowSummariesModal(true)}
               onOpenStory={() => setShowStoryModal(true)}
             />

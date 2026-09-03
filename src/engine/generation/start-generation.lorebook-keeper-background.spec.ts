@@ -1,10 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
+
+const continuityScheduler = vi.hoisted(() => vi.fn());
+
+vi.mock("../modes/roleplay/continuity-director/continuity-director-scheduler", () => ({
+  scheduleContinuityDirectorRefresh: continuityScheduler,
+}));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -135,6 +141,8 @@ async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Lorebook Keeper backfill", () => {
+  beforeEach(() => continuityScheduler.mockReset());
+
   it("starts the normal-path Keeper backfill after done even when the consumer stops iteration", async () => {
     vi.useFakeTimers();
     const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
@@ -152,6 +160,12 @@ describe("startGeneration Lorebook Keeper backfill", () => {
 
     try {
       await advanceToDone(generation);
+      expect(continuityScheduler).toHaveBeenCalledWith({
+        storage,
+        llm,
+        chatId: "chat-1",
+        trigger: "assistant_saved",
+      });
       expect(backfillStarted()).toBe(false);
       await generation.return(undefined);
       await vi.runOnlyPendingTimersAsync();
@@ -187,6 +201,12 @@ describe("startGeneration Lorebook Keeper backfill", () => {
 
     try {
       await advanceToDone(generation);
+      expect(continuityScheduler).toHaveBeenCalledWith({
+        storage,
+        llm,
+        chatId: "chat-1",
+        trigger: "assistant_saved",
+      });
       expect(backfillStarted()).toBe(false);
       controller.abort();
       await generation.return(undefined);

@@ -17,6 +17,7 @@ import {
   planRoleplayScene,
   reopenRoleplayScene,
 } from "../../../../engine/modes/roleplay/scene/scene-service";
+import { scheduleContinuityDirectorRefresh } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
 import type {
   SceneCreateRequest,
   SceneCreateResponse,
@@ -95,6 +96,13 @@ export function useScene() {
         // Invalidate chats so the new scene appears in the sidebar
         qc.invalidateQueries({ queryKey: chatKeys.all });
 
+        scheduleContinuityDirectorRefresh({
+          storage: storageApi,
+          llm: llmApi,
+          chatId: activeChatId,
+          trigger: "scene_created",
+        });
+
         // Navigate to the scene chat
         setActiveChatId(res.chatId);
 
@@ -124,6 +132,13 @@ export function useScene() {
         qc.invalidateQueries({ queryKey: chatKeys.all });
         qc.invalidateQueries({ queryKey: chatKeys.messages(sceneChatId) });
         qc.invalidateQueries({ queryKey: chatKeys.messages(res.originChatId) });
+
+        scheduleContinuityDirectorRefresh({
+          storage: storageApi,
+          llm: llmApi,
+          chatId: res.originChatId,
+          trigger: "scene_concluded",
+        });
 
         // Navigate back to the origin conversation
         setActiveChatId(res.originChatId);
