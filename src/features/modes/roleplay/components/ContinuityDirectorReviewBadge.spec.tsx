@@ -21,3 +21,12 @@ it("renders accessible compact and full review counts", () => {
   expect(container.textContent).toContain("3 to review");
   act(() => root.unmount());
 });
+
+it("keeps a compact visual count out of an enclosing control's accessible name", () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  act(() => root.render(<ContinuityDirectorReviewBadge count={1} compact decorative />));
+  expect(container.querySelector('[aria-hidden="true"]')?.textContent).toBe("1");
+  expect(container.querySelector('[aria-label="1 story beat to review"]')).toBeNull();
+  act(() => root.unmount());
+});

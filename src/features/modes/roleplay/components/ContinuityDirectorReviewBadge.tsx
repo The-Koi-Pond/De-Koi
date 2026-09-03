@@ -1,9 +1,22 @@
-export function ContinuityDirectorReviewBadge({ count, compact = false }: { count: number; compact?: boolean }) {
+export function continuityDirectorReviewLabel(count: number) {
+  return `${count} story ${count === 1 ? "beat" : "beats"} to review`;
+}
+
+export function ContinuityDirectorReviewBadge({
+  count,
+  compact = false,
+  decorative = false,
+}: {
+  count: number;
+  compact?: boolean;
+  decorative?: boolean;
+}) {
   if (count <= 0) return null;
 
   return (
     <span
-      aria-label={`${count} story ${count === 1 ? "beat" : "beats"} to review`}
+      aria-hidden={decorative || undefined}
+      aria-label={decorative ? undefined : continuityDirectorReviewLabel(count)}
       className={
         compact
           ? "absolute -right-1 -top-1 min-w-4 rounded-full bg-[var(--primary)] px-1 text-center text-[0.5625rem] font-bold text-[var(--primary-foreground)]"

@@ -58,7 +58,7 @@ import {
 } from "../../../catalog/characters/index";
 import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
-import { ContinuityDirectorReviewBadge } from "./ContinuityDirectorReviewBadge";
+import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
@@ -321,12 +321,14 @@ function RpToolbarButton({
   onClick,
   size,
   badge,
+  ariaLabel,
 }: {
   icon: ReactNode;
   title: string;
   onClick: () => void;
   size?: "sm";
   badge?: ReactNode;
+  ariaLabel?: string;
 }) {
   return (
     <button
@@ -338,10 +340,50 @@ function RpToolbarButton({
         "border-foreground/10",
       )}
       title={title}
-      aria-label={title}
+      aria-label={ariaLabel ?? title}
     >
       {icon}
       {badge}
+    </button>
+  );
+}
+
+export function ContinuityDirectorReviewEntryPoint({
+  count,
+  onOpen,
+  variant,
+}: {
+  count: number;
+  onOpen: () => void;
+  variant: "desktop" | "mobile";
+}) {
+  const title = "Continuity Director";
+  const ariaLabel = count > 0 ? `${title}, ${continuityDirectorReviewLabel(count)}` : title;
+
+  if (variant === "desktop") {
+    return (
+      <RpToolbarButton
+        icon={<Sparkles size="0.875rem" />}
+        title={title}
+        ariaLabel={ariaLabel}
+        onClick={onOpen}
+        badge={<ContinuityDirectorReviewBadge count={count} compact decorative />}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={ariaLabel}
+      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
+        <Sparkles size="0.9rem" />
+      </div>
+      <span className="text-sm font-medium text-[var(--foreground)]">{title}</span>
+      <ContinuityDirectorReviewBadge count={count} decorative />
     </button>
   );
 }
@@ -1154,11 +1196,10 @@ export function ChatRoleplaySurface({
                   />
                   <ToolbarMenu mobilePortal={false}>
                     {chat && (
-                      <RpToolbarButton
-                        icon={<Sparkles size="0.875rem" />}
-                        title="Continuity Director"
-                        onClick={() => setContinuityDirectorOpen(true)}
-                        badge={<ContinuityDirectorReviewBadge count={continuityReviewCount} compact />}
+                      <ContinuityDirectorReviewEntryPoint
+                        count={continuityReviewCount}
+                        variant="desktop"
+                        onOpen={() => setContinuityDirectorOpen(true)}
                       />
                     )}
                     <SummaryButton
@@ -1574,20 +1615,14 @@ export function ChatRoleplaySurface({
 
                   {/* Continuity Director */}
                   {chat && (
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <ContinuityDirectorReviewEntryPoint
+                      count={continuityReviewCount}
+                      variant="mobile"
+                      onOpen={() => {
                         setMoreMenuOpen(false);
                         setContinuityDirectorOpen(true);
                       }}
-                      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                    >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
-                        <Sparkles size="0.9rem" />
-                      </div>
-                      <span className="text-sm font-medium text-[var(--foreground)]">Continuity Director</span>
-                      <ContinuityDirectorReviewBadge count={continuityReviewCount} />
-                    </button>
+                    />
                   )}
 
                   {/* Summary */}
