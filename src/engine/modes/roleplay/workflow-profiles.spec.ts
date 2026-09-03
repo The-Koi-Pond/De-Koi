@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1,
+  ROLEPLAY_WORKFLOW_PROFILE_RECIPES,
   buildRoleplayWorkflowProfilePatch,
   buildRoleplayWorkflowProfileRevertPatch,
   resolveRoleplayWorkflowProfile,
 } from "./workflow-profiles";
+import {
+  applyContinuityDirectorCommand,
+  applyContinuityDirectorConfiguration,
+  createDefaultContinuityDirectorState,
+} from "./continuity-director/continuity-director-state";
 
 const capabilities = {
   hasUniversalPreset: true,
@@ -29,6 +34,16 @@ const chat = {
   },
 };
 
+const NOW = "2026-09-03T12:00:00.000Z";
+
+function directorCommandOptions() {
+  let id = 0;
+  return {
+    now: () => NOW,
+    createId: (prefix: string) => `${prefix}-${++id}`,
+  };
+}
+
 describe("roleplay workflow profile recipes", () => {
   it("rejects non-Roleplay chats at the resolver boundary", () => {
     expect(() =>
@@ -39,13 +54,14 @@ describe("roleplay workflow profile recipes", () => {
     ).toThrow("Roleplay workflow profiles can only be resolved for Roleplay chats");
   });
 
-  it("defines the exact v1 recipes and their expected extra calls", () => {
-    expect(ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1).toEqual({
+  it("defines versioned recipes and their expected extra calls", () => {
+    expect(ROLEPLAY_WORKFLOW_PROFILE_RECIPES).toEqual({
       "minimal-clean": { version: 1, agentIds: [] },
       "longform-continuity": {
-        version: 1,
+        version: 2,
         agentIds: ["continuity", "world-state", "chat-summary"],
         runIntervalOverrides: { "chat-summary": 5 },
+        continuityDirector: { enabled: true, mode: "cadence", everyAssistantTurns: 10 },
       },
       cinematic: {
         version: 1,
@@ -73,8 +89,84 @@ describe("roleplay workflow profile recipes", () => {
         ["agent:world-state", 1],
         ["agent:chat-summary", 1],
         ["cadence:chat-summary", 0],
+        ["continuity-director", 0],
+        ["continuity-director-cadence", 1],
       ],
     );
+  });
+
+  it("adds selected-by-default Director configuration to Longform version 2", () => {
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", { chat, capabilities });
+
+    expect(resolution.version).toBe(2);
+    expect(resolution.rows.find((row) => row.id === "continuity-director")).toMatchObject({
+      before: false,
+      after: true,
+      selectedByDefault: true,
+      expectedExtraCalls: 0,
+    });
+    expect(resolution.rows.find((row) => row.id === "continuity-director-cadence")).toMatchObject({
+      after: { mode: "cadence", everyAssistantTurns: 10 },
+      selectedByDefault: true,
+      expectedExtraCalls: 1,
+      modelUse: "One non-blocking planning call every 10 assistant replies",
+    });
+    expect(() =>
+      buildRoleplayWorkflowProfilePatch(resolution, ["continuity-director-cadence"], NOW),
+    ).toThrow("requires Continuity Director to be enabled");
+  });
+
+  it("preserves an explicit Director choice", () => {
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: {
+        ...chat,
+        metadata: {
+          ...chat.metadata,
+          roleplayContinuityDirector: {
+            ...createDefaultContinuityDirectorState(NOW),
+            enabled: false,
+          },
+        },
+      },
+      capabilities,
+    });
+    expect(resolution.rows.find((row) => row.id === "continuity-director")).toMatchObject({
+      selectedByDefault: false,
+    });
+    expect(resolution.rows.find((row) => row.id === "continuity-director-cadence")).toMatchObject({
+      selectedByDefault: false,
+    });
+  });
+
+  it("applies and reverts Director configuration without storing plan content in the receipt", () => {
+    const existing = applyContinuityDirectorCommand(
+      createDefaultContinuityDirectorState(NOW),
+      {
+        type: "replace_director_proposals",
+        arc: "Recover the archive",
+        threads: ["Who changed the map?"],
+        beats: ["The map reveals a sealed stair."],
+      },
+      directorCommandOptions(),
+    );
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: { ...chat, metadata: { ...chat.metadata, roleplayContinuityDirector: existing } },
+      capabilities,
+    });
+    const patch = buildRoleplayWorkflowProfilePatch(
+      resolution,
+      ["continuity-director", "continuity-director-cadence"],
+      NOW,
+      existing,
+    );
+
+    expect(patch.metadata.roleplayContinuityDirector).toMatchObject({
+      enabled: true,
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      beats: existing.beats,
+    });
+    expect(JSON.stringify(patch.metadata.roleplayWorkflowApplication)).not.toContain(existing.beats[0]!.text);
   });
 
   it("defaults only absent matching values and keeps Minimal agent disabling opt-in for existing agents", () => {
@@ -103,6 +195,8 @@ describe("roleplay workflow profile recipes", () => {
       "agent:world-state": false,
       "agent:chat-summary": true,
       "cadence:chat-summary": true,
+      "continuity-director": true,
+      "continuity-director-cadence": true,
     });
 
     const minimal = resolveRoleplayWorkflowProfile("minimal-clean", {
@@ -384,5 +478,54 @@ describe("roleplay workflow profile recipes", () => {
       metadata: { activeAgentIds: ["existing"], roleplayWorkflowApplication: null },
     });
     expect(reverted.skippedConflicts).toEqual(["memory-recall"]);
+  });
+
+  it("reverts unchanged enablement but preserves a later cadence edit and all plan content", () => {
+    const existing = applyContinuityDirectorCommand(
+      createDefaultContinuityDirectorState(NOW),
+      {
+        type: "replace_director_proposals",
+        arc: "Recover the archive",
+        threads: ["Who changed the map?"],
+        beats: ["The map reveals a sealed stair."],
+      },
+      directorCommandOptions(),
+    );
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: { ...chat, metadata: { ...chat.metadata, roleplayContinuityDirector: existing } },
+      capabilities,
+    });
+    const applied = buildRoleplayWorkflowProfilePatch(
+      resolution,
+      ["continuity-director", "continuity-director-cadence"],
+      NOW,
+      existing,
+    );
+    const withLaterEdit = applyContinuityDirectorConfiguration(
+      applied.metadata.roleplayContinuityDirector!,
+      { refreshMode: "cadence", refreshEveryAssistantTurns: 20 },
+      { now: () => "2026-09-03T13:00:00.000Z" },
+    );
+
+    const reverted = buildRoleplayWorkflowProfileRevertPatch(
+      {
+        promptPresetId: null,
+        metadata: {
+          ...chat.metadata,
+          roleplayContinuityDirector: withLaterEdit,
+          roleplayWorkflowApplication: applied.metadata.roleplayWorkflowApplication,
+        },
+      },
+      applied.metadata.roleplayWorkflowApplication!,
+      () => "2026-09-03T14:00:00.000Z",
+    );
+
+    expect(reverted.patch.metadata.roleplayContinuityDirector).toMatchObject({
+      enabled: false,
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 20,
+      beats: existing.beats,
+    });
+    expect(reverted.skippedConflicts).toEqual(["continuity-director-cadence"]);
   });
 });

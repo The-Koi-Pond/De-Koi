@@ -141,7 +141,10 @@ export interface RoleplayWorkflowApplicationChange {
     | "metadata.enableAgents"
     | "metadata.activeAgentIds"
     | "metadata.agentConnectionOverrides"
-    | "metadata.agentRunIntervalOverrides";
+    | "metadata.agentRunIntervalOverrides"
+    | "metadata.roleplayContinuityDirector.enabled"
+    | "metadata.roleplayContinuityDirector.refreshMode"
+    | "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns";
   before: RoleplayWorkflowApplicationFieldValue;
   after: RoleplayWorkflowApplicationFieldValue;
 }

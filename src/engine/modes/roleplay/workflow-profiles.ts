@@ -6,26 +6,32 @@ import type {
   RoleplayWorkflowApplicationReceipt,
 } from "../../contracts/types/chat";
 import { LOCAL_SIDECAR_CONNECTION_ID } from "../../contracts/types/sidecar";
+import {
+  applyContinuityDirectorConfiguration,
+  normalizeContinuityDirectorState,
+  readContinuityDirectorConfiguration,
+  type ContinuityDirectorConfiguration,
+} from "./continuity-director/continuity-director-state";
 import { DE_KOI_UNIVERSAL_PRESET_ID } from "./scene/universal-preset";
 
 export type RoleplayWorkflowProfileId = "minimal-clean" | "longform-continuity" | "cinematic" | "local-assist";
 
-export interface RoleplayWorkflowProfileRecipeV1 {
-  version: 1;
+export interface RoleplayWorkflowProfileRecipe {
+  version: 1 | 2;
   agentIds: readonly string[];
   optionalAgentIds?: readonly string[];
   connectionOverrides?: Readonly<Record<string, string>>;
   runIntervalOverrides?: Readonly<Record<string, number>>;
+  continuityDirector?: { enabled: true; mode: "cadence"; everyAssistantTurns: 10 };
 }
 
-export const ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1: Readonly<
-  Record<RoleplayWorkflowProfileId, RoleplayWorkflowProfileRecipeV1>
-> = {
+export const ROLEPLAY_WORKFLOW_PROFILE_RECIPES = {
   "minimal-clean": { version: 1, agentIds: [] },
   "longform-continuity": {
-    version: 1,
+    version: 2,
     agentIds: [BUILT_IN_AGENT_IDS.CONTINUITY, BUILT_IN_AGENT_IDS.WORLD_STATE, BUILT_IN_AGENT_IDS.CHAT_SUMMARY],
     runIntervalOverrides: { [BUILT_IN_AGENT_IDS.CHAT_SUMMARY]: 5 },
+    continuityDirector: { enabled: true, mode: "cadence", everyAssistantTurns: 10 },
   },
   cinematic: {
     version: 1,
@@ -41,7 +47,7 @@ export const ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1: Readonly<
       [BUILT_IN_AGENT_IDS.CHARACTER_TRACKER]: LOCAL_SIDECAR_CONNECTION_ID,
     },
   },
-};
+} as const satisfies Readonly<Record<RoleplayWorkflowProfileId, RoleplayWorkflowProfileRecipe>>;
 
 export interface RoleplayWorkflowCapabilities {
   hasUniversalPreset: boolean;
@@ -74,6 +80,8 @@ export interface RoleplayWorkflowChangeRow {
   selectedByDefault: boolean;
   selectable: boolean;
   expectedExtraCalls: number;
+  modelUse: string;
+  addsWriterLatency: boolean;
   destination: string | null;
   prerequisites: readonly string[];
   warnings: readonly string[];
@@ -81,7 +89,7 @@ export interface RoleplayWorkflowChangeRow {
 
 export interface RoleplayWorkflowProfileResolution {
   profileId: RoleplayWorkflowProfileId;
-  version: 1;
+  version: 1 | 2;
   rows: readonly RoleplayWorkflowChangeRow[];
   baseline: {
     promptPresetId: string | null;
@@ -93,6 +101,7 @@ export interface RoleplayWorkflowProfileResolution {
       | "agentConnectionOverrides"
       | "agentRunIntervalOverrides"
     >;
+    continuityDirector: ContinuityDirectorConfiguration;
   };
 }
 
@@ -113,11 +122,12 @@ export function resolveRoleplayWorkflowProfile(
   if (input.chat.mode !== "roleplay") {
     throw new Error("Roleplay workflow profiles can only be resolved for Roleplay chats.");
   }
-  const recipe = ROLEPLAY_WORKFLOW_PROFILE_RECIPES_V1[profileId];
+  const recipe = ROLEPLAY_WORKFLOW_PROFILE_RECIPES[profileId];
   const metadata = input.chat.metadata;
   const activeAgentIds = metadata.activeAgentIds ?? [];
   const agentConnectionOverrides = metadata.agentConnectionOverrides ?? {};
   const agentRunIntervalOverrides = metadata.agentRunIntervalOverrides ?? {};
+  const continuityDirector = readContinuityDirectorConfiguration(metadata.roleplayContinuityDirector);
   const rows: RoleplayWorkflowChangeRow[] = [
     {
       id: "prompt-preset",
@@ -127,6 +137,8 @@ export function resolveRoleplayWorkflowProfile(
       selectedByDefault: !input.chat.promptPresetId,
       selectable: input.capabilities.hasUniversalPreset,
       expectedExtraCalls: 0,
+      modelUse: "No model call",
+      addsWriterLatency: false,
       destination: "Roleplay writer prompt",
       prerequisites: input.capabilities.hasUniversalPreset ? [] : ["Universal V2 preset is not installed."],
       warnings: [],
@@ -139,6 +151,8 @@ export function resolveRoleplayWorkflowProfile(
       selectedByDefault: metadata.enableMemoryRecall === undefined,
       selectable: true,
       expectedExtraCalls: 0,
+      modelUse: "No model call",
+      addsWriterLatency: false,
       destination: "Roleplay prompt context",
       prerequisites: [],
       warnings: [],
@@ -154,6 +168,8 @@ export function resolveRoleplayWorkflowProfile(
       selectedByDefault: activeAgentIds.length === 0 && metadata.enableAgents === undefined,
       selectable: true,
       expectedExtraCalls: 0,
+      modelUse: "No model call",
+      addsWriterLatency: false,
       destination: "Automatic roleplay agents",
       prerequisites: [],
       warnings: [],
@@ -168,6 +184,8 @@ export function resolveRoleplayWorkflowProfile(
       selectedByDefault: localAssistReady && metadata.enableAgents === undefined,
       selectable: localAssistReady,
       expectedExtraCalls: 0,
+      modelUse: "No model call",
+      addsWriterLatency: false,
       destination: "Automatic roleplay agents",
       prerequisites: localAssistReady ? [] : ["The local sidecar must be ready before adding Local Assist agents."],
       warnings: [],
@@ -226,6 +244,8 @@ export function resolveRoleplayWorkflowProfile(
         selectable && metadata.enableAgents !== false && !isIllustrator && !isMusic && !activeAgentIds.includes(agentId),
       selectable,
       expectedExtraCalls: 1,
+      modelUse: "One call when this helper runs",
+      addsWriterLatency: false,
       destination,
       prerequisites,
       warnings: isIllustrator
@@ -247,6 +267,8 @@ export function resolveRoleplayWorkflowProfile(
       selectedByDefault: agentRunIntervalOverrides[agentId] === undefined,
       selectable: true,
       expectedExtraCalls: 0,
+      modelUse: "No model call",
+      addsWriterLatency: false,
       destination: "Automatic roleplay agent",
       prerequisites: [],
       warnings: [],
@@ -269,12 +291,54 @@ export function resolveRoleplayWorkflowProfile(
         (activeAgentIds.includes(agentId) || agentSelectedByDefault),
       selectable: input.capabilities.localSidecarReady,
       expectedExtraCalls: 0,
+      modelUse: "No model call",
+      addsWriterLatency: false,
       destination: "Local sidecar model",
       prerequisites: input.capabilities.localSidecarReady
         ? []
         : ["The local sidecar must be ready before routing agents to it."],
       warnings: [],
     });
+  }
+
+  if (recipe.continuityDirector) {
+    const directorSelectedByDefault = metadata.roleplayContinuityDirector === undefined;
+    rows.push(
+      {
+        id: "continuity-director",
+        kind: "change",
+        before: continuityDirector.enabled,
+        after: recipe.continuityDirector.enabled,
+        selectedByDefault: directorSelectedByDefault,
+        selectable: true,
+        expectedExtraCalls: 0,
+        modelUse: "No model call",
+        addsWriterLatency: false,
+        destination: "Roleplay continuity plan",
+        prerequisites: [],
+        warnings: [],
+      },
+      {
+        id: "continuity-director-cadence",
+        kind: "change",
+        before: {
+          mode: continuityDirector.refreshMode,
+          everyAssistantTurns: continuityDirector.refreshEveryAssistantTurns,
+        },
+        after: {
+          mode: recipe.continuityDirector.mode,
+          everyAssistantTurns: recipe.continuityDirector.everyAssistantTurns,
+        },
+        selectedByDefault: directorSelectedByDefault,
+        selectable: true,
+        expectedExtraCalls: 1,
+        modelUse: "One non-blocking planning call every 10 assistant replies",
+        addsWriterLatency: false,
+        destination: "Roleplay continuity plan",
+        prerequisites: [],
+        warnings: [],
+      },
+    );
   }
 
   if (!input.capabilities.musicModuleEnabled) {
@@ -302,6 +366,7 @@ export function resolveRoleplayWorkflowProfile(
         agentConnectionOverrides: { ...agentConnectionOverrides },
         agentRunIntervalOverrides: { ...agentRunIntervalOverrides },
       },
+      continuityDirector,
     },
   };
 }
@@ -310,6 +375,7 @@ export function buildRoleplayWorkflowProfilePatch(
   resolution: RoleplayWorkflowProfileResolution,
   itemIds: readonly string[],
   appliedAt: string,
+  currentDirectorValue?: unknown,
 ): RoleplayWorkflowProfilePatch {
   const selectedItemIds = [...new Set(itemIds)];
   const rows = new Map(resolution.rows.map((row) => [row.id, row]));
@@ -323,6 +389,7 @@ export function buildRoleplayWorkflowProfilePatch(
   const selected = new Set(selectedItemIds);
   validateLocalAssistSelection(resolution, selected);
   validateAgentEnablementSelection(resolution, selected);
+  validateContinuityDirectorSelection(resolution, selected);
   const changes: RoleplayWorkflowApplicationChange[] = [];
   const metadata: Partial<ChatMetadata> = {};
   const patch: RoleplayWorkflowProfilePatch = { metadata };
@@ -420,6 +487,45 @@ export function buildRoleplayWorkflowProfilePatch(
     });
   }
 
+  if (selected.has("continuity-director") || selected.has("continuity-director-cadence")) {
+    const currentDirector = normalizeContinuityDirectorState(currentDirectorValue, appliedAt);
+    const nextDirector = applyContinuityDirectorConfiguration(
+      currentDirector,
+      {
+        ...(selected.has("continuity-director") ? { enabled: true } : {}),
+        ...(selected.has("continuity-director-cadence")
+          ? { refreshMode: "cadence" as const, refreshEveryAssistantTurns: 10 }
+          : {}),
+      },
+      { now: () => appliedAt },
+    );
+    metadata.roleplayContinuityDirector = nextDirector;
+    if (selected.has("continuity-director")) {
+      changes.push({
+        itemIds: ["continuity-director"],
+        field: "metadata.roleplayContinuityDirector.enabled",
+        before: resolution.baseline.continuityDirector.enabled,
+        after: nextDirector.enabled,
+      });
+    }
+    if (selected.has("continuity-director-cadence")) {
+      changes.push(
+        {
+          itemIds: ["continuity-director-cadence"],
+          field: "metadata.roleplayContinuityDirector.refreshMode",
+          before: resolution.baseline.continuityDirector.refreshMode,
+          after: nextDirector.refreshMode,
+        },
+        {
+          itemIds: ["continuity-director-cadence"],
+          field: "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns",
+          before: resolution.baseline.continuityDirector.refreshEveryAssistantTurns,
+          after: nextDirector.refreshEveryAssistantTurns,
+        },
+      );
+    }
+  }
+
   metadata.roleplayWorkflowApplication = {
     profileId: resolution.profileId,
     profileVersion: resolution.version,
@@ -477,15 +583,52 @@ function validateAgentEnablementSelection(
   }
 }
 
+function validateContinuityDirectorSelection(
+  resolution: RoleplayWorkflowProfileResolution,
+  selectedItemIds: ReadonlySet<string>,
+): void {
+  if (
+    selectedItemIds.has("continuity-director-cadence") &&
+    !resolution.baseline.continuityDirector.enabled &&
+    !selectedItemIds.has("continuity-director")
+  ) {
+    throw new Error("Selected Continuity Director cadence requires Continuity Director to be enabled.");
+  }
+}
+
 export function buildRoleplayWorkflowProfileRevertPatch(
   current: { promptPresetId: string | null; metadata: Partial<ChatMetadata> },
   receipt: RoleplayWorkflowApplicationReceipt,
+  now: () => string = () => new Date().toISOString(),
 ): RoleplayWorkflowProfileRevertResult {
   const metadata: Partial<ChatMetadata> = { roleplayWorkflowApplication: null };
   const patch: RoleplayWorkflowProfilePatch = { metadata };
   const skippedConflicts: string[] = [];
+  const cadenceChanges = receipt.changes.filter(isContinuityDirectorCadenceChange);
+  const cadenceHasConflict = cadenceChanges.some(
+    (change) => !sameValue(currentValueForReceiptField(current, change.field), change.after),
+  );
+  const directorPatch: Parameters<typeof applyContinuityDirectorConfiguration>[1] = {};
 
   for (const change of receipt.changes) {
+    if (isContinuityDirectorCadenceChange(change)) {
+      if (cadenceHasConflict) skippedConflicts.push(...change.itemIds);
+      else if (change.field === "metadata.roleplayContinuityDirector.refreshMode") {
+        directorPatch.refreshMode = change.before as "manual" | "scene_events" | "cadence";
+      } else {
+        directorPatch.refreshEveryAssistantTurns = change.before as 5 | 10 | 20 | null;
+      }
+      continue;
+    }
+    if (change.field === "metadata.roleplayContinuityDirector.enabled") {
+      const currentValue = currentValueForReceiptField(current, change.field);
+      if (!sameValue(currentValue, change.after)) {
+        skippedConflicts.push(...change.itemIds);
+      } else {
+        directorPatch.enabled = change.before as boolean;
+      }
+      continue;
+    }
     const currentValue = currentValueForReceiptField(current, change.field);
     if (!sameValue(currentValue, change.after)) {
       skippedConflicts.push(...change.itemIds);
@@ -493,7 +636,22 @@ export function buildRoleplayWorkflowProfileRevertPatch(
     }
     applyReceiptBeforeValue(patch, change);
   }
+  if (Object.keys(directorPatch).length > 0) {
+    const revertedAt = now();
+    metadata.roleplayContinuityDirector = applyContinuityDirectorConfiguration(
+      normalizeContinuityDirectorState(current.metadata.roleplayContinuityDirector, revertedAt),
+      directorPatch,
+      { now: () => revertedAt },
+    );
+  }
   return { patch, skippedConflicts: [...new Set(skippedConflicts)] };
+}
+
+function isContinuityDirectorCadenceChange(change: RoleplayWorkflowApplicationChange): boolean {
+  return (
+    change.field === "metadata.roleplayContinuityDirector.refreshMode" ||
+    change.field === "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns"
+  );
 }
 
 function currentValueForReceiptField(
@@ -513,6 +671,12 @@ function currentValueForReceiptField(
       return current.metadata.enableAgents;
     case "metadata.activeAgentIds":
       return current.metadata.activeAgentIds ?? [];
+    case "metadata.roleplayContinuityDirector.enabled":
+      return readContinuityDirectorConfiguration(current.metadata.roleplayContinuityDirector).enabled;
+    case "metadata.roleplayContinuityDirector.refreshMode":
+      return readContinuityDirectorConfiguration(current.metadata.roleplayContinuityDirector).refreshMode;
+    case "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns":
+      return readContinuityDirectorConfiguration(current.metadata.roleplayContinuityDirector).refreshEveryAssistantTurns;
   }
 }
 
@@ -536,6 +700,10 @@ function applyReceiptBeforeValue(patch: RoleplayWorkflowProfilePatch, change: Ro
     case "metadata.agentRunIntervalOverrides":
       patch.metadata.agentRunIntervalOverrides = change.before as Record<string, number>;
       return;
+    case "metadata.roleplayContinuityDirector.enabled":
+    case "metadata.roleplayContinuityDirector.refreshMode":
+    case "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns":
+      return;
   }
 }
 
@@ -552,6 +720,8 @@ function informationRow(id: string, message: string): RoleplayWorkflowChangeRow 
     selectedByDefault: false,
     selectable: false,
     expectedExtraCalls: 0,
+    modelUse: "No model call",
+    addsWriterLatency: false,
     destination: null,
     prerequisites: [message],
     warnings: [],

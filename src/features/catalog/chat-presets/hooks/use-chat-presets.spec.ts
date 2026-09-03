@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Chat } from "../../../../engine/contracts/types/chat";
+import type { RoleplayContinuityDirectorState } from "../../../../engine/contracts/types/roleplay-continuity-director";
+import { createDefaultContinuityDirectorState } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { resolveRoleplayWorkflowProfile } from "../../../../engine/modes/roleplay/workflow-profiles";
 
 import {
@@ -128,6 +131,46 @@ describe("roleplay workflow profile persistence", () => {
     musicModuleEnabled: true,
     ttsReady: true,
   };
+  const NOW = "2026-09-03T12:00:00.000Z";
+
+  async function applyLongformWithDirector(director?: RoleplayContinuityDirectorState) {
+    let currentChat: Chat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: { activeAgentIds: [], ...(director ? { roleplayContinuityDirector: director } : {}) },
+    };
+    const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
+    const selectedItemIds = preview.rows
+      .filter((row) => row.kind === "change" && row.selectedByDefault)
+      .map((row) => row.id);
+    return applyRoleplayWorkflowProfile({
+      chatId: currentChat.id,
+      profileId: "longform-continuity",
+      preview,
+      selectedItemIds,
+      resolveCapabilities: async () => capabilities,
+      storage: {
+        get: async () => currentChat,
+        update: async (_entity, _id, patch) => {
+          currentChat = { ...currentChat, ...patch, metadata: { ...currentChat.metadata, ...patch.metadata } };
+          return currentChat;
+        },
+      } as never,
+      now: () => NOW,
+    });
+  }
+
+  it("requests one initial plan only after newly enabling a snapshot-less Director", async () => {
+    const result = await applyLongformWithDirector();
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: true });
+  });
+
+  it.each([true, false])("does not request an initial plan for an explicitly configured Director", async (enabled) => {
+    const director = { ...createDefaultContinuityDirectorState(NOW), enabled };
+    const result = await applyLongformWithDirector(director);
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: false });
+  });
 
   it("rejects a freshly loaded non-Roleplay chat before resolving capabilities or writing", async () => {
     const preview = resolveRoleplayWorkflowProfile("minimal-clean", {

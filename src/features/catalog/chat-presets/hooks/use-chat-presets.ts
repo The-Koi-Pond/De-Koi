@@ -334,6 +334,7 @@ export type ApplyRoleplayWorkflowProfileResult =
       selectedItemIds: readonly string[];
       omittedLocalAgentIds: readonly string[];
       skippedLocalRoutingAgentIds: readonly string[];
+      shouldCreateContinuityPlan: false;
     }
   | {
       outcome: "applied";
@@ -342,6 +343,7 @@ export type ApplyRoleplayWorkflowProfileResult =
       selectedItemIds: readonly string[];
       omittedLocalAgentIds: readonly string[];
       skippedLocalRoutingAgentIds: readonly string[];
+      shouldCreateContinuityPlan: boolean;
     };
 
 export interface RevertRoleplayWorkflowProfileInput {
@@ -395,6 +397,7 @@ export async function applyRoleplayWorkflowProfile(
       selectedItemIds,
       omittedLocalAgentIds: [],
       skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: false,
     };
   }
 
@@ -418,10 +421,15 @@ export async function applyRoleplayWorkflowProfile(
   }
 
   const acceptedItemIds = selectedItemIds.filter((itemId) => selected.has(itemId));
+  const shouldCreateContinuityPlan =
+    selected.has("continuity-director") &&
+    !resolution.baseline.continuityDirector.enabled &&
+    !resolution.baseline.continuityDirector.hasSourceSnapshot;
   const patch = buildRoleplayWorkflowProfilePatch(
     resolution,
     acceptedItemIds,
     (input.now ?? (() => new Date().toISOString()))(),
+    chat.metadata.roleplayContinuityDirector,
   );
   const updated = await storage.update<Chat>("chats", input.chatId, roleplayWorkflowPatchForChat(chat, patch));
   return {
@@ -431,6 +439,7 @@ export async function applyRoleplayWorkflowProfile(
     selectedItemIds: acceptedItemIds,
     omittedLocalAgentIds,
     skippedLocalRoutingAgentIds,
+    shouldCreateContinuityPlan,
   };
 }
 
