@@ -379,6 +379,67 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).not.toContain("Applied Long-Running Story, version 2");
   });
 
+  it("keeps a genuinely external workflow update when the initial planner later succeeds", async () => {
+    const appliedChat = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 2,
+          appliedAt: "2026-09-03T14:00:00.000Z",
+          selectedItemIds: ["continuity-director"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    const plannerState = { ...createDefaultContinuityDirectorState(), enabled: true };
+    let onPlannerSuccess: ((result: { state: typeof plannerState }) => void) | undefined;
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat: appliedChat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    });
+    mocks.createInitialPlan.mockImplementation(
+      (_id: string, options: { onSuccess?: (result: { state: typeof plannerState }) => void }) => {
+        onPlannerSuccess = options.onSuccess;
+      },
+    );
+
+    await applyLongRunningStory();
+    const externalChat = {
+      ...appliedChat,
+      metadata: {
+        ...appliedChat.metadata,
+        enableMemoryRecall: true,
+        roleplayWorkflowApplication: {
+          profileId: "minimal-clean",
+          profileVersion: 1,
+          appliedAt: "2026-09-03T14:01:00.000Z",
+          selectedItemIds: ["memory-recall"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    await act(async () => {
+      root.render(<RoleplayWorkflowProfileChooser chat={externalChat} entryPoint="drawer" />);
+    });
+    expect(container.textContent).toContain("Chat settings changed. Review the refreshed ledger before applying.");
+    expect(container.textContent).toContain("Applied Simple Roleplay, version 1");
+
+    await act(async () => {
+      onPlannerSuccess?.({ state: plannerState });
+    });
+
+    expect(container.textContent).toContain("Chat settings changed. Review the refreshed ledger before applying.");
+    expect(container.textContent).toContain("Applied Simple Roleplay, version 1");
+    expect(container.textContent).not.toContain("Story plan ready for review.");
+  });
+
   it("offers the version-2 Long-Running Story update without selecting existing Director settings", async () => {
     const chatWithLongformV1Receipt = {
       ...chat,

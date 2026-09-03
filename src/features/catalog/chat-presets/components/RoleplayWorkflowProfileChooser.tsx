@@ -228,6 +228,7 @@ export function RoleplayWorkflowProfileChooser({
 
   useEffect(() => {
     if (sameWorkflowRelevantChat(displayedChatRef.current, chat)) return;
+    plannerOperationRef.current += 1;
     displayedChatRef.current = chat;
     setConfirming(false);
     setStatus({
