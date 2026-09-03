@@ -11,7 +11,11 @@ import {
 import { DISCOVERY_APP_EVENT, type DiscoveryChatDestination } from "../../../../shared/lib/discovery-navigation";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { useApplyRoleplayWorkflowProfile, useRevertRoleplayWorkflowProfile } from "../hooks/use-chat-presets";
+import {
+  useApplyRoleplayWorkflowProfile,
+  useCreateInitialContinuityPlan,
+  useRevertRoleplayWorkflowProfile,
+} from "../hooks/use-chat-presets";
 import { isLocalSidecarAssignmentReady, resolveRoleplayWorkflowCapabilities } from "../roleplay-workflow-capabilities";
 
 interface ProfilePresentation {
@@ -218,6 +222,7 @@ export function RoleplayWorkflowProfileChooser({
     resolveCapabilities: resolveRoleplayWorkflowCapabilities,
     isLocalSidecarAssignmentReady,
   });
+  const initialPlan = useCreateInitialContinuityPlan();
   const revertMutation = useRevertRoleplayWorkflowProfile();
 
   useEffect(() => {
@@ -359,6 +364,19 @@ export function RoleplayWorkflowProfileChooser({
       displayedChatRef.current = result.chat;
       setDisplayedChat(result.chat);
       setConfirming(false);
+      if (result.shouldCreateContinuityPlan) {
+        setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
+        initialPlan.mutate(displayedChat.id, {
+          onSuccess: () => setStatus({ tone: "success", message: "Story plan ready for review." }),
+          onError: () =>
+            setStatus({
+              tone: "info",
+              message:
+                "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
+            }),
+        });
+        return;
+      }
       const skippedRoutingMessage =
         result.skippedLocalRoutingAgentIds.length > 0
           ? `Local routing was skipped for ${result.skippedLocalRoutingAgentIds.map((id) => itemLabel(`agent:${id}`)).join(", ")}. ${result.skippedLocalRoutingAgentIds.length === 1 ? "It remains" : "They remain"} active on ${result.skippedLocalRoutingAgentIds.length === 1 ? "its" : "their"} existing connection; this profile chose no substitute or fallback.`
@@ -382,7 +400,7 @@ export function RoleplayWorkflowProfileChooser({
       setConfirming(false);
       setStatus({ tone: "error", message: completeError(error) });
     }
-  }, [applyMutation, displayedChat.id, preview, profileId, selectedItemIds]);
+  }, [applyMutation, displayedChat.id, initialPlan, preview, profileId, selectedItemIds]);
 
   const revert = useCallback(async () => {
     setStatus(null);
@@ -423,7 +441,7 @@ export function RoleplayWorkflowProfileChooser({
     receipt.profileVersion === 1 &&
     preview?.profileId === "longform-continuity" &&
     preview.version === 2;
-  const pending = applyMutation.isPending || revertMutation.isPending;
+  const pending = applyMutation.isPending || initialPlan.isPending || revertMutation.isPending;
 
   return (
     <section

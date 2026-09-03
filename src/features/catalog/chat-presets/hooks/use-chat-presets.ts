@@ -13,6 +13,10 @@ import { boolish } from "../../../../engine/generation/runtime-records";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { chatPresetApi } from "../../../../shared/api/chat-preset-api";
+import {
+  roleplayContinuityDirectorApi,
+  type RoleplayContinuityDirectorApi,
+} from "../../../../shared/api/roleplay-continuity-director-api";
 import { chatKeys } from "../../chats/query-keys";
 import type { StorageGateway } from "../../../../engine/capabilities/storage";
 import type { Chat, ChatMode } from "../../../../engine/contracts/types/chat";
@@ -469,6 +473,19 @@ export function useApplyRoleplayWorkflowProfile(
     onSuccess: (result, variables) => {
       if (result.outcome !== "applied") return;
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
+      qc.invalidateQueries({ queryKey: chatKeys.list() });
+    },
+  });
+}
+
+export function useCreateInitialContinuityPlan(
+  api: Pick<RoleplayContinuityDirectorApi, "refresh"> = roleplayContinuityDirectorApi,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chatId: string) => api.refresh(chatId),
+    onSettled: (_data, _error, chatId) => {
+      qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
     },
   });

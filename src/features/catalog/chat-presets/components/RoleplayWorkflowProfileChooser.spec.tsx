@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   apply: vi.fn(),
   revert: vi.fn(),
+  createInitialPlan: vi.fn(),
   resolveCapabilities: vi.fn(),
 }));
 
 vi.mock("../hooks/use-chat-presets", () => ({
   useApplyRoleplayWorkflowProfile: () => ({ mutateAsync: mocks.apply, isPending: false }),
   useRevertRoleplayWorkflowProfile: () => ({ mutateAsync: mocks.revert, isPending: false }),
+  useCreateInitialContinuityPlan: () => ({ mutate: mocks.createInitialPlan, isPending: false }),
 }));
 
 vi.mock("../roleplay-workflow-capabilities", () => ({
@@ -60,6 +62,27 @@ describe("RoleplayWorkflowProfileChooser", () => {
     await act(async () => {
       root = createRoot(container);
       root.render(<RoleplayWorkflowProfileChooser chat={value} entryPoint={entryPoint} />);
+    });
+  }
+
+  async function applyLongRunningStory() {
+    await renderChooser(chat, "drawer");
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Review and apply"),
+        ) as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Confirm and apply"),
+        ) as HTMLButtonElement
+      ).click();
     });
   }
 
@@ -138,6 +161,83 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain("Background model activity: occasional");
     expect(container.textContent).toContain("One non-blocking planning call every 10 assistant replies");
     expect(container.textContent).toContain("No added writer latency");
+  });
+
+  it("starts the first Director plan after the workflow write without awaiting it", async () => {
+    const workflowResult = {
+      outcome: "applied" as const,
+      chat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    };
+    mocks.apply.mockResolvedValueOnce(workflowResult);
+
+    await applyLongRunningStory();
+
+    expect(workflowResult.outcome).toBe("applied");
+    expect(container.textContent).toContain("Workflow applied. Creating the first story plan in the background.");
+    expect(mocks.createInitialPlan).toHaveBeenCalledWith("roleplay-chat", expect.any(Object));
+  });
+
+  it("reports detached first-plan success without changing the applied workflow outcome", async () => {
+    const workflowResult = {
+      outcome: "applied" as const,
+      chat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    };
+    mocks.apply.mockResolvedValueOnce(workflowResult);
+    mocks.createInitialPlan.mockImplementation((_id, options) => options.onSuccess());
+
+    await applyLongRunningStory();
+
+    expect(workflowResult.outcome).toBe("applied");
+    expect(container.textContent).toContain("Story plan ready for review.");
+  });
+
+  it("isolates detached first-plan failure from the applied workflow", async () => {
+    const workflowResult = {
+      outcome: "applied" as const,
+      chat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    };
+    mocks.apply.mockResolvedValueOnce(workflowResult);
+    mocks.createInitialPlan.mockImplementation((_id, options) => options.onError(new Error("provider offline")));
+
+    await applyLongRunningStory();
+
+    expect(workflowResult.outcome).toBe("applied");
+    expect(container.textContent).toContain(
+      "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
+    );
+  });
+
+  it("does not create a first plan when the persisted workflow result does not request one", async () => {
+    const workflowResult = {
+      outcome: "applied" as const,
+      chat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: false,
+    };
+    mocks.apply.mockResolvedValueOnce(workflowResult);
+
+    await applyLongRunningStory();
+
+    expect(workflowResult.outcome).toBe("applied");
+    expect(mocks.createInitialPlan).not.toHaveBeenCalled();
   });
 
   it("offers the version-2 Long-Running Story update without selecting existing Director settings", async () => {
