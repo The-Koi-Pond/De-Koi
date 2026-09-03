@@ -55,6 +55,7 @@ export function useContinuityDirector(
     sourceUnavailable: query.data?.sourceUnavailable ?? false,
     isLoading: query.isLoading,
     error: query.error,
+    refetch: query.refetch,
     command,
     refresh,
     reroll,

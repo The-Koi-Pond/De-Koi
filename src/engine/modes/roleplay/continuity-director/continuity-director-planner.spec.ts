@@ -115,6 +115,53 @@ describe("continuity director planner", () => {
     expect(test.patches).toHaveLength(0);
   });
 
+  it.each([
+    {
+      field: "current arc",
+      response: {
+        currentArc: "Celia decides to betray Mara.",
+        openThreads: ["Who forged the seal?"],
+        beats: ["Mara confronts the watch captain."],
+      },
+    },
+    {
+      field: "open thread",
+      response: {
+        currentArc: "The forged seal threatens Mara's standing.",
+        openThreads: ["Will Celia confess to stealing the map?"],
+        beats: ["Mara confronts the watch captain."],
+      },
+    },
+  ])("rejects an unsafe $field without patching state", async ({ response }) => {
+    const test = harness(JSON.stringify(response));
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(test.patches).toHaveLength(0);
+  });
+
+  it("rejects a refresh when every proposed beat is unsafe", async () => {
+    const test = harness(
+      JSON.stringify({
+        currentArc: "The forged seal threatens Mara's standing.",
+        openThreads: ["Who forged the seal?"],
+        beats: ["Celia attacks the captain.", "You decide to flee."],
+      }),
+    );
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(test.patches).toHaveLength(0);
+  });
+
   it("does not silently fall back when an explicit connection is unavailable", async () => {
     const test = harness('{"currentArc":null,"openThreads":[],"beats":[]}');
     test.setState(
@@ -173,7 +220,7 @@ describe("continuity director planner", () => {
   });
 
   it("rerolls one beat atomically while preserving the rest of the plan", async () => {
-    const test = harness('{"currentArc":null,"openThreads":[],"beats":["The captain drops a coded ledger."]}');
+    const test = harness('{"replacementBeat":"The captain drops a coded ledger."}');
     let current = applyContinuityDirectorCommand(
       test.getState(),
       { type: "replace_director_proposals", beats: ["The guard arrives.", "Mara finds a seal."] },
@@ -194,11 +241,32 @@ describe("continuity director planner", () => {
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error("expected success");
+    expect(test.requests[0]?.messages[1]?.content).toContain(targetId);
+    expect(test.requests[0]?.messages[1]?.content).toContain("The guard arrives.");
     expect(result.state.beats).toEqual([
       expect.objectContaining({ id: targetId, status: "rejected", resolution: "rerolled" }),
       expect.objectContaining({ text: "Mara finds a seal." }),
       expect.objectContaining({ text: "The captain drops a coded ledger.", status: "proposed" }),
     ]);
+  });
+
+  it("rejects ambiguous reroll output without patching state", async () => {
+    const test = harness('{"currentArc":null,"openThreads":[],"beats":["One option.","Another option."]}');
+    const current = applyContinuityDirectorCommand(
+      test.getState(),
+      { type: "replace_director_proposals", beats: ["The guard arrives.", "Mara finds a seal."] },
+      { now: () => NOW, createId: (prefix) => `${prefix}-seeded` },
+    );
+    const targetId = current.beats[0]!.id;
+    test.setState(current);
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", rerollBeatId: targetId, now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(test.patches).toHaveLength(0);
   });
 
   it("serializes a reroll behind an in-flight full refresh instead of silently coalescing it", async () => {
@@ -226,7 +294,7 @@ describe("continuity director planner", () => {
         await firstPending;
         return '{"currentArc":null,"openThreads":[],"beats":["A fresh proposal."]}';
       })
-      .mockResolvedValueOnce('{"currentArc":null,"openThreads":[],"beats":["A different beat."]}');
+      .mockResolvedValueOnce('{"replacementBeat":"A different beat."}');
 
     const refresh = refreshContinuityDirectorPlan(
       { storage: test.storage, llm: test.llm },

@@ -5,15 +5,25 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import type { RoleplayContinuityDirectorState } from "../../../contracts/types/roleplay-continuity-director";
 import { parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
 import { generateStructured } from "../../../generation/structured-generation";
-import { validateContinuityDirectorBeat } from "./continuity-director-safety";
+import { validateContinuityDirectorBeat, validateContinuityDirectorText } from "./continuity-director-safety";
 import { loadContinuityDirectorSource, type ContinuityDirectorSource } from "./continuity-director-source";
-import { applyContinuityDirectorCommand, normalizeContinuityDirectorState } from "./continuity-director-state";
+import {
+  applyContinuityDirectorCommand,
+  CONTINUITY_DIRECTOR_LIMITS,
+  normalizeContinuityDirectorState,
+} from "./continuity-director-state";
 
 const candidateSchema = z
   .object({
     currentArc: z.string().max(600).nullable(),
     openThreads: z.array(z.string().min(1).max(280)).max(12),
     beats: z.array(z.string().min(1).max(280)).max(8),
+  })
+  .strict();
+
+const rerollCandidateSchema = z
+  .object({
+    replacementBeat: z.string().min(1).max(280),
   })
   .strict();
 
@@ -65,11 +75,30 @@ function planningSystemPrompt(source: ContinuityDirectorSource): string {
   ].join("\n");
 }
 
-function planningInput(source: ContinuityDirectorSource): string {
+function planningInput(
+  source: ContinuityDirectorSource,
+  rerollTarget?: { id: string; text: string },
+): string {
   return JSON.stringify(
     {
-      task: "Propose the current arc, open threads, and up to eight next structural beats.",
-      outputShape: { currentArc: "string or null", openThreads: ["string"], beats: ["string"] },
+      task: rerollTarget
+        ? "Replace exactly the requested beat with one different structural beat."
+        : "Propose the current arc, open threads, and up to eight next structural beats.",
+      outputShape: rerollTarget
+        ? { replacementBeat: "string" }
+        : { currentArc: "string or null", openThreads: ["string"], beats: ["string"] },
+      ...(rerollTarget
+        ? {
+            rerollTarget: {
+              beatId: rerollTarget.id,
+              text: rerollTarget.text,
+            },
+            rerollRules: [
+              "Return exactly one replacementBeat for this target.",
+              "Do not rewrite, repeat, or refer to sibling beats.",
+            ],
+          }
+        : {}),
       characters: source.characterNames,
       userPersonas: source.personaNames,
       story: source.story,
@@ -102,6 +131,13 @@ async function runRefresh(
     return { ok: false, code: "disabled", message: "Enable Continuity Director before refreshing its plan." };
   }
 
+
+  const targetBeatId = input.rerollBeatId?.trim() || null;
+  const rerollTarget = targetBeatId ? initialState.beats.find((beat) => beat.id === targetBeatId) : undefined;
+  if (targetBeatId && !rerollTarget) {
+    return { ok: false, code: "persistence_failed", message: "The requested beat is no longer available." };
+  }
+
   const connectionId = initialState.connectionId ?? source.writerConnectionId;
   if (initialState.connectionId) {
     const explicitConnection = await capabilities.storage
@@ -120,27 +156,51 @@ async function runRefresh(
   const timeout = setTimeout(() => controller.abort(), Math.max(1, input.timeoutMs ?? 30_000));
   let candidate: z.infer<typeof candidateSchema>;
   try {
-    const generated = await generateStructured(
-      { llm: capabilities.llm },
-      {
-        taskName: "roleplay-continuity-director",
-        connectionId,
-        messages: [
-          { role: "system", content: planningSystemPrompt(source) },
-          { role: "user", content: planningInput(source) },
-        ],
-        parameters: { temperature: 0.2, max_tokens: 900 },
-        schema: candidateSchema,
-        schemaDescription: '{"currentArc":"string or null","openThreads":["string"],"beats":["string"]}',
-        maxRepairAttempts: 0,
-        failureMessage: "Continuity Director did not return a valid plan.",
-      },
-      controller.signal,
-    );
-    if (!generated.ok) {
-      return { ok: false, code: "invalid_output", message: generated.failure.message };
+    if (rerollTarget) {
+      const generated = await generateStructured(
+        { llm: capabilities.llm },
+        {
+          taskName: "roleplay-continuity-director-reroll",
+          connectionId,
+          messages: [
+            { role: "system", content: planningSystemPrompt(source) },
+            { role: "user", content: planningInput(source, rerollTarget) },
+          ],
+          parameters: { temperature: 0.2, max_tokens: 900 },
+          schema: rerollCandidateSchema,
+          schemaDescription: '{"replacementBeat":"string"}',
+          maxRepairAttempts: 0,
+          failureMessage: "Continuity Director did not return one valid replacement beat.",
+        },
+        controller.signal,
+      );
+      if (!generated.ok) {
+        return { ok: false, code: "invalid_output", message: generated.failure.message };
+      }
+      candidate = { currentArc: null, openThreads: [], beats: [generated.data.replacementBeat] };
+    } else {
+      const generated = await generateStructured(
+        { llm: capabilities.llm },
+        {
+          taskName: "roleplay-continuity-director",
+          connectionId,
+          messages: [
+            { role: "system", content: planningSystemPrompt(source) },
+            { role: "user", content: planningInput(source) },
+          ],
+          parameters: { temperature: 0.2, max_tokens: 900 },
+          schema: candidateSchema,
+          schemaDescription: '{"currentArc":"string or null","openThreads":["string"],"beats":["string"]}',
+          maxRepairAttempts: 0,
+          failureMessage: "Continuity Director did not return a valid plan.",
+        },
+        controller.signal,
+      );
+      if (!generated.ok) {
+        return { ok: false, code: "invalid_output", message: generated.failure.message };
+      }
+      candidate = generated.data;
     }
-    candidate = generated.data;
   } catch (error) {
     const timedOut = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
     return {
@@ -156,6 +216,26 @@ async function runRefresh(
     (beat) => validateContinuityDirectorBeat(beat, { personaNames: source.personaNames }).safe,
   );
   const rejectedUnsafeBeats = candidate.beats.length - safeBeats.length;
+  const unsafeArc =
+    !rerollTarget &&
+    candidate.currentArc !== null &&
+    !validateContinuityDirectorText(candidate.currentArc, {
+      personaNames: source.personaNames,
+      maxCharacters: CONTINUITY_DIRECTOR_LIMITS.arcCharacters,
+    }).safe;
+  const unsafeThread =
+    !rerollTarget &&
+    candidate.openThreads.some(
+      (thread) => !validateContinuityDirectorText(thread, { personaNames: source.personaNames }).safe,
+    );
+  const allCandidateBeatsUnsafe = candidate.beats.length > 0 && safeBeats.length === 0;
+  if (unsafeArc || unsafeThread || allCandidateBeatsUnsafe) {
+    return {
+      ok: false,
+      code: "invalid_output",
+      message: "Continuity Director returned a plan that could not be stored safely.",
+    };
+  }
 
   try {
     const currentChat = await capabilities.storage.get<JsonRecord>("chats", input.chatId);
@@ -164,7 +244,6 @@ async function runRefresh(
     if (!currentState.enabled) {
       return { ok: false, code: "disabled", message: "Continuity Director was disabled before refresh completed." };
     }
-    const targetBeatId = input.rerollBeatId?.trim();
     if (targetBeatId && !currentState.beats.some((beat) => beat.id === targetBeatId)) {
       return { ok: false, code: "persistence_failed", message: "The beat changed before reroll completed." };
     }

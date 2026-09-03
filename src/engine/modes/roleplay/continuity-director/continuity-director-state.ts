@@ -337,17 +337,38 @@ export function applyContinuityDirectorCommand(
       break;
     }
     case "reroll_beat": {
+      const targetIndex = state.beats.findIndex((beat) => beat.id === command.beatId);
+      if (targetIndex < 0) break;
       const replacement = makeBeat(command.replacementText, state.beats.length, now, makeId);
+      if (!replacement) break;
+      const beats = [
+        ...state.beats.map((beat) =>
+          beat.id === command.beatId
+            ? { ...beat, status: "rejected" as const, resolution: "rerolled" as const, updatedAt: now }
+            : beat,
+        ),
+        replacement,
+      ];
+      if (beats.length > CONTINUITY_DIRECTOR_LIMITS.retainedBeats) {
+        let dropIndex = beats.findIndex(
+          (beat) =>
+            beat.id !== command.beatId &&
+            beat.id !== replacement.id &&
+            (beat.status === "rejected" || beat.status === "fulfilled"),
+        );
+        if (dropIndex < 0) {
+          for (let index = beats.length - 2; index >= 0; index -= 1) {
+            if (beats[index]?.id !== command.beatId) {
+              dropIndex = index;
+              break;
+            }
+          }
+        }
+        if (dropIndex >= 0) beats.splice(dropIndex, 1);
+      }
       next = {
         ...state,
-        beats: reindex([
-          ...state.beats.map((beat) =>
-            beat.id === command.beatId
-              ? { ...beat, status: "rejected" as const, resolution: "rerolled" as const, updatedAt: now }
-              : beat,
-          ),
-          ...(replacement ? [replacement] : []),
-        ]),
+        beats: reindex(beats.slice(0, CONTINUITY_DIRECTOR_LIMITS.retainedBeats)),
       };
       break;
     }

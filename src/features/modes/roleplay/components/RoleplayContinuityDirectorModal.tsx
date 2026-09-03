@@ -5,6 +5,8 @@ import type {
   ContinuityDirectorBeat,
   ContinuityDirectorBeatStatus,
   ContinuityDirectorCommand,
+  ContinuityDirectorThread,
+  ContinuityDirectorThreadStatus,
   RoleplayContinuityDirectorState,
 } from "../../../../engine/contracts/types/roleplay-continuity-director";
 import { CONTINUITY_DIRECTOR_CADENCE_OPTIONS } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
@@ -27,6 +29,12 @@ const STATUS_LABELS: Record<ContinuityDirectorBeatStatus, string> = {
   fulfilled: "Fulfilled",
 };
 
+const THREAD_STATUS_LABELS: Record<ContinuityDirectorThreadStatus, string> = {
+  open: "Open",
+  deferred: "Deferred",
+  resolved: "Resolved",
+};
+
 function statusTone(status: ContinuityDirectorBeatStatus): string {
   if (status === "approved") return "bg-emerald-500/12 text-emerald-300 ring-emerald-500/30";
   if (status === "proposed") return "bg-sky-500/12 text-sky-300 ring-sky-500/30";
@@ -37,6 +45,62 @@ function statusTone(status: ContinuityDirectorBeatStatus): string {
 
 function errorText(error: unknown): string | null {
   return error instanceof Error ? error.message : error ? String(error) : null;
+}
+
+function ThreadCard({
+  thread,
+  disabled,
+  onCommand,
+}: {
+  thread: ContinuityDirectorThread;
+  disabled: boolean;
+  onCommand: (command: ContinuityDirectorCommand) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/35 p-2.5">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-[0.5625rem] font-semibold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+          {THREAD_STATUS_LABELS[thread.status]}
+        </span>
+        {thread.source === "user" && (
+          <span className="text-[0.5625rem] text-[var(--muted-foreground)]">User edited</span>
+        )}
+      </div>
+      <input
+        aria-label={`Edit ${thread.text}`}
+        defaultValue={thread.text}
+        maxLength={280}
+        disabled={disabled}
+        onBlur={(event) => {
+          const text = event.currentTarget.value.trim();
+          if (text && text !== thread.text) onCommand({ type: "edit_thread", threadId: thread.id, text });
+        }}
+        className="w-full rounded border border-transparent bg-transparent px-1 py-1 text-xs outline-none focus:border-[var(--ring)]"
+      />
+      {thread.status === "open" && (
+        <div className="mt-1 flex gap-1.5">
+          <button
+            type="button"
+            aria-label={`Defer ${thread.text}`}
+            disabled={disabled}
+            onClick={() => onCommand({ type: "set_thread_status", threadId: thread.id, status: "deferred" })}
+            className="text-[0.5625rem] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+          >
+            Defer
+          </button>
+          <button
+            type="button"
+            aria-label={`Resolve ${thread.text}`}
+            disabled={disabled}
+            onClick={() => onCommand({ type: "set_thread_status", threadId: thread.id, status: "resolved" })}
+            className="text-[0.5625rem] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+          >
+            Resolve
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function BeatCard({
@@ -182,6 +246,8 @@ export function RoleplayContinuityDirectorModal({ chatId, open, onClose }: Rolep
     errorText(director.reroll.error) ||
     errorText(director.command.error) ||
     errorText(director.error);
+  const openThreads = state?.openThreads.filter((thread) => thread.status === "open") ?? [];
+  const threadHistory = state?.openThreads.filter((thread) => thread.status !== "open") ?? [];
 
   const command = (value: ContinuityDirectorCommand) => {
     if (!state) return;
@@ -202,17 +268,36 @@ export function RoleplayContinuityDirectorModal({ chatId, open, onClose }: Rolep
 
   return (
     <Modal open={open} onClose={onClose} title="Continuity Director" width="max-w-3xl">
-      {director.isLoading || !state ? (
+      {director.isLoading ? (
         <div className="flex min-h-52 items-center justify-center gap-2 text-xs text-[var(--muted-foreground)]">
           <Loader2 size="1rem" className="animate-spin" aria-hidden="true" /> Loading continuity plan...
+        </div>
+      ) : !state ? (
+        <div className="flex min-h-52 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p role="alert" className="text-xs text-rose-300">
+            {visibleError ?? "Continuity plan could not be loaded."}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              aria-label="Retry loading continuity plan"
+              onClick={() => void director.refetch()}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)]"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)]"
+            >
+              Close
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
           <section className="relative overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--secondary)]/45 p-4">
-            <div
-              className="pointer-events-none absolute -right-10 -top-16 h-36 w-36 rounded-full bg-[var(--primary)]/10 blur-3xl"
-              aria-hidden="true"
-            />
             <div className="relative flex flex-wrap items-start justify-between gap-3">
               <div className="max-w-xl">
                 <div className="flex items-center gap-2">
@@ -375,47 +460,27 @@ export function RoleplayContinuityDirectorModal({ chatId, open, onClose }: Rolep
             />
           </section>
 
-          {state.openThreads.length > 0 && (
+          {openThreads.length > 0 && (
             <section className="space-y-2">
               <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
                 Open threads
               </h3>
               <div className="grid gap-2 sm:grid-cols-2">
-                {state.openThreads.map((thread) => (
-                  <div
-                    key={thread.id}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/35 p-2.5"
-                  >
-                    <input
-                      aria-label={`Edit ${thread.text}`}
-                      defaultValue={thread.text}
-                      maxLength={280}
-                      disabled={pending}
-                      onBlur={(event) => {
-                        const text = event.currentTarget.value.trim();
-                        if (text && text !== thread.text) command({ type: "edit_thread", threadId: thread.id, text });
-                      }}
-                      className="w-full rounded border border-transparent bg-transparent px-1 py-1 text-xs outline-none focus:border-[var(--ring)]"
-                    />
-                    <div className="mt-1 flex gap-1.5">
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={() => command({ type: "set_thread_status", threadId: thread.id, status: "deferred" })}
-                        className="text-[0.5625rem] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                      >
-                        Defer
-                      </button>
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={() => command({ type: "set_thread_status", threadId: thread.id, status: "resolved" })}
-                        className="text-[0.5625rem] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                      >
-                        Resolve
-                      </button>
-                    </div>
-                  </div>
+                {openThreads.map((thread) => (
+                  <ThreadCard key={thread.id} thread={thread} disabled={pending} onCommand={command} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {threadHistory.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                Thread history
+              </h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {threadHistory.map((thread) => (
+                  <ThreadCard key={thread.id} thread={thread} disabled={pending} onCommand={command} />
                 ))}
               </div>
             </section>

@@ -68,6 +68,20 @@ describe("roleplay continuity director api", () => {
     });
   });
 
+  it("maps command persistence failures to the typed API error", async () => {
+    const test = harness();
+    test.patchChatMetadata.mockRejectedValueOnce(new Error("disk full"));
+    const api = createRoleplayContinuityDirectorApi(
+      { storage: test.storage, llm: {} as LlmGateway },
+      { now: () => NOW },
+    );
+
+    await expect(api.command("chat-1", { type: "set_enabled", enabled: false }, 0)).rejects.toEqual(
+      new ContinuityDirectorApiError("persistence_failed", "disk full"),
+    );
+    expect(test.patchChatMetadata).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a stale revision before patching", async () => {
     const test = harness(state({ revision: 4 }));
     const api = createRoleplayContinuityDirectorApi(
@@ -93,6 +107,33 @@ describe("roleplay continuity director api", () => {
 
     await expect(api.refresh("chat-1")).rejects.toEqual(new ContinuityDirectorApiError("timeout", "Timed out"));
     expect(test.patchChatMetadata).not.toHaveBeenCalled();
+  });
+
+  it("surfaces hard source-load failures as typed errors instead of stale success", async () => {
+    const test = harness(
+      state({
+        sourceSnapshot: {
+          storyProjectionIds: [],
+          knowledgeEdgeIds: [],
+          lastMessageId: null,
+          fingerprint: "old",
+          generatedAt: NOW,
+        },
+      }),
+    );
+    const api = createRoleplayContinuityDirectorApi(
+      { storage: test.storage, llm: {} as LlmGateway },
+      {
+        now: () => NOW,
+        loadSource: vi.fn(async () => {
+          throw new Error("corrupt story source");
+        }),
+      },
+    );
+
+    await expect(api.getState("chat-1")).rejects.toEqual(
+      new ContinuityDirectorApiError("source_unavailable", "corrupt story source"),
+    );
   });
 
   it("forwards a per-beat reroll to the guarded planner", async () => {

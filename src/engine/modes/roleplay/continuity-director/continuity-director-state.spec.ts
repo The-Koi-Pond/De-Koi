@@ -182,6 +182,57 @@ describe("continuity director state", () => {
     expect(state.beats.map((beat) => beat.order)).toEqual([0, 1, 2]);
   });
 
+  it("keeps rerolls within the retained-beats cap and rejects invalid targets or replacements", () => {
+    const options = commandOptions();
+    const base = createDefaultContinuityDirectorState(NOW);
+    const full = normalizeContinuityDirectorState(
+      {
+        ...base,
+        beats: Array.from({ length: 20 }, (_, index) => ({
+          id: `beat-${index}`,
+          text: `Beat ${index}`,
+          status: "proposed",
+          order: index,
+          source: "director",
+          sourceIds: [],
+          characterIds: [],
+          threadIds: [],
+          createdAt: NOW,
+          updatedAt: NOW,
+        })),
+      },
+      NOW,
+    );
+
+    const rerolled = applyContinuityDirectorCommand(
+      full,
+      { type: "reroll_beat", beatId: "beat-0", replacementText: "A bounded replacement." },
+      options,
+    );
+
+    expect(rerolled.beats).toHaveLength(20);
+    expect(rerolled.beats.map((beat) => beat.order)).toEqual(Array.from({ length: 20 }, (_, index) => index));
+    expect(rerolled.beats).toContainEqual(
+      expect.objectContaining({ id: "beat-0", status: "rejected", resolution: "rerolled" }),
+    );
+    expect(rerolled.beats).toContainEqual(
+      expect.objectContaining({ text: "A bounded replacement.", status: "proposed" }),
+    );
+
+    const unknown = applyContinuityDirectorCommand(
+      full,
+      { type: "reroll_beat", beatId: "missing", replacementText: "Orphan." },
+      options,
+    );
+    const blank = applyContinuityDirectorCommand(
+      full,
+      { type: "reroll_beat", beatId: "beat-0", replacementText: "   " },
+      options,
+    );
+    expect(unknown).toEqual(full);
+    expect(blank).toEqual(full);
+  });
+
   it("enforces text and collection bounds while preserving decided history", () => {
     const options = commandOptions();
     let state = createDefaultContinuityDirectorState(NOW);

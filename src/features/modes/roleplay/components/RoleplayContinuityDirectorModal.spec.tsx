@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   command: vi.fn(),
   refresh: vi.fn(),
   reroll: vi.fn(),
+  refetch: vi.fn(),
   hook: {} as Record<string, unknown>,
 }));
 
@@ -67,6 +68,7 @@ afterEach(async () => {
   mocks.command.mockReset();
   mocks.refresh.mockReset();
   mocks.reroll.mockReset();
+  mocks.refetch.mockReset();
   if (root) await act(async () => root?.unmount());
   container?.remove();
   root = null;
@@ -80,6 +82,7 @@ async function renderModal(overrides: Record<string, unknown> = {}) {
     sourceUnavailable: false,
     isLoading: false,
     error: null,
+    refetch: mocks.refetch,
     command: { mutate: mocks.command, isPending: false, error: null },
     refresh: { mutate: mocks.refresh, isPending: false, error: null },
     reroll: { mutate: mocks.reroll, isPending: false, error: null },
@@ -143,6 +146,72 @@ describe("RoleplayContinuityDirectorModal", () => {
     expect(mocks.refresh).toHaveBeenCalled();
     expect(element.textContent).toContain("Local model timed out");
     expect(element.textContent).toContain("Mara reveals the forged seal.");
+  });
+
+  it("renders a settled initial load failure with a reachable retry", async () => {
+    const element = await renderModal({
+      state: null,
+      isLoading: false,
+      error: new Error("Continuity metadata could not be read"),
+    });
+
+    expect(element.textContent).toContain("Continuity metadata could not be read");
+    expect(element.textContent).not.toContain("Loading continuity plan");
+    await act(async () => click(element.querySelector('button[aria-label="Retry loading continuity plan"]')));
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps cached state visible when a later state reload fails", async () => {
+    const element = await renderModal({ error: new Error("Latest story sources could not be read") });
+
+    expect(element.textContent).toContain("Latest story sources could not be read");
+    expect(element.textContent).toContain("The forged seal threatens Mara's standing.");
+    expect(element.textContent).toContain("Mara reveals the forged seal.");
+  });
+
+  it("separates open threads from deferred and resolved history", async () => {
+    const element = await renderModal({
+      state: {
+        ...state,
+        openThreads: [
+          {
+            id: "thread-open",
+            text: "Who forged the seal?",
+            status: "open",
+            source: "director",
+            sourceIds: [],
+            createdAt: "2026-09-02T12:00:00.000Z",
+            updatedAt: "2026-09-02T12:00:00.000Z",
+          },
+          {
+            id: "thread-deferred",
+            text: "When will the envoy return?",
+            status: "deferred",
+            source: "user",
+            sourceIds: [],
+            createdAt: "2026-09-02T12:00:00.000Z",
+            updatedAt: "2026-09-02T12:00:00.000Z",
+          },
+          {
+            id: "thread-resolved",
+            text: "Where was the map hidden?",
+            status: "resolved",
+            source: "director",
+            sourceIds: [],
+            createdAt: "2026-09-02T12:00:00.000Z",
+            updatedAt: "2026-09-02T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    expect(element.textContent).toContain("Open threads");
+    expect(element.textContent).toContain("Thread history");
+    expect(element.textContent).toContain("Open");
+    expect(element.textContent).toContain("Deferred");
+    expect(element.textContent).toContain("Resolved");
+    expect(element.querySelector('button[aria-label="Resolve When will the envoy return?"]')).toBeNull();
+    expect(element.querySelector('button[aria-label="Defer Where was the map hidden?"]')).toBeNull();
   });
 
   it("offers only bounded automatic refresh choices and explains background cost", async () => {

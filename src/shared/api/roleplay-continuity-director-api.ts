@@ -72,6 +72,10 @@ function stateFromChat(chat: JsonRecord, now: string): RoleplayContinuityDirecto
   return normalizeContinuityDirectorState(parseRecord(chat.metadata).roleplayContinuityDirector, now);
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createRoleplayContinuityDirectorApi(
   capabilities: { storage: StorageGateway; llm: LlmGateway },
   options: ApiOptions = {},
@@ -81,7 +85,12 @@ export function createRoleplayContinuityDirectorApi(
   const planner = options.refreshPlan ?? refreshContinuityDirectorPlan;
 
   async function chat(chatId: string): Promise<JsonRecord> {
-    const record = await capabilities.storage.get<JsonRecord>("chats", chatId);
+    let record: JsonRecord | null;
+    try {
+      record = await capabilities.storage.get<JsonRecord>("chats", chatId);
+    } catch (error) {
+      throw new ContinuityDirectorApiError("source_unavailable", errorMessage(error));
+    }
     if (!record) throw new ContinuityDirectorApiError("chat_not_found", "Chat not found");
     return record;
   }
@@ -95,8 +104,9 @@ export function createRoleplayContinuityDirectorApi(
         isStale: source.sourceSnapshot.fingerprint !== state.sourceSnapshot.fingerprint,
         sourceUnavailable: false,
       };
-    } catch {
-      return { state, isStale: false, sourceUnavailable: true };
+    } catch (error) {
+      if (error instanceof ContinuityDirectorApiError) throw error;
+      throw new ContinuityDirectorApiError("source_unavailable", errorMessage(error));
     }
   }
 
@@ -135,7 +145,11 @@ export function createRoleplayContinuityDirectorApi(
         now: options.now,
         createId: options.createId,
       });
-      await capabilities.storage.patchChatMetadata(chatId, { roleplayContinuityDirector: nextState });
+      try {
+        await capabilities.storage.patchChatMetadata(chatId, { roleplayContinuityDirector: nextState });
+      } catch (error) {
+        throw new ContinuityDirectorApiError("persistence_failed", errorMessage(error));
+      }
       return view(chatId, nextState);
     },
 
