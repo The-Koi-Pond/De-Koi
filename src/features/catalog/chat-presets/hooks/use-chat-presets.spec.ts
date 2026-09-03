@@ -136,9 +136,27 @@ describe("roleplay workflow profile persistence", () => {
   async function applyLongformWithDirector(director?: RoleplayContinuityDirectorState) {
     let currentChat: Chat = {
       id: "chat-1",
+      name: "Longform chat",
       mode: roleplayMode,
+      characterIds: [],
+      groupId: null,
+      personaId: null,
       promptPresetId: null,
-      metadata: { activeAgentIds: [], ...(director ? { roleplayContinuityDirector: director } : {}) },
+      connectionId: null,
+      connectedChatId: null,
+      folderId: null,
+      sortOrder: 0,
+      createdAt: NOW,
+      updatedAt: NOW,
+      metadata: {
+        summary: null,
+        tags: [],
+        agentOverrides: {},
+        activeAgentIds: [],
+        activeToolIds: [],
+        presetChoices: {},
+        ...(director ? { roleplayContinuityDirector: director } : {}),
+      },
     };
     const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
     const selectedItemIds = preview.rows
@@ -152,8 +170,13 @@ describe("roleplay workflow profile persistence", () => {
       resolveCapabilities: async () => capabilities,
       storage: {
         get: async () => currentChat,
-        update: async (_entity, _id, patch) => {
-          currentChat = { ...currentChat, ...patch, metadata: { ...currentChat.metadata, ...patch.metadata } };
+        update: async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+          const metadata = patch.metadata as Partial<Chat["metadata"]> | undefined;
+          currentChat = {
+            ...currentChat,
+            ...(patch as Partial<Chat>),
+            metadata: { ...currentChat.metadata, ...metadata },
+          };
           return currentChat;
         },
       } as never,

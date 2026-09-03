@@ -210,7 +210,7 @@ export function readContinuityDirectorConfiguration(value: unknown): ContinuityD
   return {
     enabled: state.enabled,
     refreshMode: state.refreshMode,
-    refreshEveryAssistantTurns: state.refreshEveryAssistantTurns,
+    refreshEveryAssistantTurns: state.refreshMode === "cadence" ? cadence(state.refreshEveryAssistantTurns) : null,
     connectionId: state.connectionId,
     hasSourceSnapshot: state.sourceSnapshot !== null,
   };

@@ -122,7 +122,7 @@ export function resolveRoleplayWorkflowProfile(
   if (input.chat.mode !== "roleplay") {
     throw new Error("Roleplay workflow profiles can only be resolved for Roleplay chats.");
   }
-  const recipe = ROLEPLAY_WORKFLOW_PROFILE_RECIPES[profileId];
+  const recipe: RoleplayWorkflowProfileRecipe = ROLEPLAY_WORKFLOW_PROFILE_RECIPES[profileId];
   const metadata = input.chat.metadata;
   const activeAgentIds = metadata.activeAgentIds ?? [];
   const agentConnectionOverrides = metadata.agentConnectionOverrides ?? {};
