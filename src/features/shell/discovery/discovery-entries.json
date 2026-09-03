@@ -97,7 +97,7 @@
     "id": "roleplay-workflow-profiles",
     "title": "Roleplay workflow profiles",
     "category": "Chat modes",
-    "summary": "Preview and selectively apply a clear ledger of Roleplay prompt, continuity, agent, media, and local-sidecar helpers without replacing your writer connection.",
+    "summary": "Choose Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visual presentation matters, or Local Helpers when your local sidecar is ready. Preview what each setup adds and its model use before applying it without replacing your writer connection.",
     "keywords": [
       "roleplay workflow",
       "workflow profile",
@@ -1176,7 +1176,7 @@
     "id": "roleplay-continuity-director",
     "title": "Roleplay Continuity Director",
     "category": "Chat modes",
-    "summary": "Create a small visible story plan, approve only the beats you want in future prompts, preserve rejected or deferred ideas, and keep the newest user instruction in charge. The director proposes structure while the writer model owns prose and player agency.",
+    "summary": "Choosing Long-Running Story enables Director planning every 10 assistant replies. Keep arcs and open threads visible while new beats remain proposed and reviewable until you approve them for future prompts; a pending-review badge points you back to Director. The director proposes structure while the writer model owns prose and player agency.",
     "keywords": [
       "director",
       "continuity director",
