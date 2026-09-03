@@ -1102,6 +1102,15 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
   const [lbSearch, setLbSearch] = useState("");
 
+  useEffect(() => {
+    if (shortcutMode || showChoiceModal) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancel();
+    };
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => window.removeEventListener("keydown", dismissOnEscape);
+  }, [cancel, shortcutMode, showChoiceModal]);
+
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
   const createMessage = useCreateMessage(chat.id);
@@ -1432,7 +1441,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
           <button
             onClick={() => {
               openRightPanel("connections");
-              onFinish();
+              cancel();
             }}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/20"
           >
@@ -1580,7 +1589,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                 allAddedText="All characters already added."
                 onOpenCharacters={() => {
                   openRightPanel("characters");
-                  onFinish();
+                  cancel();
                 }}
               />
             )}
@@ -1660,7 +1669,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
   }
 
   function renderWorkflowProfile() {
-    return <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onNavigateAway={onFinish} />;
+    return <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onNavigateAway={cancel} />;
   }
 
   const stepRenderers: Record<string, () => React.ReactNode> = {
@@ -1872,7 +1881,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                           allAddedText="All characters added."
                           onOpenCharacters={() => {
                             openRightPanel("characters");
-                            onFinish();
+                            cancel();
                           }}
                         />
                       )}

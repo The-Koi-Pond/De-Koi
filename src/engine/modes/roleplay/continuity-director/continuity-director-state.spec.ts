@@ -7,6 +7,7 @@ import {
   countProposedContinuityDirectorBeats,
   createDefaultContinuityDirectorState,
   normalizeContinuityDirectorState,
+  recordContinuityDirectorPlanningAttempt,
 } from "./continuity-director-state";
 
 const NOW = "2026-09-02T12:00:00.000Z";
@@ -49,7 +50,34 @@ describe("continuity director state", () => {
       openThreads: [],
       beats: [],
       sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: null,
       updatedAt: NOW,
+    });
+  });
+
+  it("normalizes legacy v1 state without inventing a successful snapshot or prior attempt", () => {
+    const legacy = createDefaultContinuityDirectorState(NOW) as unknown as Record<string, unknown>;
+    delete legacy.lastPlanningAttemptAssistantTurnCount;
+
+    expect(normalizeContinuityDirectorState(legacy, NOW)).toMatchObject({
+      version: 1,
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: null,
+    });
+  });
+
+  it("records a durable planning-attempt turn baseline without fabricating a source snapshot", () => {
+    const initial = { ...createDefaultContinuityDirectorState(NOW), enabled: true };
+
+    const attempted = recordContinuityDirectorPlanningAttempt(initial, 7, {
+      now: () => "2026-09-02T12:03:00.000Z",
+    });
+
+    expect(attempted).toMatchObject({
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 7,
+      revision: initial.revision + 1,
+      updatedAt: "2026-09-02T12:03:00.000Z",
     });
   });
 

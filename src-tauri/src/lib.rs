@@ -394,6 +394,7 @@ pub fn run() {
             storage_commands::entity_commands::regex_script_reorder,
             storage_commands::entity_commands::storage_create,
             storage_commands::entity_commands::storage_update,
+            storage_commands::entity_commands::chat_update_if_unchanged,
             storage_commands::entity_commands::storage_delete,
             storage_commands::entity_commands::storage_duplicate,
             storage_commands::entity_commands::connection_folder_reorder,

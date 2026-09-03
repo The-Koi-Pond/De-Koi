@@ -136,7 +136,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(guidance?.textContent).toContain("Best for: A campaign or story spanning many scenes or sessions.");
     expect(guidance?.textContent).toContain("Adds: Continuity checks, world state, summaries, and reviewable future story beats.");
     expect(guidance?.textContent).toContain(
-      "Model use: Occasional background calls, including Director planning every 10 assistant replies.",
+      "Model use: One immediate background Director planning call when applied, then occasional background calls, including one non-blocking planning call every 10 assistant replies.",
     );
   });
 
@@ -153,15 +153,23 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain("Image generation may use paid or external provider services.");
   });
 
-  it("summarizes selected background model activity without promising calls on every writer response", async () => {
+  it("keeps background activity occasional when Director is selected without its cadence", async () => {
     await renderChooser(chat, "drawer");
     expect(container.textContent).toContain("Background model activity: none");
 
     await act(async () => {
       (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();
     });
+    await act(async () => {
+      for (const label of ["Continuity", "World State", "Chat Summary", "continuity director cadence"]) {
+        (container.querySelector(`[aria-label="${label}"]`) as HTMLInputElement).click();
+      }
+    });
 
+    expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(true);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
     expect(container.textContent).toContain("Background model activity: occasional");
+    expect(container.textContent).toContain("One immediate background planning call when enabled");
     expect(container.textContent).toContain("One non-blocking planning call every 10 assistant replies");
     expect(container.textContent).toContain("No added writer latency");
   });

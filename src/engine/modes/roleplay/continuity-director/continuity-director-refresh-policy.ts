@@ -30,11 +30,11 @@ export interface ContinuityDirectorRefreshPolicyInput {
 
 function assistantTurnsElapsed(
   current: ContinuityDirectorSourceSnapshot,
-  previous: ContinuityDirectorSourceSnapshot | null,
+  previousAssistantTurnCount: number | null,
 ): number {
   const currentCount = Math.max(0, current.visibleAssistantTurnCount ?? 0);
-  if (!previous) return currentCount;
-  return Math.max(0, currentCount - Math.max(0, previous.visibleAssistantTurnCount ?? 0));
+  if (previousAssistantTurnCount === null) return currentCount;
+  return Math.max(0, currentCount - Math.max(0, previousAssistantTurnCount));
 }
 
 export function decideContinuityDirectorRefresh(
@@ -55,9 +55,15 @@ export function decideContinuityDirectorRefresh(
   }
 
   if (input.trigger !== "assistant_saved") return { eligible: false, reason: "trigger_mismatch" };
-  const elapsed = assistantTurnsElapsed(input.currentSourceSnapshot, input.state.sourceSnapshot);
+  const successfulBaseline = input.state.sourceSnapshot?.visibleAssistantTurnCount ?? null;
+  const failedAttemptBaseline = input.state.lastPlanningAttemptAssistantTurnCount ?? null;
+  const hasBaseline = successfulBaseline !== null || failedAttemptBaseline !== null;
+  const previousAssistantTurnCount = hasBaseline
+    ? Math.max(successfulBaseline ?? 0, failedAttemptBaseline ?? 0)
+    : null;
+  const elapsed = assistantTurnsElapsed(input.currentSourceSnapshot, previousAssistantTurnCount);
   const cadence = input.state.refreshEveryAssistantTurns ?? 10;
-  if (input.state.sourceSnapshot && elapsed < cadence) {
+  if (hasBaseline && elapsed < cadence) {
     return { eligible: false, reason: "cadence_not_due", assistantTurnsElapsed: elapsed };
   }
   return { eligible: true, reason: "cadence_due", assistantTurnsElapsed: elapsed };

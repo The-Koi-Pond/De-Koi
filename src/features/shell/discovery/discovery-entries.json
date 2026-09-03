@@ -1176,7 +1176,7 @@
     "id": "roleplay-continuity-director",
     "title": "Roleplay Continuity Director",
     "category": "Chat modes",
-    "summary": "Choosing Long-Running Story enables Director planning every 10 assistant replies. Keep arcs and open threads visible while new beats remain proposed and reviewable until you approve them for future prompts; a pending-review badge points you back to Director. The director proposes structure while the writer model owns prose and player agency.",
+    "summary": "Applying and confirming Long-Running Story enables one immediate background Director planning call, then one non-blocking planning call every 10 assistant replies. Keep arcs and open threads visible while new beats remain proposed and reviewable until you approve them for future prompts; a pending-review badge points you back to Director. The director proposes structure while the writer model owns prose and player agency.",
     "keywords": [
       "director",
       "continuity director",

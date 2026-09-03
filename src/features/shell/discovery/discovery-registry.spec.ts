@@ -94,8 +94,10 @@ describe("discovery showcase registry", () => {
     expect(entry?.title).toBe("Roleplay Continuity Director");
     expect(entry?.keywords).toEqual(expect.arrayContaining(["story beats", "approve beats", "director"]));
     const summary = entry?.summary ?? "";
-    expect(summary).toContain("Long-Running Story");
-    expect(summary).toContain("every 10 assistant replies");
+    expect(summary).toContain("Applying and confirming Long-Running Story");
+    expect(summary).toContain("one immediate background Director planning call");
+    expect(summary).toContain("one non-blocking planning call every 10 assistant replies");
+    expect(summary).not.toContain("Choosing Long-Running Story enables");
     expect(summary.toLowerCase()).toContain("proposed");
     expect(summary.toLowerCase()).toContain("badge");
     expect(entry?.actions).toContainEqual({

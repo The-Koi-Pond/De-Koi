@@ -19,7 +19,11 @@ import {
 } from "../../../../shared/api/roleplay-continuity-director-api";
 import { chatKeys } from "../../chats/query-keys";
 import type { StorageGateway } from "../../../../engine/capabilities/storage";
-import type { Chat, ChatMode } from "../../../../engine/contracts/types/chat";
+import type {
+  Chat,
+  ChatMode,
+  RoleplayWorkflowApplicationReceipt,
+} from "../../../../engine/contracts/types/chat";
 import {
   buildRoleplayWorkflowProfilePatch,
   buildRoleplayWorkflowProfileRevertPatch,
@@ -316,7 +320,40 @@ export function useApplyUserStarredChatPreset() {
   );
 }
 
-type RoleplayWorkflowProfileStorage = Pick<StorageGateway, "get" | "update">;
+type RoleplayWorkflowProfileStorage = Pick<StorageGateway, "get" | "updateChatIfUnchanged">;
+
+function conditionalChatUpdate(
+  storage: RoleplayWorkflowProfileStorage,
+  chatId: string,
+  expected: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Promise<{ updated: boolean; chat: Chat }> {
+  const updateChatIfUnchanged = storage.updateChatIfUnchanged;
+  if (!updateChatIfUnchanged) {
+    throw new Error("Conditional chat persistence is unavailable.");
+  }
+  return updateChatIfUnchanged.call(storage, chatId, expected, patch) as Promise<{ updated: boolean; chat: Chat }>;
+}
+
+function expectedValuesForWorkflowPatch(chat: Chat, patch: Record<string, unknown>): Record<string, unknown> {
+  const expected: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    if (key !== "metadata") {
+      expected[key] = (chat as unknown as Record<string, unknown>)[key] ?? null;
+      continue;
+    }
+    const metadataPatch = patch.metadata as Record<string, unknown>;
+    const expectedMetadata: Record<string, unknown> = {};
+    for (const metadataKey of Object.keys(metadataPatch)) {
+      expectedMetadata[metadataKey] = (chat.metadata as unknown as Record<string, unknown>)[metadataKey] ?? null;
+    }
+    if ("activeAgentIds" in metadataPatch && !("enableAgents" in metadataPatch)) {
+      expectedMetadata.enableAgents = chat.metadata.enableAgents ?? null;
+    }
+    expected.metadata = expectedMetadata;
+  }
+  return expected;
+}
 
 export interface ApplyRoleplayWorkflowProfileInput {
   chatId: string;
@@ -357,29 +394,37 @@ export interface RevertRoleplayWorkflowProfileInput {
 
 export type RevertRoleplayWorkflowProfileResult =
   | { outcome: "not_applied"; chat: Chat; skippedConflicts: readonly string[] }
+  | { outcome: "stale"; chat: Chat; skippedConflicts: readonly string[] }
   | { outcome: "reverted"; chat: Chat; skippedConflicts: readonly string[] };
+
+function sameWorkflowReceipt(
+  left: RoleplayWorkflowApplicationReceipt,
+  right: RoleplayWorkflowApplicationReceipt,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
 function sameWorkflowResolution(
   left: RoleplayWorkflowProfileResolution,
   right: RoleplayWorkflowProfileResolution,
 ): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function roleplayWorkflowPatchForChat(
-  chat: Chat,
-  patch: ReturnType<typeof buildRoleplayWorkflowProfilePatch>,
-): Record<string, unknown> {
-  const { metadata, ...topLevel } = patch;
-  return {
-    ...topLevel,
-    metadata: { ...chat.metadata, ...metadata },
+  const comparable = (resolution: RoleplayWorkflowProfileResolution) => {
+    const { connectionId: _connectionId, hasSourceSnapshot: _hasSourceSnapshot, ...directorConfiguration } =
+      resolution.baseline.continuityDirector;
+    return {
+      ...resolution,
+      baseline: {
+        ...resolution.baseline,
+        continuityDirector: directorConfiguration,
+      },
+    };
   };
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
 }
 
 /**
  * Applies a caller-confirmed workflow preview only if the freshly resolved preview still matches.
- * Its only durable mutation is one complete chat patch, so embedded and remote storage share the path.
+ * Its only durable mutation is one conditional chat patch, so embedded and remote storage share the path.
  */
 export async function applyRoleplayWorkflowProfile(
   input: ApplyRoleplayWorkflowProfileInput,
@@ -425,21 +470,59 @@ export async function applyRoleplayWorkflowProfile(
   }
 
   const acceptedItemIds = selectedItemIds.filter((itemId) => selected.has(itemId));
+  const latestChat = await storage.get<Chat>("chats", input.chatId);
+  if (!latestChat) throw new Error(`Chat ${input.chatId} was not found`);
+  if (latestChat.mode !== "roleplay") {
+    throw new Error("Roleplay workflow profiles can only be applied to Roleplay chats.");
+  }
+  const latestResolution = resolveRoleplayWorkflowProfile(input.profileId, { chat: latestChat, capabilities });
+  if (!sameWorkflowResolution(input.preview, latestResolution)) {
+    return {
+      outcome: "stale",
+      resolution: latestResolution,
+      selectedItemIds,
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: false,
+    };
+  }
+
   const shouldCreateContinuityPlan =
     selected.has("continuity-director") &&
-    !resolution.baseline.continuityDirector.enabled &&
-    !resolution.baseline.continuityDirector.hasSourceSnapshot;
+    !latestResolution.baseline.continuityDirector.enabled &&
+    !latestResolution.baseline.continuityDirector.hasSourceSnapshot;
   const patch = buildRoleplayWorkflowProfilePatch(
-    resolution,
+    latestResolution,
     acceptedItemIds,
     (input.now ?? (() => new Date().toISOString()))(),
-    chat.metadata.roleplayContinuityDirector,
+    latestChat.metadata.roleplayContinuityDirector,
   );
-  const updated = await storage.update<Chat>("chats", input.chatId, roleplayWorkflowPatchForChat(chat, patch));
+  const workflowPatch = patch as unknown as Record<string, unknown>;
+  const conditional = await conditionalChatUpdate(
+    storage,
+    input.chatId,
+    expectedValuesForWorkflowPatch(latestChat, workflowPatch),
+    workflowPatch,
+  );
+  if (!conditional.updated) {
+    const winningChat = conditional.chat;
+    const winningResolution = resolveRoleplayWorkflowProfile(input.profileId, {
+      chat: winningChat,
+      capabilities,
+    });
+    return {
+      outcome: "stale",
+      resolution: winningResolution,
+      selectedItemIds,
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: false,
+    };
+  }
   return {
     outcome: "applied",
-    chat: updated,
-    resolution,
+    chat: conditional.chat,
+    resolution: latestResolution,
     selectedItemIds: acceptedItemIds,
     omittedLocalAgentIds,
     skippedLocalRoutingAgentIds,
@@ -452,14 +535,33 @@ export async function revertRoleplayWorkflowProfile(
   input: RevertRoleplayWorkflowProfileInput,
 ): Promise<RevertRoleplayWorkflowProfileResult> {
   const storage = input.storage ?? storageApi;
-  const chat = await storage.get<Chat>("chats", input.chatId);
+  let chat = await storage.get<Chat>("chats", input.chatId);
   if (!chat) throw new Error(`Chat ${input.chatId} was not found`);
-  const receipt = chat.metadata.roleplayWorkflowApplication;
-  if (!receipt) return { outcome: "not_applied", chat, skippedConflicts: [] };
+  const requestedReceipt = chat.metadata.roleplayWorkflowApplication;
+  if (!requestedReceipt) return { outcome: "not_applied", chat, skippedConflicts: [] };
 
-  const { patch, skippedConflicts } = buildRoleplayWorkflowProfileRevertPatch(chat, receipt);
-  const updated = await storage.update<Chat>("chats", input.chatId, roleplayWorkflowPatchForChat(chat, patch));
-  return { outcome: "reverted", chat: updated, skippedConflicts };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const currentChat: Chat = chat;
+    const receipt = currentChat.metadata.roleplayWorkflowApplication;
+    if (!receipt) return { outcome: "not_applied", chat: currentChat, skippedConflicts: [] };
+    if (!sameWorkflowReceipt(receipt, requestedReceipt)) {
+      return { outcome: "stale", chat: currentChat, skippedConflicts: [] };
+    }
+    const { patch, skippedConflicts } = buildRoleplayWorkflowProfileRevertPatch(currentChat, receipt);
+    const workflowPatch = patch as unknown as Record<string, unknown>;
+    const conditional: { updated: boolean; chat: Chat } = await conditionalChatUpdate(
+      storage,
+      input.chatId,
+      expectedValuesForWorkflowPatch(currentChat, workflowPatch),
+      workflowPatch,
+    );
+    if (conditional.updated) {
+      return { outcome: "reverted", chat: conditional.chat, skippedConflicts };
+    }
+    chat = conditional.chat;
+  }
+
+  throw new Error("Roleplay workflow changed repeatedly while reverting. Try again.");
 }
 
 export function useApplyRoleplayWorkflowProfile(

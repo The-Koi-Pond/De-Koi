@@ -140,6 +140,15 @@ pub fn storage_update(state: &AppState, args: &Map<String, Value>) -> AppResult<
     )
 }
 
+pub fn chat_update_if_unchanged(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::chat_update_if_unchanged_inner(
+        state,
+        required_string(args, "chatId")?.to_string(),
+        optional_value(args, "expected"),
+        optional_value(args, "patch"),
+    )
+}
+
 pub fn storage_delete(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     let entity = required_string(args, "entity")?;
     let id = required_string(args, "id")?;

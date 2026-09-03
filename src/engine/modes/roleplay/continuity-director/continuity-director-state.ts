@@ -68,6 +68,10 @@ function integer(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
+function optionalInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 function cadence(value: unknown): ContinuityDirectorCadence {
   return CONTINUITY_DIRECTOR_CADENCE_OPTIONS.includes(value as ContinuityDirectorCadence)
     ? (value as ContinuityDirectorCadence)
@@ -166,6 +170,7 @@ export function createDefaultContinuityDirectorState(now = new Date().toISOStrin
     openThreads: [],
     beats: [],
     sourceSnapshot: null,
+    lastPlanningAttemptAssistantTurnCount: null,
     updatedAt: now,
   };
 }
@@ -201,7 +206,23 @@ export function normalizeContinuityDirectorState(
     openThreads: threads,
     beats: reindex(beats),
     sourceSnapshot: normalizeSourceSnapshot(value.sourceSnapshot),
+    lastPlanningAttemptAssistantTurnCount: optionalInteger(value.lastPlanningAttemptAssistantTurnCount),
     updatedAt: boundedText(value.updatedAt, 80) || now,
+  };
+}
+
+export function recordContinuityDirectorPlanningAttempt(
+  input: RoleplayContinuityDirectorState,
+  visibleAssistantTurnCount: number,
+  options: ContinuityDirectorCommandOptions = {},
+): RoleplayContinuityDirectorState {
+  const now = options.now?.() ?? new Date().toISOString();
+  const state = normalizeContinuityDirectorState(input, now);
+  return {
+    ...state,
+    lastPlanningAttemptAssistantTurnCount: integer(visibleAssistantTurnCount),
+    revision: state.revision + 1,
+    updatedAt: now,
   };
 }
 

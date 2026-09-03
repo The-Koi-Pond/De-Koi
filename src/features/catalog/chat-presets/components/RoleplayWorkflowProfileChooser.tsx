@@ -39,7 +39,8 @@ const PROFILES: readonly ProfilePresentation[] = [
     label: "Long-Running Story",
     bestFor: "A campaign or story spanning many scenes or sessions.",
     adds: "Continuity checks, world state, summaries, and reviewable future story beats.",
-    modelUse: "Occasional background calls, including Director planning every 10 assistant replies.",
+    modelUse:
+      "One immediate background Director planning call when applied, then occasional background calls, including one non-blocking planning call every 10 assistant replies.",
   },
   {
     id: "cinematic",
@@ -424,12 +425,15 @@ export function RoleplayWorkflowProfileChooser({
     setStatus(null);
     try {
       const result = await revertMutation.mutateAsync(displayedChat.id);
-      if (result.outcome === "not_applied") {
+      if (result.outcome === "not_applied" || result.outcome === "stale") {
         displayedChatRef.current = result.chat;
         setDisplayedChat(result.chat);
         setStatus({
           tone: "info",
-          message: "No workflow profile is currently applied. Current chat state was refreshed.",
+          message:
+            result.outcome === "stale"
+              ? "The workflow changed before revert completed. Current chat state was refreshed."
+              : "No workflow profile is currently applied. Current chat state was refreshed.",
         });
         setReloadKey((key) => key + 1);
         return;

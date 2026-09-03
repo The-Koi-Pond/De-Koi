@@ -89,7 +89,7 @@ describe("roleplay workflow profile recipes", () => {
         ["agent:world-state", 1],
         ["agent:chat-summary", 1],
         ["cadence:chat-summary", 0],
-        ["continuity-director", 0],
+        ["continuity-director", 1],
         ["continuity-director-cadence", 1],
       ],
     );
@@ -103,7 +103,8 @@ describe("roleplay workflow profile recipes", () => {
       before: false,
       after: true,
       selectedByDefault: true,
-      expectedExtraCalls: 0,
+      expectedExtraCalls: 1,
+      modelUse: "One immediate background planning call when enabled",
     });
     expect(resolution.rows.find((row) => row.id === "continuity-director-cadence")).toMatchObject({
       after: { mode: "cadence", everyAssistantTurns: 10 },

@@ -135,4 +135,51 @@ describe("continuity director refresh policy", () => {
       }),
     ).toEqual({ eligible: true, reason: "cadence_due", assistantTurnsElapsed: 1 });
   });
+
+  it("waits ten additional assistant replies after a failed initial planning attempt", () => {
+    const director = state({
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 7,
+    });
+
+    for (let reply = 1; reply <= 9; reply += 1) {
+      expect(
+        decideContinuityDirectorRefresh({
+          state: director,
+          trigger: "assistant_saved",
+          currentSourceSnapshot: snapshot(`reply-${reply}`, 7 + reply),
+          refreshPending: false,
+        }),
+      ).toEqual({ eligible: false, reason: "cadence_not_due", assistantTurnsElapsed: reply });
+    }
+
+    expect(
+      decideContinuityDirectorRefresh({
+        state: director,
+        trigger: "assistant_saved",
+        currentSourceSnapshot: snapshot("reply-10", 17),
+        refreshPending: false,
+      }),
+    ).toEqual({ eligible: true, reason: "cadence_due", assistantTurnsElapsed: 10 });
+  });
+
+  it("uses the newest real snapshot or failed-attempt count as the cadence baseline", () => {
+    const director = state({
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      sourceSnapshot: snapshot("successful", 12),
+      lastPlanningAttemptAssistantTurnCount: 15,
+    });
+
+    expect(
+      decideContinuityDirectorRefresh({
+        state: director,
+        trigger: "assistant_saved",
+        currentSourceSnapshot: snapshot("after-failure", 24),
+        refreshPending: false,
+      }),
+    ).toEqual({ eligible: false, reason: "cadence_not_due", assistantTurnsElapsed: 9 });
+  });
 });

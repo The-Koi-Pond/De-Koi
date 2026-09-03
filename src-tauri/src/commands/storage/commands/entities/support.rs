@@ -24,6 +24,65 @@ pub(super) fn patch_chat_record(
     chat_id: &str,
     patch: Value,
 ) -> Result<Value, AppError> {
+    let (updated, _) = patch_chat_record_conditionally(state, chat_id, None, patch)?;
+    updated.ok_or_else(|| AppError::not_found(format!("Chat {chat_id} was not found")))
+}
+
+pub(super) fn patch_chat_record_if_unchanged(
+    state: &AppState,
+    chat_id: &str,
+    expected: Value,
+    patch: Value,
+) -> Result<Value, AppError> {
+    let expected = expected
+        .as_object()
+        .cloned()
+        .ok_or_else(|| AppError::invalid_input("Expected chat values must be an object"))?;
+    let (updated, current) =
+        patch_chat_record_conditionally(state, chat_id, Some(expected), patch)?;
+    Ok(match updated {
+        Some(chat) => json!({ "updated": true, "chat": chat }),
+        None => json!({ "updated": false, "chat": current }),
+    })
+}
+
+fn chat_matches_expected_values(
+    chat: &Map<String, Value>,
+    expected: &Map<String, Value>,
+) -> Result<bool, AppError> {
+    let current_metadata = shared::json_object_value(chat.get("metadata"))
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    for (key, expected_value) in expected {
+        if key == "metadata" {
+            let expected_metadata = expected_value.as_object().ok_or_else(|| {
+                AppError::invalid_input("Expected chat metadata values must be an object")
+            })?;
+            for (metadata_key, expected_metadata_value) in expected_metadata {
+                let current_value = current_metadata
+                    .get(metadata_key)
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if current_value != *expected_metadata_value {
+                    return Ok(false);
+                }
+            }
+            continue;
+        }
+        let current_value = chat.get(key).cloned().unwrap_or(Value::Null);
+        if current_value != *expected_value {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn patch_chat_record_conditionally(
+    state: &AppState,
+    chat_id: &str,
+    expected: Option<Map<String, Value>>,
+    patch: Value,
+) -> Result<(Option<Value>, Value), AppError> {
     let patch = patch
         .as_object()
         .cloned()
@@ -34,65 +93,68 @@ pub(super) fn patch_chat_record(
         None => None,
     };
     let mut patch = Some(patch);
-    state
-        .storage
-        .patch_if("chats", chat_id, |chat| {
-            let patch = patch
-                .take()
-                .ok_or_else(|| AppError::new("storage_error", "Chat update already ran"))?;
-            let active_ids = chat_active_character_ids(
-                patch
-                    .get("characterIds")
-                    .or_else(|| chat.get("characterIds")),
-            );
-            let mut metadata = shared::json_object_value(chat.get("metadata"))
-                .and_then(|value| value.as_object().cloned())
-                .unwrap_or_default();
-            let previous_metadata = metadata.clone();
+    let mut current = Value::Null;
+    let updated = state.storage.patch_if("chats", chat_id, |chat| {
+        current = Value::Object(chat.clone());
+        if let Some(expected) = &expected {
+            if !chat_matches_expected_values(chat, expected)? {
+                return Ok(false);
+            }
+        }
+        let patch = patch
+            .take()
+            .ok_or_else(|| AppError::new("storage_error", "Chat update already ran"))?;
+        let active_ids = chat_active_character_ids(
+            patch
+                .get("characterIds")
+                .or_else(|| chat.get("characterIds")),
+        );
+        let mut metadata = shared::json_object_value(chat.get("metadata"))
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        let previous_metadata = metadata.clone();
 
-            if let Some(metadata_patch) = &metadata_patch {
-                for (key, value) in metadata_patch {
-                    if matches!(key.as_str(), "daySummaries" | "weekSummaries") {
-                        let entries = value.as_object().ok_or_else(|| {
-                            AppError::invalid_input(format!(
-                                "{key} summary delta must be an object"
-                            ))
-                        })?;
-                        chats::validate_summary_map_entries(key, entries)?;
-                        let mut summaries = metadata
-                            .get(key)
-                            .and_then(Value::as_object)
-                            .cloned()
-                            .unwrap_or_default();
-                        summaries.extend(entries.clone());
-                        metadata.insert(key.clone(), Value::Object(summaries));
-                        continue;
-                    }
-                    metadata.insert(key.clone(), value.clone());
+        if let Some(metadata_patch) = &metadata_patch {
+            for (key, value) in metadata_patch {
+                if matches!(key.as_str(), "daySummaries" | "weekSummaries") {
+                    let entries = value.as_object().ok_or_else(|| {
+                        AppError::invalid_input(format!("{key} summary delta must be an object"))
+                    })?;
+                    chats::validate_summary_map_entries(key, entries)?;
+                    let mut summaries = metadata
+                        .get(key)
+                        .and_then(Value::as_object)
+                        .cloned()
+                        .unwrap_or_default();
+                    summaries.extend(entries.clone());
+                    metadata.insert(key.clone(), Value::Object(summaries));
+                    continue;
                 }
-                if metadata_patch.contains_key("activeAgentIds")
-                    && !metadata_patch.contains_key("enableAgents")
-                {
-                    let enabled = metadata
-                        .get("activeAgentIds")
-                        .and_then(Value::as_array)
-                        .is_some_and(|ids| !ids.is_empty());
-                    metadata.insert("enableAgents".to_string(), Value::Bool(enabled));
-                }
+                metadata.insert(key.clone(), value.clone());
             }
-            normalize_chat_metadata_object(&mut metadata, &active_ids)?;
+            if metadata_patch.contains_key("activeAgentIds")
+                && !metadata_patch.contains_key("enableAgents")
+            {
+                let enabled = metadata
+                    .get("activeAgentIds")
+                    .and_then(Value::as_array)
+                    .is_some_and(|ids| !ids.is_empty());
+                metadata.insert("enableAgents".to_string(), Value::Bool(enabled));
+            }
+        }
+        normalize_chat_metadata_object(&mut metadata, &active_ids)?;
 
-            for (key, value) in patch {
-                if key != "metadata" {
-                    chat.insert(key, value);
-                }
+        for (key, value) in patch {
+            if key != "metadata" {
+                chat.insert(key, value);
             }
-            if metadata_patch.is_some() || metadata != previous_metadata {
-                chat.insert("metadata".to_string(), Value::Object(metadata));
-            }
-            Ok(true)
-        })?
-        .ok_or_else(|| AppError::not_found(format!("Chat {chat_id} was not found")))
+        }
+        if metadata_patch.is_some() || metadata != previous_metadata {
+            chat.insert("metadata".to_string(), Value::Object(metadata));
+        }
+        Ok(true)
+    })?;
+    Ok((updated, current))
 }
 
 pub(super) fn chat_active_character_ids(value: Option<&Value>) -> HashSet<String> {

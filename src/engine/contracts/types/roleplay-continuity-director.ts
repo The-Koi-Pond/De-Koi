@@ -58,6 +58,8 @@ export interface RoleplayContinuityDirectorState {
   openThreads: ContinuityDirectorThread[];
   beats: ContinuityDirectorBeat[];
   sourceSnapshot: ContinuityDirectorSourceSnapshot | null;
+  /** Durable cadence baseline for model attempts that did not produce a successful source snapshot. */
+  lastPlanningAttemptAssistantTurnCount?: number | null;
   updatedAt: string;
 }
 
