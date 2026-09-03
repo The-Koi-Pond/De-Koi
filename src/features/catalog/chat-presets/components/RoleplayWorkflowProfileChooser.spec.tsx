@@ -6,13 +6,14 @@ const mocks = vi.hoisted(() => ({
   apply: vi.fn(),
   revert: vi.fn(),
   createInitialPlan: vi.fn(),
+  initialPlanPending: false,
   resolveCapabilities: vi.fn(),
 }));
 
 vi.mock("../hooks/use-chat-presets", () => ({
   useApplyRoleplayWorkflowProfile: () => ({ mutateAsync: mocks.apply, isPending: false }),
   useRevertRoleplayWorkflowProfile: () => ({ mutateAsync: mocks.revert, isPending: false }),
-  useCreateInitialContinuityPlan: () => ({ mutate: mocks.createInitialPlan, isPending: false }),
+  useCreateInitialContinuityPlan: () => ({ mutate: mocks.createInitialPlan, isPending: mocks.initialPlanPending }),
 }));
 
 vi.mock("../roleplay-workflow-capabilities", () => ({
@@ -25,6 +26,7 @@ import {
   buildRoleplayWorkflowProfilePatch,
   resolveRoleplayWorkflowProfile,
 } from "../../../../engine/modes/roleplay/workflow-profiles";
+import { createDefaultContinuityDirectorState } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { RoleplayWorkflowProfileChooser } from "./RoleplayWorkflowProfileChooser";
 
@@ -89,6 +91,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
+    mocks.initialPlanPending = false;
     mocks.resolveCapabilities.mockResolvedValue({
       hasUniversalPreset: true,
       localSidecarReady: true,
@@ -193,12 +196,64 @@ describe("RoleplayWorkflowProfileChooser", () => {
       shouldCreateContinuityPlan: true,
     };
     mocks.apply.mockResolvedValueOnce(workflowResult);
-    mocks.createInitialPlan.mockImplementation((_id, options) => options.onSuccess());
+    mocks.createInitialPlan.mockImplementation((_id, options) =>
+      options.onSuccess({ state: { ...createDefaultContinuityDirectorState(), enabled: true } }),
+    );
 
     await applyLongRunningStory();
 
     expect(workflowResult.outcome).toBe("applied");
     expect(container.textContent).toContain("Story plan ready for review.");
+  });
+
+  it("keeps the ready status when the planner's persisted Director state refetches", async () => {
+    const appliedChat = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 2,
+          appliedAt: "2026-09-03T14:00:00.000Z",
+          selectedItemIds: ["continuity-director"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    const plannerState = { ...createDefaultContinuityDirectorState(), enabled: true };
+    const workflowResult = {
+      outcome: "applied" as const,
+      chat: appliedChat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    };
+    let onPlannerSuccess: ((result: { state: typeof plannerState }) => void) | undefined;
+    mocks.apply.mockResolvedValueOnce(workflowResult);
+    mocks.createInitialPlan.mockImplementation(
+      (_id: string, options: { onSuccess?: (result: { state: typeof plannerState }) => void }) => {
+        onPlannerSuccess = options.onSuccess;
+      },
+    );
+
+    await applyLongRunningStory();
+    await act(async () => {
+      onPlannerSuccess?.({ state: plannerState });
+    });
+    expect(container.textContent).toContain("Story plan ready for review.");
+
+    const persistedChat = {
+      ...appliedChat,
+      metadata: { ...appliedChat.metadata, roleplayContinuityDirector: plannerState },
+    } as Chat;
+    await act(async () => {
+      root.render(<RoleplayWorkflowProfileChooser chat={persistedChat} entryPoint="drawer" />);
+    });
+
+    expect(container.textContent).toContain("Story plan ready for review.");
+    expect(container.textContent).not.toContain("Chat settings changed. Review the refreshed ledger before applying.");
   });
 
   it("isolates detached first-plan failure from the applied workflow", async () => {
@@ -238,6 +293,34 @@ describe("RoleplayWorkflowProfileChooser", () => {
 
     expect(workflowResult.outcome).toBe("applied");
     expect(mocks.createInitialPlan).not.toHaveBeenCalled();
+  });
+
+  it("guards another Apply while initial planning is pending but leaves Revert available", async () => {
+    mocks.initialPlanPending = true;
+    const chatWithReceipt = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "minimal-clean",
+          profileVersion: 1,
+          appliedAt: "2026-09-03T14:00:00.000Z",
+          selectedItemIds: ["memory-recall"],
+          changes: [],
+        },
+      },
+    } as Chat;
+
+    await renderChooser(chatWithReceipt, "drawer");
+
+    const review = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Review and apply"),
+    ) as HTMLButtonElement;
+    const revert = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Revert"),
+    ) as HTMLButtonElement;
+    expect(review.disabled).toBe(true);
+    expect(revert.disabled).toBe(false);
   });
 
   it("offers the version-2 Long-Running Story update without selecting existing Director settings", async () => {

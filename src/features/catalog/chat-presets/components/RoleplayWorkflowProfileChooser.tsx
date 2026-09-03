@@ -367,7 +367,18 @@ export function RoleplayWorkflowProfileChooser({
       if (result.shouldCreateContinuityPlan) {
         setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
         initialPlan.mutate(displayedChat.id, {
-          onSuccess: () => setStatus({ tone: "success", message: "Story plan ready for review." }),
+          onSuccess: (plannerResult) => {
+            const refreshedChat = {
+              ...result.chat,
+              metadata: {
+                ...result.chat.metadata,
+                roleplayContinuityDirector: plannerResult.state,
+              },
+            };
+            displayedChatRef.current = refreshedChat;
+            setDisplayedChat(refreshedChat);
+            setStatus({ tone: "success", message: "Story plan ready for review." });
+          },
           onError: () =>
             setStatus({
               tone: "info",
@@ -441,7 +452,9 @@ export function RoleplayWorkflowProfileChooser({
     receipt.profileVersion === 1 &&
     preview?.profileId === "longform-continuity" &&
     preview.version === 2;
-  const pending = applyMutation.isPending || initialPlan.isPending || revertMutation.isPending;
+  const applyPending = applyMutation.isPending || initialPlan.isPending;
+  const formPending = applyPending || revertMutation.isPending;
+  const revertPending = applyMutation.isPending || revertMutation.isPending;
 
   return (
     <section
@@ -554,7 +567,7 @@ export function RoleplayWorkflowProfileChooser({
                             type="checkbox"
                             aria-label={itemLabel(row.id)}
                             checked={selected}
-                            disabled={!row.selectable || pending}
+                            disabled={!row.selectable || formPending}
                             onChange={() => toggleItem(row)}
                             className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
                           />
@@ -638,7 +651,7 @@ export function RoleplayWorkflowProfileChooser({
               <button
                 type="button"
                 onClick={() => void revert()}
-                disabled={pending}
+                disabled={revertPending}
                 className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[var(--secondary)] px-2.5 py-1 text-[0.6875rem] font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] disabled:opacity-50"
               >
                 <RotateCcw size="0.75rem" />
@@ -673,7 +686,7 @@ export function RoleplayWorkflowProfileChooser({
                 <button
                   type="button"
                   onClick={() => setConfirming(false)}
-                  disabled={pending}
+                  disabled={formPending}
                   className="min-h-9 rounded-md px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--accent)] disabled:opacity-50"
                 >
                   Review again
@@ -681,10 +694,10 @@ export function RoleplayWorkflowProfileChooser({
                 <button
                   type="button"
                   onClick={() => void apply()}
-                  disabled={pending}
+                  disabled={formPending}
                   className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
                 >
-                  {pending && <Loader2 size="0.75rem" className="animate-spin" />}
+                  {applyPending && <Loader2 size="0.75rem" className="animate-spin" />}
                   Confirm and apply
                 </button>
               </>
@@ -692,7 +705,7 @@ export function RoleplayWorkflowProfileChooser({
               <button
                 type="button"
                 onClick={() => setConfirming(true)}
-                disabled={!preview || selectedItemIds.size === 0 || pending}
+                disabled={!preview || selectedItemIds.size === 0 || formPending}
                 className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] shadow-sm hover:opacity-90 disabled:opacity-50"
               >
                 Review and apply
