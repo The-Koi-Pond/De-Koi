@@ -99,6 +99,21 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain("Model use");
   });
 
+  it("exposes every workflow's decision guidance through the radio description", async () => {
+    await renderChooser(chat, "drawer");
+
+    const radio = container.querySelector('[aria-label="Choose Long-Running Story"]');
+    expect(radio?.getAttribute("aria-label")).toBe("Choose Long-Running Story");
+    expect(radio?.getAttribute("aria-describedby")).toBe("workflow-profile-longform-continuity-guidance");
+
+    const guidance = container.querySelector("#workflow-profile-longform-continuity-guidance");
+    expect(guidance?.textContent).toContain("Best for: A campaign or story spanning many scenes or sessions.");
+    expect(guidance?.textContent).toContain("Adds: Continuity checks, world state, summaries, and reviewable future story beats.");
+    expect(guidance?.textContent).toContain(
+      "Model use: Occasional background calls, including Director planning every 10 assistant replies.",
+    );
+  });
+
   it("shows all four profiles and keeps optional media changes unchecked by default", async () => {
     await renderChooser(chat, "drawer");
 
@@ -154,6 +169,73 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(false);
     expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
     expect(mocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the Long-Running Story preview for Director-only metadata and another recognized receipt", async () => {
+    const longformV1Chat = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 1,
+          appliedAt: "2026-09-03T12:00:00.000Z",
+          selectedItemIds: [],
+          changes: [],
+        },
+      },
+    } as unknown as Chat;
+    const longformWithDirector = {
+      ...longformV1Chat,
+      metadata: {
+        ...longformV1Chat.metadata,
+        roleplayContinuityDirector: {
+          version: 1,
+          revision: 1,
+          enabled: true,
+          connectionId: null,
+          refreshMode: "cadence",
+          refreshEveryAssistantTurns: 10,
+          currentArc: null,
+          openThreads: [],
+          beats: [],
+          sourceSnapshot: null,
+          updatedAt: "2026-09-03T12:00:00.000Z",
+        },
+      },
+    } as unknown as Chat;
+
+    await renderChooser(longformV1Chat, "drawer");
+    expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(true);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(true);
+
+    await act(async () => {
+      root.render(<RoleplayWorkflowProfileChooser chat={longformWithDirector} entryPoint="drawer" />);
+    });
+
+    expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(false);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
+
+    const simpleReceiptChat = {
+      ...longformWithDirector,
+      id: "another-roleplay-chat",
+      metadata: {
+        ...longformWithDirector.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "minimal-clean",
+          profileVersion: 1,
+          appliedAt: "2026-09-03T12:01:00.000Z",
+          selectedItemIds: [],
+          changes: [],
+        },
+      },
+    } as unknown as Chat;
+    await act(async () => {
+      root.render(<RoleplayWorkflowProfileChooser chat={simpleReceiptChat} entryPoint="drawer" />);
+    });
+
+    expect(container.querySelector('[aria-label="Choose Simple Roleplay"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector('[aria-label="continuity director"]')).toBeNull();
   });
 
   it("shows disabled prerequisites, honest costs and destinations, settings links, and mobile-first structure", async () => {

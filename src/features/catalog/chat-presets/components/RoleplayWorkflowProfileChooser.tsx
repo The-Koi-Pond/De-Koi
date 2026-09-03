@@ -188,6 +188,7 @@ function workflowRelevantChatValue(chat: Chat): unknown {
     agentConnectionOverrides: metadata.agentConnectionOverrides ?? {},
     agentRunIntervalOverrides: metadata.agentRunIntervalOverrides ?? {},
     illustrationImageConnectionId: metadata.illustrationImageConnectionId,
+    roleplayContinuityDirector: metadata.roleplayContinuityDirector,
     roleplayWorkflowApplication: metadata.roleplayWorkflowApplication,
   });
 }
@@ -466,6 +467,7 @@ export function RoleplayWorkflowProfileChooser({
             >
               {PROFILES.map((profile) => {
                 const selected = profile.id === profileId;
+                const guidanceId = `workflow-profile-${profile.id}-guidance`;
                 return (
                   <button
                     key={profile.id}
@@ -473,6 +475,7 @@ export function RoleplayWorkflowProfileChooser({
                     role="radio"
                     aria-checked={selected}
                     aria-label={`Choose ${profile.label}`}
+                    aria-describedby={guidanceId}
                     onClick={() => void selectProfile(profile.id)}
                     className={cn(
                       "w-full rounded-lg px-3 py-2.5 text-left ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
@@ -492,7 +495,7 @@ export function RoleplayWorkflowProfileChooser({
                       </span>
                       {profile.label}
                     </span>
-                    <span className="mt-1.5 grid gap-1 text-[0.625rem] leading-relaxed">
+                    <span id={guidanceId} className="mt-1.5 grid gap-1 text-[0.625rem] leading-relaxed">
                       <span className="block">
                         <span className="font-semibold">Best for: </span>
                         {profile.bestFor}
