@@ -217,6 +217,7 @@ export function RoleplayWorkflowProfileChooser({
   const [reloadKey, setReloadKey] = useState(0);
   const displayedChatRef = useRef(chat);
   const capabilityRequestRef = useRef(0);
+  const plannerOperationRef = useRef(0);
 
   const applyMutation = useApplyRoleplayWorkflowProfile({
     resolveCapabilities: resolveRoleplayWorkflowCapabilities,
@@ -365,9 +366,11 @@ export function RoleplayWorkflowProfileChooser({
       setDisplayedChat(result.chat);
       setConfirming(false);
       if (result.shouldCreateContinuityPlan) {
+        const plannerOperation = ++plannerOperationRef.current;
         setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
         initialPlan.mutate(displayedChat.id, {
           onSuccess: (plannerResult) => {
+            if (plannerOperation !== plannerOperationRef.current) return;
             const refreshedChat = {
               ...result.chat,
               metadata: {
@@ -379,12 +382,14 @@ export function RoleplayWorkflowProfileChooser({
             setDisplayedChat(refreshedChat);
             setStatus({ tone: "success", message: "Story plan ready for review." });
           },
-          onError: () =>
+          onError: () => {
+            if (plannerOperation !== plannerOperationRef.current) return;
             setStatus({
               tone: "info",
               message:
                 "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
-            }),
+            });
+          },
         });
         return;
       }
@@ -414,6 +419,7 @@ export function RoleplayWorkflowProfileChooser({
   }, [applyMutation, displayedChat.id, initialPlan, preview, profileId, selectedItemIds]);
 
   const revert = useCallback(async () => {
+    plannerOperationRef.current += 1;
     setStatus(null);
     try {
       const result = await revertMutation.mutateAsync(displayedChat.id);
@@ -452,8 +458,8 @@ export function RoleplayWorkflowProfileChooser({
     receipt.profileVersion === 1 &&
     preview?.profileId === "longform-continuity" &&
     preview.version === 2;
-  const applyPending = applyMutation.isPending || initialPlan.isPending;
-  const formPending = applyPending || revertMutation.isPending;
+  const formPending = applyMutation.isPending || revertMutation.isPending;
+  const applyActionPending = formPending || initialPlan.isPending;
   const revertPending = applyMutation.isPending || revertMutation.isPending;
 
   return (
@@ -694,10 +700,10 @@ export function RoleplayWorkflowProfileChooser({
                 <button
                   type="button"
                   onClick={() => void apply()}
-                  disabled={formPending}
+                  disabled={applyActionPending}
                   className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
                 >
-                  {applyPending && <Loader2 size="0.75rem" className="animate-spin" />}
+                  {applyActionPending && <Loader2 size="0.75rem" className="animate-spin" />}
                   Confirm and apply
                 </button>
               </>
@@ -705,7 +711,7 @@ export function RoleplayWorkflowProfileChooser({
               <button
                 type="button"
                 onClick={() => setConfirming(true)}
-                disabled={!preview || selectedItemIds.size === 0 || formPending}
+                disabled={!preview || selectedItemIds.size === 0 || applyActionPending}
                 className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] shadow-sm hover:opacity-90 disabled:opacity-50"
               >
                 Review and apply

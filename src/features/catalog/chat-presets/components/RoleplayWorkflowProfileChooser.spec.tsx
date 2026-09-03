@@ -321,6 +321,62 @@ describe("RoleplayWorkflowProfileChooser", () => {
     ) as HTMLButtonElement;
     expect(review.disabled).toBe(true);
     expect(revert.disabled).toBe(false);
+    expect((container.querySelector('[aria-label="Memory Recall"]') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("keeps the reverted chat and status when an invalidated initial planner later fails", async () => {
+    const appliedChat = {
+      ...chat,
+      metadata: {
+        ...chat.metadata,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 2,
+          appliedAt: "2026-09-03T14:00:00.000Z",
+          selectedItemIds: ["continuity-director"],
+          changes: [],
+        },
+      },
+    } as Chat;
+    const revertedChat = {
+      ...appliedChat,
+      metadata: { ...appliedChat.metadata, roleplayWorkflowApplication: null },
+    } as Chat;
+    let onPlannerError: ((error: Error) => void) | undefined;
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat: appliedChat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    });
+    mocks.createInitialPlan.mockImplementation(
+      (_id: string, options: { onError?: (error: Error) => void }) => {
+        onPlannerError = options.onError;
+      },
+    );
+    mocks.revert.mockResolvedValueOnce({ outcome: "reverted", chat: revertedChat, skippedConflicts: [] });
+
+    await applyLongRunningStory();
+    await act(async () => {
+      const revert = Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Revert"),
+      ) as HTMLButtonElement;
+      revert.click();
+    });
+    expect(container.textContent).toContain("Workflow profile reverted.");
+
+    await act(async () => {
+      onPlannerError?.(new Error("provider offline"));
+    });
+
+    expect(container.textContent).toContain("Workflow profile reverted.");
+    expect(container.textContent).not.toContain(
+      "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
+    );
+    expect(container.textContent).not.toContain("Applied Long-Running Story, version 2");
   });
 
   it("offers the version-2 Long-Running Story update without selecting existing Director settings", async () => {
