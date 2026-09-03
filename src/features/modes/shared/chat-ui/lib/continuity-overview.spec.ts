@@ -36,6 +36,32 @@ describe("continuity overview view model", () => {
       activeAgentIds: ["chat-summary", "world-state", "custom-tracker"],
       activeLorebookIds: ["moon-station"],
       enableMemoryRecall: true,
+      roleplayContinuityDirector: {
+        version: 1,
+        revision: 2,
+        enabled: true,
+        connectionId: null,
+        refreshMode: "manual",
+        refreshEveryAssistantTurns: null,
+        currentArc: null,
+        openThreads: [],
+        sourceSnapshot: null,
+        updatedAt: "2026-09-02T00:00:00.000Z",
+        beats: [
+          {
+            id: "beat-1",
+            text: "Reveal the station signal.",
+            status: "approved",
+            order: 0,
+            source: "user",
+            sourceIds: [],
+            characterIds: [],
+            threadIds: [],
+            createdAt: "2026-09-02T00:00:00.000Z",
+            updatedAt: "2026-09-02T00:00:00.000Z",
+          },
+        ],
+      },
     };
 
     const model = buildContinuityOverviewViewModel({
@@ -45,7 +71,7 @@ describe("continuity overview view model", () => {
       totalMessageCount: 42,
     });
 
-    expect(model.headline).toBe("4 continuity sources active");
+    expect(model.headline).toBe("5 continuity sources active");
     expect(model.sections).toEqual([
       expect.objectContaining({
         id: "memory",
@@ -55,6 +81,13 @@ describe("continuity overview view model", () => {
         detail:
           "Chat-local transcript fragments and eligible character-wide memories can be recalled after 1 recent message. Automatic capture saves speaker-labeled exchanges; embeddings rank matches when configured.",
         action: "open_memories",
+      }),
+      expect.objectContaining({
+        id: "director",
+        label: "Director",
+        status: "active",
+        value: "1 approved",
+        action: "open_director",
       }),
       expect.objectContaining({
         id: "summary",
@@ -94,6 +127,7 @@ describe("continuity overview view model", () => {
     expect(model.headline).toBe("1 continuity source active");
     expect(model.sections.map((section) => [section.id, section.status, section.value])).toEqual([
       ["memory", "active", "On"],
+      ["director", "idle", "Off"],
       ["summary", "idle", "Missing"],
       ["lorebooks", "idle", "None"],
       ["trackers", "idle", "None"],

@@ -1173,6 +1173,29 @@
     "coverage": "advanced"
   },
   {
+    "id": "roleplay-continuity-director",
+    "title": "Roleplay Continuity Director",
+    "category": "Chat modes",
+    "summary": "Create a small visible story plan, approve only the beats you want in future prompts, preserve rejected or deferred ideas, and keep the newest user instruction in charge. The director proposes structure while the writer model owns prose and player agency.",
+    "keywords": [
+      "director",
+      "continuity director",
+      "story beats",
+      "approve beats",
+      "reject beats",
+      "defer beats",
+      "open threads",
+      "story arc",
+      "roleplay planning"
+    ],
+    "audience": "Roleplay users who want long-running arcs and unresolved hooks to stay visible without surrendering control of their character.",
+    "where": "Open a Roleplay chat > Continuity Director, or Chat Settings > Continuity > Director.",
+    "actions": [
+      { "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Continuity Director" }
+    ],
+    "coverage": "core"
+  },
+  {
     "id": "character-web-research",
     "title": "Character Web Research",
     "category": "Chat modes",

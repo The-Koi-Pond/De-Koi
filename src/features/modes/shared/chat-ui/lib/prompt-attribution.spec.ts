@@ -108,6 +108,28 @@ describe("prompt attribution view model", () => {
     ]);
   });
 
+  it("groups exact approved guidance as Continuity Director", () => {
+    const attribution: GenerationContextAttribution = {
+      source: "saved_snapshot",
+      items: [
+        {
+          kind: "continuity_director",
+          label: "Approved beat 1",
+          status: "injected",
+          sourceId: "beat-1",
+          snippet: "Mara reveals the forged seal.",
+        },
+      ],
+    };
+
+    expect(buildPromptAttributionViewModel(attribution)?.groups).toEqual([
+      {
+        label: "Continuity Director",
+        items: [expect.objectContaining({ snippet: "Mara reveals the forged seal." })],
+      },
+    ]);
+  });
+
   it("keeps redacted hidden sources out of snippets", () => {
     const attribution: GenerationContextAttribution = {
       source: "best_effort_reconstruction",

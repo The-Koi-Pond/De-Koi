@@ -55,6 +55,7 @@ import type {
 } from "../contracts/types/game";
 import { buildGmFormatReminder, buildGmSystemPrompt, type GmPromptContext } from "../modes/game/prompts/gm-prompts";
 import { loadCharacterSprites, type CharacterSpriteSubject } from "../modes/game/prompts/sprite.service";
+import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
 import { formatMoraleContext, getMoraleTier } from "../modes/game/mechanics/morale.service";
 import { formatPerceptionHints, generatePerceptionHints } from "../modes/game/mechanics/perception.service";
 import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
@@ -4725,6 +4726,11 @@ export async function assembleGenerationPrompt(
         epistemicSubjects: canonicalEpistemicSubjects,
       });
   const storyContinuityBlock = storyContinuityContext?.block ?? null;
+  const continuityDirectorContext = buildContinuityDirectorContext({
+    chatId: readString(input.chat.id).trim(),
+    chatMode,
+    state: chatMeta.roleplayContinuityDirector,
+  });
   const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
@@ -4996,6 +5002,17 @@ export async function assembleGenerationPrompt(
 
   const roleplayQualityContext = buildRoleplayQualityContext(input, wrapFormat);
   insertBeforeLastUser(messages, [
+    ...(continuityDirectorContext
+      ? [
+          {
+            role: "system" as const,
+            content: continuityDirectorContext.block,
+            contextKind: "continuity_director" as const,
+            contextPriority: 500,
+            displayName: "Continuity Director",
+          },
+        ]
+      : []),
     ...conversationContextBlocks,
     ...buildConnectedConversationBlocks(input.chat),
     ...buildRoleplayDirectMessageCommandReminder(input.chat),
@@ -5067,6 +5084,7 @@ export async function assembleGenerationPrompt(
     ...(memoryRecallContext?.attributionItems ?? []),
     ...(canonicalMemoryContext?.attributionItems ?? []),
     ...(storyContinuityContext?.attributionItems ?? []),
+    ...(continuityDirectorContext?.attributionItems ?? []),
     ...behavioralExampleAttributionItems,
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
     ...(roleplayQualityContext ? [roleplayQualityContext.attribution] : []),

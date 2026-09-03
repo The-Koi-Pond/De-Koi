@@ -6,6 +6,7 @@ import type { GenerationGuideSource } from "../../shared/text/generation-guide.j
 import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js";
 import type { LorebookActivationTrace } from "./lorebook.js";
 import type { MemoryKind, MemoryStatus } from "./memory.js";
+import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-director.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "game";
@@ -345,6 +346,8 @@ export interface ChatMetadata {
   enableStoryConsolidation?: boolean;
   /** Whether high-confidence Roleplay agency violations receive a focused automatic repair. Default: true. */
   automaticRoleplayQualityCorrection?: boolean;
+  /** Visible, user-controlled Roleplay story plan. Missing means disabled. */
+  roleplayContinuityDirector?: RoleplayContinuityDirectorState;
   /** Optional token budget for canonical memory prompt context. Missing uses a bounded context-share default. */
   canonicalMemoryRecallTokenBudget?: number | null;
   /** Optional token budget for ordinary recalled-memory prompt context. Missing uses a bounded context-share default. */
@@ -774,6 +777,7 @@ export type GenerationContextAttributionKind =
   | "chat_summary"
   | "memory_recall"
   | "story_projection"
+  | "continuity_director"
   | "behavioral_example"
   | "lorebook"
   | "knowledge_retrieval"

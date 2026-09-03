@@ -27,6 +27,7 @@ import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
+import { scheduleContinuityDirectorRefresh } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
 import {
   cancelConversationSummaryBackfill,
   scheduleConversationSummaryBackfill,
@@ -4366,6 +4367,20 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
   });
 }
 
+function scheduleContinuityDirectorAfterSavedAssistant(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+): boolean {
+  if (readString(chat.mode || chat.chatMode).trim() !== "roleplay") return false;
+  return scheduleContinuityDirectorRefresh({
+    storage: deps.storage,
+    llm: deps.llm,
+    chatId: input.chatId,
+    trigger: "assistant_saved",
+  });
+}
+
 export async function retryGenerationAgents(
   deps: GenerationEngineDeps,
   input: RetryAgentsInput,
@@ -5389,7 +5404,10 @@ async function* startGenerationImpl(
       if (postSaveStartedAt) {
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
       }
-      if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+      if (savedAssistantGeneration) {
+        scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+        scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
+      }
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();
@@ -5686,7 +5704,10 @@ async function* startGenerationImpl(
     if (directPostSaveStartedAt) {
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
     }
-    if (savedAssistantGeneration) scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+    if (savedAssistantGeneration) {
+      scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+      scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
+    }
     yield { type: "done" };
     if (savedAssistantGeneration) {
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();

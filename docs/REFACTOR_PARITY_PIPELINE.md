@@ -110,6 +110,7 @@ This slice tightened the next broken user-facing paths:
 - Deki-senpai now persists the quick persona selection with the selected model connection and keeps input disabled until both history and preferences are ready.
 - The shared generation engine now merges connection defaults, game setup parameters, game metadata parameters, per-chat parameters, and per-request parameters into the outgoing LLM call.
 - Roleplay streaming/regeneration views read per-chat stream and thinking buffers so switching away and back does not lose typewriter text.
+- Roleplay Continuity Director replaces no retired narrative agent. It is a visible chat-metadata plan whose model calls only propose arcs, open threads, and beats; only locally approved beats enter prompts, the newest user instruction remains authoritative, and planner failures do not block the writer path.
 - Game start now rejects invalid session states, avoids duplicate intro generation when a GM turn already exists, and game user turns honor the global quote-format setting.
 
 ## Completed Slice: Agent Activation Fallbacks

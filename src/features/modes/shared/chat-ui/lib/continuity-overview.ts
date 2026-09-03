@@ -8,6 +8,7 @@ import { memoryRecallContinuityDetail } from "./memory-recall-copy";
 
 export type ContinuityOverviewAction =
   | "open_memories"
+  | "open_director"
   | "open_story"
   | "open_summaries"
   | "manage_lorebooks"
@@ -17,7 +18,7 @@ export type ContinuityOverviewAction =
 type ContinuityOverviewStatus = "active" | "idle" | "warning";
 
 export interface ContinuityOverviewSection {
-  id: "memory" | "story" | "summary" | "lorebooks" | "trackers";
+  id: "memory" | "director" | "story" | "summary" | "lorebooks" | "trackers";
   label: string;
   status: ContinuityOverviewStatus;
   value: string;
@@ -99,6 +100,10 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
   const trackerCopy = trackerPresentation(trackerNames, input.chatMode);
   const automaticSummaryEnabled = input.metadata.activeAgentIds?.includes("chat-summary") === true;
   const activeLorebookCount = Math.max(0, Math.trunc(input.activeLorebookCount));
+  const director = input.metadata.roleplayContinuityDirector;
+  const directorEnabled = input.chatMode === "roleplay" && director?.version === 1 && director.enabled;
+  const approvedBeats = director?.beats.filter((beat) => beat.status === "approved").length ?? 0;
+  const proposedBeats = director?.beats.filter((beat) => beat.status === "proposed").length ?? 0;
 
   const sections: ContinuityOverviewSection[] = [
     {
@@ -109,6 +114,26 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
       detail: memoryRecallContinuityDetail(memoryEnabled, readBehindMessages(input.metadata)),
       action: "open_memories",
     },
+    ...(input.chatMode === "roleplay"
+      ? [
+          {
+            id: "director" as const,
+            label: "Director",
+            status: directorEnabled ? ("active" as const) : ("idle" as const),
+            value: directorEnabled
+              ? approvedBeats > 0
+                ? `${approvedBeats} approved`
+                : proposedBeats > 0
+                  ? `${proposedBeats} proposed`
+                  : "On"
+              : "Off",
+            detail: directorEnabled
+              ? "Approved structural beats can guide replies; the newest user message always wins."
+              : "Create and approve visible story beats without handing over player agency.",
+            action: "open_director" as const,
+          },
+        ]
+      : []),
     ...(input.chatMode === "roleplay" && input.storyCounts
       ? [{
           id: "story" as const,

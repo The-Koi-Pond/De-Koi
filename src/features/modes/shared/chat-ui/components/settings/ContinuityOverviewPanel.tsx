@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BookMarked, BookOpen, Brain, CalendarClock } from "lucide-react";
+import { Activity, ArrowRight, BookMarked, BookOpen, Brain, CalendarClock, Sparkles } from "lucide-react";
 
 import { cn } from "../../../../../../shared/lib/utils";
 import type {
@@ -10,12 +10,14 @@ import type {
 interface ContinuityOverviewPanelProps {
   model: ContinuityOverviewViewModel;
   onOpenMemories: () => void;
+  onOpenDirector?: () => void;
   onOpenSummaries: () => void;
   onOpenStory: () => void;
 }
 
 const SECTION_ICONS: Record<ContinuityOverviewSection["id"], typeof Brain> = {
   memory: Brain,
+  director: Sparkles,
   story: BookMarked,
   summary: CalendarClock,
   lorebooks: BookOpen,
@@ -24,6 +26,7 @@ const SECTION_ICONS: Record<ContinuityOverviewSection["id"], typeof Brain> = {
 
 const ACTION_LABELS: Record<ContinuityOverviewAction, string> = {
   open_memories: "Open memories",
+  open_director: "Open director",
   open_story: "Open story",
   open_summaries: "Open summaries",
   manage_lorebooks: "Lorebooks",
@@ -38,12 +41,17 @@ function scrollToSettingsSection(id: string) {
 export function ContinuityOverviewPanel({
   model,
   onOpenMemories,
+  onOpenDirector,
   onOpenSummaries,
   onOpenStory,
 }: ContinuityOverviewPanelProps) {
   const handleAction = (action: ContinuityOverviewAction) => {
     if (action === "open_memories") {
       onOpenMemories();
+      return;
+    }
+    if (action === "open_director") {
+      onOpenDirector?.();
       return;
     }
     if (action === "open_summaries") {

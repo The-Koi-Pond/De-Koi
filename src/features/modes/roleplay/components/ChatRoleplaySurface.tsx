@@ -30,6 +30,7 @@ import {
   ArrowRightLeft,
   GitBranch,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import {
@@ -117,6 +118,11 @@ const SummaryPopover = lazy(async () => {
 const AuthorNotesPanel = lazy(async () => {
   const module = await import("./ChatRoleplayPanels");
   return { default: module.AuthorNotesPanel };
+});
+
+const RoleplayContinuityDirectorModal = lazy(async () => {
+  const module = await import("./RoleplayContinuityDirectorModal");
+  return { default: module.RoleplayContinuityDirectorModal };
 });
 
 const PANEL_BACKDROP =
@@ -320,6 +326,7 @@ function RpToolbarButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
         "flex items-center justify-center rounded-full border bg-foreground/5 text-foreground/60 backdrop-blur-md transition-all hover:bg-foreground/10 hover:text-foreground",
@@ -327,6 +334,7 @@ function RpToolbarButton({
         "border-foreground/10",
       )}
       title={title}
+      aria-label={title}
     >
       {icon}
     </button>
@@ -817,6 +825,7 @@ export function ChatRoleplaySurface({
   isGrouped,
 }: RoleplaySurfaceProps) {
   const [summaryDraft, setSummaryDraft] = useState<SaveMomentSummaryDraft | null>(null);
+  const [continuityDirectorOpen, setContinuityDirectorOpen] = useState(false);
   const [profilePopover, setProfilePopover] = useState<{
     characterId: string;
     anchorRect: CharacterPublicProfilePopoverAnchor | null;
@@ -1138,6 +1147,13 @@ export function ChatRoleplaySurface({
                     variant="roleplay"
                   />
                   <ToolbarMenu mobilePortal={false}>
+                    {chat && (
+                      <RpToolbarButton
+                        icon={<Sparkles size="0.875rem" />}
+                        title="Continuity Director"
+                        onClick={() => setContinuityDirectorOpen(true)}
+                      />
+                    )}
                     <SummaryButton
                       chatId={chat?.id ?? null}
                       summary={metadataString(chatMeta.summary) || null}
@@ -1549,6 +1565,23 @@ export function ChatRoleplaySurface({
                     </button>
                   )}
 
+                  {/* Continuity Director */}
+                  {chat && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        setContinuityDirectorOpen(true);
+                      }}
+                      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
+                        <Sparkles size="0.9rem" />
+                      </div>
+                      <span className="text-sm font-medium text-[var(--foreground)]">Continuity Director</span>
+                    </button>
+                  )}
+
                   {/* Summary */}
                   <SummaryButton
                     chatId={chat?.id ?? null}
@@ -1698,6 +1731,10 @@ export function ChatRoleplaySurface({
         onCloseSettings={onCloseSettings}
         onCloseFiles={onCloseFiles}
         onCloseGallery={onCloseGallery}
+        onOpenContinuityDirector={() => {
+          onCloseSettings();
+          setContinuityDirectorOpen(true);
+        }}
         onIllustrate={onIllustrate}
         onWizardFinish={onWizardFinish}
         onClosePeekPrompt={onClosePeekPrompt}
@@ -1712,6 +1749,15 @@ export function ChatRoleplaySurface({
         onSelectAllAboveSelection={onSelectAllAboveSelection}
         onSelectAllBelowSelection={onSelectAllBelowSelection}
       />
+      {chat && (
+        <Suspense fallback={null}>
+          <RoleplayContinuityDirectorModal
+            chatId={chat.id}
+            open={continuityDirectorOpen}
+            onClose={() => setContinuityDirectorOpen(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
