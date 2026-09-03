@@ -15,6 +15,7 @@ import {
 } from "react";
 import type { SpritePlacement, SpriteSide } from "../../../../engine/contracts/types/chat";
 import type { SceneForkMode } from "../../../../engine/contracts/types/scene";
+import { countProposedContinuityDirectorBeats } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import {
   FolderOpen,
   Image,
@@ -57,6 +58,7 @@ import {
 } from "../../../catalog/characters/index";
 import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
+import { ContinuityDirectorReviewBadge } from "./ContinuityDirectorReviewBadge";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
@@ -318,18 +320,20 @@ function RpToolbarButton({
   title,
   onClick,
   size,
+  badge,
 }: {
   icon: ReactNode;
   title: string;
   onClick: () => void;
   size?: "sm";
+  badge?: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center justify-center rounded-full border bg-foreground/5 text-foreground/60 backdrop-blur-md transition-all hover:bg-foreground/10 hover:text-foreground",
+        "relative flex items-center justify-center rounded-full border bg-foreground/5 text-foreground/60 backdrop-blur-md transition-all hover:bg-foreground/10 hover:text-foreground",
         size === "sm" ? "p-1" : "p-1.5",
         "border-foreground/10",
       )}
@@ -337,6 +341,7 @@ function RpToolbarButton({
       aria-label={title}
     >
       {icon}
+      {badge}
     </button>
   );
 }
@@ -861,6 +866,7 @@ export function ChatRoleplaySurface({
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
   const isConcludedScene = chatMeta.sceneStatus === "concluded";
+  const continuityReviewCount = countProposedContinuityDirectorBeats(chatMeta.roleplayContinuityDirector);
   const [addonsReady, setAddonsReady] = useState(false);
   const messageActions = isConcludedScene
     ? {
@@ -1152,6 +1158,7 @@ export function ChatRoleplaySurface({
                         icon={<Sparkles size="0.875rem" />}
                         title="Continuity Director"
                         onClick={() => setContinuityDirectorOpen(true)}
+                        badge={<ContinuityDirectorReviewBadge count={continuityReviewCount} compact />}
                       />
                     )}
                     <SummaryButton
@@ -1579,6 +1586,7 @@ export function ChatRoleplaySurface({
                         <Sparkles size="0.9rem" />
                       </div>
                       <span className="text-sm font-medium text-[var(--foreground)]">Continuity Director</span>
+                      <ContinuityDirectorReviewBadge count={continuityReviewCount} />
                     </button>
                   )}
 

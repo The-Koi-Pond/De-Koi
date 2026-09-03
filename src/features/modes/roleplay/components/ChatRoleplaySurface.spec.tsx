@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RoleplayBackgroundLayer } from "./ChatRoleplaySurface";
@@ -56,5 +57,15 @@ describe("RoleplayBackgroundLayer", () => {
     });
 
     expect(backgroundImages(container!).some((image) => image.includes("old-bg.png"))).toBe(false);
+  });
+});
+
+describe("Continuity Director review visibility", () => {
+  it("derives the persisted proposal count once and passes it to desktop and mobile entry points", () => {
+    const source = readFileSync("src/features/modes/roleplay/components/ChatRoleplaySurface.tsx", "utf8");
+
+    expect(source).toMatch(/countProposedContinuityDirectorBeats\(chatMeta\.roleplayContinuityDirector\)/);
+    expect(source).toMatch(/<ContinuityDirectorReviewBadge count=\{continuityReviewCount\} compact\s*\/>/);
+    expect(source).toMatch(/<ContinuityDirectorReviewBadge count=\{continuityReviewCount\}\s*\/>/);
   });
 });
