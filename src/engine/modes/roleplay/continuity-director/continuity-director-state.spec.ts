@@ -108,6 +108,14 @@ describe("continuity director state", () => {
         arc: "Recover the sealed archive",
         threads: ["Who altered the map?"],
         beats: ["The map points beneath the city."],
+        sourceSnapshot: {
+          storyProjectionIds: ["story-1"],
+          knowledgeEdgeIds: ["edge-1"],
+          lastMessageId: "message-1",
+          visibleAssistantTurnCount: 3,
+          fingerprint: "snapshot-1",
+          generatedAt: NOW,
+        },
       },
       options,
     );
@@ -130,14 +138,26 @@ describe("continuity director state", () => {
     });
   });
 
+  it("normalizes invalid cadence values through the shared cadence rule", () => {
+    const next = applyContinuityDirectorConfiguration(
+      createDefaultContinuityDirectorState(NOW),
+      { refreshMode: "cadence", refreshEveryAssistantTurns: 1 },
+      commandOptions(),
+    );
+
+    expect(next.refreshEveryAssistantTurns).toBe(10);
+  });
+
   it("counts only proposed beats from normalized state", () => {
     const state = proposedState();
-    expect(
-      countProposedContinuityDirectorBeats({
-        ...state,
-        beats: [state.beats[0]!, { ...state.beats[1]!, status: "approved" }],
-      }),
-    ).toBe(1);
+    for (const status of ["approved", "deferred", "rejected", "fulfilled"] as const) {
+      expect(
+        countProposedContinuityDirectorBeats({
+          ...state,
+          beats: [state.beats[0]!, { ...state.beats[1]!, status }],
+        }),
+      ).toBe(1);
+    }
     expect(countProposedContinuityDirectorBeats(undefined)).toBe(0);
   });
 
