@@ -1602,6 +1602,91 @@ mod tests {
     }
 
     #[test]
+    fn conditional_chat_patch_requires_the_exact_stored_director_value_for_cas() {
+        let state = test_state("conditional-chat-director-exact-cas");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "mode": "roleplay",
+                    "metadata": {
+                        "roleplayContinuityDirector": {
+                            "version": 1,
+                            "revision": 2,
+                            "enabled": true,
+                            "refreshMode": "cadence",
+                            "refreshEveryAssistantTurns": 10,
+                            "currentArc": { "id": "arc-1", "text": "Keep the archive" },
+                            "openThreads": [{ "id": "thread-1", "text": "Who changed the map?" }],
+                            "beats": [{ "id": "beat-1", "text": "Reveal the stair" }]
+                        }
+                    }
+                }),
+            )
+            .expect("chat should seed");
+
+        let current_director = json!({
+            "version": 1,
+            "revision": 2,
+            "enabled": true,
+            "refreshMode": "cadence",
+            "refreshEveryAssistantTurns": 10,
+            "currentArc": { "id": "arc-1", "text": "Keep the archive" },
+            "openThreads": [{ "id": "thread-1", "text": "Who changed the map?" }],
+            "beats": [{ "id": "beat-1", "text": "Reveal the stair" }]
+        });
+        let applied = patch_chat_record_if_unchanged(
+            &state,
+            "chat-1",
+            json!({
+                "metadata": {
+                    "roleplayContinuityDirector": current_director
+                }
+            }),
+            json!({ "metadata": { "enableMemoryRecall": true } }),
+        )
+        .expect("matching Director configuration should not fail");
+
+        assert_eq!(applied["updated"], true);
+        assert_eq!(
+            applied["chat"]["metadata"]["roleplayContinuityDirector"]["beats"][0]["text"],
+            "Reveal the stair"
+        );
+
+        let partial = patch_chat_record_if_unchanged(
+            &state,
+            "chat-1",
+            json!({
+                "metadata": {
+                    "roleplayContinuityDirector": { "revision": 2, "enabled": true }
+                }
+            }),
+            json!({ "metadata": { "enableMemoryRecall": false } }),
+        )
+        .expect("a partial Director expectation should be treated as stale");
+
+        assert_eq!(partial["updated"], false);
+        assert_eq!(partial["chat"]["metadata"]["enableMemoryRecall"], true);
+    }
+
+    #[test]
+    fn conditional_chat_patch_reports_a_missing_chat() {
+        let state = test_state("conditional-chat-missing");
+
+        let error = chat_update_if_unchanged_inner(
+            &state,
+            "missing-chat".to_string(),
+            json!({ "promptPresetId": null }),
+            json!({ "promptPresetId": "preset-longform" }),
+        )
+        .expect_err("missing chats must not look like stale writes");
+
+        assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
     fn conditional_chat_patch_rejects_fields_with_unshared_update_side_effects() {
         let state = test_state("conditional-chat-patch-scope");
         state

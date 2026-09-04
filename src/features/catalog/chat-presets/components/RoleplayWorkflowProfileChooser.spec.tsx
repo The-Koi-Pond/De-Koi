@@ -751,7 +751,12 @@ describe("RoleplayWorkflowProfileChooser", () => {
       } as Chat;
       mocks.apply.mockImplementationOnce(async (input) => {
         expect(() =>
-          buildRoleplayWorkflowProfilePatch(input.preview, input.selectedItemIds, "2026-08-26T12:00:00.000Z"),
+          buildRoleplayWorkflowProfilePatch(
+            input.preview,
+            input.selectedItemIds,
+            "2026-08-26T12:00:00.000Z",
+            undefined,
+          ),
         ).not.toThrow();
         return {
           outcome: "applied",

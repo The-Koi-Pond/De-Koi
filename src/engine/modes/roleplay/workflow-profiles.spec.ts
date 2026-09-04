@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ROLEPLAY_WORKFLOW_PROFILE_RECIPES,
-  buildRoleplayWorkflowProfilePatch,
+  buildRoleplayWorkflowProfilePatch as buildRequiredRoleplayWorkflowProfilePatch,
   buildRoleplayWorkflowProfileRevertPatch,
   resolveRoleplayWorkflowProfile,
 } from "./workflow-profiles";
@@ -11,6 +11,15 @@ import {
   applyContinuityDirectorConfiguration,
   createDefaultContinuityDirectorState,
 } from "./continuity-director/continuity-director-state";
+
+function buildRoleplayWorkflowProfilePatch(
+  resolution: Parameters<typeof buildRequiredRoleplayWorkflowProfilePatch>[0],
+  itemIds: readonly string[],
+  appliedAt: string,
+  currentDirectorValue?: unknown,
+) {
+  return buildRequiredRoleplayWorkflowProfilePatch(resolution, itemIds, appliedAt, currentDirectorValue);
+}
 
 const capabilities = {
   hasUniversalPreset: true,
@@ -190,6 +199,31 @@ describe("roleplay workflow profile recipes", () => {
       beats: existing.beats,
     });
     expect(JSON.stringify(patch.metadata.roleplayWorkflowApplication)).not.toContain(existing.beats[0]!.text);
+  });
+
+  it("rejects Director changes when callers omit the full current state", () => {
+    const existing = applyContinuityDirectorCommand(
+      createDefaultContinuityDirectorState(NOW),
+      {
+        type: "replace_director_proposals",
+        arc: "Recover the archive",
+        threads: ["Who changed the map?"],
+        beats: ["The map reveals a sealed stair."],
+      },
+      directorCommandOptions(),
+    );
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: { ...chat, metadata: { ...chat.metadata, roleplayContinuityDirector: existing } },
+      capabilities,
+    });
+
+    expect(() =>
+      Reflect.apply(buildRequiredRoleplayWorkflowProfilePatch, undefined, [
+        resolution,
+        ["continuity-director", "continuity-director-cadence"],
+        NOW,
+      ]),
+    ).toThrow("full current Continuity Director state");
   });
 
   it("defaults only absent matching values and keeps Minimal agent disabling opt-in for existing agents", () => {

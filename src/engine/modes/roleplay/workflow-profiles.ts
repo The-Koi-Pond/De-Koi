@@ -376,7 +376,7 @@ export function buildRoleplayWorkflowProfilePatch(
   resolution: RoleplayWorkflowProfileResolution,
   itemIds: readonly string[],
   appliedAt: string,
-  currentDirectorValue?: unknown,
+  currentDirectorValue: unknown,
 ): RoleplayWorkflowProfilePatch {
   const selectedItemIds = [...new Set(itemIds)];
   const rows = new Map(resolution.rows.map((row) => [row.id, row]));
@@ -489,6 +489,9 @@ export function buildRoleplayWorkflowProfilePatch(
   }
 
   if (selected.has("continuity-director") || selected.has("continuity-director-cadence")) {
+    if (arguments.length < 4) {
+      throw new Error("Director workflow changes require the full current Continuity Director state.");
+    }
     const currentDirector = normalizeContinuityDirectorState(currentDirectorValue, appliedAt);
     const nextDirector = applyContinuityDirectorConfiguration(
       currentDirector,
