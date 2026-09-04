@@ -21,6 +21,11 @@ import { parseRecord, type JsonRecord } from "../../engine/generation/runtime-re
 import { llmApi } from "./llm-api";
 import { storageApi } from "./storage-api";
 
+export const roleplayContinuityDirectorKeys = {
+  all: ["roleplay-continuity-director"] as const,
+  state: (chatId: string) => [...roleplayContinuityDirectorKeys.all, "state", chatId] as const,
+};
+
 export type ContinuityDirectorApiErrorCode =
   | "chat_not_found"
   | "stale_revision"

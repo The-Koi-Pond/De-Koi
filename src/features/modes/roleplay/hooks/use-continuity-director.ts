@@ -3,15 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ContinuityDirectorCommand } from "../../../../engine/contracts/types/roleplay-continuity-director";
 import {
   roleplayContinuityDirectorApi,
+  roleplayContinuityDirectorKeys,
   type ContinuityDirectorStateView,
   type RoleplayContinuityDirectorApi,
 } from "../../../../shared/api/roleplay-continuity-director-api";
 import { chatKeys } from "../../../catalog/chats";
 
-export const continuityDirectorKeys = {
-  all: ["roleplay-continuity-director"] as const,
-  state: (chatId: string) => [...continuityDirectorKeys.all, "state", chatId] as const,
-};
+export const continuityDirectorKeys = roleplayContinuityDirectorKeys;
 
 export function useContinuityDirector(
   chatId: string | null | undefined,

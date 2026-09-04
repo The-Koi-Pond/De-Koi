@@ -48,6 +48,9 @@ it("refreshes a newly enabled Director and invalidates chat state", async () => 
   expect(refresh).toHaveBeenCalledWith("chat-1");
   expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.detail("chat-1") });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.list() });
+  expect(invalidate).toHaveBeenCalledWith({
+    queryKey: ["roleplay-continuity-director", "state", "chat-1"],
+  });
   await hook.cleanup();
 });
 

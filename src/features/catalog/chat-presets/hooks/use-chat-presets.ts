@@ -15,6 +15,7 @@ import { storageCommandsApi } from "../../../../shared/api/storage-commands-api"
 import { chatPresetApi } from "../../../../shared/api/chat-preset-api";
 import {
   roleplayContinuityDirectorApi,
+  roleplayContinuityDirectorKeys,
   type RoleplayContinuityDirectorApi,
 } from "../../../../shared/api/roleplay-continuity-director-api";
 import { chatKeys } from "../../chats/query-keys";
@@ -589,6 +590,7 @@ export function useCreateInitialContinuityPlan(
     onSettled: (_data, _error, chatId) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: roleplayContinuityDirectorKeys.state(chatId) });
     },
   });
 }
