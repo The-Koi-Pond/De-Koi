@@ -119,6 +119,25 @@ function defaultSelections(resolution: RoleplayWorkflowProfileResolution): Set<s
   );
 }
 
+function refreshedSelections(
+  current: ReadonlySet<string>,
+  previous: RoleplayWorkflowProfileResolution | null,
+  next: RoleplayWorkflowProfileResolution,
+): Set<string> {
+  if (!previous || previous.profileId !== next.profileId) return defaultSelections(next);
+
+  const previousIds = new Set(
+    previous.rows.filter((row) => row.kind === "change" && row.selectable).map((row) => row.id),
+  );
+  const nextRows = next.rows.filter((row) => row.kind === "change" && row.selectable);
+  const nextIds = new Set(nextRows.map((row) => row.id));
+  const selections = new Set([...current].filter((itemId) => nextIds.has(itemId)));
+  for (const row of nextRows) {
+    if (!previousIds.has(row.id) && row.selectedByDefault) selections.add(row.id);
+  }
+  return selections;
+}
+
 function appliedProfileId(chat: Chat): RoleplayWorkflowProfileId {
   const id = chat.metadata?.roleplayWorkflowApplication?.profileId;
   return PROFILES.some((profile) => profile.id === id) ? (id as RoleplayWorkflowProfileId) : "minimal-clean";
@@ -219,6 +238,7 @@ export function RoleplayWorkflowProfileChooser({
   const displayedChatRef = useRef(chat);
   const capabilityRequestRef = useRef(0);
   const plannerOperationRef = useRef(0);
+  const preserveSelectionsOnNextPreviewRef = useRef(false);
 
   const applyMutation = useApplyRoleplayWorkflowProfile({
     resolveCapabilities: resolveRoleplayWorkflowCapabilities,
@@ -243,16 +263,20 @@ export function RoleplayWorkflowProfileChooser({
   useEffect(() => {
     let cancelled = false;
     const requestId = ++capabilityRequestRef.current;
+    const previousPreview = preview;
+    const preserveSelections = preserveSelectionsOnNextPreviewRef.current;
+    preserveSelectionsOnNextPreviewRef.current = false;
     setLoadingCapabilities(true);
     setCapabilityError(null);
     setPreview(null);
-    setSelectedItemIds(new Set());
     resolveRoleplayWorkflowCapabilities(displayedChat)
       .then((capabilities) => {
         if (cancelled || capabilityRequestRef.current !== requestId) return;
         const next = resolveRoleplayWorkflowProfile(profileId, { chat: displayedChat, capabilities });
         setPreview(next);
-        setSelectedItemIds(defaultSelections(next));
+        setSelectedItemIds((current) =>
+          preserveSelections ? refreshedSelections(current, previousPreview, next) : defaultSelections(next),
+        );
       })
       .catch((error) => {
         if (!cancelled && capabilityRequestRef.current === requestId) setCapabilityError(completeError(error));
@@ -386,6 +410,7 @@ export function RoleplayWorkflowProfileChooser({
                 },
               };
               displayedChatRef.current = refreshedChat;
+              preserveSelectionsOnNextPreviewRef.current = true;
               setDisplayedChat(refreshedChat);
               setStatus({ tone: "success", message: "Story plan ready for review." });
             },

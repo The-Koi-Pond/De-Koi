@@ -332,6 +332,8 @@ export function resolveRoleplayWorkflowProfile(
         },
         selectedByDefault: directorSelectedByDefault,
         selectable: true,
+        // This flags the recurring call described below; the chooser treats positive values as activity, not an
+        // apply-time total. Setting it to zero would incorrectly label cadence-only selection as no model activity.
         expectedExtraCalls: 1,
         modelUse: "One non-blocking planning call every 10 assistant replies",
         addsWriterLatency: false,

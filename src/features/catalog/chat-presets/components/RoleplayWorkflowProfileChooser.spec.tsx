@@ -273,6 +273,83 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).not.toContain("Chat settings changed. Review the refreshed ledger before applying.");
   });
 
+  it("preserves explicit ledger choices when detached planning refreshes the preview", async () => {
+    const appliedDirector = { ...createDefaultContinuityDirectorState(), enabled: true, revision: 2 };
+    const appliedChat = {
+      ...chat,
+      metadata: { ...chat.metadata, roleplayContinuityDirector: appliedDirector },
+    } as Chat;
+    const plannerState = { ...appliedDirector, revision: 3 };
+    let onPlannerSuccess: ((result: { state: typeof plannerState }) => void) | undefined;
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat: appliedChat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    });
+    mocks.createInitialPlan.mockImplementation(
+      (_id: string, options: { onSuccess?: (result: { state: typeof plannerState }) => void }) => {
+        onPlannerSuccess = options.onSuccess;
+      },
+    );
+
+    await applyLongRunningStory();
+    const memoryRecall = container.querySelector('[aria-label="Memory Recall"]') as HTMLInputElement;
+    expect(memoryRecall.checked).toBe(true);
+    await act(async () => memoryRecall.click());
+    expect(memoryRecall.checked).toBe(false);
+
+    await act(async () => {
+      onPlannerSuccess?.({ state: plannerState });
+    });
+
+    expect((container.querySelector('[aria-label="Memory Recall"]') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("preserves a profile switch and its valid choices when detached planning finishes", async () => {
+    const appliedDirector = { ...createDefaultContinuityDirectorState(), enabled: true, revision: 2 };
+    const appliedChat = {
+      ...chat,
+      metadata: { ...chat.metadata, roleplayContinuityDirector: appliedDirector },
+    } as Chat;
+    const plannerState = { ...appliedDirector, revision: 3 };
+    let onPlannerSuccess: ((result: { state: typeof plannerState }) => void) | undefined;
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied",
+      chat: appliedChat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: true,
+    });
+    mocks.createInitialPlan.mockImplementation(
+      (_id: string, options: { onSuccess?: (result: { state: typeof plannerState }) => void }) => {
+        onPlannerSuccess = options.onSuccess;
+      },
+    );
+
+    await applyLongRunningStory();
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Cinematic Roleplay"]') as HTMLButtonElement).click();
+    });
+    const illustrator = container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement;
+    await act(async () => illustrator.click());
+    expect(illustrator.checked).toBe(true);
+
+    await act(async () => {
+      onPlannerSuccess?.({ state: plannerState });
+    });
+
+    expect(container.querySelector('[aria-label="Choose Cinematic Roleplay"]')?.getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect((container.querySelector('[aria-label="Illustrator"]') as HTMLInputElement).checked).toBe(true);
+  });
+
   it("isolates detached first-plan failure from the applied workflow", async () => {
     const workflowResult = {
       outcome: "applied" as const,
