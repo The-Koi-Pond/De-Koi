@@ -75,6 +75,7 @@ interface WizardFixture {
   container: HTMLDivElement;
   finish: ReturnType<typeof vi.fn>;
   queryClient: QueryClient;
+  rerender: (chatId: string) => void;
   root: Root;
 }
 
@@ -88,19 +89,22 @@ function renderRoleplayWizard(): WizardFixture {
   const finish = vi.fn();
   const cancel = vi.fn();
 
-  act(() => {
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <ChatSetupWizard
-          chat={{ id: "chat-1", mode: "roleplay", metadata: "{}" } as never}
-          onFinish={finish}
-          onCancel={cancel}
-        />
-      </QueryClientProvider>,
-    );
-  });
+  const rerender = (chatId: string) => {
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ChatSetupWizard
+            chat={{ id: chatId, mode: "roleplay", metadata: "{}" } as never}
+            onFinish={finish}
+            onCancel={cancel}
+          />
+        </QueryClientProvider>,
+      );
+    });
+  };
+  rerender("chat-1");
 
-  const fixture = { cancel, container, finish, queryClient, root };
+  const fixture = { cancel, container, finish, queryClient, rerender, root };
   fixtures.push(fixture);
   return fixture;
 }
@@ -111,12 +115,28 @@ function button(container: HTMLElement, label: string): HTMLButtonElement {
   return match!;
 }
 
+function quickApplyButton(container: HTMLElement): HTMLButtonElement {
+  const match = [...container.querySelectorAll("button")].find((candidate) =>
+    candidate.textContent?.trim().startsWith("Apply"),
+  );
+  expect(match, "quick setup Apply button").toBeDefined();
+  return match!;
+}
+
 function click(container: HTMLElement, label: string): void {
   act(() => button(container, label).click());
 }
 
 function advance(container: HTMLElement, count: number): void {
   for (let index = 0; index < count; index += 1) click(container, "Next");
+}
+
+function unmountFixture(fixture: WizardFixture): void {
+  const fixtureIndex = fixtures.indexOf(fixture);
+  if (fixtureIndex >= 0) fixtures.splice(fixtureIndex, 1);
+  act(() => fixture.root.unmount());
+  fixture.container.remove();
+  fixture.queryClient.clear();
 }
 
 afterEach(() => {
@@ -236,6 +256,140 @@ describe("ChatSetupWizard Roleplay exits", () => {
 
     expect(finish).toHaveBeenCalledOnce();
     expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("does not finish a pending quick setup after it is cancelled", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    let resolveApply!: (value: undefined) => void;
+    mocks.applyChatPreset.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveApply = resolve;
+        }),
+    );
+    const { cancel, container, finish } = renderRoleplayWizard();
+
+    click(container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    act(() => button(container, "Apply & Start").click());
+    await act(async () => undefined);
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')?.click());
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(finish).not.toHaveBeenCalled();
+
+    await act(async () => resolveApply(undefined));
+
+    expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("does not finish a pending quick setup after returning to the full wizard", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    let resolveApply!: (value: undefined) => void;
+    mocks.applyChatPreset.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveApply = resolve;
+        }),
+    );
+    const { cancel, container, finish } = renderRoleplayWizard();
+
+    click(container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    act(() => button(container, "Apply & Start").click());
+    await act(async () => undefined);
+    click(container, "Back");
+
+    expect(button(container, "Skip")).toBeDefined();
+    expect(finish).not.toHaveBeenCalled();
+
+    await act(async () => resolveApply(undefined));
+
+    expect(finish).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+
+    click(container, "Use Settings PresetsPresets");
+    expect(button(container, "Apply & Start").disabled).toBe(false);
+  });
+
+  it("does not allow a second preset write while a backed-out quick setup apply is still pending", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    let resolveFirstApply!: (value: undefined) => void;
+    mocks.applyChatPreset.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveFirstApply = resolve;
+        }),
+    );
+    const { cancel, container, finish } = renderRoleplayWizard();
+
+    click(container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    act(() => button(container, "Apply & Start").click());
+    await act(async () => undefined);
+    click(container, "Back");
+    click(container, "Use Settings PresetsPresets");
+
+    const pendingApply = quickApplyButton(container);
+    expect(pendingApply.disabled).toBe(true);
+    act(() => pendingApply.click());
+    expect(mocks.applyChatPreset).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveFirstApply(undefined));
+
+    expect(finish).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(button(container, "Apply & Start").disabled).toBe(false);
+  });
+
+  it("detaches a pending quick setup apply when the wizard switches to another chat", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    let resolveFirstApply!: (value: undefined) => void;
+    mocks.applyChatPreset.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveFirstApply = resolve;
+        }),
+    );
+    const fixture = renderRoleplayWizard();
+
+    click(fixture.container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    act(() => button(fixture.container, "Apply & Start").click());
+    await act(async () => undefined);
+    fixture.rerender("chat-2");
+
+    expect(mocks.applyChatPreset).toHaveBeenCalledWith({ presetId: "preset-default", chatId: "chat-1" });
+    expect(button(fixture.container, "Apply & Start").disabled).toBe(false);
+
+    await act(async () => resolveFirstApply(undefined));
+
+    expect(fixture.finish).not.toHaveBeenCalled();
+    expect(fixture.cancel).not.toHaveBeenCalled();
+    expect(button(fixture.container, "Apply & Start").disabled).toBe(false);
+  });
+
+  it("does not finish a pending quick setup after the wizard unmounts", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    let resolveApply!: (value: undefined) => void;
+    mocks.applyChatPreset.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveApply = resolve;
+        }),
+    );
+    const fixture = renderRoleplayWizard();
+
+    click(fixture.container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    act(() => button(fixture.container, "Apply & Start").click());
+    await act(async () => undefined);
+    unmountFixture(fixture);
+
+    await act(async () => resolveApply(undefined));
+
+    expect(fixture.finish).not.toHaveBeenCalled();
+    expect(fixture.cancel).not.toHaveBeenCalled();
   });
 
   it("keeps quick setup open and surfaces the persistence error when Apply is rejected", async () => {

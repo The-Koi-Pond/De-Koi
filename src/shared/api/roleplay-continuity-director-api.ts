@@ -183,7 +183,12 @@ export function createRoleplayContinuityDirectorApi(
           "The continuity plan changed. Reload it before applying this edit.",
         );
       }
-      return view(chatId, stateFromChat(result.chat, now()));
+      const committedState = stateFromChat(result.chat, now());
+      try {
+        return await view(chatId, committedState);
+      } catch {
+        return { state: committedState, isStale: false, sourceUnavailable: true };
+      }
     },
 
     async refresh(chatId, options) {

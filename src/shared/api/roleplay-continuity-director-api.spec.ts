@@ -110,6 +110,37 @@ describe("roleplay continuity director api", () => {
     expect(test.patchChatMetadata).not.toHaveBeenCalled();
   });
 
+  it("returns the committed command state when its follow-up source probe fails", async () => {
+    const test = harness(
+      state({
+        sourceSnapshot: {
+          storyProjectionIds: [],
+          knowledgeEdgeIds: [],
+          lastMessageId: null,
+          fingerprint: "saved-source",
+          generatedAt: NOW,
+        },
+      }),
+    );
+    const loadSource = vi.fn(async () => {
+      throw new Error("source probe failed");
+    });
+    const api = createRoleplayContinuityDirectorApi(
+      { storage: test.storage, llm: {} as LlmGateway },
+      { now: () => NOW, createId: (prefix) => `${prefix}-saved`, loadSource },
+    );
+
+    const command = api.command("chat-1", { type: "edit_arc", text: "Committed arc" }, 0);
+
+    await expect(command).resolves.toMatchObject({
+      state: { currentArc: { text: "Committed arc" }, revision: 1 },
+      isStale: false,
+      sourceUnavailable: true,
+    });
+    expect(test.current()).toMatchObject({ currentArc: { text: "Committed arc" }, revision: 1 });
+    expect(loadSource).toHaveBeenCalledTimes(1);
+  });
+
   it("uses literal null as the CAS expectation when legacy chat metadata has no Director state", async () => {
     const updateChatIfUnchanged = vi.fn(
       async (_chatId: string, _expected: Record<string, unknown>, patch: Record<string, unknown>) => ({

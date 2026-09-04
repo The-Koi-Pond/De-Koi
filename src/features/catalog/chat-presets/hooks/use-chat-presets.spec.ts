@@ -3,6 +3,7 @@ import type { LlmGateway } from "../../../../engine/capabilities/llm";
 import type { StorageGateway } from "../../../../engine/capabilities/storage";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { RoleplayContinuityDirectorState } from "../../../../engine/contracts/types/roleplay-continuity-director";
+import { CHAT_PRESET_EXCLUDED_METADATA_KEYS } from "../../../../engine/contracts/types/chat-preset";
 import { createDefaultContinuityDirectorState } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { resolveRoleplayWorkflowProfile } from "../../../../engine/modes/roleplay/workflow-profiles";
 import { createRoleplayContinuityDirectorApi } from "../../../../shared/api/roleplay-continuity-director-api";
@@ -38,7 +39,7 @@ describe("chat preset workflow profile serialization", () => {
     expect(settings.metadata).not.toHaveProperty("roleplayContinuityDirector");
   });
 
-  it("preserves the target chat's Director plan when applying a legacy preset that contains one", () => {
+  it("omits the target chat's Director plan from the outgoing patch when applying a legacy preset", () => {
     const currentDirector = {
       ...createDefaultContinuityDirectorState("2026-09-03T12:00:00.000Z"),
       enabled: true,
@@ -75,7 +76,38 @@ describe("chat preset workflow profile serialization", () => {
       } as Pick<Chat, "mode" | "connectionId" | "promptPresetId" | "metadata">,
     );
 
-    expect((patch.metadata as Record<string, unknown>).roleplayContinuityDirector).toEqual(currentDirector);
+    expect(patch.metadata).not.toHaveProperty("roleplayContinuityDirector");
+  });
+
+  it("omits every chat-owned metadata key from an outgoing preset application patch", () => {
+    const excludedMetadata = Object.fromEntries(
+      [...CHAT_PRESET_EXCLUDED_METADATA_KEYS, "sceneFutureState"].map((key) => [key, `private:${key}`]),
+    );
+    const patch = buildChatPresetApplicationPatch(
+      {
+        id: "legacy-preset",
+        name: "Legacy",
+        mode: "roleplay",
+        isDefault: false,
+        isActive: false,
+        settings: {
+          metadata: { ...excludedMetadata, enableMemoryRecall: true },
+        },
+        createdAt: "2026-09-03T12:00:00.000Z",
+        updatedAt: "2026-09-03T12:00:00.000Z",
+      },
+      {
+        mode: "roleplay",
+        connectionId: null,
+        promptPresetId: null,
+        metadata: excludedMetadata,
+      } as Pick<Chat, "mode" | "connectionId" | "promptPresetId" | "metadata">,
+    );
+
+    expect(patch.metadata).toMatchObject({ enableMemoryRecall: true, appliedChatPresetId: "legacy-preset" });
+    for (const key of [...CHAT_PRESET_EXCLUDED_METADATA_KEYS, "sceneFutureState"]) {
+      expect(patch.metadata).not.toHaveProperty(key);
+    }
   });
 
   it("round-trips override maps but excludes the chat-scoped workflow receipt and identity/history metadata", () => {

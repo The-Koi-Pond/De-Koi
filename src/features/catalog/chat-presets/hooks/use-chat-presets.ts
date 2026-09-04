@@ -258,15 +258,9 @@ export function buildChatPresetApplicationPatch(
   chat: Pick<Chat, "mode" | "connectionId" | "promptPresetId" | "metadata">,
 ): Record<string, unknown> {
   const settings = sanitizeChatPresetSettings(preset.settings, preset.mode);
-  const currentMetadata =
-    chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
-  const preservedMetadata = Object.fromEntries(
-    Object.entries(currentMetadata).filter(([key]) => isPresetExcludedMetadataKey(key)),
-  );
   const nextMetadata: Record<string, unknown> = {
     ...CHAT_PRESET_METADATA_DEFAULTS,
     ...(settings.metadata ?? {}),
-    ...preservedMetadata,
     appliedChatPresetId: preset.id,
   };
   if (!Object.prototype.hasOwnProperty.call(nextMetadata, "enableAgents")) {
@@ -280,20 +274,43 @@ export function buildChatPresetApplicationPatch(
   };
 }
 
+const chatPresetApplicationQueues = new Map<string, Promise<void>>();
+
+async function runChatPresetApplication<T>(chatId: string, task: () => Promise<T>): Promise<T> {
+  const previous = chatPresetApplicationQueues.get(chatId) ?? Promise.resolve();
+  let release: () => void = () => undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  chatPresetApplicationQueues.set(chatId, tail);
+
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (chatPresetApplicationQueues.get(chatId) === tail) {
+      chatPresetApplicationQueues.delete(chatId);
+    }
+  }
+}
+
 /** Apply a preset's settings to an existing chat. Refetches the chat afterward. */
 export function useApplyChatPreset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ presetId, chatId }: { presetId: string; chatId: string }) => {
-      const [preset, chat] = await Promise.all([
-        storageApi.get<ChatPreset>("chat-presets", presetId),
-        storageApi.get<Chat>("chats", chatId),
-      ]);
-      if (!preset) throw new Error(`Chat preset ${presetId} was not found`);
-      if (!chat) throw new Error(`Chat ${chatId} was not found`);
+    mutationFn: ({ presetId, chatId }: { presetId: string; chatId: string }) =>
+      runChatPresetApplication(chatId, async () => {
+        const [preset, chat] = await Promise.all([
+          storageApi.get<ChatPreset>("chat-presets", presetId),
+          storageApi.get<Chat>("chats", chatId),
+        ]);
+        if (!preset) throw new Error(`Chat preset ${presetId} was not found`);
+        if (!chat) throw new Error(`Chat ${chatId} was not found`);
 
-      return storageApi.update<Chat>("chats", chatId, buildChatPresetApplicationPatch(preset, chat));
-    },
+        return storageApi.update<Chat>("chats", chatId, buildChatPresetApplicationPatch(preset, chat));
+      }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });

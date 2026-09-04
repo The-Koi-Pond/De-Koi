@@ -6,11 +6,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createDefaultContinuityDirectorState } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { resolveRoleplayWorkflowProfile } from "../../../../engine/modes/roleplay/workflow-profiles";
 import type { Chat } from "../../../../engine/contracts/types/chat";
+import type { ChatPreset } from "../../../../engine/contracts/types/chat-preset";
 import type { RoleplayContinuityDirectorApi } from "../../../../shared/api/roleplay-continuity-director-api";
 import { roleplayContinuityDirectorKeys } from "../../../../shared/api/roleplay-continuity-director-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { chatKeys } from "../../chats/query-keys";
 import {
+  useApplyChatPreset,
   useApplyRoleplayWorkflowProfile,
   useCreateInitialContinuityPlan,
   useRevertRoleplayWorkflowProfile,
@@ -18,8 +20,11 @@ import {
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-async function setupHook<T>(useHook: () => T) {
-  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+function createTestQueryClient() {
+  return new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+}
+
+async function setupHook<T>(useHook: () => T, client = createTestQueryClient()) {
   let current!: T;
   const container = document.createElement("div");
   const root = createRoot(container);
@@ -42,6 +47,79 @@ async function setupHook<T>(useHook: () => T) {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+function chatPreset(id: string): ChatPreset {
+  return {
+    id,
+    name: id,
+    mode: "roleplay",
+    isDefault: false,
+    isActive: false,
+    settings: { connectionId: `connection-${id}` },
+    createdAt: "2026-09-03T12:00:00.000Z",
+    updatedAt: "2026-09-03T12:00:00.000Z",
+  };
+}
+
+function presetTargetChat(id: string): Chat {
+  return {
+    id,
+    mode: "roleplay",
+    connectionId: null,
+    promptPresetId: null,
+    metadata: { activeAgentIds: [] },
+  } as unknown as Chat;
+}
+
+function setupDeferredPresetApplicationStorage(options: { rejectFirst?: boolean } = {}) {
+  const presets = new Map([
+    ["preset-a", chatPreset("preset-a")],
+    ["preset-b", chatPreset("preset-b")],
+  ]);
+  const chats = new Map([
+    ["chat-1", presetTargetChat("chat-1")],
+    ["chat-2", presetTargetChat("chat-2")],
+  ]);
+  const events: string[] = [];
+  let releaseFirst!: () => void;
+  let markFirstStarted!: () => void;
+  const firstHold = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const firstStarted = new Promise<void>((resolve) => {
+    markFirstStarted = resolve;
+  });
+
+  vi.spyOn(storageApi, "get").mockImplementation(async (entity, id) => {
+    if (entity === "chat-presets") return presets.get(id) as never;
+    return chats.get(id) as never;
+  });
+  vi.spyOn(storageApi, "update").mockImplementation(async (_entity, chatId, patch) => {
+    const presetId = (patch.metadata as Record<string, unknown>).appliedChatPresetId as string;
+    events.push(`${chatId}:${presetId}:start`);
+    if (presetId === "preset-a") {
+      markFirstStarted();
+      await firstHold;
+      if (options.rejectFirst) {
+        events.push(`${chatId}:${presetId}:reject`);
+        throw new Error("first preset write failed");
+      }
+    }
+
+    const current = chats.get(chatId);
+    if (!current) throw new Error(`Chat ${chatId} was not found`);
+    const updated = {
+      ...current,
+      ...patch,
+      metadata: { ...current.metadata, ...(patch.metadata as Record<string, unknown>) },
+    } as Chat;
+    chats.set(chatId, updated);
+    events.push(`${chatId}:${presetId}:finish`);
+    return updated as never;
+  });
+
+  return { chats, events, firstStarted, releaseFirst };
+}
 
 it("refreshes only the exact newly enabled Director state and invalidates chat state", async () => {
   const refresh = vi.fn().mockResolvedValue({
@@ -94,6 +172,178 @@ const capabilities = {
   musicModuleEnabled: true,
   ttsReady: true,
 };
+
+it("preserves a Director edit that lands after the preset reads and before its update", async () => {
+  const initialDirector = {
+    ...createDefaultContinuityDirectorState(),
+    enabled: true,
+    revision: 3,
+  };
+  const winningDirector = {
+    ...initialDirector,
+    revision: 4,
+    currentArc: {
+      id: "winning-arc",
+      text: "Concurrent user edit",
+      source: "user" as const,
+      createdAt: "2026-09-03T12:00:00.000Z",
+      updatedAt: "2026-09-03T12:00:00.000Z",
+    },
+  };
+  const events: string[] = [];
+  let currentChat = {
+    id: "chat-1",
+    mode: "roleplay",
+    connectionId: null,
+    promptPresetId: null,
+    metadata: { activeAgentIds: [], roleplayContinuityDirector: initialDirector },
+  } as unknown as Chat;
+  const preset = {
+    id: "preset-1",
+    name: "Preset",
+    mode: "roleplay",
+    isDefault: false,
+    isActive: false,
+    settings: { metadata: { enableMemoryRecall: true } },
+    createdAt: "2026-09-03T12:00:00.000Z",
+    updatedAt: "2026-09-03T12:00:00.000Z",
+  };
+
+  vi.spyOn(storageApi, "get").mockImplementation(async (entity) => {
+    if (entity === "chat-presets") {
+      events.push("preset-read");
+      return preset as never;
+    }
+    events.push("chat-read");
+    const staleChat = currentChat;
+    currentChat = {
+      ...currentChat,
+      metadata: { ...currentChat.metadata, roleplayContinuityDirector: winningDirector },
+    } as Chat;
+    events.push("director-write");
+    return staleChat as never;
+  });
+  const update = vi.spyOn(storageApi, "update").mockImplementation(async (_entity, _id, patch) => {
+    events.push("preset-update");
+    currentChat = {
+      ...currentChat,
+      ...patch,
+      metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+    } as Chat;
+    return currentChat as never;
+  });
+  const hook = await setupHook(() => useApplyChatPreset());
+
+  await act(async () => hook.current().mutateAsync({ presetId: preset.id, chatId: currentChat.id }));
+
+  expect(events).toEqual(["preset-read", "chat-read", "director-write", "preset-update"]);
+  expect(update.mock.calls[0]?.[2].metadata).not.toHaveProperty("roleplayContinuityDirector");
+  expect(currentChat.metadata.roleplayContinuityDirector).toEqual(winningDirector);
+  await hook.cleanup();
+});
+
+it("serializes preset writes for one chat across hook unmounts so the later apply wins", async () => {
+  const { chats, events, firstStarted, releaseFirst } = setupDeferredPresetApplicationStorage();
+  const client = createTestQueryClient();
+  const firstHook = await setupHook(() => useApplyChatPreset(), client);
+  let firstApply!: Promise<Chat>;
+
+  await act(async () => {
+    firstApply = firstHook.current().mutateAsync({ presetId: "preset-a", chatId: "chat-1" });
+    await firstStarted;
+  });
+  await firstHook.cleanup();
+
+  const secondHook = await setupHook(() => useApplyChatPreset(), client);
+  let secondApply!: Promise<Chat>;
+  await act(async () => {
+    secondApply = secondHook.current().mutateAsync({ presetId: "preset-b", chatId: "chat-1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseFirst();
+    await Promise.all([firstApply, secondApply]);
+  });
+
+  expect(events).toEqual([
+    "chat-1:preset-a:start",
+    "chat-1:preset-a:finish",
+    "chat-1:preset-b:start",
+    "chat-1:preset-b:finish",
+  ]);
+  expect(chats.get("chat-1")?.metadata.appliedChatPresetId).toBe("preset-b");
+  await secondHook.cleanup();
+});
+
+it("releases the same-chat preset queue when the first write rejects", async () => {
+  const { chats, events, firstStarted, releaseFirst } = setupDeferredPresetApplicationStorage({
+    rejectFirst: true,
+  });
+  const client = createTestQueryClient();
+  const firstHook = await setupHook(() => useApplyChatPreset(), client);
+  let firstApply!: Promise<Chat>;
+
+  await act(async () => {
+    firstApply = firstHook.current().mutateAsync({ presetId: "preset-a", chatId: "chat-1" });
+    await firstStarted;
+  });
+  const firstOutcome = firstApply.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await firstHook.cleanup();
+
+  const secondHook = await setupHook(() => useApplyChatPreset(), client);
+  let secondApply!: Promise<Chat>;
+  await act(async () => {
+    secondApply = secondHook.current().mutateAsync({ presetId: "preset-b", chatId: "chat-1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseFirst();
+    await Promise.all([firstOutcome, secondApply]);
+  });
+
+  expect(await firstOutcome).toEqual(new Error("first preset write failed"));
+  expect(events).toEqual([
+    "chat-1:preset-a:start",
+    "chat-1:preset-a:reject",
+    "chat-1:preset-b:start",
+    "chat-1:preset-b:finish",
+  ]);
+  expect(chats.get("chat-1")?.metadata.appliedChatPresetId).toBe("preset-b");
+  await secondHook.cleanup();
+});
+
+it("keeps preset writes for different chats parallel", async () => {
+  const { events, firstStarted, releaseFirst } = setupDeferredPresetApplicationStorage();
+  const client = createTestQueryClient();
+  const firstHook = await setupHook(() => useApplyChatPreset(), client);
+  const secondHook = await setupHook(() => useApplyChatPreset(), client);
+  let firstApply!: Promise<Chat>;
+  let secondApply!: Promise<Chat>;
+
+  await act(async () => {
+    firstApply = firstHook.current().mutateAsync({ presetId: "preset-a", chatId: "chat-1" });
+    await firstStarted;
+  });
+  await act(async () => {
+    secondApply = secondHook.current().mutateAsync({ presetId: "preset-b", chatId: "chat-2" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const secondFinishedBeforeRelease = events.includes("chat-2:preset-b:finish");
+
+  await act(async () => {
+    releaseFirst();
+    await Promise.all([firstApply, secondApply]);
+  });
+
+  expect(secondFinishedBeforeRelease).toBe(true);
+  expect(events).toEqual([
+    "chat-1:preset-a:start",
+    "chat-2:preset-b:start",
+    "chat-2:preset-b:finish",
+    "chat-1:preset-a:finish",
+  ]);
+  await firstHook.cleanup();
+  await secondHook.cleanup();
+});
 
 function workflowChat(receipt = false): Chat {
   return {
