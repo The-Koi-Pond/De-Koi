@@ -19,9 +19,45 @@ const vendorChunkGroups: Record<string, string[]> = {
   ],
 };
 
+// Coalesce icons shared by deferred Roleplay/setup surfaces without pulling
+// every lazy feature's icons into the normal AppExperience load path.
+const roleplaySharedLucideIcons = new Set([
+  "check",
+  "chevron-left",
+  "circle-alert",
+  "copy",
+  "download",
+  "ellipsis",
+  "external-link",
+  "eye",
+  "eye-off",
+  "folder",
+  "globe",
+  "message-circle",
+  "pause",
+  "play",
+  "refresh-cw",
+  "rotate-ccw",
+  "send",
+  "volume-2",
+  "wand-sparkles",
+  "zap",
+]);
+
+const lucideCoreModulePattern =
+  /\/node_modules\/lucide-react\/dist\/esm\/(?:shared\/src\/utils|defaultAttributes|Icon|createLucideIcon)\.js$/;
+const lucideIconModulePattern = /\/node_modules\/lucide-react\/dist\/esm\/icons\/([^/]+)\.js$/;
+
 function manualVendorChunk(id: string) {
   const normalizedId = id.replace(/\\/g, "/");
   if (!normalizedId.includes("/node_modules/")) return undefined;
+
+  if (lucideCoreModulePattern.test(normalizedId)) return "vendor-icons-core";
+
+  const lucideIconModule = normalizedId.match(lucideIconModulePattern);
+  if (lucideIconModule && roleplaySharedLucideIcons.has(lucideIconModule[1])) {
+    return "vendor-icons-roleplay";
+  }
 
   for (const [chunkName, packages] of Object.entries(vendorChunkGroups)) {
     if (packages.some((packageName) => normalizedId.includes(`/node_modules/${packageName}/`))) {
