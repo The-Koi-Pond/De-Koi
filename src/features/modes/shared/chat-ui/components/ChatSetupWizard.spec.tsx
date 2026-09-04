@@ -6,11 +6,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatSetupWizard } from "./ChatSetupWizard";
 
 const mocks = vi.hoisted(() => ({
+  applyChatPreset: vi.fn(async () => undefined),
+  chatPresets: [] as Array<Record<string, unknown>>,
   createMessage: vi.fn(async () => ({ id: "message-1" })),
+  toastError: vi.fn(),
   updateChat: vi.fn(),
   updateMetadata: vi.fn(),
   updateMetadataAsync: vi.fn(async () => undefined),
 }));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 vi.mock("framer-motion", async () => {
   const React = await import("react");
@@ -58,8 +63,8 @@ vi.mock("../../../../catalog/chat-presets/index", async (importOriginal) => {
     RoleplayWorkflowProfileChooser: ({ onNavigateAway }: { onNavigateAway?: () => void }) => (
       <button onClick={onNavigateAway}>Open workflow destination</button>
     ),
-    useApplyChatPreset: () => ({ mutateAsync: vi.fn(async () => undefined) }),
-    useChatPresets: () => ({ data: [] }),
+    useApplyChatPreset: () => ({ mutateAsync: mocks.applyChatPreset }),
+    useChatPresets: () => ({ data: mocks.chatPresets }),
   };
 });
 
@@ -121,6 +126,7 @@ afterEach(() => {
     fixture.queryClient.clear();
   }
   vi.clearAllMocks();
+  mocks.chatPresets.length = 0;
 });
 
 describe("ChatSetupWizard Roleplay exits", () => {
@@ -204,5 +210,46 @@ describe("ChatSetupWizard Roleplay exits", () => {
     });
     expect(finish).toHaveBeenCalledOnce();
     expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("finishes quick setup only after the selected preset is persisted", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    let resolveApply!: (value: undefined) => void;
+    mocks.applyChatPreset.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveApply = resolve;
+        }),
+    );
+    const { cancel, container, finish } = renderRoleplayWizard();
+
+    click(container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    act(() => button(container, "Apply & Start").click());
+    await act(async () => undefined);
+
+    expect(mocks.applyChatPreset).toHaveBeenCalledWith({ presetId: "preset-default", chatId: "chat-1" });
+    expect(finish).not.toHaveBeenCalled();
+    expect(button(container, "Applying…").disabled).toBe(true);
+
+    await act(async () => resolveApply(undefined));
+
+    expect(finish).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("keeps quick setup open and surfaces the persistence error when Apply is rejected", async () => {
+    mocks.chatPresets.push({ id: "preset-default", name: "Default", isDefault: true });
+    mocks.applyChatPreset.mockRejectedValueOnce(new Error("Could not save preset"));
+    const { cancel, container, finish } = renderRoleplayWizard();
+
+    click(container, "Use Settings PresetsPresets");
+    await act(async () => undefined);
+    await act(async () => button(container, "Apply & Start").click());
+
+    expect(mocks.toastError).toHaveBeenCalledWith("Could not save preset");
+    expect(finish).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(button(container, "Apply & Start").disabled).toBe(false);
   });
 });

@@ -35,16 +35,31 @@ export function useContinuityDirector(
     mutationFn: (input: { command: ContinuityDirectorCommand; expectedRevision?: number }) =>
       api.command(normalizedChatId, input.command, input.expectedRevision),
     onSuccess: publish,
+    onSettled: (_data, error) => {
+      if (!error) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(normalizedChatId) });
+    },
   });
 
   const refresh = useMutation({
     mutationFn: () => api.refresh(normalizedChatId),
     onSuccess: publish,
+    onSettled: (_data, error) => {
+      if (!error) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(normalizedChatId) });
+    },
   });
 
   const reroll = useMutation({
     mutationFn: (beatId: string) => api.reroll(normalizedChatId, beatId),
     onSuccess: publish,
+    onSettled: (_data, error) => {
+      if (!error) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(normalizedChatId) });
+    },
   });
 
   return {

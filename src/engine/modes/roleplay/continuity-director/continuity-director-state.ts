@@ -35,6 +35,7 @@ export interface ContinuityDirectorConfiguration {
   refreshEveryAssistantTurns: ContinuityDirectorCadence | null;
   connectionId: string | null;
   hasSourceSnapshot: boolean;
+  hasPlan: boolean;
 }
 
 const BEAT_STATUSES = new Set<ContinuityDirectorBeatStatus>([
@@ -234,6 +235,11 @@ export function readContinuityDirectorConfiguration(value: unknown): ContinuityD
     refreshEveryAssistantTurns: state.refreshMode === "cadence" ? cadence(state.refreshEveryAssistantTurns) : null,
     connectionId: state.connectionId,
     hasSourceSnapshot: state.sourceSnapshot !== null,
+    hasPlan:
+      state.sourceSnapshot !== null ||
+      state.currentArc !== null ||
+      state.openThreads.length > 0 ||
+      state.beats.length > 0,
   };
 }
 

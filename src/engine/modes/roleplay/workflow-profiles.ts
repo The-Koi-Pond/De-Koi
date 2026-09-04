@@ -311,8 +311,9 @@ export function resolveRoleplayWorkflowProfile(
         after: recipe.continuityDirector.enabled,
         selectedByDefault: directorSelectedByDefault,
         selectable: true,
-        expectedExtraCalls: 1,
-        modelUse: "One immediate background planning call when enabled",
+        expectedExtraCalls: !continuityDirector.enabled && !continuityDirector.hasPlan ? 1 : 0,
+        modelUse:
+          "One immediate background planning call only when applying this workflow newly enables Director and no saved plan exists",
         addsWriterLatency: false,
         destination: "Roleplay continuity plan",
         prerequisites: [],

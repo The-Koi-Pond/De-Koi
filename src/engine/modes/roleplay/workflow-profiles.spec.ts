@@ -104,7 +104,8 @@ describe("roleplay workflow profile recipes", () => {
       after: true,
       selectedByDefault: true,
       expectedExtraCalls: 1,
-      modelUse: "One immediate background planning call when enabled",
+      modelUse:
+        "One immediate background planning call only when applying this workflow newly enables Director and no saved plan exists",
     });
     expect(resolution.rows.find((row) => row.id === "continuity-director-cadence")).toMatchObject({
       after: { mode: "cadence", everyAssistantTurns: 10 },
@@ -136,6 +137,27 @@ describe("roleplay workflow profile recipes", () => {
     });
     expect(resolution.rows.find((row) => row.id === "continuity-director-cadence")).toMatchObject({
       selectedByDefault: false,
+    });
+  });
+
+  it("does not claim an immediate call when a disabled Director already has a user-authored plan", () => {
+    const existing = applyContinuityDirectorCommand(
+      createDefaultContinuityDirectorState(NOW),
+      { type: "edit_arc", text: "Keep this plan" },
+      directorCommandOptions(),
+    );
+    const resolution = resolveRoleplayWorkflowProfile("longform-continuity", {
+      chat: {
+        ...chat,
+        metadata: { ...chat.metadata, roleplayContinuityDirector: existing },
+      },
+      capabilities,
+    });
+
+    expect(resolution.rows.find((row) => row.id === "continuity-director")).toMatchObject({
+      expectedExtraCalls: 0,
+      modelUse:
+        "One immediate background planning call only when applying this workflow newly enables Director and no saved plan exists",
     });
   });
 

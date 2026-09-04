@@ -136,7 +136,7 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(guidance?.textContent).toContain("Best for: A campaign or story spanning many scenes or sessions.");
     expect(guidance?.textContent).toContain("Adds: Continuity checks, world state, summaries, and reviewable future story beats.");
     expect(guidance?.textContent).toContain(
-      "Model use: One immediate background Director planning call when applied, then occasional background calls, including one non-blocking planning call every 10 assistant replies.",
+      "Model use: Applying Long-Running Story makes one immediate background Director planning call only when it newly enables Director and no saved plan exists. Later background calls are occasional, including one non-blocking planning call every 10 assistant replies.",
     );
   });
 
@@ -169,15 +169,21 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(true);
     expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
     expect(container.textContent).toContain("Background model activity: occasional");
-    expect(container.textContent).toContain("One immediate background planning call when enabled");
+    expect(container.textContent).toContain(
+      "One immediate background planning call only when applying this workflow newly enables Director and no saved plan exists",
+    );
     expect(container.textContent).toContain("One non-blocking planning call every 10 assistant replies");
     expect(container.textContent).toContain("No added writer latency");
   });
 
   it("starts the first Director plan after the workflow write without awaiting it", async () => {
+    const exactPostApplyState = { ...createDefaultContinuityDirectorState(), enabled: true, revision: 2 };
     const workflowResult = {
       outcome: "applied" as const,
-      chat,
+      chat: {
+        ...chat,
+        metadata: { ...chat.metadata, roleplayContinuityDirector: exactPostApplyState },
+      },
       resolution: null,
       selectedItemIds: [],
       omittedLocalAgentIds: [],
@@ -190,7 +196,10 @@ describe("RoleplayWorkflowProfileChooser", () => {
 
     expect(workflowResult.outcome).toBe("applied");
     expect(container.textContent).toContain("Workflow applied. Creating the first story plan in the background.");
-    expect(mocks.createInitialPlan).toHaveBeenCalledWith("roleplay-chat", expect.any(Object));
+    expect(mocks.createInitialPlan).toHaveBeenCalledWith(
+      { chatId: "roleplay-chat", expectedDirectorState: exactPostApplyState },
+      expect.any(Object),
+    );
   });
 
   it("reports detached first-plan success without changing the applied workflow outcome", async () => {

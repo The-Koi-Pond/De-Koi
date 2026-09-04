@@ -1380,17 +1380,16 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
 
   const handleShortcutApply = useCallback(async () => {
     if (!shortcutPresetId) {
-      onFinish();
       return;
     }
     try {
       setShortcutApplying(true);
       await applyChatPreset.mutateAsync({ presetId: shortcutPresetId, chatId: chat.id });
-    } catch {
-      /* fall through — still close the wizard */
+      onFinish();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to apply chat preset.");
     } finally {
       setShortcutApplying(false);
-      onFinish();
     }
   }, [shortcutPresetId, chat.id, applyChatPreset, onFinish]);
 

@@ -20,11 +20,7 @@ import {
 import { parseRecord, type JsonRecord } from "../../engine/generation/runtime-records";
 import { llmApi } from "./llm-api";
 import { storageApi } from "./storage-api";
-
-export const roleplayContinuityDirectorKeys = {
-  all: ["roleplay-continuity-director"] as const,
-  state: (chatId: string) => [...roleplayContinuityDirectorKeys.all, "state", chatId] as const,
-};
+export { roleplayContinuityDirectorKeys } from "./roleplay-continuity-director-query-keys";
 
 export type ContinuityDirectorApiErrorCode =
   | "chat_not_found"
@@ -59,7 +55,10 @@ export interface RoleplayContinuityDirectorApi {
     command: ContinuityDirectorCommand,
     expectedRevision?: number,
   ): Promise<ContinuityDirectorStateView>;
-  refresh(chatId: string): Promise<ContinuityDirectorStateView & { rejectedUnsafeBeats: number }>;
+  refresh(
+    chatId: string,
+    options?: { initialExpectedDirectorState?: RoleplayContinuityDirectorState },
+  ): Promise<ContinuityDirectorStateView & { rejectedUnsafeBeats: number }>;
   reroll(chatId: string, beatId: string): Promise<ContinuityDirectorStateView & { rejectedUnsafeBeats: number }>;
 }
 
@@ -75,6 +74,10 @@ interface ApiOptions {
 
 function stateFromChat(chat: JsonRecord, now: string): RoleplayContinuityDirectorState {
   return normalizeContinuityDirectorState(parseRecord(chat.metadata).roleplayContinuityDirector, now);
+}
+
+function rawStateFromChat(chat: JsonRecord): unknown {
+  return parseRecord(chat.metadata).roleplayContinuityDirector ?? null;
 }
 
 function errorMessage(error: unknown): string {
@@ -115,10 +118,16 @@ export function createRoleplayContinuityDirectorApi(
     }
   }
 
-  async function runPlanner(chatId: string, rerollBeatId?: string) {
+  async function runPlanner(
+    chatId: string,
+    plannerOptions: { rerollBeatId?: string; initialExpectedDirectorState?: RoleplayContinuityDirectorState } = {},
+  ) {
     const result = await planner(capabilities, {
       chatId,
-      ...(rerollBeatId ? { rerollBeatId } : {}),
+      ...(plannerOptions.rerollBeatId ? { rerollBeatId: plannerOptions.rerollBeatId } : {}),
+      ...(plannerOptions.initialExpectedDirectorState
+        ? { initialExpectedDirectorState: plannerOptions.initialExpectedDirectorState }
+        : {}),
       now: options.now,
       createId: options.createId,
     });
@@ -150,20 +159,39 @@ export function createRoleplayContinuityDirectorApi(
         now: options.now,
         createId: options.createId,
       });
+      const updateChatIfUnchanged = capabilities.storage.updateChatIfUnchanged;
+      if (!updateChatIfUnchanged) {
+        throw new ContinuityDirectorApiError(
+          "persistence_failed",
+          "Conditional chat persistence is unavailable.",
+        );
+      }
+      let result: { updated: boolean; chat: JsonRecord };
       try {
-        await capabilities.storage.patchChatMetadata(chatId, { roleplayContinuityDirector: nextState });
+        result = (await updateChatIfUnchanged.call(
+          capabilities.storage,
+          chatId,
+          { metadata: { roleplayContinuityDirector: rawStateFromChat(current) } },
+          { metadata: { roleplayContinuityDirector: nextState } },
+        )) as { updated: boolean; chat: JsonRecord };
       } catch (error) {
         throw new ContinuityDirectorApiError("persistence_failed", errorMessage(error));
       }
-      return view(chatId, nextState);
+      if (!result.updated) {
+        throw new ContinuityDirectorApiError(
+          "stale_revision",
+          "The continuity plan changed. Reload it before applying this edit.",
+        );
+      }
+      return view(chatId, stateFromChat(result.chat, now()));
     },
 
-    async refresh(chatId) {
-      return runPlanner(chatId);
+    async refresh(chatId, options) {
+      return runPlanner(chatId, options);
     },
 
     async reroll(chatId, beatId) {
-      return runPlanner(chatId, beatId);
+      return runPlanner(chatId, { rerollBeatId: beatId });
     },
   };
 }

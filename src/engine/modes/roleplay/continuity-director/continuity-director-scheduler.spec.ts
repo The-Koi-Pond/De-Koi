@@ -7,6 +7,9 @@ import type {
   RoleplayContinuityDirectorState,
 } from "../../../contracts/types/roleplay-continuity-director";
 import { createDefaultContinuityDirectorState } from "./continuity-director-state";
+import {
+  subscribeContinuityDirectorRefreshCompletions,
+} from "./continuity-director-refresh-events";
 import { createContinuityDirectorRefreshScheduler } from "./continuity-director-scheduler";
 
 const NOW = "2026-09-02T12:00:00.000Z";
@@ -104,6 +107,8 @@ describe("continuity director refresh scheduler", () => {
   it("runs a due refresh and reports typed planner failure without rejecting", async () => {
     const runner = deferredRunner();
     const diagnostics = vi.fn();
+    const completions = vi.fn();
+    const unsubscribe = subscribeContinuityDirectorRefreshCompletions(completions);
     const refreshPlan = vi.fn(async () => ({ ok: false as const, code: "timeout" as const, message: "Timed out" }));
     const scheduler = createContinuityDirectorRefreshScheduler({
       defer: runner.defer,
@@ -120,10 +125,55 @@ describe("continuity director refresh scheduler", () => {
     });
     await runner.flush();
     await vi.waitFor(() => expect(refreshPlan).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(diagnostics).toHaveBeenCalled());
 
     expect(diagnostics).toHaveBeenCalledWith(
       expect.objectContaining({ status: "error", reason: "timeout", chatId: "chat-1" }),
     );
+    expect(completions).toHaveBeenCalledWith({ chatId: "chat-1" });
+    unsubscribe();
+  });
+
+  it("publishes after successful persistence and isolates completion observers from queue progress", async () => {
+    const runner = deferredRunner();
+    const completions = vi.fn(() => {
+      throw new Error("observer failed");
+    });
+    const unsubscribe = subscribeContinuityDirectorRefreshCompletions(completions);
+    const refreshPlan = vi.fn(async () => ({ ok: true as const, state: state(), rejectedUnsafeBeats: 0 }));
+    const storage = storageFor(state());
+    const scheduler = createContinuityDirectorRefreshScheduler({
+      defer: runner.defer,
+      loadSource: vi.fn(async (_storage, chatId) => source(chatId, state(), snapshot("new", 9))),
+      refreshPlan,
+    });
+
+    scheduler.schedule({ storage, llm: {} as LlmGateway, chatId: "chat-1", trigger: "assistant_saved" });
+    await runner.flush();
+    await vi.waitFor(() => expect(scheduler.isPending(storage, "chat-1")).toBe(false));
+
+    expect(completions).toHaveBeenCalledWith({ chatId: "chat-1" });
+    unsubscribe();
+  });
+
+  it("does not publish when policy skips before a planner invocation", async () => {
+    const runner = deferredRunner();
+    const completions = vi.fn();
+    const unsubscribe = subscribeContinuityDirectorRefreshCompletions(completions);
+    const director = state({ refreshMode: "manual" });
+    const scheduler = createContinuityDirectorRefreshScheduler({ defer: runner.defer });
+
+    scheduler.schedule({
+      storage: storageFor(director),
+      llm: {} as LlmGateway,
+      chatId: "chat-1",
+      trigger: "assistant_saved",
+      onDiagnostic: vi.fn(),
+    });
+    await runner.flush();
+
+    expect(completions).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it("coalesces preflight overlap and rechecks a trigger queued during the model call", async () => {

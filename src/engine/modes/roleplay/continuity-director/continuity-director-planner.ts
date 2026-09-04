@@ -50,6 +50,8 @@ export interface ContinuityDirectorPlannerCapabilities {
 export interface ContinuityDirectorPlannerInput {
   chatId: string;
   rerollBeatId?: string;
+  /** Exact post-apply state that a detached, one-use initial plan is authorized to replace. */
+  initialExpectedDirectorState?: RoleplayContinuityDirectorState;
   timeoutMs?: number;
   now?: () => string;
   createId?: (prefix: string) => string;
@@ -159,11 +161,29 @@ async function runRefresh(
     return { ok: false, code: "source_unavailable", message: errorMessage(error) };
   }
 
-  const initialState = stateFromChat(source.chat, now);
+  const initialExpectedState = input.initialExpectedDirectorState;
+  const initialState = initialExpectedState
+    ? normalizeContinuityDirectorState(initialExpectedState, now)
+    : stateFromChat(source.chat, now);
   if (!initialState.enabled) {
     return { ok: false, code: "disabled", message: "Enable Continuity Director before refreshing its plan." };
   }
 
+  if (initialExpectedState) {
+    const expectedStateIsUnplanned =
+      initialExpectedState.enabled &&
+      initialExpectedState.sourceSnapshot === null &&
+      initialExpectedState.currentArc === null &&
+      initialExpectedState.openThreads.length === 0 &&
+      initialExpectedState.beats.length === 0;
+    if (!expectedStateIsUnplanned) {
+      return {
+        ok: false,
+        code: "persistence_failed",
+        message: "The initial Continuity Director plan is no longer authorized for this chat state.",
+      };
+    }
+  }
 
   const targetBeatId = input.rerollBeatId?.trim() || null;
   const rerollTarget = targetBeatId ? initialState.beats.find((beat) => beat.id === targetBeatId) : undefined;
@@ -194,7 +214,7 @@ async function runRefresh(
     const attemptWrite = await persistDirectorIfUnchanged(
       capabilities.storage,
       input.chatId,
-      directorValueFromChat(source.chat),
+      initialExpectedState ?? directorValueFromChat(source.chat),
       attemptedState,
     );
     if (!attemptWrite.updated) {
@@ -374,7 +394,11 @@ export function refreshContinuityDirectorPlan(
   input: ContinuityDirectorPlannerInput,
 ): Promise<ContinuityDirectorPlannerResult> {
   const chatId = readString(input.chatId).trim();
-  const operationKey = input.rerollBeatId?.trim() ? `reroll:${input.rerollBeatId.trim()}` : "refresh";
+  const operationKey = input.rerollBeatId?.trim()
+    ? `reroll:${input.rerollBeatId.trim()}`
+    : input.initialExpectedDirectorState
+      ? `initial:${JSON.stringify(input.initialExpectedDirectorState)}`
+      : "refresh";
   const pendingByChat = pendingRefreshes.get(capabilities.storage) ?? new Map<string, PendingPlannerRequest>();
   pendingRefreshes.set(capabilities.storage, pendingByChat);
   const existing = pendingByChat.get(chatId);

@@ -25,6 +25,7 @@ import type {
   ChatMode,
   RoleplayWorkflowApplicationReceipt,
 } from "../../../../engine/contracts/types/chat";
+import type { RoleplayContinuityDirectorState } from "../../../../engine/contracts/types/roleplay-continuity-director";
 import {
   buildRoleplayWorkflowProfilePatch,
   buildRoleplayWorkflowProfileRevertPatch,
@@ -491,7 +492,7 @@ export async function applyRoleplayWorkflowProfile(
   const shouldCreateContinuityPlan =
     selected.has("continuity-director") &&
     !latestResolution.baseline.continuityDirector.enabled &&
-    !latestResolution.baseline.continuityDirector.hasSourceSnapshot;
+    !latestResolution.baseline.continuityDirector.hasPlan;
   const patch = buildRoleplayWorkflowProfilePatch(
     latestResolution,
     acceptedItemIds,
@@ -573,10 +574,10 @@ export function useApplyRoleplayWorkflowProfile(
     mutationFn: (
       input: Pick<ApplyRoleplayWorkflowProfileInput, "chatId" | "profileId" | "preview" | "selectedItemIds">,
     ) => applyRoleplayWorkflowProfile({ ...options, ...input, storage: storageApi }),
-    onSuccess: (result, variables) => {
-      if (result.outcome !== "applied") return;
+    onSettled: (_result, _error, variables) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: roleplayContinuityDirectorKeys.state(variables.chatId) });
     },
   });
 }
@@ -586,8 +587,14 @@ export function useCreateInitialContinuityPlan(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (chatId: string) => api.refresh(chatId),
-    onSettled: (_data, _error, chatId) => {
+    mutationFn: ({
+      chatId,
+      expectedDirectorState,
+    }: {
+      chatId: string;
+      expectedDirectorState: RoleplayContinuityDirectorState;
+    }) => api.refresh(chatId, { initialExpectedDirectorState: expectedDirectorState }),
+    onSettled: (_data, _error, { chatId }) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
       qc.invalidateQueries({ queryKey: roleplayContinuityDirectorKeys.state(chatId) });
@@ -599,9 +606,10 @@ export function useRevertRoleplayWorkflowProfile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (chatId: string) => revertRoleplayWorkflowProfile({ chatId, storage: storageApi }),
-    onSuccess: (_result, chatId) => {
+    onSettled: (_result, _error, chatId) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: roleplayContinuityDirectorKeys.state(chatId) });
     },
   });
 }

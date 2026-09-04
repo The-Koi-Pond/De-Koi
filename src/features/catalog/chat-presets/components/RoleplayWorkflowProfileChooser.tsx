@@ -40,7 +40,7 @@ const PROFILES: readonly ProfilePresentation[] = [
     bestFor: "A campaign or story spanning many scenes or sessions.",
     adds: "Continuity checks, world state, summaries, and reviewable future story beats.",
     modelUse:
-      "One immediate background Director planning call when applied, then occasional background calls, including one non-blocking planning call every 10 assistant replies.",
+      "Applying Long-Running Story makes one immediate background Director planning call only when it newly enables Director and no saved plan exists. Later background calls are occasional, including one non-blocking planning call every 10 assistant replies.",
   },
   {
     id: "cinematic",
@@ -370,29 +370,35 @@ export function RoleplayWorkflowProfileChooser({
       if (result.shouldCreateContinuityPlan) {
         const plannerOperation = ++plannerOperationRef.current;
         setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
-        initialPlan.mutate(displayedChat.id, {
-          onSuccess: (plannerResult) => {
-            if (plannerOperation !== plannerOperationRef.current) return;
-            const refreshedChat = {
-              ...result.chat,
-              metadata: {
-                ...result.chat.metadata,
-                roleplayContinuityDirector: plannerResult.state,
-              },
-            };
-            displayedChatRef.current = refreshedChat;
-            setDisplayedChat(refreshedChat);
-            setStatus({ tone: "success", message: "Story plan ready for review." });
+        initialPlan.mutate(
+          {
+            chatId: displayedChat.id,
+            expectedDirectorState: result.chat.metadata.roleplayContinuityDirector!,
           },
-          onError: () => {
-            if (plannerOperation !== plannerOperationRef.current) return;
-            setStatus({
-              tone: "info",
-              message:
-                "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
-            });
+          {
+            onSuccess: (plannerResult) => {
+              if (plannerOperation !== plannerOperationRef.current) return;
+              const refreshedChat = {
+                ...result.chat,
+                metadata: {
+                  ...result.chat.metadata,
+                  roleplayContinuityDirector: plannerResult.state,
+                },
+              };
+              displayedChatRef.current = refreshedChat;
+              setDisplayedChat(refreshedChat);
+              setStatus({ tone: "success", message: "Story plan ready for review." });
+            },
+            onError: () => {
+              if (plannerOperation !== plannerOperationRef.current) return;
+              setStatus({
+                tone: "info",
+                message:
+                  "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
+              });
+            },
           },
-        });
+        );
         return;
       }
       const skippedRoutingMessage =

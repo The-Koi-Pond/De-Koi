@@ -176,10 +176,11 @@ describe("continuity director planner", () => {
 
   it("keeps manual refresh available immediately after an initial failure", async () => {
     const test = harness("not json");
+    const exactPostApplyState = test.getState();
 
     await refreshContinuityDirectorPlan(
       { storage: test.storage, llm: test.llm },
-      { chatId: "chat-1", now: () => NOW },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
     );
     test.llm.complete = vi.fn(async () =>
       JSON.stringify({ currentArc: "The seal draws attention.", openThreads: [], beats: [] }),
@@ -190,6 +191,42 @@ describe("continuity director planner", () => {
     );
 
     expect(retry).toMatchObject({ ok: true });
+    expect(test.llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("spends at most one call for repeated initial requests with the same authorization", async () => {
+    const test = harness("not json");
+    const exactPostApplyState = test.getState();
+
+    const first = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+    const duplicate = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+
+    expect(first).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(duplicate).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(test.llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a newly enabled planless authorization even when an older failed attempt exists", async () => {
+    const test = harness('{"currentArc":"Fresh plan","openThreads":[],"beats":[]}');
+    const exactPostApplyState = {
+      ...test.getState(),
+      lastPlanningAttemptAssistantTurnCount: 1,
+      revision: test.getState().revision + 1,
+    };
+    test.setState(exactPostApplyState);
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: true });
     expect(test.llm.complete).toHaveBeenCalledTimes(1);
   });
 
@@ -366,6 +403,64 @@ describe("continuity director planner", () => {
     expect(test.getState().sourceSnapshot?.fingerprint).toBe("already-planned");
   });
 
+  it.each([
+    {
+      race: "another actor already planned",
+      mutate: (expected: RoleplayContinuityDirectorState) =>
+        applyContinuityDirectorCommand(
+          expected,
+          {
+            type: "replace_director_proposals" as const,
+            arc: "The winning plan",
+            threads: [],
+            beats: ["The winning beat"],
+            sourceSnapshot: {
+              storyProjectionIds: [],
+              knowledgeEdgeIds: [],
+              lastMessageId: "m2",
+              visibleAssistantTurnCount: 1,
+              fingerprint: "winning-plan",
+              generatedAt: NOW,
+            },
+          },
+          { now: () => NOW, createId: (prefix) => `${prefix}-winner` },
+        ),
+      expectedWinner: { sourceSnapshot: { fingerprint: "winning-plan" } },
+    },
+    {
+      race: "a user already edited the plan",
+      mutate: (expected: RoleplayContinuityDirectorState) =>
+        applyContinuityDirectorCommand(
+          expected,
+          { type: "edit_arc" as const, text: "User-owned plan" },
+          { now: () => NOW, createId: (prefix) => `${prefix}-user` },
+        ),
+      expectedWinner: { currentArc: { text: "User-owned plan", source: "user" } },
+    },
+    {
+      race: "the workflow was reverted",
+      mutate: (expected: RoleplayContinuityDirectorState) => ({
+        ...createDefaultContinuityDirectorState(NOW),
+        revision: expected.revision + 1,
+      }),
+      expectedWinner: { enabled: false, currentArc: null, beats: [] },
+    },
+  ])("does not start detached initial planning when $race before startup", async ({ mutate, expectedWinner }) => {
+    const test = harness('{"currentArc":"Stale plan","openThreads":[],"beats":["Stale beat"]}');
+    const exactPostApplyState = test.getState();
+    test.setState(mutate(exactPostApplyState));
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(test.llm.complete).not.toHaveBeenCalled();
+    expect(test.patches).toHaveLength(0);
+    expect(test.getState()).toMatchObject(expectedWinner);
+  });
+
   it("maps timeout-like failures without patching state", async () => {
     const test = harness("unused");
     test.llm.complete = vi.fn(async () => {
@@ -481,5 +576,42 @@ describe("continuity director planner", () => {
         expect.objectContaining({ text: "A different beat.", status: "proposed" }),
       ]),
     );
+  });
+
+  it("queues a newer initial authorization behind an unrelated in-flight initial request", async () => {
+    const test = harness("unused");
+    const firstAuthorization = test.getState();
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    test.llm.complete = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await firstPending;
+        return '{"currentArc":"Superseded","openThreads":[],"beats":[]}';
+      })
+      .mockResolvedValueOnce('{"currentArc":"Winning plan","openThreads":[],"beats":[]}');
+
+    const first = refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: firstAuthorization, now: () => NOW },
+    );
+    await vi.waitFor(() => expect(test.llm.complete).toHaveBeenCalledTimes(1));
+    const secondAuthorization = {
+      ...createDefaultContinuityDirectorState("2026-09-02T12:01:00.000Z"),
+      enabled: true,
+      revision: test.getState().revision + 1,
+    };
+    test.setState(secondAuthorization);
+    const second = refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: secondAuthorization, now: () => NOW },
+    );
+
+    releaseFirst();
+    expect(await first).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(await second).toMatchObject({ ok: true, state: { currentArc: { text: "Winning plan" } } });
+    expect(test.llm.complete).toHaveBeenCalledTimes(2);
   });
 });

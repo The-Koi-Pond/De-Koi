@@ -88,6 +88,7 @@ describe("useContinuityDirector", () => {
       }),
     } as unknown as RoleplayContinuityDirectorApi;
     const hook = await setup(api);
+    const invalidate = vi.spyOn(hook.client, "invalidateQueries");
     expect(hook.current().state).toEqual(initial);
 
     await act(async () => {
@@ -95,5 +96,33 @@ describe("useContinuityDirector", () => {
     });
 
     expect(hook.current().state).toEqual(initial);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: continuityDirectorKeys.state("chat-1") });
+  });
+
+  it("reloads the winning state after a command loses its CAS", async () => {
+    const winning = { ...initial, connectionId: "other-tab", revision: 1 };
+    const getState = vi
+      .fn()
+      .mockResolvedValueOnce({ state: initial, isStale: false })
+      .mockResolvedValue({ state: winning, isStale: false });
+    const api = {
+      getState,
+      command: vi.fn(async () => {
+        throw Object.assign(new Error("The continuity plan changed"), { code: "stale_revision" });
+      }),
+      refresh: vi.fn(),
+      reroll: vi.fn(),
+    } as unknown as RoleplayContinuityDirectorApi;
+    const hook = await setup(api);
+    const invalidate = vi.spyOn(hook.client, "invalidateQueries");
+
+    await act(async () => {
+      await expect(
+        hook.current().command.mutateAsync({ command: { type: "set_enabled", enabled: false }, expectedRevision: 0 }),
+      ).rejects.toMatchObject({ code: "stale_revision" });
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: continuityDirectorKeys.state("chat-1") });
+    await vi.waitFor(() => expect(hook.current().state).toMatchObject({ connectionId: "other-tab", revision: 1 }));
   });
 });

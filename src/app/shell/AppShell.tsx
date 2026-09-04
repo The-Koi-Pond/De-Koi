@@ -67,6 +67,7 @@ import {
   subscribeAutomaticMemoryCaptureCompletions,
   subscribeAutomaticMemoryCaptureStatuses,
 } from "../../engine/generation/automatic-memory-capture-queue";
+import { subscribeContinuityDirectorRefreshCacheInvalidation } from "./app-shell-continuity-director";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
@@ -374,6 +375,8 @@ export function AppShell() {
       }),
     [queryClient],
   );
+
+  useEffect(() => subscribeContinuityDirectorRefreshCacheInvalidation(queryClient), [queryClient]);
 
   useEffect(() => {
     const root = document.documentElement;
