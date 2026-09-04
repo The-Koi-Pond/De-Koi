@@ -47,6 +47,8 @@ export interface ChatPreset {
 /** Metadata keys that must NOT be saved into a preset (chat-specific). */
 export const CHAT_PRESET_EXCLUDED_METADATA_KEYS: readonly string[] = [
   "roleplayWorkflowApplication",
+  // Director plans contain chat-owned story text and cannot be reused across chats.
+  "roleplayContinuityDirector",
   "summary",
   "summaryEntries",
   "summaryPromptTemplates",

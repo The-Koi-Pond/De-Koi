@@ -25,7 +25,11 @@ describe("focused storage ports", () => {
   });
 
   it("exposes chat metadata patching without generic collection CRUD", () => {
-    expect(Object.keys(chatMetadataStorageApi).sort()).toEqual(["patchChatMetadata", "patchChatSummaries"]);
+    expect(Object.keys(chatMetadataStorageApi).sort()).toEqual([
+      "patchChatMetadata",
+      "patchChatSummaries",
+      "updateChatIfUnchanged",
+    ]);
     expect("list" in chatMetadataStorageApi).toBe(false);
     expect("get" in chatMetadataStorageApi).toBe(false);
     expect("create" in chatMetadataStorageApi).toBe(false);

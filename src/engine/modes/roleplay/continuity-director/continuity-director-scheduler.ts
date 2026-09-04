@@ -8,6 +8,7 @@ import {
 } from "./continuity-director-refresh-policy";
 import { loadContinuityDirectorSource } from "./continuity-director-source";
 import { normalizeContinuityDirectorState } from "./continuity-director-state";
+import { publishContinuityDirectorRefreshCompletion } from "./continuity-director-refresh-events";
 
 export interface ContinuityDirectorRefreshDiagnostic {
   stage: "continuity_director_refresh";
@@ -133,7 +134,9 @@ export function createContinuityDirectorRefreshScheduler(
       return;
     }
 
-    const result = await refreshPlan({ storage, llm }, { chatId });
+    const result = await refreshPlan({ storage, llm }, { chatId }).finally(() => {
+      publishContinuityDirectorRefreshCompletion({ chatId });
+    });
     if (!result.ok) {
       report(job.input, {
         stage: "continuity_director_refresh",

@@ -3,15 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ContinuityDirectorCommand } from "../../../../engine/contracts/types/roleplay-continuity-director";
 import {
   roleplayContinuityDirectorApi,
+  roleplayContinuityDirectorKeys,
   type ContinuityDirectorStateView,
   type RoleplayContinuityDirectorApi,
 } from "../../../../shared/api/roleplay-continuity-director-api";
 import { chatKeys } from "../../../catalog/chats";
 
-export const continuityDirectorKeys = {
-  all: ["roleplay-continuity-director"] as const,
-  state: (chatId: string) => [...continuityDirectorKeys.all, "state", chatId] as const,
-};
+export const continuityDirectorKeys = roleplayContinuityDirectorKeys;
 
 export function useContinuityDirector(
   chatId: string | null | undefined,
@@ -37,16 +35,31 @@ export function useContinuityDirector(
     mutationFn: (input: { command: ContinuityDirectorCommand; expectedRevision?: number }) =>
       api.command(normalizedChatId, input.command, input.expectedRevision),
     onSuccess: publish,
+    onSettled: (_data, error) => {
+      if (!error) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(normalizedChatId) });
+    },
   });
 
   const refresh = useMutation({
     mutationFn: () => api.refresh(normalizedChatId),
     onSuccess: publish,
+    onSettled: (_data, error) => {
+      if (!error) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(normalizedChatId) });
+    },
   });
 
   const reroll = useMutation({
     mutationFn: (beatId: string) => api.reroll(normalizedChatId, beatId),
     onSuccess: publish,
+    onSettled: (_data, error) => {
+      if (!error) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(normalizedChatId) });
+    },
   });
 
   return {

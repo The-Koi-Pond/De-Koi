@@ -695,6 +695,76 @@ pub async fn storage_update(
         .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn chat_update_if_unchanged(
+    state: State<'_, AppState>,
+    chat_id: String,
+    expected: Value,
+    patch: Value,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        chat_update_if_unchanged_inner(&state, chat_id, expected, patch)
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
+fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<(), AppError> {
+    let fields = value.as_object().ok_or_else(|| {
+        AppError::invalid_input(format!("Conditional chat {label} must be an object"))
+    })?;
+    for (field, field_value) in fields {
+        match field.as_str() {
+            "promptPresetId" => {}
+            "metadata" => {
+                let metadata = field_value.as_object().ok_or_else(|| {
+                    AppError::invalid_input(format!(
+                        "Conditional chat {label} metadata must be an object"
+                    ))
+                })?;
+                for metadata_field in metadata.keys() {
+                    if !matches!(
+                        metadata_field.as_str(),
+                        "activeAgentIds"
+                            | "agentConnectionOverrides"
+                            | "agentRunIntervalOverrides"
+                            | "enableAgents"
+                            | "enableMemoryRecall"
+                            | "roleplayContinuityDirector"
+                            | "roleplayWorkflowApplication"
+                    ) {
+                        return Err(AppError::invalid_input(format!(
+                            "Conditional chat {label} does not support metadata.{metadata_field}"
+                        )));
+                    }
+                }
+            }
+            _ => {
+                return Err(AppError::invalid_input(format!(
+                    "Conditional chat {label} does not support {field}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn chat_update_if_unchanged_inner(
+    state: &AppState,
+    chat_id: String,
+    expected: Value,
+    patch: Value,
+) -> Result<Value, AppError> {
+    validate_conditional_chat_update_scope("expected values", &expected)?;
+    validate_conditional_chat_update_scope("patch", &patch)?;
+    validate_chat_folder_for_patch(state, "chats", &chat_id, &patch)?;
+    let normalized_patch = shared::normalize_update_patch("chats", patch)?;
+    let normalized_patch = normalize_chat_for_update("chats", normalized_patch)?;
+    patch_chat_record_if_unchanged(state, &chat_id, expected, normalized_patch)
+}
+
 pub(crate) fn storage_update_inner(
     state: &AppState,
     entity: String,
@@ -1451,6 +1521,195 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn conditional_chat_patch_rejects_stale_owned_values_and_preserves_unrelated_metadata() {
+        let state = test_state("conditional-chat-patch");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "mode": "roleplay",
+                    "promptPresetId": null,
+                    "metadata": {
+                        "roleplayContinuityDirector": { "revision": 2, "enabled": true },
+                        "roleplayWorkflowApplication": null,
+                        "tags": ["keep"]
+                    }
+                }),
+            )
+            .expect("chat should seed");
+
+        let applied = patch_chat_record_if_unchanged(
+            &state,
+            "chat-1",
+            json!({
+                "promptPresetId": null,
+                "metadata": {
+                    "roleplayContinuityDirector": { "revision": 2, "enabled": true },
+                    "roleplayWorkflowApplication": null
+                }
+            }),
+            json!({
+                "promptPresetId": "preset-longform",
+                "metadata": {
+                    "roleplayContinuityDirector": { "revision": 3, "enabled": true },
+                    "roleplayWorkflowApplication": { "profileId": "longform-continuity" }
+                }
+            }),
+        )
+        .expect("matching conditional patch should not fail");
+        assert_eq!(applied["updated"], true);
+        assert_eq!(applied["chat"]["metadata"]["tags"], json!(["keep"]));
+
+        state
+            .storage
+            .patch(
+                "chats",
+                "chat-1",
+                json!({ "metadata": {
+                    "roleplayContinuityDirector": { "revision": 4, "enabled": false },
+                    "roleplayWorkflowApplication": { "profileId": "longform-continuity" },
+                    "tags": ["keep"]
+                }}),
+            )
+            .expect("concurrent Director edit should seed");
+        let stale = patch_chat_record_if_unchanged(
+            &state,
+            "chat-1",
+            json!({
+                "metadata": {
+                    "roleplayContinuityDirector": { "revision": 3, "enabled": true }
+                }
+            }),
+            json!({
+                "metadata": {
+                    "roleplayContinuityDirector": { "revision": 4, "enabled": true },
+                    "roleplayWorkflowApplication": null
+                }
+            }),
+        )
+        .expect("stale conditional patch should not fail");
+        assert_eq!(stale["updated"], false);
+        assert_eq!(
+            stale["chat"]["metadata"]["roleplayContinuityDirector"]["enabled"],
+            false
+        );
+        assert_eq!(stale["chat"]["metadata"]["tags"], json!(["keep"]));
+    }
+
+    #[test]
+    fn conditional_chat_patch_requires_the_exact_stored_director_value_for_cas() {
+        let state = test_state("conditional-chat-director-exact-cas");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "mode": "roleplay",
+                    "metadata": {
+                        "roleplayContinuityDirector": {
+                            "version": 1,
+                            "revision": 2,
+                            "enabled": true,
+                            "refreshMode": "cadence",
+                            "refreshEveryAssistantTurns": 10,
+                            "currentArc": { "id": "arc-1", "text": "Keep the archive" },
+                            "openThreads": [{ "id": "thread-1", "text": "Who changed the map?" }],
+                            "beats": [{ "id": "beat-1", "text": "Reveal the stair" }]
+                        }
+                    }
+                }),
+            )
+            .expect("chat should seed");
+
+        let current_director = json!({
+            "version": 1,
+            "revision": 2,
+            "enabled": true,
+            "refreshMode": "cadence",
+            "refreshEveryAssistantTurns": 10,
+            "currentArc": { "id": "arc-1", "text": "Keep the archive" },
+            "openThreads": [{ "id": "thread-1", "text": "Who changed the map?" }],
+            "beats": [{ "id": "beat-1", "text": "Reveal the stair" }]
+        });
+        let applied = patch_chat_record_if_unchanged(
+            &state,
+            "chat-1",
+            json!({
+                "metadata": {
+                    "roleplayContinuityDirector": current_director
+                }
+            }),
+            json!({ "metadata": { "enableMemoryRecall": true } }),
+        )
+        .expect("matching Director configuration should not fail");
+
+        assert_eq!(applied["updated"], true);
+        assert_eq!(
+            applied["chat"]["metadata"]["roleplayContinuityDirector"]["beats"][0]["text"],
+            "Reveal the stair"
+        );
+
+        let partial = patch_chat_record_if_unchanged(
+            &state,
+            "chat-1",
+            json!({
+                "metadata": {
+                    "roleplayContinuityDirector": { "revision": 2, "enabled": true }
+                }
+            }),
+            json!({ "metadata": { "enableMemoryRecall": false } }),
+        )
+        .expect("a partial Director expectation should be treated as stale");
+
+        assert_eq!(partial["updated"], false);
+        assert_eq!(partial["chat"]["metadata"]["enableMemoryRecall"], true);
+    }
+
+    #[test]
+    fn conditional_chat_patch_reports_a_missing_chat() {
+        let state = test_state("conditional-chat-missing");
+
+        let error = chat_update_if_unchanged_inner(
+            &state,
+            "missing-chat".to_string(),
+            json!({ "promptPresetId": null }),
+            json!({ "promptPresetId": "preset-longform" }),
+        )
+        .expect_err("missing chats must not look like stale writes");
+
+        assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
+    fn conditional_chat_patch_rejects_fields_with_unshared_update_side_effects() {
+        let state = test_state("conditional-chat-patch-scope");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "mode": "roleplay",
+                    "metadata": {}
+                }),
+            )
+            .expect("chat should seed");
+
+        let error = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            json!({}),
+            json!({ "memories": [{ "id": "memory-1" }] }),
+        )
+        .expect_err("conditional workflow patches must reject general chat fields");
+
+        assert_eq!(error.code, "invalid_input");
     }
 
     #[test]

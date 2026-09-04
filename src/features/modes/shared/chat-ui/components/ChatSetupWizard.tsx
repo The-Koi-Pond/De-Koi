@@ -481,7 +481,7 @@ export function ChatSetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardPro
     return null;
   }
 
-  return <RoleplaySetupWizard chat={chat} onFinish={onFinish} />;
+  return <RoleplaySetupWizard chat={chat} onFinish={onFinish} onCancel={onCancel} />;
 }
 
 // ──────────────────────────────────────────────
@@ -1082,8 +1082,9 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
 // Roleplay Setup Wizard — step-by-step guided setup
 // ──────────────────────────────────────────────
 
-function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
+function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps) {
   const STEPS = ALL_STEPS;
+  const cancelSetup = onCancel ?? onFinish;
 
   const [step, setStep] = useState(0);
   const currentStep = STEPS[step]!;
@@ -1097,9 +1098,50 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     return flag;
   });
   const [shortcutPresetId, setShortcutPresetId] = useState<string>("");
+  const [shortcutApplying, setShortcutApplying] = useState(false);
+  const shortcutApplyOperationRef = useRef(0);
+  const shortcutApplyPendingOperationRef = useRef<number | null>(null);
+  const shortcutApplyMountedRef = useRef(true);
   const [charSearch, setCharSearch] = useState("");
   const debouncedCharSearch = useDebouncedValue(charSearch, 180);
   const [lbSearch, setLbSearch] = useState("");
+
+  const invalidateShortcutApply = useCallback(() => {
+    shortcutApplyOperationRef.current += 1;
+  }, []);
+
+  const cancel = useCallback(() => {
+    invalidateShortcutApply();
+    cancelSetup();
+  }, [cancelSetup, invalidateShortcutApply]);
+
+  const leaveShortcutMode = useCallback(() => {
+    invalidateShortcutApply();
+    setShortcutMode(false);
+  }, [invalidateShortcutApply]);
+
+  useEffect(() => {
+    shortcutApplyMountedRef.current = true;
+    return () => {
+      shortcutApplyMountedRef.current = false;
+      shortcutApplyOperationRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    shortcutApplyOperationRef.current += 1;
+    shortcutApplyPendingOperationRef.current = null;
+    setShortcutApplying(false);
+  }, [chat.id]);
+
+  useEffect(() => {
+    if (shortcutMode || showChoiceModal) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancel();
+    };
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => window.removeEventListener("keydown", dismissOnEscape);
+  }, [cancel, shortcutMode, showChoiceModal]);
 
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
@@ -1358,8 +1400,6 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     if (pick) setShortcutPresetId(pick.id);
   }, [chatPresetList, shortcutPresetId, metadata.appliedChatPresetId]);
 
-  const [shortcutApplying, setShortcutApplying] = useState(false);
-
   const finishWizard = useCallback(async () => {
     await updateMeta.mutateAsync({
       id: chat.id,
@@ -1369,18 +1409,25 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }, [chat.id, customizeParameters, generationParameters, onFinish, updateMeta]);
 
   const handleShortcutApply = useCallback(async () => {
-    if (!shortcutPresetId) {
-      onFinish();
+    if (!shortcutPresetId || shortcutApplyPendingOperationRef.current !== null) {
       return;
     }
+    const operationId = shortcutApplyOperationRef.current + 1;
+    shortcutApplyOperationRef.current = operationId;
+    shortcutApplyPendingOperationRef.current = operationId;
     try {
       setShortcutApplying(true);
       await applyChatPreset.mutateAsync({ presetId: shortcutPresetId, chatId: chat.id });
-    } catch {
-      /* fall through — still close the wizard */
-    } finally {
-      setShortcutApplying(false);
+      if (shortcutApplyOperationRef.current !== operationId) return;
       onFinish();
+    } catch (error) {
+      if (shortcutApplyOperationRef.current !== operationId) return;
+      toast.error(error instanceof Error ? error.message : "Failed to apply chat preset.");
+    } finally {
+      if (shortcutApplyPendingOperationRef.current === operationId) {
+        shortcutApplyPendingOperationRef.current = null;
+        if (shortcutApplyMountedRef.current) setShortcutApplying(false);
+      }
     }
   }, [shortcutPresetId, chat.id, applyChatPreset, onFinish]);
 
@@ -1431,7 +1478,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
           <button
             onClick={() => {
               openRightPanel("connections");
-              onFinish();
+              cancel();
             }}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/20"
           >
@@ -1579,7 +1626,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                 allAddedText="All characters already added."
                 onOpenCharacters={() => {
                   openRightPanel("characters");
-                  onFinish();
+                  cancel();
                 }}
               />
             )}
@@ -1659,7 +1706,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }
 
   function renderWorkflowProfile() {
-    return <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onNavigateAway={onFinish} />;
+    return <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onNavigateAway={cancel} />;
   }
 
   const stepRenderers: Record<string, () => React.ReactNode> = {
@@ -1674,7 +1721,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   return (
     <>
       {/* Backdrop */}
-      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onFinish} />
+      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={cancel} />
 
       {/* Preset variable selection modal */}
       <ChoiceSelectionModal
@@ -1709,7 +1756,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               {/* Header */}
               <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
                 <button
-                  onClick={() => setShortcutMode(false)}
+                  onClick={leaveShortcutMode}
                   className="flex items-center gap-1.5 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
                   aria-label="Back"
                 >
@@ -1720,7 +1767,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                   <h3 className="text-sm font-semibold text-[var(--foreground)]">Quick Setup</h3>
                 </div>
                 <button
-                  onClick={onFinish}
+                  onClick={cancel}
                   className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
                   aria-label="Close"
                 >
@@ -1871,7 +1918,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                           allAddedText="All characters added."
                           onOpenCharacters={() => {
                             openRightPanel("characters");
-                            onFinish();
+                            cancel();
                           }}
                         />
                       )}
@@ -1883,7 +1930,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
               {/* Footer */}
               <div className="flex shrink-0 items-center justify-between border-t border-[var(--border)] px-4 py-3">
                 <button
-                  onClick={() => setShortcutMode(false)}
+                  onClick={leaveShortcutMode}
                   className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
                 >
                   Back

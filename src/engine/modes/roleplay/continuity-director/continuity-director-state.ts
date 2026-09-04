@@ -29,6 +29,15 @@ export interface ContinuityDirectorCommandOptions {
   createId?: (prefix: string) => string;
 }
 
+export interface ContinuityDirectorConfiguration {
+  enabled: boolean;
+  refreshMode: ContinuityDirectorRefreshMode;
+  refreshEveryAssistantTurns: ContinuityDirectorCadence | null;
+  connectionId: string | null;
+  hasSourceSnapshot: boolean;
+  hasPlan: boolean;
+}
+
 const BEAT_STATUSES = new Set<ContinuityDirectorBeatStatus>([
   "proposed",
   "approved",
@@ -58,6 +67,10 @@ function stringArray(value: unknown): string[] {
 
 function integer(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function optionalInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function cadence(value: unknown): ContinuityDirectorCadence {
@@ -158,6 +171,7 @@ export function createDefaultContinuityDirectorState(now = new Date().toISOStrin
     openThreads: [],
     beats: [],
     sourceSnapshot: null,
+    lastPlanningAttemptAssistantTurnCount: null,
     updatedAt: now,
   };
 }
@@ -193,8 +207,68 @@ export function normalizeContinuityDirectorState(
     openThreads: threads,
     beats: reindex(beats),
     sourceSnapshot: normalizeSourceSnapshot(value.sourceSnapshot),
+    lastPlanningAttemptAssistantTurnCount: optionalInteger(value.lastPlanningAttemptAssistantTurnCount),
     updatedAt: boundedText(value.updatedAt, 80) || now,
   };
+}
+
+export function recordContinuityDirectorPlanningAttempt(
+  input: RoleplayContinuityDirectorState,
+  visibleAssistantTurnCount: number,
+  options: ContinuityDirectorCommandOptions = {},
+): RoleplayContinuityDirectorState {
+  const now = options.now?.() ?? new Date().toISOString();
+  const state = normalizeContinuityDirectorState(input, now);
+  return {
+    ...state,
+    lastPlanningAttemptAssistantTurnCount: integer(visibleAssistantTurnCount),
+    revision: state.revision + 1,
+    updatedAt: now,
+  };
+}
+
+export function readContinuityDirectorConfiguration(value: unknown): ContinuityDirectorConfiguration {
+  const state = normalizeContinuityDirectorState(value);
+  return {
+    enabled: state.enabled,
+    refreshMode: state.refreshMode,
+    refreshEveryAssistantTurns: state.refreshMode === "cadence" ? cadence(state.refreshEveryAssistantTurns) : null,
+    connectionId: state.connectionId,
+    hasSourceSnapshot: state.sourceSnapshot !== null,
+    hasPlan:
+      state.sourceSnapshot !== null ||
+      state.currentArc !== null ||
+      state.openThreads.length > 0 ||
+      state.beats.length > 0,
+  };
+}
+
+export function applyContinuityDirectorConfiguration(
+  state: RoleplayContinuityDirectorState,
+  patch: Partial<Pick<RoleplayContinuityDirectorState, "enabled" | "refreshMode" | "refreshEveryAssistantTurns">>,
+  options: ContinuityDirectorCommandOptions = {},
+): RoleplayContinuityDirectorState {
+  const refreshMode = patch.refreshMode ?? state.refreshMode;
+  const refreshEveryAssistantTurns =
+    refreshMode === "cadence" ? cadence(patch.refreshEveryAssistantTurns ?? state.refreshEveryAssistantTurns) : null;
+  const next = {
+    ...state,
+    enabled: patch.enabled ?? state.enabled,
+    refreshMode,
+    refreshEveryAssistantTurns,
+  };
+  if (
+    next.enabled === state.enabled &&
+    next.refreshMode === state.refreshMode &&
+    next.refreshEveryAssistantTurns === state.refreshEveryAssistantTurns
+  )
+    return state;
+  const now = options.now?.() ?? new Date().toISOString();
+  return { ...next, revision: state.revision + 1, updatedAt: now };
+}
+
+export function countProposedContinuityDirectorBeats(value: unknown): number {
+  return normalizeContinuityDirectorState(value).beats.filter((beat) => beat.status === "proposed").length;
 }
 
 function makeArc(text: string, now: string, makeId: (prefix: string) => string): ContinuityDirectorArc | null {

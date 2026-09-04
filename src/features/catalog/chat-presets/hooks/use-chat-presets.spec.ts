@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import type { LlmGateway } from "../../../../engine/capabilities/llm";
+import type { StorageGateway } from "../../../../engine/capabilities/storage";
+import type { Chat } from "../../../../engine/contracts/types/chat";
+import type { RoleplayContinuityDirectorState } from "../../../../engine/contracts/types/roleplay-continuity-director";
+import { CHAT_PRESET_EXCLUDED_METADATA_KEYS } from "../../../../engine/contracts/types/chat-preset";
+import { createDefaultContinuityDirectorState } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { resolveRoleplayWorkflowProfile } from "../../../../engine/modes/roleplay/workflow-profiles";
+import { createRoleplayContinuityDirectorApi } from "../../../../shared/api/roleplay-continuity-director-api";
 
 import {
   applyRoleplayWorkflowProfile,
@@ -11,6 +18,98 @@ import {
 } from "./use-chat-presets";
 
 describe("chat preset workflow profile serialization", () => {
+  it("never serializes chat-owned Director plans into reusable presets", () => {
+    const director = {
+      ...createDefaultContinuityDirectorState("2026-09-03T12:00:00.000Z"),
+      enabled: true,
+      currentArc: {
+        id: "private-arc",
+        text: "Chat-private story content",
+        source: "user" as const,
+        createdAt: "2026-09-03T12:00:00.000Z",
+        updatedAt: "2026-09-03T12:00:00.000Z",
+      },
+    };
+
+    const settings = sanitizeChatPresetSettings({
+      metadata: { enableMemoryRecall: true, roleplayContinuityDirector: director },
+    });
+
+    expect(settings.metadata).toMatchObject({ enableMemoryRecall: true });
+    expect(settings.metadata).not.toHaveProperty("roleplayContinuityDirector");
+  });
+
+  it("omits the target chat's Director plan from the outgoing patch when applying a legacy preset", () => {
+    const currentDirector = {
+      ...createDefaultContinuityDirectorState("2026-09-03T12:00:00.000Z"),
+      enabled: true,
+      revision: 4,
+    };
+    const foreignDirector = {
+      ...currentDirector,
+      revision: 99,
+      currentArc: {
+        id: "foreign-arc",
+        text: "Another chat's story",
+        source: "user" as const,
+        createdAt: "2026-09-03T12:00:00.000Z",
+        updatedAt: "2026-09-03T12:00:00.000Z",
+      },
+    };
+
+    const patch = buildChatPresetApplicationPatch(
+      {
+        id: "legacy-preset",
+        name: "Legacy",
+        mode: "roleplay",
+        isDefault: false,
+        isActive: false,
+        settings: { metadata: { roleplayContinuityDirector: foreignDirector } },
+        createdAt: "2026-09-03T12:00:00.000Z",
+        updatedAt: "2026-09-03T12:00:00.000Z",
+      },
+      {
+        mode: "roleplay",
+        connectionId: null,
+        promptPresetId: null,
+        metadata: { roleplayContinuityDirector: currentDirector },
+      } as Pick<Chat, "mode" | "connectionId" | "promptPresetId" | "metadata">,
+    );
+
+    expect(patch.metadata).not.toHaveProperty("roleplayContinuityDirector");
+  });
+
+  it("omits every chat-owned metadata key from an outgoing preset application patch", () => {
+    const excludedMetadata = Object.fromEntries(
+      [...CHAT_PRESET_EXCLUDED_METADATA_KEYS, "sceneFutureState"].map((key) => [key, `private:${key}`]),
+    );
+    const patch = buildChatPresetApplicationPatch(
+      {
+        id: "legacy-preset",
+        name: "Legacy",
+        mode: "roleplay",
+        isDefault: false,
+        isActive: false,
+        settings: {
+          metadata: { ...excludedMetadata, enableMemoryRecall: true },
+        },
+        createdAt: "2026-09-03T12:00:00.000Z",
+        updatedAt: "2026-09-03T12:00:00.000Z",
+      },
+      {
+        mode: "roleplay",
+        connectionId: null,
+        promptPresetId: null,
+        metadata: excludedMetadata,
+      } as Pick<Chat, "mode" | "connectionId" | "promptPresetId" | "metadata">,
+    );
+
+    expect(patch.metadata).toMatchObject({ enableMemoryRecall: true, appliedChatPresetId: "legacy-preset" });
+    for (const key of [...CHAT_PRESET_EXCLUDED_METADATA_KEYS, "sceneFutureState"]) {
+      expect(patch.metadata).not.toHaveProperty(key);
+    }
+  });
+
   it("round-trips override maps but excludes the chat-scoped workflow receipt and identity/history metadata", () => {
     const settings = sanitizeChatPresetSettings(
       {
@@ -128,6 +227,140 @@ describe("roleplay workflow profile persistence", () => {
     musicModuleEnabled: true,
     ttsReady: true,
   };
+  const NOW = "2026-09-03T12:00:00.000Z";
+
+  function conditionalStorage<T>(
+    get: () => Promise<T>,
+    update: (entity: string, id: string, patch: Record<string, unknown>) => Promise<T>,
+  ) {
+    return {
+      get,
+      updateChatIfUnchanged: async (chatId: string, _expected: Record<string, unknown>, patch: Record<string, unknown>) => ({
+        updated: true,
+        chat: await update("chats", chatId, patch),
+      }),
+    } as never;
+  }
+
+  async function applyLongformWithDirector(
+    director?: RoleplayContinuityDirectorState,
+    selectedItemIdsOverride?: readonly string[],
+  ) {
+    let currentChat: Chat = {
+      id: "chat-1",
+      name: "Longform chat",
+      mode: roleplayMode,
+      characterIds: [],
+      groupId: null,
+      personaId: null,
+      promptPresetId: null,
+      connectionId: null,
+      connectedChatId: null,
+      folderId: null,
+      sortOrder: 0,
+      createdAt: NOW,
+      updatedAt: NOW,
+      metadata: {
+        summary: null,
+        tags: [],
+        agentOverrides: {},
+        activeAgentIds: [],
+        activeToolIds: [],
+        presetChoices: {},
+        ...(director ? { roleplayContinuityDirector: director } : {}),
+      },
+    };
+    const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
+    const selectedItemIds =
+      selectedItemIdsOverride ??
+      preview.rows
+        .filter((row) => row.kind === "change" && row.selectedByDefault)
+        .map((row) => row.id);
+    return applyRoleplayWorkflowProfile({
+      chatId: currentChat.id,
+      profileId: "longform-continuity",
+      preview,
+      selectedItemIds,
+      resolveCapabilities: async () => capabilities,
+      storage: conditionalStorage(
+        async () => currentChat,
+        async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+          const metadata = patch.metadata as Partial<Chat["metadata"]> | undefined;
+          currentChat = {
+            ...currentChat,
+            ...(patch as Partial<Chat>),
+            metadata: { ...currentChat.metadata, ...metadata },
+          };
+          return currentChat;
+        },
+      ),
+      now: () => NOW,
+    });
+  }
+
+  it("requests one initial plan only after newly enabling a snapshot-less Director", async () => {
+    const result = await applyLongformWithDirector();
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: true });
+  });
+
+  it.each([true, false])("does not request an initial plan for an explicitly configured Director", async (enabled) => {
+    const director = { ...createDefaultContinuityDirectorState(NOW), enabled };
+    const result = await applyLongformWithDirector(director);
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: false });
+  });
+
+  it("requests a new initial plan after explicitly re-enabling a planless Director with an older failed attempt", async () => {
+    const director = {
+      ...createDefaultContinuityDirectorState(NOW),
+      lastPlanningAttemptAssistantTurnCount: 4,
+    };
+
+    const result = await applyLongformWithDirector(director, ["continuity-director"]);
+
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: true });
+  });
+
+  it("does not request an initial plan when newly enabling a Director with a user-authored plan", async () => {
+    const director = {
+      ...createDefaultContinuityDirectorState(NOW),
+      currentArc: {
+        id: "arc-user",
+        text: "Keep this plan",
+        source: "user" as const,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: { activeAgentIds: [], roleplayContinuityDirector: director },
+    } as unknown as Chat;
+    const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
+
+    const result = await applyRoleplayWorkflowProfile({
+      chatId: currentChat.id,
+      profileId: "longform-continuity",
+      preview,
+      selectedItemIds: ["continuity-director"],
+      resolveCapabilities: async () => capabilities,
+      storage: conditionalStorage(
+        async () => currentChat,
+        async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+          currentChat = {
+            ...currentChat,
+            ...patch,
+            metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+          } as Chat;
+          return currentChat;
+        },
+      ),
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: false });
+  });
 
   it("rejects a freshly loaded non-Roleplay chat before resolving capabilities or writing", async () => {
     const preview = resolveRoleplayWorkflowProfile("minimal-clean", {
@@ -185,6 +418,211 @@ describe("roleplay workflow profile persistence", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it("rebuilds a selected Director change from metadata that changed during capability loading", async () => {
+    const initialDirector: RoleplayContinuityDirectorState = {
+      ...createDefaultContinuityDirectorState(NOW),
+      revision: 4,
+      connectionId: "director-old",
+      currentArc: {
+        id: "arc-old",
+        text: "Old arc",
+        source: "user",
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    };
+    const freshDirector: RoleplayContinuityDirectorState = {
+      ...initialDirector,
+      revision: 8,
+      connectionId: "director-fresh",
+      currentArc: { ...initialDirector.currentArc!, text: "Fresh arc", updatedAt: "2026-09-03T12:01:00.000Z" },
+      openThreads: [
+        {
+          id: "thread-fresh",
+          text: "Fresh thread",
+          status: "open",
+          source: "user",
+          sourceIds: [],
+          createdAt: NOW,
+          updatedAt: "2026-09-03T12:01:00.000Z",
+        },
+      ],
+      beats: [
+        {
+          id: "beat-fresh",
+          text: "Fresh beat",
+          status: "approved",
+          order: 0,
+          source: "user",
+          sourceIds: [],
+          characterIds: [],
+          threadIds: [],
+          createdAt: NOW,
+          updatedAt: "2026-09-03T12:01:00.000Z",
+        },
+      ],
+      sourceSnapshot: {
+        storyProjectionIds: ["projection-fresh"],
+        knowledgeEdgeIds: ["edge-fresh"],
+        lastMessageId: "message-fresh",
+        visibleAssistantTurnCount: 7,
+        fingerprint: "snapshot-fresh",
+        generatedAt: "2026-09-03T12:01:00.000Z",
+      },
+      updatedAt: "2026-09-03T12:01:00.000Z",
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: {
+        activeAgentIds: [],
+        tags: ["old-tag"],
+        roleplayContinuityDirector: initialDirector,
+      },
+    } as unknown as Chat;
+    const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
+    const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+      } as Chat;
+      return currentChat;
+    });
+
+    const result = await applyRoleplayWorkflowProfile({
+      chatId: "chat-1",
+      profileId: "longform-continuity",
+      preview,
+      selectedItemIds: ["continuity-director", "continuity-director-cadence"],
+      resolveCapabilities: async () => {
+        currentChat = {
+          ...currentChat,
+          metadata: {
+            ...currentChat.metadata,
+            tags: ["fresh-tag"],
+            roleplayContinuityDirector: freshDirector,
+          },
+        };
+        return capabilities;
+      },
+      storage: conditionalStorage(async () => currentChat, update),
+      now: () => "2026-09-03T12:02:00.000Z",
+    });
+
+    expect(result).toMatchObject({ outcome: "applied", shouldCreateContinuityPlan: false });
+    expect(currentChat.metadata.tags).toEqual(["fresh-tag"]);
+    expect(currentChat.metadata.roleplayContinuityDirector).toMatchObject({
+      enabled: true,
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      connectionId: "director-fresh",
+      currentArc: { text: "Fresh arc" },
+      openThreads: [{ id: "thread-fresh" }],
+      beats: [{ id: "beat-fresh" }],
+      sourceSnapshot: { fingerprint: "snapshot-fresh" },
+      revision: 9,
+    });
+    expect(JSON.stringify(currentChat.metadata.roleplayWorkflowApplication)).not.toContain("Fresh arc");
+  });
+
+  it("discards an apply when a Director edit wins after the final read", async () => {
+    const initialDirector = { ...createDefaultContinuityDirectorState(NOW), revision: 2 };
+    const winningDirector = {
+      ...initialDirector,
+      enabled: false,
+      revision: 3,
+      connectionId: "user-choice",
+      updatedAt: "2026-09-03T12:01:00.000Z",
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: { activeAgentIds: [], roleplayContinuityDirector: initialDirector },
+    } as unknown as Chat;
+    const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
+    const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+      currentChat = {
+        ...currentChat,
+        metadata: { ...currentChat.metadata, roleplayContinuityDirector: winningDirector },
+      };
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+      } as Chat;
+      return currentChat;
+    });
+    const updateChatIfUnchanged = vi.fn(async () => {
+      currentChat = {
+        ...currentChat,
+        metadata: { ...currentChat.metadata, roleplayContinuityDirector: winningDirector },
+      };
+      return { updated: false, chat: currentChat };
+    });
+
+    const result = await applyRoleplayWorkflowProfile({
+      chatId: "chat-1",
+      profileId: "longform-continuity",
+      preview,
+      selectedItemIds: ["continuity-director", "continuity-director-cadence"],
+      resolveCapabilities: async () => capabilities,
+      storage: { get: async () => currentChat, update, updateChatIfUnchanged } as never,
+      now: () => "2026-09-03T12:02:00.000Z",
+    });
+
+    expect(result).toMatchObject({ outcome: "stale" });
+    expect(currentChat.metadata.roleplayContinuityDirector).toEqual(winningDirector);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("never supplies Director metadata when a non-Longform apply races a Director edit", async () => {
+    const initialDirector = { ...createDefaultContinuityDirectorState(NOW), enabled: true, revision: 2 };
+    const freshDirector = {
+      ...initialDirector,
+      revision: 3,
+      connectionId: "director-fresh",
+      updatedAt: "2026-09-03T12:01:00.000Z",
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: { activeAgentIds: [], roleplayContinuityDirector: initialDirector },
+    } as unknown as Chat;
+    const preview = resolveRoleplayWorkflowProfile("minimal-clean", { chat: currentChat, capabilities });
+    const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+      expect(patch.metadata).not.toHaveProperty("roleplayContinuityDirector");
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+      } as Chat;
+      return currentChat;
+    });
+
+    const result = await applyRoleplayWorkflowProfile({
+      chatId: "chat-1",
+      profileId: "minimal-clean",
+      preview,
+      selectedItemIds: ["memory-recall"],
+      resolveCapabilities: async () => {
+        currentChat = {
+          ...currentChat,
+          metadata: { ...currentChat.metadata, roleplayContinuityDirector: freshDirector },
+        };
+        return capabilities;
+      },
+      storage: conditionalStorage(async () => currentChat, update),
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(currentChat.metadata.roleplayContinuityDirector).toEqual(freshDirector);
+  });
+
   it("writes selected changes atomically, preserves unrelated metadata, and replaces the receipt", async () => {
     let currentChat = {
       id: "chat-1",
@@ -219,7 +657,7 @@ describe("roleplay workflow profile persistence", () => {
       preview,
       selectedItemIds: ["memory-recall", "enable-automatic-agents", "agent:continuity", "cadence:chat-summary"],
       resolveCapabilities: async () => capabilities,
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
       now: () => "2026-08-26T12:00:00.000Z",
     });
 
@@ -233,7 +671,6 @@ describe("roleplay workflow profile persistence", () => {
       "chat-1",
       expect.objectContaining({
         metadata: expect.objectContaining({
-          tags: ["keep-me"],
           enableMemoryRecall: true,
           enableAgents: true,
           activeAgentIds: ["continuity"],
@@ -245,6 +682,8 @@ describe("roleplay workflow profile persistence", () => {
         }),
       }),
     );
+    expect(update.mock.calls[0]?.[2].metadata).not.toHaveProperty("tags");
+    expect(currentChat.metadata.tags).toEqual(["keep-me"]);
     expect(currentChat.promptPresetId).toBe("custom-prompt");
     expect(currentChat.metadata.roleplayWorkflowApplication).toMatchObject({
       profileId: "longform-continuity",
@@ -284,7 +723,7 @@ describe("roleplay workflow profile persistence", () => {
       ],
       resolveCapabilities: async () => capabilities,
       isLocalSidecarAssignmentReady: async (agentId) => agentId !== "world-state",
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
     });
 
     expect(result).toMatchObject({
@@ -319,7 +758,7 @@ describe("roleplay workflow profile persistence", () => {
         selectedItemIds: ["agent:world-state"],
         resolveCapabilities: async () => capabilities,
         isLocalSidecarAssignmentReady: async () => true,
-        storage: { get: async () => currentChat, update } as never,
+        storage: conditionalStorage(async () => currentChat, update),
       }),
     ).rejects.toThrow("needs its local sidecar route selected");
     expect(update).not.toHaveBeenCalled();
@@ -334,7 +773,11 @@ describe("roleplay workflow profile persistence", () => {
     };
     const preview = resolveRoleplayWorkflowProfile("local-assist", { chat: currentChat, capabilities });
     const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
-      currentChat = { ...currentChat, ...patch, metadata: patch.metadata as typeof currentChat.metadata };
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Partial<typeof currentChat.metadata>) },
+      };
       return currentChat;
     });
 
@@ -345,7 +788,7 @@ describe("roleplay workflow profile persistence", () => {
       selectedItemIds: ["connection:world-state"],
       resolveCapabilities: async () => capabilities,
       isLocalSidecarAssignmentReady: async () => true,
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
     });
 
     expect(result).toMatchObject({ outcome: "applied", selectedItemIds: ["connection:world-state"] });
@@ -367,7 +810,11 @@ describe("roleplay workflow profile persistence", () => {
     };
     const preview = resolveRoleplayWorkflowProfile("local-assist", { chat: currentChat, capabilities });
     const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
-      currentChat = { ...currentChat, ...patch, metadata: patch.metadata as typeof currentChat.metadata };
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Partial<typeof currentChat.metadata>) },
+      };
       return currentChat;
     });
 
@@ -378,7 +825,7 @@ describe("roleplay workflow profile persistence", () => {
       selectedItemIds: ["connection:world-state"],
       resolveCapabilities: async () => capabilities,
       isLocalSidecarAssignmentReady: async () => false,
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
     });
 
     expect(result).toMatchObject({
@@ -402,7 +849,11 @@ describe("roleplay workflow profile persistence", () => {
     };
     const preview = resolveRoleplayWorkflowProfile("local-assist", { chat: currentChat, capabilities });
     const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
-      currentChat = { ...currentChat, ...patch, metadata: patch.metadata as typeof currentChat.metadata };
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Partial<typeof currentChat.metadata>) },
+      };
       return currentChat;
     });
 
@@ -413,7 +864,7 @@ describe("roleplay workflow profile persistence", () => {
       selectedItemIds: ["enable-automatic-agents", "agent:world-state"],
       resolveCapabilities: async () => capabilities,
       isLocalSidecarAssignmentReady: async () => true,
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
     });
 
     expect(result).toMatchObject({
@@ -444,7 +895,7 @@ describe("roleplay workflow profile persistence", () => {
         preview,
         selectedItemIds: ["enable-automatic-agents", "agent:world-state", "connection:world-state"],
         resolveCapabilities: async () => capabilities,
-        storage: { get: async () => currentChat, update } as never,
+        storage: conditionalStorage(async () => currentChat, update),
       }),
     ).rejects.toThrow("readiness resolver");
     expect(update).not.toHaveBeenCalled();
@@ -466,7 +917,7 @@ describe("roleplay workflow profile persistence", () => {
       preview,
       selectedItemIds: ["memory-recall"],
       resolveCapabilities: async () => capabilities,
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
     });
 
     expect(result).toMatchObject({ outcome: "applied", selectedItemIds: ["memory-recall"] });
@@ -492,7 +943,7 @@ describe("roleplay workflow profile persistence", () => {
         preview,
         selectedItemIds: ["memory-recall"],
         resolveCapabilities: async () => capabilities,
-        storage: { get: async () => currentChat, update } as never,
+        storage: conditionalStorage(async () => currentChat, update),
       }),
     ).rejects.toThrow("disk unavailable");
     expect(update).toHaveBeenCalledTimes(1);
@@ -530,7 +981,7 @@ describe("roleplay workflow profile persistence", () => {
 
     const result = await revertRoleplayWorkflowProfile({
       chatId: "chat-1",
-      storage: { get: async () => currentChat, update } as never,
+      storage: conditionalStorage(async () => currentChat, update),
     });
 
     expect(result).toMatchObject({ outcome: "reverted", skippedConflicts: ["agent:continuity"] });
@@ -541,6 +992,288 @@ describe("roleplay workflow profile persistence", () => {
       tags: ["keep-me"],
       roleplayWorkflowApplication: null,
     });
+  });
+
+  it("revert sends only its conflict-checked metadata delta so an unrelated concurrent edit survives", async () => {
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: {
+        enableMemoryRecall: true,
+        activeAgentIds: [],
+        tags: ["before-revert"],
+        roleplayWorkflowApplication: {
+          profileId: "minimal-clean",
+          profileVersion: 1,
+          appliedAt: NOW,
+          selectedItemIds: ["memory-recall"],
+          changes: [
+            { itemIds: ["memory-recall"], field: "metadata.enableMemoryRecall", before: false, after: true },
+          ],
+        },
+      },
+    } as unknown as Chat;
+    const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+      currentChat = { ...currentChat, metadata: { ...currentChat.metadata, tags: ["concurrent-edit"] } } as Chat;
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+      } as Chat;
+      return currentChat;
+    });
+
+    const result = await revertRoleplayWorkflowProfile({
+      chatId: "chat-1",
+      storage: conditionalStorage(async () => currentChat, update),
+    });
+
+    expect(result).toMatchObject({ outcome: "reverted", skippedConflicts: [] });
+    expect(currentChat.metadata.tags).toEqual(["concurrent-edit"]);
+    expect(currentChat.metadata.enableMemoryRecall).toBe(false);
+    expect(currentChat.metadata.roleplayWorkflowApplication).toBeNull();
+  });
+
+  it("retries revert conflict checks so a Director edit after its read wins permanently", async () => {
+    const appliedDirector = {
+      ...createDefaultContinuityDirectorState(NOW),
+      enabled: true,
+      refreshMode: "cadence" as const,
+      refreshEveryAssistantTurns: 10,
+      revision: 2,
+    };
+    const winningDirector = {
+      ...appliedDirector,
+      enabled: false,
+      refreshMode: "scene_events" as const,
+      refreshEveryAssistantTurns: null,
+      revision: 3,
+      connectionId: "user-choice",
+      updatedAt: "2026-09-03T12:01:00.000Z",
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: {
+        activeAgentIds: [],
+        roleplayContinuityDirector: appliedDirector,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity",
+          profileVersion: 2,
+          appliedAt: NOW,
+          selectedItemIds: ["continuity-director", "continuity-director-cadence"],
+          changes: [
+            { itemIds: ["continuity-director"], field: "metadata.roleplayContinuityDirector.enabled", before: false, after: true },
+            { itemIds: ["continuity-director-cadence"], field: "metadata.roleplayContinuityDirector.refreshMode", before: "manual", after: "cadence" },
+            { itemIds: ["continuity-director-cadence"], field: "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns", before: null, after: 10 },
+          ],
+        },
+      },
+    } as unknown as Chat;
+    const mergePatch = (patch: Record<string, unknown>) => {
+      currentChat = {
+        ...currentChat,
+        ...patch,
+        metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+      } as Chat;
+    };
+    const update = vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+      currentChat = {
+        ...currentChat,
+        metadata: { ...currentChat.metadata, roleplayContinuityDirector: winningDirector },
+      };
+      mergePatch(patch);
+      return currentChat;
+    });
+    const updateChatIfUnchanged = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        currentChat = {
+          ...currentChat,
+          metadata: { ...currentChat.metadata, roleplayContinuityDirector: winningDirector },
+        };
+        return { updated: false, chat: currentChat };
+      })
+      .mockImplementationOnce(async (_chatId: string, _expected: unknown, patch: Record<string, unknown>) => {
+        mergePatch(patch);
+        return { updated: true, chat: currentChat };
+      });
+
+    const result = await revertRoleplayWorkflowProfile({
+      chatId: "chat-1",
+      storage: { get: async () => currentChat, update, updateChatIfUnchanged } as never,
+    });
+
+    expect(result).toMatchObject({
+      outcome: "reverted",
+      skippedConflicts: ["continuity-director", "continuity-director-cadence"],
+    });
+    expect(currentChat.metadata.roleplayContinuityDirector).toEqual(winningDirector);
+    expect(currentChat.metadata.roleplayWorkflowApplication).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("cannot let a delayed Director command resurrect a workflow state after real revert wins", async () => {
+    const appliedDirector = {
+      ...createDefaultContinuityDirectorState(NOW),
+      enabled: true,
+      refreshMode: "cadence" as const,
+      refreshEveryAssistantTurns: 10 as const,
+      revision: 2,
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: {
+        activeAgentIds: [],
+        roleplayContinuityDirector: appliedDirector,
+        roleplayWorkflowApplication: {
+          profileId: "longform-continuity" as const,
+          profileVersion: 2,
+          appliedAt: NOW,
+          selectedItemIds: ["continuity-director", "continuity-director-cadence"],
+          changes: [
+            {
+              itemIds: ["continuity-director"],
+              field: "metadata.roleplayContinuityDirector.enabled" as const,
+              before: false,
+              after: true,
+            },
+            {
+              itemIds: ["continuity-director-cadence"],
+              field: "metadata.roleplayContinuityDirector.refreshMode" as const,
+              before: "manual",
+              after: "cadence",
+            },
+            {
+              itemIds: ["continuity-director-cadence"],
+              field: "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns" as const,
+              before: null,
+              after: 10,
+            },
+          ],
+        },
+      },
+    } as unknown as Chat;
+    let releaseCommand!: () => void;
+    let markCommandWaiting!: () => void;
+    const commandWaiting = new Promise<void>((resolve) => {
+      markCommandWaiting = resolve;
+    });
+    const commandHold = new Promise<void>((resolve) => {
+      releaseCommand = resolve;
+    });
+    let writes = 0;
+    const storage = {
+      get: vi.fn(async () => currentChat),
+      updateChatIfUnchanged: vi.fn(
+        async (_chatId: string, expected: Record<string, unknown>, patch: Record<string, unknown>) => {
+          writes += 1;
+          if (writes === 1) {
+            markCommandWaiting();
+            await commandHold;
+          }
+          const expectedRecord = expected as Record<string, unknown>;
+          const currentRecord = currentChat as unknown as Record<string, unknown>;
+          const matches = Object.entries(expectedRecord).every(([key, value]) => {
+            if (key !== "metadata") return JSON.stringify(currentRecord[key] ?? null) === JSON.stringify(value ?? null);
+            const expectedMetadata = value as Record<string, unknown>;
+            return Object.entries(expectedMetadata).every(
+              ([metadataKey, metadataValue]) =>
+                JSON.stringify((currentChat.metadata as unknown as Record<string, unknown>)[metadataKey] ?? null) ===
+                JSON.stringify(metadataValue ?? null),
+            );
+          });
+          if (!matches) return { updated: false, chat: currentChat };
+          currentChat = {
+            ...currentChat,
+            ...patch,
+            metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+          } as Chat;
+          return { updated: true, chat: currentChat };
+        },
+      ),
+    } as unknown as StorageGateway;
+    const api = createRoleplayContinuityDirectorApi(
+      { storage, llm: {} as LlmGateway },
+      { now: () => NOW, createId: (prefix) => `${prefix}-stale` },
+    );
+
+    const delayedCommand = api.command("chat-1", { type: "edit_arc", text: "Resurrected plan" }, 2);
+    await commandWaiting;
+    const revert = await revertRoleplayWorkflowProfile({ chatId: "chat-1", storage });
+    releaseCommand();
+
+    expect(revert).toMatchObject({ outcome: "reverted" });
+    await expect(delayedCommand).rejects.toMatchObject({ code: "stale_revision" });
+    expect(currentChat.metadata).toMatchObject({
+      roleplayContinuityDirector: { enabled: false, currentArc: null, beats: [] },
+      roleplayWorkflowApplication: null,
+    });
+  });
+
+  it("does not retarget a revert retry to a newer workflow receipt", async () => {
+    const firstReceipt = {
+      profileId: "minimal-clean",
+      profileVersion: 1,
+      appliedAt: NOW,
+      selectedItemIds: ["memory-recall"],
+      changes: [
+        {
+          itemIds: ["memory-recall"],
+          field: "metadata.enableMemoryRecall" as const,
+          before: false,
+          after: true,
+        },
+      ],
+    };
+    const newerReceipt = {
+      ...firstReceipt,
+      profileId: "longform-continuity",
+      profileVersion: 2,
+      appliedAt: "2026-09-03T12:01:00.000Z",
+    };
+    let currentChat = {
+      id: "chat-1",
+      mode: roleplayMode,
+      promptPresetId: null,
+      metadata: {
+        enableMemoryRecall: true,
+        roleplayWorkflowApplication: firstReceipt,
+      },
+    } as unknown as Chat;
+    const updateChatIfUnchanged = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        currentChat = {
+          ...currentChat,
+          metadata: {
+            ...currentChat.metadata,
+            roleplayWorkflowApplication: newerReceipt,
+          },
+        } as Chat;
+        return { updated: false, chat: currentChat };
+      })
+      .mockImplementationOnce(async (_chatId: string, _expected: unknown, patch: Record<string, unknown>) => {
+        currentChat = {
+          ...currentChat,
+          ...patch,
+          metadata: { ...currentChat.metadata, ...(patch.metadata as Record<string, unknown>) },
+        } as Chat;
+        return { updated: true, chat: currentChat };
+      });
+
+    const result = await revertRoleplayWorkflowProfile({
+      chatId: "chat-1",
+      storage: { get: async () => currentChat, updateChatIfUnchanged } as never,
+    });
+
+    expect(result).toMatchObject({ outcome: "stale", chat: currentChat });
+    expect(updateChatIfUnchanged).toHaveBeenCalledTimes(1);
+    expect(currentChat.metadata.roleplayWorkflowApplication).toEqual(newerReceipt);
   });
 
   it("does not write when there is no workflow receipt to revert", async () => {

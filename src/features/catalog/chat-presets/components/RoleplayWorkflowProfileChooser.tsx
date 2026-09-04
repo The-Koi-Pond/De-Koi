@@ -11,33 +11,50 @@ import {
 import { DISCOVERY_APP_EVENT, type DiscoveryChatDestination } from "../../../../shared/lib/discovery-navigation";
 import { cn } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { useApplyRoleplayWorkflowProfile, useRevertRoleplayWorkflowProfile } from "../hooks/use-chat-presets";
+import {
+  useApplyRoleplayWorkflowProfile,
+  useCreateInitialContinuityPlan,
+  useRevertRoleplayWorkflowProfile,
+} from "../hooks/use-chat-presets";
 import { isLocalSidecarAssignmentReady, resolveRoleplayWorkflowCapabilities } from "../roleplay-workflow-capabilities";
 
-const PROFILES: ReadonlyArray<{
+interface ProfilePresentation {
   id: RoleplayWorkflowProfileId;
   label: string;
-  description: string;
-}> = [
+  bestFor: string;
+  adds: string;
+  modelUse: string;
+}
+
+const PROFILES: readonly ProfilePresentation[] = [
   {
     id: "minimal-clean",
-    label: "Minimal / Clean",
-    description: "Universal roleplay prompting and memory recall, with automatic agents kept out unless you opt in.",
+    label: "Simple Roleplay",
+    bestFor: "A short or casual chat where the main model handles the story.",
+    adds: "Standard Roleplay prompting and memory recall without automatic helpers.",
+    modelUse: "No background helper calls.",
   },
   {
     id: "longform-continuity",
-    label: "Longform Continuity",
-    description: "Adds continuity, world-state, and periodic summary support for longer-running stories.",
+    label: "Long-Running Story",
+    bestFor: "A campaign or story spanning many scenes or sessions.",
+    adds: "Continuity checks, world state, summaries, and reviewable future story beats.",
+    modelUse:
+      "Applying Long-Running Story makes one immediate background Director planning call only when it newly enables Director and no saved plan exists. Later background calls are occasional, including one non-blocking planning call every 10 assistant replies.",
   },
   {
     id: "cinematic",
-    label: "Cinematic",
-    description: "Adds expression and background support. Illustrator and Music Player stay optional.",
+    label: "Cinematic Roleplay",
+    bestFor: "Roleplay where expressions, backgrounds, artwork, or music matter most.",
+    adds: "Visual presentation helpers; artwork and music remain optional.",
+    modelUse: "Varies by selection; image or music features may use external services.",
   },
   {
     id: "local-assist",
-    label: "Local Assist",
-    description: "Routes selected helper agents to the local sidecar. Your writer connection remains unchanged.",
+    label: "Local Helpers",
+    bestFor: "A setup with the local sidecar configured for supported background work.",
+    adds: "Local tracking and expression helpers without changing the writer connection.",
+    modelUse: "Uses local helper calls and requires a ready sidecar.",
   },
 ] as const;
 
@@ -100,6 +117,35 @@ function defaultSelections(resolution: RoleplayWorkflowProfileResolution): Set<s
       .filter((row) => row.kind === "change" && row.selectable && row.selectedByDefault)
       .map((row) => row.id),
   );
+}
+
+function refreshedSelections(
+  current: ReadonlySet<string>,
+  previous: RoleplayWorkflowProfileResolution | null,
+  next: RoleplayWorkflowProfileResolution,
+): Set<string> {
+  if (!previous || previous.profileId !== next.profileId) return defaultSelections(next);
+
+  const previousIds = new Set(
+    previous.rows.filter((row) => row.kind === "change" && row.selectable).map((row) => row.id),
+  );
+  const nextRows = next.rows.filter((row) => row.kind === "change" && row.selectable);
+  const nextIds = new Set(nextRows.map((row) => row.id));
+  const selections = new Set([...current].filter((itemId) => nextIds.has(itemId)));
+  for (const row of nextRows) {
+    if (!previousIds.has(row.id) && row.selectedByDefault) selections.add(row.id);
+  }
+  return selections;
+}
+
+function appliedProfileId(chat: Chat): RoleplayWorkflowProfileId {
+  const id = chat.metadata?.roleplayWorkflowApplication?.profileId;
+  return PROFILES.some((profile) => profile.id === id) ? (id as RoleplayWorkflowProfileId) : "minimal-clean";
+}
+
+function modelActivitySummary(rows: readonly RoleplayWorkflowChangeRow[]): string {
+  if (!rows.some((row) => row.expectedExtraCalls > 0)) return "Background model activity: none";
+  return "Background model activity: occasional";
 }
 
 function emitChatDestination(destination: DiscoveryChatDestination): void {
@@ -166,6 +212,7 @@ function workflowRelevantChatValue(chat: Chat): unknown {
     agentConnectionOverrides: metadata.agentConnectionOverrides ?? {},
     agentRunIntervalOverrides: metadata.agentRunIntervalOverrides ?? {},
     illustrationImageConnectionId: metadata.illustrationImageConnectionId,
+    roleplayContinuityDirector: metadata.roleplayContinuityDirector,
     roleplayWorkflowApplication: metadata.roleplayWorkflowApplication,
   });
 }
@@ -179,7 +226,7 @@ export function RoleplayWorkflowProfileChooser({
   entryPoint,
   onNavigateAway,
 }: RoleplayWorkflowProfileChooserProps) {
-  const [profileId, setProfileId] = useState<RoleplayWorkflowProfileId>("minimal-clean");
+  const [profileId, setProfileId] = useState<RoleplayWorkflowProfileId>(() => appliedProfileId(chat));
   const [preview, setPreview] = useState<RoleplayWorkflowProfileResolution | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [displayedChat, setDisplayedChat] = useState(chat);
@@ -190,37 +237,46 @@ export function RoleplayWorkflowProfileChooser({
   const [reloadKey, setReloadKey] = useState(0);
   const displayedChatRef = useRef(chat);
   const capabilityRequestRef = useRef(0);
+  const plannerOperationRef = useRef(0);
+  const preserveSelectionsOnNextPreviewRef = useRef(false);
 
   const applyMutation = useApplyRoleplayWorkflowProfile({
     resolveCapabilities: resolveRoleplayWorkflowCapabilities,
     isLocalSidecarAssignmentReady,
   });
+  const initialPlan = useCreateInitialContinuityPlan();
   const revertMutation = useRevertRoleplayWorkflowProfile();
 
   useEffect(() => {
     if (sameWorkflowRelevantChat(displayedChatRef.current, chat)) return;
+    plannerOperationRef.current += 1;
     displayedChatRef.current = chat;
     setConfirming(false);
     setStatus({
       tone: "info",
       message: "Chat settings changed. Review the refreshed ledger before applying.",
     });
+    setProfileId(appliedProfileId(chat));
     setDisplayedChat(chat);
   }, [chat]);
 
   useEffect(() => {
     let cancelled = false;
     const requestId = ++capabilityRequestRef.current;
+    const previousPreview = preview;
+    const preserveSelections = preserveSelectionsOnNextPreviewRef.current;
+    preserveSelectionsOnNextPreviewRef.current = false;
     setLoadingCapabilities(true);
     setCapabilityError(null);
     setPreview(null);
-    setSelectedItemIds(new Set());
     resolveRoleplayWorkflowCapabilities(displayedChat)
       .then((capabilities) => {
         if (cancelled || capabilityRequestRef.current !== requestId) return;
         const next = resolveRoleplayWorkflowProfile(profileId, { chat: displayedChat, capabilities });
         setPreview(next);
-        setSelectedItemIds(defaultSelections(next));
+        setSelectedItemIds((current) =>
+          preserveSelections ? refreshedSelections(current, previousPreview, next) : defaultSelections(next),
+        );
       })
       .catch((error) => {
         if (!cancelled && capabilityRequestRef.current === requestId) setCapabilityError(completeError(error));
@@ -335,6 +391,41 @@ export function RoleplayWorkflowProfileChooser({
       displayedChatRef.current = result.chat;
       setDisplayedChat(result.chat);
       setConfirming(false);
+      if (result.shouldCreateContinuityPlan) {
+        const plannerOperation = ++plannerOperationRef.current;
+        setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
+        initialPlan.mutate(
+          {
+            chatId: displayedChat.id,
+            expectedDirectorState: result.chat.metadata.roleplayContinuityDirector!,
+          },
+          {
+            onSuccess: (plannerResult) => {
+              if (plannerOperation !== plannerOperationRef.current) return;
+              const refreshedChat = {
+                ...result.chat,
+                metadata: {
+                  ...result.chat.metadata,
+                  roleplayContinuityDirector: plannerResult.state,
+                },
+              };
+              displayedChatRef.current = refreshedChat;
+              preserveSelectionsOnNextPreviewRef.current = true;
+              setDisplayedChat(refreshedChat);
+              setStatus({ tone: "success", message: "Story plan ready for review." });
+            },
+            onError: () => {
+              if (plannerOperation !== plannerOperationRef.current) return;
+              setStatus({
+                tone: "info",
+                message:
+                  "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
+              });
+            },
+          },
+        );
+        return;
+      }
       const skippedRoutingMessage =
         result.skippedLocalRoutingAgentIds.length > 0
           ? `Local routing was skipped for ${result.skippedLocalRoutingAgentIds.map((id) => itemLabel(`agent:${id}`)).join(", ")}. ${result.skippedLocalRoutingAgentIds.length === 1 ? "It remains" : "They remain"} active on ${result.skippedLocalRoutingAgentIds.length === 1 ? "its" : "their"} existing connection; this profile chose no substitute or fallback.`
@@ -358,18 +449,22 @@ export function RoleplayWorkflowProfileChooser({
       setConfirming(false);
       setStatus({ tone: "error", message: completeError(error) });
     }
-  }, [applyMutation, displayedChat.id, preview, profileId, selectedItemIds]);
+  }, [applyMutation, displayedChat.id, initialPlan, preview, profileId, selectedItemIds]);
 
   const revert = useCallback(async () => {
+    plannerOperationRef.current += 1;
     setStatus(null);
     try {
       const result = await revertMutation.mutateAsync(displayedChat.id);
-      if (result.outcome === "not_applied") {
+      if (result.outcome === "not_applied" || result.outcome === "stale") {
         displayedChatRef.current = result.chat;
         setDisplayedChat(result.chat);
         setStatus({
           tone: "info",
-          message: "No workflow profile is currently applied. Current chat state was refreshed.",
+          message:
+            result.outcome === "stale"
+              ? "The workflow changed before revert completed. Current chat state was refreshed."
+              : "No workflow profile is currently applied. Current chat state was refreshed.",
         });
         setReloadKey((key) => key + 1);
         return;
@@ -394,7 +489,14 @@ export function RoleplayWorkflowProfileChooser({
     [preview, selectedItemIds],
   );
   const receipt = displayedChat.metadata?.roleplayWorkflowApplication;
-  const pending = applyMutation.isPending || revertMutation.isPending;
+  const hasLongformUpdate =
+    receipt?.profileId === "longform-continuity" &&
+    receipt.profileVersion === 1 &&
+    preview?.profileId === "longform-continuity" &&
+    preview.version === 2;
+  const formPending = applyMutation.isPending || revertMutation.isPending;
+  const applyActionPending = formPending || initialPlan.isPending;
+  const revertPending = applyMutation.isPending || revertMutation.isPending;
 
   return (
     <section
@@ -423,6 +525,9 @@ export function RoleplayWorkflowProfileChooser({
         </div>
       ) : (
         <>
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">
+            What kind of roleplay are you setting up?
+          </h3>
           <div
             className="grid min-h-0 gap-3 @[36rem]:grid-cols-[minmax(9.5rem,0.72fr)_minmax(0,1.28fr)]"
             data-layout="workflow-profile-grid"
@@ -435,6 +540,7 @@ export function RoleplayWorkflowProfileChooser({
             >
               {PROFILES.map((profile) => {
                 const selected = profile.id === profileId;
+                const guidanceId = `workflow-profile-${profile.id}-guidance`;
                 return (
                   <button
                     key={profile.id}
@@ -442,6 +548,7 @@ export function RoleplayWorkflowProfileChooser({
                     role="radio"
                     aria-checked={selected}
                     aria-label={`Choose ${profile.label}`}
+                    aria-describedby={guidanceId}
                     onClick={() => void selectProfile(profile.id)}
                     className={cn(
                       "w-full rounded-lg px-3 py-2.5 text-left ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]",
@@ -461,7 +568,20 @@ export function RoleplayWorkflowProfileChooser({
                       </span>
                       {profile.label}
                     </span>
-                    <span className="mt-1 block text-[0.625rem] leading-relaxed">{profile.description}</span>
+                    <span id={guidanceId} className="mt-1.5 grid gap-1 text-[0.625rem] leading-relaxed">
+                      <span className="block">
+                        <span className="font-semibold">Best for: </span>
+                        {profile.bestFor}
+                      </span>
+                      <span className="block">
+                        <span className="font-semibold">Adds: </span>
+                        {profile.adds}
+                      </span>
+                      <span className="block">
+                        <span className="font-semibold">Model use: </span>
+                        {profile.modelUse}
+                      </span>
+                    </span>
                   </button>
                 );
               })}
@@ -471,7 +591,7 @@ export function RoleplayWorkflowProfileChooser({
               <div className="flex items-center justify-between gap-2">
                 <h4 className="text-xs font-semibold text-[var(--foreground)]">Change ledger</h4>
                 <span className="text-[0.625rem] text-[var(--muted-foreground)]">
-                  {selectedRows.reduce((sum, row) => sum + row.expectedExtraCalls, 0)} expected extra calls
+                  {modelActivitySummary(selectedRows)}
                 </span>
               </div>
               <div
@@ -489,7 +609,7 @@ export function RoleplayWorkflowProfileChooser({
                             type="checkbox"
                             aria-label={itemLabel(row.id)}
                             checked={selected}
-                            disabled={!row.selectable || pending}
+                            disabled={!row.selectable || formPending}
                             onChange={() => toggleItem(row)}
                             className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
                           />
@@ -521,18 +641,10 @@ export function RoleplayWorkflowProfileChooser({
                               <dd className="break-words text-[var(--foreground)]">
                                 {displayValue(row.after, row.id)}
                               </dd>
-                              <dt className="text-[var(--muted-foreground)]">Calls</dt>
-                              <dd>
-                                {row.expectedExtraCalls === 0
-                                  ? "No extra model call"
-                                  : `+${row.expectedExtraCalls} model call per run`}
-                              </dd>
+                              <dt className="text-[var(--muted-foreground)]">Model use</dt>
+                              <dd>{row.modelUse}</dd>
                               <dt className="text-[var(--muted-foreground)]">Latency</dt>
-                              <dd>
-                                {row.expectedExtraCalls === 0
-                                  ? "No added model latency"
-                                  : "May add response latency when it runs"}
-                              </dd>
+                              <dd>{row.addsWriterLatency ? "May add writer response latency" : "No added writer latency"}</dd>
                               <dt className="text-[var(--muted-foreground)]">Destination</dt>
                               <dd className="break-words">{row.destination ?? "No external data destination"}</dd>
                             </dl>
@@ -571,14 +683,17 @@ export function RoleplayWorkflowProfileChooser({
 
           {receipt && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--primary)]/8 px-3 py-2 ring-1 ring-[var(--primary)]/25">
-              <p className="text-[0.625rem] leading-relaxed text-[var(--foreground)]">
-                Applied {PROFILES.find((profile) => profile.id === receipt.profileId)?.label ?? receipt.profileId},
-                version {receipt.profileVersion}, {new Date(receipt.appliedAt).toLocaleString()}.
-              </p>
+              <div>
+                <p className="text-[0.625rem] leading-relaxed text-[var(--foreground)]">
+                  Applied {PROFILES.find((profile) => profile.id === receipt.profileId)?.label ?? receipt.profileId},
+                  version {receipt.profileVersion}, {new Date(receipt.appliedAt).toLocaleString()}.
+                </p>
+                {hasLongformUpdate && <p role="status">Update available: add automatic story planning</p>}
+              </div>
               <button
                 type="button"
                 onClick={() => void revert()}
-                disabled={pending}
+                disabled={revertPending}
                 className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[var(--secondary)] px-2.5 py-1 text-[0.6875rem] font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] disabled:opacity-50"
               >
                 <RotateCcw size="0.75rem" />
@@ -613,7 +728,7 @@ export function RoleplayWorkflowProfileChooser({
                 <button
                   type="button"
                   onClick={() => setConfirming(false)}
-                  disabled={pending}
+                  disabled={formPending}
                   className="min-h-9 rounded-md px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--accent)] disabled:opacity-50"
                 >
                   Review again
@@ -621,10 +736,10 @@ export function RoleplayWorkflowProfileChooser({
                 <button
                   type="button"
                   onClick={() => void apply()}
-                  disabled={pending}
+                  disabled={applyActionPending}
                   className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
                 >
-                  {pending && <Loader2 size="0.75rem" className="animate-spin" />}
+                  {applyActionPending && <Loader2 size="0.75rem" className="animate-spin" />}
                   Confirm and apply
                 </button>
               </>
@@ -632,7 +747,7 @@ export function RoleplayWorkflowProfileChooser({
               <button
                 type="button"
                 onClick={() => setConfirming(true)}
-                disabled={!preview || selectedItemIds.size === 0 || pending}
+                disabled={!preview || selectedItemIds.size === 0 || applyActionPending}
                 className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] shadow-sm hover:opacity-90 disabled:opacity-50"
               >
                 Review and apply

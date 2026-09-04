@@ -54,6 +54,66 @@ describe("storageApi chat summary patches", () => {
     );
   });
 
+  it("sends conditional chat patches through the atomic runtime command", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      updated: false,
+      chat: { id: "chat-1", metadata: { roleplayContinuityDirector: { revision: 4 } } },
+    });
+    const { storageApi } = await import("./storage-api");
+    const expected = { metadata: { roleplayContinuityDirector: { revision: 3 } } };
+    const patch = { metadata: { roleplayContinuityDirector: { revision: 4 } } };
+
+    await expect(storageApi.updateChatIfUnchanged?.("chat-1", expected, patch)).resolves.toEqual({
+      updated: false,
+      chat: { id: "chat-1", metadata: { roleplayContinuityDirector: { revision: 4 } } },
+    });
+    expect(invokeTauriMock).toHaveBeenCalledWith(
+      "chat_update_if_unchanged",
+      {
+        chatId: "chat-1",
+        expected,
+        patch,
+      },
+      { timeoutMs: null },
+    );
+  });
+
+  it("normalizes legacy chat metadata returned by a stale conditional patch", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      updated: false,
+      chat: {
+        id: "chat-1",
+        metadata: '{"roleplayWorkflowApplication":{"profileId":"longform-continuity"}}',
+      },
+    });
+    const { storageApi } = await import("./storage-api");
+
+    await expect(storageApi.updateChatIfUnchanged?.("chat-1", {}, {})).resolves.toEqual({
+      updated: false,
+      chat: {
+        id: "chat-1",
+        metadata: { roleplayWorkflowApplication: { profileId: "longform-continuity" } },
+      },
+    });
+  });
+
+  it.each([
+    null,
+    { updated: "yes", chat: null },
+    { updated: true, chat: {} },
+    { updated: true, chat: { id: "another-chat" } },
+  ])(
+    "rejects malformed conditional chat patch response %#",
+    async (response) => {
+      invokeTauriMock.mockResolvedValueOnce(response);
+      const { storageApi } = await import("./storage-api");
+
+      await expect(storageApi.updateChatIfUnchanged?.("chat-1", {}, {})).rejects.toThrow(
+        "Invalid conditional chat update response",
+      );
+    },
+  );
+
   it("sends summary map deltas through the atomic runtime command", async () => {
     invokeTauriMock.mockResolvedValueOnce({ id: "chat-1" });
     const { storageApi } = await import("./storage-api");

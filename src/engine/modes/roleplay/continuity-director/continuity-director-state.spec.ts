@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { RoleplayContinuityDirectorState } from "../../../contracts/types/roleplay-continuity-director";
 import {
   applyContinuityDirectorCommand,
+  applyContinuityDirectorConfiguration,
+  countProposedContinuityDirectorBeats,
   createDefaultContinuityDirectorState,
   normalizeContinuityDirectorState,
+  recordContinuityDirectorPlanningAttempt,
 } from "./continuity-director-state";
 
 const NOW = "2026-09-02T12:00:00.000Z";
@@ -47,7 +50,34 @@ describe("continuity director state", () => {
       openThreads: [],
       beats: [],
       sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: null,
       updatedAt: NOW,
+    });
+  });
+
+  it("normalizes legacy v1 state without inventing a successful snapshot or prior attempt", () => {
+    const legacy = createDefaultContinuityDirectorState(NOW) as unknown as Record<string, unknown>;
+    delete legacy.lastPlanningAttemptAssistantTurnCount;
+
+    expect(normalizeContinuityDirectorState(legacy, NOW)).toMatchObject({
+      version: 1,
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: null,
+    });
+  });
+
+  it("records a durable planning-attempt turn baseline without fabricating a source snapshot", () => {
+    const initial = { ...createDefaultContinuityDirectorState(NOW), enabled: true };
+
+    const attempted = recordContinuityDirectorPlanningAttempt(initial, 7, {
+      now: () => "2026-09-02T12:03:00.000Z",
+    });
+
+    expect(attempted).toMatchObject({
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 7,
+      revision: initial.revision + 1,
+      updatedAt: "2026-09-02T12:03:00.000Z",
     });
   });
 
@@ -95,6 +125,68 @@ describe("continuity director state", () => {
     expect(
       normalizeContinuityDirectorState({ ...state, refreshEveryAssistantTurns: 7 }, NOW).refreshEveryAssistantTurns,
     ).toBe(10);
+  });
+
+  it("updates only director configuration and preserves plan content", () => {
+    const options = commandOptions();
+    const state = applyContinuityDirectorCommand(
+      createDefaultContinuityDirectorState(NOW),
+      {
+        type: "replace_director_proposals",
+        arc: "Recover the sealed archive",
+        threads: ["Who altered the map?"],
+        beats: ["The map points beneath the city."],
+        sourceSnapshot: {
+          storyProjectionIds: ["story-1"],
+          knowledgeEdgeIds: ["edge-1"],
+          lastMessageId: "message-1",
+          visibleAssistantTurnCount: 3,
+          fingerprint: "snapshot-1",
+          generatedAt: NOW,
+        },
+      },
+      options,
+    );
+
+    const next = applyContinuityDirectorConfiguration(
+      state,
+      { enabled: true, refreshMode: "cadence", refreshEveryAssistantTurns: 10 },
+      options,
+    );
+
+    expect(next).toMatchObject({
+      enabled: true,
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      currentArc: state.currentArc,
+      openThreads: state.openThreads,
+      beats: state.beats,
+      sourceSnapshot: state.sourceSnapshot,
+      revision: state.revision + 1,
+    });
+  });
+
+  it("normalizes invalid cadence values through the shared cadence rule", () => {
+    const next = applyContinuityDirectorConfiguration(
+      createDefaultContinuityDirectorState(NOW),
+      { refreshMode: "cadence", refreshEveryAssistantTurns: 1 },
+      commandOptions(),
+    );
+
+    expect(next.refreshEveryAssistantTurns).toBe(10);
+  });
+
+  it("counts only proposed beats from normalized state", () => {
+    const state = proposedState();
+    for (const status of ["approved", "deferred", "rejected", "fulfilled"] as const) {
+      expect(
+        countProposedContinuityDirectorBeats({
+          ...state,
+          beats: [state.beats[0]!, { ...state.beats[1]!, status }],
+        }),
+      ).toBe(1);
+    }
+    expect(countProposedContinuityDirectorBeats(undefined)).toBe(0);
   });
 
   it("makes every user edit durable across later proposal replacement", () => {

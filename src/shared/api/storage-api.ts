@@ -491,6 +491,39 @@ export const storageApi: StorageGateway = {
   evictPromptSnapshots: (chatId, keepLast) =>
     invokeTauri("chat_evict_prompt_snapshots", { chatId, keepLast }) as Promise<{ evicted: number }>,
   patchChatMetadata: (chatId, patch) => storageApi.update("chats", chatId, { metadata: patch }),
+  updateChatIfUnchanged: async <T = unknown>(
+    chatId: string,
+    expected: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ) => {
+    const result = (await invokeTauri(
+      "chat_update_if_unchanged",
+      {
+        chatId,
+        expected,
+        patch,
+      },
+      { timeoutMs: null },
+    )) as { updated?: unknown; chat?: unknown } | null;
+    if (
+      !result ||
+      typeof result !== "object" ||
+      typeof result.updated !== "boolean" ||
+      !result.chat ||
+      typeof result.chat !== "object" ||
+      Array.isArray(result.chat)
+    ) {
+      throw new ApiError("Invalid conditional chat update response", 500);
+    }
+    const chat = normalizeStorageReadResult("chats", result.chat) as Record<string, unknown>;
+    if (chat.id !== chatId) {
+      throw new ApiError("Invalid conditional chat update response", 500);
+    }
+    return {
+      updated: result.updated,
+      chat: chat as T,
+    };
+  },
   patchChatSummaries: <T = unknown>(chatId: string, patch: ChatSummaryMapsPatch) =>
     invokeTauri<T>("chat_summary_maps_patch", { chatId, patch }, { timeoutMs: null }),
   listChatMemories: <T = unknown>(chatId: string, options?: ListChatMemoriesOptions) =>
@@ -545,5 +578,6 @@ export const chatTranscriptStorageApi: ChatTranscriptPort = {
 
 export const chatMetadataStorageApi: ChatMetadataPort = {
   patchChatMetadata: (...args) => storageApi.patchChatMetadata(...args),
+  updateChatIfUnchanged: (...args) => storageApi.updateChatIfUnchanged?.(...args) as never,
   patchChatSummaries: (...args) => storageApi.patchChatSummaries(...args),
 };

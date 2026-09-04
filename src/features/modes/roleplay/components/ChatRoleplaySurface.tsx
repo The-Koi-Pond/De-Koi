@@ -15,6 +15,7 @@ import {
 } from "react";
 import type { SpritePlacement, SpriteSide } from "../../../../engine/contracts/types/chat";
 import type { SceneForkMode } from "../../../../engine/contracts/types/scene";
+import { countProposedContinuityDirectorBeats } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import {
   FolderOpen,
   Image,
@@ -57,6 +58,7 @@ import {
 } from "../../../catalog/characters/index";
 import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
+import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
@@ -318,25 +320,70 @@ function RpToolbarButton({
   title,
   onClick,
   size,
+  badge,
+  ariaLabel,
 }: {
   icon: ReactNode;
   title: string;
   onClick: () => void;
   size?: "sm";
+  badge?: ReactNode;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center justify-center rounded-full border bg-foreground/5 text-foreground/60 backdrop-blur-md transition-all hover:bg-foreground/10 hover:text-foreground",
+        "relative flex items-center justify-center rounded-full border bg-foreground/5 text-foreground/60 backdrop-blur-md transition-all hover:bg-foreground/10 hover:text-foreground",
         size === "sm" ? "p-1" : "p-1.5",
         "border-foreground/10",
       )}
       title={title}
-      aria-label={title}
+      aria-label={ariaLabel ?? title}
     >
       {icon}
+      {badge}
+    </button>
+  );
+}
+
+export function ContinuityDirectorReviewEntryPoint({
+  count,
+  onOpen,
+  variant,
+}: {
+  count: number;
+  onOpen: () => void;
+  variant: "desktop" | "mobile";
+}) {
+  const title = "Continuity Director";
+  const ariaLabel = count > 0 ? `${title}, ${continuityDirectorReviewLabel(count)}` : title;
+
+  if (variant === "desktop") {
+    return (
+      <RpToolbarButton
+        icon={<Sparkles size="0.875rem" />}
+        title={title}
+        ariaLabel={ariaLabel}
+        onClick={onOpen}
+        badge={<ContinuityDirectorReviewBadge count={count} compact decorative />}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={ariaLabel}
+      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
+        <Sparkles size="0.9rem" />
+      </div>
+      <span className="text-sm font-medium text-[var(--foreground)]">{title}</span>
+      <ContinuityDirectorReviewBadge count={count} decorative />
     </button>
   );
 }
@@ -703,6 +750,7 @@ type RoleplaySurfaceProps = {
   onCloseGallery: () => void;
   onIllustrate?: ComponentProps<typeof ChatCommonOverlays>["onIllustrate"];
   onWizardFinish: () => void;
+  onWizardCancel: () => void;
   onClosePeekPrompt: () => void;
   onResetSpritePlacements: () => void;
   onSpriteSideChange: (side: SpriteSide) => void;
@@ -807,6 +855,7 @@ export function ChatRoleplaySurface({
   onCloseGallery,
   onIllustrate,
   onWizardFinish,
+  onWizardCancel,
   onClosePeekPrompt,
   onResetSpritePlacements,
   onSpriteSideChange,
@@ -861,6 +910,7 @@ export function ChatRoleplaySurface({
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
   const isConcludedScene = chatMeta.sceneStatus === "concluded";
+  const continuityReviewCount = countProposedContinuityDirectorBeats(chatMeta.roleplayContinuityDirector);
   const [addonsReady, setAddonsReady] = useState(false);
   const messageActions = isConcludedScene
     ? {
@@ -1148,10 +1198,10 @@ export function ChatRoleplaySurface({
                   />
                   <ToolbarMenu mobilePortal={false}>
                     {chat && (
-                      <RpToolbarButton
-                        icon={<Sparkles size="0.875rem" />}
-                        title="Continuity Director"
-                        onClick={() => setContinuityDirectorOpen(true)}
+                      <ContinuityDirectorReviewEntryPoint
+                        count={continuityReviewCount}
+                        variant="desktop"
+                        onOpen={() => setContinuityDirectorOpen(true)}
                       />
                     )}
                     <SummaryButton
@@ -1567,19 +1617,14 @@ export function ChatRoleplaySurface({
 
                   {/* Continuity Director */}
                   {chat && (
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <ContinuityDirectorReviewEntryPoint
+                      count={continuityReviewCount}
+                      variant="mobile"
+                      onOpen={() => {
                         setMoreMenuOpen(false);
                         setContinuityDirectorOpen(true);
                       }}
-                      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
-                    >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
-                        <Sparkles size="0.9rem" />
-                      </div>
-                      <span className="text-sm font-medium text-[var(--foreground)]">Continuity Director</span>
-                    </button>
+                    />
                   )}
 
                   {/* Summary */}
@@ -1737,6 +1782,7 @@ export function ChatRoleplaySurface({
         }}
         onIllustrate={onIllustrate}
         onWizardFinish={onWizardFinish}
+        onWizardCancel={onWizardCancel}
         onClosePeekPrompt={onClosePeekPrompt}
         onCloseSummaryDraft={() => setSummaryDraft(null)}
         onDeleteConfirm={onDeleteConfirm}

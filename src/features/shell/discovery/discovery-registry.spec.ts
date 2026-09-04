@@ -74,6 +74,12 @@ describe("discovery showcase registry", () => {
     const entry = DISCOVERY_ENTRIES.find((item) => item.id === "roleplay-workflow-profiles");
 
     expect(entry?.title).toBe("Roleplay workflow profiles");
+    const summary = entry?.summary ?? "";
+    expect(summary).toContain("Simple Roleplay");
+    expect(summary).toContain("Long-Running Story");
+    expect(summary).toContain("Cinematic Roleplay");
+    expect(summary).toContain("Local Helpers");
+    expect(summary.toLowerCase()).toContain("choose");
     expect(entry?.actions).toContainEqual({
       type: "open-chat-destination",
       destination: "chat-settings-workflow-profile",
@@ -87,6 +93,15 @@ describe("discovery showcase registry", () => {
 
     expect(entry?.title).toBe("Roleplay Continuity Director");
     expect(entry?.keywords).toEqual(expect.arrayContaining(["story beats", "approve beats", "director"]));
+    const summary = entry?.summary ?? "";
+    expect(summary).toContain("Applying and confirming Long-Running Story");
+    expect(summary).toContain(
+      "makes one immediate background Director planning call only when it newly enables Director and no saved plan exists",
+    );
+    expect(summary).toContain("Director cadence then makes one non-blocking planning call every 10 assistant replies");
+    expect(summary).not.toContain("Choosing Long-Running Story enables");
+    expect(summary.toLowerCase()).toContain("proposed");
+    expect(summary.toLowerCase()).toContain("badge");
     expect(entry?.actions).toContainEqual({
       type: "open-chat-destination",
       destination: "chat-settings-continuity",

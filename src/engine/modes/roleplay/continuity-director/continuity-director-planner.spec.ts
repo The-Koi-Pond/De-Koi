@@ -18,6 +18,9 @@ function enabledState(): RoleplayContinuityDirectorState {
 
 function harness(response: string) {
   let state = enabledState();
+  let beforeAuthorization: (() => void) | null = null;
+  let beforePlanPersistence: (() => void) | null = null;
+  let conditionalWriteCount = 0;
   let currentChat = {
     id: "chat-1",
     mode: "roleplay",
@@ -43,10 +46,44 @@ function harness(response: string) {
     queryMemories: vi.fn(async () => []),
     queryKnowledgeEdges: vi.fn(async () => []),
     patchChatMetadata: vi.fn(async (_chatId: string, patch: Record<string, unknown>) => {
+      beforePlanPersistence?.();
+      beforePlanPersistence = null;
       patches.push(patch);
       currentChat = { ...currentChat, metadata: { ...currentChat.metadata, ...patch } };
+      if (patch.roleplayContinuityDirector) {
+        state = patch.roleplayContinuityDirector as RoleplayContinuityDirectorState;
+      }
       return currentChat;
     }),
+    updateChatIfUnchanged: vi.fn(
+      async (_chatId: string, expected: Record<string, unknown>, patch: Record<string, unknown>) => {
+        conditionalWriteCount += 1;
+        if (conditionalWriteCount === 1) {
+          beforeAuthorization?.();
+          beforeAuthorization = null;
+        } else {
+          beforePlanPersistence?.();
+          beforePlanPersistence = null;
+        }
+        const expectedMetadata = expected.metadata as Record<string, unknown>;
+        const patchMetadata = patch.metadata as Record<string, unknown>;
+        const key = "roleplayContinuityDirector";
+        const expectedValue = expectedMetadata[key] ?? null;
+        const value = patchMetadata[key];
+        const currentValue = currentChat.metadata.roleplayContinuityDirector ?? null;
+        if (JSON.stringify(currentValue) !== JSON.stringify(expectedValue)) {
+          return { updated: false, chat: currentChat };
+        }
+        const directorValue = value as RoleplayContinuityDirectorState;
+        patches.push({ [key]: directorValue });
+        currentChat = {
+          ...currentChat,
+          metadata: { ...currentChat.metadata, roleplayContinuityDirector: directorValue },
+        };
+        state = directorValue;
+        return { updated: true, chat: currentChat };
+      },
+    ),
   } as unknown as StorageGateway;
   const llm = {
     complete: vi.fn(async (request: LlmRequest) => {
@@ -63,6 +100,12 @@ function harness(response: string) {
     setState(next: RoleplayContinuityDirectorState) {
       state = next;
       currentChat = { ...currentChat, metadata: { ...currentChat.metadata, roleplayContinuityDirector: next } };
+    },
+    beforeAuthorization(callback: () => void) {
+      beforeAuthorization = callback;
+    },
+    beforePlanPersistence(callback: () => void) {
+      beforePlanPersistence = callback;
     },
   };
 }
@@ -95,8 +138,8 @@ describe("continuity director planner", () => {
       parameters: { temperature: 0.2, max_tokens: 900 },
     });
     expect(test.requests[0]?.messages[0]?.content).toMatch(/never prescribe Celia's dialogue/i);
-    expect(test.patches).toHaveLength(1);
-    expect(test.patches[0]).toEqual({
+    expect(test.patches).toHaveLength(2);
+    expect(test.patches.at(-1)).toEqual({
       roleplayContinuityDirector: expect.objectContaining({
         currentArc: expect.objectContaining({ text: "The forged seal threatens Mara's standing." }),
         beats: [expect.objectContaining({ text: "Mara reveals the forged seal.", status: "proposed" })],
@@ -112,7 +155,91 @@ describe("continuity director planner", () => {
       { chatId: "chat-1", now: () => NOW },
     );
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(0);
+    expect(test.patches).toHaveLength(1);
+    expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
+  });
+
+  it("persists a failed initial planning attempt without fabricating a successful snapshot", async () => {
+    const test = harness("not json");
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(test.getState()).toMatchObject({
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 1,
+    });
+  });
+
+  it("keeps manual refresh available immediately after an initial failure", async () => {
+    const test = harness("not json");
+    const exactPostApplyState = test.getState();
+
+    await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+    test.llm.complete = vi.fn(async () =>
+      JSON.stringify({ currentArc: "The seal draws attention.", openThreads: [], beats: [] }),
+    );
+    const retry = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(retry).toMatchObject({ ok: true });
+    expect(test.llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("spends at most one call for repeated initial requests with the same authorization", async () => {
+    const test = harness("not json");
+    const exactPostApplyState = test.getState();
+
+    const first = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+    const duplicate = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+
+    expect(first).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(duplicate).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(test.llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a newly enabled planless authorization even when an older failed attempt exists", async () => {
+    const test = harness('{"currentArc":"Fresh plan","openThreads":[],"beats":[]}');
+    const exactPostApplyState = {
+      ...test.getState(),
+      lastPlanningAttemptAssistantTurnCount: 1,
+      revision: test.getState().revision + 1,
+    };
+    test.setState(exactPostApplyState);
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(test.llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a structurally empty plan instead of reporting reviewable success", async () => {
+    const test = harness('{"currentArc":null,"openThreads":[],"beats":[]}');
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "invalid_output" });
+    expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
   it.each([
@@ -141,7 +268,8 @@ describe("continuity director planner", () => {
     );
 
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(0);
+    expect(test.patches).toHaveLength(1);
+    expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
   it("rejects a refresh when every proposed beat is unsafe", async () => {
@@ -159,7 +287,8 @@ describe("continuity director planner", () => {
     );
 
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(0);
+    expect(test.patches).toHaveLength(1);
+    expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
   it("does not silently fall back when an explicit connection is unavailable", async () => {
@@ -180,7 +309,7 @@ describe("continuity director planner", () => {
     expect(test.patches).toHaveLength(0);
   });
 
-  it("reloads metadata after the model call and preserves concurrent user edits", async () => {
+  it("discards a stale plan when a concurrent user edit advances the authorizing revision", async () => {
     const test = harness('{"currentArc":"Replace me","openThreads":[],"beats":["A fresh proposal."]}');
     test.llm.complete = vi.fn(async () => {
       const edited = applyContinuityDirectorCommand(
@@ -197,13 +326,139 @@ describe("continuity director planner", () => {
       { chatId: "chat-1", now: () => "2026-09-02T12:02:00.000Z", createId: (prefix) => `${prefix}-new` },
     );
 
-    expect(result).toMatchObject({ ok: true });
-    expect(test.patches[0]).toEqual({
-      roleplayContinuityDirector: expect.objectContaining({
-        currentArc: expect.objectContaining({ text: "User-owned arc", source: "user" }),
-        beats: [expect.objectContaining({ text: "A fresh proposal." })],
-      }),
+    expect(result).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(test.getState()).toMatchObject({
+      currentArc: expect.objectContaining({ text: "User-owned arc", source: "user" }),
+      beats: [],
     });
+  });
+
+  it("discards a stale plan when a pre-read user edit lands with the reserved revision", async () => {
+    const test = harness('{"currentArc":"Stale plan","openThreads":[],"beats":["A stale proposal."]}');
+    const precomputedEdit = applyContinuityDirectorCommand(
+      test.getState(),
+      { type: "edit_arc", text: "Pre-read user arc" },
+      { now: () => "2026-09-02T12:01:00.000Z", createId: (prefix) => `${prefix}-user` },
+    );
+    test.llm.complete = vi.fn(async () => {
+      test.setState(precomputedEdit);
+      return '{"currentArc":"Stale plan","openThreads":[],"beats":["A stale proposal."]}';
+    });
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => "2026-09-02T12:02:00.000Z", createId: (prefix) => `${prefix}-new` },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(test.getState()).toMatchObject({
+      currentArc: expect.objectContaining({ text: "Pre-read user arc", source: "user" }),
+      beats: [],
+      lastPlanningAttemptAssistantTurnCount: null,
+    });
+  });
+
+  it("cannot resurrect Director state reverted after its final read", async () => {
+    const test = harness('{"currentArc":"Replace me","openThreads":[],"beats":["A stale proposal."]}');
+    test.beforePlanPersistence(() => {
+      test.setState({
+        ...createDefaultContinuityDirectorState("2026-09-02T12:03:00.000Z"),
+        revision: test.getState().revision + 1,
+      });
+    });
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => "2026-09-02T12:02:00.000Z", createId: (prefix) => `${prefix}-new` },
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(test.getState()).toMatchObject({ enabled: false, currentArc: null, beats: [] });
+  });
+
+  it("does not spend a model call when the authorizing Director state changes before the attempt is recorded", async () => {
+    const test = harness('{"currentArc":"Stale","openThreads":[],"beats":[]}');
+    test.beforeAuthorization(() => {
+      test.setState({
+        ...test.getState(),
+        revision: test.getState().revision + 1,
+        sourceSnapshot: {
+          storyProjectionIds: [],
+          knowledgeEdgeIds: [],
+          lastMessageId: "m2",
+          visibleAssistantTurnCount: 1,
+          fingerprint: "already-planned",
+          generatedAt: NOW,
+        },
+      });
+    });
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(test.llm.complete).not.toHaveBeenCalled();
+    expect(test.getState().sourceSnapshot?.fingerprint).toBe("already-planned");
+  });
+
+  it.each([
+    {
+      race: "another actor already planned",
+      mutate: (expected: RoleplayContinuityDirectorState) =>
+        applyContinuityDirectorCommand(
+          expected,
+          {
+            type: "replace_director_proposals" as const,
+            arc: "The winning plan",
+            threads: [],
+            beats: ["The winning beat"],
+            sourceSnapshot: {
+              storyProjectionIds: [],
+              knowledgeEdgeIds: [],
+              lastMessageId: "m2",
+              visibleAssistantTurnCount: 1,
+              fingerprint: "winning-plan",
+              generatedAt: NOW,
+            },
+          },
+          { now: () => NOW, createId: (prefix) => `${prefix}-winner` },
+        ),
+      expectedWinner: { sourceSnapshot: { fingerprint: "winning-plan" } },
+    },
+    {
+      race: "a user already edited the plan",
+      mutate: (expected: RoleplayContinuityDirectorState) =>
+        applyContinuityDirectorCommand(
+          expected,
+          { type: "edit_arc" as const, text: "User-owned plan" },
+          { now: () => NOW, createId: (prefix) => `${prefix}-user` },
+        ),
+      expectedWinner: { currentArc: { text: "User-owned plan", source: "user" } },
+    },
+    {
+      race: "the workflow was reverted",
+      mutate: (expected: RoleplayContinuityDirectorState) => ({
+        ...createDefaultContinuityDirectorState(NOW),
+        revision: expected.revision + 1,
+      }),
+      expectedWinner: { enabled: false, currentArc: null, beats: [] },
+    },
+  ])("does not start detached initial planning when $race before startup", async ({ mutate, expectedWinner }) => {
+    const test = harness('{"currentArc":"Stale plan","openThreads":[],"beats":["Stale beat"]}');
+    const exactPostApplyState = test.getState();
+    test.setState(mutate(exactPostApplyState));
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: exactPostApplyState, now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(test.llm.complete).not.toHaveBeenCalled();
+    expect(test.patches).toHaveLength(0);
+    expect(test.getState()).toMatchObject(expectedWinner);
   });
 
   it("maps timeout-like failures without patching state", async () => {
@@ -216,7 +471,8 @@ describe("continuity director planner", () => {
       { chatId: "chat-1", now: () => NOW, timeoutMs: 1 },
     );
     expect(result).toMatchObject({ ok: false, code: "timeout" });
-    expect(test.patches).toHaveLength(0);
+    expect(test.patches).toHaveLength(1);
+    expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
   it("rerolls one beat atomically while preserving the rest of the plan", async () => {
@@ -266,7 +522,8 @@ describe("continuity director planner", () => {
     );
 
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(0);
+    expect(test.patches).toHaveLength(1);
+    expect(test.getState().beats).toEqual(current.beats);
   });
 
   it("serializes a reroll behind an in-flight full refresh instead of silently coalescing it", async () => {
@@ -319,5 +576,42 @@ describe("continuity director planner", () => {
         expect.objectContaining({ text: "A different beat.", status: "proposed" }),
       ]),
     );
+  });
+
+  it("queues a newer initial authorization behind an unrelated in-flight initial request", async () => {
+    const test = harness("unused");
+    const firstAuthorization = test.getState();
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    test.llm.complete = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await firstPending;
+        return '{"currentArc":"Superseded","openThreads":[],"beats":[]}';
+      })
+      .mockResolvedValueOnce('{"currentArc":"Winning plan","openThreads":[],"beats":[]}');
+
+    const first = refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: firstAuthorization, now: () => NOW },
+    );
+    await vi.waitFor(() => expect(test.llm.complete).toHaveBeenCalledTimes(1));
+    const secondAuthorization = {
+      ...createDefaultContinuityDirectorState("2026-09-02T12:01:00.000Z"),
+      enabled: true,
+      revision: test.getState().revision + 1,
+    };
+    test.setState(secondAuthorization);
+    const second = refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", initialExpectedDirectorState: secondAuthorization, now: () => NOW },
+    );
+
+    releaseFirst();
+    expect(await first).toMatchObject({ ok: false, code: "persistence_failed" });
+    expect(await second).toMatchObject({ ok: true, state: { currentArc: { text: "Winning plan" } } });
+    expect(test.llm.complete).toHaveBeenCalledTimes(2);
   });
 });

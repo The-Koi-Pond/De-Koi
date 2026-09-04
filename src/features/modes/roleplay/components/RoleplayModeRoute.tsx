@@ -501,6 +501,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onCloseGallery={overlays.closeGallery}
         onIllustrate={timeline.handleIllustrate}
         onWizardFinish={handleFinishNewRoleplaySetup}
+        onWizardCancel={overlays.finishWizard}
         onClosePeekPrompt={timeline.closePeekPrompt}
         onResetSpritePlacements={spriteState.handleResetSpritePlacements}
         onSpriteSideChange={spriteState.handleSetSpritePosition}
