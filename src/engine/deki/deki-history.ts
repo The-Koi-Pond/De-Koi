@@ -29,7 +29,22 @@ export type DekiSession = {
   compaction: DekiCompactionState;
   createdAt: string;
   updatedAt: string;
+  /**
+   * For a summary row whose `messages` were not loaded: the stored message
+   * count, or null when the record predates stored counts. Absent whenever
+   * `messages` holds the session's real messages.
+   */
+  messageCount?: number | null;
 };
+
+/**
+ * How many messages a session has, whether or not its messages are loaded.
+ * Null means unknown: an older summary row that has not been saved since
+ * counts were stored.
+ */
+export function dekiSessionMessageCount(session: DekiSession): number | null {
+  return session.messageCount === undefined ? session.messages.length : session.messageCount;
+}
 
 export type DekiSessionsState = {
   activeSessionId: string;

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { dekiSessionMessageCount } from "../../engine/deki/deki-history";
 import { dekiApi } from "./deki-api";
 import { remoteRuntimeTarget } from "./remote-runtime";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
@@ -106,6 +107,62 @@ describe("dekiApi settings persistence", () => {
 
       throw new Error(`Unexpected command ${command}`);
     });
+  });
+
+  it("reports message counts for sidebar rows without loading their messages", async () => {
+    await dekiApi.history.appendMessage({ role: "user", content: "First chat, first message." });
+    await dekiApi.history.appendMessage({ role: "assistant", content: "First chat reply." });
+    const created = await dekiApi.sessions.create();
+    await dekiApi.history.appendMessage({ sessionId: created.activeSessionId, role: "user", content: "Second chat." });
+
+    const listed = await dekiApi.sessions.list();
+
+    const counts = Object.fromEntries(
+      listed.sessions.map((session) => [session.title, dekiSessionMessageCount(session)]),
+    );
+    expect(counts).toEqual({ "First chat, first message.": 2, "Second chat.": 1 });
+    expect(listed.sessions.every((session) => session.messages.length === 0)).toBe(true);
+    expect([...recordsFor("deki-sessions").values()].map((record) => record.messageCount).sort()).toEqual([1, 2]);
+  });
+
+  it("reports an unknown count for older records instead of reading every message", async () => {
+    recordsFor("deki-sessions").set("legacy-session", {
+      id: "legacy-session",
+      title: "Older chat",
+      createdAt: "2026-06-25T12:00:00.000Z",
+      updatedAt: "2026-06-25T12:00:02.000Z",
+    });
+    for (const [index, role] of ["user", "assistant", "user"].entries()) {
+      recordsFor("deki-messages").set(`legacy-message-${index}`, {
+        id: `legacy-message-${index}`,
+        sessionId: "legacy-session",
+        role,
+        content: `Message ${index}`,
+        createdAt: `2026-06-25T12:00:0${index}.000Z`,
+        sortOrder: index,
+      });
+    }
+
+    const listed = await dekiApi.sessions.list();
+
+    expect(dekiSessionMessageCount(listed.sessions[0]!)).toBeNull();
+    expect(invokeMock.mock.calls.filter(([, args]) => (args as { entity?: string })?.entity === "deki-messages")).toEqual(
+      [],
+    );
+  });
+
+  it("keeps the stored count current as messages are added", async () => {
+    await dekiApi.history.appendMessage({ role: "user", content: "Count me." });
+    const [session] = [...recordsFor("deki-sessions").values()];
+    await dekiApi.sessions.create();
+
+    await dekiApi.history.appendMessage({ sessionId: session!.id as string, role: "assistant", content: "Counted." });
+
+    expect(recordsFor("deki-sessions").get(session!.id as string)?.messageCount).toBe(2);
+    const listed = await dekiApi.sessions.list();
+    expect(
+      dekiSessionMessageCount(listed.sessions.find((item) => item.id === session!.id)!),
+    ).toBe(2);
   });
 
   it("updates the fixed Deki settings row after the first save", async () => {

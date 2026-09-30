@@ -1,6 +1,6 @@
 import { CheckSquare, MessageSquare, Plus, Square as SquareIcon, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DekiSession } from "../../engine/deki/deki-history";
+import { dekiSessionMessageCount, type DekiSession } from "../../engine/deki/deki-history";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { cn } from "../../shared/lib/utils";
 import {
@@ -8,6 +8,10 @@ import {
   getSelectedDekiSessionIds,
   toggleDekiSessionSelection,
 } from "./deki-sidebar-selection";
+
+function messageCountLabel(count: number | null): string | null {
+  return count === null ? null : `${count} message${count === 1 ? "" : "s"}`;
+}
 
 type DekiSidebarProps = {
   sessions: DekiSession[];
@@ -163,6 +167,7 @@ export function DekiSidebar({
           {sessions.map((session) => {
             const isActive = dekiOpen && activeSessionId === session.id;
             const hasUnread = unreadSessionIds.has(session.id);
+            const countLabel = messageCountLabel(dekiSessionMessageCount(session));
             const isSelected = selectedSessionIds.has(session.id);
             return (
               <div
@@ -222,9 +227,9 @@ export function DekiSidebar({
                 </div>
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium">{session.title}</span>
-                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                    {session.messages.length} message{session.messages.length === 1 ? "" : "s"}
-                  </span>
+                  {countLabel && (
+                    <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">{countLabel}</span>
+                  )}
                 </div>
                 {!multiSelectMode && (
                   <button
