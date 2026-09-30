@@ -536,6 +536,7 @@ pub fn run() {
             storage_commands::media_commands::local_sidecar_restart,
             storage_commands::media_commands::local_sidecar_test_message,
             storage_commands::deki_commands::deki_prompt,
+            storage_commands::deki_commands::deki_prompt_events,
             storage_commands::deki_commands::professor_mari_prompt,
             storage_commands::deki_commands::deki_workspace_status,
             storage_commands::deki_commands::deki_workspace_abort,

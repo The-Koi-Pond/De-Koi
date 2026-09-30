@@ -11,6 +11,9 @@ import {
   type DekiWorkspaceApprovalDecisionResult,
   type DekiWorkspaceHistoryEntry,
   type DekiWorkspaceHistoryItem,
+  type DekiWorkspacePendingApproval,
+  type DekiWorkspacePromptEvent,
+  type DekiWorkspaceRowChange,
   type DekiWorkspaceStatus,
   type DekiWorkspaceToolName,
   type DekiWorkspaceTraceItem,
@@ -38,9 +41,10 @@ import {
   updatePromptPresetSchema,
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
+import { Channel } from "@tauri-apps/api/core";
 import { ApiError } from "./api-errors";
 import { planDekiHistoryPersistence, type DekiHistoryPersistenceSnapshot } from "./deki-history-persistence";
-import { remoteRuntimeTarget } from "./remote-runtime";
+import { remoteRuntimeTarget, streamRemoteJsonEvents } from "./remote-runtime";
 import { storageApi } from "./storage-api";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 import { reportPerformanceStageTiming, type PerformanceDiagnosticsStageTiming } from "../lib/performance-diagnostics";
@@ -371,6 +375,186 @@ function normalizeDekiWorkspaceCountRecord(value: unknown): Record<string, numbe
       (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]),
     ),
   );
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeDekiWorkspaceRowChange(value: unknown): DekiWorkspaceRowChange | null {
+  const object = asRecord(value);
+  const entity = readTrimmedString(object.entity);
+  const id = readTrimmedString(object.id);
+  const action =
+    object.action === "insert" || object.action === "update" || object.action === "replace" || object.action === "delete"
+      ? object.action
+      : null;
+  if (!entity || !id || !action) return null;
+  return {
+    entity,
+    id,
+    action,
+    ...("before" in object ? { before: asRecord(object.before) } : {}),
+    ...("after" in object ? { after: asRecord(object.after) } : {}),
+  };
+}
+
+export function normalizeDekiWorkspacePendingApproval(value: unknown): DekiWorkspacePendingApproval | null {
+  const object = asRecord(value);
+  const id = readTrimmedString(object.id);
+  const sessionId = readTrimmedString(object.sessionId);
+  const command = readTrimmedString(object.command);
+  const operationHash = readTrimmedString(object.operationHash);
+  const requestedAt = readTrimmedString(object.requestedAt);
+  const expiresAt = readTrimmedString(object.expiresAt);
+  const validationStatus =
+    object.validationStatus === "passed" || object.validationStatus === "blocked" ? object.validationStatus : null;
+  if (!id || !sessionId || !command || !operationHash || !requestedAt || !expiresAt || !validationStatus) return null;
+  return {
+    id,
+    sessionId,
+    command,
+    reason: typeof object.reason === "string" && object.reason.trim() ? object.reason : null,
+    operationHash,
+    requestedAt,
+    expiresAt,
+    affectedEntities: normalizeDekiWorkspaceCountRecord(object.affectedEntities),
+    affectedRows: readFiniteNumber(object.affectedRows) ?? 0,
+    validationStatus,
+    diffPreview: Array.isArray(object.diffPreview)
+      ? object.diffPreview.map(normalizeDekiWorkspaceRowChange).filter((row): row is DekiWorkspaceRowChange => !!row)
+      : [],
+    diffTruncated: object.diffTruncated === true,
+  };
+}
+
+function normalizeDekiWorkspacePendingApprovals(value: unknown): DekiWorkspacePendingApproval[] {
+  return Array.isArray(value)
+    ? value
+        .map(normalizeDekiWorkspacePendingApproval)
+        .filter((approval): approval is DekiWorkspacePendingApproval => !!approval)
+    : [];
+}
+
+function currentDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryEntry[] {
+  return (normalizeDekiWorkspaceHistory(value) ?? []).filter(
+    (entry): entry is DekiWorkspaceHistoryEntry => entry.status !== "unknown" && entry.status !== "malformed",
+  );
+}
+
+/** Normalizes one live workspace event; unknown or malformed events are dropped. */
+export function normalizeDekiWorkspacePromptEvent(value: unknown): DekiWorkspacePromptEvent | null {
+  const object = asRecord(value);
+  const data = object.data;
+  const record = asRecord(data);
+  switch (object.type) {
+    case "status": {
+      if (typeof data === "string") return data.trim() ? { type: "status", data } : null;
+      const content = readTrimmedString(record.content);
+      if (!content) return null;
+      const kind =
+        record.kind === "compaction_start" ||
+        record.kind === "compaction_end" ||
+        record.kind === "output_limit" ||
+        record.kind === "retry" ||
+        record.kind === "info"
+          ? record.kind
+          : undefined;
+      const level =
+        record.level === "info" || record.level === "warning" || record.level === "error" ? record.level : undefined;
+      return { type: "status", data: { content, ...(kind ? { kind } : {}), ...(level ? { level } : {}) } };
+    }
+    case "tool_start": {
+      if (!isDekiWorkspaceToolName(record.name)) return null;
+      const id = readTrimmedString(record.id);
+      return {
+        type: "tool_start",
+        data: { ...(id ? { id } : {}), name: record.name, ...("input" in record ? { input: record.input } : {}) },
+      };
+    }
+    case "tool_end": {
+      const id = readTrimmedString(record.id);
+      return {
+        type: "tool_end",
+        data: {
+          ...(id ? { id } : {}),
+          ...(isDekiWorkspaceToolName(record.name) ? { name: record.name } : {}),
+          isError: record.isError === true,
+          ...(typeof record.output === "string" ? { output: record.output } : {}),
+        },
+      };
+    }
+    case "approval_pending": {
+      const approval = normalizeDekiWorkspacePendingApproval(data);
+      return approval ? { type: "approval_pending", data: approval } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function normalizeDekiGatewayResponse(value: unknown): DekiGatewayResponse {
+  const record = asRecord(value);
+  const workspaceTrace = normalizeDekiWorkspaceTrace(record.workspaceTrace);
+  return {
+    ...(record as unknown as DekiGatewayResponse),
+    workspaceTrace: workspaceTrace ?? undefined,
+    pendingApprovals: normalizeDekiWorkspacePendingApprovals(record.pendingApprovals),
+  };
+}
+
+function normalizeDekiWorkspaceStatus(value: unknown): DekiWorkspaceStatus {
+  const record = asRecord(value);
+  return {
+    ...(record as unknown as DekiWorkspaceStatus),
+    pendingApprovals: normalizeDekiWorkspacePendingApprovals(record.pendingApprovals),
+    history: currentDekiWorkspaceHistory(record.history),
+  };
+}
+
+function normalizeDekiApprovalDecision(value: unknown): DekiWorkspaceApprovalDecisionResult {
+  const record = asRecord(value);
+  const applied = asRecord(record.applied);
+  const appliedEntity = readTrimmedString(applied.entity);
+  const appliedId = readTrimmedString(applied.id);
+  const appliedCommand = readTrimmedString(applied.command);
+  return {
+    id: readTrimmedString(record.id) ?? "",
+    status: record.status === "approved" || record.status === "rejected" ? record.status : "not_found",
+    pendingApprovals: normalizeDekiWorkspacePendingApprovals(record.pendingApprovals),
+    history: currentDekiWorkspaceHistory(record.history),
+    ...(appliedEntity && appliedId && appliedCommand
+      ? { applied: { entity: appliedEntity, id: appliedId, command: appliedCommand } }
+      : {}),
+  };
+}
+
+/** The runtime error code behind a failed Deki call, from invoke or SSE errors. */
+export function dekiRuntimeErrorCode(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  const details = asRecord(error.details);
+  return readTrimmedString(details.code) ?? readTrimmedString(asRecord(details.data).code);
+}
+
+async function promptDekiWithEvents(
+  request: DekiEntryRequest,
+  onEvent: (event: DekiWorkspacePromptEvent) => void,
+): Promise<DekiGatewayResponse> {
+  const emit = (raw: unknown) => {
+    const event = normalizeDekiWorkspacePromptEvent(raw);
+    if (event) onEvent(event);
+  };
+  if (remoteRuntimeTarget()) {
+    for await (const event of streamRemoteJsonEvents("/api/deki/prompt/stream", { request })) {
+      if (event.type === "done") return normalizeDekiGatewayResponse(event.data);
+      emit(event);
+    }
+    throw new ApiError("Deki-senpai's live stream ended before a final response.", 502, {
+      code: "deki_stream_incomplete",
+    });
+  }
+  const channel = new Channel<unknown>(emit);
+  return normalizeDekiGatewayResponse(await invokeTauri<unknown>("deki_prompt_events", { request, onEvent: channel }));
 }
 
 function isDekiWorkspaceToolName(value: unknown): value is DekiWorkspaceToolName {
@@ -1149,17 +1333,22 @@ async function writeDekiActionApplication(
 }
 
 export const dekiApi = {
-  prompt: (request: DekiEntryRequest) =>
-    invokeTauri<DekiGatewayResponse>("deki_prompt", {
-      request,
-    }),
+  prompt: async (request: DekiEntryRequest): Promise<DekiGatewayResponse> =>
+    normalizeDekiGatewayResponse(
+      await invokeTauri<unknown>("deki_prompt", {
+        request,
+      }),
+    ),
+  promptEvents: promptDekiWithEvents,
   workspace: {
     status: async (sessionId: string, connectionId?: string | null): Promise<DekiWorkspaceStatus> => {
       requireDekiWorkspaceRuntime("deki_workspace_status");
-      return invokeTauri<DekiWorkspaceStatus>("deki_workspace_status", {
-        sessionId,
-        connectionId: connectionId ?? null,
-      });
+      return normalizeDekiWorkspaceStatus(
+        await invokeTauri<unknown>("deki_workspace_status", {
+          sessionId,
+          connectionId: connectionId ?? null,
+        }),
+      );
     },
     abort: async (sessionId: string): Promise<DekiWorkspaceAbortResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_abort");
@@ -1167,11 +1356,11 @@ export const dekiApi = {
     },
     approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_approve");
-      return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_approve", { id });
+      return normalizeDekiApprovalDecision(await invokeTauri<unknown>("deki_workspace_approve", { id }));
     },
     reject: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_reject");
-      return invokeTauri<DekiWorkspaceApprovalDecisionResult>("deki_workspace_reject", { id });
+      return normalizeDekiApprovalDecision(await invokeTauri<unknown>("deki_workspace_reject", { id }));
     },
   },
   actions: {
@@ -1344,6 +1533,35 @@ export const dekiApi = {
       if (!updatedMessage) throw new Error("Deki-senpai message could not be found.");
       await saveSessionsState(state, nextState);
       return updatedMessage;
+    },
+    /** Records the outcome of a data-change approval on the message that proposed it. */
+    updateWorkspaceHistoryEntry: async ({
+      sessionId,
+      messageId,
+      entry,
+    }: {
+      sessionId?: string | null;
+      messageId: string;
+      entry: DekiWorkspaceHistoryEntry;
+    }): Promise<DekiMessage[]> => {
+      const state = await readSessionsState(sessionId ?? "");
+      let found = false;
+      const nextState = updateSession(state, sessionId, (session) => ({
+        ...session,
+        messages: session.messages.map((message) => {
+          if (message.id !== messageId || !message.workspaceHistory) return message;
+          return {
+            ...message,
+            workspaceHistory: message.workspaceHistory.map((item) => {
+              if (item.status === "unknown" || item.status === "malformed" || item.id !== entry.id) return item;
+              found = true;
+              return entry;
+            }),
+          };
+        }),
+      }));
+      if (!found) throw new Error("Deki-senpai's data change could not be found in this chat.");
+      return sessionFromState(await saveSessionsState(state, nextState), sessionId).messages;
     },
     markActionApplied: markDekiActionApplied,
     saveCompaction: async (

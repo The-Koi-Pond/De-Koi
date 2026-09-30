@@ -185,6 +185,7 @@ pub(crate) async fn deki_workspace_status(
     connection_id: Option<String>,
 ) -> AppResult<Value> {
     let scope = runtime_scope(owner, &session_id)?;
+    let approval_scope = super::approvals::DekiApprovalScope::new(owner, &session_id)?;
     let workspace = super::deki_repo_root()
         .ok()
         .map(|path| path.to_string_lossy().to_string());
@@ -216,8 +217,8 @@ pub(crate) async fn deki_workspace_status(
         "dataAccess": "server-managed",
         "connection": connection,
         "active": runtime_is_active(&scope),
-        "pendingApprovals": [],
-        "history": [],
+        "pendingApprovals": super::approvals::pending_for(&approval_scope),
+        "history": super::approvals::history_for(&approval_scope),
         "error": error,
     }))
 }
@@ -275,30 +276,6 @@ pub(crate) async fn deki_workspace_abort(
         "active": false,
         "reason": "Deki workspace runtime is not running.",
     }))
-}
-
-pub(crate) async fn deki_workspace_approve(_state: &AppState, id: String) -> AppResult<Value> {
-    validate_workspace_approval_id(&id)?;
-    Err(deki_workspace_not_implemented("approval apply"))
-}
-
-pub(crate) async fn deki_workspace_reject(_state: &AppState, id: String) -> AppResult<Value> {
-    validate_workspace_approval_id(&id)?;
-    Err(deki_workspace_not_implemented("approval reject"))
-}
-
-fn validate_workspace_approval_id(id: &str) -> AppResult<()> {
-    if id.trim().is_empty() {
-        return Err(AppError::invalid_input("Workspace approval id is required"));
-    }
-    Ok(())
-}
-
-fn deki_workspace_not_implemented(action: &str) -> AppError {
-    AppError::new(
-        "deki_workspace_not_implemented",
-        format!("Deki workspace {action} is not implemented yet."),
-    )
 }
 
 #[cfg(test)]

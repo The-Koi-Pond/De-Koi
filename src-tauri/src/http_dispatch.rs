@@ -1600,10 +1600,20 @@ pub(crate) async fn dispatch_for_runtime_owner(
             .await
         }
         "deki_workspace_approve" => {
-            deki::deki_workspace_approve(state, required_string(&args, "id")?.to_string()).await
+            deki::deki_workspace_approve(
+                state,
+                &runtime_owner,
+                required_string(&args, "id")?.to_string(),
+            )
+            .await
         }
         "deki_workspace_reject" => {
-            deki::deki_workspace_reject(state, required_string(&args, "id")?.to_string()).await
+            deki::deki_workspace_reject(
+                state,
+                &runtime_owner,
+                required_string(&args, "id")?.to_string(),
+            )
+            .await
         }
         "update_check" => updates::check_updates().await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
@@ -1939,6 +1949,7 @@ mod tests {
         "game_assets_file_path",
         "game_assets_open_folder",
         "import_st_bulk_run_events",
+        "deki_prompt_events",
         "local_file_save",
         "local_file_save_cleanup",
         "lorebook_image_file_path",

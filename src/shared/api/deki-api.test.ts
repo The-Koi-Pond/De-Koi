@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dekiApi } from "./deki-api";
-import { remoteRuntimeTarget } from "./remote-runtime";
+import { dekiApi, dekiRuntimeErrorCode, normalizeDekiWorkspacePromptEvent } from "./deki-api";
+import { ApiError } from "./api-errors";
+import { remoteRuntimeTarget, streamRemoteJsonEvents } from "./remote-runtime";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 
 vi.mock("./tauri-client", () => ({
@@ -10,6 +11,7 @@ vi.mock("./tauri-client", () => ({
 
 vi.mock("./remote-runtime", () => ({
   remoteRuntimeTarget: vi.fn(),
+  streamRemoteJsonEvents: vi.fn(),
 }));
 
 const embeddedMock = vi.mocked(hasEmbeddedTauriIpc);
@@ -629,5 +631,85 @@ describe("dekiApi settings persistence", () => {
     await dekiApi.workspace.reject("approval-1");
 
     expect(invokeMock).toHaveBeenCalledWith("deki_workspace_reject", { id: "approval-1" });
+  });
+});
+
+describe("dekiApi live workspace events", () => {
+  const approval = {
+    id: "deki-approval-1",
+    sessionId: "session-1",
+    command: "deki data delete lorebook-entries/entry-koi",
+    reason: "Duplicate",
+    operationHash: "sha256:abc",
+    requestedAt: "2026-06-25T12:00:00.000Z",
+    expiresAt: "2026-06-25T12:30:00.000Z",
+    affectedEntities: { "lorebook-entries": 1, bogus: "x" },
+    affectedRows: 1,
+    validationStatus: "passed",
+    diffPreview: [{ entity: "lorebook-entries", id: "entry-koi", action: "delete", before: { name: "Koi" } }, { id: 7 }],
+    diffTruncated: false,
+  };
+
+  it("drops malformed events and keeps valid ones in the frontend contract", () => {
+    expect(normalizeDekiWorkspacePromptEvent({ type: "tool_start", data: { name: "rm_rf", input: {} } })).toBeNull();
+    expect(normalizeDekiWorkspacePromptEvent({ type: "token", data: "hidden {\"commands\":[]}" })).toBeNull();
+    expect(normalizeDekiWorkspacePromptEvent({ type: "status", data: { content: "  " } })).toBeNull();
+    expect(normalizeDekiWorkspacePromptEvent({ type: "approval_pending", data: { id: "x" } })).toBeNull();
+    const event = normalizeDekiWorkspacePromptEvent({ type: "approval_pending", data: approval });
+
+    expect(event?.type).toBe("approval_pending");
+    if (event?.type !== "approval_pending") throw new Error("expected approval event");
+    expect(event.data.affectedEntities).toEqual({ "lorebook-entries": 1 });
+    expect(event.data.diffPreview).toHaveLength(1);
+  });
+
+  it("streams remote events and resolves with the done payload", async () => {
+    remoteRuntimeTargetMock.mockReturnValue({ baseUrl: "http://pi:7860" } as ReturnType<typeof remoteRuntimeTarget>);
+    vi.mocked(streamRemoteJsonEvents).mockImplementation(async function* () {
+      yield { type: "tool_start", data: { id: "deki_r1_c1", name: "grep", input: { query: "AppShell" } } };
+      yield { type: "mystery", data: {} };
+      yield {
+        type: "done",
+        data: { content: "Found it.", createdAt: "2026-06-25T12:00:00.000Z", pendingApprovals: [approval, { id: 1 }] },
+      };
+    });
+    const events: unknown[] = [];
+
+    const response = await dekiApi.promptEvents(
+      { sessionId: "session-1", userMessage: "Where?", messages: [] },
+      (event) => events.push(event),
+    );
+
+    expect(streamRemoteJsonEvents).toHaveBeenCalledWith("/api/deki/prompt/stream", {
+      request: expect.objectContaining({ sessionId: "session-1" }),
+    });
+    expect(events).toEqual([
+      { type: "tool_start", data: { id: "deki_r1_c1", name: "grep", input: { query: "AppShell" } } },
+    ]);
+    expect(response.content).toBe("Found it.");
+    expect(response.pendingApprovals).toHaveLength(1);
+  });
+
+  it("fails loudly when a remote stream ends without a final response", async () => {
+    remoteRuntimeTargetMock.mockReturnValue({ baseUrl: "http://pi:7860" } as ReturnType<typeof remoteRuntimeTarget>);
+    vi.mocked(streamRemoteJsonEvents).mockImplementation(async function* () {
+      yield { type: "status", data: { content: "Working." } };
+    });
+
+    const error = await dekiApi
+      .promptEvents({ sessionId: "session-1", userMessage: "Where?", messages: [] }, () => undefined)
+      .catch((caught: unknown) => caught);
+
+    expect(dekiRuntimeErrorCode(error)).toBe("deki_stream_incomplete");
+  });
+
+  it("reads runtime error codes from invoke and SSE error shapes", () => {
+    expect(dekiRuntimeErrorCode(new ApiError("x", 500, { code: "deki_workspace_aborted" }))).toBe(
+      "deki_workspace_aborted",
+    );
+    expect(
+      dekiRuntimeErrorCode(new ApiError("x", 500, { type: "error", data: { code: "deki_workspace_state_changed" } })),
+    ).toBe("deki_workspace_state_changed");
+    expect(dekiRuntimeErrorCode(new Error("plain"))).toBeNull();
   });
 });

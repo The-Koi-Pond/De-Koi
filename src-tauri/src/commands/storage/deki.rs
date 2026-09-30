@@ -32,6 +32,8 @@ use std::time::Duration;
 
 #[path = "deki/action_parser.rs"]
 mod action_parser;
+#[path = "deki/approvals.rs"]
+mod approvals;
 #[path = "deki/budget.rs"]
 mod budget;
 #[path = "deki/chat_access.rs"]
@@ -40,6 +42,10 @@ mod chat_access;
 mod command_loop;
 #[path = "deki/commands/mod.rs"]
 mod commands;
+#[path = "deki/data_cli.rs"]
+mod data_cli;
+#[path = "deki/events.rs"]
+mod events;
 #[path = "deki/library.rs"]
 mod library;
 #[path = "deki/memory_access.rs"]
@@ -53,6 +59,7 @@ mod protocol;
 #[path = "deki/status.rs"]
 mod status;
 
+pub(crate) use events::DekiEventSink;
 pub(crate) use status::DekiRuntimeOwner;
 
 use self::commands::web::DekiWebResearchGrant;
@@ -1379,6 +1386,17 @@ pub(crate) async fn deki_prompt(
     body: Value,
     runtime_owner: &DekiRuntimeOwner,
 ) -> AppResult<Value> {
+    deki_prompt_with_events(state, body, runtime_owner, DekiEventSink::none()).await
+}
+
+/// Runs one Deki turn and reports live workspace activity to `events`. The
+/// returned value is the same final response `deki_prompt` returns.
+pub(crate) async fn deki_prompt_with_events(
+    state: &AppState,
+    body: Value,
+    runtime_owner: &DekiRuntimeOwner,
+    events: DekiEventSink,
+) -> AppResult<Value> {
     let input: DekiPromptRequest = serde_json::from_value(body.clone())
         .map_err(|error| AppError::invalid_input(error.to_string()))?;
     status::validate_runtime_owner(runtime_owner)?;
@@ -1443,8 +1461,14 @@ pub(crate) async fn deki_prompt(
     };
     if !use_native_tool_path {
         let runtime_guard = status::begin_runtime(runtime_owner, &input.session_id)?;
+        let approval_scope = approvals::DekiApprovalScope::new(runtime_owner, &input.session_id)?;
+        let task_prompt = match approvals::prompt_context(&approval_scope) {
+            Some(approval_context) => format!("{approval_context}\n\n{task_prompt}"),
+            None => task_prompt,
+        };
         let response = command_loop::run_json_command_runtime(command_loop::DekiJsonRuntimeInput {
             state,
+            approval_scope,
             connection,
             system_prompt,
             task_prompt,
@@ -1452,6 +1476,7 @@ pub(crate) async fn deki_prompt(
             chat_access_grants: input.chat_access_grants.clone(),
             web_research_grants: input.web_research_grants.clone(),
             cancellation: runtime_guard.cancellation(),
+            events,
         })
         .await?;
         let (content, action) = action_parser::deki_response_content_and_action(&response.content)?;
@@ -1466,12 +1491,13 @@ pub(crate) async fn deki_prompt(
         } else {
             Some(aggregate_deki_token_usage(&response.usage))
         };
-        let _workspace_trace = response.workspace_trace;
         return Ok(json!({
             "content": content,
             "createdAt": chrono::Utc::now().to_rfc3339(),
             "action": action,
             "usage": usage,
+            "workspaceTrace": response.workspace_trace,
+            "pendingApprovals": response.pending_approvals,
         }));
     }
 
@@ -1550,12 +1576,20 @@ pub(crate) async fn deki_workspace_abort(
     status::deki_workspace_abort(state, runtime_owner, session_id).await
 }
 
-pub(crate) async fn deki_workspace_approve(state: &AppState, id: String) -> AppResult<Value> {
-    status::deki_workspace_approve(state, id).await
+pub(crate) async fn deki_workspace_approve(
+    state: &AppState,
+    runtime_owner: &DekiRuntimeOwner,
+    id: String,
+) -> AppResult<Value> {
+    approvals::approve(state, runtime_owner, &id)
 }
 
-pub(crate) async fn deki_workspace_reject(state: &AppState, id: String) -> AppResult<Value> {
-    status::deki_workspace_reject(state, id).await
+pub(crate) async fn deki_workspace_reject(
+    _state: &AppState,
+    runtime_owner: &DekiRuntimeOwner,
+    id: String,
+) -> AppResult<Value> {
+    approvals::reject(runtime_owner, &id)
 }
 
 fn deki_no_action_contract() -> Value {

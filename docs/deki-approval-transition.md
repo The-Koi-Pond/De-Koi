@@ -17,6 +17,14 @@ The current approval plumbing is transitional in these ways:
 
 These choices are acceptable for the scoped chat-access feature because they enforce the privacy boundary and avoid fabricated chat-derived answers. They should not become the final architecture for all Deki approvals.
 
+## Status
+
+Slices 3 and 4 have landed: general app-data dry-runs, pending approvals,
+approve/reject, history, and streamed activity are described in
+`docs/deki-data-approvals.md`. Chat access grants still use their own card and
+synthetic resume; migrating them onto the workspace approval runtime remains
+open.
+
 ## Planned Rework
 
 Future Deki workspace slices should absorb this feature into the broader CLI-style assistant architecture:
