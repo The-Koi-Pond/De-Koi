@@ -1,6 +1,7 @@
 import { GripHorizontal, Music2, Pause, Play, RotateCcw, Search, Square, Volume2, X } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -409,10 +410,11 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     setLastDiscoveryQuery(contextQuery);
   }, [visible]);
 
-  useEffect(() => {
-    if (!visible) return;
-
-    function handleMusicPlaybackDetail(detail: MusicPlaybackEventDetail) {
+  // Playback events arrive from outside React. Handle each one with the newest
+  // render's state and actions, but subscribe only once while visible.
+  const handleMusicPlaybackDetailRef = useRef<(detail: MusicPlaybackEventDetail) => void>(() => undefined);
+  useLayoutEffect(() => {
+    handleMusicPlaybackDetailRef.current = (detail: MusicPlaybackEventDetail) => {
       aiPickRequestIdRef.current += 1;
       setMessage((current) => (current === MUSIC_AI_PICK_CHOOSING_MESSAGE ? null : current));
       if (detail.type === "cue") {
@@ -456,7 +458,11 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       } else if (detail.type === "stop") {
         void stop();
       }
-    }
+    };
+  });
+
+  useEffect(() => {
+    if (!visible) return;
 
     function onMusicEvent(event: Event) {
       const detail = (event as CustomEvent<MusicPlaybackEventDetail>).detail;
@@ -464,16 +470,16 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       if (detail.type === "cue") {
         consumePendingMusicPlaybackCue();
       }
-      handleMusicPlaybackDetail(detail);
+      handleMusicPlaybackDetailRef.current(detail);
     }
 
     window.addEventListener(MUSIC_PLAYBACK_EVENT, onMusicEvent);
     const pendingCue = consumePendingMusicPlaybackCue();
     if (pendingCue) {
-      handleMusicPlaybackDetail(pendingCue);
+      handleMusicPlaybackDetailRef.current(pendingCue);
     }
     return () => window.removeEventListener(MUSIC_PLAYBACK_EVENT, onMusicEvent);
-  }, [query, recentTrackIds, track, visible, volume]);
+  }, [visible]);
 
   if (!visible) return null;
 

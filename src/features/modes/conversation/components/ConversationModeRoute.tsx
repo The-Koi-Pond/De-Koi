@@ -132,16 +132,21 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     });
   }, [data.chatMode, musicDjContext]);
 
+  const {
+    agentProcessing: timelineAgentProcessing,
+    handleRetryAgent: retryTimelineAgent,
+    isStreaming: timelineStreaming,
+  } = timeline;
   useEffect(() => {
     if (data.chatMode !== "conversation") return;
     function onMusicAiPickRequest(event: Event) {
-      const blocked = (timeline.agentProcessing && !timeline.isStreaming) || musicAiPickInFlightRef.current;
+      const blocked = (timelineAgentProcessing && !timelineStreaming) || musicAiPickInFlightRef.current;
       if (!blocked) musicAiPickInFlightRef.current = true;
       handleMusicAiPickRequest(event, {
         blocked,
         run: async (detail) => {
           try {
-            return await timeline.handleRetryAgent("music-dj", {
+            return await retryTimelineAgent("music-dj", {
               allowDuringGeneration: true,
               requestedMusicVolume: detail.volume ?? undefined,
             });
@@ -153,7 +158,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     }
     window.addEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);
     return () => window.removeEventListener(MUSIC_AI_PICK_REQUEST_EVENT, onMusicAiPickRequest);
-  }, [data.chatMode, timeline.agentProcessing, timeline.handleRetryAgent, timeline.isStreaming]);
+  }, [data.chatMode, retryTimelineAgent, timelineAgentProcessing, timelineStreaming]);
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)
     ?.connectedChatId;
   const activeSceneChatId =
