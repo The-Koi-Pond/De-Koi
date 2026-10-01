@@ -69,19 +69,31 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
 
   useEffect(() => reset, [reset]);
 
-  const activate = useCallback((target: HTMLElement, current: PendingSlotDrag) => {
+  // Leaving the window (alt-tab, focus loss) ends any pointer sequence.
+  useEffect(() => {
+    const onBlur = () => {
+      if (pending.current) reset();
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [reset]);
+
+  const activate = useCallback((current: PendingSlotDrag) => {
     current.active = true;
     current.holdTimer = null;
-    if (target.isConnected) target.setPointerCapture(current.pointerId);
     setDrag({ from: current.index, over: current.index });
   }, []);
 
   const slotHandlers = useCallback(
     (index: number, enabled: boolean) => ({
       onPointerDown: (event: PointerEvent<HTMLButtonElement>) => {
-        if (!enabled || !onSwap || pending.current) return;
+        if (!enabled || !onSwap) return;
         if (event.pointerType === "mouse" && event.button !== 0) return;
-        const target = event.currentTarget;
+        // A sequence that never finished must not block this one.
+        if (pending.current) reset();
+        // Capture from the start, so the release reaches this slot even when it
+        // happens outside the slot or the inventory before a drag activates.
+        event.currentTarget.setPointerCapture(event.pointerId);
         const current: PendingSlotDrag = {
           index,
           pointerId: event.pointerId,
@@ -94,7 +106,7 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
         pending.current = current;
         if (current.touch) {
           current.holdTimer = window.setTimeout(() => {
-            if (pending.current === current) activate(target, current);
+            if (pending.current === current) activate(current);
           }, TOUCH_HOLD_MS);
         }
       },
@@ -108,7 +120,7 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
             return;
           }
           if (distance < MOUSE_DRAG_DISTANCE_PX) return;
-          activate(event.currentTarget, current);
+          activate(current);
         }
         setDrag({ from: current.index, over: reorderableSlotIndexAt(event.clientX, event.clientY) });
       },
@@ -123,6 +135,10 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
         reset();
       },
       onPointerCancel: reset,
+      onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => {
+        // Capture also ends after pointerup; only a still-pending sequence needs clearing.
+        if (pending.current?.pointerId === event.pointerId) reset();
+      },
       onClickCapture: (event: MouseEvent<HTMLButtonElement>) => {
         // A finished drag is not also a click that selects the slot.
         if (!suppressNextClick.current) return;
