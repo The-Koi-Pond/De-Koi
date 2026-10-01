@@ -13,9 +13,7 @@ export function subscribeContinuityDirectorRefreshCompletions(
   return () => completionListeners.delete(listener);
 }
 
-export function publishContinuityDirectorRefreshCompletion(
-  completion: ContinuityDirectorRefreshCompletion,
-): void {
+export function publishContinuityDirectorRefreshCompletion(completion: ContinuityDirectorRefreshCompletion): void {
   for (const listener of completionListeners) {
     try {
       listener(completion);

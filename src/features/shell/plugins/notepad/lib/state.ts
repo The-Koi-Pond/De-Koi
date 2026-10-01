@@ -27,16 +27,16 @@ function isBackupTab(value: unknown): boolean {
   const raw = asRecord(value);
   return Boolean(
     raw &&
-      typeof raw.id === "string" &&
-      raw.id.trim() &&
-      typeof raw.title === "string" &&
-      (raw.scope === "global" || raw.scope === "character" || raw.scope === "chat") &&
-      (raw.branchMode === "branch" || raw.branchMode === "family") &&
-      isNullableString(raw.characterId) &&
-      isNullableString(raw.chatId) &&
-      isNullableString(raw.groupId) &&
-      isNullableString(raw.createdAt) &&
-      isNullableString(raw.updatedAt),
+    typeof raw.id === "string" &&
+    raw.id.trim() &&
+    typeof raw.title === "string" &&
+    (raw.scope === "global" || raw.scope === "character" || raw.scope === "chat") &&
+    (raw.branchMode === "branch" || raw.branchMode === "family") &&
+    isNullableString(raw.characterId) &&
+    isNullableString(raw.chatId) &&
+    isNullableString(raw.groupId) &&
+    isNullableString(raw.createdAt) &&
+    isNullableString(raw.updatedAt),
   );
 }
 
@@ -49,11 +49,11 @@ function isBackupMemoryState(value: unknown): boolean {
   const raw = asRecord(value);
   return Boolean(
     raw &&
-      raw.version === 1 &&
-      Array.isArray(raw.tabs) &&
-      raw.tabs.every(isBackupTab) &&
-      isNotesRecord(raw.notes) &&
-      (raw.activeTabId === null || raw.activeTabId === undefined || typeof raw.activeTabId === "string"),
+    raw.version === 1 &&
+    Array.isArray(raw.tabs) &&
+    raw.tabs.every(isBackupTab) &&
+    isNotesRecord(raw.notes) &&
+    (raw.activeTabId === null || raw.activeTabId === undefined || typeof raw.activeTabId === "string"),
   );
 }
 

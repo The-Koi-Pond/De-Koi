@@ -79,11 +79,7 @@ import {
   metadataStringArray,
   metadataTranslationProvider,
 } from "../lib/chat-settings-metadata";
-import {
-  chatToolSelectionMode,
-  chatToolStatusDescription,
-  toggleChatAgent,
-} from "../lib/chat-settings-actions";
+import { chatToolSelectionMode, chatToolStatusDescription, toggleChatAgent } from "../lib/chat-settings-actions";
 import {
   characterSearchValues,
   mergeDrawerCharacters,
@@ -615,10 +611,20 @@ function ChatSettingsDrawerInner({
     const projections = storyStateQuery.data?.projections ?? [];
     const jobs = storyStateQuery.data?.jobs ?? [];
     return {
-      episodes: projections.filter((memory) => (memory.payload as StoryProjectionPayload).level === "episode" && (memory.status === "active" || memory.status === "pinned")).length,
-      arcs: projections.filter((memory) => (memory.payload as StoryProjectionPayload).level === "arc" && (memory.status === "active" || memory.status === "pinned")).length,
+      episodes: projections.filter(
+        (memory) =>
+          (memory.payload as StoryProjectionPayload).level === "episode" &&
+          (memory.status === "active" || memory.status === "pinned"),
+      ).length,
+      arcs: projections.filter(
+        (memory) =>
+          (memory.payload as StoryProjectionPayload).level === "arc" &&
+          (memory.status === "active" || memory.status === "pinned"),
+      ).length,
       stale: projections.filter((memory) => memory.status === "stale").length,
-      pending: jobs.filter((job) => job.status === "pending" || job.status === "processing" || job.status === "retryable").length,
+      pending: jobs.filter(
+        (job) => job.status === "pending" || job.status === "processing" || job.status === "retryable",
+      ).length,
     };
   }, [isRoleplayMode, storyStateQuery.data]);
   const continuityOverviewModel = useMemo(
@@ -1994,10 +2000,22 @@ function ChatSettingsDrawerInner({
           >
             <div className="min-w-0 flex-1">
               <span className="text-[0.6875rem] font-medium">Build Story Continuity</span>
-              <p className="text-[0.625rem] text-[var(--muted-foreground)]">Create durable episodes and four-episode arcs in the background.</p>
+              <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                Create durable episodes and four-episode arcs in the background.
+              </p>
             </div>
-            <div className={cn("h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors", storyEffective ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50")}>
-              <div className={cn("h-4 w-4 rounded-full bg-white shadow-sm transition-transform", storyEffective && "translate-x-3.5")} />
+            <div
+              className={cn(
+                "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                storyEffective ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+              )}
+            >
+              <div
+                className={cn(
+                  "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                  storyEffective && "translate-x-3.5",
+                )}
+              />
             </div>
           </button>
         )}
@@ -2005,33 +2023,33 @@ function ChatSettingsDrawerInner({
           memoryEmbeddingGuidanceIsDefinitive &&
           !connectionsLoading &&
           !memoryEmbeddingGuidance.available && (
-          <div
-            role="alert"
-            className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2.5 text-[0.625rem] text-[var(--foreground)]"
-          >
-            <div className="flex items-start gap-2">
-              <AlertTriangle size="0.8rem" className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">{MEMORY_EMBEDDING_UNAVAILABLE_TITLE}</p>
-                <p className="mt-0.5 text-[var(--muted-foreground)]">{MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    const ui = useUIStore.getState();
-                    ui.openRightPanel("connections");
-                    if (memoryEmbeddingGuidance.connectionId) {
-                      ui.openConnectionDetail(memoryEmbeddingGuidance.connectionId);
-                    }
-                  }}
-                  className="mt-1.5 rounded-md bg-amber-400/15 px-2 py-1 font-medium text-amber-300 transition-colors hover:bg-amber-400/25"
-                >
-                  Open Connections
-                </button>
+            <div
+              role="alert"
+              className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2.5 text-[0.625rem] text-[var(--foreground)]"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle size="0.8rem" className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">{MEMORY_EMBEDDING_UNAVAILABLE_TITLE}</p>
+                  <p className="mt-0.5 text-[var(--muted-foreground)]">{MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      const ui = useUIStore.getState();
+                      ui.openRightPanel("connections");
+                      if (memoryEmbeddingGuidance.connectionId) {
+                        ui.openConnectionDetail(memoryEmbeddingGuidance.connectionId);
+                      }
+                    }}
+                    className="mt-1.5 rounded-md bg-amber-400/15 px-2 py-1 font-medium text-amber-300 transition-colors hover:bg-amber-400/25"
+                  >
+                    Open Connections
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
         <label className="flex min-w-0 flex-col gap-1 text-[0.625rem] text-[var(--muted-foreground)]">
           <span className="font-medium text-[var(--foreground)]">Read Behind</span>
           <input

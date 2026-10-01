@@ -48,7 +48,9 @@ export const useSetupJourneyStore = create<SetupJourneyState>()(
           ...(state.intent?.completed ? { recovery: null } : {}),
         })),
       dismiss: () =>
-        set((state) => (state.intent && !state.intent.dismissed ? { intent: { ...state.intent, dismissed: true } } : state)),
+        set((state) =>
+          state.intent && !state.intent.dismissed ? { intent: { ...state.intent, dismissed: true } } : state,
+        ),
       resume: () =>
         set((state) => (state.intent?.dismissed ? { intent: { ...state.intent, dismissed: false } } : state)),
       markConnection: (connectionId) =>

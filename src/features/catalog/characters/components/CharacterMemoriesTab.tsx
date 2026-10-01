@@ -1,5 +1,19 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Brain, Check, Copy, Download, Eye, Pencil, Pin, Plus, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import {
+  Brain,
+  Check,
+  Copy,
+  Download,
+  Eye,
+  Pencil,
+  Pin,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { CharacterMemoryPersistence } from "../../../../engine/contracts/types/character";
@@ -183,11 +197,18 @@ export function CharacterMemoriesTab({
     try {
       const memoryRows = memoriesQuery.data ?? [];
       const edges = memoryRows.length
-        ? await canonicalMemoryApi.knowledge.query({ memoryIds: memoryRows.map((memory) => memory.id) }).catch(() => null)
+        ? await canonicalMemoryApi.knowledge
+            .query({ memoryIds: memoryRows.map((memory) => memory.id) })
+            .catch(() => null)
         : [];
-      const envelope = edges === null
-        ? createCharacterMemoryExport({ character: { id: characterId, name: characterName }, memories: memoryRows })
-        : createCharacterMemoryExport({ character: { id: characterId, name: characterName }, memories: memoryRows, edges });
+      const envelope =
+        edges === null
+          ? createCharacterMemoryExport({ character: { id: characterId, name: characterName }, memories: memoryRows })
+          : createCharacterMemoryExport({
+              character: { id: characterId, name: characterName },
+              memories: memoryRows,
+              edges,
+            });
       triggerDownload({
         blob: new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" }),
         filename: `${safeFilename(characterName)}-memories.json`,
@@ -470,7 +491,7 @@ export function CharacterMemoriesTab({
                       type="button"
                       aria-label="Who knows this?"
                       aria-expanded={knowledgeEditingId === memory.id}
-                      onClick={() => setKnowledgeEditingId((current) => current === memory.id ? null : memory.id)}
+                      onClick={() => setKnowledgeEditingId((current) => (current === memory.id ? null : memory.id))}
                       className="rounded-lg p-2 hover:bg-[var(--accent)]"
                     >
                       <Eye size="0.9rem" />

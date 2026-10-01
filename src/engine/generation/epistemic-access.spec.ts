@@ -145,11 +145,20 @@ describe("epistemic memory access", () => {
   });
 
   it("frames belief, suspicion, and disbelief without canonicalizing them as truth", () => {
-    expect(formatEpistemicMemory("The duke is a traitor.", [{ subject: { kind: "character", id: "alice" }, stance: "believes" }]))
-      .toBe("Alice believes: The duke is a traitor.");
-    expect(formatEpistemicMemory("The duke is a traitor.", [{ subject: { kind: "character", id: "alice" }, stance: "suspects" }]))
-      .toBe("Alice suspects: The duke is a traitor.");
-    expect(formatEpistemicMemory("The duke is a traitor.", [{ subject: { kind: "character", id: "alice" }, stance: "disbelieves" }]))
-      .toBe("Alice has heard but disbelieves: The duke is a traitor.");
+    expect(
+      formatEpistemicMemory("The duke is a traitor.", [
+        { subject: { kind: "character", id: "alice" }, stance: "believes" },
+      ]),
+    ).toBe("Alice believes: The duke is a traitor.");
+    expect(
+      formatEpistemicMemory("The duke is a traitor.", [
+        { subject: { kind: "character", id: "alice" }, stance: "suspects" },
+      ]),
+    ).toBe("Alice suspects: The duke is a traitor.");
+    expect(
+      formatEpistemicMemory("The duke is a traitor.", [
+        { subject: { kind: "character", id: "alice" }, stance: "disbelieves" },
+      ]),
+    ).toBe("Alice has heard but disbelieves: The duke is a traitor.");
   });
 });

@@ -23,231 +23,233 @@ export interface ChatBranchSelectorHandle {
   close: () => void;
 }
 
-export const ChatBranchSelector = forwardRef<ChatBranchSelectorHandle, ChatBranchSelectorProps>(function ChatBranchSelector(
-  {
-    activeChatId,
-    activeChatName,
-    groupId,
-    variant = "conversation",
-    compact = false,
-    className,
-    triggerAriaHidden,
-    triggerTabIndex,
-  },
-  ref,
-) {
-  const { data: groupChats, isLoading } = useChatGroup(groupId ?? null);
-  const setActiveChatId = useChatStore((s) => s.setActiveChatId);
-  const [open, setOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number }>({
-    top: 0,
-    left: 0,
-    width: 280,
-  });
-
-  useImperativeHandle(
+export const ChatBranchSelector = forwardRef<ChatBranchSelectorHandle, ChatBranchSelectorProps>(
+  function ChatBranchSelector(
+    {
+      activeChatId,
+      activeChatName,
+      groupId,
+      variant = "conversation",
+      compact = false,
+      className,
+      triggerAriaHidden,
+      triggerTabIndex,
+    },
     ref,
-    () => ({
-      open: () => setOpen(true),
-      toggle: () => setOpen((value) => !value),
-      close: () => setOpen(false),
-    }),
-    [],
-  );
-
-  const branches = useMemo(() => {
-    const rows = [...(groupChats ?? [])];
-    rows.sort((left, right) => {
-      if (left.id === activeChatId) return -1;
-      if (right.id === activeChatId) return 1;
-      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  ) {
+    const { data: groupChats, isLoading } = useChatGroup(groupId ?? null);
+    const setActiveChatId = useChatStore((s) => s.setActiveChatId);
+    const [open, setOpen] = useState(false);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
+    const [position, setPosition] = useState<{ top: number; left: number; width: number }>({
+      top: 0,
+      left: 0,
+      width: 280,
     });
-    return rows;
-  }, [activeChatId, groupChats]);
 
-  const currentBranch = branches.find((chat) => chat.id === activeChatId);
+    useImperativeHandle(
+      ref,
+      () => ({
+        open: () => setOpen(true),
+        toggle: () => setOpen((value) => !value),
+        close: () => setOpen(false),
+      }),
+      [],
+    );
 
-  useLayoutEffect(() => {
-    if (!open || !buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    setPosition({
-      top: rect.bottom + 8,
-      left: Math.max(12, Math.min(rect.left, window.innerWidth - Math.max(rect.width, 280) - 12)),
-      width: Math.max(rect.width, 280),
-    });
-  }, [branches.length, open]);
+    const branches = useMemo(() => {
+      const rows = [...(groupChats ?? [])];
+      rows.sort((left, right) => {
+        if (left.id === activeChatId) return -1;
+        if (right.id === activeChatId) return 1;
+        return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      });
+      return rows;
+    }, [activeChatId, groupChats]);
 
-  useEffect(() => {
-    if (!open) return;
+    const currentBranch = branches.find((chat) => chat.id === activeChatId);
 
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (buttonRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
-      setOpen(false);
-    };
+    useLayoutEffect(() => {
+      if (!open || !buttonRef.current) return;
+      const rect = buttonRef.current.getBoundingClientRect();
+      setPosition({
+        top: rect.bottom + 8,
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - Math.max(rect.width, 280) - 12)),
+        width: Math.max(rect.width, 280),
+      });
+    }, [branches.length, open]);
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
+    useEffect(() => {
+      if (!open) return;
 
-    const handleResize = () => setOpen(false);
+      const handlePointerDown = (event: MouseEvent) => {
+        const target = event.target as Node;
+        if (buttonRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
+        setOpen(false);
+      };
 
-    const handleScroll = (event: Event) => {
-      if (popoverRef.current?.contains(event.target as Node)) return;
-      setOpen(false);
-    };
+      const handleEscape = (event: KeyboardEvent) => {
+        if (event.key === "Escape") setOpen(false);
+      };
 
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleEscape);
-    window.addEventListener("resize", handleResize);
-    window.addEventListener("scroll", handleScroll, true);
+      const handleResize = () => setOpen(false);
 
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("resize", handleResize);
-      window.removeEventListener("scroll", handleScroll, true);
-    };
-  }, [open]);
+      const handleScroll = (event: Event) => {
+        if (popoverRef.current?.contains(event.target as Node)) return;
+        setOpen(false);
+      };
 
-  if (!groupId) return null;
-  if (!isLoading && branches.length <= 1) return null;
+      document.addEventListener("mousedown", handlePointerDown);
+      document.addEventListener("keydown", handleEscape);
+      window.addEventListener("resize", handleResize);
+      window.addEventListener("scroll", handleScroll, true);
 
-  const branchLabel = currentBranch ? getChatDisplayName(currentBranch) : (activeChatName ?? "Current branch");
-  const roleplayMinimal = variant === "roleplay" && !compact;
-  const buttonClassName =
-    variant === "roleplay"
-      ? "border border-foreground/10 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
-      : "bg-black/30 text-foreground/90 hover:bg-black/50";
-  const badgeClassName =
-    variant === "roleplay" ? "bg-foreground/10 text-foreground/60" : "bg-black/30 text-foreground/60";
+      return () => {
+        document.removeEventListener("mousedown", handlePointerDown);
+        document.removeEventListener("keydown", handleEscape);
+        window.removeEventListener("resize", handleResize);
+        window.removeEventListener("scroll", handleScroll, true);
+      };
+    }, [open]);
 
-  return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={(event) => {
-          if (compact) event.stopPropagation();
-          setOpen((value) => !value);
-        }}
-        aria-label={isLoading ? "Switch branch" : `Switch branch (${branches.length} branches)`}
-        className={cn(
-          compact
-            ? "relative flex h-8 w-8 items-center justify-center rounded-lg backdrop-blur-sm transition-colors"
-            : roleplayMinimal
-              ? "flex h-8 min-w-14 items-center gap-1.5 rounded-lg px-2 py-1 text-left backdrop-blur-sm transition-colors"
-            : "flex max-w-[min(15rem,calc(100vw-9rem))] items-center gap-2 rounded-lg px-2.5 py-1.5 text-left backdrop-blur-sm transition-colors",
-          buttonClassName,
-          className,
-        )}
-        title="Switch branch"
-        aria-hidden={triggerAriaHidden}
-        tabIndex={triggerTabIndex}
-      >
-        <GitBranch size="0.8125rem" className="shrink-0" />
-        {compact ? (
-          <span
-            className={cn(
-              "absolute -right-1 -top-1 flex min-w-4 justify-center rounded-full px-1 text-[0.5625rem] font-semibold leading-4",
-              badgeClassName,
-            )}
-          >
-            {isLoading ? <Loader2 size="0.5625rem" className="mt-0.5 animate-spin" /> : branches.length}
-          </span>
-        ) : roleplayMinimal ? (
-          <>
+    if (!groupId) return null;
+    if (!isLoading && branches.length <= 1) return null;
+
+    const branchLabel = currentBranch ? getChatDisplayName(currentBranch) : (activeChatName ?? "Current branch");
+    const roleplayMinimal = variant === "roleplay" && !compact;
+    const buttonClassName =
+      variant === "roleplay"
+        ? "border border-foreground/10 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
+        : "bg-black/30 text-foreground/90 hover:bg-black/50";
+    const badgeClassName =
+      variant === "roleplay" ? "bg-foreground/10 text-foreground/60" : "bg-black/30 text-foreground/60";
+
+    return (
+      <>
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={(event) => {
+            if (compact) event.stopPropagation();
+            setOpen((value) => !value);
+          }}
+          aria-label={isLoading ? "Switch branch" : `Switch branch (${branches.length} branches)`}
+          className={cn(
+            compact
+              ? "relative flex h-8 w-8 items-center justify-center rounded-lg backdrop-blur-sm transition-colors"
+              : roleplayMinimal
+                ? "flex h-8 min-w-14 items-center gap-1.5 rounded-lg px-2 py-1 text-left backdrop-blur-sm transition-colors"
+                : "flex max-w-[min(15rem,calc(100vw-9rem))] items-center gap-2 rounded-lg px-2.5 py-1.5 text-left backdrop-blur-sm transition-colors",
+            buttonClassName,
+            className,
+          )}
+          title="Switch branch"
+          aria-hidden={triggerAriaHidden}
+          tabIndex={triggerTabIndex}
+        >
+          <GitBranch size="0.8125rem" className="shrink-0" />
+          {compact ? (
             <span
               className={cn(
-                "shrink-0 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium tabular-nums",
+                "absolute -right-1 -top-1 flex min-w-4 justify-center rounded-full px-1 text-[0.5625rem] font-semibold leading-4",
                 badgeClassName,
               )}
             >
-              {isLoading ? <Loader2 size="0.6875rem" className="animate-spin" /> : branches.length}
+              {isLoading ? <Loader2 size="0.5625rem" className="mt-0.5 animate-spin" /> : branches.length}
             </span>
-            <ChevronDown size="0.75rem" className={cn("shrink-0 transition-transform", open && "rotate-180")} />
-          </>
-        ) : (
-          <>
-            <span className="min-w-0 flex-1 truncate text-[0.75rem] font-medium">{branchLabel}</span>
-            <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium", badgeClassName)}>
-              {isLoading ? <Loader2 size="0.6875rem" className="animate-spin" /> : branches.length}
-            </span>
-            <ChevronDown size="0.75rem" className={cn("shrink-0 transition-transform", open && "rotate-180")} />
-          </>
-        )}
-      </button>
+          ) : roleplayMinimal ? (
+            <>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium tabular-nums",
+                  badgeClassName,
+                )}
+              >
+                {isLoading ? <Loader2 size="0.6875rem" className="animate-spin" /> : branches.length}
+              </span>
+              <ChevronDown size="0.75rem" className={cn("shrink-0 transition-transform", open && "rotate-180")} />
+            </>
+          ) : (
+            <>
+              <span className="min-w-0 flex-1 truncate text-[0.75rem] font-medium">{branchLabel}</span>
+              <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium", badgeClassName)}>
+                {isLoading ? <Loader2 size="0.6875rem" className="animate-spin" /> : branches.length}
+              </span>
+              <ChevronDown size="0.75rem" className={cn("shrink-0 transition-transform", open && "rotate-180")} />
+            </>
+          )}
+        </button>
 
-      {open &&
-        createPortal(
-          <div
-            ref={popoverRef}
-            data-chat-branch-popover
-            className="fixed z-[9999] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl shadow-black/40"
-            style={{ top: position.top, left: position.left, width: position.width }}
-          >
-            <div className="border-b border-[var(--border)] px-3 py-2">
-              <div className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
-                Chat Branches
+        {open &&
+          createPortal(
+            <div
+              ref={popoverRef}
+              data-chat-branch-popover
+              className="fixed z-[9999] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl shadow-black/40"
+              style={{ top: position.top, left: position.left, width: position.width }}
+            >
+              <div className="border-b border-[var(--border)] px-3 py-2">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                  Chat Branches
+                </div>
+                <div className="mt-1 text-xs text-[var(--muted-foreground)]">
+                  Switch branches without opening Manage Chat Files.
+                </div>
               </div>
-              <div className="mt-1 text-xs text-[var(--muted-foreground)]">
-                Switch branches without opening Manage Chat Files.
-              </div>
-            </div>
 
-            <div className="max-h-[min(22rem,calc(100vh-8rem))] overflow-y-auto p-2">
-              {branches.map((branch) => {
-                const isActive = branch.id === activeChatId;
-                const updatedAt = new Date(branch.updatedAt).toLocaleString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
+              <div className="max-h-[min(22rem,calc(100vh-8rem))] overflow-y-auto p-2">
+                {branches.map((branch) => {
+                  const isActive = branch.id === activeChatId;
+                  const updatedAt = new Date(branch.updatedAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
 
-                return (
-                  <button
-                    key={branch.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveChatId(branch.id);
-                      setOpen(false);
-                    }}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
-                      isActive ? "bg-sky-500/10 text-[var(--foreground)]" : "hover:bg-[var(--accent)]",
-                    )}
-                  >
-                    <div
+                  return (
+                    <button
+                      key={branch.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveChatId(branch.id);
+                        setOpen(false);
+                      }}
                       className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
-                        isActive
-                          ? "bg-gradient-to-br from-sky-400 to-blue-500 text-white"
-                          : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
+                        isActive ? "bg-sky-500/10 text-[var(--foreground)]" : "hover:bg-[var(--accent)]",
                       )}
                     >
-                      {isActive ? <Check size="0.875rem" /> : <MessageSquare size="0.875rem" />}
-                    </div>
+                      <div
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
+                          isActive
+                            ? "bg-gradient-to-br from-sky-400 to-blue-500 text-white"
+                            : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
+                        )}
+                      >
+                        {isActive ? <Check size="0.875rem" /> : <MessageSquare size="0.875rem" />}
+                      </div>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{getChatDisplayName(branch)}</div>
-                      <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Updated {updatedAt}</div>
-                    </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{getChatDisplayName(branch)}</div>
+                        <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Updated {updatedAt}</div>
+                      </div>
 
-                    {isActive && (
-                      <span className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[0.625rem] font-medium text-sky-400">
-                        Active
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>,
-          document.body,
-        )}
-    </>
-  );
-});
+                      {isActive && (
+                        <span className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[0.625rem] font-medium text-sky-400">
+                          Active
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>,
+            document.body,
+          )}
+      </>
+    );
+  },
+);

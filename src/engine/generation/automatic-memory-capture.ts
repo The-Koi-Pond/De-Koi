@@ -330,18 +330,22 @@ export async function persistCanonicalMemoryConsequences(input: {
     let memory: CanonicalMemoryRecord;
     let operation: PersistedCanonicalConsequence["operation"];
     if (existing) {
-      memory = await updateMemory(existing.id, {
-        kind: candidate.kind,
-        status: existing.status === "pinned" ? "pinned" : candidate.status,
-        scope: candidate.scope,
-        content: candidate.content,
-        confidence: Math.max(existing.confidence, candidate.confidence),
-        provenance: mergedProvenance(existing, candidate),
-        title: candidate.title,
-        tags: Array.from(new Set([...existing.tags, ...(candidate.tags ?? [])])),
-        supersedesMemoryId,
-        payload,
-      }, input.knowledgeEdgesForMemory?.(candidate, existing.id) ?? []);
+      memory = await updateMemory(
+        existing.id,
+        {
+          kind: candidate.kind,
+          status: existing.status === "pinned" ? "pinned" : candidate.status,
+          scope: candidate.scope,
+          content: candidate.content,
+          confidence: Math.max(existing.confidence, candidate.confidence),
+          provenance: mergedProvenance(existing, candidate),
+          title: candidate.title,
+          tags: Array.from(new Set([...existing.tags, ...(candidate.tags ?? [])])),
+          supersedesMemoryId,
+          payload,
+        },
+        input.knowledgeEdgesForMemory?.(candidate, existing.id) ?? [],
+      );
       operation = "updated";
     } else {
       const createBody = {

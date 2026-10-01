@@ -22,7 +22,9 @@ export async function resolveExtensionDeviceActivation(extension: InstalledExten
 }
 
 export function useExtensionDeviceActivation(extension: InstalledExtension | null) {
-  const [resolved, setResolved] = useState<{ fingerprint: string; consent: ExtensionDeviceConsent | null } | null>(null);
+  const [resolved, setResolved] = useState<{ fingerprint: string; consent: ExtensionDeviceConsent | null } | null>(
+    null,
+  );
   const [revision, setRevision] = useState(0);
   let compatibility: "compatible" | "incompatible" | "not-declared" = "not-declared";
   let canActivate = false;
@@ -36,10 +38,7 @@ export function useExtensionDeviceActivation(extension: InstalledExtension | nul
 
   useEffect(() => {
     const refresh = (event: Event) => {
-      if (
-        extension &&
-        extensionConsentEventAffects(event, currentRuntimeConsentScope(), extension.id)
-      ) {
+      if (extension && extensionConsentEventAffects(event, currentRuntimeConsentScope(), extension.id)) {
         setRevision((value) => value + 1);
       }
     };
@@ -63,12 +62,7 @@ export function useExtensionDeviceActivation(extension: InstalledExtension | nul
   const grant = useCallback(
     (activation: { css: boolean; javascript: boolean }) => {
       if (!extension || !resolved || !canActivate) return false;
-      extensionDeviceConsentStore.grant(
-        currentRuntimeConsentScope(),
-        extension.id,
-        resolved.fingerprint,
-        activation,
-      );
+      extensionDeviceConsentStore.grant(currentRuntimeConsentScope(), extension.id, resolved.fingerprint, activation);
       return true;
     },
     [canActivate, extension, resolved],

@@ -35,9 +35,7 @@ function uniqueStrings(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
 }
 
-function withGenerationMessageProjection(
-  options?: ChatMessageListOptions,
-): ChatMessageListOptions {
+function withGenerationMessageProjection(options?: ChatMessageListOptions): ChatMessageListOptions {
   const fieldSelections = options?.fieldSelections ?? {};
   const extraFields = fieldSelections.extra ?? [];
   return {
@@ -84,9 +82,8 @@ export async function resolveGenerationConnection(
 
   const connections = await enabledConnections();
   const selected =
-    connections.find(
-      (connection) => boolish(connection.isDefault, false) || boolish(connection.default, false),
-    ) ?? connections[0];
+    connections.find((connection) => boolish(connection.isDefault, false) || boolish(connection.default, false)) ??
+    connections[0];
   return requireRecord(selected, "API connection");
 }
 

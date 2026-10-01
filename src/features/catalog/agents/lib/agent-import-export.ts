@@ -1,4 +1,7 @@
-import { createAgentConfigSchema, type CreateAgentConfigInput } from "../../../../engine/contracts/schemas/agent.schema";
+import {
+  createAgentConfigSchema,
+  type CreateAgentConfigInput,
+} from "../../../../engine/contracts/schemas/agent.schema";
 import type { AgentPhase } from "../../../../engine/contracts/types/agent";
 import type { AgentConfigRow } from "../hooks/use-agents";
 
@@ -43,7 +46,9 @@ function readBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 function readAgentPhase(value: unknown): AgentPhase {
-  const normalized = readString(value).toLowerCase().replace(/[\s-]+/g, "_");
+  const normalized = readString(value)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   if (normalized === "pre_generation" || normalized === "pre" || normalized === "before_generation") {
     return "pre_generation";
   }
@@ -113,7 +118,10 @@ function buildAgentConfig(agent: AgentConfigRow): CreateAgentConfigInput {
   });
 }
 
-export function buildAgentExportEnvelope(agent: AgentConfigRow, exportedAt = new Date().toISOString()): AgentFolderExport {
+export function buildAgentExportEnvelope(
+  agent: AgentConfigRow,
+  exportedAt = new Date().toISOString(),
+): AgentFolderExport {
   const config = buildAgentConfig(agent);
   const type = readCustomAgentType(config.type);
   if (!type) {
@@ -138,10 +146,7 @@ export function buildAgentExportEnvelope(agent: AgentConfigRow, exportedAt = new
   };
 }
 
-function normalizeAgentConfig(
-  data: Record<string, unknown>,
-  usedTypes: Set<string>,
-): CreateAgentConfigInput {
+function normalizeAgentConfig(data: Record<string, unknown>, usedTypes: Set<string>): CreateAgentConfigInput {
   const name = readString(data.name) || "Imported Agent";
   const settings = parseSettings(data.settings);
   const resultType = readString(data.resultType);

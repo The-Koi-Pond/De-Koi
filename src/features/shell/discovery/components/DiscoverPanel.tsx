@@ -8,11 +8,7 @@ import {
   type DiscoveryEntry,
 } from "../discovery-registry";
 import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE } from "../discovery-types";
-import {
-  getDiscoveryActionLabel,
-  runDiscoveryAction,
-  type DiscoveryActionOutcome,
-} from "../lib/discovery-actions";
+import { getDiscoveryActionLabel, runDiscoveryAction, type DiscoveryActionOutcome } from "../lib/discovery-actions";
 import { filterDiscoveryEntries } from "../lib/discovery-search";
 import { DISCOVERY_TASKS, filterEntriesForDiscoveryTask, type DiscoveryTaskId } from "../lib/discovery-tasks";
 
@@ -137,7 +133,15 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
               Search by what you want to do, then jump to the surface that owns it.
             </p>
           </div>
-          {onClose && <button type="button" onClick={onClose} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:border-[var(--primary)]/40">Back to Home</button>}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:border-[var(--primary)]/40"
+            >
+              Back to Home
+            </button>
+          )}
         </div>
 
         <label className="de-koi-discover-search mt-3 flex min-h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)]/55 px-3 text-sm text-[var(--foreground)] focus-within:border-[var(--primary)]/45">
@@ -155,11 +159,7 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <div
-          className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1"
-          role="radiogroup"
-          aria-label="Feature category"
-        >
+        <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1" role="radiogroup" aria-label="Feature category">
           {(["All", ...DISCOVERY_CATEGORIES] as const).map((item) => {
             const selected = category === item;
             return (
@@ -185,11 +185,7 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
           })}
         </div>
 
-        <div
-          className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1"
-          role="radiogroup"
-          aria-label="Feature coverage"
-        >
+        <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1" role="radiogroup" aria-label="Feature coverage">
           {(["All", ...DISCOVERY_COVERAGE] as const).map((item) => {
             const selected = coverage === item;
             return (

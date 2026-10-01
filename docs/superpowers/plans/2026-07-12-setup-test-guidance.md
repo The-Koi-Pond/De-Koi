@@ -19,10 +19,12 @@
 ### Task 1: Expose the hidden model-test prerequisite
 
 **Files:**
+
 - Modify: `src/features/shell/onboarding/components/SetupReadinessChecklist.tsx`
 - Test: `src/features/shell/onboarding/components/SetupReadinessChecklist.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: `SetupReadinessFacts.selectedConnectionTest` and the existing `onTestConnection?: () => void` prop.
 - Produces: A separate `test-connection` checklist row with the existing callback and action label.
 

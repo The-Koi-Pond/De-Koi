@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  effectiveCharacterMemoryPersistence,
-  resolveAutomaticMemoryScope,
-} from "./character-memory-scope";
+import { effectiveCharacterMemoryPersistence, resolveAutomaticMemoryScope } from "./character-memory-scope";
 
 describe("character memory scope", () => {
   it("defaults missing and invalid legacy values to character persistence", () => {

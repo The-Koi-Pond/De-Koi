@@ -189,9 +189,7 @@ function claimsEquivalent(left: CharacterBehavioralClaim, right: CharacterBehavi
 }
 
 function uniqueClaims(claims: CharacterBehavioralClaim[]): CharacterBehavioralClaim[] {
-  return claims.filter(
-    (claim, index) => claims.findIndex((candidate) => claimsEquivalent(candidate, claim)) === index,
-  );
+  return claims.filter((claim, index) => claims.findIndex((candidate) => claimsEquivalent(candidate, claim)) === index);
 }
 
 function repeatsAuthoredText(authored: string, claim: CharacterBehavioralClaim): boolean {
@@ -414,8 +412,7 @@ export function packBehavioralInterpretation(
       )
       .filter((claim) => !repeatsAuthoredText(authored, claim))
       .sort((left, right) => Number(right.source === "user_override") - Number(left.source === "user_override")),
-  )
-    .slice(0, 3);
+  ).slice(0, 3);
   if (claims.length === 0) return "";
   return [
     "Derived behavioral interpretation (inspectable, non-canon):",

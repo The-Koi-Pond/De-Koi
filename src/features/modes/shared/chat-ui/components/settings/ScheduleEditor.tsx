@@ -1,7 +1,11 @@
 import { ChevronRight, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../../../../../shared/lib/utils";
-import { normalizeScheduleBlocks, type ConversationRoutine, type ScheduleBlock } from "../../lib/chat-settings-metadata";
+import {
+  normalizeScheduleBlocks,
+  type ConversationRoutine,
+  type ScheduleBlock,
+} from "../../lib/chat-settings-metadata";
 import {
   availabilityKeyForStatus,
   availabilityLabelForKey,
@@ -11,7 +15,6 @@ import {
 
 const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 const STATUS_OPTIONS = ["online", "idle", "dnd", "offline"] as const;
-
 
 export function SelfiePromptControls({
   promptTemplate,
@@ -149,7 +152,8 @@ export function ScheduleEditor({
                       {name}
                     </span>
                     <span className="mt-0.5 block text-[0.5625rem] text-[var(--muted-foreground)]">
-                      {routine.socialEnergy.level} energy{routine.socialEnergy.reason ? ` - ${routine.socialEnergy.reason}` : ""}
+                      {routine.socialEnergy.level} energy
+                      {routine.socialEnergy.reason ? ` - ${routine.socialEnergy.reason}` : ""}
                     </span>
                   </div>
                   <AvailabilityBadge availabilityKey={routineAvailabilityKey(routine)}>
@@ -159,9 +163,18 @@ export function ScheduleEditor({
                 <div className="mt-2 grid gap-1.5">
                   <RoutineSummaryRow label="Sleep" value={routineText(routine.sleep, "No sleep tendency noted yet.")} />
                   <RoutineSummaryRow label="Busy" value={routineBusySummary(routine)} />
-                  <RoutineSummaryRow label="Free-ish" value={routineListSummary(routine.freeish, "No relaxed window noted yet.")} />
-                  <RoutineSummaryRow label="Reply style" value={routineText(routine.replyStyle, "Varies by mood and context.")} />
-                  <RoutineSummaryRow label="Check-in style" value={routineText(routine.checkInStyle, "No first-message habit noted yet.")} />
+                  <RoutineSummaryRow
+                    label="Free-ish"
+                    value={routineListSummary(routine.freeish, "No relaxed window noted yet.")}
+                  />
+                  <RoutineSummaryRow
+                    label="Reply style"
+                    value={routineText(routine.replyStyle, "Varies by mood and context.")}
+                  />
+                  <RoutineSummaryRow
+                    label="Check-in style"
+                    value={routineText(routine.checkInStyle, "No first-message habit noted yet.")}
+                  />
                 </div>
               </div>
             );
@@ -436,7 +449,9 @@ function LegacyScheduleEditor({
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[0.5625rem] font-medium text-[var(--foreground)]">{day.day}</span>
                           <span className="text-[0.5rem] text-[var(--muted-foreground)]">
-                            {day.blocks.length > 0 ? `${day.blocks.length} pattern${day.blocks.length === 1 ? "" : "s"}` : "Open"}
+                            {day.blocks.length > 0
+                              ? `${day.blocks.length} pattern${day.blocks.length === 1 ? "" : "s"}`
+                              : "Open"}
                           </span>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1">
@@ -702,13 +717,7 @@ function availabilityBadgeClass(availabilityKey: AvailabilityKey): string {
   }
 }
 
-function AvailabilityBadge({
-  availabilityKey,
-  children,
-}: {
-  availabilityKey: AvailabilityKey;
-  children: ReactNode;
-}) {
+function AvailabilityBadge({ availabilityKey, children }: { availabilityKey: AvailabilityKey; children: ReactNode }) {
   return (
     <span
       className={cn(

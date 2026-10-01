@@ -37,12 +37,7 @@ describe("game surface helpers", () => {
 
   it("counts assistant and narrator turns for scene numbering", () => {
     expect(
-      gameSceneTurnNumber([
-        { role: "system" },
-        { role: "assistant" },
-        { role: "user" },
-        { role: "narrator" },
-      ]),
+      gameSceneTurnNumber([{ role: "system" }, { role: "assistant" }, { role: "user" }, { role: "narrator" }]),
     ).toBe(2);
   });
 

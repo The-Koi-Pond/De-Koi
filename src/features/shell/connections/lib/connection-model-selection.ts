@@ -50,22 +50,14 @@ export function mergeConnectionModels(
   return [...remote, ...known];
 }
 
-export function selectConnectionModelLimits(model: {
-  id: string;
-  context?: number | null;
-  maxOutput?: number | null;
-}) {
+export function selectConnectionModelLimits(model: { id: string; context?: number | null; maxOutput?: number | null }) {
   return {
     maxContext: positiveLimit(model.context),
     maxTokensOverride: positiveLimit(model.maxOutput),
   };
 }
 
-export function selectConnectionModel(model: {
-  id: string;
-  context?: number | null;
-  maxOutput?: number | null;
-}) {
+export function selectConnectionModel(model: { id: string; context?: number | null; maxOutput?: number | null }) {
   return {
     modelId: model.id,
     searchQuery: "",

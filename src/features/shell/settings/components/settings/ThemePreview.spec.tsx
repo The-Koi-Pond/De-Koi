@@ -19,7 +19,7 @@ describe("ThemePreview", () => {
   });
 
   it("contains destructive draft CSS inside a sandboxed iframe", () => {
-    act(() => root.render(<ThemePreview enabled css={'button { display: none !important; }'} />));
+    act(() => root.render(<ThemePreview enabled css={"button { display: none !important; }"} />));
 
     const iframe = container.querySelector("iframe");
     expect(iframe).not.toBeNull();

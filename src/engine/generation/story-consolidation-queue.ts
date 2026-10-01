@@ -144,7 +144,11 @@ function sameJobIdentity(
   job: StoryProjectionJob,
   expected: Pick<StoryProjectionJob, "level" | "coverageId" | "sourceFingerprint">,
 ) {
-  return job.level === expected.level && job.coverageId === expected.coverageId && job.sourceFingerprint === expected.sourceFingerprint;
+  return (
+    job.level === expected.level &&
+    job.coverageId === expected.coverageId &&
+    job.sourceFingerprint === expected.sourceFingerprint
+  );
 }
 
 export async function enqueueStoryEpisodeJob(
@@ -156,7 +160,12 @@ export async function enqueueStoryEpisodeJob(
   const mode = readString(input.chat.mode || input.chat.chatMode).trim();
   const metadata = parseRecord(input.chat.metadata);
   if (!chatId) return null;
-  if (!input.explicit && !input.requestedBoundary && !input.supersedesMemoryId && !getEffectiveStoryConsolidationEnabled(mode, metadata)) {
+  if (
+    !input.explicit &&
+    !input.requestedBoundary &&
+    !input.supersedesMemoryId &&
+    !getEffectiveStoryConsolidationEnabled(mode, metadata)
+  ) {
     return null;
   }
   const memories = await storyMemories(storage, chatId);
@@ -198,9 +207,12 @@ export async function enqueueStoryEpisodeJob(
     "story-job",
     `${STORY_SUMMARIZER_VERSION}\u001fepisode\u001f${stableCoverageId}\u001f${fingerprint}`,
   );
-  const existing = (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
+  const existing =
+    (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
   if (existing) {
-    if (!sameJobIdentity(existing, { level: "episode", coverageId: stableCoverageId, sourceFingerprint: fingerprint })) {
+    if (
+      !sameJobIdentity(existing, { level: "episode", coverageId: stableCoverageId, sourceFingerprint: fingerprint })
+    ) {
       throw new Error("Story consolidation SHA-256 job id collision");
     }
     return existing;
@@ -259,7 +271,8 @@ export async function enqueueStoryArcJob(
     "story-job",
     `${STORY_SUMMARIZER_VERSION}\u001farc\u001f${stableCoverageId}\u001f${fingerprint}`,
   );
-  const existing = (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
+  const existing =
+    (await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, id).catch(() => null)) ?? null;
   if (existing) {
     if (!sameJobIdentity(existing, { level: "arc", coverageId: stableCoverageId, sourceFingerprint: fingerprint })) {
       throw new Error("Story consolidation SHA-256 job id collision");
@@ -301,7 +314,11 @@ function storyArcCoveragePlan(memories: CanonicalMemoryRecord[], chatId: string)
     if (!payload || payload.level !== "episode" || memory.status === "deleted") continue;
     const active = memory.status === "active" || memory.status === "pinned";
     const existing = episodeSlots.get(payload.coverageId);
-    if (!existing || (active && !existing.active) || (active === existing.active && memory.updatedAt > existing.memory.updatedAt)) {
+    if (
+      !existing ||
+      (active && !existing.active) ||
+      (active === existing.active && memory.updatedAt > existing.memory.updatedAt)
+    ) {
       episodeSlots.set(payload.coverageId, { memory, payload, active });
     }
   }
@@ -446,14 +463,18 @@ async function completedSceneArcFollowUpIsMaterialized(
   const parent = await storage.get<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, parentArcJobId);
   return Boolean(
     parent &&
-      parent.id === parentArcJobId &&
-      parent.level === "arc" &&
-      parent.ownerChatId === followUp.ownerChatId &&
-      parent.sourceEpisodeIds.includes(projectionMemoryId),
+    parent.id === parentArcJobId &&
+    parent.level === "arc" &&
+    parent.ownerChatId === followUp.ownerChatId &&
+    parent.sourceEpisodeIds.includes(projectionMemoryId),
   );
 }
 
-function citation(value: unknown, allowedMessageIds: Set<string>, allowedEpisodeIds: Set<string>): StoryProjectionCitation | null {
+function citation(
+  value: unknown,
+  allowedMessageIds: Set<string>,
+  allowedEpisodeIds: Set<string>,
+): StoryProjectionCitation | null {
   const record = parseRecord(value);
   const text = readString(record.text).trim();
   if (!text) return null;
@@ -473,7 +494,10 @@ function citation(value: unknown, allowedMessageIds: Set<string>, allowedEpisode
 }
 
 function parseSummary(raw: string, job: StoryProjectionJob): StructuredStorySummary {
-  const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const unfenced = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
   const value = JSON.parse(unfenced) as unknown;
   const record = parseRecord(value);
   const title = readString(record.title).trim();
@@ -505,7 +529,9 @@ function summarizerPrompt(job: StoryProjectionJob): string {
   const sources =
     job.level === "episode"
       ? job.sourceMessages.map((message) => `[${message.id}] ${message.role}: ${message.content}`).join("\n\n")
-      : job.sourceEpisodes.map((episode) => `[${episode.id}] ${episode.title ?? "Episode"}: ${episode.content}`).join("\n\n");
+      : job.sourceEpisodes
+          .map((episode) => `[${episode.id}] ${episode.title ?? "Episode"}: ${episode.content}`)
+          .join("\n\n");
   const citationField = job.level === "episode" ? "sourceMessageIds" : "sourceEpisodeIds";
   return [
     `Create a source-grounded ${job.level} projection for long-form roleplay continuity.`,
@@ -570,14 +596,17 @@ function due(job: StoryProjectionJob, now: string): boolean {
   return !job.nextAttemptAt || Date.parse(job.nextAttemptAt) <= Date.parse(now);
 }
 
-async function withStoryLeaseHeartbeat<T>(storage: StorageGateway, leaseId: string, operation: () => Promise<T>): Promise<T> {
+async function withStoryLeaseHeartbeat<T>(
+  storage: StorageGateway,
+  leaseId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
   if (!storage.acquireStoryConsolidationWorker) return operation();
   let leaseError: unknown = null;
   let inFlight: Promise<void> | null = null;
   const renew = () => {
     if (inFlight) return inFlight;
-    inFlight = storage
-      .acquireStoryConsolidationWorker!(workerId, leaseId)
+    inFlight = storage.acquireStoryConsolidationWorker!(workerId, leaseId)
       .then((renewed) => {
         if (renewed !== leaseId) throw new Error("Story consolidation worker lease was lost");
       })
@@ -602,7 +631,9 @@ async function withStoryLeaseHeartbeat<T>(storage: StorageGateway, leaseId: stri
 }
 
 function retryAt(now: string, attempts: number): string {
-  return new Date(Date.parse(now) + RETRY_BACKOFF_MS[Math.min(attempts - 1, RETRY_BACKOFF_MS.length - 1)]!).toISOString();
+  return new Date(
+    Date.parse(now) + RETRY_BACKOFF_MS[Math.min(attempts - 1, RETRY_BACKOFF_MS.length - 1)]!,
+  ).toISOString();
 }
 
 function terminalStoryError(message: string): Error & { status: number } {
@@ -610,7 +641,10 @@ function terminalStoryError(message: string): Error & { status: number } {
 }
 
 function assertProjectionOverlapAllowed(
-  job: Pick<StoryProjectionJob, "level" | "sourceMessageIds" | "sourceEpisodeIds" | "supersedesMemoryId" | "coverageId">,
+  job: Pick<
+    StoryProjectionJob,
+    "level" | "sourceMessageIds" | "sourceEpisodeIds" | "supersedesMemoryId" | "coverageId"
+  >,
   input: CanonicalMemoryInput,
   memories: CanonicalMemoryRecord[],
 ): void {
@@ -630,7 +664,11 @@ function assertProjectionOverlapAllowed(
   if (!validReplacement) throw terminalStoryError("Story projection coverage overlaps an active story slot");
 }
 
-async function projectionInput(job: StoryProjectionJob, summary: StructuredStorySummary, now: string): Promise<CanonicalMemoryInput> {
+async function projectionInput(
+  job: StoryProjectionJob,
+  summary: StructuredStorySummary,
+  now: string,
+): Promise<CanonicalMemoryInput> {
   const id = await sha256MemoryId(
     `story-${job.level}`,
     `${STORY_SUMMARIZER_VERSION}\u001f${job.coverageId}\u001f${job.sourceFingerprint}`,
@@ -681,7 +719,14 @@ async function projectionInput(job: StoryProjectionJob, summary: StructuredStory
 export async function processStoryConsolidationQueue(
   dependencies: StoryConsolidationDependencies,
   options: { now?: string } = {},
-): Promise<{ leaseAcquired: boolean; processed: number; completed: number; retryable: number; failed: number; stale: number }> {
+): Promise<{
+  leaseAcquired: boolean;
+  processed: number;
+  completed: number;
+  retryable: number;
+  failed: number;
+  stale: number;
+}> {
   const result = { leaseAcquired: false, processed: 0, completed: 0, retryable: 0, failed: 0, stale: 0 };
   const { storage, llm } = dependencies;
   if (!storage.acquireStoryConsolidationWorker || !storage.releaseStoryConsolidationWorker || !storage.createMemory) {
@@ -958,9 +1003,7 @@ export async function persistCompletedSceneStoryEpisode(
     coverageId: stableCoverageId,
   };
   if (!existing) assertProjectionOverlapAllowed(syntheticJob, memoryInput, existingMemories);
-  const prospectiveMemories = existing
-    ? existingMemories
-    : [...existingMemories, memoryInput as CanonicalMemoryRecord];
+  const prospectiveMemories = existing ? existingMemories : [...existingMemories, memoryInput as CanonicalMemoryRecord];
   if (!storyArcCoveragePlan(prospectiveMemories, input.ownerChatId)) {
     if (existing) return existing;
     const created = await storage.createMemory(memoryInput);

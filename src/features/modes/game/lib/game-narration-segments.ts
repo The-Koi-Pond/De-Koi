@@ -351,10 +351,7 @@ export function parseNarrationSegments(
       readableContent: readable.content,
     });
   };
-  const pushContentPieces = (
-    content: string,
-    buildSegment: (content: string) => NarrationSegment,
-  ): boolean => {
+  const pushContentPieces = (content: string, buildSegment: (content: string) => NarrationSegment): boolean => {
     const readablePlaceholderGlobalRe = /__READABLE_(\d+)__/g;
     let cursor = 0;
     let emitted = false;
@@ -576,8 +573,7 @@ function normalizePartialQuotedDialogueTruncation(content: string): string {
   const lineStart = lastNewlineIndex + 1;
   const prefix = content.slice(0, lineStart);
   const line = content.slice(lineStart);
-  const quotedDialoguePrefixRe =
-    /^(\s*(?:Dialogue\s*)?\[[^\]]+\](?:\s*\[[^\]]+\]){0,2}\s*:\s*)(["“«])(.*)$/i;
+  const quotedDialoguePrefixRe = /^(\s*(?:Dialogue\s*)?\[[^\]]+\](?:\s*\[[^\]]+\]){0,2}\s*:\s*)(["“«])(.*)$/i;
   const match = line.match(quotedDialoguePrefixRe);
   if (!match) return content;
 
@@ -678,10 +674,7 @@ function splitInlineDialogue(
   return result;
 }
 
-function stampNarrationSegmentSources(
-  segments: NarrationSegment[],
-  message: NarrationMessage,
-): NarrationSegment[] {
+function stampNarrationSegmentSources(segments: NarrationSegment[], message: NarrationMessage): NarrationSegment[] {
   return segments.map((segment, index) => ({
     ...segment,
     sourceMessageId: message.id,

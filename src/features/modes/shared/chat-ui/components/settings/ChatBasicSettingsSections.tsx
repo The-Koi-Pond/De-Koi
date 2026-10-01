@@ -90,7 +90,8 @@ export function ChatBasicSettingsSections({
           onChange={onVisionConnectionChange}
         />
         <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
-          Connections marked vision-capable are identified below. Confirm model support with your provider before relying on image input.
+          Connections marked vision-capable are identified below. Confirm model support with your provider before
+          relying on image input.
         </p>
       </Section>
 

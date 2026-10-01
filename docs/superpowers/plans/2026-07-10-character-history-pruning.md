@@ -25,10 +25,12 @@
 ### Task 1: Add recoverable streaming row filtering
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/streaming.rs`
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 
 **Interfaces:**
+
 - Consumes: existing `FileStorage::transform_collection_streaming`, transaction manifests, source stamps, cache invalidation, and `visit_collection_streaming`.
 - Produces:
 
@@ -162,10 +164,12 @@ git commit -m "storage: add bounded collection filtering"
 ### Task 2: Build the deterministic retention selector
 
 **Files:**
+
 - Create: `src-tauri/src/commands/storage/character_version_retention.rs`
 - Modify: `src-tauri/src/commands/storage.rs`
 
 **Interfaces:**
+
 - Consumes: `FileStorage::visit_collection_streaming`, `filter_collection_streaming`, character-version managed-media cleanup helpers.
 - Produces:
 
@@ -301,6 +305,7 @@ git commit -m "characters: add version retention owner"
 ### Task 3: Integrate pruning with version-producing mutations
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/characters.rs`
 - Modify: `src-tauri/src/commands/storage/commands/entities.rs`
 - Modify: `src-tauri/src/commands/storage/profile/legacy.rs`
@@ -308,6 +313,7 @@ git commit -m "characters: add version retention owner"
 - Test: existing `#[cfg(test)]` modules in those files
 
 **Interfaces:**
+
 - Consumes: `prune_character_versions(state, Some(&ids))` from Task 2.
 - Produces: every successful create/update/import path enforces the cap before returning clean success.
 
@@ -387,10 +393,12 @@ git commit -m "characters: enforce version retention on writes"
 ### Task 4: Add the bounded existing-history migration
 
 **Files:**
+
 - Modify: `src-tauri/src/state.rs`
 - Modify: `src-tauri/src/commands/storage/character_version_retention.rs`
 
 **Interfaces:**
+
 - Consumes: `prune_character_versions(state, None)` and startup migration marker helpers.
 - Produces: marker `characterVersionRetentionV1` executed after `characterVersionInlineMediaV3`.
 
@@ -461,12 +469,14 @@ git commit -m "storage: migrate character history retention"
 ### Task 5: Add pin and unpin controls to version history
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/character.ts`
 - Modify: `src/features/catalog/characters/hooks/use-characters.ts`
 - Modify: `src/features/catalog/characters/components/CharacterVersionHistoryPanel.tsx`
 - Create: `src/features/catalog/characters/components/CharacterVersionHistoryPanel.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: `storageApi.update("character-versions", versionId, { pinned })`; server-side generic update retention from Task 3.
 - Produces:
 
@@ -525,8 +535,7 @@ export function useSetCharacterVersionPinned() {
   return useMutation({
     mutationFn: ({ versionId, pinned }: { characterId: string; versionId: string; pinned: boolean }) =>
       storageApi.update<CharacterCardVersion>("character-versions", versionId, { pinned }),
-    onSuccess: (_data, variables) =>
-      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.characterId) }),
+    onSuccess: (_data, variables) => qc.invalidateQueries({ queryKey: characterKeys.versions(variables.characterId) }),
   });
 }
 ```
@@ -536,7 +545,7 @@ export function useSetCharacterVersionPinned() {
 Import `Pin`/`PinOff`, render a button per row with `aria-label={version.pinned ? "Unpin version" : "Pin version"}`, and display the retention policy below the header. Before unpinning a pinned row whose index is beyond the protected window, show:
 
 ```ts
-message: "Unpin this version? De-Koi keeps only the newest 50 unpinned versions, so this older version may be deleted immediately."
+message: "Unpin this version? De-Koi keeps only the newest 50 unpinned versions, so this older version may be deleted immediately.";
 ```
 
 Disable restore, delete, and pin controls while any version mutation is pending. On success, show `Pinned version.` or `Unpinned version.`; on failure, show the server error.
@@ -562,10 +571,12 @@ git commit -m "characters: add version pin controls"
 ### Task 6: Final proof, review, shipping, and Pi rollout
 
 **Files:**
+
 - Modify only if verification finds an in-scope defect.
 - Preserve: `/home/chai/de-koi-data/rollback/character-versions-pre-v2-20260710-172133.json`
 
 **Interfaces:**
+
 - Consumes: all previous tasks.
 - Produces: a clean PR, Bunny pass, merged `main`, and verified Pi retention migration.
 

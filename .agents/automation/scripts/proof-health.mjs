@@ -153,7 +153,9 @@ function hasReviewDisposition(item) {
 function isManualBlockerResolved(blocker) {
   if (blocker?.resolved === true || blocker?.cleared === true) return true;
   const disposition = String(blocker?.disposition ?? blocker?.status ?? blocker?.resolution ?? "").toLowerCase();
-  return ["resolved", "cleared", "not-blocking", "not_blocking", "accepted-risk", "accepted_risk"].includes(disposition);
+  return ["resolved", "cleared", "not-blocking", "not_blocking", "accepted-risk", "accepted_risk"].includes(
+    disposition,
+  );
 }
 
 function manualBlockerFailures(manualBlockers) {
@@ -183,12 +185,12 @@ function hasContent(value) {
 function isProofSectionPresent(ledger) {
   return Boolean(
     hasContent(ledger.claimBoundary) ||
-      hasContent(ledger.riskClaimMatrix) ||
-      hasContent(ledger.proofRows) ||
-      hasContent(ledger.ownedFacts) ||
-      hasContent(ledger.userActionCopy) ||
-      hasContent(ledger.reviewThreadLedger) ||
-      hasContent(ledger.reviewThreads),
+    hasContent(ledger.riskClaimMatrix) ||
+    hasContent(ledger.proofRows) ||
+    hasContent(ledger.ownedFacts) ||
+    hasContent(ledger.userActionCopy) ||
+    hasContent(ledger.reviewThreadLedger) ||
+    hasContent(ledger.reviewThreads),
   );
 }
 
@@ -236,7 +238,9 @@ function validateContractLaneGate(gate, required) {
   }
 
   if (gate.primaryOwnerLane === "src-tauri" && !text(gate.wrongLaneFixToAvoid).trim()) {
-    failures.push("contractLaneGate.wrongLaneFixToAvoid must explain why src-tauri owns native mechanics, not product meaning");
+    failures.push(
+      "contractLaneGate.wrongLaneFixToAvoid must explain why src-tauri owns native mechanics, not product meaning",
+    );
   }
 
   return failures;
@@ -283,14 +287,17 @@ export function evaluateProofHealth(ledger) {
   if (boundary.currentPathsOrFormats.length === 0) {
     failures.push("claimBoundary.currentPathsOrFormats must name current paths/formats");
   }
-  if (proofRows.positiveRows.length === 0) failures.push("proofRows.positiveRows must prove at least one intended path");
+  if (proofRows.positiveRows.length === 0)
+    failures.push("proofRows.positiveRows must prove at least one intended path");
 
   if (requiresAnyKeyword(boundary, CONTRADICTION_REQUIRED) && proofRows.contradictionRows.length === 0) {
     failures.push("proofRows.contradictionRows must include at least one should-not-match or contradiction row");
   }
 
   if (requiresAnyKeyword(boundary, LEGACY_REQUIRED) && boundary.legacyPathsOrFormats.length === 0) {
-    failures.push("claimBoundary.legacyPathsOrFormats is required for legacy/upgrade/storage/installer/compatibility work");
+    failures.push(
+      "claimBoundary.legacyPathsOrFormats is required for legacy/upgrade/storage/installer/compatibility work",
+    );
   }
 
   if (requiresAnyKeyword(boundary, LEGACY_REQUIRED) && proofRows.legacyDefaultRows.length === 0) {
@@ -298,17 +305,18 @@ export function evaluateProofHealth(ledger) {
   }
 
   for (const [index, fact] of ownedFacts.entries()) {
-    if (!fact?.description && !fact?.fact) failures.push(`ownedFacts[${index}] must describe the app/installer-owned fact`);
+    if (!fact?.description && !fact?.fact)
+      failures.push(`ownedFacts[${index}] must describe the app/installer-owned fact`);
     if (!FACT_SOURCE_TYPES.has(fact?.sourceType)) {
-      failures.push(
-        `ownedFacts[${index}] must use sourceType measured, derived, artifact-derived, or harness-proven`,
-      );
+      failures.push(`ownedFacts[${index}] must use sourceType measured, derived, artifact-derived, or harness-proven`);
     }
     if (!fact?.evidence) failures.push(`ownedFacts[${index}] must cite local measurement/derivation/harness evidence`);
   }
 
   if (requiresAnyKeyword(boundary, USER_ACTION_REQUIRED) && userActionCopy.length === 0) {
-    failures.push("userActionCopy must give exact copy/backup/destructive-action instructions when user data is at risk");
+    failures.push(
+      "userActionCopy must give exact copy/backup/destructive-action instructions when user data is at risk",
+    );
   }
   for (const [index, copy] of userActionCopy.entries()) {
     if (!hasUsefulCopyInstruction(copy)) {
@@ -325,7 +333,9 @@ export function evaluateProofHealth(ledger) {
   if (reviewerEvidencePresent) {
     for (const [index, thread] of reviewThreadLedger.entries()) {
       if (!hasReviewDisposition(thread)) {
-        failures.push(`reviewThreadLedger[${index}] must include finding, disposition/classification, and fix/defer/pushback`);
+        failures.push(
+          `reviewThreadLedger[${index}] must include finding, disposition/classification, and fix/defer/pushback`,
+        );
       }
       if (!("humanResolved" in thread) && !("humanResolutionRequired" in thread)) {
         warnings.push(`reviewThreadLedger[${index}] should state whether human resolution remains`);

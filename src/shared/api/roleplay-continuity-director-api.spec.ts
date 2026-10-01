@@ -100,13 +100,17 @@ describe("roleplay continuity director api", () => {
     const result = await api.command("chat-1", { type: "set_enabled", enabled: false }, 0);
 
     expect(result.state.enabled).toBe(false);
-    expect(test.updateChatIfUnchanged).toHaveBeenCalledWith("chat-1", {
-      metadata: { roleplayContinuityDirector: expect.objectContaining({ enabled: true, revision: 0 }) },
-    }, {
-      metadata: {
-        roleplayContinuityDirector: expect.objectContaining({ enabled: false, revision: 1 }),
+    expect(test.updateChatIfUnchanged).toHaveBeenCalledWith(
+      "chat-1",
+      {
+        metadata: { roleplayContinuityDirector: expect.objectContaining({ enabled: true, revision: 0 }) },
       },
-    });
+      {
+        metadata: {
+          roleplayContinuityDirector: expect.objectContaining({ enabled: false, revision: 1 }),
+        },
+      },
+    );
     expect(test.patchChatMetadata).not.toHaveBeenCalled();
   });
 
@@ -152,10 +156,7 @@ describe("roleplay continuity director api", () => {
       get: vi.fn(async () => ({ id: "chat-1", mode: "roleplay", metadata: {} })),
       updateChatIfUnchanged,
     } as unknown as StorageGateway;
-    const api = createRoleplayContinuityDirectorApi(
-      { storage, llm: {} as LlmGateway },
-      { now: () => NOW },
-    );
+    const api = createRoleplayContinuityDirectorApi({ storage, llm: {} as LlmGateway }, { now: () => NOW });
 
     await api.command("chat-1", { type: "set_enabled", enabled: true }, 0);
 

@@ -3,7 +3,10 @@ import { downloadPayloadFromApiValue } from "../../../shared/api/download-payloa
 import { exportReportSummary } from "./export-feedback";
 
 function payloadWith(report: unknown) {
-  return downloadPayloadFromApiValue({ base64: "AA==", contentType: "application/zip", filename: "Sol.charx", report }, "x");
+  return downloadPayloadFromApiValue(
+    { base64: "AA==", contentType: "application/zip", filename: "Sol.charx", report },
+    "x",
+  );
 }
 
 describe("export reports", () => {
@@ -21,7 +24,10 @@ describe("export reports", () => {
   });
 
   it("summarizes skipped items and names characters only for multi-character exports", () => {
-    const single = payloadWith({ included: [], skipped: [{ character: "Sol", asset: "Avatar", reason: "Use CHARX." }] });
+    const single = payloadWith({
+      included: [],
+      skipped: [{ character: "Sol", asset: "Avatar", reason: "Use CHARX." }],
+    });
     const many = payloadWith({
       included: [],
       skipped: [
@@ -39,7 +45,9 @@ describe("export reports", () => {
   });
 
   it("has nothing to say when everything was included", () => {
-    expect(exportReportSummary(payloadWith({ included: [{ character: "Sol", asset: "Avatar" }], skipped: [] }))).toBeNull();
+    expect(
+      exportReportSummary(payloadWith({ included: [{ character: "Sol", asset: "Avatar" }], skipped: [] })),
+    ).toBeNull();
     expect(exportReportSummary(downloadPayloadFromApiValue({ base64: "AA==" }, "x"))).toBeNull();
   });
 });

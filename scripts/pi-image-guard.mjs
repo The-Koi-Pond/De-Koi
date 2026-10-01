@@ -3,14 +3,13 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_IMAGES = [
-  "ghcr.io/the-koi-pond/de-koi-server:prealpha",
-  "ghcr.io/the-koi-pond/de-koi-web:prealpha",
-];
+const DEFAULT_IMAGES = ["ghcr.io/the-koi-pond/de-koi-server:prealpha", "ghcr.io/the-koi-pond/de-koi-web:prealpha"];
 const DEFAULT_CONTAINERS = ["de-koi-server", "de-koi-web"];
 
 function normalizeRevision(value) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function ancestryFailureDetails(value) {
@@ -56,7 +55,9 @@ export function deployedRevisionFromContainerRevisions(containerRevisions) {
     state: "blocked",
     error: `Refusing to deploy Pi images because currently deployed Pi containers are not the same cooked batch: ${inspected
       .map((item) => `${item.container}=${item.revision || "missing"}`)
-      .join("; ")}. Fix the mixed deployment manually; DE_KOI_PI_ALLOW_REVISION cannot repair unreadable or mixed current containers.`,
+      .join(
+        "; ",
+      )}. Fix the mixed deployment manually; DE_KOI_PI_ALLOW_REVISION cannot repair unreadable or mixed current containers.`,
   };
 }
 
@@ -300,7 +301,10 @@ function ensureCommit(revision) {
   if (deepenStatus !== 0) {
     return ancestryFailure("deepen_failed", `failed to deepen main history while looking for revision ${revision}`);
   }
-  return ancestryFailure("unresolved_ancestry", `revision ${revision} is unavailable after fetching and deepening main`);
+  return ancestryFailure(
+    "unresolved_ancestry",
+    `revision ${revision} is unavailable after fetching and deepening main`,
+  );
 }
 
 function gitAncestor(older, newer) {
@@ -336,7 +340,11 @@ function main() {
       console.error(current.error);
       process.exit(1);
     }
-    console.log(current.revision ? `Current Pi deployment is a cooked batch ${current.revision}.` : "No deployed Pi image batch was detected.");
+    console.log(
+      current.revision
+        ? `Current Pi deployment is a cooked batch ${current.revision}.`
+        : "No deployed Pi image batch was detected.",
+    );
     return;
   }
 

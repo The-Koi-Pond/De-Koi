@@ -1,14 +1,14 @@
-import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { connectionCommandApi } from '../../../../shared/api/connection-command-api';
-import { localSidecarApi } from '../../../../shared/api/local-sidecar-api';
-import { storageApi } from '../../../../shared/api/storage-api';
-import { HealthDiagnosticsSettings } from './HealthDiagnosticsSettings';
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
+import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
+import { storageApi } from "../../../../shared/api/storage-api";
+import { HealthDiagnosticsSettings } from "./HealthDiagnosticsSettings";
 
-vi.mock('../../../../shared/api/remote-runtime', async () => {
-  const actual = await vi.importActual<typeof import('../../../../shared/api/remote-runtime')>(
-    '../../../../shared/api/remote-runtime',
+vi.mock("../../../../shared/api/remote-runtime", async () => {
+  const actual = await vi.importActual<typeof import("../../../../shared/api/remote-runtime")>(
+    "../../../../shared/api/remote-runtime",
   );
   return {
     ...actual,
@@ -16,47 +16,47 @@ vi.mock('../../../../shared/api/remote-runtime', async () => {
   };
 });
 
-vi.mock('../../../../shared/api/local-sidecar-api', () => ({
+vi.mock("../../../../shared/api/local-sidecar-api", () => ({
   localSidecarApi: {
     status: vi.fn(),
     logTail: vi.fn(),
   },
 }));
 
-vi.mock('../../../../shared/api/connection-command-api', () => ({
+vi.mock("../../../../shared/api/connection-command-api", () => ({
   connectionCommandApi: {
     test: vi.fn(),
   },
 }));
 
-vi.mock('../../../../shared/api/storage-api', () => ({
+vi.mock("../../../../shared/api/storage-api", () => ({
   storageApi: {
     list: vi.fn(),
   },
 }));
 
-vi.mock('../../../../shared/lib/client-diagnostics', () => ({
+vi.mock("../../../../shared/lib/client-diagnostics", () => ({
   getRecentClientDiagnostics: vi.fn(() => []),
   recordClientDiagnostic: vi.fn(),
 }));
 
 function readySidecarStatus() {
   return {
-    id: 'sidecar:local',
-    status: 'ready',
+    id: "sidecar:local",
+    status: "ready",
     configured: true,
     enabled: true,
     config: { enabled: true, executablePath: null },
     ready: true,
-    baseUrl: 'http://127.0.0.1:3333',
+    baseUrl: "http://127.0.0.1:3333",
     logPath: null,
     startupError: null,
     modelDownloaded: true,
-    modelDisplayName: 'Local Model',
+    modelDisplayName: "Local Model",
     modelSize: 1,
     runtime: { installed: true },
-    platform: 'windows',
-    arch: 'x64',
+    platform: "windows",
+    arch: "x64",
     curatedModels: [],
     download: null,
   } as unknown as Awaited<ReturnType<typeof localSidecarApi.status>>;
@@ -77,20 +77,20 @@ async function flushAsyncWork() {
   });
 }
 
-describe('HealthDiagnosticsSettings provider probes', () => {
+describe("HealthDiagnosticsSettings provider probes", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
 
   beforeEach(() => {
-    container = document.createElement('div');
+    container = document.createElement("div");
     document.body.appendChild(container);
     vi.mocked(localSidecarApi.status).mockResolvedValue(readySidecarStatus());
     vi.mocked(localSidecarApi.logTail).mockResolvedValue({ available: false, path: null, lines: [], truncated: false });
     vi.mocked(storageApi.list).mockImplementation(async (entity) => {
-      if (entity === 'connections') {
+      if (entity === "connections") {
         return [
-          { id: 'conn-1', name: 'Main Model', provider: 'openai', model: 'gpt-test' },
-          { id: 'conn-2', name: 'Backup Model', provider: 'openai', model: 'gpt-test' },
+          { id: "conn-1", name: "Main Model", provider: "openai", model: "gpt-test" },
+          { id: "conn-2", name: "Backup Model", provider: "openai", model: "gpt-test" },
         ];
       }
       return [];
@@ -105,10 +105,10 @@ describe('HealthDiagnosticsSettings provider probes', () => {
     vi.clearAllMocks();
   });
 
-  it('only disables the provider row currently being probed', async () => {
+  it("only disables the provider row currently being probed", async () => {
     const firstProbe = deferred<{ success: boolean; latencyMs: number }>();
     vi.mocked(connectionCommandApi.test).mockImplementation(async (connectionId) => {
-      if (connectionId === 'conn-1') return firstProbe.promise;
+      if (connectionId === "conn-1") return firstProbe.promise;
       return { success: true, latencyMs: 5 };
     });
 
@@ -118,13 +118,13 @@ describe('HealthDiagnosticsSettings provider probes', () => {
     });
     await flushAsyncWork();
 
-    const probes = Array.from(container!.querySelectorAll('button')).filter((button) =>
-      button.textContent?.includes('Probe'),
+    const probes = Array.from(container!.querySelectorAll("button")).filter((button) =>
+      button.textContent?.includes("Probe"),
     ) as HTMLButtonElement[];
     expect(probes).toHaveLength(2);
 
     await act(async () => {
-      probes[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      probes[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flushAsyncWork();
 
@@ -132,9 +132,9 @@ describe('HealthDiagnosticsSettings provider probes', () => {
     expect(probes[1].disabled).toBe(false);
 
     await act(async () => {
-      probes[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      probes[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(connectionCommandApi.test).toHaveBeenCalledWith('conn-2');
+    expect(connectionCommandApi.test).toHaveBeenCalledWith("conn-2");
 
     await act(async () => {
       firstProbe.resolve({ success: true, latencyMs: 30 });

@@ -209,7 +209,10 @@ describe("story consolidation queue", () => {
     });
     const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
 
-    const result = await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
 
     expect(result).toEqual({ leaseAcquired: true, processed: 1, completed: 1, retryable: 0, failed: 0, stale: 0 });
     expect(test.jobs.get(String(job?.id))?.status).toBe("completed");
@@ -267,18 +270,22 @@ describe("story consolidation queue", () => {
       model: "model-1",
     });
     const llm = {
-      complete: vi.fn()
-        .mockRejectedValueOnce(new Error(providerError))
-        .mockResolvedValueOnce(llmResult()),
+      complete: vi.fn().mockRejectedValueOnce(new Error(providerError)).mockResolvedValueOnce(llmResult()),
     } as unknown as LlmGateway;
 
-    const result = await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
 
     expect(result.completed).toBe(1);
     expect(llm.complete).toHaveBeenCalledTimes(2);
-    expect(llm.complete).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      parameters: { temperature: 0.25, maxTokens: 8192, reasoningEffort: "low", reasoning_effort: "low" },
-    }));
+    expect(llm.complete).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        parameters: { temperature: 0.25, maxTokens: 8192, reasoningEffort: "low", reasoning_effort: "low" },
+      }),
+    );
   });
 
   it("keeps a failed summarization retryable without writing a partial projection", async () => {
@@ -287,9 +294,14 @@ describe("story consolidation queue", () => {
       chat: { id: "chat-1", mode: "roleplay", metadata: {} },
       messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
     });
-    const llm = { complete: vi.fn(async () => Promise.reject(new Error("temporary network failure"))) } as unknown as LlmGateway;
+    const llm = {
+      complete: vi.fn(async () => Promise.reject(new Error("temporary network failure"))),
+    } as unknown as LlmGateway;
 
-    const result = await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
 
     expect(result.retryable).toBe(1);
     expect(test.jobs.get(String(job?.id))?.status).toBe("retryable");
@@ -453,10 +465,7 @@ describe("story consolidation queue", () => {
     );
 
     test.setFailArcCreate(false);
-    const retried = await processStoryConsolidationQueue(
-      dependencies,
-      { now: "2026-08-27T04:02:00.000Z" },
-    );
+    const retried = await processStoryConsolidationQueue(dependencies, { now: "2026-08-27T04:02:00.000Z" });
 
     expect(retried.completed).toBe(1);
     expect(test.memories.size).toBe(4);
@@ -517,9 +526,7 @@ describe("story consolidation queue", () => {
     test.storage.queryMemories = vi.fn(async () => {
       queryCount += 1;
       const memories = Array.from(test.memories.values());
-      return queryCount === 2
-        ? memories.filter((memory) => !memory.tags.includes("formal-scene"))
-        : memories;
+      return queryCount === 2 ? memories.filter((memory) => !memory.tags.includes("formal-scene")) : memories;
     });
 
     await expect(
@@ -649,10 +656,7 @@ describe("story consolidation queue", () => {
     test.setFailArcCreate(false);
     const existingArc = await enqueueStoryArcJob(test.storage, { chatId: "chat-1" }, "2026-08-27T04:01:00.000Z");
 
-    await processStoryConsolidationQueue(
-      dependencies,
-      { now: "2026-08-27T04:02:00.000Z" },
-    );
+    await processStoryConsolidationQueue(dependencies, { now: "2026-08-27T04:02:00.000Z" });
 
     await vi.waitFor(() => {
       expect(test.jobs.get(followUp.id)).toEqual(
@@ -680,9 +684,24 @@ describe("story consolidation queue", () => {
       provenance: { sourceChatId: "chat-1", messageIds: ["message-1"] },
       tags: ["story-continuity", "episode"],
       payload: {
-        storyProjectionVersion: 1, level: "episode", ownerChatId: "chat-1", coverageId: "different-slot",
-        sourceFingerprint: "old", messageIds: ["message-1"], firstMessageId: "message-1", lastMessageId: "message-1",
-        sourceEpisodeIds: [], sections: { events: [], choices: [], relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [], currentState: [] },
+        storyProjectionVersion: 1,
+        level: "episode",
+        ownerChatId: "chat-1",
+        coverageId: "different-slot",
+        sourceFingerprint: "old",
+        messageIds: ["message-1"],
+        firstMessageId: "message-1",
+        lastMessageId: "message-1",
+        sourceEpisodeIds: [],
+        sections: {
+          events: [],
+          choices: [],
+          relationshipShifts: [],
+          promises: [],
+          reveals: [],
+          unresolvedHooks: [],
+          currentState: [],
+        },
         summarizer: { version: "story-projection-v1", completedAt: "2026-08-27T00:00:00Z" },
       },
     });

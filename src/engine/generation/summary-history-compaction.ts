@@ -37,8 +37,7 @@ export function compactHistorySelectionForCoveredSummaries(input: {
   const firstUncoveredIndex = sourceMessageIds.findIndex((id) => !id || !coveredIds.has(id));
   const coveredPrefixLength = firstUncoveredIndex < 0 ? sourceMessageIds.length : firstUncoveredIndex;
   const hasCoverageAfterGap =
-    firstUncoveredIndex >= 0 &&
-    sourceMessageIds.slice(firstUncoveredIndex + 1).some((id) => id && coveredIds.has(id));
+    firstUncoveredIndex >= 0 && sourceMessageIds.slice(firstUncoveredIndex + 1).some((id) => id && coveredIds.has(id));
   if (hasCoverageAfterGap) return unchanged;
   if (coveredPrefixLength === 0) return unchanged;
   let priorCoverageIndex = -1;

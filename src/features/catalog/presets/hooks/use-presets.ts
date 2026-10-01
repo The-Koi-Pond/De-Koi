@@ -54,7 +54,6 @@ const promptOrderField: Record<PromptNestedKind, string> = {
   variables: "variableOrder",
 };
 
-
 const presetOrderQueues = new Map<string, Promise<void>>();
 
 function parseOrderIds(value: unknown): string[] {

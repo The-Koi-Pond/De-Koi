@@ -135,12 +135,16 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
     let chatCreated = false;
     const promise = (async () => {
       let effectiveClaim = claim;
-      let characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
-        ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
-        : null;
+      let characterContext =
+        effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
+          ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
+          : null;
       const throwIfCurrentJourneyInactive = () => {
         const currentIntent = dependencies.getCurrentLaunchRequest?.()?.intent;
-        if (currentIntent?.journeyId === effectiveClaim.journeyId && (currentIntent.dismissed || currentIntent.completed)) {
+        if (
+          currentIntent?.journeyId === effectiveClaim.journeyId &&
+          (currentIntent.dismissed || currentIntent.completed)
+        ) {
           throw new SetupLaunchDismissedError();
         }
       };
@@ -190,9 +194,10 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
         if (cleanup) await cleanup();
         journeyIds.add(latestClaim.journeyId);
         effectiveClaim = latestClaim;
-        characterContext = effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
-          ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
-          : null;
+        characterContext =
+          effectiveClaim.originCharacterId && dependencies.resolveCharacterLaunchContext
+            ? await dependencies.resolveCharacterLaunchContext(effectiveClaim.originCharacterId)
+            : null;
         const latestInput = {
           name: characterContext?.characterName
             ? `${characterContext.characterName} - ${modeLabel(effectiveClaim.mode)}`
@@ -216,7 +221,11 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
         // The loop below will apply every post-reconciliation stage for the latest identity.
       } else if (!hasReached(recoveryStage, "reconciled")) {
         recoveryStage = "reconciled";
-        dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
+        dependencies.recordRecovery?.({
+          createdChatId: chat.id,
+          journeyId: effectiveClaim.journeyId,
+          stage: recoveryStage,
+        });
       }
 
       let stable = false;
@@ -230,7 +239,11 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
             }
           }
           recoveryStage = "preset-applied";
-          dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
+          dependencies.recordRecovery?.({
+            createdChatId: chat.id,
+            journeyId: effectiveClaim.journeyId,
+            stage: recoveryStage,
+          });
           if (await stabilizeIdentity()) continue;
         }
 
@@ -249,7 +262,11 @@ export function createSetupChatLaunchOrchestrator<TChat extends CreatedChat>(
             }
           }
           recoveryStage = "greeting-initialized";
-          dependencies.recordRecovery?.({ createdChatId: chat.id, journeyId: effectiveClaim.journeyId, stage: recoveryStage });
+          dependencies.recordRecovery?.({
+            createdChatId: chat.id,
+            journeyId: effectiveClaim.journeyId,
+            stage: recoveryStage,
+          });
           if (await stabilizeIdentity(initialization?.cleanup)) continue;
         }
 

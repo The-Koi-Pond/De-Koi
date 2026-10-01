@@ -57,9 +57,7 @@ export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps
             }}
           />
         )}
-        <p className="text-xs font-medium leading-relaxed">
-          Deki-senpai is working...
-        </p>
+        <p className="text-xs font-medium leading-relaxed">Deki-senpai is working...</p>
       </div>
     </div>
   );

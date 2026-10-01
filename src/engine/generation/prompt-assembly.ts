@@ -4707,24 +4707,27 @@ export async function assembleGenerationPrompt(
           "recalled fragments from relevant earlier context",
         )
       : (memoryRecallContext?.block ?? null);
-  const storyContinuityContext = canReuseSourceSensitiveContext && reusableContext
-    ? {
-        block: reusableContext.storyContinuityBlock,
-        attributionItems: reusableContext.contextAttributionItems.filter((item) => item.kind === "story_projection"),
-      }
-    : await buildStoryContinuityContext(storage, {
-        chat: input.chat,
-        storedMessages: input.storedMessages,
-        retainedRawMessageIds: historySelection.sourceMessages.map((message) => readString(message.id).trim()).filter(Boolean),
-        latestUserInput: input.latestUserInput,
-        representedText: [
-          summary ?? "",
-          ...(memoryRecallContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
-          ...(canonicalMemoryContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
-        ],
-        maxContext,
-        epistemicSubjects: canonicalEpistemicSubjects,
-      });
+  const storyContinuityContext =
+    canReuseSourceSensitiveContext && reusableContext
+      ? {
+          block: reusableContext.storyContinuityBlock,
+          attributionItems: reusableContext.contextAttributionItems.filter((item) => item.kind === "story_projection"),
+        }
+      : await buildStoryContinuityContext(storage, {
+          chat: input.chat,
+          storedMessages: input.storedMessages,
+          retainedRawMessageIds: historySelection.sourceMessages
+            .map((message) => readString(message.id).trim())
+            .filter(Boolean),
+          latestUserInput: input.latestUserInput,
+          representedText: [
+            summary ?? "",
+            ...(memoryRecallContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
+            ...(canonicalMemoryContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
+          ],
+          maxContext,
+          epistemicSubjects: canonicalEpistemicSubjects,
+        });
   const storyContinuityBlock = storyContinuityContext?.block ?? null;
   const continuityDirectorContext = buildContinuityDirectorContext({
     chatId: readString(input.chat.id).trim(),

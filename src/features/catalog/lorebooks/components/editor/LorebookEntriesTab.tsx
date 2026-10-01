@@ -1,6 +1,10 @@
 import { type DragEvent as ReactDragEvent, type ReactNode } from "react";
 import { FileText, Hash } from "lucide-react";
-import type { LorebookActivationTraceEntry, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
+import type {
+  LorebookActivationTraceEntry,
+  LorebookEntry,
+  LorebookFolder,
+} from "../../../../../engine/contracts/types/lorebook";
 import type { FolderForest } from "../../lib/lorebook-folder-tree";
 import type { FolderDropTarget } from "./use-lorebook-editor-drag-drop";
 import { cn } from "../../../../../shared/lib/utils";
@@ -375,7 +379,9 @@ export function LorebookEntriesTab({
                 folderRootDropActive) &&
                 "rounded-xl bg-amber-400/5 ring-1 ring-amber-400/40 transition-colors",
             )}
-            onDragOver={(event) => (draggingFolderId !== null ? onRootFolderDragOver(event) : onRootListDragOver(event))}
+            onDragOver={(event) =>
+              draggingFolderId !== null ? onRootFolderDragOver(event) : onRootListDragOver(event)
+            }
             onDrop={(event) => (draggingFolderId !== null ? onCommitFolderDrop(event) : onCommitEntryDrop(event))}
           >
             {(entriesByContainer.get(null) ?? []).length === 0 && (

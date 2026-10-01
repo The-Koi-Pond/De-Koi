@@ -184,17 +184,15 @@ export function sortCharacterRows(
 export function parseCharacterGroups(groups: unknown, parsedCharacters: ParsedCharacterRow[]): ParsedGroupRow[] {
   if (!groups) return [];
   const assignedIds = new Set<string>();
-  const realGroups = (Array.isArray(groups) ? groups : [])
-    .filter(isGroupRow)
-    .map((group) => {
-      const memberIds = normalizeCharacterGroupMemberIds(group.characterIds);
-      for (const id of memberIds) assignedIds.add(id);
-      return {
-        ...group,
-        characterIds: memberIds,
-        memberIds,
-      };
-    });
+  const realGroups = (Array.isArray(groups) ? groups : []).filter(isGroupRow).map((group) => {
+    const memberIds = normalizeCharacterGroupMemberIds(group.characterIds);
+    for (const id of memberIds) assignedIds.add(id);
+    return {
+      ...group,
+      characterIds: memberIds,
+      memberIds,
+    };
+  });
   const ungroupedMemberIds = parsedCharacters
     .filter((char) => !assignedIds.has(char.id))
     .sort((a, b) => readString(a.parsed.name).localeCompare(readString(b.parsed.name)))
