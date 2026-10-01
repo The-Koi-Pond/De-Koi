@@ -119,7 +119,8 @@ export function BackupExportSettings() {
   };
 
   const handleExportProfileChoice = (format: ExportFormatChoice) => {
-    if (format !== "compatible-png") void handleExportProfile(format);
+    // Profile exports offer only native, compatible, and ZIP; card formats are per character.
+    if (format === "native" || format === "compatible" || format === "zip") void handleExportProfile(format);
   };
 
   const handleExportLocalState = async (mode: BrowserStateExportMode) => {

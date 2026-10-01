@@ -47,9 +47,10 @@ export function CharacterEditorDialogs({
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Character"
-        description="Native keeps De-Koi metadata. Compatible exports direct Chara Card V2 JSON for other platforms."
+        description="Native keeps De-Koi metadata. The other formats work in SillyTavern, Chub, RisuAI, and similar apps."
         compatibleDescription="Exports direct Chara Card V2 JSON without the native wrapper."
         showPngOption
+        showCardV3Options
         onClose={closeExportDialog}
         option={{
           checked: includeMemories,

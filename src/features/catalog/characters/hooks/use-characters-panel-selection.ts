@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { exportApi } from "../../../../shared/api/export-api";
+import { triggerDownloadWithToast } from "../../../shared/lib/export-feedback";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import type { ExportFormatChoice } from "../../../../shared/components/ui/ExportFormatDialog";
 import type { ParsedCharacterRow } from "../lib/characters-panel-model";
@@ -51,14 +52,14 @@ export function useCharactersPanelSelection({
       setExportingSelected(true);
       setExportDialogOpen(false);
       try {
-        exportApi.triggerDownload(
+        triggerDownloadWithToast(
           await exportApi.charactersBulk(
             [...selectedCharacterIds],
             format,
             format === "native" ? { includeMemories: includeMemoriesInExport } : undefined,
           ),
+          `Exported ${selectedCharacterIds.size} character${selectedCharacterIds.size === 1 ? "" : "s"}.`,
         );
-        toast.success(`Exported ${selectedCharacterIds.size} character${selectedCharacterIds.size === 1 ? "" : "s"}`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to export characters");
       } finally {

@@ -121,7 +121,7 @@ pub(super) fn rollback_records_by_field_collect(
     }
 }
 
-pub(super) fn rollback_managed_child_dir(
+pub(crate) fn rollback_managed_child_dir(
     state: &AppState,
     root: &str,
     child: &str,
