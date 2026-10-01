@@ -8,6 +8,8 @@ interface DraftNumberInputProps {
   max?: number;
   integer?: boolean;
   selectOnFocus?: boolean;
+  /** Accessible name, for inputs without a visible <label>. */
+  "aria-label"?: string;
 }
 
 export function DraftNumberInput({
@@ -18,6 +20,7 @@ export function DraftNumberInput({
   max,
   integer = true,
   selectOnFocus = false,
+  "aria-label": ariaLabel,
 }: DraftNumberInputProps) {
   const [draft, setDraft] = useState(String(value));
 
@@ -55,6 +58,7 @@ export function DraftNumberInput({
         }
       }}
       className={className}
+      aria-label={ariaLabel}
     />
   );
 }
