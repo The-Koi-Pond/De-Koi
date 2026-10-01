@@ -143,7 +143,7 @@ export function WorldInfoPanel({
     includeTestScanTrigger: true,
   });
   const [filter, setFilter] = useState<TraceFilter>("all");
-  const traceEntries = data?.activationTrace.entries ?? [];
+  const traceEntries = useMemo(() => data?.activationTrace.entries ?? [], [data?.activationTrace.entries]);
   const activeContentById = useMemo(
     () => new Map((data?.entries ?? []).map((entry) => [entry.id, entry.content])),
     [data?.entries],

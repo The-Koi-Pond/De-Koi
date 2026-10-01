@@ -345,6 +345,7 @@ export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarIm
     immediateSrc,
     onResolvedSrc,
     resolutionKey,
+    src,
     syncFullSrc,
     upgradeToFullResolution,
   ]);
