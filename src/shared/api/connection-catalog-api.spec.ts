@@ -77,6 +77,21 @@ describe("connectionCatalogApi", () => {
     ).toBe("stored-text");
   });
 
+  it("reads numeric flags and the legacy default field", () => {
+    expect(
+      connectionCatalogApi.selectDefaultTextConnectionId([
+        { id: "first", provider: "openai" },
+        { id: "numeric", provider: "openai", isDefault: 1 },
+      ]),
+    ).toBe("numeric");
+    expect(
+      connectionCatalogApi.selectDefaultTextConnectionId([
+        { id: "first", provider: "openai" },
+        { id: "legacy", provider: "openai", default: "1" },
+      ]),
+    ).toBe("legacy");
+  });
+
   it("ignores image-only connections when resolving a text default", () => {
     expect(
       connectionCatalogApi.selectDefaultTextConnectionId([
