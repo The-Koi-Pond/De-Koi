@@ -1,3 +1,5 @@
+use super::approvals::DekiApprovalScope;
+use super::data_cli;
 use super::protocol::DekiCommandRequest;
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
@@ -15,7 +17,7 @@ pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (
 - deki_code: either {"path":"relative/file"} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
 - search_deki_code: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
 - read_deki_code_file: {"path":"relative/file"}
-- deki_data/read_deki_library: {"itemType":"optional type","types":"optional comma-separated types","query":"optional text","limit":80,"offset":0}
+- read_deki_library: {"itemType":"optional type","types":"optional comma-separated types","query":"optional text","limit":80,"offset":0}
 - read_deki_library_items: {"itemType":"type","id":"exact id","includeEntries":true,"entryQuery":"optional text","entryLimit":50,"entryOffset":0}
 - read_deki_chats: {"chatIds":["optional approved id"],"characterId":"optional id","modes":["conversation"],"limit":50,"offset":0}
 - read_deki_chat_messages: {"chatId":"approved id","limit":50,"before":"optional createdAt|id cursor"}
@@ -45,14 +47,47 @@ pub(super) struct DekiCommandExecution {
 pub(super) struct DekiCommandTurnState {
     web_pages_read: usize,
     max_web_pages_per_turn: usize,
+    data_mutations: usize,
+    max_data_mutations_per_turn: usize,
+    pending_approvals: Vec<Value>,
 }
 
 impl DekiCommandTurnState {
-    pub(super) fn new(max_web_pages_per_turn: usize) -> Self {
+    pub(super) fn new(max_web_pages_per_turn: usize, max_data_mutations_per_turn: usize) -> Self {
         Self {
             web_pages_read: 0,
             max_web_pages_per_turn,
+            data_mutations: 0,
+            max_data_mutations_per_turn,
+            pending_approvals: Vec::new(),
         }
+    }
+
+    pub(super) fn pending_approval_count(&self) -> usize {
+        self.pending_approvals.len()
+    }
+
+    pub(super) fn pending_approvals_since(&self, start: usize) -> &[Value] {
+        self.pending_approvals.get(start..).unwrap_or_default()
+    }
+
+    /// Pending approvals created by `deki_data` dry-runs during this turn.
+    pub(super) fn take_pending_approvals(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.pending_approvals)
+    }
+
+    fn reserve_data_mutation(&mut self) -> AppResult<()> {
+        if self.data_mutations >= self.max_data_mutations_per_turn {
+            return Err(AppError::new(
+                "deki_data_turn_limit",
+                format!(
+                    "Deki-senpai already proposed {} data changes this turn. Let the user review them before proposing more.",
+                    self.max_data_mutations_per_turn
+                ),
+            ));
+        }
+        self.data_mutations += 1;
+        Ok(())
     }
 
     fn reserve_web_page_read(&mut self) -> AppResult<()> {
@@ -75,6 +110,7 @@ enum DekiCommand {
     Grep(code::SearchTextArgs),
     Find(code::FindRepoPathArgs),
     Ls(code::ListRepoPathArgs),
+    Data(data_cli::DekiDataCommand),
     ReadLibrary(super::ReadDekiLibraryArgs),
     ReadLibraryItems(super::ReadDekiLibraryItemsArgs),
     DekiCode(code::DekiCodeCommand),
@@ -94,7 +130,8 @@ impl DekiCommand {
             "grep" => parse_command_args("grep", args).map(Self::Grep),
             "find" => parse_command_args("find", args).map(Self::Find),
             "ls" => parse_command_args("ls", args).map(Self::Ls),
-            "deki_data" | "read_deki_library" => {
+            "deki_data" => data_cli::parse(args).map(Self::Data),
+            "read_deki_library" => {
                 parse_command_args("read_deki_library", args).map(Self::ReadLibrary)
             }
             "read_deki_library_items" => {
@@ -119,17 +156,23 @@ impl DekiCommand {
                 parse_command_args("read_deki_web_page", args).map(Self::ReadWebPage)
             }
             _ => Err(AppError::invalid_input(format!(
-                "Deki-senpai command '{name}' is not available in the read-only JSON runtime."
+                "Deki-senpai command '{name}' is not available in the JSON command runtime."
             ))),
         }
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct DekiCommandContext<'a> {
+    pub(super) state: &'a AppState,
+    pub(super) approval_scope: &'a DekiApprovalScope,
+    pub(super) chat_access_grants: &'a [super::chat_access::DekiChatAccessGrant],
+    pub(super) web_research_grants: &'a [web::DekiWebResearchGrant],
+}
+
 pub(super) async fn execute(
     id: String,
-    state: &AppState,
-    chat_access_grants: &[super::chat_access::DekiChatAccessGrant],
-    web_research_grants: &[web::DekiWebResearchGrant],
+    context: DekiCommandContext<'_>,
     turn_state: &mut DekiCommandTurnState,
     request: DekiCommandRequest,
 ) -> DekiCommandExecution {
@@ -137,16 +180,7 @@ pub(super) async fn execute(
     let trace_name = trace_tool_name(&name).to_string();
     let args = request.args;
     let output = match DekiCommand::parse(&name, args.clone()) {
-        Ok(command) => {
-            run_command(
-                command,
-                state,
-                chat_access_grants,
-                web_research_grants,
-                turn_state,
-            )
-            .await
-        }
+        Ok(command) => run_command(command, context, turn_state).await,
         Err(error) => Err(error),
     };
     match output {
@@ -194,12 +228,27 @@ impl DekiCommandExecution {
 
 async fn run_command(
     command: DekiCommand,
-    state: &AppState,
-    chat_access_grants: &[super::chat_access::DekiChatAccessGrant],
-    web_research_grants: &[web::DekiWebResearchGrant],
+    context: DekiCommandContext<'_>,
     turn_state: &mut DekiCommandTurnState,
 ) -> AppResult<Value> {
+    let DekiCommandContext {
+        state,
+        approval_scope,
+        chat_access_grants,
+        web_research_grants,
+    } = context;
     match command {
+        DekiCommand::Data(command) => {
+            if command.is_mutation() {
+                turn_state.reserve_data_mutation()?;
+            }
+            data_cli::execute(
+                state,
+                approval_scope,
+                command,
+                &mut turn_state.pending_approvals,
+            )
+        }
         DekiCommand::Read(args) => code::read_repo_file(args),
         DekiCommand::Grep(args) | DekiCommand::SearchCode(args) => code::search_code(args),
         DekiCommand::Find(args) => code::find_repo_paths(args),
@@ -297,6 +346,12 @@ fn normalized_command_name(name: &str) -> String {
     name.trim().to_ascii_lowercase()
 }
 
+/// The user-facing tool name for a requested command, as used in traces and
+/// live events.
+pub(super) fn display_name(name: &str) -> String {
+    trace_tool_name(&normalized_command_name(name)).to_string()
+}
+
 fn trace_tool_name(name: &str) -> &str {
     match name {
         "read"
@@ -325,7 +380,7 @@ mod tests {
 
     #[test]
     fn web_page_turn_state_rejects_reads_after_limit() {
-        let mut state = DekiCommandTurnState::new(2);
+        let mut state = DekiCommandTurnState::new(2, 4);
 
         state
             .reserve_web_page_read()
@@ -390,6 +445,32 @@ mod tests {
         .expect("documented web search args should parse");
 
         assert!(matches!(command, DekiCommand::SearchWeb(_)));
+    }
+
+    #[test]
+    fn data_mutations_are_capped_per_turn() {
+        let mut state = DekiCommandTurnState::new(2, 1);
+
+        state
+            .reserve_data_mutation()
+            .expect("first data change should fit");
+        let error = state
+            .reserve_data_mutation()
+            .expect_err("second data change should exceed the turn limit");
+
+        assert_eq!(error.code, "deki_data_turn_limit");
+    }
+
+    #[test]
+    fn deki_data_requires_an_action_instead_of_aliasing_library_reads() {
+        assert!(DekiCommand::parse("deki_data", json!({ "itemType": "character" })).is_err());
+        assert!(matches!(
+            DekiCommand::parse(
+                "deki_data",
+                json!({ "action": "list", "collection": "characters" })
+            ),
+            Ok(DekiCommand::Data(_))
+        ));
     }
 
     #[test]

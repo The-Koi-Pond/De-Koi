@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -22,8 +22,11 @@ import {
   type DekiChatAccessScope,
   type DekiChatAccessWindow,
   type DekiEntryAction,
+  dekiApprovalHistoryEntry,
   type DekiMessage,
   type DekiWebResearchGrant,
+  type DekiWorkspaceHistoryEntry,
+  type DekiWorkspacePendingApproval,
 } from "../../../../engine/deki/deki-entry";
 import {
   EMPTY_DEKI_COMPACTION,
@@ -32,7 +35,7 @@ import {
   type DekiCompactionState,
 } from "../../../../engine/deki/deki-history";
 import { llmApi } from "../../../../shared/api/llm-api";
-import { dekiApi, type DekiPreferences } from "../../../../shared/api/deki-api";
+import { dekiApi, dekiRuntimeErrorCode, type DekiPreferences } from "../../../../shared/api/deki-api";
 import { useConnections } from "../../../catalog/connections/index";
 import { PersonaAvatarImage, usePersonaSummaries } from "../../../catalog/personas/index";
 import { ConversationMessage } from "../../../modes/conversation/message-shell";
@@ -43,9 +46,22 @@ import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { runDetachedDekiSend } from "../lib/deki-send";
+import {
+  dekiRuntimeSessionId,
+  runDetachedDekiSend,
+  type DetachedDekiSendInput,
+  type DetachedDekiSendResult,
+} from "../lib/deki-send";
+import {
+  EMPTY_DEKI_LIVE_ACTIVITY,
+  reduceDekiLiveActivity,
+  type DekiLiveActivity,
+} from "../lib/deki-workspace-activity";
 import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
-import { createDekiActionDiffRows, type DekiActionDiffPart, type DekiActionDiffRow } from "../lib/deki-action-diff";
+import { createDekiActionDiffRows, type DekiActionDiffRow } from "../lib/deki-action-diff";
+import { DekiActionDiffRowView } from "./DekiDiffRows";
+import { DekiDataApprovalCard, type DekiApprovalAvailability } from "./DekiDataApprovalCard";
+import { DekiLiveActivityPanel, DekiTraceDisclosure } from "./DekiWorkspaceActivity";
 
 const DEKI_AVATAR_URL = "/koi-mark.svg";
 const DEKI_CHARACTER_ID = "__deki_shell__";
@@ -488,6 +504,35 @@ function uniqueQueryKeys(queryKeys: readonly (readonly unknown[])[]): readonly (
   });
 }
 
+type DekiWorkspaceApprovalsState = {
+  sessionKey: string;
+  availability: DekiApprovalAvailability;
+  pending: DekiWorkspacePendingApproval[];
+  history: DekiWorkspaceHistoryEntry[];
+};
+
+function dekiApprovalErrorMessage(error: unknown): string {
+  switch (dekiRuntimeErrorCode(error)) {
+    case "deki_workspace_state_changed":
+      return "Nothing was applied: this record changed after Deki-senpai previewed it. Ask for a fresh preview.";
+    case "deki_workspace_approval_blocked":
+      return "Nothing was applied: the change no longer passes De-Koi's checks. Ask Deki-senpai for a fresh preview.";
+    default:
+      return "Deki-senpai couldn't apply that change. Nothing was changed.";
+  }
+}
+
+async function invalidateDekiDataQueries(queryClient: QueryClient, collection: string) {
+  const entityKeys = DEKI_ACTION_QUERY_KEYS[collection as DekiActionEntity] ?? [];
+  await Promise.all(
+    uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...entityKeys]).map((queryKey) =>
+      queryClient.invalidateQueries({
+        queryKey,
+      }),
+    ),
+  );
+}
+
 async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
   if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") return;
   const actionQueryKeys =
@@ -550,6 +595,12 @@ export function DekiSurface({
   const [applyingActionMessageId, setApplyingActionMessageId] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [chatAccessGrants, setChatAccessGrants] = useState<DekiChatAccessGrant[]>([]);
+  const [liveActivities, setLiveActivities] = useState<Record<string, DekiLiveActivity>>({});
+  const [stoppingSessionKeys, setStoppingSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [workspaceApprovals, setWorkspaceApprovals] = useState<DekiWorkspaceApprovalsState | null>(null);
+  const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
+  const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
+  const liveRunIdsRef = useRef<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -639,8 +690,36 @@ export function DekiSurface({
     return messages.length > 0 ? messages : [welcomeMessage];
   }, [historyLoaded, messages, welcomeMessage]);
   const conversationMessages = useMemo(() => visibleMessages.map(toConversationMessage), [visibleMessages]);
+  const currentApprovals = workspaceApprovals?.sessionKey === currentSessionRunKey ? workspaceApprovals : null;
+  const unclaimedApprovals = useMemo(() => {
+    if (!currentApprovals) return [];
+    const claimed = new Set(
+      messages.flatMap((message) => (message.workspaceHistory ?? []).map((entry) => entry.id ?? "")),
+    );
+    return currentApprovals.pending.filter((approval) => !claimed.has(approval.id));
+  }, [currentApprovals, messages]);
   const dekiSceneMood = getDekiSceneMood({ historyLoaded, sending });
   const dekiHeroState = !historyLoaded ? "loading" : messages.length > 0 ? "compact" : "welcome";
+
+  const refreshWorkspaceApprovals = useCallback(async (targetSessionId: string | null) => {
+    const key = dekiSessionRunKey(targetSessionId);
+    const stillVisible = () => mountedRef.current && sessionIdRef.current === targetSessionId;
+    try {
+      const status = await dekiApi.workspace.status(dekiRuntimeSessionId(targetSessionId));
+      if (!stillVisible()) return;
+      setWorkspaceApprovals({
+        sessionKey: key,
+        availability: "ready",
+        pending: status.pendingApprovals,
+        history: status.history,
+      });
+    } catch {
+      // The workspace runtime is absent (plain browser) or unreachable; the
+      // approval cards say so instead of offering buttons that cannot work.
+      if (!stillVisible()) return;
+      setWorkspaceApprovals({ sessionKey: key, availability: "unavailable", pending: [], history: [] });
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -667,6 +746,7 @@ export function DekiSurface({
         setCompaction(history.compaction);
         setChatAccessGrants(approvedDekiChatAccessGrants(normalizedMessages));
         setSendError(null);
+        void refreshWorkspaceApprovals(sessionId);
       })
       .catch((error) => {
         if (!active) return;
@@ -682,7 +762,7 @@ export function DekiSurface({
     return () => {
       active = false;
     };
-  }, [sessionId, currentSessionRunKey, historyLoadGeneration]);
+  }, [sessionId, currentSessionRunKey, historyLoadGeneration, refreshWorkspaceApprovals]);
 
   useEffect(() => {
     let active = true;
@@ -757,6 +837,128 @@ export function DekiSurface({
     input.style.height = "0px";
     input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
   }, [draft]);
+
+  const setSessionStopping = (key: string, active: boolean) => {
+    setStoppingSessionKeys((current) => {
+      if (current.has(key) === active) return current;
+      const next = new Set(current);
+      if (active) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+
+  /** Runs a Deki turn with live activity. Events from an older run of the same session are ignored. */
+  const runLiveDekiSend = async (input: DetachedDekiSendInput): Promise<DetachedDekiSendResult> => {
+    const key = dekiSessionRunKey(input.sessionId);
+    const runId = newId("deki-run");
+    liveRunIdsRef.current[key] = runId;
+    setLiveActivities((current) => ({ ...current, [key]: EMPTY_DEKI_LIVE_ACTIVITY }));
+    try {
+      const result = await runDetachedDekiSend({
+        ...input,
+        onWorkspaceEvent: (event) => {
+          if (liveRunIdsRef.current[key] !== runId) return;
+          setLiveActivities((current) => ({
+            ...current,
+            [key]: reduceDekiLiveActivity(current[key] ?? EMPTY_DEKI_LIVE_ACTIVITY, event),
+          }));
+        },
+      });
+      return result;
+    } finally {
+      // Refresh even when the turn failed: a dry-run may have created an
+      // approval before an abort or error, and it must stay reachable.
+      void refreshWorkspaceApprovals(input.sessionId);
+      if (liveRunIdsRef.current[key] === runId) {
+        delete liveRunIdsRef.current[key];
+        setLiveActivities((current) => {
+          const { [key]: _finished, ...rest } = current;
+          return rest;
+        });
+        setSessionStopping(key, false);
+      }
+    }
+  };
+
+  const stopDeki = async () => {
+    const targetSessionId = sessionId;
+    const key = dekiSessionRunKey(targetSessionId);
+    setSessionStopping(key, true);
+    try {
+      const result = await dekiApi.workspace.abort(dekiRuntimeSessionId(targetSessionId));
+      if (!result.aborted) {
+        setSessionStopping(key, false);
+        if (isVisibleSession(targetSessionId)) {
+          setSendError("This step can't be stopped. Deki-senpai will finish shortly.");
+        }
+      }
+    } catch (error) {
+      setSessionStopping(key, false);
+      if (isVisibleSession(targetSessionId)) setSendError(toUserMessage(error, "dekiStop"));
+    }
+  };
+
+  const sendFailureMessage = (error: unknown, context: "dekiSend" | "dekiRetry") =>
+    dekiRuntimeErrorCode(error) === "deki_workspace_aborted"
+      ? "Stopped. Deki-senpai didn't finish that reply."
+      : toUserMessage(error, context);
+
+  /** `message` is null for an approval no saved message carries (its turn failed or was regenerated). */
+  const decideDataApproval = async (
+    message: DekiMessage | null,
+    entry: DekiWorkspaceHistoryEntry,
+    approve: boolean,
+  ) => {
+    const targetSessionId = sessionId;
+    setDecidingApprovalId(entry.id);
+    setApprovalErrors((current) => {
+      const { [entry.id]: _cleared, ...rest } = current;
+      return rest;
+    });
+    let status: DekiWorkspaceHistoryEntry["status"] = entry.status;
+    let decisionError: string | null = null;
+    let collection: string | null = null;
+    try {
+      const runtimeSessionId = dekiRuntimeSessionId(targetSessionId);
+      const result = approve
+        ? await dekiApi.workspace.approve(runtimeSessionId, entry.id)
+        : await dekiApi.workspace.reject(runtimeSessionId, entry.id);
+      collection = result.applied?.entity ?? null;
+      status = result.status === "not_found" ? "timed_out" : result.status;
+    } catch (error) {
+      decisionError = dekiApprovalErrorMessage(error);
+      try {
+        const refreshed = await dekiApi.workspace.status(dekiRuntimeSessionId(targetSessionId));
+        status = refreshed.history.find((item) => item.id === entry.id)?.status ?? "failed";
+      } catch {
+        status = "failed";
+      }
+    }
+    if (message && status !== entry.status) {
+      try {
+        const nextMessages = await dekiApi.history.updateWorkspaceHistoryEntry({
+          sessionId: targetSessionId,
+          messageId: message.id,
+          entry: { ...entry, status, completedAt: new Date().toISOString() },
+        });
+        if (isVisibleSession(targetSessionId)) setMessages(nextMessages);
+      } catch (error) {
+        decisionError ??= toUserMessage(error, "dekiApprovalRecord");
+      }
+    }
+    if (collection) {
+      await invalidateDekiDataQueries(queryClient, collection).catch((error) => {
+        decisionError ??= toUserMessage(error, "catalogRefreshAfterDekiAction");
+      });
+    }
+    await refreshWorkspaceApprovals(targetSessionId);
+    if (!mountedRef.current) return;
+    setDecidingApprovalId(null);
+    const shownError = decisionError;
+    if (shownError) setApprovalErrors((current) => ({ ...current, [entry.id]: shownError }));
+  };
 
   const readFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -868,7 +1070,7 @@ export function DekiSurface({
       setMessages(replaced.messages);
       setCompaction(replaced.compaction);
       void onSessionsChanged?.();
-      await runDetachedDekiSend({
+      await runLiveDekiSend({
         sessionId,
         userMessage: retryTurn.user.content,
         existingUser: retryTurn.user,
@@ -896,7 +1098,7 @@ export function DekiSurface({
       });
     } catch (error) {
       if (mountedRef.current) {
-        setSendError(toUserMessage(error, "dekiRetry"));
+        setSendError(sendFailureMessage(error, "dekiRetry"));
       }
     } finally {
       if (mountedRef.current) {
@@ -963,7 +1165,7 @@ export function DekiSurface({
     markSessionSending(sessionId, true);
     requestAnimationFrame(() => inputRef.current?.focus());
     try {
-      await runDetachedDekiSend({
+      await runLiveDekiSend({
         sessionId,
         userMessage,
         messages,
@@ -998,7 +1200,7 @@ export function DekiSurface({
       if (mountedRef.current) {
         setDraft(submittedDraft);
         setAttachments(currentAttachments);
-        setSendError(toUserMessage(error, "dekiSend"));
+        setSendError(sendFailureMessage(error, "dekiSend"));
         markSessionSending(sessionId, false);
       }
       return;
@@ -1059,7 +1261,7 @@ export function DekiSurface({
         void onSessionsChanged?.();
         if (!webResearchDecision?.approve) return;
         markSessionSending(sessionId, true);
-        await runDetachedDekiSend({
+        await runLiveDekiSend({
           sessionId,
           userMessage: retryTurn.user.content,
           existingUser: retryTurn.user,
@@ -1139,7 +1341,7 @@ export function DekiSurface({
         setChatAccessGrants(nextGrants);
         setMessages(messagesWithGrant);
         markSessionSending(sessionId, true);
-        await runDetachedDekiSend({
+        await runLiveDekiSend({
           sessionId,
           userMessage: dekiChatAccessResumePrompt(retryTurn.user.content),
           existingUser: retryTurn.user,
@@ -1281,12 +1483,52 @@ export function DekiSurface({
                   error={visibleMessages[index] ? actionErrors[visibleMessages[index].id] : undefined}
                   onApply={applyDekiAction}
                 />
+                {visibleMessages[index]?.role === "assistant" && (
+                  <DekiTraceDisclosure trace={visibleMessages[index]?.workspaceTrace} />
+                )}
+                {visibleMessages[index]?.workspaceHistory?.map((entry) => {
+                  const owner = visibleMessages[index]!;
+                  if (entry.status === "unknown" || entry.status === "malformed") return null;
+                  const approvals = currentApprovals;
+                  return (
+                    <DekiDataApprovalCard
+                      key={entry.id}
+                      entry={entry}
+                      pending={approvals?.pending.find((approval) => approval.id === entry.id) ?? null}
+                      availability={approvals?.availability ?? "loading"}
+                      deciding={decidingApprovalId === entry.id}
+                      error={approvalErrors[entry.id]}
+                      onDecide={(approve) => void decideDataApproval(owner, entry, approve)}
+                    />
+                  );
+                })}
               </div>
             );
           })}
-          {sending && (
-            <div className="px-4 py-2 text-xs text-[var(--muted-foreground)]">Deki-senpai is thinking...</div>
-          )}
+          {unclaimedApprovals.map((approval) => {
+            const entry = dekiApprovalHistoryEntry(approval);
+            return (
+              <DekiDataApprovalCard
+                key={approval.id}
+                entry={entry}
+                pending={approval}
+                availability="ready"
+                deciding={decidingApprovalId === approval.id}
+                error={approvalErrors[approval.id]}
+                onDecide={(approve) => void decideDataApproval(null, entry, approve)}
+              />
+            );
+          })}
+          {sending &&
+            (liveActivities[currentSessionRunKey] ? (
+              <DekiLiveActivityPanel
+                activity={liveActivities[currentSessionRunKey]!}
+                stopping={stoppingSessionKeys.has(currentSessionRunKey)}
+                onStop={() => void stopDeki()}
+              />
+            ) : (
+              <div className="px-4 py-2 text-xs text-[var(--muted-foreground)]">Deki-senpai is thinking...</div>
+            ))}
           {sendError && <div className="px-4 py-2 text-xs text-red-500">{sendError}</div>}
           <div ref={messagesEndRef} className="h-1" />
         </div>
@@ -1890,62 +2132,6 @@ function DekiChatAccessCard({
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-function DekiActionDiffRowView({ row, create }: { row: DekiActionDiffRow; create: boolean }) {
-  return (
-    <div className="border-b border-[var(--border)]/60 px-2.5 py-2 last:border-b-0">
-      <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[0.6875rem] font-semibold text-[var(--foreground)]/85">
-          {formatDekiActionDiffLabel(row.path)}
-        </span>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[0.625rem] font-semibold",
-            row.status === "added" && "bg-emerald-500/10 text-emerald-500",
-            row.status === "changed" && "bg-sky-500/10 text-sky-500",
-            row.status === "unchanged" && "bg-[var(--card)] text-[var(--muted-foreground)]",
-          )}
-        >
-          {row.status}
-        </span>
-      </div>
-      <DekiActionInlineDiff parts={create ? [{ text: row.after, kind: "added" }] : row.inlineDiff} />
-    </div>
-  );
-}
-
-function formatDekiActionDiffLabel(path: string): string {
-  const label = path
-    .split(".")
-    .filter((segment) => segment !== "data")
-    .at(-1);
-  const fallback = label || path;
-  return fallback
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function DekiActionInlineDiff({ parts }: { parts: DekiActionDiffPart[] }) {
-  return (
-    <div className="min-h-9 whitespace-pre-wrap break-words rounded-md bg-[var(--card)]/70 px-2.5 py-2 text-[0.75rem] leading-relaxed text-[var(--foreground)]/85">
-      {parts.length > 0
-        ? parts.map((part, index) => (
-            <span
-              key={index}
-              className={cn(
-                part.kind === "added" && "rounded-sm bg-emerald-500/15 font-semibold text-emerald-400",
-                part.kind === "removed" &&
-                  "rounded-sm bg-red-500/10 text-red-400 line-through decoration-red-400/80 decoration-2",
-              )}
-            >
-              {part.text}
-            </span>
-          ))
-        : "-"}
     </div>
   );
 }

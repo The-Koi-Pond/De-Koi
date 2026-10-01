@@ -1,8 +1,8 @@
 use crate::http_dispatch::{dispatch_for_runtime_owner, InvokeRequest};
 use crate::state::AppState;
 use crate::storage_commands::{
-    avatars, connection_secrets, entity_images, fonts, imports, integrations, llm, lorebook_images,
-    managed_thumbnails, profile, prompts, sidecar,
+    avatars, connection_secrets, deki, entity_images, fonts, imports, integrations, llm,
+    lorebook_images, managed_thumbnails, profile, prompts, sidecar,
 };
 use axum::body::Body;
 use axum::extract::multipart::Field;
@@ -164,6 +164,7 @@ pub fn router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(MAX_PROFILE_UPLOAD_BODY_BYTES)),
         )
         .route("/api/import/st-bulk/run", post(import_st_bulk_run_stream))
+        .route("/api/deki/prompt/stream", post(deki_prompt_stream))
         .route("/api/sidecar/v1/embeddings", post(sidecar_embeddings))
         .route("/api/assets/{kind}/{*path}", get(managed_asset))
         .route("/api/llm/stream", post(llm_stream))
@@ -1138,6 +1139,75 @@ async fn import_st_bulk_run_stream(
     Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
+/// The stream route takes the same `{ "request": DekiPromptRequest }` envelope
+/// `/api/invoke` uses for `deki_prompt`; anything else is rejected up front.
+fn deki_stream_prompt_request(body: &Value) -> AppResult<Value> {
+    match body.get("request") {
+        Some(request @ Value::Object(_)) => Ok(request.clone()),
+        _ => Err(AppError::invalid_input(
+            "Deki prompt streams require a JSON body of the form {\"request\": {...}}.",
+        )),
+    }
+}
+
+/// Hostable streaming variant of `deki_prompt`. Live workspace events are sent
+/// as they happen; the stream ends with `done` (carrying the final response,
+/// including the complete bounded trace) or `error`.
+async fn deki_prompt_stream(
+    State(state): State<HttpState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Extension(AuthorizedDekiRuntimeOwner(runtime_owner)): Extension<AuthorizedDekiRuntimeOwner>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>, HttpError> {
+    require_admin_access_for_command("deki_prompt", &headers, addr.ip())?;
+    let request = deki_stream_prompt_request(&body)?;
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(SSE_EVENT_CHANNEL_CAPACITY);
+    tokio::spawn(async move {
+        let started = Instant::now();
+        request_log("deki_prompt_stream started");
+        let event_tx = tx.clone();
+        // A Deki turn emits far fewer events than the channel holds. If a
+        // stalled client still fills it, live events are skipped rather than
+        // blocking the runtime; `done` carries the authoritative trace.
+        let events = deki::DekiEventSink::new(move |event| {
+            let _ = event_tx.try_send(Ok(Event::default().data(event.to_string())));
+        });
+        let result =
+            deki::deki_prompt_with_events(&state.app, request, &runtime_owner, events).await;
+        let payload = match result {
+            Ok(response) => {
+                request_log(format!(
+                    "deki_prompt_stream ok in {}ms",
+                    started.elapsed().as_millis()
+                ));
+                json!({ "type": "done", "data": response })
+            }
+            Err(error) => {
+                request_log(format!(
+                    "deki_prompt_stream error code={} message={} in {}ms",
+                    error.code,
+                    error.message,
+                    started.elapsed().as_millis()
+                ));
+                json!({
+                    "type": "error",
+                    "data": {
+                        "code": error.code,
+                        "message": error.message,
+                        "details": error.details,
+                    },
+                })
+            }
+        };
+        let _ = tx
+            .send(Ok(Event::default().data(payload.to_string())))
+            .await;
+    });
+
+    Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
+}
+
 fn is_privileged_remote_command(command: &str) -> bool {
     matches!(
         command,
@@ -2078,6 +2148,12 @@ fn rate_limit_rule_for_path(path: &str) -> ApiRateLimitRule {
         ApiRateLimitRule {
             key: "generate",
             limit: 60,
+            window: DEFAULT_API_RATE_WINDOW,
+        }
+    } else if api_route_matches(path, "/api/deki") {
+        ApiRateLimitRule {
+            key: "deki",
+            limit: 30,
             window: DEFAULT_API_RATE_WINDOW,
         }
     } else if api_route_matches(path, "/api/sidecar") {
@@ -4193,6 +4269,25 @@ mod tests {
         );
 
         assert!(security.evaluate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn deki_stream_route_requires_the_prompt_request_envelope() {
+        let request = json!({ "sessionId": "s", "userMessage": "hi" });
+
+        assert_eq!(
+            deki_stream_prompt_request(&json!({ "request": request.clone() })).expect("envelope"),
+            request
+        );
+        for body in [request, json!({ "request": null }), json!({}), json!("text")] {
+            assert_eq!(
+                deki_stream_prompt_request(&body)
+                    .expect_err("non-envelope bodies are rejected")
+                    .code,
+                "invalid_input",
+                "{body}"
+            );
+        }
     }
 
     #[test]

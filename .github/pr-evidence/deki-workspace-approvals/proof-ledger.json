@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "type": "feature",
+    "title": "Deki workspace app-data approvals, live activity, and hardening",
+    "source": "GitHub issues #676, #677, #678 (Deki CLI-style assistant handoff Slices 3-5)",
+    "classification": "cross-boundary Rust capability, hostable HTTP route, shared API, and Deki shell UI change",
+    "status": "verified"
+  },
+  "coreClaim": "Deki-senpai can propose creative-library inserts, patches, and deletes only as dry-runs; nothing is written until the user approves in the Deki surface, approval re-checks current data and refuses stale previews, and the user sees Deki's steps live and can stop a run.",
+  "scope": {
+    "inScope": [
+      "deki_data read and dry-run mutation command family over the creative library",
+      "Owner- and session-scoped pending approvals, approve/reject, expiry, and history",
+      "Live workspace events over a Tauri channel and a hostable SSE route",
+      "Bounded persisted trace and approval outcomes on Deki messages",
+      "Approval cards, live activity panel, and trace disclosure in the Deki shell",
+      "Docs, AGENTS.md Deki map, and discovery metadata"
+    ],
+    "outOfScope": [
+      "Raw shell access",
+      "Chats, messages, memories, connections, or settings as deki_data collections",
+      "Migrating chat-access grants onto the workspace approval runtime",
+      "Persisting pending approvals across restarts"
+    ]
+  },
+  "verification": [
+    "cargo test --lib -- deki http_server http_dispatch: 295 passed",
+    "cargo clippy --lib -- -D warnings: clean",
+    "pnpm vitest run src/features/shell/deki src/shared/api/deki-api src/engine/deki: 88 passed",
+    "pnpm check: passed (unused-code report warning-only, no new entries)",
+    "End-to-end browser run: real de-koi-server with an isolated data dir and Basic Auth, scripted OpenAI-compatible model, Vite UI driven by Playwright; approve rewrote the stored lorebook entry, reject left the duplicate entry, outcomes persisted after reload, zero page errors"
+  ],
+  "manualBlockers": [
+    "Not exercised against a live provider model; the scripted model proves runtime, storage, streaming, and UI wiring, not live-model command choice quality"
+  ]
+}

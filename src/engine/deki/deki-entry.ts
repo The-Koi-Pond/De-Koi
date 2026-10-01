@@ -221,6 +221,7 @@ export type DekiWorkspaceApprovalDecisionResult = {
   status: "approved" | "rejected" | "not_found";
   pendingApprovals: DekiWorkspacePendingApproval[];
   history: DekiWorkspaceHistoryEntry[];
+  applied?: { entity: string; id: string; command: string };
 };
 
 export type DekiMessage = {
@@ -361,18 +362,36 @@ export type DekiEntryResponse = {
   createdAt: string;
   action: DekiEntryAction;
   usage?: import("../contracts/types/chat").NormalizedTokenUsage | null;
+  /** Visible command steps and narration from this turn, bounded by the runtime. */
+  workspaceTrace?: DekiWorkspaceTraceItem[];
+  /** Data-change approvals Deki's dry-runs created during this turn. */
+  pendingApprovals?: DekiWorkspacePendingApproval[];
 };
 
-export type DekiGatewayResponse = Omit<DekiEntryResponse, "action"> & {
+export type DekiGatewayResponse = Omit<DekiEntryResponse, "action" | "pendingApprovals"> & {
   action?: unknown;
+  pendingApprovals?: DekiWorkspacePendingApproval[] | null;
 };
 
 export type DekiGateway = {
   prompt(input: DekiEntryRequest): Promise<DekiGatewayResponse>;
+  /** Same turn as `prompt`, reporting live workspace events while it runs. */
+  promptEvents?(
+    input: DekiEntryRequest,
+    onEvent: (event: DekiWorkspacePromptEvent) => void,
+  ): Promise<DekiGatewayResponse>;
 };
 
-export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway): Promise<DekiEntryResponse> {
-  const response = await gateway.prompt({
+export type DekiEntryRunOptions = {
+  onEvent?: (event: DekiWorkspacePromptEvent) => void;
+};
+
+export async function runDekiEntry(
+  input: DekiEntryRequest,
+  gateway: DekiGateway,
+  options: DekiEntryRunOptions = {},
+): Promise<DekiEntryResponse> {
+  const request: DekiEntryRequest = {
     ...input,
     userMessage: input.userMessage.trim(),
     messages: input.messages.slice(),
@@ -382,7 +401,10 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
     webResearchGrants: input.webResearchGrants ?? [],
     connectionId: input.connectionId ?? null,
     persona: input.persona ?? null,
-  });
+  };
+  const { onEvent } = options;
+  const response =
+    onEvent && gateway.promptEvents ? await gateway.promptEvents(request, onEvent) : await gateway.prompt(request);
   const content = typeof response.content === "string" ? response.content : "";
   if (!content.trim()) {
     throw new Error("Deki-senpai returned an empty response. Try again or select a different tool-capable connection.");
@@ -392,6 +414,29 @@ export async function runDekiEntry(input: DekiEntryRequest, gateway: DekiGateway
     content,
     action: normalizeDekiEntryAction(response.action),
     usage: response.usage ?? null,
+    pendingApprovals: Array.isArray(response.pendingApprovals) ? response.pendingApprovals : [],
+  };
+}
+
+/**
+ * The history row an assistant message keeps for a data change it proposed.
+ * The pending approval itself lives in the runtime; the message keeps this
+ * compact record so the outcome stays readable after the approval resolves or
+ * expires.
+ */
+export function dekiApprovalHistoryEntry(approval: DekiWorkspacePendingApproval): DekiWorkspaceHistoryEntry {
+  return {
+    id: approval.id,
+    sessionId: approval.sessionId,
+    command: approval.command,
+    reason: approval.reason,
+    status: "dry-run",
+    operationHash: approval.operationHash,
+    affectedEntities: approval.affectedEntities,
+    affectedRows: approval.affectedRows,
+    validationStatus: approval.validationStatus,
+    journalPath: null,
+    createdAt: approval.requestedAt,
   };
 }
 

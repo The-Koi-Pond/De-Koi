@@ -1,4 +1,4 @@
-import type { DekiEntryAction } from "../../../../engine/deki/deki-entry";
+import type { DekiEntryAction, DekiWorkspaceRowChange } from "../../../../engine/deki/deki-entry";
 
 export type DekiActionDiffPart = {
   text: string;
@@ -9,7 +9,7 @@ export type DekiActionDiffRow = {
   path: string;
   before: string | null;
   after: string;
-  status: "added" | "changed" | "unchanged";
+  status: "added" | "changed" | "unchanged" | "removed";
   inlineDiff: DekiActionDiffPart[];
 };
 
@@ -67,6 +67,10 @@ function sameValue(before: unknown, after: unknown): boolean {
   return stableFormat(before) === stableFormat(after);
 }
 
+function isWordChar(char: string | undefined): boolean {
+  return char !== undefined && /[\p{L}\p{N}_'’-]/u.test(char);
+}
+
 function inlineDiffString(before: string, after: string): DekiActionDiffPart[] {
   if (before === after) {
     return before ? [{ text: before, kind: "unchanged" }] : [];
@@ -78,6 +82,12 @@ function inlineDiffString(before: string, after: string): DekiActionDiffPart[] {
     prefixLength += 1;
   }
 
+  // Snap the shared prefix back to a word start so "dusk" -> "dawn" reads as
+  // a whole-word change instead of "d" + "usk" -> "awn".
+  while (prefixLength > 0 && isWordChar(before[prefixLength - 1]) && isWordChar(before[prefixLength])) {
+    prefixLength -= 1;
+  }
+
   let suffixLength = 0;
   const maxSuffix = Math.min(before.length - prefixLength, after.length - prefixLength);
   while (
@@ -85,6 +95,13 @@ function inlineDiffString(before: string, after: string): DekiActionDiffPart[] {
     before[before.length - 1 - suffixLength] === after[after.length - 1 - suffixLength]
   ) {
     suffixLength += 1;
+  }
+  while (
+    suffixLength > 0 &&
+    isWordChar(after[after.length - suffixLength]) &&
+    isWordChar(after[after.length - suffixLength - 1])
+  ) {
+    suffixLength -= 1;
   }
 
   const parts: DekiActionDiffPart[] = [
@@ -117,6 +134,73 @@ function buildDiffRow(path: string, beforeValue: unknown, afterValue: unknown, c
     status,
     inlineDiff: inlineDiffForRow(before, after, status),
   };
+}
+
+const DEKI_ROW_CHANGE_HIDDEN_FIELDS = new Set(["id", "createdAt", "updatedAt"]);
+
+/**
+ * Diff rows for one row of a Deki data-change preview. The runtime already
+ * reduced updates to the changed fields, so every row here is a real change.
+ */
+export function createDekiRowChangeDiffRows(change: DekiWorkspaceRowChange): DekiActionDiffRow[] {
+  const visible = (entry: FlatValue) => !DEKI_ROW_CHANGE_HIDDEN_FIELDS.has(entry.path);
+  if (change.action === "delete") {
+    return flattenProposedValue(change.before ?? {})
+      .filter(visible)
+      .map((entry) => {
+        const before = stableFormat(entry.value);
+        return {
+          path: entry.path,
+          before,
+          after: "",
+          status: "removed" as const,
+          inlineDiff: before ? [{ text: before, kind: "removed" as const }] : [],
+        };
+      });
+  }
+  const create = change.action === "insert";
+  return flattenProposedValue(change.after ?? {})
+    .filter(visible)
+    .map((entry) =>
+      buildDiffRow(
+        entry.path,
+        create ? undefined : valueAtPath(change.before ?? {}, entry.path.split(".")),
+        entry.value,
+        create,
+      ),
+    );
+}
+
+export type DekiDeletePreviewField = { label: string; value: string };
+
+const DEKI_DELETE_PREVIEW_MAX_CHARS = 280;
+
+function readablePreviewValue(value: unknown): string {
+  if (Array.isArray(value) && value.every((item) => typeof item !== "object" || item === null)) {
+    return value.map((item) => String(item)).join(", ");
+  }
+  return stableFormat(value);
+}
+
+/**
+ * A readable summary of what a delete removes: user-facing fields only (no ids
+ * or storage timestamps), lists as plain text, long text clipped.
+ */
+export function createDekiDeletePreviewFields(change: DekiWorkspaceRowChange): DekiDeletePreviewField[] {
+  return flattenProposedValue(change.before ?? {})
+    .filter((entry) => {
+      const field = entry.path.split(".").at(-1) ?? entry.path;
+      return !DEKI_ROW_CHANGE_HIDDEN_FIELDS.has(field) && !/(^id|Id|Ids)$/.test(field);
+    })
+    .map((entry) => ({ path: entry.path, value: readablePreviewValue(entry.value).trim() }))
+    .filter((entry) => entry.value.length > 0)
+    .map((entry) => ({
+      label: entry.path,
+      value:
+        entry.value.length > DEKI_DELETE_PREVIEW_MAX_CHARS
+          ? `${entry.value.slice(0, DEKI_DELETE_PREVIEW_MAX_CHARS - 3)}...`
+          : entry.value,
+    }));
 }
 
 export function createDekiActionDiffRows(
