@@ -374,6 +374,16 @@ export const ChatInput = memo(function ChatInput({
 
   const canRetry = !isStreaming && lastMessageRole === "user";
   const canContinue = !isStreaming && mode === "roleplay" && lastMessageRole === "assistant";
+  // An empty send retries after a user message, or continues after an assistant one.
+  const sendButtonLabel = isStreaming
+    ? "Stop generating"
+    : hasInput || attachments.length > 0
+      ? "Send message"
+      : canRetry
+        ? "Retry generation"
+        : canContinue
+          ? "Continue response"
+          : "Send message";
   const pendingAttachmentReads = activeChatId ? ephemeralAttachmentDrafts.pendingReads(mode, activeChatId) : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
@@ -1598,6 +1608,9 @@ export const ChatInput = memo(function ChatInput({
         {/* Send / Stop button */}
 
         <button
+          type="button"
+          aria-label={sendButtonLabel}
+          title={sendButtonLabel}
           onClick={isStreaming ? () => useChatStore.getState().stopGeneration() : handleSend}
           disabled={
             (!isStreaming && isReadingAttachments) ||
