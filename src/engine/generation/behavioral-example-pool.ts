@@ -1,4 +1,4 @@
-export const BEHAVIORAL_EXAMPLE_POOL_VERSION = 1 as const;
+const BEHAVIORAL_EXAMPLE_POOL_VERSION = 1 as const;
 
 type BehavioralExampleSourceField =
   | "mes_example"

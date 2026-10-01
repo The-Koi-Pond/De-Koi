@@ -1,6 +1,6 @@
 import { invokeTauri } from "./tauri-client";
 
-export type MusicProvider = "youtube" | "spotify" | "local" | (string & {});
+type MusicProvider = "youtube" | "spotify" | "local" | (string & {});
 
 export interface MusicCandidate {
   provider: MusicProvider;
@@ -24,7 +24,7 @@ export interface MusicStatus {
   legacyProviders?: string[];
 }
 
-export interface MusicProviderError {
+interface MusicProviderError {
   code: string;
   message: string;
 }

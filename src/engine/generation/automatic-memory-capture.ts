@@ -28,7 +28,7 @@ type AutomaticMemoryCandidate = {
   referenceMessageIds?: unknown;
 };
 
-export type CanonicalConsequenceEvidence =
+type CanonicalConsequenceEvidence =
   | "direct_user_assertion"
   | "explicit_promise"
   | "explicit_screen_event"

@@ -13,6 +13,3 @@ export const updateLibraryFolderSchema = z.object({
   sortOrder: z.number().int().optional(),
   order: z.number().int().optional(),
 });
-
-export type CreateLibraryFolderInput = z.infer<typeof createLibraryFolderSchema>;
-export type UpdateLibraryFolderInput = z.infer<typeof updateLibraryFolderSchema>;

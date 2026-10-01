@@ -139,6 +139,7 @@ interface DefaultAgentConnectionWarning extends AgentConnectionWarningBase {
   dismissalKey: string;
 }
 
+/** @public Asserted by agent-runner.test.ts. */
 export type AgentConnectionWarning = DefaultAgentConnectionWarning;
 
 export interface AgentDeps {

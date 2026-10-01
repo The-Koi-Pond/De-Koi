@@ -2,7 +2,7 @@ import type { StorageGateway } from "../capabilities/storage";
 import { LOCAL_SIDECAR_CONNECTION_ID } from "../contracts/types/sidecar";
 import { isRecord, readString, type JsonRecord } from "./runtime-records";
 
-export type EmbeddingUnavailableReason = "missing_connection" | "missing_model" | "unsupported_provider";
+type EmbeddingUnavailableReason = "missing_connection" | "missing_model" | "unsupported_provider";
 
 export type EffectiveEmbeddingConfiguration =
   | {

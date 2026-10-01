@@ -327,14 +327,6 @@ function invalidateChatMemoryQueries(qc: QueryClient, chatId: string | null) {
   if (chatId) qc.invalidateQueries({ queryKey: chatKeys.memories(chatId) });
 }
 
-export function useDeleteChatMemory(chatId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (memoryId: string) => chatCommandApi.memoryDelete(chatId, memoryId),
-    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
-  });
-}
-
 export function useUpdateChatMemory(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -397,22 +389,6 @@ export function useRepairChatMemories(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => chatCommandApi.memoriesRefresh<RepairChatMemoriesResult>(chatId),
-    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
-  });
-}
-
-export function useMigrateChatMemories(chatId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => chatCommandApi.memoriesMigrate<{ created: number; updated: number; version: number }>(chatId),
-    onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
-  });
-}
-
-export function useRebuildChatMemoryIndexes(chatId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => chatCommandApi.memoryIndexesRebuild<{ rebuilt: number }>(chatId),
     onSuccess: () => invalidateChatMemoryQueries(qc, chatId),
   });
 }

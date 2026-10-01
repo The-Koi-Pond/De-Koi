@@ -6,7 +6,7 @@ type ExtensionImportPayload = {
   js?: string | null;
 };
 
-export type ExtensionImportKind = "package-json" | "legacy-json" | "css-file" | "js-file";
+type ExtensionImportKind = "package-json" | "legacy-json" | "css-file" | "js-file";
 
 export interface ImportedExtensionBuildResult {
   kind: ExtensionImportKind;

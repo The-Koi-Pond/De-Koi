@@ -487,7 +487,7 @@ interface ActiveLorebookEntry {
   constant: boolean;
 }
 
-export interface BudgetSkippedLorebookEntry {
+interface BudgetSkippedLorebookEntry {
   id: string;
   name: string;
   lorebookId: string;

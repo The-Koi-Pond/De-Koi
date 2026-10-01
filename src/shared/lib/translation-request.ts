@@ -1,4 +1,4 @@
-export type TranslationRequestResult<T> = { status: "completed"; value: T } | { status: "cancelled" };
+type TranslationRequestResult<T> = { status: "completed"; value: T } | { status: "cancelled" };
 
 export interface TranslationRequest<T> {
   readonly signal: AbortSignal;
