@@ -92,19 +92,10 @@ export function CharacterListRow({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
       draggable={draggable}
-      aria-label={rowActionLabel}
       onClick={activateRow}
       onDragStart={(event) => onCharacterDragStart(event, character.id)}
       onDragEnd={onCharacterDragEnd}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        activateRow();
-      }}
       onContextMenu={(event) => {
         if (selectionMode || isAssigning) return;
         event.preventDefault();
@@ -117,7 +108,7 @@ export function CharacterListRow({
       }}
       className={cn(
         "group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)]",
-        "outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/45",
+        "has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-[var(--primary)]/45",
         selectionMode && isBulkSelected && "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/8",
         isSelected && !isAssigning && "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/5",
         isAssigning && isInTargetGroup && "ring-1 ring-violet-500/50 bg-violet-500/10",
@@ -179,7 +170,20 @@ export function CharacterListRow({
         )}
       </div>
 
-      <div className="min-w-0 flex-1">
+      {/* The row's own action buttons sit outside this block, so it can be the row's button. */}
+      <div
+        role="button"
+        tabIndex={0}
+        data-row-action
+        aria-label={rowActionLabel}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          activateRow();
+        }}
+        className="min-w-0 flex-1 outline-none"
+      >
         <div
           className="truncate text-sm font-medium"
           style={

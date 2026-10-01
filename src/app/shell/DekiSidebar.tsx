@@ -172,11 +172,8 @@ export function DekiSidebar({
             return (
               <div
                 key={session.id}
-                role="button"
-                tabIndex={0}
                 data-deki-session-id={session.id}
                 data-deki-session-unread={hasUnread ? "true" : undefined}
-                aria-label={hasUnread ? session.title + ", new Deki message" : session.title}
                 onClick={() => {
                   if (multiSelectMode) {
                     toggleSelectSession(session.id);
@@ -184,18 +181,8 @@ export function DekiSidebar({
                   }
                   handleOpenSession(session.id);
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    if (multiSelectMode) {
-                      toggleSelectSession(session.id);
-                      return;
-                    }
-                    handleOpenSession(session.id);
-                  }
-                }}
                 className={cn(
-                  "group relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all",
+                  "group relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-all has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-sky-400/45",
                   multiSelectMode && isSelected
                     ? "bg-sky-500/10 text-[var(--sidebar-foreground)] ring-1 ring-sky-400/25"
                     : isActive
@@ -225,7 +212,24 @@ export function DekiSidebar({
                     />
                   )}
                 </div>
-                <div className="min-w-0 flex-1">
+                {/* The Delete button sits outside this block, so it can be the row's button. */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  data-row-action
+                  aria-label={hasUnread ? session.title + ", new Deki message" : session.title}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    if (multiSelectMode) {
+                      toggleSelectSession(session.id);
+                      return;
+                    }
+                    handleOpenSession(session.id);
+                  }}
+                  className="min-w-0 flex-1 outline-none"
+                >
                   <span className="block truncate text-xs font-medium">{session.title}</span>
                   {countLabel && (
                     <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">{countLabel}</span>
