@@ -1231,13 +1231,26 @@ describe("dekiApi.sessions.deleteMany", () => {
 });
 
 describe("dekiApi.sessions first run", () => {
+  type MemoryStorageOptions = {
+    seed?: Record<string, Record<string, unknown>>;
+    /** Return true to make that write throw when it is attempted. */
+    failWrite?: (write: string) => boolean;
+    onWrite?: (write: string) => void;
+  };
+
   // Mirrors the storage owner: rows persist, and a second create of an id is rejected.
-  function installMemoryStorage(options: { failSessionCreates?: number; onWrite?: (write: string) => void } = {}) {
-    const rows = new Map<string, Record<string, unknown>>();
+  function installMemoryStorage(options: MemoryStorageOptions = {}) {
+    const rows = new Map<string, Record<string, unknown>>(Object.entries(options.seed ?? {}));
     const writes: string[] = [];
-    let sessionCreateFailures = options.failSessionCreates ?? 0;
     const key = (entity: string, id: string) => `${entity}/${id}`;
     const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const attempt = (write: string) => {
+      if (options.failWrite?.(write)) throw new Error(`storage unavailable: ${write}`);
+    };
+    const record = (write: string) => {
+      writes.push(write);
+      options.onWrite?.(write);
+    };
     storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
       await tick();
       return rows.get(key(entity, id)) ?? null;
@@ -1249,29 +1262,63 @@ describe("dekiApi.sessions first run", () => {
     storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
       await tick();
       const id = String(value.id);
-      if (entity === "deki-sessions" && sessionCreateFailures > 0) {
-        sessionCreateFailures -= 1;
-        throw new Error("storage unavailable");
-      }
+      attempt(`create ${entity}/${id}`);
       if (rows.has(key(entity, id))) throw new Error(`${entity}/${id} already exists`);
       rows.set(key(entity, id), value);
-      writes.push(`create ${entity}/${id}`);
-      options.onWrite?.(`create ${entity}/${id}`);
+      record(`create ${entity}/${id}`);
       return value;
     });
     storageApiMock.update.mockImplementation(async (entity: string, id: string, value: Record<string, unknown>) => {
       await tick();
+      attempt(`update ${entity}/${id}`);
       rows.set(key(entity, id), { ...rows.get(key(entity, id)), ...value, id });
-      writes.push(`update ${entity}/${id}`);
+      record(`update ${entity}/${id}`);
       return rows.get(key(entity, id));
     });
     storageApiMock.delete.mockImplementation(async (entity: string, id: string) => {
       await tick();
       rows.delete(key(entity, id));
-      writes.push(`delete ${entity}/${id}`);
+      record(`delete ${entity}/${id}`);
     });
-    return { rows, writes };
+    const rowIds = (entity: string) =>
+      [...rows.keys()]
+        .filter((rowKey) => rowKey.startsWith(`${entity}/`))
+        .map((rowKey) => rowKey.slice(entity.length + 1));
+    const settings = () => (rows.get("app-settings/deki")?.value ?? {}) as Record<string, unknown>;
+    return { writes, rowIds, settings };
   }
+
+  const legacyMessage = (id: string, content: string) => ({
+    id,
+    role: "user",
+    content,
+    createdAt: "2026-06-24T00:00:00.000Z",
+  });
+  const legacySettingsSeed = () => ({
+    "app-settings/deki": {
+      id: "deki",
+      value: {
+        selectedConnectionId: "connection-1",
+        activeSessionId: "session-two",
+        sessions: [
+          {
+            id: "session-one",
+            title: "One",
+            messages: [legacyMessage("message-1", "First"), legacyMessage("message-2", "Second")],
+            createdAt: "2026-06-24T00:00:00.000Z",
+            updatedAt: "2026-06-24T00:00:00.000Z",
+          },
+          {
+            id: "session-two",
+            title: "Two",
+            messages: [legacyMessage("message-3", "Third")],
+            createdAt: "2026-06-25T00:00:00.000Z",
+            updatedAt: "2026-06-25T00:00:00.000Z",
+          },
+        ],
+      },
+    },
+  });
 
   beforeEach(() => {
     storageApiMock.create.mockReset();
@@ -1296,11 +1343,12 @@ describe("dekiApi.sessions first run", () => {
 
   it("holds a session created mid-migration until the migration has finished writing", async () => {
     // Start create() right after migration writes its first durable row, while
-    // its message rows and settings rewrite are still pending.
+    // its message rows and settings cleanup are still pending.
     let midMigrationCreate: Promise<{ activeSessionId: string }> | null = null;
-    const { rows, writes } = installMemoryStorage({
+    const storage = installMemoryStorage({
+      seed: legacySettingsSeed(),
       onWrite: (write) => {
-        if (write === "create deki-sessions/deki-session-default") midMigrationCreate ??= dekiApi.sessions.create();
+        if (write === "create deki-sessions/session-one") midMigrationCreate ??= dekiApi.sessions.create();
       },
     });
 
@@ -1309,24 +1357,58 @@ describe("dekiApi.sessions first run", () => {
     const created = await midMigrationCreate!;
 
     const newSessionId = created.activeSessionId;
-    expect(newSessionId).not.toBe("deki-session-default");
-    expect([...rows.keys()].filter((rowKey) => rowKey.startsWith("deki-sessions/")).sort()).toEqual(
-      [`deki-sessions/${newSessionId}`, "deki-sessions/deki-session-default"].sort(),
-    );
-    expect((rows.get("app-settings/deki")?.value as Record<string, unknown>).activeSessionId).toBe(newSessionId);
-    // The migration's own settings write lands before the new session's first write.
-    expect(writes.indexOf("create app-settings/deki")).toBeLessThan(
-      writes.indexOf(`create deki-sessions/${newSessionId}`),
+    expect(storage.rowIds("deki-sessions").sort()).toEqual([newSessionId, "session-one", "session-two"].sort());
+    expect(storage.rowIds("deki-messages").sort()).toEqual(["message-1", "message-2", "message-3"]);
+    expect(storage.settings().activeSessionId).toBe(newSessionId);
+    expect(storage.settings().sessions).toBeUndefined();
+    // The migration's settings cleanup lands before the new session's first write.
+    expect(storage.writes.indexOf("update app-settings/deki")).toBeLessThan(
+      storage.writes.indexOf(`create deki-sessions/${newSessionId}`),
     );
   });
 
-  it("lets the next reader retry after a failed migration", async () => {
-    installMemoryStorage({ failSessionCreates: 1 });
+  it("finishes a migration that failed after writing some rows", async () => {
+    let failMessageWrite = true;
+    const storage = installMemoryStorage({
+      seed: legacySettingsSeed(),
+      failWrite: (write) => failMessageWrite && write === "create deki-messages/message-2",
+    });
+    // A mutation queued behind the failing migration must not write anything.
+    const firstRead = dekiApi.sessions.list();
+    const queuedCreate = dekiApi.sessions.create();
 
-    await expect(dekiApi.sessions.list()).rejects.toThrow("storage unavailable");
+    await expect(firstRead).rejects.toThrow("storage unavailable: create deki-messages/message-2");
+    await expect(queuedCreate).rejects.toThrow("storage unavailable");
+    expect(storage.rowIds("deki-sessions")).toEqual(["session-one"]);
+    expect(storage.settings().sessions).toBeDefined();
+
+    failMessageWrite = false;
     const state = await dekiApi.sessions.list();
 
-    expect(state.activeSessionId).toBe("deki-session-default");
-    expect(state.sessions.map((session) => session.id)).toEqual(["deki-session-default"]);
+    expect(storage.rowIds("deki-sessions").sort()).toEqual(["session-one", "session-two"]);
+    expect(storage.rowIds("deki-messages").sort()).toEqual(["message-1", "message-2", "message-3"]);
+    expect(state.activeSessionId).toBe("session-two");
+    expect(storage.settings()).toMatchObject({ activeSessionId: "session-two", selectedConnectionId: "connection-1" });
+    expect(storage.settings().sessions).toBeUndefined();
+  });
+
+  it("finishes a migration whose settings cleanup failed", async () => {
+    let failCleanup = true;
+    const storage = installMemoryStorage({
+      seed: legacySettingsSeed(),
+      failWrite: (write) => failCleanup && write === "update app-settings/deki",
+    });
+
+    await expect(dekiApi.sessions.list()).rejects.toThrow("storage unavailable: update app-settings/deki");
+    expect(storage.rowIds("deki-messages").sort()).toEqual(["message-1", "message-2", "message-3"]);
+    expect(storage.settings().sessions).toBeDefined();
+
+    failCleanup = false;
+    const state = await dekiApi.sessions.list();
+
+    expect(state.activeSessionId).toBe("session-two");
+    expect(state.sessions.map((session) => session.id).sort()).toEqual(["session-one", "session-two"]);
+    expect(storage.settings().sessions).toBeUndefined();
+    expect(storage.settings().activeSessionId).toBe("session-two");
   });
 });
