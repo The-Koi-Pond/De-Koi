@@ -56,4 +56,3 @@ describe("postProcessSceneResult music contracts", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('musicTrack: "yt:invented" -> null'));
   });
 });
-

@@ -229,12 +229,7 @@ export const BUILT_IN_AGENT_IDS = {
   CYOA: "cyoa",
 } as const;
 
-const RETIRED_NARRATIVE_AGENT_IDS = [
-  "narrative-craft",
-  "prose-guardian",
-  "director",
-  "secret-plot-driver",
-] as const;
+const RETIRED_NARRATIVE_AGENT_IDS = ["narrative-craft", "prose-guardian", "director", "secret-plot-driver"] as const;
 
 export type AgentCategory = "writer" | "tracker" | "misc";
 export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
@@ -532,10 +527,7 @@ function boolishFalse(value: unknown): boolean {
   return ["false", "0", "no", "off"].includes(value.trim().toLowerCase());
 }
 
-function canonicalAgentActiveId(
-  value: unknown,
-  options: { remapLegacySpotify?: boolean } = {},
-): string {
+function canonicalAgentActiveId(value: unknown, options: { remapLegacySpotify?: boolean } = {}): string {
   const id = typeof value === "string" ? value.trim() : "";
   const remapSpotify = options.remapLegacySpotify === true;
   if (!id.startsWith(BUILT_IN_AGENT_ID_PREFIX)) {
@@ -549,10 +541,7 @@ function canonicalAgentActiveId(
   return BUILT_IN_AGENT_ID_SET.has(type) ? type : id;
 }
 
-function canonicalAgentActiveIds(
-  value: unknown,
-  options: { remapLegacySpotify?: boolean } = {},
-): string[] {
+function canonicalAgentActiveIds(value: unknown, options: { remapLegacySpotify?: boolean } = {}): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(new Set(value.map((id) => canonicalAgentActiveId(id, options)).filter(Boolean)));
 }

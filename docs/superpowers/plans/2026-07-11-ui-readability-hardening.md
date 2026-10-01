@@ -22,11 +22,13 @@
 ### Task 1: Semantic Readability and Target Utilities
 
 **Files:**
+
 - Modify: `src/styles/globals/04-surfaces-components.css`
 - Modify: `src/styles/globals/07-responsive-accessibility.css`
 - Create: `src/styles/globals/ui-foundations.spec.ts`
 
 **Interfaces:**
+
 - Produces CSS classes `.de-koi-caption`, `.de-koi-label`, `.de-koi-icon-target`, `.de-koi-control-target`, and coarse-pointer target overrides.
 
 - [ ] Write a failing static CSS contract test that requires 12px/13px readable classes, 32px/36px target classes, and a coarse-pointer 44px minimum.
@@ -38,6 +40,7 @@
 ### Task 2: Representative Dense Controls
 
 **Files:**
+
 - Modify: `src/features/modes/shared/chat-ui/components/settings/ModePromptSettingsSections.tsx`
 - Modify: `src/features/modes/shared/chat-ui/components/settings/ScheduleEditor.tsx`
 - Modify: `src/app/shell/WindowTitleBar.tsx`
@@ -45,6 +48,7 @@
 - Create: `src/features/modes/shared/chat-ui/components/settings/readability-contract.spec.ts`
 
 **Interfaces:**
+
 - Consumes the semantic classes from Task 1.
 
 - [ ] Write a failing static contract test that rejects sub-12px persistent copy in the two selected settings owners and requires shared target classes on their icon/text actions.
@@ -58,11 +62,13 @@
 ### Task 3: Action Discoverability
 
 **Files:**
+
 - Modify: `src/features/modes/conversation/components/ConversationMessageActions.tsx`
 - Modify: `src/features/shell/connections/components/ConnectionsPanel.tsx`
 - Create: `src/features/shell/action-visibility-contract.spec.ts`
 
 **Interfaces:**
+
 - Consumes target utilities from Task 1.
 
 - [ ] Write a failing static contract test requiring hover-revealed groups in the selected owners to also use focus-within/focus-visible and coarse-pointer visibility.
@@ -74,6 +80,7 @@
 ### Task 4: Integration and Visual Proof
 
 **Files:**
+
 - Modify only files already listed if verification reveals an in-scope defect.
 
 - [ ] Run all focused tests created by Tasks 1–3 together; expect PASS.

@@ -110,10 +110,7 @@ function planningSystemPrompt(source: ContinuityDirectorSource): string {
   ].join("\n");
 }
 
-function planningInput(
-  source: ContinuityDirectorSource,
-  rerollTarget?: { id: string; text: string },
-): string {
+function planningInput(source: ContinuityDirectorSource, rerollTarget?: { id: string; text: string }): string {
   return JSON.stringify(
     {
       task: rerollTarget

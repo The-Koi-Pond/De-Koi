@@ -29,7 +29,11 @@ test("accepts the temporary waivers only when the vulnerable crates are devtools
 
 test("rejects vulnerable h2 from a production feature graph", () => {
   assert.throws(
-    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles({ desktop: vulnerableGraph }) }),
+    () =>
+      evaluateRustAdvisoryBoundaries({
+        waivedAdvisories: bothWaivers,
+        profiles: profiles({ desktop: vulnerableGraph }),
+      }),
     /desktop feature graph contains h2 0\.3\.27/,
   );
 });
@@ -65,7 +69,8 @@ test("rejects a stale h2 waiver after the devtools dependency is patched", () =>
 
 test("rejects a stale ringbuf waiver after the devtools dependency is patched", () => {
   assert.throws(
-    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles({ devtools: h2OnlyGraph }) }),
+    () =>
+      evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles({ devtools: h2OnlyGraph }) }),
     /remove the stale RUSTSEC-2026-0293 waiver/,
   );
 });

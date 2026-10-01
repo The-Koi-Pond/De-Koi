@@ -75,10 +75,8 @@ const DISCORD_PROFILE_RULES = [
 ].join("\n");
 
 const PROFILE_FIELD_INSTRUCTIONS: Record<CharacterPublicProfileSuggestionField, string> = {
-  displayName:
-    `${DISCORD_PROFILE_RULES}\n\nFor this field, return the display name they chose for public self-presentation, then a one-line parenthetical note under it.`,
-  handle:
-    `${DISCORD_PROFILE_RULES}\n\nFor this field, return the Discord-style username handle they chose, starting with @, then a one-line parenthetical note under it.`,
+  displayName: `${DISCORD_PROFILE_RULES}\n\nFor this field, return the display name they chose for public self-presentation, then a one-line parenthetical note under it.`,
+  handle: `${DISCORD_PROFILE_RULES}\n\nFor this field, return the Discord-style username handle they chose, starting with @, then a one-line parenthetical note under it.`,
   bio: `${DISCORD_PROFILE_RULES}\n\nFor this field, return the 2-3 line bio in their exact texting voice, then a one-line parenthetical note under it.`,
 };
 

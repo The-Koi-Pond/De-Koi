@@ -130,12 +130,7 @@ describe("SceneBanner", () => {
     await act(async () => {
       root = createRoot(container!);
       root.render(
-        <EndSceneBar
-          sceneChatId="scene-1"
-          originChatId="origin-1"
-          onConclude={vi.fn()}
-          onAbandon={onAbandon}
-        />,
+        <EndSceneBar sceneChatId="scene-1" originChatId="origin-1" onConclude={vi.fn()} onAbandon={onAbandon} />,
       );
     });
 

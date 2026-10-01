@@ -441,9 +441,7 @@ export async function resolveGameVoiceEntryPlan(args: {
     isCurrentConfigSignature,
     onChunkError,
   } = args;
-  const isCurrentPlan = isCurrentConfigSignature
-    ? () => isCurrentConfigSignature(configSignature)
-    : undefined;
+  const isCurrentPlan = isCurrentConfigSignature ? () => isCurrentConfigSignature(configSignature) : undefined;
 
   try {
     try {

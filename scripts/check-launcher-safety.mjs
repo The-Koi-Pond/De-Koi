@@ -7,7 +7,8 @@ const candidatePathPattern =
 const forbiddenPatterns = [
   {
     name: "nested cmd delayed browser open",
-    pattern: /cmd(?:\.exe)?\s+\/c[\s\S]{0,240}timeout\s+\/t[\s\S]{0,240}\bstart\b[\s\S]{0,240}\|\|[\s\S]{0,240}\bexplorer\b/i,
+    pattern:
+      /cmd(?:\.exe)?\s+\/c[\s\S]{0,240}timeout\s+\/t[\s\S]{0,240}\bstart\b[\s\S]{0,240}\|\|[\s\S]{0,240}\bexplorer\b/i,
     reason:
       "Issue #2089 reported AV warnings for the legacy Windows auto-open chain. Use PowerShell Start-Sleep/Start-Process or a platform API instead.",
   },

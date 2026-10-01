@@ -573,9 +573,7 @@ export function SpotifyMiniPlayer({ mobile = false }: { mobile?: boolean }) {
             className="h-14 w-14 shrink-0 rounded-lg object-contain"
             draggable={false}
           />
-          <p className="text-sm font-medium leading-snug">
-            Spotify DJ is composing a playlist for you, hold on tight!
-          </p>
+          <p className="text-sm font-medium leading-snug">Spotify DJ is composing a playlist for you, hold on tight!</p>
         </div>
       ),
       { duration: Infinity, position: "bottom-right" },

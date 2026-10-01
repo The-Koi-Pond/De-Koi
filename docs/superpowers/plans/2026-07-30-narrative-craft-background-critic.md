@@ -23,12 +23,14 @@
 ### Task 1: Persist and consume one pending directive
 
 **Files:**
+
 - Modify: `src/engine/generation/narrative-craft-state.ts`
 - Modify: `src/engine/generation/agent-memory-runtime.ts`
 - Test: `src/engine/generation/narrative-craft-state.spec.ts`
 - Test: `src/engine/generation/agent-memory-runtime.spec.ts`
 
 **Interfaces:**
+
 - Produces: `NarrativeCraftState.pendingGuidance: string[]`
 - Produces: `consumeNarrativeCraftPendingGuidance(storage, agentId, chatId): Promise<string | null>`
 - Preserves: `lastGuidance` for inspection after pending delivery is consumed.
@@ -76,10 +78,12 @@ Expected: PASS.
 ### Task 2: Add the cheap recurrence trigger and coalescing worker
 
 **Files:**
+
 - Create: `src/engine/generation/narrative-craft-background.ts`
 - Test: `src/engine/generation/narrative-craft-background.spec.ts`
 
 **Interfaces:**
+
 - Produces: `narrativeCraftHasRecurringShape(messages, mainResponse): boolean`
 - Produces: `scheduleNarrativeCraftAnalysis({ storage, chatId, run, onDiagnostic }): boolean`
 
@@ -120,6 +124,7 @@ Expected: PASS.
 ### Task 3: Move analysis behind completed generation
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/agent.ts`
 - Modify: `src/engine/agents-runtime/pipeline/agent-pipeline.ts`
 - Modify: `src/engine/agents-runtime/executor/agent-executor.ts`
@@ -129,6 +134,7 @@ Expected: PASS.
 - Test: `src/engine/generation/agent-runner.test.ts`
 
 **Interfaces:**
+
 - Changes: built-in Narrative Craft phase from `pre_generation` to `post_processing`.
 - Produces: `GenerationAgentRuntime.runNarrativeCraftAnalysis(mainResponse, { force? }): Promise<AgentResult[]>`
 - Changes: normal `runPost` excludes Narrative Craft; the explicit background method runs only Narrative Craft.
@@ -168,11 +174,13 @@ Expected: PASS.
 ### Task 4: Schedule automatic analysis after visible completion
 
 **Files:**
+
 - Modify: `src/engine/generation/start-generation.ts`
 - Modify: `src/engine/generation/start-generation.retry-agents.spec.ts`
 - Create: `src/engine/generation/start-generation.narrative-craft-background.spec.ts`
 
 **Interfaces:**
+
 - Automatic path schedules `runNarrativeCraftAnalysis(displayContent)` only after the assistant message is saved and visible completion is emitted.
 - Manual retry calls `runNarrativeCraftAnalysis(targetContent, { force: true })`, awaits it, then persists state and run history against the target message.
 
@@ -207,6 +215,7 @@ Expected: PASS.
 ### Task 5: Make unproven behavior default-off and update documentation
 
 **Files:**
+
 - Modify: `src/engine/contracts/constants/chat-modes.ts`
 - Create: `src/engine/contracts/constants/chat-modes.spec.ts`
 - Modify: `src/engine/contracts/constants/agent-prompts.ts`
@@ -216,6 +225,7 @@ Expected: PASS.
 - Modify: `docs/database-schema.md`
 
 **Interfaces:**
+
 - New roleplay chats omit `narrative-craft` from `defaultAgents`.
 - Prompt describes completed-response analysis and future-turn guidance.
 - Evaluation gate remains StoryScope improvement on interventions, blind non-inferiority, and foreground p95 under 100 ms.
@@ -243,6 +253,7 @@ Expected: PASS.
 ### Task 6: Verify quality, latency, and repository health
 
 **Files:**
+
 - Modify only if the benchmark harness needs a non-product reporting field: `scripts/narrative-craft-eval/*`
 - Update: `docs/narrative-craft-evaluation.md` with the new dated result.
 

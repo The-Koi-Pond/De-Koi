@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ChoiceOption } from "../../../../engine/contracts/types/prompt";
-import {
-  choiceOptionDisplayText,
-  choiceVariableVisible,
-  type ChoiceVisibilityRule,
-} from "./choice-display";
+import { choiceOptionDisplayText, choiceVariableVisible, type ChoiceVisibilityRule } from "./choice-display";
 
-const sfwBoundary = "Keep the scene SFW. Profanity, fear, danger, grief, and non-graphic violence may appear when appropriate, but sexual content fades to black and gore stays restrained.";
+const sfwBoundary =
+  "Keep the scene SFW. Profanity, fear, danger, grief, and non-graphic violence may appear when appropriate, but sexual content fades to black and gore stays restrained.";
 const adultBoundary = "Adult dark fiction is allowed for mature audiences when the user has opted into it.";
-const filthyTone = "filthy erotic tone: when adult explicit content is allowed and invited, allow raunchy sexual language, vulgar dirty talk, explicit physical description, and kink-aware wording when the scene supports it; do not soften the beat with euphemism, literary dodging, or sanitized phrasing";
+const filthyTone =
+  "filthy erotic tone: when adult explicit content is allowed and invited, allow raunchy sexual language, vulgar dirty talk, explicit physical description, and kink-aware wording when the scene supports it; do not soften the beat with euphemism, literary dodging, or sanitized phrasing";
 
 const eroticToneRule: ChoiceVisibilityRule = {
   variableName: "contentBoundary",

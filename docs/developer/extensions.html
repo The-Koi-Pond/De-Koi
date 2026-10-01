@@ -96,7 +96,8 @@
         <div class="callout">
           JavaScript extensions run as trusted page-level code. Manifest permissions limit only the helpers De-Koi puts
           on <code>marinara</code>; they are not a browser sandbox and do not prevent direct page access. Activation is
-          stored per runtime and device and becomes stale whenever code, styles, package identity, version, or permissions change.
+          stored per runtime and device and becomes stale whenever code, styles, package identity, version, or
+          permissions change.
         </div>
 
         <h2>Runtime API</h2>
@@ -108,8 +109,9 @@
         <p>
           Package extensions receive helper groups only when declared: <code>ui:styles</code> exposes
           <code>addStyle</code>, <code>runtime:dom</code> exposes DOM, timer, observer, and cleanup helpers, and
-          <code>storage:plugin-memory</code> exposes storage. Settings labels other declarations unavailable until De-Koi
-          implements them. Legacy file extensions retain the older unscoped helper surface after local activation.
+          <code>storage:plugin-memory</code> exposes storage. Settings labels other declarations unavailable until
+          De-Koi implements them. Legacy file extensions retain the older unscoped helper surface after local
+          activation.
         </p>
 
         <table>
@@ -131,8 +133,8 @@
             <tr>
               <td><code>addElement(parent, tag, attrs)</code></td>
               <td>
-                Add a DOM element under a selector or element. Attribute values are strings; <code>textContent</code>
-                and <code>innerHTML</code> are handled specially.
+                Add a DOM element under a selector or element. Attribute values are strings;
+                <code>textContent</code> and <code>innerHTML</code> are handled specially.
               </td>
             </tr>
             <tr>
@@ -239,8 +241,8 @@ if (existing) {
         <h2>Customization Recovery And Fonts</h2>
         <p>
           Theme preview starts off and runs in a sandboxed iframe. If a customization breaks the interface, open
-          <code>?safe-mode=customizations</code> to load without customization providers, deactivate the theme, and clear
-          this device's extension activations.
+          <code>?safe-mode=customizations</code> to load without customization providers, deactivate the theme, and
+          clear this device's extension activations.
         </p>
         <p>
           Embedded De-Koi can open its managed fonts folder. Remote runtimes instead offer a validated upload for TTF,
@@ -250,8 +252,8 @@ if (existing) {
 
         <p class="footer">
           Runtime implementation references:
-          <code>src/app/providers/extension-runtime.ts</code>,
-          <code>src/app/providers/extension-storage-api.ts</code>, and Settings &gt; Extensions.
+          <code>src/app/providers/extension-runtime.ts</code>, <code>src/app/providers/extension-storage-api.ts</code>,
+          and Settings &gt; Extensions.
         </p>
       </main>
     </div>

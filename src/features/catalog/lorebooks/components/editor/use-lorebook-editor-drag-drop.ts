@@ -199,9 +199,11 @@ export function useLorebookEditorDragDrop({
       const targetIds = (entriesByContainer.get(targetContainer) ?? []).map((entry) => entry.id);
       const insertAt = Math.max(0, Math.min(targetIdx, targetIds.length));
       targetIds.splice(insertAt, 0, moved.id);
-      void Promise.resolve(onReorderEntries({ lorebookId, entryIds: targetIds, folderId: targetContainer })).catch(() => {
-        /* mutation errors surface through React Query */
-      });
+      void Promise.resolve(onReorderEntries({ lorebookId, entryIds: targetIds, folderId: targetContainer })).catch(
+        () => {
+          /* mutation errors surface through React Query */
+        },
+      );
     },
     [
       canReorderEntries,

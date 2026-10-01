@@ -118,9 +118,7 @@ describe("GameSetupWizard selection semantics", () => {
     act(() => buttonByText(container, "Next").click());
 
     expect(buttonByText(container, "Start Game").disabled).toBe(true);
-    expect(container.textContent).toContain(
-      "Select a GM character on the Party & GM step or choose Standalone GM.",
-    );
+    expect(container.textContent).toContain("Select a GM character on the Party & GM step or choose Standalone GM.");
   });
 
   it("blocks automatic image generation until an image connection is selected", () => {

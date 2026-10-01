@@ -55,8 +55,5 @@ export function buildBrowserStateExportPayload(input: BrowserStateExportInput): 
     sessionStorage: input.sessionStorage,
   };
 }
-import {
-  ADMIN_SECRET_STORAGE_KEY,
-  LEGACY_ADMIN_SECRET_STORAGE_KEY,
-} from "../../../../shared/api/remote-runtime";
+import { ADMIN_SECRET_STORAGE_KEY, LEGACY_ADMIN_SECRET_STORAGE_KEY } from "../../../../shared/api/remote-runtime";
 import { redactSensitiveValue } from "../../../../shared/lib/sensitive-data-redaction";

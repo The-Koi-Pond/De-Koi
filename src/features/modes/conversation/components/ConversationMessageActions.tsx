@@ -140,11 +140,7 @@ export function ConversationMessageActions({
       {context.onBranch && (
         <MsgAction
           icon={
-            context.branchPending ? (
-              <Loader2 size="0.75rem" className="animate-spin" />
-            ) : (
-              <GitBranch size="0.75rem" />
-            )
+            context.branchPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <GitBranch size="0.75rem" />
           }
           onClick={() => context.onBranch?.(context.message.id)}
           title={context.branchPending ? "Creating branch…" : "Branch from here"}

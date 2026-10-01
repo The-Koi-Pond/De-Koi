@@ -963,12 +963,7 @@ class GameAudioManager {
         if (!this.isAudioLifecycleCurrent(expectedGeneration) || this.currentAmbientTag !== tag) {
           return;
         }
-        const nextAmbient = this.createLoopingAudioLayer(
-          url,
-          this.ambientVolume,
-          this.isMuted,
-          expectedGeneration,
-        );
+        const nextAmbient = this.createLoopingAudioLayer(url, this.ambientVolume, this.isMuted, expectedGeneration);
         if (this.pendingAmbientElement && this.pendingAmbientElement !== nextAmbient) {
           this.pendingAmbientElement.stop();
         }

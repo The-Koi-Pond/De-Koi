@@ -26,14 +26,9 @@ export function mergeDrawerCharacters(
   return Array.from(byId.values());
 }
 
-export function characterSearchValues(character: {
-  id?: string;
-  data?: unknown;
-  comment?: string | null;
-}): string[] {
+export function characterSearchValues(character: { id?: string; data?: unknown; comment?: string | null }): string[] {
   const info = parseCharacterDisplayData({ data: character.data, comment: character.comment });
-  const data =
-    character.data && typeof character.data === "object" ? (character.data as Record<string, unknown>) : {};
+  const data = character.data && typeof character.data === "object" ? (character.data as Record<string, unknown>) : {};
   const tags = Array.isArray(data.tags) ? data.tags.map(String) : [];
   return [
     character.id,

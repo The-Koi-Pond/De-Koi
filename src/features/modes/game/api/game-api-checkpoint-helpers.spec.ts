@@ -22,9 +22,7 @@ vi.mock("./game-api-support", () => ({
     value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {},
   ),
   readTrimmed: vi.fn((value: unknown) => (typeof value === "string" ? value.trim() : "")),
-  listMessages: vi.fn(async () => [
-    { id: "latest-message", createdAt: "2026-06-23T15:00:00.000Z" },
-  ]),
+  listMessages: vi.fn(async () => [{ id: "latest-message", createdAt: "2026-06-23T15:00:00.000Z" }]),
 }));
 
 import { createGameCheckpoint } from "./game-api-checkpoint-helpers";

@@ -2,11 +2,7 @@ import { StickyNote, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 import type { ConversationNote } from "../../../../../../engine/contracts/types/chat";
 import { showConfirmDialog } from "../../../../../../shared/lib/app-dialogs";
-import {
-  useChatNotes,
-  useClearChatNotes,
-  useDeleteChatNote,
-} from "../../../../../catalog/chats/index";
+import { useChatNotes, useClearChatNotes, useDeleteChatNote } from "../../../../../catalog/chats/index";
 import { ChatSettingsSection as Section } from "./ChatSettingsSections";
 import { formatMemoryDate } from "./MemoryRecallMemoriesModal";
 

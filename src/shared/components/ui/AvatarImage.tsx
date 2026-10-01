@@ -70,10 +70,7 @@ function isSourceRectAvatarCrop(crop: AvatarCropValue | null): crop is AvatarCro
   return !!crop && !isLegacyAvatarCrop(crop);
 }
 
-function sourceRectCropStyle(
-  crop: AvatarCrop,
-  image: HTMLImageElement | null,
-): CSSProperties {
+function sourceRectCropStyle(crop: AvatarCrop, image: HTMLImageElement | null): CSSProperties {
   const container = image?.parentElement;
   if (!image || !container || image.naturalWidth <= 0 || image.naturalHeight <= 0) return {};
   const containerRect = container.getBoundingClientRect();
@@ -198,225 +195,227 @@ type ResolvedAvatarImageProps = {
   onResolvedSrc?: (src: string | null) => void;
 };
 
-export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarImageProps>(
-  function ResolvedAvatarImage(
-    {
-      src,
-      avatarFilePath,
-      avatarFilename,
-      alt,
-      crop,
-      loading,
-      decoding = "async",
-      draggable,
-      "aria-hidden": ariaHidden,
-      className,
-      style,
-      thumbnailSize,
-      upgradeToFullResolution = false,
-      onError,
-      onResolvedSrc,
-    },
-    ref,
-  ) {
-    const localImageRef = useRef<HTMLImageElement | null>(null);
-    const setImageRef = (node: HTMLImageElement | null) => {
-      localImageRef.current = node;
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        ref.current = node;
-      }
-    };
+export const ResolvedAvatarImage = forwardRef<HTMLImageElement, ResolvedAvatarImageProps>(function ResolvedAvatarImage(
+  {
+    src,
+    avatarFilePath,
+    avatarFilename,
+    alt,
+    crop,
+    loading,
+    decoding = "async",
+    draggable,
+    "aria-hidden": ariaHidden,
+    className,
+    style,
+    thumbnailSize,
+    upgradeToFullResolution = false,
+    onError,
+    onResolvedSrc,
+  },
+  ref,
+) {
+  const localImageRef = useRef<HTMLImageElement | null>(null);
+  const setImageRef = (node: HTMLImageElement | null) => {
+    localImageRef.current = node;
+    if (typeof ref === "function") {
+      ref(node);
+    } else if (ref) {
+      ref.current = node;
+    }
+  };
 
-    const hasManagedAvatar = hasText(avatarFilename) || hasText(avatarFilePath);
-    const effectiveThumbnailSize =
-      thumbnailSize && canGenerateAvatarThumbnail(avatarFilename, avatarFilePath, src) ? thumbnailSize : undefined;
-    const fallbackSrc = useMemo(() => {
-      if (!src) return null;
-      return hasManagedAvatar && isLikelyFilesystemPath(src) ? null : src;
-    }, [hasManagedAvatar, src]);
-    const syncFullSrc = useMemo(
-      () => (hasManagedAvatar ? avatarFileUrlFromPath(avatarFilename, avatarFilePath) : null),
-      [avatarFilePath, avatarFilename, hasManagedAvatar],
-    );
-    const previewSrc = useMemo(() => {
-      if (!effectiveThumbnailSize) return null;
-      return avatarThumbnailFileUrlFromPath(avatarFilename, avatarFilePath, effectiveThumbnailSize, src);
-    }, [avatarFilePath, avatarFilename, effectiveThumbnailSize, src]);
-    const immediateSrc = previewSrc ?? syncFullSrc ?? fallbackSrc;
-    const resolutionKey = JSON.stringify([
-      src ?? "",
-      avatarFilename ?? "",
-      avatarFilePath ?? "",
-      effectiveThumbnailSize ?? "full",
-      upgradeToFullResolution ? "upgrade" : "preview",
-    ]);
-    const cachedResolvedSrcEntry = hasManagedAvatar
-      ? readCachedResolvedAvatarSrc(resolutionKey)
-      : { hit: false, src: null };
-    const cachedResolvedSrc = cachedResolvedSrcEntry.hit ? cachedResolvedSrcEntry.src : null;
-    const [resolvedState, setResolvedState] = useState<{ key: string; src: string | null }>({
-      key: resolutionKey,
-      src: cachedResolvedSrcEntry.hit ? cachedResolvedSrcEntry.src : immediateSrc,
-    });
-    const [sourceRectCropStyleState, setSourceRectCropStyleState] = useState<{
-      key: string;
-      style: CSSProperties;
-    }>({ key: "", style: {} });
-    const resolvedCrop = useMemo(() => normalizeAvatarCropValue(crop), [crop]);
+  const hasManagedAvatar = hasText(avatarFilename) || hasText(avatarFilePath);
+  const effectiveThumbnailSize =
+    thumbnailSize && canGenerateAvatarThumbnail(avatarFilename, avatarFilePath, src) ? thumbnailSize : undefined;
+  const fallbackSrc = useMemo(() => {
+    if (!src) return null;
+    return hasManagedAvatar && isLikelyFilesystemPath(src) ? null : src;
+  }, [hasManagedAvatar, src]);
+  const syncFullSrc = useMemo(
+    () => (hasManagedAvatar ? avatarFileUrlFromPath(avatarFilename, avatarFilePath) : null),
+    [avatarFilePath, avatarFilename, hasManagedAvatar],
+  );
+  const previewSrc = useMemo(() => {
+    if (!effectiveThumbnailSize) return null;
+    return avatarThumbnailFileUrlFromPath(avatarFilename, avatarFilePath, effectiveThumbnailSize, src);
+  }, [avatarFilePath, avatarFilename, effectiveThumbnailSize, src]);
+  const immediateSrc = previewSrc ?? syncFullSrc ?? fallbackSrc;
+  const resolutionKey = JSON.stringify([
+    src ?? "",
+    avatarFilename ?? "",
+    avatarFilePath ?? "",
+    effectiveThumbnailSize ?? "full",
+    upgradeToFullResolution ? "upgrade" : "preview",
+  ]);
+  const cachedResolvedSrcEntry = hasManagedAvatar
+    ? readCachedResolvedAvatarSrc(resolutionKey)
+    : { hit: false, src: null };
+  const cachedResolvedSrc = cachedResolvedSrcEntry.hit ? cachedResolvedSrcEntry.src : null;
+  const [resolvedState, setResolvedState] = useState<{ key: string; src: string | null }>({
+    key: resolutionKey,
+    src: cachedResolvedSrcEntry.hit ? cachedResolvedSrcEntry.src : immediateSrc,
+  });
+  const [sourceRectCropStyleState, setSourceRectCropStyleState] = useState<{
+    key: string;
+    style: CSSProperties;
+  }>({ key: "", style: {} });
+  const resolvedCrop = useMemo(() => normalizeAvatarCropValue(crop), [crop]);
 
-    useEffect(() => {
-      let cancelled = false;
-      const abort = new AbortController();
-      if (!hasManagedAvatar) {
-        setResolvedState({ key: resolutionKey, src: fallbackSrc });
-        onResolvedSrc?.(fallbackSrc);
-        return () => {
-          cancelled = true;
-          abort.abort();
-        };
-      }
-
-      const cachedSrc = readCachedResolvedAvatarSrc(resolutionKey);
-      const nextInitialSrc = cachedSrc.hit ? cachedSrc.src : immediateSrc;
-      setResolvedState({ key: resolutionKey, src: nextInitialSrc });
-      if (cachedSrc.hit) {
-        onResolvedSrc?.(cachedSrc.src);
-        return () => {
-          cancelled = true;
-          abort.abort();
-        };
-      }
-      if (syncFullSrc && !isLikelyFilesystemPath(syncFullSrc) && (!effectiveThumbnailSize || upgradeToFullResolution)) {
-        rememberResolvedAvatarSrc(resolutionKey, syncFullSrc);
-        setResolvedState({ key: resolutionKey, src: syncFullSrc });
-        onResolvedSrc?.(syncFullSrc);
-        return () => {
-          cancelled = true;
-          abort.abort();
-        };
-      }
-
-      const resolveSrc = async () => {
-        if (effectiveThumbnailSize && localImageRef.current) {
-          await waitForImageResolveSlot(localImageRef.current, abort.signal);
-        }
-        if (cancelled) return null;
-        if (effectiveThumbnailSize) {
-          const thumbnailUrl = await resolveAvatarThumbnailFileUrl(
-            avatarFilename,
-            avatarFilePath,
-            effectiveThumbnailSize,
-            src,
-          ).catch(() => null);
-          if (!cancelled && thumbnailUrl) {
-            rememberResolvedAvatarSrc(resolutionKey, thumbnailUrl);
-            setResolvedState({ key: resolutionKey, src: thumbnailUrl });
-            onResolvedSrc?.(thumbnailUrl);
-            if (!upgradeToFullResolution) return thumbnailUrl;
-          }
-        }
-        if (cancelled) return null;
-        return resolveAvatarFileUrl(avatarFilename, avatarFilePath);
-      };
-
-      resolveSrc()
-        .then((url) => {
-          if (cancelled) return;
-          const next = url ?? fallbackSrc;
-          rememberResolvedAvatarSrc(resolutionKey, next);
-          setResolvedState({ key: resolutionKey, src: next });
-          onResolvedSrc?.(next);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          rememberResolvedAvatarSrc(resolutionKey, null);
-          setResolvedState({ key: resolutionKey, src: fallbackSrc });
-          onResolvedSrc?.(fallbackSrc);
-        });
-
+  useEffect(() => {
+    let cancelled = false;
+    const abort = new AbortController();
+    if (!hasManagedAvatar) {
+      setResolvedState({ key: resolutionKey, src: fallbackSrc });
+      onResolvedSrc?.(fallbackSrc);
       return () => {
         cancelled = true;
         abort.abort();
       };
-    }, [
-      avatarFilePath,
-      avatarFilename,
-      effectiveThumbnailSize,
-      fallbackSrc,
-      hasManagedAvatar,
-      immediateSrc,
-      onResolvedSrc,
-      resolutionKey,
-      syncFullSrc,
-      upgradeToFullResolution,
-    ]);
+    }
 
-    const imageSrc =
-      resolvedState.key === resolutionKey
-        ? (resolvedState.src ?? (cachedResolvedSrcEntry.hit ? cachedResolvedSrc : immediateSrc))
-        : (cachedResolvedSrcEntry.hit ? cachedResolvedSrc : immediateSrc);
+    const cachedSrc = readCachedResolvedAvatarSrc(resolutionKey);
+    const nextInitialSrc = cachedSrc.hit ? cachedSrc.src : immediateSrc;
+    setResolvedState({ key: resolutionKey, src: nextInitialSrc });
+    if (cachedSrc.hit) {
+      onResolvedSrc?.(cachedSrc.src);
+      return () => {
+        cancelled = true;
+        abort.abort();
+      };
+    }
+    if (syncFullSrc && !isLikelyFilesystemPath(syncFullSrc) && (!effectiveThumbnailSize || upgradeToFullResolution)) {
+      rememberResolvedAvatarSrc(resolutionKey, syncFullSrc);
+      setResolvedState({ key: resolutionKey, src: syncFullSrc });
+      onResolvedSrc?.(syncFullSrc);
+      return () => {
+        cancelled = true;
+        abort.abort();
+      };
+    }
 
-    const sourceRectCropStyleKey = useMemo(
-      () => JSON.stringify([imageSrc ?? "", resolvedCrop ?? null]),
-      [imageSrc, resolvedCrop],
-    );
-    const updateSourceRectCropStyle = useCallback(() => {
-      const nextStyle = isSourceRectAvatarCrop(resolvedCrop) ? sourceRectCropStyle(resolvedCrop, localImageRef.current) : {};
-      setSourceRectCropStyleState((current) => {
-        if (current.key === sourceRectCropStyleKey && areCropStylesEqual(current.style, nextStyle)) {
-          return current;
-        }
-        return {
-          key: sourceRectCropStyleKey,
-          style: nextStyle,
-        };
-      });
-    }, [resolvedCrop, sourceRectCropStyleKey]);
-
-    useLayoutEffect(() => {
-      updateSourceRectCropStyle();
-      const image = localImageRef.current;
-      const container = image?.parentElement;
-      if (!image || !container || !isSourceRectAvatarCrop(resolvedCrop) || typeof ResizeObserver !== "function") {
-        return;
+    const resolveSrc = async () => {
+      if (effectiveThumbnailSize && localImageRef.current) {
+        await waitForImageResolveSlot(localImageRef.current, abort.signal);
       }
-      const observer = new ResizeObserver(updateSourceRectCropStyle);
-      observer.observe(container);
-      observer.observe(image);
-      return () => observer.disconnect();
-    }, [imageSrc, resolvedCrop, updateSourceRectCropStyle]);
+      if (cancelled) return null;
+      if (effectiveThumbnailSize) {
+        const thumbnailUrl = await resolveAvatarThumbnailFileUrl(
+          avatarFilename,
+          avatarFilePath,
+          effectiveThumbnailSize,
+          src,
+        ).catch(() => null);
+        if (!cancelled && thumbnailUrl) {
+          rememberResolvedAvatarSrc(resolutionKey, thumbnailUrl);
+          setResolvedState({ key: resolutionKey, src: thumbnailUrl });
+          onResolvedSrc?.(thumbnailUrl);
+          if (!upgradeToFullResolution) return thumbnailUrl;
+        }
+      }
+      if (cancelled) return null;
+      return resolveAvatarFileUrl(avatarFilename, avatarFilePath);
+    };
 
-    if (!imageSrc) return null;
+    resolveSrc()
+      .then((url) => {
+        if (cancelled) return;
+        const next = url ?? fallbackSrc;
+        rememberResolvedAvatarSrc(resolutionKey, next);
+        setResolvedState({ key: resolutionKey, src: next });
+        onResolvedSrc?.(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        rememberResolvedAvatarSrc(resolutionKey, null);
+        setResolvedState({ key: resolutionKey, src: fallbackSrc });
+        onResolvedSrc?.(fallbackSrc);
+      });
 
-    const cropStyle = isSourceRectAvatarCrop(resolvedCrop)
-      ? sourceRectCropStyleState.style
-      : getAvatarCropStyle(resolvedCrop);
-    const isSourceRectCropPending =
-      isSourceRectAvatarCrop(resolvedCrop) &&
-      (sourceRectCropStyleState.key !== sourceRectCropStyleKey ||
-        !hasResolvedSourceRectCropStyle(sourceRectCropStyleState.style));
-    const pendingCropStyle: CSSProperties = isSourceRectCropPending ? { visibility: "hidden" } : {};
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+  }, [
+    avatarFilePath,
+    avatarFilename,
+    effectiveThumbnailSize,
+    fallbackSrc,
+    hasManagedAvatar,
+    immediateSrc,
+    onResolvedSrc,
+    resolutionKey,
+    syncFullSrc,
+    upgradeToFullResolution,
+  ]);
 
-    return (
-      <img
-        ref={setImageRef}
-        src={imageSrc}
-        alt={alt}
-        loading={loading ?? getAvatarLoadingMode(imageSrc)}
-        decoding={decoding}
-        fetchPriority={effectiveThumbnailSize && imageSrc === previewSrc ? "low" : undefined}
-        draggable={draggable}
-        aria-hidden={ariaHidden}
-        className={className}
-        style={{ ...style, ...cropStyle, ...pendingCropStyle }}
-        onError={onError}
-        onLoad={updateSourceRectCropStyle}
-      />
-    );
-  },
-);
+  const imageSrc =
+    resolvedState.key === resolutionKey
+      ? (resolvedState.src ?? (cachedResolvedSrcEntry.hit ? cachedResolvedSrc : immediateSrc))
+      : cachedResolvedSrcEntry.hit
+        ? cachedResolvedSrc
+        : immediateSrc;
+
+  const sourceRectCropStyleKey = useMemo(
+    () => JSON.stringify([imageSrc ?? "", resolvedCrop ?? null]),
+    [imageSrc, resolvedCrop],
+  );
+  const updateSourceRectCropStyle = useCallback(() => {
+    const nextStyle = isSourceRectAvatarCrop(resolvedCrop)
+      ? sourceRectCropStyle(resolvedCrop, localImageRef.current)
+      : {};
+    setSourceRectCropStyleState((current) => {
+      if (current.key === sourceRectCropStyleKey && areCropStylesEqual(current.style, nextStyle)) {
+        return current;
+      }
+      return {
+        key: sourceRectCropStyleKey,
+        style: nextStyle,
+      };
+    });
+  }, [resolvedCrop, sourceRectCropStyleKey]);
+
+  useLayoutEffect(() => {
+    updateSourceRectCropStyle();
+    const image = localImageRef.current;
+    const container = image?.parentElement;
+    if (!image || !container || !isSourceRectAvatarCrop(resolvedCrop) || typeof ResizeObserver !== "function") {
+      return;
+    }
+    const observer = new ResizeObserver(updateSourceRectCropStyle);
+    observer.observe(container);
+    observer.observe(image);
+    return () => observer.disconnect();
+  }, [imageSrc, resolvedCrop, updateSourceRectCropStyle]);
+
+  if (!imageSrc) return null;
+
+  const cropStyle = isSourceRectAvatarCrop(resolvedCrop)
+    ? sourceRectCropStyleState.style
+    : getAvatarCropStyle(resolvedCrop);
+  const isSourceRectCropPending =
+    isSourceRectAvatarCrop(resolvedCrop) &&
+    (sourceRectCropStyleState.key !== sourceRectCropStyleKey ||
+      !hasResolvedSourceRectCropStyle(sourceRectCropStyleState.style));
+  const pendingCropStyle: CSSProperties = isSourceRectCropPending ? { visibility: "hidden" } : {};
+
+  return (
+    <img
+      ref={setImageRef}
+      src={imageSrc}
+      alt={alt}
+      loading={loading ?? getAvatarLoadingMode(imageSrc)}
+      decoding={decoding}
+      fetchPriority={effectiveThumbnailSize && imageSrc === previewSrc ? "low" : undefined}
+      draggable={draggable}
+      aria-hidden={ariaHidden}
+      className={className}
+      style={{ ...style, ...cropStyle, ...pendingCropStyle }}
+      onError={onError}
+      onLoad={updateSourceRectCropStyle}
+    />
+  );
+});
 
 export function AvatarImage({
   className,

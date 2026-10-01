@@ -525,9 +525,7 @@ export function RoleplayWorkflowProfileChooser({
         </div>
       ) : (
         <>
-          <h3 className="text-sm font-semibold text-[var(--foreground)]">
-            What kind of roleplay are you setting up?
-          </h3>
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">What kind of roleplay are you setting up?</h3>
           <div
             className="grid min-h-0 gap-3 @[36rem]:grid-cols-[minmax(9.5rem,0.72fr)_minmax(0,1.28fr)]"
             data-layout="workflow-profile-grid"
@@ -644,7 +642,9 @@ export function RoleplayWorkflowProfileChooser({
                               <dt className="text-[var(--muted-foreground)]">Model use</dt>
                               <dd>{row.modelUse}</dd>
                               <dt className="text-[var(--muted-foreground)]">Latency</dt>
-                              <dd>{row.addsWriterLatency ? "May add writer response latency" : "No added writer latency"}</dd>
+                              <dd>
+                                {row.addsWriterLatency ? "May add writer response latency" : "No added writer latency"}
+                              </dd>
                               <dt className="text-[var(--muted-foreground)]">Destination</dt>
                               <dd className="break-words">{row.destination ?? "No external data destination"}</dd>
                             </dl>

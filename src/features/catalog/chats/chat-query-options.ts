@@ -23,10 +23,7 @@ export function chatDetailQueryOptions(chatId: string) {
   });
 }
 
-export function chatMessagesInfiniteQueryOptions(
-  chatId: string,
-  pageSize: number = DEFAULT_CHAT_MESSAGE_PAGE_SIZE,
-) {
+export function chatMessagesInfiniteQueryOptions(chatId: string, pageSize: number = DEFAULT_CHAT_MESSAGE_PAGE_SIZE) {
   return infiniteQueryOptions({
     queryKey: chatKeys.messages(chatId),
     queryFn: ({ pageParam, signal }) => {

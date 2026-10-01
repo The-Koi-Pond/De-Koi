@@ -29,7 +29,8 @@ const completeGate = {
     impliedContract: "User-facing errors are safe to display.",
     actualEnforcement: "Provider text is passed through without a Marinara-owned redaction gate.",
     primaryOwnerLane: "cross-boundary",
-    primaryOwnerDetail: "src-tauri owns transport redaction mechanics; src/shared/api owns normalized client error shape.",
+    primaryOwnerDetail:
+      "src-tauri owns transport redaction mechanics; src/shared/api owns normalized client error shape.",
     consumerOnlyLanes: ["src/features"],
     wrongLaneFixToAvoid: "Do not redact only in the toast or connection form.",
     regressionProof: ["invalid auth error redacts a short synthetic key"],
@@ -227,25 +228,20 @@ expect(existsSync(missingLedger), "missing ledger should still initialize from t
 const sourceProof = `${scratchDir}/proof.txt`;
 writeFileSync(sourceProof, "proof");
 expectNodeFailure(
-  [
-    ".agents/automation/scripts/publish-evidence.mjs",
-    "..",
-    sourceProof,
-    "--allow-committed-evidence",
-  ],
+  [".agents/automation/scripts/publish-evidence.mjs", "..", sourceProof, "--allow-committed-evidence"],
   "publish-evidence must reject parent-directory slug",
 );
 expectNodeFailure(
-  [".agents/automation/scripts/publish-evidence.mjs", "--url", "https://github.com/user-attachments/assets/example", "--ledger"],
+  [
+    ".agents/automation/scripts/publish-evidence.mjs",
+    "--url",
+    "https://github.com/user-attachments/assets/example",
+    "--ledger",
+  ],
   "publish-evidence must reject missing --ledger value",
 );
 const published = JSON.parse(
-  runNode([
-    ".agents/automation/scripts/publish-evidence.mjs",
-    "issue-181",
-    sourceProof,
-    "--allow-committed-evidence",
-  ]),
+  runNode([".agents/automation/scripts/publish-evidence.mjs", "issue-181", sourceProof, "--allow-committed-evidence"]),
 );
 expect(
   published.copied?.[0] === "docs/pr-evidence/issue-181/proof.txt",
@@ -381,14 +377,7 @@ writeFileSync(
   ),
 );
 expectNodeFailureOutput(
-  [
-    ".agents/automation/scripts/pr-health.mjs",
-    "181",
-    "--pr-json",
-    prFixture,
-    "--threads-json",
-    threadFixture,
-  ],
+  [".agents/automation/scripts/pr-health.mjs", "181", "--pr-json", prFixture, "--threads-json", threadFixture],
   "pr-health must fail when an unresolved thread appears on a later captured page",
   /unresolved review thread: docs\/hidden\.md:7/,
 );
@@ -424,7 +413,10 @@ const emptyThreadsHealth = JSON.parse(
     emptyThreadFixture,
   ]),
 );
-expect(emptyThreadsHealth.reviewThreads.unresolved === 0, "empty offline page captures must count as zero unresolved threads");
+expect(
+  emptyThreadsHealth.reviewThreads.unresolved === 0,
+  "empty offline page captures must count as zero unresolved threads",
+);
 expect(emptyThreadsHealth.ready === true, "empty offline page captures must not block otherwise clean PR health");
 
 const prHealthSource = readFileSync(".agents/automation/scripts/pr-health.mjs", "utf8");

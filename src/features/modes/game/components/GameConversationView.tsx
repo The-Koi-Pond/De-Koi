@@ -16,13 +16,7 @@ interface GameConversationViewProps {
   activeChatId: string;
 }
 
-function GameChatHydrationState({
-  status,
-  onRetry,
-}: {
-  status: "loading" | "error";
-  onRetry?: () => void;
-}) {
+function GameChatHydrationState({ status, onRetry }: { status: "loading" | "error"; onRetry?: () => void }) {
   return (
     <div className="flex flex-1 items-center justify-center overflow-hidden bg-[var(--background)] px-4 dark:bg-black/90">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">

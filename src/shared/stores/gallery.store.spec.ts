@@ -11,9 +11,11 @@ describe("useGalleryStore", () => {
       resolveTask = resolve;
     });
 
-    const run = (store as typeof store & {
-      runIllustration: (chatId: string, task: () => Promise<void>) => Promise<void>;
-    }).runIllustration("chat-a", () => task);
+    const run = (
+      store as typeof store & {
+        runIllustration: (chatId: string, task: () => Promise<void>) => Promise<void>;
+      }
+    ).runIllustration("chat-a", () => task);
 
     expect(useGalleryStore.getState().illustratingChatIds).toEqual(["chat-a"]);
 

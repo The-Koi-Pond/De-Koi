@@ -24,6 +24,7 @@
 ### Task 1: Stop raw transcript promotion and lengthen memory feedback
 
 **Files:**
+
 - Modify: `src/engine/generation/automatic-memory-capture-queue.spec.ts`
 - Modify: `src/engine/generation/automatic-memory-capture-queue.ts`
 - Modify: `src/app/shell/app-shell-center-surfaces.spec.ts`
@@ -31,6 +32,7 @@
 - Modify: `src/app/shell/AppShell.tsx`
 
 **Interfaces:**
+
 - Consumes: `extractAndPersistConsequences(...)` returning `PersistedCanonicalConsequence[]`.
 - Produces: `getAutomaticMemoryCaptureToast(...)` returning `{ title: string; description: string; duration: number } | null`.
 
@@ -94,6 +96,7 @@ Expected: PASS.
 ### Task 2: Add scoped Deki memory capability
 
 **Files:**
+
 - Create: `src-tauri/src/commands/storage/deki/memory_access.rs`
 - Modify: `src-tauri/src/commands/storage/deki/chat_access.rs`
 - Modify: `src-tauri/src/commands/storage/deki.rs`
@@ -102,6 +105,7 @@ Expected: PASS.
 - Modify: `AGENTS.md`
 
 **Interfaces:**
+
 - Consumes: `canonical_memory::{get_memory, query_memories, update_memory, rebuild_memory_lexical_index}` and `chat_memory::{list_chat_memories_excluding_recent, update_chat_memory}`.
 - Produces: `memory_access::read(...) -> AppResult<Value>` and `memory_access::edit(...) -> AppResult<Value>` plus `ReadDekiMemoriesTool` and `EditDekiMemoryTool`.
 
@@ -208,9 +212,11 @@ In `AGENTS.md`, extend the Deki `src-tauri/src/commands/storage/deki/*` map entr
 ### Task 3: Verify architecture, behavior, and branch scope
 
 **Files:**
+
 - Verify all changed files from Tasks 1-2.
 
 **Interfaces:**
+
 - Consumes: the completed TypeScript and Rust behavior.
 - Produces: shippable branch proof for Bunny and the PR.
 
@@ -261,9 +267,11 @@ git commit -m "memory: improve capture quality and Deki access"
 ### Task 4: Bunny, PR, merge, and Pi deployment
 
 **Files:**
+
 - No additional product files unless Bunny or CI finds an in-scope defect.
 
 **Interfaces:**
+
 - Consumes: verified branch commit.
 - Produces: merged `main` and a Pi running the merged image revision.
 
