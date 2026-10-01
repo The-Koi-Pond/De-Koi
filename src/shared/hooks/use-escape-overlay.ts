@@ -26,6 +26,9 @@ export function useEscapeOverlay(onEscape: OverlayEscapeHandler, active = true) 
   useEffect(() => {
     const unregister = overlayStack.register({ id: idRef.current, active, onEscape });
     return unregister;
+    // Register once on mount: re-registering would move this overlay to the top
+    // of the escape stack. The effect below keeps active and onEscape current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

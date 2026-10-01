@@ -2409,7 +2409,13 @@ export function GameSurface({
     setStartSessionRequested(false);
     setPrepareInitialWidgetsOpen(false);
     setPrepareSessionWidgetsOpen(false);
-  }, [chatMeta.gameRecentMusic, sceneRuntimeScopeKey, setNarrationDoneMsgId]);
+  }, [
+    chatMeta.gameRecentMusic,
+    chatMeta.gameRecentMusicTracks,
+    resetRecentMusicTrackHistory,
+    sceneRuntimeScopeKey,
+    setNarrationDoneMsgId,
+  ]);
 
   // Clean up audio + reset playback state when SWITCHING chats.
   // On unmount, only dispose audio (stop sounds) but keep store state intact so that

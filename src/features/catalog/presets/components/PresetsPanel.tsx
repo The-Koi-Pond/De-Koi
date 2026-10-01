@@ -130,7 +130,7 @@ export function PresetsPanel() {
     );
   }, [presets, search]);
 
-  const presetFolderList = presetFolders ?? [];
+  const presetFolderList = useMemo(() => presetFolders ?? [], [presetFolders]);
   const customToolRows = useMemo(() => (customTools ?? []) as CustomToolRow[], [customTools]);
   const presetLibraryLoading = isLoading || presetFoldersLoading;
   const presetFolderDataReady = !presetFoldersLoading && !presetFoldersError;
