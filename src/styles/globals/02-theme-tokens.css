@@ -146,24 +146,26 @@
   --card-foreground: #1a2a2e;
   --popover: #ffffffee;
   --popover-foreground: #1a2a2e;
-  --primary: #c75a26;
+  /* Primary and muted ink are tuned to keep 4.5:1 on --background, --secondary,
+     and white button text. */
+  --primary: #ad4b1c;
   --primary-foreground: #ffffff;
   --secondary: #e8efe9;
   --secondary-foreground: #2f5f5a;
   --muted: #e8efe9;
-  --muted-foreground: #5a7570;
+  --muted-foreground: #526c67;
   --accent: #dde9e7;
   --accent-foreground: #1a2a2e;
   --destructive: #d9563d;
   --destructive-foreground: #ffffff;
   --border: #6aa8a044;
   --input: #6aa8a044;
-  --ring: #c75a26;
+  --ring: #ad4b1c;
   --sidebar: #edf4f1;
   --sidebar-foreground: #2f5f5a;
   --sidebar-border: #6aa8a033;
   --sidebar-accent: #c75a2618;
-  --sidebar-accent-foreground: #c75a26;
+  --sidebar-accent-foreground: #ad4b1c;
   --glow-primary: rgba(199, 90, 38, 0.1);
   --glow-accent: rgba(95, 178, 168, 0.08);
   --tracker-card-neutral-surface-top: color-mix(in srgb, var(--card) 84%, var(--accent) 16%);
@@ -196,10 +198,10 @@
   --scrollbar-track: rgba(95, 178, 168, 0.12);
   --scrollbar-border: rgba(0, 0, 0, 0.1);
 
-  --y2k-pink: #c75a26;
-  --y2k-pink-rgb: 199, 90, 38;
+  --y2k-pink: #ad4b1c;
+  --y2k-pink-rgb: 173, 75, 28;
   --y2k-purple: #5a9d94;
-  --y2k-blue: #5a7570;
+  --y2k-blue: #526c67;
   --y2k-mint: #74b8af;
   --y2k-peach: #d8b77b;
   --y2k-lavender: #f2e5d2;

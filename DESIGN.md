@@ -18,7 +18,7 @@ colors:
   sidebar-divider: "#355d574d"
   light-rice-paper: "#faf6ee"
   light-ink: "#1a2a2e"
-  light-lacquer-primary: "#c75a26"
+  light-lacquer-primary: "#ad4b1c"
   light-celadon: "#e8efe9"
   light-panel: "#ffffffee"
   sillytavern-blue: "#4a72b0"
@@ -108,7 +108,7 @@ The palette is a pond nocturne: black-teal depth, warm koi-orange action, lotus-
 ### Primary
 
 - **Ember Primary** (`#f06f3f`): Main action color, active icons, highlighted controls, and glow accents in the dark theme.
-- **Light Lacquer Primary** (`#c75a26`): Light theme equivalent for primary actions and active states.
+- **Light Lacquer Primary** (`#ad4b1c`): Light theme equivalent for primary actions and active states. Dark enough for 4.5:1 as text on rice paper and under white button text.
 
 ### Secondary
 
