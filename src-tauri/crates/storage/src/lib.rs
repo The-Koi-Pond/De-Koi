@@ -1104,7 +1104,10 @@ impl FileStorage {
     /// normally. Use it when a validation and the writes it guards must see no
     /// intervening mutation. `operation` must not wait on another thread that
     /// writes to this storage.
-    pub fn with_exclusive_writes<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+    pub fn with_exclusive_writes<T>(
+        &self,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
         let _exclusive = self.write_gate.begin_exclusive()?;
         operation()
     }

@@ -452,7 +452,11 @@ fn normalize_config(config: LocalSidecarConfig) -> LocalSidecarConfig {
     normalize_config_for(config, current_platform(), current_arch())
 }
 
-fn normalize_config_for(mut config: LocalSidecarConfig, platform: &str, arch: &str) -> LocalSidecarConfig {
+fn normalize_config_for(
+    mut config: LocalSidecarConfig,
+    platform: &str,
+    arch: &str,
+) -> LocalSidecarConfig {
     config.executable_path = normalize_optional_string(config.executable_path);
     config.model_path = normalize_optional_string(config.model_path);
     config.custom_model_repo = normalize_optional_string(config.custom_model_repo);
@@ -717,7 +721,10 @@ fn validate_huggingface_repo(repo: &str) -> AppResult<String> {
     Ok(repo)
 }
 
-fn model_path_inside_models_dir(state: &LocalSidecarState, relative_path: &str) -> AppResult<PathBuf> {
+fn model_path_inside_models_dir(
+    state: &LocalSidecarState,
+    relative_path: &str,
+) -> AppResult<PathBuf> {
     let root = models_dir(state)?;
     let normalized = relative_path.replace('\\', "/");
     if normalized.starts_with('/')
@@ -827,7 +834,10 @@ fn current_runtime_install_for_config(
     }
 }
 
-fn write_runtime_install(state: &LocalSidecarState, install: &SidecarRuntimeInstall) -> AppResult<()> {
+fn write_runtime_install(
+    state: &LocalSidecarState,
+    install: &SidecarRuntimeInstall,
+) -> AppResult<()> {
     let raw = serde_json::to_string_pretty(&install.record)
         .map_err(|error| AppError::new("sidecar_runtime_error", error.to_string()))?;
     fs::write(runtime_current_path(state)?, raw)?;
@@ -984,9 +994,16 @@ fn llama_startup_plans(config: &LocalSidecarConfig) -> Vec<LlamaStartupPlan> {
     llama_startup_plans_for(config, current_platform(), current_arch())
 }
 
-fn llama_startup_plans_for(config: &LocalSidecarConfig, platform: &str, arch: &str) -> Vec<LlamaStartupPlan> {
+fn llama_startup_plans_for(
+    config: &LocalSidecarConfig,
+    platform: &str,
+    arch: &str,
+) -> Vec<LlamaStartupPlan> {
     if config.gpu_layers == -1 && is_linux_arm64(platform, arch) {
-        return vec![LlamaStartupPlan { label: "CPU fallback", gpu_layers: 0 }];
+        return vec![LlamaStartupPlan {
+            label: "CPU fallback",
+            gpu_layers: 0,
+        }];
     }
     if config.gpu_layers == -1 {
         vec![
@@ -1206,19 +1223,38 @@ fn partial_content_total(response: &reqwest::Response, expected_start: u64) -> A
         .headers()
         .get(CONTENT_RANGE)
         .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| AppError::new("sidecar_download_invalid_range", "Resume response omitted Content-Range"))?;
+        .ok_or_else(|| {
+            AppError::new(
+                "sidecar_download_invalid_range",
+                "Resume response omitted Content-Range",
+            )
+        })?;
     let (range, total) = raw
         .strip_prefix("bytes ")
         .and_then(|value| value.split_once('/'))
-        .ok_or_else(|| AppError::new("sidecar_download_invalid_range", "Resume response had invalid Content-Range"))?;
-    let (start, _) = range
-        .split_once('-')
-        .ok_or_else(|| AppError::new("sidecar_download_invalid_range", "Resume response had invalid byte range"))?;
+        .ok_or_else(|| {
+            AppError::new(
+                "sidecar_download_invalid_range",
+                "Resume response had invalid Content-Range",
+            )
+        })?;
+    let (start, _) = range.split_once('-').ok_or_else(|| {
+        AppError::new(
+            "sidecar_download_invalid_range",
+            "Resume response had invalid byte range",
+        )
+    })?;
     let start = start.parse::<u64>().map_err(|_| {
-        AppError::new("sidecar_download_invalid_range", "Resume response had invalid range start")
+        AppError::new(
+            "sidecar_download_invalid_range",
+            "Resume response had invalid range start",
+        )
     })?;
     let total = total.parse::<u64>().map_err(|_| {
-        AppError::new("sidecar_download_invalid_range", "Resume response had invalid total size")
+        AppError::new(
+            "sidecar_download_invalid_range",
+            "Resume response had invalid total size",
+        )
     })?;
     if start != expected_start || total < expected_start {
         return Err(AppError::new(
@@ -1247,7 +1283,9 @@ async fn download_url_to_path(
             .unwrap_or_default()
     ));
     let metadata_path = download_metadata_path(&temp_path);
-    let mut partial_len = fs::metadata(&temp_path).map(|metadata| metadata.len()).unwrap_or(0);
+    let mut partial_len = fs::metadata(&temp_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
     let mut partial_metadata = read_download_metadata(&metadata_path);
     if partial_len > 0
         && partial_metadata.as_ref().is_none_or(|metadata| {
@@ -1268,8 +1306,12 @@ async fn download_url_to_path(
     }
     let mut request_builder = client.get(url).header(USER_AGENT, MARINARA_USER_AGENT);
     if partial_len > 0 {
-        request_builder = request_builder.header(reqwest::header::RANGE, format!("bytes={partial_len}-"));
-        if let Some(validator) = partial_metadata.as_ref().and_then(|metadata| metadata.validator.as_ref()) {
+        request_builder =
+            request_builder.header(reqwest::header::RANGE, format!("bytes={partial_len}-"));
+        if let Some(validator) = partial_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.validator.as_ref())
+        {
             request_builder = request_builder.header(IF_RANGE, validator);
         }
     }
@@ -1356,7 +1398,8 @@ async fn download_url_to_path(
         &metadata_path,
         &DownloadPartialMetadata {
             url: url.to_string(),
-            validator: response_validator.or_else(|| partial_metadata.and_then(|metadata| metadata.validator)),
+            validator: response_validator
+                .or_else(|| partial_metadata.and_then(|metadata| metadata.validator)),
             total: expected_total,
         },
     )?;
@@ -2237,7 +2280,10 @@ async fn install_system_runtime(state: &LocalSidecarState) -> AppResult<()> {
     write_runtime_install(state, &install)
 }
 
-async fn resolve_executable(state: &LocalSidecarState, config: &LocalSidecarConfig) -> AppResult<String> {
+async fn resolve_executable(
+    state: &LocalSidecarState,
+    config: &LocalSidecarConfig,
+) -> AppResult<String> {
     if let Some(path) = config.executable_path.clone() {
         validate_executable_path(&path)?;
         return Ok(path);
@@ -2624,10 +2670,7 @@ pub async fn download_curated(state: &LocalSidecarState, body: Value) -> AppResu
     status_payload(state).await
 }
 
-pub async fn list_huggingface_models(
-    _state: &LocalSidecarState,
-    body: Value,
-) -> AppResult<Value> {
+pub async fn list_huggingface_models(_state: &LocalSidecarState, body: Value) -> AppResult<Value> {
     let repo = body
         .get("repo")
         .and_then(Value::as_str)
@@ -3007,7 +3050,7 @@ pub async fn test_message(state: &LocalSidecarState) -> AppResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-        use flate2::{write::GzEncoder, Compression};
+    use flate2::{write::GzEncoder, Compression};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
@@ -3210,8 +3253,7 @@ mod tests {
     fn log_tail_reads_last_requested_lines() {
         let state = test_state("log-tail");
         let path = log_path(&state).expect("log path should resolve");
-        fs::write(&path, "line 1\nline 2\nline 3\nline 4\n")
-            .expect("log file should be writable");
+        fs::write(&path, "line 1\nline 2\nline 3\nline 4\n").expect("log file should be writable");
 
         let tail = log_tail(&state, 2).expect("log tail should be readable");
 
@@ -3620,7 +3662,9 @@ mod tests {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("resume test server should bind");
-        let addr = listener.local_addr().expect("server address should resolve");
+        let addr = listener
+            .local_addr()
+            .expect("server address should resolve");
         let url = format!("http://{addr}/model.gguf");
         write_download_metadata(
             &download_metadata_path(&partial),
@@ -3632,9 +3676,15 @@ mod tests {
         )
         .expect("resume metadata should save");
         let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.expect("server should accept request");
+            let (mut socket, _) = listener
+                .accept()
+                .await
+                .expect("server should accept request");
             let mut request = [0u8; 2048];
-            let count = socket.read(&mut request).await.expect("request should read");
+            let count = socket
+                .read(&mut request)
+                .await
+                .expect("request should read");
             let request = String::from_utf8_lossy(&request[..count]);
             let request_lower = request.to_ascii_lowercase();
             assert!(
@@ -3649,15 +3699,9 @@ mod tests {
         });
         let (_cancel_tx, cancel_rx) = watch::channel(false);
 
-        download_url_to_path(
-            &url,
-            &destination,
-            "model",
-            "Resume model",
-            cancel_rx,
-        )
-        .await
-        .expect("partial download should resume");
+        download_url_to_path(&url, &destination, "model", "Resume model", cancel_rx)
+            .await
+            .expect("partial download should resume");
 
         assert_eq!(fs::read(&destination).expect("model should read"), b"abcd");
         assert!(!partial.exists());
@@ -3672,7 +3716,9 @@ mod tests {
         let destination = root.join("model.gguf");
         let partial = destination.with_extension("gguf.download");
         fs::write(&partial, b"ab").expect("partial fixture should write");
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let addr = listener.local_addr().unwrap();
         let url = format!("http://{addr}/model.gguf");
         write_download_metadata(
@@ -3713,7 +3759,9 @@ mod tests {
         let destination = root.join("model.gguf");
         let partial = destination.with_extension("gguf.download");
         fs::write(&partial, b"ab").unwrap();
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let url = format!("http://{}/model.gguf", listener.local_addr().unwrap());
         write_download_metadata(
             &download_metadata_path(&partial),
@@ -3753,11 +3801,17 @@ mod tests {
         let destination = root.join("model.gguf");
         let partial = destination.with_extension("gguf.download");
         fs::write(&partial, b"ab").unwrap();
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let url = format!("http://{}/model.gguf", listener.local_addr().unwrap());
         write_download_metadata(
             &download_metadata_path(&partial),
-            &DownloadPartialMetadata { url: url.clone(), validator: None, total: Some(4) },
+            &DownloadPartialMetadata {
+                url: url.clone(),
+                validator: None,
+                total: Some(4),
+            },
         )
         .unwrap();
         let server = tokio::spawn(async move {

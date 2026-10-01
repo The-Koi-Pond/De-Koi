@@ -83,9 +83,18 @@ pub(crate) fn export_record_with_options(
             ));
         }
         let card = build_portable_card(state, &record, target, include_memories)?;
-        let filename = format!("{}.{}", safe_export_name(&card.name, "character"), target.extension());
+        let filename = format!(
+            "{}.{}",
+            safe_export_name(&card.name, "character"),
+            target.extension()
+        );
         let (bytes, report) = card.into_bytes(target)?;
-        return Ok(download_with_report(bytes, target.content_type(), &filename, &report));
+        return Ok(download_with_report(
+            bytes,
+            target.content_type(),
+            &filename,
+            &report,
+        ));
     }
     if collection == "messages" {
         message_swipes::materialize_message(state, &mut record, true)?;
@@ -596,10 +605,20 @@ fn export_portable_cards(
         CardTarget::JsonV3 => "v3-characters.zip",
         CardTarget::Charx => "charx-characters.zip",
     };
-    Ok(download_with_report(zip.finish()?, "application/zip", filename, &report))
+    Ok(download_with_report(
+        zip.finish()?,
+        "application/zip",
+        filename,
+        &report,
+    ))
 }
 
-fn download_with_report(bytes: Vec<u8>, content_type: &str, filename: &str, report: &ExportReport) -> Value {
+fn download_with_report(
+    bytes: Vec<u8>,
+    content_type: &str,
+    filename: &str,
+    report: &ExportReport,
+) -> Value {
     let mut download = binary_download(bytes, content_type, filename);
     download["report"] = report.to_value();
     download
@@ -1557,7 +1576,10 @@ mod tests {
     }
 
     fn png_data_url() -> String {
-        format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(tiny_png_bytes()))
+        format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(tiny_png_bytes())
+        )
     }
 
     fn seed_portable_character(state: &AppState) {
@@ -1574,8 +1596,8 @@ mod tests {
             ("Shrine", 2, "user"),
             ("Note", 3, "system"),
         ]
-            .iter()
-            .enumerate()
+        .iter()
+        .enumerate()
         {
             state
                 .storage
@@ -1641,16 +1663,32 @@ mod tests {
         let state = test_state("charx-round-trip");
         seed_portable_character(&state);
 
-        let download =
-            export_record_with_options(&state, "marinara_character", "characters", "char-sol", Some("charx"), true)
-                .expect("charx export");
+        let download = export_record_with_options(
+            &state,
+            "marinara_character",
+            "characters",
+            "char-sol",
+            Some("charx"),
+            true,
+        )
+        .expect("charx export");
 
         assert_eq!(download["filename"], "Sol.charx");
         let included = download["report"]["included"].to_string();
-        for asset in ["Avatar", "Profile banner", "Sprite happy.png", "Sprite sad.png"] {
-            assert!(included.contains(asset), "{asset} should be packaged: {included}");
+        for asset in [
+            "Avatar",
+            "Profile banner",
+            "Sprite happy.png",
+            "Sprite sad.png",
+        ] {
+            assert!(
+                included.contains(asset),
+                "{asset} should be packaged: {included}"
+            );
         }
-        assert!(download["report"]["skipped"].to_string().contains("Character memories"));
+        assert!(download["report"]["skipped"]
+            .to_string()
+            .contains("Character memories"));
         let bytes = general_purpose::STANDARD
             .decode(download["base64"].as_str().expect("base64"))
             .expect("decode");
@@ -1665,8 +1703,17 @@ mod tests {
         assert_eq!(card["spec"], "chara_card_v3");
         assert_eq!(card["data"]["creation_date"], 1782388800);
         let data_dir = state.data_dir.to_string_lossy().to_string();
-        for private in ["char-sol", "book-sol", "importMetadata", "entry-0", data_dir.as_str()] {
-            assert!(!card_text.contains(private), "card.json must not contain {private}");
+        for private in [
+            "char-sol",
+            "book-sol",
+            "importMetadata",
+            "entry-0",
+            data_dir.as_str(),
+        ] {
+            assert!(
+                !card_text.contains(private),
+                "card.json must not contain {private}"
+            );
         }
         let asset_types = card["data"]["assets"]
             .as_array()
@@ -1679,12 +1726,21 @@ mod tests {
         assert!(archive.by_name("assets/emotion/images/happy.png").is_ok());
         let shrine = &card["data"]["character_book"]["entries"][2];
         assert_eq!(shrine["name"], "Shrine");
-        assert!(shrine.get("position").is_none(), "V3 position only defines before/after");
+        assert!(
+            shrine.get("position").is_none(),
+            "V3 position only defines before/after"
+        );
         assert_eq!(shrine["content"], "@@depth 7\n@@role user\nShrine lore");
         assert_eq!(shrine["extensions"]["position"], 4);
         assert_eq!(shrine["use_regex"], true);
-        assert_eq!(card["data"]["character_book"]["entries"][0]["position"], "after_char");
-        assert_eq!(card["data"]["character_book"]["entries"][1]["position"], "before_char");
+        assert_eq!(
+            card["data"]["character_book"]["entries"][0]["position"],
+            "after_char"
+        );
+        assert_eq!(
+            card["data"]["character_book"]["entries"][1]["position"],
+            "before_char"
+        );
 
         let imported = super::super::imports::import_call(
             &state,
@@ -1693,7 +1749,10 @@ mod tests {
         )
         .expect("charx re-import");
 
-        let new_id = imported["characterId"].as_str().expect("new character id").to_string();
+        let new_id = imported["characterId"]
+            .as_str()
+            .expect("new character id")
+            .to_string();
         assert_ne!(new_id, "char-sol");
         assert_eq!(imported["spritesImported"], 2);
         let character = get_required(&state, "characters", &new_id).expect("imported character");
@@ -1701,14 +1760,25 @@ mod tests {
         assert_eq!(data["name"], "Sol");
         assert_eq!(data["alternate_greetings"], json!(["Seventeen."]));
         assert_eq!(data["extensions"]["talkativeness"], "0.5");
-        assert!(character["avatarFilePath"].as_str().is_some(), "avatar restored");
+        assert!(
+            character["avatarFilePath"].as_str().is_some(),
+            "avatar restored"
+        );
         let mut sprite_names = fs::read_dir(state.data_dir.join("sprites").join(&new_id))
             .expect("sprites restored")
-            .map(|entry| entry.expect("entry").file_name().to_string_lossy().to_string())
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect::<Vec<_>>();
         sprite_names.sort();
         assert_eq!(sprite_names, ["happy.png", "sad.png"]);
-        let lorebook_id = imported["lorebook"]["lorebookId"].as_str().expect("lorebook imported");
+        let lorebook_id = imported["lorebook"]["lorebookId"]
+            .as_str()
+            .expect("lorebook imported");
         let mut entries = entries_for_lorebook(&state, lorebook_id);
         entries.sort_by_key(|entry| entry["order"].as_i64().unwrap_or_default());
         assert_eq!(entries.len(), 4);
@@ -1720,11 +1790,20 @@ mod tests {
         assert_eq!(entries[1]["position"], 0);
         assert_eq!(entries[1]["role"], "system");
         assert_eq!(entries[1]["useRegex"], false);
-        assert_eq!(entries[2]["position"], 2, "at-depth entries keep De-Koi's @Depth value");
+        assert_eq!(
+            entries[2]["position"], 2,
+            "at-depth entries keep De-Koi's @Depth value"
+        );
         assert_eq!(entries[2]["depth"], 7);
         assert_eq!(entries[2]["role"], "user");
-        assert_eq!(entries[2]["content"], "Shrine lore", "decorators do not leak into content");
-        assert_eq!(entries[3]["position"], 3, "non-depth SillyTavern positions are not reminted as depth");
+        assert_eq!(
+            entries[2]["content"], "Shrine lore",
+            "decorators do not leak into content"
+        );
+        assert_eq!(
+            entries[3]["position"], 3,
+            "non-depth SillyTavern positions are not reminted as depth"
+        );
         assert_eq!(entries[3]["content"], "Note lore");
         assert_eq!(entries[2]["useRegex"], true);
     }
@@ -1738,18 +1817,35 @@ mod tests {
         ] {
             state
                 .storage
-                .create("characters", json!({ "id": id, "avatar": avatar, "data": { "name": id } }))
+                .create(
+                    "characters",
+                    json!({ "id": id, "avatar": avatar, "data": { "name": id } }),
+                )
                 .expect("seed character");
         }
 
-        let unreadable =
-            export_record_with_options(&state, "marinara_character", "characters", "char-svg", Some("charx"), false)
-                .expect("export");
-        let missing =
-            export_record_with_options(&state, "marinara_character", "characters", "char-none", Some("charx"), false)
-                .expect("export");
+        let unreadable = export_record_with_options(
+            &state,
+            "marinara_character",
+            "characters",
+            "char-svg",
+            Some("charx"),
+            false,
+        )
+        .expect("export");
+        let missing = export_record_with_options(
+            &state,
+            "marinara_character",
+            "characters",
+            "char-none",
+            Some("charx"),
+            false,
+        )
+        .expect("export");
 
-        assert!(unreadable["report"]["skipped"].to_string().contains("could not be read"));
+        assert!(unreadable["report"]["skipped"]
+            .to_string()
+            .contains("could not be read"));
         assert_eq!(missing["report"]["skipped"], json!([]));
         let card_bytes = |download: &Value| {
             let bytes = general_purpose::STANDARD
@@ -1764,8 +1860,14 @@ mod tests {
                 .expect("read");
             serde_json::from_str::<Value>(&text).expect("json")
         };
-        assert_eq!(card_bytes(&unreadable)["data"]["assets"][0]["uri"], "ccdefault:");
-        assert_eq!(card_bytes(&missing)["data"]["assets"][0]["uri"], "ccdefault:");
+        assert_eq!(
+            card_bytes(&unreadable)["data"]["assets"][0]["uri"],
+            "ccdefault:"
+        );
+        assert_eq!(
+            card_bytes(&missing)["data"]["assets"][0]["uri"],
+            "ccdefault:"
+        );
     }
 
     #[test]
@@ -1773,9 +1875,15 @@ mod tests {
         let state = test_state("v3-json");
         seed_portable_character(&state);
 
-        let download =
-            export_record_with_options(&state, "marinara_character", "characters", "char-sol", Some("v3"), false)
-                .expect("v3 export");
+        let download = export_record_with_options(
+            &state,
+            "marinara_character",
+            "characters",
+            "char-sol",
+            Some("v3"),
+            false,
+        )
+        .expect("v3 export");
 
         assert_eq!(download["filename"], "Sol.json");
         let card: Value = serde_json::from_slice(
@@ -1786,11 +1894,16 @@ mod tests {
         .expect("card json");
         assert_eq!(card["spec"], "chara_card_v3");
         assert_eq!(card["data"]["assets"][0]["uri"], "ccdefault:");
-        assert!(card["data"]["extensions"]["publicProfile"].get("bannerImage").is_none());
+        assert!(card["data"]["extensions"]["publicProfile"]
+            .get("bannerImage")
+            .is_none());
         assert_eq!(card["data"]["character_book"]["entries"][0]["name"], "Koi");
         let skipped = download["report"]["skipped"].to_string();
         for asset in ["Avatar", "Profile banner", "2 expression sprite(s)"] {
-            assert!(skipped.contains(asset), "{asset} should be reported: {skipped}");
+            assert!(
+                skipped.contains(asset),
+                "{asset} should be reported: {skipped}"
+            );
         }
         assert!(!skipped.contains("Character memories"));
     }
@@ -1824,8 +1937,15 @@ mod tests {
             .create("personas", json!({ "id": "persona-1", "name": "Me" }))
             .expect("seed persona");
 
-        let error = export_record_with_options(&state, "marinara_persona", "personas", "persona-1", Some("charx"), false)
-            .expect_err("personas have no CHARX export");
+        let error = export_record_with_options(
+            &state,
+            "marinara_persona",
+            "personas",
+            "persona-1",
+            Some("charx"),
+            false,
+        )
+        .expect_err("personas have no CHARX export");
 
         assert_eq!(error.code, "invalid_input");
     }

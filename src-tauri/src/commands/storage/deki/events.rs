@@ -52,7 +52,10 @@ impl DekiEventSink {
     }
 
     pub(super) fn tool_start(&self, id: &str, name: &str, input: &Value) {
-        self.emit("tool_start", json!({ "id": id, "name": name, "input": input }));
+        self.emit(
+            "tool_start",
+            json!({ "id": id, "name": name, "input": input }),
+        );
     }
 
     pub(super) fn tool_end(&self, id: &str, name: &str, is_error: bool, output: &str) {
