@@ -102,7 +102,16 @@ async function listAvailable(): Promise<AvailableConnectionSummary[]> {
   return [localSidecarConnection(sidecarStatus), ...rows];
 }
 
-function selectDefaultTextConnectionId(connections: readonly AvailableConnectionSummary[]): string | null {
+/** The fields default selection reads; stored rows may carry boolish flags. */
+export type DefaultTextConnectionCandidate = {
+  id?: unknown;
+  provider?: string | null;
+  isDefault?: unknown;
+  default?: unknown;
+  [field: string]: unknown;
+};
+
+function selectDefaultTextConnectionId(connections: readonly DefaultTextConnectionCandidate[]): string | null {
   const textConnections = filterLanguageGenerationConnections(connections);
   const selected =
     textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
