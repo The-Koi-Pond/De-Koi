@@ -1392,6 +1392,31 @@ describe("dekiApi.sessions first run", () => {
     expect(storage.settings().sessions).toBeUndefined();
   });
 
+  it("checks the current storage again after switching runtimes", async () => {
+    installMemoryStorage();
+    await dekiApi.sessions.list();
+
+    // Another runtime or profile: one durable row from an interrupted migration,
+    // with the rest of the legacy history still in settings.
+    const storage = installMemoryStorage({
+      seed: {
+        ...legacySettingsSeed(),
+        "deki-sessions/session-one": {
+          id: "session-one",
+          title: "One",
+          createdAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-24T00:00:00.000Z",
+        },
+      },
+    });
+    const state = await dekiApi.sessions.list();
+
+    expect(state.sessions.map((session) => session.id).sort()).toEqual(["session-one", "session-two"]);
+    expect(storage.rowIds("deki-messages").sort()).toEqual(["message-1", "message-2", "message-3"]);
+    expect(storage.settings().sessions).toBeUndefined();
+    expect(storage.settings().activeSessionId).toBe("session-two");
+  });
+
   it("finishes a migration whose settings cleanup failed", async () => {
     let failCleanup = true;
     const storage = installMemoryStorage({
