@@ -42,6 +42,17 @@ export function evaluateRustAdvisoryBoundaries({ waivedAdvisories, profiles }) {
   }
 }
 
+/** Advisory ids in deny.toml's active `[advisories] ignore = [...]` list; comments do not count. */
+export function parseWaivedAdvisories(denyConfig) {
+  const withoutComments = denyConfig
+    .split(/\r?\n/)
+    .map((line) => line.replace(/#.*$/, ""))
+    .join("\n");
+  const section = withoutComments.match(/^\[advisories\]\s*$([\s\S]*?)(?=^\[[^\]]+\]\s*$|(?![\s\S]))/m)?.[1] ?? "";
+  const list = section.match(/^\s*ignore\s*=\s*\[([\s\S]*?)\]/m)?.[1] ?? "";
+  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
 function cargoTree({ features, target }) {
   const targetArgs = target ? ["--target", target] : [];
   const result = spawnSync(
@@ -73,9 +84,7 @@ function cargoTree({ features, target }) {
 
 function main() {
   const denyConfig = readFileSync(resolve(repoRoot, "deny.toml"), "utf8");
-  const waivedAdvisories = DEVTOOLS_ONLY_ADVISORIES.map((advisory) => advisory.id).filter((id) =>
-    denyConfig.includes(`"${id}"`),
-  );
+  const waivedAdvisories = parseWaivedAdvisories(denyConfig);
   const profiles = Object.fromEntries(
     Object.entries(RUST_ADVISORY_PROFILES).map(([profile, config]) => [profile, cargoTree(config)]),
   );

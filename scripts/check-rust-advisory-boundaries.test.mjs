@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { RUST_ADVISORY_PROFILES, evaluateRustAdvisoryBoundaries } from "./check-rust-advisory-boundaries.mjs";
+import {
+  RUST_ADVISORY_PROFILES,
+  evaluateRustAdvisoryBoundaries,
+  parseWaivedAdvisories,
+} from "./check-rust-advisory-boundaries.mjs";
 
 const patchedGraph = "de-koi v1.6.1\nh2 v0.4.16\nringbuf v0.5.2";
 const vulnerableGraph = "de-koi v1.6.1\nh2 v0.3.27\nringbuf v0.4.8\ntauri-plugin-devtools v2.1.0";
@@ -75,4 +79,32 @@ test("rejects an unwaived vulnerable devtools graph", () => {
     () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: ["RUSTSEC-2026-0258"], profiles: profiles() }),
     /requires the reviewed RUSTSEC-2026-0293 waiver/,
   );
+});
+
+test("reads waivers only from the active advisories ignore list", () => {
+  const config = [
+    "[advisories]",
+    "version = 2",
+    '# Old note: "RUSTSEC-2026-0258" used to be waived here.',
+    'ignore = ["RUSTSEC-2026-0293"] # "RUSTSEC-2026-9999" in a trailing comment',
+    "",
+    "[bans]",
+    'ignore = ["RUSTSEC-2026-0001"]',
+  ].join("\n");
+
+  assert.deepEqual(parseWaivedAdvisories(config), ["RUSTSEC-2026-0293"]);
+});
+
+test("reads a multi-line ignore list", () => {
+  const config = [
+    "[advisories]",
+    "ignore = [",
+    '  "RUSTSEC-2026-0258",',
+    '  # "RUSTSEC-2026-0001",',
+    '  "RUSTSEC-2026-0293",',
+    "]",
+    "",
+  ].join("\n");
+
+  assert.deepEqual(parseWaivedAdvisories(config), ["RUSTSEC-2026-0258", "RUSTSEC-2026-0293"]);
 });
