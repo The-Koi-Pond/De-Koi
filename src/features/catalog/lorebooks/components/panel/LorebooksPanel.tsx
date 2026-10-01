@@ -219,7 +219,7 @@ export function LorebooksPanel() {
     return sortLorebooksForPanel(filtered, sort);
   }, [filtered, sort]);
 
-  const lorebookFolderList = lorebookFolders ?? [];
+  const lorebookFolderList = useMemo(() => lorebookFolders ?? [], [lorebookFolders]);
   const lorebookLibraryLoading = isLoading || lorebookFoldersLoading;
   const lorebookFolderDataReady = !lorebookFoldersLoading && !lorebookFoldersError;
   const lorebookFiltersActive = activeCategory !== "all" || activeTag !== null || searchQuery.trim().length > 0;

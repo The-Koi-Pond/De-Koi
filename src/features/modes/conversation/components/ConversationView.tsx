@@ -773,7 +773,7 @@ export function ConversationView({
       setTranscriptWindowStart(null);
     }
     previousTailRef.current = { messageId: newestMsgId, isStreaming };
-  }, [isStreaming, newestMsgId, transcriptWindowStart]);
+  }, [isOptimistic, isStreaming, newestMsgId, transcriptWindowStart]);
 
   useLayoutEffect(() => {
     if (openedAtBottomChatIdRef.current === chatId || !messages?.length || isLoadingMoreRef.current) return;
@@ -1060,7 +1060,7 @@ export function ConversationView({
       });
     }
     return items;
-  }, [transcriptWindow, characterMap, chatCharIds, conversationMessageStyle, totalMessageCount]);
+  }, [transcriptWindow, characterMap, conversationMessageStyle, totalMessageCount]);
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Staggered reveal for assistant message parts ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   const [visiblePartCounts, setVisiblePartCounts] = useState<Record<string, number>>({});
