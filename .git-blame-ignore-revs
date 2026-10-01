@@ -1,0 +1,7 @@
+# Format-only commits. Use with: git blame --ignore-revs-file .git-blame-ignore-revs
+# (or: git config blame.ignoreRevsFile .git-blame-ignore-revs). GitHub applies it automatically.
+
+# Format the Rust workspace with rustfmt (#1306)
+0dd5314fb6f412a36a92c1b950e33fe75eaf4666
+# Format the repository with Prettier (#1307)
+6959a15b35beeb47ee05f24a9a1c5a9f19d09466
