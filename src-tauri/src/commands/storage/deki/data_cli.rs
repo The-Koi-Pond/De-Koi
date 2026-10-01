@@ -162,7 +162,11 @@ pub(super) fn parse(args: Value) -> AppResult<DekiDataCommand> {
     };
     let action = object
         .remove("action")
-        .and_then(|value| value.as_str().map(|action| action.trim().to_ascii_lowercase()))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(|action| action.trim().to_ascii_lowercase())
+        })
         .filter(|action| !action.is_empty())
         .ok_or_else(|| {
             AppError::invalid_input(format!(
@@ -240,7 +244,9 @@ pub(super) fn execute(
         ),
         DekiDataCommand::Search(args) => {
             if args.query.trim().is_empty() {
-                return Err(AppError::invalid_input("deki_data search requires a query."));
+                return Err(AppError::invalid_input(
+                    "deki_data search requires a query.",
+                ));
             }
             library::overview(
                 state,
@@ -352,7 +358,8 @@ impl DekiDataValidation {
     }
 
     fn notice(&mut self, entity: &str, id: &str, message: impl Into<String>) {
-        self.notices.push(Self::issue("notice", entity, id, message));
+        self.notices
+            .push(Self::issue("notice", entity, id, message));
     }
 
     fn info(&mut self, entity: &str, id: &str, message: impl Into<String>) {
@@ -423,7 +430,14 @@ pub(super) fn plan_mutation(
             let require_complete = mutation.kind == DekiDataMutationKind::Insert;
             payload = validate_payload(entity, id, payload, require_complete, &mut validation);
             if let Some(object) = payload.as_object() {
-                validate_parent_references(state, entity, id, object, require_complete, &mut validation)?;
+                validate_parent_references(
+                    state,
+                    entity,
+                    id,
+                    object,
+                    require_complete,
+                    &mut validation,
+                )?;
             }
         }
         DekiDataMutationKind::Delete => {}
@@ -440,7 +454,13 @@ pub(super) fn plan_mutation(
             }
             let mut record = payload.as_object().cloned().unwrap_or_default();
             record.insert("id".to_string(), json!(id));
-            preview.push(row_change(entity, id, "insert", None, Some(&Value::Object(record))));
+            preview.push(row_change(
+                entity,
+                id,
+                "insert",
+                None,
+                Some(&Value::Object(record)),
+            ));
         }
         DekiDataMutationKind::Patch => match current.as_ref() {
             None => validation.error(entity, id, format!("{entity}/{id} was not found.")),
@@ -476,7 +496,12 @@ pub(super) fn plan_mutation(
                     validation.notice(
                         entity,
                         id,
-                        format!("Also {} {} {} row(s).", effect.verb(), effect.rows.len(), effect.entity),
+                        format!(
+                            "Also {} {} {} row(s).",
+                            effect.verb(),
+                            effect.rows.len(),
+                            effect.entity
+                        ),
                     );
                 }
                 if let Some(note) = delete_file_note(entity) {
@@ -614,15 +639,22 @@ fn validate_payload(
         validation.error(
             entity,
             id,
-            format!("Storage-owned field(s) cannot be set: {}.", owned.join(", ")),
+            format!(
+                "Storage-owned field(s) cannot be set: {}.",
+                owned.join(", ")
+            ),
         );
     }
-    let size = serde_json::to_vec(&payload).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
+    let size = serde_json::to_vec(&payload)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
     if size > PAYLOAD_MAX_BYTES {
         validation.error(
             entity,
             id,
-            format!("The payload is {size} bytes; the limit is {PAYLOAD_MAX_BYTES}. Split the change."),
+            format!(
+                "The payload is {size} bytes; the limit is {PAYLOAD_MAX_BYTES}. Split the change."
+            ),
         );
     }
     match super::normalize_deki_record_action_payload(entity, &payload, require_complete) {
@@ -660,7 +692,11 @@ fn validate_parent_references(
             validation.error(entity, id, format!("{field} is required."));
         }
         None => {}
-        Some(value) => match value.as_str().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => match value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             None => validation.error(entity, id, format!("{field} must be a non-empty id.")),
             Some(parent_id) => {
                 if state.storage.get(parent_entity, parent_id)?.is_none() {
@@ -722,24 +758,34 @@ fn delete_side_effects(
     current: &Value,
 ) -> AppResult<Vec<DeleteSideEffect>> {
     let mut effects = Vec::new();
-    let mut push = |entity: &'static str, action: &'static str, effect: &'static str, rows: Vec<Value>| {
-        if !rows.is_empty() {
-            effects.push(DeleteSideEffect { entity, action, effect, rows });
-        }
-    };
+    let mut push =
+        |entity: &'static str, action: &'static str, effect: &'static str, rows: Vec<Value>| {
+            if !rows.is_empty() {
+                effects.push(DeleteSideEffect {
+                    entity,
+                    action,
+                    effect,
+                    rows,
+                });
+            }
+        };
     match entity {
         "lorebooks" => {
             push(
                 "lorebook-entries",
                 "delete",
                 "deleted with the lorebook",
-                rows_where(state, "lorebook-entries", |row| text_field(row, "lorebookId") == Some(id))?,
+                rows_where(state, "lorebook-entries", |row| {
+                    text_field(row, "lorebookId") == Some(id)
+                })?,
             );
             push(
                 "lorebook-folders",
                 "delete",
                 "deleted with the lorebook",
-                rows_where(state, "lorebook-folders", |row| text_field(row, "lorebookId") == Some(id))?,
+                rows_where(state, "lorebook-folders", |row| {
+                    text_field(row, "lorebookId") == Some(id)
+                })?,
             );
             push(
                 "chats",
@@ -751,7 +797,9 @@ fn delete_side_effects(
                 "characters",
                 "update",
                 "loses its linked copy of this lorebook",
-                rows_where(state, "characters", |row| embedded_lorebook_id(row) == Some(id))?,
+                rows_where(state, "characters", |row| {
+                    embedded_lorebook_id(row) == Some(id)
+                })?,
             );
         }
         "lorebook-entries" => {
@@ -760,7 +808,9 @@ fn delete_side_effects(
                     "characters",
                     "update",
                     "drops this entry from its linked lorebook copy",
-                    rows_where(state, "characters", |row| embedded_lorebook_id(row) == Some(lorebook_id))?,
+                    rows_where(state, "characters", |row| {
+                        embedded_lorebook_id(row) == Some(lorebook_id)
+                    })?,
                 );
             }
         }
@@ -779,7 +829,9 @@ fn delete_side_effects(
                 "character-gallery",
                 "delete",
                 "gallery image deleted with the character",
-                rows_where(state, "character-gallery", |row| text_field(row, "characterId") == Some(id))?,
+                rows_where(state, "character-gallery", |row| {
+                    text_field(row, "characterId") == Some(id)
+                })?,
             );
             push(
                 knowledge_edges::COLLECTION,
@@ -793,7 +845,8 @@ fn delete_side_effects(
                 "memory moved to deleted",
                 rows_where(state, canonical_memory::MEMORY_COLLECTION, |row| {
                     row.get("scope").is_some_and(|scope| {
-                        text_field(scope, "kind") == Some("character") && text_field(scope, "id") == Some(id)
+                        text_field(scope, "kind") == Some("character")
+                            && text_field(scope, "id") == Some(id)
                     }) && text_field(row, "status") != Some("deleted")
                 })?,
             );
@@ -803,7 +856,9 @@ fn delete_side_effects(
                 "persona-gallery",
                 "delete",
                 "gallery image deleted with the persona",
-                rows_where(state, "persona-gallery", |row| text_field(row, "personaId") == Some(id))?,
+                rows_where(state, "persona-gallery", |row| {
+                    text_field(row, "personaId") == Some(id)
+                })?,
             );
             push(
                 knowledge_edges::COLLECTION,
@@ -844,7 +899,8 @@ fn rows_where(
 fn knowledge_links(state: &AppState, holder_kind: &str, holder_id: &str) -> AppResult<Vec<Value>> {
     rows_where(state, knowledge_edges::COLLECTION, |row| {
         row.get("holder").is_some_and(|holder| {
-            text_field(holder, "kind") == Some(holder_kind) && text_field(holder, "id") == Some(holder_id)
+            text_field(holder, "kind") == Some(holder_kind)
+                && text_field(holder, "id") == Some(holder_id)
         }) && matches!(text_field(row, "status"), Some("active" | "proposed"))
     })
 }
@@ -856,7 +912,9 @@ fn text_field<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
 /// Objects may be stored as JSON text; read either shape.
 fn object_field(row: &Value, field: &str) -> Option<Value> {
     match row.get(field)? {
-        Value::String(text) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .ok()
+            .filter(Value::is_object),
         value @ Value::Object(_) => Some(value.clone()),
         _ => None,
     }
@@ -883,9 +941,9 @@ fn embedded_lorebook_id(character: &Value) -> Option<&str> {
 /// Managed files are not rows, so they are named rather than listed.
 fn delete_file_note(entity: &str) -> Option<&'static str> {
     match entity {
-        "characters" => Some(
-            "Also removes the character's avatar, sprite, and gallery image files.",
-        ),
+        "characters" => {
+            Some("Also removes the character's avatar, sprite, and gallery image files.")
+        }
         "personas" => Some("Also removes the persona's avatar, sprite, and gallery image files."),
         "lorebooks" => Some("Also removes the lorebook's image file."),
         _ => None,
@@ -901,7 +959,9 @@ fn preview_patched_record(entity: &str, current: &Value, patch: &Value) -> Value
     };
     for (key, value) in patch {
         if entity == "characters" && key == "data" {
-            let merged = record.entry("data".to_string()).or_insert_with(|| json!({}));
+            let merged = record
+                .entry("data".to_string())
+                .or_insert_with(|| json!({}));
             merge_recursive(merged, value);
         } else {
             record.insert(key.clone(), value.clone());
@@ -936,7 +996,10 @@ fn changed_subset(before: &Value, after: &Value, depth: usize) -> (Value, Value)
     };
     let mut before_changed = Map::new();
     let mut after_changed = Map::new();
-    let mut keys = before_object.keys().chain(after_object.keys()).collect::<Vec<_>>();
+    let mut keys = before_object
+        .keys()
+        .chain(after_object.keys())
+        .collect::<Vec<_>>();
     keys.sort();
     keys.dedup();
     for key in keys {
@@ -982,7 +1045,14 @@ fn row_change(
 
 fn row_label(row: &Value) -> Value {
     let mut label = Map::new();
-    for key in ["id", "name", "title", "identifier", "variableName", "filename"] {
+    for key in [
+        "id",
+        "name",
+        "title",
+        "identifier",
+        "variableName",
+        "filename",
+    ] {
         if let Some(value) = row.get(key) {
             label.insert(key.to_string(), value.clone());
         }
@@ -1000,8 +1070,14 @@ fn compact_preview(value: &Value, depth: usize) -> Value {
         Value::String(text) => {
             let count = text.chars().count();
             if count > PREVIEW_STRING_MAX_CHARS {
-                let kept = text.chars().take(PREVIEW_STRING_MAX_CHARS).collect::<String>();
-                json!(format!("{kept}… [+{} chars]", count - PREVIEW_STRING_MAX_CHARS))
+                let kept = text
+                    .chars()
+                    .take(PREVIEW_STRING_MAX_CHARS)
+                    .collect::<String>();
+                json!(format!(
+                    "{kept}… [+{} chars]",
+                    count - PREVIEW_STRING_MAX_CHARS
+                ))
             } else {
                 value.clone()
             }
@@ -1098,7 +1174,9 @@ fn required_reason(reason: String) -> AppResult<String> {
 fn required_id(id: String) -> AppResult<String> {
     let id = id.trim();
     if id.is_empty() || id.chars().count() > 256 {
-        return Err(AppError::invalid_input("deki_data requires an exact record id."));
+        return Err(AppError::invalid_input(
+            "deki_data requires an exact record id.",
+        ));
     }
     Ok(id.to_string())
 }

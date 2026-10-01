@@ -347,12 +347,16 @@ fn manifest_transaction_id(manifest_path: &Path) -> AppResult<&str> {
     let name = manifest_path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| transaction_recovery_error("Invalid transaction manifest name", manifest_path))?;
+        .ok_or_else(|| {
+            transaction_recovery_error("Invalid transaction manifest name", manifest_path)
+        })?;
     let transaction_id = name
         .strip_prefix(COLLECTION_TRANSACTION_MANIFEST_PREFIX)
         .and_then(|value| value.strip_suffix(COLLECTION_TRANSACTION_MANIFEST_SUFFIX))
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| transaction_recovery_error("Invalid transaction manifest name", manifest_path))?;
+        .ok_or_else(|| {
+            transaction_recovery_error("Invalid transaction manifest name", manifest_path)
+        })?;
     Ok(transaction_id)
 }
 
@@ -367,15 +371,25 @@ fn resolve_collection_transaction_entries(
     let mut resolved = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
         let primary = manifest_child_path(collections_dir, &entry.primary, manifest_path)?;
-        let collection = entry.primary.strip_suffix(".json").filter(|value| !value.is_empty()).ok_or_else(|| {
-            transaction_recovery_error(
-                format!("Transaction manifest primary is not a collection JSON file: {}", entry.primary),
-                manifest_path,
-            )
-        })?;
+        let collection = entry
+            .primary
+            .strip_suffix(".json")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                transaction_recovery_error(
+                    format!(
+                        "Transaction manifest primary is not a collection JSON file: {}",
+                        entry.primary
+                    ),
+                    manifest_path,
+                )
+            })?;
         marinara_security::validate_collection_name(collection).map_err(|error| {
             transaction_recovery_error(
-                format!("Transaction manifest has an invalid collection primary: {}", error.message),
+                format!(
+                    "Transaction manifest has an invalid collection primary: {}",
+                    error.message
+                ),
                 manifest_path,
             )
         })?;
@@ -389,7 +403,10 @@ fn resolve_collection_transaction_entries(
         );
         if entry.staged != expected_staged || entry.backup != expected_backup {
             return Err(transaction_recovery_error(
-                format!("Transaction manifest artifacts do not match entry {}", entry.primary),
+                format!(
+                    "Transaction manifest artifacts do not match entry {}",
+                    entry.primary
+                ),
                 manifest_path,
             ));
         }
@@ -452,12 +469,13 @@ fn read_collection_transaction_manifest(path: &Path) -> AppResult<CollectionTran
             path,
         )
     })?;
-    let manifest: CollectionTransactionManifest = serde_json::from_slice(&bytes).map_err(|error| {
-        transaction_recovery_error(
-            format!("Storage transaction manifest is invalid: {error}"),
-            path,
-        )
-    })?;
+    let manifest: CollectionTransactionManifest =
+        serde_json::from_slice(&bytes).map_err(|error| {
+            transaction_recovery_error(
+                format!("Storage transaction manifest is invalid: {error}"),
+                path,
+            )
+        })?;
     if manifest.version != COLLECTION_TRANSACTION_MANIFEST_VERSION || manifest.entries.is_empty() {
         return Err(transaction_recovery_error(
             format!(
@@ -473,10 +491,7 @@ fn read_collection_transaction_manifest(path: &Path) -> AppResult<CollectionTran
 pub(crate) fn mark_collection_transaction_committed(manifest_path: &Path) -> AppResult<()> {
     let mut manifest = read_collection_transaction_manifest(manifest_path)?;
     manifest.phase = CollectionTransactionPhase::Committed;
-    write_file_atomically(
-        manifest_path,
-        &serde_json::to_vec_pretty(&manifest)?,
-    )?;
+    write_file_atomically(manifest_path, &serde_json::to_vec_pretty(&manifest)?)?;
     if let Some(parent) = manifest_path.parent() {
         sync_directory(parent)?;
     }

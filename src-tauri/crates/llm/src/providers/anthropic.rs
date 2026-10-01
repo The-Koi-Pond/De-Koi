@@ -7,12 +7,19 @@ pub(crate) fn build_anthropic_body(request: &LlmRequest, stream: bool) -> Value 
     let mut system = Vec::new();
     let mut anthropic_messages = Vec::new();
     let messages = request_messages(request);
-    let cache_message_index = request.connection.enable_caching.then(|| {
-        let non_system_count = messages.iter().filter(|message| message.role != "system").count();
-        let depth = usize::try_from(request.connection.caching_at_depth.unwrap_or(5))
-            .unwrap_or(usize::MAX);
-        non_system_count.checked_sub(1 + depth.min(non_system_count.saturating_sub(1)))
-    }).flatten();
+    let cache_message_index = request
+        .connection
+        .enable_caching
+        .then(|| {
+            let non_system_count = messages
+                .iter()
+                .filter(|message| message.role != "system")
+                .count();
+            let depth = usize::try_from(request.connection.caching_at_depth.unwrap_or(5))
+                .unwrap_or(usize::MAX);
+            non_system_count.checked_sub(1 + depth.min(non_system_count.saturating_sub(1)))
+        })
+        .flatten();
     for message in messages {
         if message.role == "system" {
             system.push(message.content);

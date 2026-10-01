@@ -2952,9 +2952,7 @@ mod tests {
             .expect("a complete final SSE event remains valid without a trailing blank line");
 
         assert!(emitted.iter().any(|event| event["type"] == "token"));
-        assert!(emitted
-            .iter()
-            .any(|event| event["finishReason"] == "stop"));
+        assert!(emitted.iter().any(|event| event["finishReason"] == "stop"));
     }
 
     #[tokio::test]
@@ -4006,7 +4004,10 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
             apply_openai_parameters(&mut body, &request);
 
             assert_eq!(body["top_p"], json!(0.9));
-            assert!(body.get("top_k").is_none(), "model {model} should strip top_k");
+            assert!(
+                body.get("top_k").is_none(),
+                "model {model} should strip top_k"
+            );
         }
     }
 
@@ -4285,10 +4286,7 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
     #[test]
     fn non_stream_completions_can_wait_longer_than_stream_idle_timeout() {
-        assert!(
-            provider_non_stream_read_timeout()
-                > provider_stream_idle_timeout("openai")
-        );
+        assert!(provider_non_stream_read_timeout() > provider_stream_idle_timeout("openai"));
     }
 
     #[tokio::test]
@@ -4794,7 +4792,10 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         });
 
         assert_eq!(assistant_message_text(&message), "visible answer");
-        assert_eq!(content_thinking_text(&message["content"]), "private thought");
+        assert_eq!(
+            content_thinking_text(&message["content"]),
+            "private thought"
+        );
     }
 
     #[test]
@@ -5030,7 +5031,10 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
         let body = build_anthropic_body(&request, false);
 
-        assert_eq!(body["system"], json!("First instruction.\n\nSecond instruction."));
+        assert_eq!(
+            body["system"],
+            json!("First instruction.\n\nSecond instruction.")
+        );
         assert_eq!(body["messages"][0]["content"], json!("Hello."));
         assert!(!body.to_string().contains("cache_control"));
     }

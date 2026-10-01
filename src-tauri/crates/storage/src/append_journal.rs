@@ -93,7 +93,9 @@ fn apply_append_rows_idempotently(rows: &mut Vec<Value>, records: Vec<Value>) ->
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|id| !id.is_empty())
-            .ok_or_else(|| AppError::invalid_input("Append journal records require a non-empty string id"))?;
+            .ok_or_else(|| {
+                AppError::invalid_input("Append journal records require a non-empty string id")
+            })?;
         if !record_ids.insert(id.to_string()) {
             return Err(AppError::invalid_input(
                 "Append journal entries require unique record ids per collection",
@@ -157,10 +159,7 @@ fn refresh_checkpoint_backup(
     }
 }
 
-fn existing_checkpoint_is_usable(
-    collections_dir: &Path,
-    journal: &Path,
-) -> AppResult<bool> {
+fn existing_checkpoint_is_usable(collections_dir: &Path, journal: &Path) -> AppResult<bool> {
     let journal_metadata = match fs::symlink_metadata(journal) {
         Ok(metadata) if metadata.file_type().is_file() => metadata,
         Ok(_) => {
@@ -209,7 +208,9 @@ fn existing_checkpoint_is_usable(
                 if !allow_legacy_backup {
                     return Err(recovery_error(
                         journal,
-                        format!("{collection} checkpoint backup is missing while appends are pending"),
+                        format!(
+                            "{collection} checkpoint backup is missing while appends are pending"
+                        ),
                     ));
                 }
                 let legacy_backup = backup_path_for(&primary)?;
@@ -461,12 +462,7 @@ pub(crate) fn recover(collections_dir: &Path) -> AppResult<()> {
     }
 
     for collection in &order {
-        let mut rows = base_rows(
-            collections_dir,
-            collection,
-            &journal,
-            allow_legacy_backup,
-        )?;
+        let mut rows = base_rows(collections_dir, collection, &journal, allow_legacy_backup)?;
         for records in mutations.remove(collection).unwrap_or_default() {
             apply_append_rows_idempotently(&mut rows, records)?;
         }
