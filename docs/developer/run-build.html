@@ -58,8 +58,8 @@
 
         <h2>Arch And CachyOS Prerequisites</h2>
         <p>
-          On CachyOS, Arch, Manjaro, EndeavourOS, and other Arch-family systems, install the Tauri Linux
-          prerequisites plus Node.js, pnpm, and rustup with pacman:
+          On CachyOS, Arch, Manjaro, EndeavourOS, and other Arch-family systems, install the Tauri Linux prerequisites
+          plus Node.js, pnpm, and rustup with pacman:
         </p>
         <pre><code>sudo pacman -Syu
 sudo pacman -S --needed git nodejs pnpm rustup webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
@@ -90,9 +90,9 @@ rustup default stable</code></pre>
         <p>On Wayland systems with stubborn WebKit rendering issues, also try forcing GTK to use X11 for that run:</p>
         <pre><code>GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev</code></pre>
         <p>
-          As a browser-only fallback, run the web shell in one terminal, optionally run the Rust runtime in another, then
-          open <code>http://127.0.0.1:1420/</code> in Firefox. If the runtime is running, set Settings &gt; Advanced &gt;
-          Remote Runtime URL to <code>http://127.0.0.1:8787</code>.
+          As a browser-only fallback, run the web shell in one terminal, optionally run the Rust runtime in another,
+          then open <code>http://127.0.0.1:1420/</code> in Firefox. If the runtime is running, set Settings &gt;
+          Advanced &gt; Remote Runtime URL to <code>http://127.0.0.1:8787</code>.
         </p>
         <pre><code>pnpm dev
 cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
@@ -108,8 +108,8 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
         </p>
         <p>
           The normal <code>pnpm tauri dev</code> wrapper also opens native WebView DevTools and enables the WebView2
-          debugging port on Windows. Use the WebView Performance panel for React render/layout jank, and use
-          CrabNebula Calls for Rust command, storage, asset, provider, and IPC timing.
+          debugging port on Windows. Use the WebView Performance panel for React render/layout jank, and use CrabNebula
+          Calls for Rust command, storage, asset, provider, and IPC timing.
         </p>
         <table>
           <thead>
@@ -128,7 +128,9 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
             <tr>
               <td><code>ipc::request::deserialize_arg</code></td>
               <td>Frontend payload shape</td>
-              <td>Check for oversized arguments, full records sent where IDs or deltas would work, or repeated calls.</td>
+              <td>
+                Check for oversized arguments, full records sent where IDs or deltas would work, or repeated calls.
+              </td>
             </tr>
             <tr>
               <td><code>ipc::request::respond</code> or <code>wry::eval</code></td>
@@ -138,7 +140,9 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
             <tr>
               <td>Long WebView frame tasks</td>
               <td>React feature surface</td>
-              <td>Use the Performance panel to find expensive renders, layout shifts, effects, or unvirtualized lists.</td>
+              <td>
+                Use the Performance panel to find expensive renders, layout shifts, effects, or unvirtualized lists.
+              </td>
             </tr>
           </tbody>
         </table>
@@ -273,8 +277,8 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin de-koi-server</code></pre>
           The Tauri refactor manages the Local Model sidecar as a Rust host capability. Configure a
           <code>llama-server</code>-compatible executable path and GGUF model path from the Connections panel's Local
           Model card, or install the managed llama.cpp runtime and download a curated Gemma/custom Hugging Face GGUF
-          from that card. When enabled, De-Koi exposes a synthetic <code>sidecar:local</code> connection for
-          generation, embeddings, agents, and game scene analysis.
+          from that card. When enabled, De-Koi exposes a synthetic <code>sidecar:local</code> connection for generation,
+          embeddings, agents, and game scene analysis.
         </p>
         <p>Override the bind address and data directory with:</p>
         <pre><code>DE_KOI_SERVER_ADDR=0.0.0.0:8787
@@ -312,27 +316,21 @@ DE_KOI_DATA_DIR=/path/to/data</code></pre>
         <p>The compose service is intended for same-machine browser access by default and exposes:</p>
         <pre><code>http://127.0.0.1:8787</code></pre>
         <p>
-          Compose stores <code>/data</code> in the Compose-managed
-          <code>de-koi-server-data</code> volume by default.
-          To verify migration against app data, copy that data into a throwaway
-          host folder and set <code>DE_KOI_HOST_DATA_DIR</code> to the copy
-          before starting Compose so the container and host share the same data
-          tree without rewriting live desktop data. The runtime stores records
-          under <code>/data/data</code>, so legacy Node data from
-          <code>packages/server/data/</code> should be copied into the host
-          folder as a <code>data/</code> child, not mounted as <code>/data</code>
-          itself. Binding live app data directly can leave root-owned files on
-          the host, so use the named volume or a throwaway copied directory for
-          Docker tests. If you already tested with a host folder such as
-          <code>.docker-de-koi-data/</code>, set
-          <code>DE_KOI_HOST_DATA_DIR=./.docker-de-koi-data</code> to keep
-          using that folder.
+          Compose stores <code>/data</code> in the Compose-managed <code>de-koi-server-data</code> volume by default. To
+          verify migration against app data, copy that data into a throwaway host folder and set
+          <code>DE_KOI_HOST_DATA_DIR</code> to the copy before starting Compose so the container and host share the same
+          data tree without rewriting live desktop data. The runtime stores records under <code>/data/data</code>, so
+          legacy Node data from <code>packages/server/data/</code> should be copied into the host folder as a
+          <code>data/</code> child, not mounted as <code>/data</code>
+          itself. Binding live app data directly can leave root-owned files on the host, so use the named volume or a
+          throwaway copied directory for Docker tests. If you already tested with a host folder such as
+          <code>.docker-de-koi-data/</code>, set <code>DE_KOI_HOST_DATA_DIR=./.docker-de-koi-data</code> to keep using
+          that folder.
         </p>
         <p>
-          The default Compose port binding is limited to <code>127.0.0.1</code>. For LAN or
-          reverse-proxy access, intentionally change the bind address and configure
-          <code>BASIC_AUTH_USER</code>/<code>BASIC_AUTH_PASS</code>, <code>IP_ALLOWLIST</code>, or another
-          explicit remote access opt-in.
+          The default Compose port binding is limited to <code>127.0.0.1</code>. For LAN or reverse-proxy access,
+          intentionally change the bind address and configure <code>BASIC_AUTH_USER</code>/<code>BASIC_AUTH_PASS</code>,
+          <code>IP_ALLOWLIST</code>, or another explicit remote access opt-in.
         </p>
         <p>To build directly from GitHub, use Docker's remote git context:</p>
         <pre><code>docker build -t de-koi-server .
@@ -383,7 +381,9 @@ docker run --rm -p 127.0.0.1:8787:8787 -v "$(pwd)/.docker-de-koi-data:/data" de-
             </tr>
             <tr>
               <td><code>pnpm check</code></td>
-              <td>Run the standard TypeScript, Rust, and docs checks together, plus a warning-only unused-code report.</td>
+              <td>
+                Run the standard TypeScript, Rust, and docs checks together, plus a warning-only unused-code report.
+              </td>
             </tr>
           </tbody>
         </table>

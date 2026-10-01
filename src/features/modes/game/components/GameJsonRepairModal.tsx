@@ -89,8 +89,8 @@ export function GameJsonRepairModal({ request, onClose, onApplied }: GameJsonRep
             <Braces size="1rem" />
           </div>
           <div className="min-w-0 text-sm text-[var(--muted-foreground)]">
-            The model returned JSON that De-Koi could not apply. Fix the brackets, commas, or fields here, then apply
-            it without regenerating the whole response.
+            The model returned JSON that De-Koi could not apply. Fix the brackets, commas, or fields here, then apply it
+            without regenerating the whole response.
           </div>
         </div>
 

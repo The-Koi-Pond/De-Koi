@@ -7,10 +7,7 @@ import {
   SHELL_PANEL_ITEMS,
   TOOLS_NAV_ITEMS,
 } from "../../shared/components/shell-navigation";
-import {
-  createMobileToolsPanels,
-  TOOLS_PANELS,
-} from "../../shared/components/mobile-shell-actions";
+import { createMobileToolsPanels, TOOLS_PANELS } from "../../shared/components/mobile-shell-actions";
 
 describe("shell navigation registry", () => {
   it("groups every shell destination exactly once with a visible label", () => {
@@ -31,7 +28,13 @@ describe("shell navigation registry", () => {
       "Presets",
       "Gallery",
     ]);
-    expect(TOOLS_NAV_ITEMS.map((item) => item.label)).toEqual(["Connections", "Agents", "Settings", "Help", "Discover"]);
+    expect(TOOLS_NAV_ITEMS.map((item) => item.label)).toEqual([
+      "Connections",
+      "Agents",
+      "Settings",
+      "Help",
+      "Discover",
+    ]);
   });
 
   it("owns every panel's icon and semantic accent exactly once", () => {
@@ -43,9 +46,7 @@ describe("shell navigation registry", () => {
   });
 
   it("keeps the mobile tools projection exactly aligned with the panel registry", () => {
-    expect(TOOLS_PANELS.map((item) => item.panel)).toEqual(
-      SHELL_PANEL_ITEMS.map((item) => item.destination),
-    );
+    expect(TOOLS_PANELS.map((item) => item.panel)).toEqual(SHELL_PANEL_ITEMS.map((item) => item.destination));
     expect(TOOLS_PANELS.every((item) => item.label.trim().length > 0 && Boolean(item.icon))).toBe(true);
   });
 
@@ -53,8 +54,6 @@ describe("shell navigation registry", () => {
     const discoverItem = SHELL_NAV_ITEMS.find((item) => item.destination === "discover");
 
     expect(discoverItem).toBeDefined();
-    expect(() => createMobileToolsPanels([discoverItem!])).toThrow(
-      "Invalid mobile tools panel destination: discover",
-    );
+    expect(() => createMobileToolsPanels([discoverItem!])).toThrow("Invalid mobile tools panel destination: discover");
   });
 });

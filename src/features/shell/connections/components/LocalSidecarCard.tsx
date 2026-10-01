@@ -90,7 +90,9 @@ export function LocalSidecarCard() {
       .catch((error) => {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Failed to load Local AI Model status";
-          setStatusLoadError(isAdminAccessError(error) ? "Admin Access required for remote Local Model status" : message);
+          setStatusLoadError(
+            isAdminAccessError(error) ? "Admin Access required for remote Local Model status" : message,
+          );
           if (!isAdminAccessError(error)) toast.error(message);
         }
       })

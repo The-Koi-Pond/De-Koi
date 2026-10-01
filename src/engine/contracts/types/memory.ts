@@ -15,12 +15,7 @@ export type MemoryScopeKind = "user" | "character" | "chat" | "scene" | "world" 
 export type KnowledgeHolderKind = "character" | "persona" | "group" | "world";
 export type KnowledgeStance = "knows" | "believes" | "suspects" | "disbelieves" | "unknown";
 export type KnowledgeEdgeStatus = "active" | "proposed" | "invalidated";
-export type KnowledgeEvidenceKind =
-  | "user_edit"
-  | "targeted_disclosure"
-  | "scene_witness"
-  | "import"
-  | "supersession";
+export type KnowledgeEvidenceKind = "user_edit" | "targeted_disclosure" | "scene_witness" | "import" | "supersession";
 
 export interface KnowledgeHolder {
   kind: KnowledgeHolderKind;

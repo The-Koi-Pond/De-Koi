@@ -9,9 +9,7 @@ export function getDraftTranslationActionState({
   isTranslating: boolean;
   canStart: boolean;
 }): { action: "cancel" | "translate"; disabled: boolean } {
-  return isTranslating
-    ? { action: "cancel", disabled: false }
-    : { action: "translate", disabled: !canStart };
+  return isTranslating ? { action: "cancel", disabled: false } : { action: "translate", disabled: !canStart };
 }
 
 export function useDraftTranslation() {

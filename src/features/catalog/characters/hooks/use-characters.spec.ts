@@ -104,7 +104,17 @@ describe("character library summary query", () => {
     expect(storageApi.list).toHaveBeenCalledWith(
       "characters",
       expect.objectContaining({
-        fields: ["id", "memoryPersistence", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
+        fields: [
+          "id",
+          "memoryPersistence",
+          "data",
+          "comment",
+          "avatarPath",
+          "avatarFilePath",
+          "avatarFilename",
+          "createdAt",
+          "updatedAt",
+        ],
         fieldSelections: {
           data: expect.arrayContaining([
             "name",
@@ -153,7 +163,17 @@ describe("chat surface character summary query", () => {
     expect(storageApi.list).toHaveBeenCalledWith(
       "characters",
       expect.objectContaining({
-        fields: ["id", "memoryPersistence", "data", "comment", "avatarPath", "avatarFilePath", "avatarFilename", "createdAt", "updatedAt"],
+        fields: [
+          "id",
+          "memoryPersistence",
+          "data",
+          "comment",
+          "avatarPath",
+          "avatarFilePath",
+          "avatarFilename",
+          "createdAt",
+          "updatedAt",
+        ],
         whereIn: { field: "id", values: ["character-1"] },
         fieldSelections: {
           data: expect.arrayContaining([

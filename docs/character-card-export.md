@@ -35,13 +35,13 @@ commands with the same `format` values.
 
 ## Supported Asset Matrix
 
-| De-Koi asset | V3 asset | CHARX path | V3 JSON | Re-imports into De-Koi |
-| --- | --- | --- | --- | --- |
-| Avatar | `icon` / `main` | `assets/icon/images/main.<ext>` | `ccdefault:` marker, reported as not included | Yes, as the avatar |
-| Public profile banner | `x-banner` / `banner`, referenced from `extensions.publicProfile.bannerImage` | `assets/other/images/banner.<ext>` | Removed, reported | Yes, as the banner |
-| Expression sprites | `emotion` / expression name | `assets/emotion/images/<expression>.<ext>` | Not included, reported | Yes, as sprites with the same expression names |
-| Gallery images | None in the standard | Not included, reported | Not included, reported | Use De-Koi Native |
-| Character memories | None | Not included, reported if requested | Not included, reported if requested | Use De-Koi Native |
+| De-Koi asset          | V3 asset                                                                      | CHARX path                                 | V3 JSON                                       | Re-imports into De-Koi                         |
+| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------- | ---------------------------------------------- |
+| Avatar                | `icon` / `main`                                                               | `assets/icon/images/main.<ext>`            | `ccdefault:` marker, reported as not included | Yes, as the avatar                             |
+| Public profile banner | `x-banner` / `banner`, referenced from `extensions.publicProfile.bannerImage` | `assets/other/images/banner.<ext>`         | Removed, reported                             | Yes, as the banner                             |
+| Expression sprites    | `emotion` / expression name                                                   | `assets/emotion/images/<expression>.<ext>` | Not included, reported                        | Yes, as sprites with the same expression names |
+| Gallery images        | None in the standard                                                          | Not included, reported                     | Not included, reported                        | Use De-Koi Native                              |
+| Character memories    | None                                                                          | Not included, reported if requested        | Not included, reported if requested           | Use De-Koi Native                              |
 
 Images are PNG, JPEG, WebP, GIF, or AVIF. CHARX import also reads `emotion`
 assets written by other apps.

@@ -20,10 +20,12 @@
 ### Task 1: Make spawned-scene POV direction coherent
 
 **Files:**
+
 - Modify: `src/engine/modes/roleplay/scene/scene-service.ts`
 - Test: `src/engine/modes/roleplay/scene/scene-service.spec.ts`
 
 **Interfaces:**
+
 - Consumes: the existing Universal preset `narration` and `pov` choices plus explicit scene/origin direction.
 - Produces: a durable `sceneSystemPrompt` that defers to those active choices and contains no unconditional third-person instruction.
 
@@ -56,10 +58,12 @@ Expected: PASS.
 ### Task 2: Lock character-owned examples into the Roleplay prompt contract
 
 **Files:**
+
 - Test: `src/engine/generation/prompt-assembly.roleplay-quality.spec.ts`
 - Review only: `src/engine/modes/roleplay/core/roleplay-prose-guidance.ts`
 
 **Interfaces:**
+
 - Consumes: character `first_mes` and `mes_example` fields and the existing compact `Roleplay Prose Guidance` injection.
 - Produces: regression proof that character example dialogue reaches the assembled prompt and is not replaced by a global sample.
 

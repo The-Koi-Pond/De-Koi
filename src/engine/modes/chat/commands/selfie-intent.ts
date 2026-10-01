@@ -96,10 +96,7 @@ function hasDirectRequestCue(tokens: string[], targetIndex: number): boolean {
     const token = tokens[i]!;
     if (token !== "can" && token !== "could" && token !== "would" && token !== "will" && token !== "may") continue;
     if (tokens[i + 1] === "you") return true;
-    if (
-      tokens[i + 1] === "i" &&
-      (tokens[i + 2] === "see" || tokens[i + 2] === "have" || tokens[i + 2] === "get")
-    ) {
+    if (tokens[i + 1] === "i" && (tokens[i + 2] === "see" || tokens[i + 2] === "have" || tokens[i + 2] === "get")) {
       return true;
     }
   }

@@ -35,9 +35,9 @@ describe("game narration formatting", () => {
   it("keeps animated narration HTML sanitized after effect wrapping", () => {
     const formatted = formatNarration(
       [
-        '**CRITICAL** arcane fire erupts.',
+        "**CRITICAL** arcane fire erupts.",
         '{glow:<img src=x onerror="alert(1)">magic}',
-        '[dice: 1d20+2 = 22]',
+        "[dice: 1d20+2 = 22]",
         '<a href="javascript:alert(4)">unsafe link</a>',
       ].join("\n"),
       false,

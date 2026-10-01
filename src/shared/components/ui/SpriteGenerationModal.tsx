@@ -535,16 +535,15 @@ export function SpriteGenerationModal({
     [fullBodyExpressionMode, generationCapacity, matchedFullBodyExpressions, selectedExpressions],
   );
   const assignmentOptions = useMemo(() => {
-    const fallbackOptions = spriteType === "full-body" && !fullBodyExpressionMode ? ALL_FULL_BODY_POSES : ALL_EXPRESSIONS;
+    const fallbackOptions =
+      spriteType === "full-body" && !fullBodyExpressionMode ? ALL_FULL_BODY_POSES : ALL_EXPRESSIONS;
     const seen = new Set<string>();
 
-    return [...cappedSelectedExpressions, ...fallbackOptions]
-      .map(normalizeSpriteLabel)
-      .filter((label) => {
-        if (!label || seen.has(label)) return false;
-        seen.add(label);
-        return true;
-      });
+    return [...cappedSelectedExpressions, ...fallbackOptions].map(normalizeSpriteLabel).filter((label) => {
+      if (!label || seen.has(label)) return false;
+      seen.add(label);
+      return true;
+    });
   }, [cappedSelectedExpressions, fullBodyExpressionMode, spriteType]);
   const previewColumnCount = generationGrid.cols;
   const canAdjustSlices = cells.some((cell) => !!cell.sourceSheetDataUrl);

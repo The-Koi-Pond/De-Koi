@@ -17,8 +17,7 @@ vi.mock("../../../../catalog/chats/index", () => ({
 }));
 
 vi.mock("../../../../../shared/stores/chat.store", () => ({
-  useChatStore: (selector: (state: { activeChatId: string }) => unknown) =>
-    selector({ activeChatId: "chat-1" }),
+  useChatStore: (selector: (state: { activeChatId: string }) => unknown) => selector({ activeChatId: "chat-1" }),
 }));
 
 describe("QuickPersonaSwitcher", () => {

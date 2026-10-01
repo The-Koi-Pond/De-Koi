@@ -20,11 +20,7 @@ import {
 } from "../../../../shared/api/roleplay-continuity-director-api";
 import { chatKeys } from "../../chats/query-keys";
 import type { StorageGateway } from "../../../../engine/capabilities/storage";
-import type {
-  Chat,
-  ChatMode,
-  RoleplayWorkflowApplicationReceipt,
-} from "../../../../engine/contracts/types/chat";
+import type { Chat, ChatMode, RoleplayWorkflowApplicationReceipt } from "../../../../engine/contracts/types/chat";
 import type { RoleplayContinuityDirectorState } from "../../../../engine/contracts/types/roleplay-continuity-director";
 import {
   buildRoleplayWorkflowProfilePatch,
@@ -428,8 +424,11 @@ function sameWorkflowResolution(
   right: RoleplayWorkflowProfileResolution,
 ): boolean {
   const comparable = (resolution: RoleplayWorkflowProfileResolution) => {
-    const { connectionId: _connectionId, hasSourceSnapshot: _hasSourceSnapshot, ...directorConfiguration } =
-      resolution.baseline.continuityDirector;
+    const {
+      connectionId: _connectionId,
+      hasSourceSnapshot: _hasSourceSnapshot,
+      ...directorConfiguration
+    } = resolution.baseline.continuityDirector;
     return {
       ...resolution,
       baseline: {

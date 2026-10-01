@@ -1,4 +1,3 @@
-
 export interface ClientDiagnosticRecord {
   id: string;
   level: "info" | "warning" | "error";

@@ -22,7 +22,7 @@ fast path.
   sanitizers that collide or delete companion files; converting legacy data
   without a compatibility row.
 - Validation commands likely relevant: `pnpm typecheck`, `pnpm build`, `cargo
-  check --manifest-path src-tauri/Cargo.toml`, `pnpm check:architecture`.
+check --manifest-path src-tauri/Cargo.toml`, `pnpm check:architecture`.
 
 ## Prompt/generation/hidden commands
 
@@ -62,7 +62,7 @@ fast path.
   without producer proof; dropping unknown events silently when diagnostics need
   them; adding a remote-only shape that embedded runtime cannot produce.
 - Validation commands likely relevant: `pnpm typecheck`, `pnpm build`, `pnpm
-  check:architecture`, `cargo check --manifest-path src-tauri/Cargo.toml`.
+check:architecture`, `cargo check --manifest-path src-tauri/Cargo.toml`.
 
 ## Cache/file cleanup/media mutations
 
@@ -100,4 +100,4 @@ fast path.
   conflating sibling identity with display labels; fixing UI state while
   persisted/imported state still has the old shape.
 - Validation commands likely relevant: `pnpm typecheck`, targeted Vitest, `pnpm
-  build`, `pnpm check:architecture`.
+build`, `pnpm check:architecture`.

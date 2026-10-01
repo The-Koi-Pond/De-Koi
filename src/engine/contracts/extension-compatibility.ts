@@ -114,9 +114,12 @@ export function extensionCompatibilityStatus(
   const normalized = assertValidExtensionCompatibility(range);
   const version = parseVersion(appVersion);
   if (!version) throw new Error("De-Koi application version must be semantic version data.");
-  const compatible = normalized
-    .split("||")
-    .some((part) => part.trim().split(/\s+/).every((token) => satisfiesComparator(version, token)));
+  const compatible = normalized.split("||").some((part) =>
+    part
+      .trim()
+      .split(/\s+/)
+      .every((token) => satisfiesComparator(version, token)),
+  );
   return compatible ? "compatible" : "incompatible";
 }
 

@@ -46,11 +46,13 @@ describe("manual character memory", () => {
       createManualCharacterMemoryInput("char-1", content, batchTimestamp),
     );
 
-    expect(batch.map(({ createdAt, updatedAt, provenance }) => ({
-      createdAt,
-      updatedAt,
-      provenanceTimestamp: provenance.timestamp,
-    }))).toEqual([
+    expect(
+      batch.map(({ createdAt, updatedAt, provenance }) => ({
+        createdAt,
+        updatedAt,
+        provenanceTimestamp: provenance.timestamp,
+      })),
+    ).toEqual([
       {
         createdAt: batchTimestamp,
         updatedAt: batchTimestamp,
@@ -200,17 +202,19 @@ describe("character memory import", () => {
     const exported = createCharacterMemoryExport({
       character: { id: "source-character", name: "Mira" },
       memories: [memory()],
-      edges: [{
-        id: "old-edge",
-        memoryId: "memory-1",
-        holder: { kind: "character", id: "source-character" },
-        stance: "believes",
-        status: "active",
-        confidence: 0.8,
-        provenance: [{ kind: "import", author: "system", messageIds: [], createdAt: "2026-07-17T12:00:00.000Z" }],
-        createdAt: "2026-07-17T12:00:00.000Z",
-        updatedAt: "2026-07-17T12:00:00.000Z",
-      }],
+      edges: [
+        {
+          id: "old-edge",
+          memoryId: "memory-1",
+          holder: { kind: "character", id: "source-character" },
+          stance: "believes",
+          status: "active",
+          confidence: 0.8,
+          provenance: [{ kind: "import", author: "system", messageIds: [], createdAt: "2026-07-17T12:00:00.000Z" }],
+          createdAt: "2026-07-17T12:00:00.000Z",
+          updatedAt: "2026-07-17T12:00:00.000Z",
+        },
+      ],
     });
 
     const imported = normalizeCharacterMemoryImportPackage(exported, {
@@ -230,10 +234,13 @@ describe("character memory import", () => {
 
   it("rejects non-character-memory envelopes", () => {
     expect(() =>
-      normalizeCharacterMemoryImport({ type: "other", version: 1 }, {
-        characterId: "target-character",
-        importedAt: "2026-07-17T13:00:00.000Z",
-      }),
+      normalizeCharacterMemoryImport(
+        { type: "other", version: 1 },
+        {
+          characterId: "target-character",
+          importedAt: "2026-07-17T13:00:00.000Z",
+        },
+      ),
     ).toThrow("De-Koi character memories v1");
   });
 

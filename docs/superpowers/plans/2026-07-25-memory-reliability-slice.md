@@ -20,12 +20,14 @@
 ### Task 1: Atomic canonical record and lexical-index consistency
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/canonical_memory.rs`
 - Modify: `src/engine/generation/canonical-memory-context.ts`
 - Test: `src-tauri/src/commands/storage/canonical_memory.rs`
 - Test: `src/engine/generation/canonical-memory-context.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `FileStorage::update_collections_atomically`, `CanonicalMemoryRecord`, `StorageGateway.queryMemoryIndexBatch`, and `StorageGateway.queryMemoriesBatch`.
 - Produces: canonical create/update commands whose active/pinned record and lexical row commit together; recall candidates that union indexed and durable canonical rows by ID.
 
@@ -72,10 +74,12 @@ Expected: all canonical-context tests pass.
 ### Task 2: Self-draining capture scheduling
 
 **Files:**
+
 - Modify: `src/engine/generation/automatic-memory-capture-queue.ts`
 - Test: `src/engine/generation/automatic-memory-capture-queue.spec.ts`
 
 **Interfaces:**
+
 - Consumes: durable `memory-capture-jobs`, `nextAttemptAt`, foreground-generation leases, and the existing queue processor.
 - Produces: one timer per `StorageGateway` that wakes the earliest future retry or immediately drains remaining due work.
 
@@ -106,6 +110,7 @@ Seed eleven due jobs, start the production scheduler once, run pending timers, a
 ### Task 3: Persist and display safe capture lifecycle state
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/chat.ts`
 - Modify: `src/engine/generation/automatic-memory-capture-queue.ts`
 - Modify: `src/features/modes/shared/chat-ui/components/MessageMemoryIndicators.tsx`
@@ -114,6 +119,7 @@ Seed eleven due jobs, start the production scheduler once, run pending timers, a
 - Test: `src/features/modes/shared/chat-ui/components/MessageMemoryIndicators.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: assistant message ID, job attempts, next retry timestamp, and `chatKeys.messages(chatId)`.
 - Produces: persisted `MessageMemoryCaptureExtra` lifecycle states and lifecycle events containing chat/message IDs but no raw errors.
 
@@ -154,9 +160,11 @@ Expected: all focused tests pass.
 ### Task 4: Cross-lane validation and shipping
 
 **Files:**
+
 - Review all files changed by Tasks 1-3.
 
 **Interfaces:**
+
 - Consumes: De-Koi repository verification and Bunny review workflows.
 - Produces: a focused PR targeting `The-Koi-Pond/De-Koi:main`.
 

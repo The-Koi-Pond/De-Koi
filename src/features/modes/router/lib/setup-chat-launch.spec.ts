@@ -22,8 +22,12 @@ describe("setup chat launch orchestration", () => {
       applyStarredPreset: vi.fn(),
       complete,
       getRecovery: () => recovery,
-      recordRecovery: (next) => { recovery = next; },
-      clearRecovery: () => { recovery = null; },
+      recordRecovery: (next) => {
+        recovery = next;
+      },
+      clearRecovery: () => {
+        recovery = null;
+      },
     });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
 
@@ -44,7 +48,11 @@ describe("setup chat launch orchestration", () => {
   });
 
   it("atomically claims the selected connection once", () => {
-    const launch = createSetupChatLaunchOrchestrator({ createChat: vi.fn(), applyStarredPreset: vi.fn(), complete: vi.fn() });
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat: vi.fn(),
+      applyStarredPreset: vi.fn(),
+      complete: vi.fn(),
+    });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
 
     expect(launch.claimSetupLaunch(request)).toEqual(expect.objectContaining({ mode: "game", connectionId: "conn-1" }));
@@ -52,7 +60,10 @@ describe("setup chat launch orchestration", () => {
   });
 
   it("releases an identified failed creation for a safe retry", async () => {
-    const createChat = vi.fn().mockRejectedValueOnce(new Error("create failed")).mockResolvedValueOnce({ id: "chat-1" });
+    const createChat = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("create failed"))
+      .mockResolvedValueOnce({ id: "chat-1" });
     const complete = vi.fn();
     const launch = createSetupChatLaunchOrchestrator({ createChat, applyStarredPreset: vi.fn(), complete });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
@@ -77,8 +88,12 @@ describe("setup chat launch orchestration", () => {
       applyStarredPreset,
       complete,
       getRecovery: () => recovery,
-      recordRecovery: (next) => { recovery = next; },
-      clearRecovery: () => { recovery = null; },
+      recordRecovery: (next) => {
+        recovery = next;
+      },
+      clearRecovery: () => {
+        recovery = null;
+      },
     });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
 
@@ -100,8 +115,12 @@ describe("setup chat launch orchestration", () => {
       applyStarredPreset,
       complete,
       getRecovery: () => recovery,
-      recordRecovery: (next) => { recovery = next; },
-      clearRecovery: () => { recovery = null; },
+      recordRecovery: (next) => {
+        recovery = next;
+      },
+      clearRecovery: () => {
+        recovery = null;
+      },
     });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
 
@@ -114,10 +133,26 @@ describe("setup chat launch orchestration", () => {
   });
 
   it("lets the latest mode replace an older uncompleted intent", () => {
-    const launch = createSetupChatLaunchOrchestrator({ createChat: vi.fn(), applyStarredPreset: vi.fn(), complete: vi.fn() });
+    const launch = createSetupChatLaunchOrchestrator({
+      createChat: vi.fn(),
+      applyStarredPreset: vi.fn(),
+      complete: vi.fn(),
+    });
 
-    expect(launch.claimSetupLaunch({ intent: intent({ journeyId: "journey-1", mode: "conversation" }), ready: true, usableConnectionIds: ["conn-1"] })?.mode).toBe("conversation");
-    expect(launch.claimSetupLaunch({ intent: intent({ journeyId: "journey-2", mode: "roleplay" }), ready: true, usableConnectionIds: ["conn-1"] })?.mode).toBe("roleplay");
+    expect(
+      launch.claimSetupLaunch({
+        intent: intent({ journeyId: "journey-1", mode: "conversation" }),
+        ready: true,
+        usableConnectionIds: ["conn-1"],
+      })?.mode,
+    ).toBe("conversation");
+    expect(
+      launch.claimSetupLaunch({
+        intent: intent({ journeyId: "journey-2", mode: "roleplay" }),
+        ready: true,
+        usableConnectionIds: ["conn-1"],
+      })?.mode,
+    ).toBe("roleplay");
   });
 
   it("preserves character origin, selected connection, and applies the starred preset once", async () => {
@@ -134,11 +169,13 @@ describe("setup chat launch orchestration", () => {
     await launch.launch(request);
     await launch.launch(request);
 
-    expect(createChat).toHaveBeenCalledWith(expect.objectContaining({
-      mode: "roleplay",
-      characterIds: ["character-1"],
-      connectionId: "conn-2",
-    }));
+    expect(createChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "roleplay",
+        characterIds: ["character-1"],
+        connectionId: "conn-2",
+      }),
+    );
     expect(applyStarredPreset).toHaveBeenCalledOnce();
     expect(applyStarredPreset).toHaveBeenCalledWith({ mode: "roleplay", chatId: "chat-1" });
     expect(complete).toHaveBeenCalledOnce();
@@ -158,7 +195,12 @@ describe("setup chat launch orchestration", () => {
 
   it("single-flights concurrent launch calls and finalizes the successful chat", async () => {
     let resolveCreate!: (chat: { id: string }) => void;
-    const createChat = vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; }));
+    const createChat = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
     const applyStarredPreset = vi.fn().mockResolvedValue(undefined);
     const complete = vi.fn();
     const launch = createSetupChatLaunchOrchestrator({ createChat, applyStarredPreset, complete });
@@ -178,7 +220,12 @@ describe("setup chat launch orchestration", () => {
     let resolveCreate!: (chat: { id: string }) => void;
     let currentIntent = intent();
     let recovery = null as import("../../../../engine/onboarding").SetupJourneyRecovery | null;
-    const createChat = vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; }));
+    const createChat = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
     const applyStarredPreset = vi.fn();
     const complete = vi.fn();
     const launch = createSetupChatLaunchOrchestrator({
@@ -187,8 +234,12 @@ describe("setup chat launch orchestration", () => {
       complete,
       getCurrentLaunchRequest: () => ({ intent: currentIntent, ready: true, usableConnectionIds: ["conn-1"] }),
       getRecovery: () => recovery,
-      recordRecovery: (next) => { recovery = next; },
-      clearRecovery: () => { recovery = null; },
+      recordRecovery: (next) => {
+        recovery = next;
+      },
+      clearRecovery: () => {
+        recovery = null;
+      },
     });
     const pending = launch.launch({ intent: currentIntent, ready: true, usableConnectionIds: ["conn-1"] });
 
@@ -203,17 +254,34 @@ describe("setup chat launch orchestration", () => {
 
   it("coalesces an intent replacement while creation is in flight without orphaning the chat", async () => {
     let resolveCreate!: (chat: { id: string }) => void;
-    const createChat = vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; }));
+    const createChat = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
     const applyStarredPreset = vi.fn().mockResolvedValue(undefined);
     const complete = vi.fn();
     const launch = createSetupChatLaunchOrchestrator({ createChat, applyStarredPreset, complete });
 
-    const first = launch.launch({ intent: intent({ journeyId: "journey-1", mode: "conversation" }), ready: true, usableConnectionIds: ["conn-1"] });
-    const replacement = launch.launch({ intent: intent({ journeyId: "journey-2", mode: "roleplay" }), ready: true, usableConnectionIds: ["conn-1"] });
+    const first = launch.launch({
+      intent: intent({ journeyId: "journey-1", mode: "conversation" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    });
+    const replacement = launch.launch({
+      intent: intent({ journeyId: "journey-2", mode: "roleplay" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    });
     expect(createChat).toHaveBeenCalledOnce();
     resolveCreate({ id: "chat-1" });
     await Promise.all([first, replacement]);
-    await launch.launch({ intent: intent({ journeyId: "journey-2", mode: "roleplay" }), ready: true, usableConnectionIds: ["conn-1"] });
+    await launch.launch({
+      intent: intent({ journeyId: "journey-2", mode: "roleplay" }),
+      ready: true,
+      usableConnectionIds: ["conn-1"],
+    });
 
     expect(createChat).toHaveBeenCalledOnce();
     expect(applyStarredPreset).toHaveBeenCalledOnce();
@@ -231,7 +299,12 @@ describe("setup chat launch orchestration", () => {
     const applyStarredPreset = vi.fn().mockResolvedValue(undefined);
     const complete = vi.fn();
     const launch = createSetupChatLaunchOrchestrator({
-      createChat: vi.fn(() => new Promise<{ id: string }>((resolve) => { resolveCreate = resolve; })),
+      createChat: vi.fn(
+        () =>
+          new Promise<{ id: string }>((resolve) => {
+            resolveCreate = resolve;
+          }),
+      ),
       reconcileChat,
       getCurrentLaunchRequest: () => currentRequest,
       resolveCharacterLaunchContext: vi.fn().mockResolvedValue({ characterName: "Mira", firstMessage: "Hello" }),
@@ -242,21 +315,32 @@ describe("setup chat launch orchestration", () => {
 
     const pending = launch.launch(currentRequest);
     currentRequest = {
-      intent: intent({ journeyId: "journey-2", mode: "roleplay", originCharacterId: "character-1", selectedConnectionId: "conn-2" }),
+      intent: intent({
+        journeyId: "journey-2",
+        mode: "roleplay",
+        originCharacterId: "character-1",
+        selectedConnectionId: "conn-2",
+      }),
       ready: true,
       usableConnectionIds: ["conn-1", "conn-2"],
     };
     resolveCreate({ id: "chat-1" });
     await pending;
 
-    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, {
-      name: "Mira - Roleplay",
-      mode: "roleplay",
-      characterIds: ["character-1"],
-      connectionId: "conn-2",
-    });
+    expect(reconcileChat).toHaveBeenCalledWith(
+      { id: "chat-1" },
+      {
+        name: "Mira - Roleplay",
+        mode: "roleplay",
+        characterIds: ["character-1"],
+        connectionId: "conn-2",
+      },
+    );
     expect(applyStarredPreset).toHaveBeenCalledWith({ mode: "roleplay", chatId: "chat-1" });
-    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({ journeyId: "journey-2", mode: "roleplay" }));
+    expect(complete).toHaveBeenCalledWith(
+      { id: "chat-1" },
+      expect.objectContaining({ journeyId: "journey-2", mode: "roleplay" }),
+    );
   });
 
   it("resolves current character metadata and initializes resumed character chat like the direct path", async () => {
@@ -279,7 +363,9 @@ describe("setup chat launch orchestration", () => {
     });
 
     expect(resolveCharacterLaunchContext).toHaveBeenCalledWith("character-1");
-    expect(createChat).toHaveBeenCalledWith(expect.objectContaining({ name: "Mira - Roleplay", characterIds: ["character-1"] }));
+    expect(createChat).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Mira - Roleplay", characterIds: ["character-1"] }),
+    );
     expect(initializeCharacterChat).toHaveBeenCalledWith(
       "chat-1",
       "character-1",
@@ -298,11 +384,13 @@ describe("setup chat launch orchestration", () => {
       initializeCharacterChat: vi.fn().mockRejectedValue(new Error("message failed")),
     });
 
-    await expect(launch.launch({
-      intent: intent({ mode: "roleplay", originCharacterId: "character-1" }),
-      ready: true,
-      usableConnectionIds: ["conn-1"],
-    })).resolves.toEqual({ id: "chat-1" });
+    await expect(
+      launch.launch({
+        intent: intent({ mode: "roleplay", originCharacterId: "character-1" }),
+        ready: true,
+        usableConnectionIds: ["conn-1"],
+      }),
+    ).resolves.toEqual({ id: "chat-1" });
     expect(complete).toHaveBeenCalledOnce();
   });
 
@@ -342,8 +430,12 @@ describe("setup chat launch orchestration", () => {
       initializeCharacterChat,
       complete: vi.fn().mockRejectedValue(new Error("activation failed")),
       getRecovery: () => recovery,
-      recordRecovery: (next) => { recovery = next; },
-      clearRecovery: () => { recovery = null; },
+      recordRecovery: (next) => {
+        recovery = next;
+      },
+      clearRecovery: () => {
+        recovery = null;
+      },
     });
     await expect(first.launch(request)).rejects.toThrow("activation failed");
     expect(recovery).toEqual({ createdChatId: "chat-1", journeyId: "journey-1", stage: "finalizing" });
@@ -359,8 +451,12 @@ describe("setup chat launch orchestration", () => {
       initializeCharacterChat,
       complete,
       getRecovery: () => recovery,
-      recordRecovery: (next) => { recovery = next; },
-      clearRecovery: () => { recovery = null; },
+      recordRecovery: (next) => {
+        recovery = next;
+      },
+      clearRecovery: () => {
+        recovery = null;
+      },
     });
 
     await expect(second.launch(request)).resolves.toEqual({ id: "chat-1" });
@@ -386,8 +482,14 @@ describe("setup chat launch orchestration", () => {
       createChat: vi.fn().mockResolvedValue({ id: "chat-1" }),
       reconcileChat,
       getCurrentLaunchRequest: () => currentRequest,
-      applyStarredPreset: vi.fn()
-        .mockImplementationOnce(() => new Promise<void>((resolve) => { resolvePreset = resolve; }))
+      applyStarredPreset: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              resolvePreset = resolve;
+            }),
+        )
         .mockResolvedValue(undefined),
       complete,
     });
@@ -402,14 +504,20 @@ describe("setup chat launch orchestration", () => {
     resolvePreset();
     await pending;
 
-    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
-      mode: "roleplay",
-      characterIds: ["character-2"],
-    }));
-    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
-      journeyId: "journey-2",
-      mode: "roleplay",
-    }));
+    expect(reconcileChat).toHaveBeenCalledWith(
+      { id: "chat-1" },
+      expect.objectContaining({
+        mode: "roleplay",
+        characterIds: ["character-2"],
+      }),
+    );
+    expect(complete).toHaveBeenCalledWith(
+      { id: "chat-1" },
+      expect.objectContaining({
+        journeyId: "journey-2",
+        mode: "roleplay",
+      }),
+    );
   });
 
   it("removes stale greeting initialization when intent changes during the awaited initializer", async () => {
@@ -427,9 +535,12 @@ describe("setup chat launch orchestration", () => {
       reconcileChat,
       getCurrentLaunchRequest: () => currentRequest,
       resolveCharacterLaunchContext: vi.fn().mockResolvedValue({ characterName: "Old", firstMessage: "Old hello" }),
-      initializeCharacterChat: vi.fn(() => new Promise<{ cleanup: () => Promise<void> }>((resolve) => {
-        resolveGreeting = resolve;
-      })),
+      initializeCharacterChat: vi.fn(
+        () =>
+          new Promise<{ cleanup: () => Promise<void> }>((resolve) => {
+            resolveGreeting = resolve;
+          }),
+      ),
       applyStarredPreset: vi.fn(),
       complete,
     });
@@ -445,13 +556,19 @@ describe("setup chat launch orchestration", () => {
     await pending;
 
     expect(cleanup).toHaveBeenCalledOnce();
-    expect(reconcileChat).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
-      mode: "conversation",
-      characterIds: [],
-    }));
-    expect(complete).toHaveBeenCalledWith({ id: "chat-1" }, expect.objectContaining({
-      journeyId: "journey-2",
-      mode: "conversation",
-    }));
+    expect(reconcileChat).toHaveBeenCalledWith(
+      { id: "chat-1" },
+      expect.objectContaining({
+        mode: "conversation",
+        characterIds: [],
+      }),
+    );
+    expect(complete).toHaveBeenCalledWith(
+      { id: "chat-1" },
+      expect.objectContaining({
+        journeyId: "journey-2",
+        mode: "conversation",
+      }),
+    );
   });
 });

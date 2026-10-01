@@ -6,10 +6,10 @@ De-Koi is in pre-alpha. Only the latest state of the `main` branch and the most
 recent pre-alpha build are supported. Older builds do not receive security
 fixes — please update before reporting an issue.
 
-| Version | Supported |
-| ------------------------ | ------------------ |
+| Version                   | Supported          |
+| ------------------------- | ------------------ |
 | `main` / latest pre-alpha | :white_check_mark: |
-| Older builds | :x: |
+| Older builds              | :x:                |
 
 ## Reporting a Vulnerability
 

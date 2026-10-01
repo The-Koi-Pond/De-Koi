@@ -69,9 +69,7 @@ export function QuestObjectiveRow({
           editHintMode={wrapsText ? "overlay" : "inline"}
           className={cn(
             "tracker-quest-objective-row__edit",
-            wrapsText
-              ? "tracker-quest-objective-row__edit--wrapped"
-              : "tracker-quest-objective-row__edit--single-line",
+            wrapsText ? "tracker-quest-objective-row__edit--wrapped" : "tracker-quest-objective-row__edit--single-line",
             objective.completed && "tracker-quest-objective-row__edit--completed",
           )}
         />

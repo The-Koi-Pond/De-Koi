@@ -98,7 +98,11 @@ export const gameSceneAnalysisStructuredSchema = z
     background: nullableString,
     weather: weatherSchema,
     timeOfDay: timeOfDaySchema,
-    elapsedMinutes: finiteNumber.min(0).max(24 * 60).nullable().optional(),
+    elapsedMinutes: finiteNumber
+      .min(0)
+      .max(24 * 60)
+      .nullable()
+      .optional(),
     locationKind: z.enum(LOCATION_KINDS).nullable(),
     musicGenre: z.enum(MUSIC_GENRES).nullable().optional(),
     musicIntensity: z.enum(MUSIC_INTENSITIES).nullable().optional(),

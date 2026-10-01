@@ -338,9 +338,7 @@ export function buildSceneAnalyzerUserPrompt(
     `  "elapsedMinutes": <number | null>,`,
     `  "locationKind": "<${locationKindOptions}>",`,
     ...(useMusicDj
-      ? [
-          `  "musicTrack": ${musicOptions.length > 0 ? `null OR "<one id from MUSIC TRACK OPTIONS>"` : "null"},`,
-        ]
+      ? [`  "musicTrack": ${musicOptions.length > 0 ? `null OR "<one id from MUSIC TRACK OPTIONS>"` : "null"},`]
       : useSpotifyMusic
         ? [
             `  "spotifyTrack": ${spotifyOptions.length > 0 ? `null OR "<one Spotify URI from SPOTIFY TRACK OPTIONS>"` : "null"},`,

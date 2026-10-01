@@ -168,4 +168,3 @@ describe("CharacterPublicProfileCard", () => {
     expect(onPlayMusic).toHaveBeenCalledTimes(1);
   });
 });
-

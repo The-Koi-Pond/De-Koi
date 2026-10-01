@@ -105,10 +105,26 @@ describe("game narration voice planning", () => {
   it("skips user/system/thought/player-owned narration for game voice", () => {
     const playerNames = getGameVoicePlayerSpeakerNames("Traveler");
 
-    expect(getGameSegmentVoiceRequest(segment({ sourceRole: "user" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
-    expect(getGameSegmentVoiceRequest(segment({ sourceRole: "system" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
-    expect(getGameSegmentVoiceRequest(segment({ partyType: "thought" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
-    expect(getGameSegmentVoiceRequest(segment({ speaker: "Traveler" }), baseTtsConfig, [], { playerSpeakerNames: playerNames })).toBeNull();
+    expect(
+      getGameSegmentVoiceRequest(segment({ sourceRole: "user" }), baseTtsConfig, [], {
+        playerSpeakerNames: playerNames,
+      }),
+    ).toBeNull();
+    expect(
+      getGameSegmentVoiceRequest(segment({ sourceRole: "system" }), baseTtsConfig, [], {
+        playerSpeakerNames: playerNames,
+      }),
+    ).toBeNull();
+    expect(
+      getGameSegmentVoiceRequest(segment({ partyType: "thought" }), baseTtsConfig, [], {
+        playerSpeakerNames: playerNames,
+      }),
+    ).toBeNull();
+    expect(
+      getGameSegmentVoiceRequest(segment({ speaker: "Traveler" }), baseTtsConfig, [], {
+        playerSpeakerNames: playerNames,
+      }),
+    ).toBeNull();
     expect(
       getGameSegmentVoiceRequest(
         segment({ type: "narration", speaker: undefined, content: "[Traveler] looks around." }),
@@ -198,7 +214,9 @@ describe("game narration voice planning", () => {
     await expect(resolveGameVoiceEntryPlan({ plan: plan!, cache, pending })).resolves.toBe(false);
     expect(pending.has(key!)).toBe(false);
     expect(cache.has(key!)).toBe(false);
-    expect(queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache, pending })).not.toBeNull();
+    expect(
+      queueGameVoiceEntryPlan({ key, requests: [request!], config: baseTtsConfig, cache, pending }),
+    ).not.toBeNull();
   });
 
   it("aborts stale config plans before caching generated audio", async () => {

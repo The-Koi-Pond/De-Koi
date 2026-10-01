@@ -99,13 +99,15 @@ describe("detached Deki send", () => {
       attachments: [],
       chatAccessGrants: [grant],
       history: {
-        appendMessage: vi.fn(async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => ({
-          id: `${message.role}-1`,
-          role: message.role,
-          content: message.content,
-          createdAt: "2026-06-25T12:00:00.000Z",
-          action: "action" in message ? message.action : null,
-        })),
+        appendMessage: vi.fn(
+          async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => ({
+            id: `${message.role}-1`,
+            role: message.role,
+            content: message.content,
+            createdAt: "2026-06-25T12:00:00.000Z",
+            action: "action" in message ? message.action : null,
+          }),
+        ),
         saveCompaction: vi.fn(),
       },
       llm: {
@@ -168,13 +170,15 @@ describe("detached Deki send", () => {
       attachments: [],
       webResearchGrants: [grant],
       history: {
-        appendMessage: vi.fn(async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => ({
-          id: `${message.role}-2`,
-          role: message.role,
-          content: message.content,
-          createdAt: "2026-06-28T12:00:02.000Z",
-          action: "action" in message ? message.action : null,
-        })),
+        appendMessage: vi.fn(
+          async (message: { role: "user" | "assistant"; content: string; action?: DekiEntryAction | null }) => ({
+            id: `${message.role}-2`,
+            role: message.role,
+            content: message.content,
+            createdAt: "2026-06-28T12:00:02.000Z",
+            action: "action" in message ? message.action : null,
+          }),
+        ),
         saveCompaction: vi.fn(),
       },
       llm: {

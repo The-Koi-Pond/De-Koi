@@ -20,10 +20,12 @@
 ### Task 1: Add the shared copy contract
 
 **Files:**
+
 - Create: `src/features/modes/shared/chat-ui/lib/memory-recall-copy.ts`
 - Create: `src/features/modes/shared/chat-ui/lib/memory-recall-copy.spec.ts`
 
 **Interfaces:**
+
 - Consumes: a finite read-behind message count from existing chat metadata.
 - Produces: `MEMORY_RECALL_TOGGLE_DESCRIPTION`, `MEMORY_RECALL_SECTION_HELP`, `MEMORY_RECALL_CONSOLE_DESCRIPTION`, and `memoryRecallContinuityDetail(enabled, readBehindMessages)`.
 
@@ -50,6 +52,7 @@ Expected: PASS.
 ### Task 2: Apply the contract to user-facing surfaces
 
 **Files:**
+
 - Modify: `src/features/modes/shared/chat-ui/components/ChatSettingsDrawer.tsx`
 - Modify: `src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx`
 - Modify: `src/features/modes/shared/chat-ui/lib/continuity-overview.ts`
@@ -58,6 +61,7 @@ Expected: PASS.
 - Modify: `src/features/shell/discovery/discovery-registry.spec.ts`
 
 **Interfaces:**
+
 - Consumes: the Task 1 copy exports.
 - Produces: consistent Chat Settings, Continuity, Memory Console, and Discover explanations.
 
@@ -84,9 +88,11 @@ Expected: PASS.
 ### Task 3: Validate and publish
 
 **Files:**
+
 - Review all files changed by Tasks 1-2.
 
 **Interfaces:**
+
 - Consumes: completed copy correction.
 - Produces: one reviewed, merged PR closing #1053.
 

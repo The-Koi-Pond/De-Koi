@@ -27,6 +27,7 @@
 ### Task 1: Share the mounted chat query definitions
 
 **Files:**
+
 - Create: `src/features/catalog/chats/lib/chat-summary-projection.ts`
 - Create: `src/features/catalog/chats/lib/recent-message-content-edits.ts`
 - Create: `src/features/catalog/chats/chat-query-options.ts`
@@ -37,6 +38,7 @@
 - Modify: `src/app/boot-shell-boundary.spec.ts`
 
 **Interfaces:**
+
 - Produces: `chatDetailQueryOptions(chatId: string)`
 - Produces: `chatMessagesInfiniteQueryOptions(chatId: string, pageSize?: number)`
 - Produces through `sidebar.ts`: the two factories, `chatKeys`, and `ChatListItem`
@@ -101,7 +103,11 @@ describe("chat query options", () => {
 
     await queryClient.prefetchQuery(chatDetailQueryOptions("chat-1"));
 
-    expect(storageMocks.get).toHaveBeenCalledWith("chats", "chat-1", expect.objectContaining({ fields: expect.any(Array) }));
+    expect(storageMocks.get).toHaveBeenCalledWith(
+      "chats",
+      "chat-1",
+      expect.objectContaining({ fields: expect.any(Array) }),
+    );
     expect(queryClient.getQueryData(chatKeys.detail("chat-1"))).toEqual(chat);
   });
 
@@ -129,10 +135,7 @@ Extend `src/app/boot-shell-boundary.spec.ts` with this startup-boundary regressi
 ```ts
 it("keeps predictive chat queries out of the broad chat hook bundle", () => {
   const sidebarSource = readFileSync(join(currentDir, "../features/catalog/chats/sidebar.ts"), "utf8");
-  const queryOptionsSource = readFileSync(
-    join(currentDir, "../features/catalog/chats/chat-query-options.ts"),
-    "utf8",
-  );
+  const queryOptionsSource = readFileSync(join(currentDir, "../features/catalog/chats/chat-query-options.ts"), "utf8");
 
   expect(sidebarSource).toContain('from "./chat-query-options"');
   expect(sidebarSource).not.toContain('from "./hooks/use-chats"');
@@ -189,10 +192,7 @@ export function chatDetailQueryOptions(chatId: string) {
   });
 }
 
-export function chatMessagesInfiniteQueryOptions(
-  chatId: string,
-  pageSize: number = DEFAULT_CHAT_MESSAGE_PAGE_SIZE,
-) {
+export function chatMessagesInfiniteQueryOptions(chatId: string, pageSize: number = DEFAULT_CHAT_MESSAGE_PAGE_SIZE) {
   return infiniteQueryOptions({
     queryKey: chatKeys.messages(chatId),
     queryFn: ({ pageParam, signal }) => {
@@ -288,6 +288,7 @@ Otherwise leave the verified changes uncommitted and continue only if the user r
 ### Task 2: Reuse the exact mode import promises
 
 **Files:**
+
 - Create: `src/features/modes/router/mode-route-loaders.ts`
 - Create: `src/features/modes/router/mode-route-loaders.spec.ts`
 - Create: `src/features/modes/router/preload.ts`
@@ -297,6 +298,7 @@ Otherwise leave the verified changes uncommitted and continue only if the user r
 - Modify: `src/app/shell/app-shell-mode-boundary.spec.ts`
 
 **Interfaces:**
+
 - Produces: `MODE_ROUTE_LOADERS`
 - Produces: `preloadModeRoute(mode: ChatMode, loaders?: ModeRoutePreloaders): Promise<void>`
 - Produces: `loadModeSurface()` for both React `lazy()` and speculative warming
@@ -430,10 +432,12 @@ git commit -m "Share predictive mode loaders"
 ### Task 3: Build the bounded predictive preload controller
 
 **Files:**
+
 - Create: `src/app/shell/predictive-chat-preload.ts`
 - Create: `src/app/shell/predictive-chat-preload.spec.ts`
 
 **Interfaces:**
+
 - Produces: `selectRecentPredictiveChats(chats, activeChatId, limit?)`
 - Produces: `createPredictiveChatPreloadController(dependencies, capacity?)`
 - Produces: `scheduleIdlePredictiveChatPreloads(candidates, preload, requestIdle?)`
@@ -453,9 +457,22 @@ import {
 } from "./predictive-chat-preload";
 
 function chat(id: string, updatedAt: string): ChatListItem {
-  return { id, name: id, mode: "conversation", characterIds: [], groupId: null, personaId: null,
-    promptPresetId: null, connectionId: null, folderId: null, sortOrder: 0, connectedChatId: null,
-    createdAt: updatedAt, updatedAt, metadata: {} };
+  return {
+    id,
+    name: id,
+    mode: "conversation",
+    characterIds: [],
+    groupId: null,
+    personaId: null,
+    promptPresetId: null,
+    connectionId: null,
+    folderId: null,
+    sortOrder: 0,
+    connectedChatId: null,
+    createdAt: updatedAt,
+    updatedAt,
+    metadata: {},
+  };
 }
 
 function dependencies(): PredictiveChatPreloadDependencies {
@@ -474,9 +491,13 @@ function dependencies(): PredictiveChatPreloadDependencies {
 describe("predictive chat preload", () => {
   it("selects the three newest non-active chats", () => {
     const selected = selectRecentPredictiveChats(
-      [chat("old", "2026-08-01T01:00:00Z"), chat("active", "2026-08-01T04:00:00Z"),
-       chat("new", "2026-08-01T03:00:00Z"), chat("middle", "2026-08-01T02:00:00Z"),
-       chat("oldest", "2026-08-01T00:00:00Z")],
+      [
+        chat("old", "2026-08-01T01:00:00Z"),
+        chat("active", "2026-08-01T04:00:00Z"),
+        chat("new", "2026-08-01T03:00:00Z"),
+        chat("middle", "2026-08-01T02:00:00Z"),
+        chat("oldest", "2026-08-01T00:00:00Z"),
+      ],
       "active",
     );
     expect(selected.map((item) => item.id)).toEqual(["new", "middle", "old"]);
@@ -536,13 +557,22 @@ describe("predictive chat preload", () => {
   it("runs idle candidates sequentially", async () => {
     const callbacks: Array<() => void> = [];
     let releaseFirst!: () => void;
-    const preload = vi.fn()
-      .mockImplementationOnce(() => new Promise<void>((resolve) => { releaseFirst = resolve; }))
+    const preload = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          }),
+      )
       .mockResolvedValue(undefined);
     scheduleIdlePredictiveChatPreloads(
       [chat("one", "2026-08-01T01:00:00Z"), chat("two", "2026-08-01T02:00:00Z")],
       preload,
-      (callback) => { callbacks.push(callback); return () => undefined; },
+      (callback) => {
+        callbacks.push(callback);
+        return () => undefined;
+      },
     );
     callbacks.shift()?.();
     expect(preload).toHaveBeenCalledTimes(1);
@@ -607,10 +637,7 @@ export function selectRecentPredictiveChats(
     .slice(0, Math.max(0, limit));
 }
 
-export function createPredictiveChatPreloadController(
-  dependencies: PredictiveChatPreloadDependencies,
-  capacity = 3,
-) {
+export function createPredictiveChatPreloadController(dependencies: PredictiveChatPreloadDependencies, capacity = 3) {
   let activeChatId: string | null = null;
   const entries: SpeculativeEntry[] = [];
   const inFlight = new Map<string, Promise<void>>();
@@ -687,7 +714,9 @@ export function scheduleIdlePredictiveChatPreloads(
       if (cancelled) return;
       const next = queue.shift();
       if (!next) return;
-      void preload(next).catch(() => undefined).finally(scheduleNext);
+      void preload(next)
+        .catch(() => undefined)
+        .finally(scheduleNext);
     });
   };
   scheduleNext();
@@ -726,10 +755,12 @@ git commit -m "Add bounded chat preload controller"
 ### Task 4: Bind the predictor to TanStack Query and sidebar intent
 
 **Files:**
+
 - Create: `src/app/shell/use-predictive-chat-preload.ts`
 - Modify: `src/app/shell/ChatSidebar.tsx:1-70,240-300,887-930`
 
 **Interfaces:**
+
 - Consumes: Task 1 query factories and keys
 - Consumes: Task 2 `loadModeSurface` and `preloadModeRoute`
 - Consumes: Task 3 controller, selector, idle scheduler, and intent handlers
@@ -773,8 +804,7 @@ export function usePredictiveChatPreload({
         hasMessages: (chatId) => queryClient.getQueryData(chatKeys.messages(chatId)) !== undefined,
         preloadSurface: loadModeSurface,
         preloadRoute: preloadModeRoute,
-        prefetchDetail: (chatId) =>
-          queryClient.prefetchQuery({ ...chatDetailQueryOptions(chatId), retry: false }),
+        prefetchDetail: (chatId) => queryClient.prefetchQuery({ ...chatDetailQueryOptions(chatId), retry: false }),
         prefetchMessages: (chatId) =>
           queryClient.prefetchInfiniteQuery({
             ...chatMessagesInfiniteQueryOptions(chatId, PREDICTIVE_MESSAGE_PAGE_SIZE),
@@ -788,16 +818,10 @@ export function usePredictiveChatPreload({
 
   useEffect(() => controller.setActiveChatId(activeChatId), [activeChatId, controller]);
 
-  const recentCandidates = useMemo(
-    () => selectRecentPredictiveChats(chats, activeChatId),
-    [activeChatId, chats],
-  );
+  const recentCandidates = useMemo(() => selectRecentPredictiveChats(chats, activeChatId), [activeChatId, chats]);
   const preload = useCallback((chat: PredictiveChatCandidate) => controller.preload(chat), [controller]);
 
-  useEffect(
-    () => scheduleIdlePredictiveChatPreloads(recentCandidates, preload),
-    [preload, recentCandidates],
-  );
+  useEffect(() => scheduleIdlePredictiveChatPreloads(recentCandidates, preload), [preload, recentCandidates]);
 
   return useCallback((chat: PredictiveChatCandidate) => void preload(chat), [preload]);
 }
@@ -868,10 +892,12 @@ git commit -m "Preload likely chats before selection"
 ### Task 5: Verify real browser behavior and final scope
 
 **Files:**
+
 - Review only: all files changed in Tasks 1-4
 - Update only if evidence requires it: `docs/superpowers/specs/2026-08-01-predictive-chat-preload-design.md`
 
 **Interfaces:**
+
 - Proves: warmed selection reuses code/data without hidden mode execution
 - Proves: cold/failure paths retain current behavior
 

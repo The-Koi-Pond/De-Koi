@@ -424,11 +424,7 @@ function retainBeforeUnloadFlush() {
   };
 }
 
-function patchGameStateField<K extends GameStatePatchField>(
-  chatId: string,
-  field: K,
-  value: GameStatePatchValue[K],
-) {
+function patchGameStateField<K extends GameStatePatchField>(chatId: string, field: K, value: GameStatePatchValue[K]) {
   const store = useGameStateStore.getState();
   if (store.refreshingChatId === chatId) return;
   const prev = getCurrentGameStateForChat(chatId);

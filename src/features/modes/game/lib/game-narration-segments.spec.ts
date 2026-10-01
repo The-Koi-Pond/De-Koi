@@ -61,12 +61,7 @@ describe("game narration segment parsing", () => {
   it("stamps parsed segments with source identity and rendered indexes", () => {
     const segments = parseNarrationSegments(
       message(
-        [
-          "Narration: Start.",
-          "[Note: First clue]",
-          '[Amber][main]: "Ready."',
-          '"Hi," Lisa said.',
-        ].join("\n"),
+        ["Narration: Start.", "[Note: First clue]", '[Amber][main]: "Ready."', '"Hi," Lisa said.'].join("\n"),
         "user",
       ),
       new Map(),
@@ -91,7 +86,7 @@ describe("game narration segment parsing", () => {
       "Narration: Fourth beat.",
     ].join("\n");
 
-    expect(truncateMessageContentAtSegment(raw, 1)).toBe('Narration: First beat.\n[Note: Keep this [nested] note]');
+    expect(truncateMessageContentAtSegment(raw, 1)).toBe("Narration: First beat.\n[Note: Keep this [nested] note]");
     expect(truncateMessageContentAtSegment(raw, -1)).toBe("");
   });
 
@@ -149,7 +144,12 @@ describe("game narration segment parsing", () => {
 
     expect(segments).toEqual([
       expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "See", sourceSegmentIndex: 0 }),
-      expect.objectContaining({ type: "readable", readableType: "book", readableContent: "field notes", sourceSegmentIndex: 1 }),
+      expect.objectContaining({
+        type: "readable",
+        readableType: "book",
+        readableContent: "field notes",
+        sourceSegmentIndex: 1,
+      }),
       expect.objectContaining({ type: "dialogue", speaker: "Amber", content: "later.", sourceSegmentIndex: 2 }),
     ]);
     expect(truncateMessageContentAtSegment(raw, 0)).toBe('Dialogue [Amber]: "See"');
@@ -169,12 +169,14 @@ describe("game narration segment parsing", () => {
     ]);
     expect(truncateMessageContentAtSegment(raw, 0)).toBe('"Hi," Amber said.');
     expect(truncateMessageContentAtSegment(raw, 1)).toBe('"Hi," Amber said. The torch flared.');
-    expect(truncateMessageContentAtSegment(raw, 2)).toBe('"Hi," Amber said. The torch flared. "Careful," Lisa whispered.');
+    expect(truncateMessageContentAtSegment(raw, 2)).toBe(
+      '"Hi," Amber said. The torch flared. "Careful," Lisa whispered.',
+    );
     expect(truncateMessageContentAtSegment(raw, 3)).toBe(raw);
   });
 
   it("splits mixed readable and inline-dialogue narration the same way truncation counts it", () => {
-    const raw = ['Narration: Intro.', "[Note: First clue]", '"Hi," Amber said. Tail.'].join("\n");
+    const raw = ["Narration: Intro.", "[Note: First clue]", '"Hi," Amber said. Tail.'].join("\n");
     const segments = parseNarrationSegments(message(raw), new Map());
 
     expect(segments).toEqual([

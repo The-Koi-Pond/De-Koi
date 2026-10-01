@@ -209,9 +209,7 @@ describe("diagnostics model", () => {
   });
 
   it("rolls section status up by severity", () => {
-    expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "warning" }, { status: "degraded" }])).toBe(
-      "warning",
-    );
+    expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "warning" }, { status: "degraded" }])).toBe("warning");
     expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "error" }, { status: "warning" }])).toBe("error");
     expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "ok" }])).toBe("ok");
     expect(diagnosticsOverallStatus([{ status: "ok" }, { status: "unknown" }])).toBe("ok");

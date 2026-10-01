@@ -38,10 +38,7 @@ export interface StoryArcPlan {
   lastMessageId: string;
 }
 
-export function getEffectiveStoryConsolidationEnabled(
-  chatMode: string,
-  metadata: Partial<ChatMetadata>,
-): boolean {
+export function getEffectiveStoryConsolidationEnabled(chatMode: string, metadata: Partial<ChatMetadata>): boolean {
   if (chatMode !== "roleplay" && chatMode !== "visual_novel") return false;
   if (metadata.enableStoryConsolidation === false || metadata.enableCanonicalMemoryRecall === false) return false;
   return getEffectiveMemoryRecallEnabled(chatMode, metadata);
@@ -101,7 +98,8 @@ export function planEpisodeCoverage(input: {
   } else {
     if (run.length < STORY_EPISODE_MESSAGE_THRESHOLD) return null;
     const boundaryIndex = run.findIndex(
-      (message, index) => index >= STORY_EPISODE_MESSAGE_THRESHOLD - 1 && readString(message.role).trim() === "assistant",
+      (message, index) =>
+        index >= STORY_EPISODE_MESSAGE_THRESHOLD - 1 && readString(message.role).trim() === "assistant",
     );
     if (boundaryIndex < 0) return null;
     selected = run.slice(0, boundaryIndex + 1);

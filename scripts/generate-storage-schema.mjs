@@ -125,7 +125,7 @@ const collectionMetadata = {
     model: "Agent memory key/value row",
     confidence: "Rust-normalized",
     notes:
-      '`agentConfigId`, `chatId`, `key`, and JSON-string `value`. Agent-owned memory remains scoped by agent configuration and chat. Legacy rows remain readable for compatibility.',
+      "`agentConfigId`, `chatId`, `key`, and JSON-string `value`. Agent-owned memory remains scoped by agent configuration and chat. Legacy rows remain readable for compatibility.",
   },
   themes: {
     model: "`Theme`",
