@@ -993,10 +993,13 @@ async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<
   });
 }
 
-// Concurrent readers share one first-run migration. Otherwise every caller that
-// finds no durable sessions creates the default session, and all but the first
-// create fail with "deki-sessions/deki-session-default already exists".
-let legacyHistoryMigration: Promise<DekiSessionsState> | null = null;
+// Session reads and writes wait for one shared step that makes durable history
+// exist: either sessions are already stored, or the legacy settings history is
+// migrated into them. Without it, concurrent first readers each create the
+// default session ("deki-sessions/deki-session-default already exists"), and a
+// caller can act on rows a migration has only partly written.
+let durableHistoryPrepared = false;
+let durableHistoryPreparation: Promise<DekiSessionsState | null> | null = null;
 
 async function migrateLegacyDekiHistory(): Promise<DekiSessionsState> {
   const legacy = normalizeDekiSessionsState(await readSettingsValue());
@@ -1005,14 +1008,40 @@ async function migrateLegacyDekiHistory(): Promise<DekiSessionsState> {
   return legacy;
 }
 
+/** Resolves to the migrated state when this preparation migrated, else null. */
+function prepareDurableDekiHistory(): Promise<DekiSessionsState | null> {
+  durableHistoryPreparation ??= (async () => {
+    const sessions = await storageApi.list<DekiSessionRecord>("deki-sessions");
+    const migrated = sessions.length > 0 ? null : await migrateLegacyDekiHistory();
+    durableHistoryPrepared = true;
+    return migrated;
+  })().finally(() => {
+    // A failed preparation leaves durableHistoryPrepared false, so the next
+    // caller retries it.
+    durableHistoryPreparation = null;
+  });
+  return durableHistoryPreparation;
+}
+
+async function ensureDurableDekiHistory(): Promise<DekiSessionsState | null> {
+  if (durableHistoryPrepared && !durableHistoryPreparation) return null;
+  return prepareDurableDekiHistory();
+}
+
 async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
+  const migrated = await ensureDurableDekiHistory();
+  if (migrated) return migrated;
   const durable = await readDurableSessionsState(hydrateSessionId);
   if (durable) return durable;
 
-  legacyHistoryMigration ??= migrateLegacyDekiHistory().finally(() => {
-    legacyHistoryMigration = null;
-  });
-  return legacyHistoryMigration;
+  // Durable history was emptied after it was prepared, such as by a profile
+  // reset or a runtime switch. Prepare it again.
+  durableHistoryPrepared = false;
+  const remigrated = await prepareDurableDekiHistory();
+  if (remigrated) return remigrated;
+  const rebuilt = await readDurableSessionsState(hydrateSessionId);
+  if (!rebuilt) throw new Error("Deki history has no sessions after preparing durable storage.");
+  return rebuilt;
 }
 
 async function saveSessionsState(
@@ -1462,6 +1491,8 @@ export const dekiApi = {
       return normalizePreferences(await readSettingsValue());
     },
     save: async (preferences: DekiPreferences): Promise<DekiPreferences> => {
+      // Migration rewrites the same settings record; let it finish first.
+      await ensureDurableDekiHistory();
       return normalizePreferences(
         await saveSettingsPatch({
           selectedConnectionId: preferences.selectedConnectionId,
