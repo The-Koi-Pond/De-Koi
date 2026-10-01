@@ -1540,7 +1540,7 @@ describe("dekiApi.sessions first run", () => {
     const runtimeB = "http://runtime-b.test";
     // Both runtimes hold the same session id with different content, so only
     // the content shows which runtime a result came from.
-    const durable = (session: string, title: string, message: string, content: string) =>
+    const durable = (session: string, title: string, message: string, content: string, messageCount: number) =>
       new Map<string, Record<string, unknown>>([
         ["app-settings/deki", { id: "deki", value: { activeSessionId: session } }],
         [
@@ -1548,6 +1548,7 @@ describe("dekiApi.sessions first run", () => {
           {
             id: session,
             title,
+            messageCount,
             createdAt: "2026-06-24T00:00:00.000Z",
             updatedAt: "2026-06-24T00:00:00.000Z",
           },
@@ -1565,8 +1566,8 @@ describe("dekiApi.sessions first run", () => {
         ],
       ]);
     const stores = new Map([
-      [runtimeA, durable("session-shared", "Title A", "message-a", "On runtime A")],
-      [runtimeB, durable("session-shared", "Title B", "message-b", "On runtime B")],
+      [runtimeA, durable("session-shared", "Title A", "message-a", "On runtime A", 7)],
+      [runtimeB, durable("session-shared", "Title B", "message-b", "On runtime B", 1)],
     ]);
     let current = runtimeA;
     let switchDuringList: string | null = null;
@@ -1603,11 +1604,21 @@ describe("dekiApi.sessions first run", () => {
       expect(history.session.title).toBe("Title B");
       expect(history.messages.map((message) => [message.id, message.content])).toEqual([["message-b", "On runtime B"]]);
 
-      // A switch while sessions.list loads summaries.
+      // A switch while history.get lists sessions, before it hydrates messages.
+      switchRuntime(runtimeA);
+      switchDuringList = "deki-sessions";
+      const hydrated = await dekiApi.history.get("session-shared");
+      expect(hydrated.session.title).toBe("Title B");
+      expect(hydrated.messages.map((message) => [message.id, message.content])).toEqual([["message-b", "On runtime B"]]);
+
+      // A switch while sessions.list loads summaries: the title and message
+      // count come from runtime B, and no messages are hydrated.
       switchRuntime(runtimeA);
       switchDuringList = "deki-sessions";
       const listed = await dekiApi.sessions.list();
-      expect(listed.sessions.map((session) => [session.id, session.title])).toEqual([["session-shared", "Title B"]]);
+      expect(
+        listed.sessions.map((session) => [session.id, session.title, session.messageCount, session.messages.length]),
+      ).toEqual([["session-shared", "Title B", 1, 0]]);
       expect(listed.activeSessionId).toBe("session-shared");
     } finally {
       runtimeTargetMock.current = null;
