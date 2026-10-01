@@ -373,6 +373,7 @@ function ImageDimensionRow({
           min={IMAGE_DIMENSION_MIN}
           max={IMAGE_DIMENSION_MAX}
           onCommit={(nextWidth) => onCommit(nextWidth, height)}
+          aria-label={`${label} width`}
           className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
         />
         <span className="text-[0.625rem] text-[var(--muted-foreground)]">x</span>
@@ -381,6 +382,7 @@ function ImageDimensionRow({
           min={IMAGE_DIMENSION_MIN}
           max={IMAGE_DIMENSION_MAX}
           onCommit={(nextHeight) => onCommit(width, nextHeight)}
+          aria-label={`${label} height`}
           className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs"
         />
       </div>
