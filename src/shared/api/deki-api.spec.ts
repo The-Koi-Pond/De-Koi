@@ -1538,14 +1538,16 @@ describe("dekiApi.sessions first run", () => {
     // triggered inside one storage read, after that read picked its runtime.
     const runtimeA = "http://runtime-a.test";
     const runtimeB = "http://runtime-b.test";
-    const durable = (session: string, message: string, content: string) =>
+    // Both runtimes hold the same session id with different content, so only
+    // the content shows which runtime a result came from.
+    const durable = (session: string, title: string, message: string, content: string) =>
       new Map<string, Record<string, unknown>>([
         ["app-settings/deki", { id: "deki", value: { activeSessionId: session } }],
         [
           `deki-sessions/${session}`,
           {
             id: session,
-            title: session,
+            title,
             createdAt: "2026-06-24T00:00:00.000Z",
             updatedAt: "2026-06-24T00:00:00.000Z",
           },
@@ -1563,8 +1565,8 @@ describe("dekiApi.sessions first run", () => {
         ],
       ]);
     const stores = new Map([
-      [runtimeA, durable("session-a", "message-a", "On runtime A")],
-      [runtimeB, durable("session-b", "message-b", "On runtime B")],
+      [runtimeA, durable("session-shared", "Title A", "message-a", "On runtime A")],
+      [runtimeB, durable("session-shared", "Title B", "message-b", "On runtime B")],
     ]);
     let current = runtimeA;
     let switchDuringList: string | null = null;
@@ -1596,20 +1598,29 @@ describe("dekiApi.sessions first run", () => {
       // A switch while history.get loads messages.
       switchRuntime(runtimeA);
       switchDuringList = "deki-messages";
-      const history = await dekiApi.history.get("session-a");
-      expect(JSON.stringify(history)).not.toContain("runtime A");
-      expect(JSON.stringify(history)).not.toContain("session-a");
-      expect(JSON.stringify(history)).toContain("On runtime B");
+      const history = await dekiApi.history.get("session-shared");
+      expect(history.session.id).toBe("session-shared");
+      expect(history.session.title).toBe("Title B");
+      expect(history.messages.map((message) => [message.id, message.content])).toEqual([["message-b", "On runtime B"]]);
 
       // A switch while sessions.list loads summaries.
       switchRuntime(runtimeA);
       switchDuringList = "deki-sessions";
       const listed = await dekiApi.sessions.list();
-      expect(listed.sessions.map((session) => session.id)).toEqual(["session-b"]);
-      expect(listed.activeSessionId).toBe("session-b");
+      expect(listed.sessions.map((session) => [session.id, session.title])).toEqual([["session-shared", "Title B"]]);
+      expect(listed.activeSessionId).toBe("session-shared");
     } finally {
       runtimeTargetMock.current = null;
     }
+  });
+
+  it("falls back to the active session when the requested one does not exist", async () => {
+    installMemoryStorage({ seed: legacySettingsSeed() });
+
+    const history = await dekiApi.history.get("session-missing");
+
+    expect(history.session.id).toBe("session-two");
+    expect(history.messages.map((message) => message.id)).toEqual(["message-3"]);
   });
 
   it("finishes a migration whose settings cleanup failed", async () => {
