@@ -1622,6 +1622,38 @@ describe("dekiApi.sessions first run", () => {
         listed.sessions.map((session) => [session.id, session.title, session.messageCount, session.messages.length]),
       ).toEqual([["session-shared", "Title B", 1, 0]]);
       expect(listed.activeSessionId).toBe("session-shared");
+
+      // A session that is not the active one: both runtimes gain "session-other",
+      // and the switch lands while its messages load.
+      for (const [runtime, suffix] of [
+        [runtimeA, "A"],
+        [runtimeB, "B"],
+      ] as const) {
+        const rows = stores.get(runtime)!;
+        rows.set("deki-sessions/session-other", {
+          id: "session-other",
+          title: `Other ${suffix}`,
+          messageCount: 1,
+          createdAt: "2026-06-23T00:00:00.000Z",
+          updatedAt: "2026-06-23T00:00:00.000Z",
+        });
+        rows.set(`deki-messages/other-${suffix}`, {
+          id: `other-${suffix}`,
+          sessionId: "session-other",
+          role: "user",
+          content: `Other on runtime ${suffix}`,
+          createdAt: "2026-06-23T00:00:00.000Z",
+          sortOrder: 0,
+        });
+      }
+      switchRuntime(runtimeA);
+      switchDuringList = "deki-messages";
+      const other = await dekiApi.history.get("session-other");
+      expect(other.session.id).toBe("session-other");
+      expect(other.session.title).toBe("Other B");
+      expect(other.messages.map((message) => [message.id, message.content])).toEqual([
+        ["other-B", "Other on runtime B"],
+      ]);
     } finally {
       runtimeTargetMock.current = null;
     }
