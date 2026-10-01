@@ -397,6 +397,27 @@ fn character_book(state: &AppState, character_id: &str, source: &Value) -> AppRe
     Ok(Some(book))
 }
 
+/// V3 expresses at-depth placement with content decorators: `@@depth N` and
+/// `@@role R` lines at the start of `content`. Readers that do not support a
+/// decorator ignore it.
+fn decorated_content(entry: &Value, position: i64) -> String {
+    let content = entry.get("content").and_then(Value::as_str).unwrap_or("");
+    if card_primary_position(position).is_some() {
+        return content.to_string();
+    }
+    let depth = entry.get("depth").and_then(Value::as_i64).unwrap_or(4).max(0);
+    let mut decorated = format!("@@depth {depth}\n");
+    if let Some(role) = entry
+        .get("role")
+        .and_then(Value::as_str)
+        .filter(|role| matches!(*role, "assistant" | "system" | "user"))
+    {
+        decorated.push_str(&format!("@@role {role}\n"));
+    }
+    decorated.push_str(content);
+    decorated
+}
+
 fn character_book_entry(entry: &Value, index: usize) -> Value {
     let name = entry.get("name").and_then(Value::as_str).unwrap_or("");
     let order = entry.get("order").and_then(Value::as_i64).unwrap_or(index as i64);
@@ -406,7 +427,7 @@ fn character_book_entry(entry: &Value, index: usize) -> Value {
         "id": index,
         "keys": string_array_for_export(entry.get("keys")),
         "secondary_keys": string_array_for_export(entry.get("secondaryKeys")),
-        "content": entry.get("content").and_then(Value::as_str).unwrap_or(""),
+        "content": decorated_content(entry, position),
         "name": name,
         "comment": name,
         "enabled": entry.get("enabled").and_then(Value::as_bool).unwrap_or(true),
@@ -538,6 +559,16 @@ mod tests {
         assert_eq!(card_extension_position(1), 1);
         assert_eq!(card_extension_position(2), 4);
         assert_eq!(card_extension_position(3), 3);
+    }
+
+    #[test]
+    fn at_depth_entries_carry_v3_decorators() {
+        let depth = json!({ "content": "Shrine lore", "depth": 3, "role": "assistant" });
+        let before = json!({ "content": "Koi lore", "depth": 3, "role": "assistant" });
+
+        assert_eq!(decorated_content(&depth, 2), "@@depth 3\n@@role assistant\nShrine lore");
+        assert_eq!(decorated_content(&before, 0), "Koi lore");
+        assert_eq!(decorated_content(&before, 1), "Koi lore");
     }
 
     #[test]

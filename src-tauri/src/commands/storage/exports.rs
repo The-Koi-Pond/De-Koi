@@ -1675,6 +1675,7 @@ mod tests {
         let shrine = &card["data"]["character_book"]["entries"][2];
         assert_eq!(shrine["name"], "Shrine");
         assert!(shrine.get("position").is_none(), "V3 position only defines before/after");
+        assert_eq!(shrine["content"], "@@depth 7\n@@role user\nShrine lore");
         assert_eq!(shrine["extensions"]["position"], 4);
         assert_eq!(shrine["use_regex"], true);
         assert_eq!(card["data"]["character_book"]["entries"][0]["position"], "after_char");
@@ -1715,6 +1716,9 @@ mod tests {
         assert_eq!(entries[1]["role"], "system");
         assert_eq!(entries[1]["useRegex"], false);
         assert_eq!(entries[2]["position"], 2, "at-depth entries keep De-Koi's @Depth value");
+        assert_eq!(entries[2]["depth"], 7);
+        assert_eq!(entries[2]["role"], "user");
+        assert_eq!(entries[2]["content"], "Shrine lore", "decorators do not leak into content");
         assert_eq!(entries[2]["useRegex"], true);
     }
 

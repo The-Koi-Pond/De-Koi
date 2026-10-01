@@ -20,9 +20,13 @@ commands with the same `format` values.
   recursion and timing) are written under each entry's `extensions`. If no
   lorebook is linked, the card's original `character_book` is kept.
 - Lorebook placement: V3 `position` only defines `before_char` and
-  `after_char`, so at-depth entries omit it. `extensions.position` uses
-  SillyTavern numbering (De-Koi's @Depth `2` is written as `4`); import maps
-  `4` back to `2`. `use_regex` is the V3 field and import reads it.
+  `after_char`, so at-depth entries omit it and use the V3 content
+  decorators instead: their `content` starts with `@@depth N` and, when the
+  role is set, `@@role R`. `extensions.position` also carries SillyTavern
+  numbering (De-Koi's @Depth `2` is written as `4`). On import, leading
+  `@@depth` / `@@role` lines set the placement and are removed from the
+  content, `extensions.position` `4` maps back to `2`, and `use_regex` is
+  read.
 - `extensions` from the card, minus `importMetadata` (it holds De-Koi record
   ids). A profile banner stored by De-Koi is replaced by a package reference
   (CHARX) or removed (V3 JSON). Remote banner URLs stay as they are.

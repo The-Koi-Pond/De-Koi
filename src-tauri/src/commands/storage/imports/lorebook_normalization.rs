@@ -56,6 +56,50 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
     }
 }
 
+/// Placement a V3 card expresses with leading `@@depth` / `@@role` content
+/// decorators. Only those two are applied and removed; other decorator lines
+/// stay in the content unchanged.
+struct ContentDecorators {
+    content: String,
+    depth: Option<i64>,
+    role: Option<String>,
+}
+
+fn take_placement_decorators(content: &str) -> ContentDecorators {
+    let mut depth = None;
+    let mut role = None;
+    let mut rest = content;
+    loop {
+        let (line, remainder) = match rest.split_once('\n') {
+            Some((line, remainder)) => (line, remainder),
+            None => (rest, ""),
+        };
+        let line = line.trim_end_matches('\r').trim();
+        if let Some(value) = line.strip_prefix("@@depth ") {
+            match value.trim().parse::<i64>() {
+                Ok(parsed) if parsed >= 0 => depth = Some(parsed),
+                _ => break,
+            }
+        } else if let Some(value) = line.strip_prefix("@@role ") {
+            match value.trim() {
+                value @ ("assistant" | "system" | "user") => role = Some(value.to_string()),
+                _ => break,
+            }
+        } else {
+            break;
+        }
+        rest = remainder;
+        if rest.is_empty() {
+            break;
+        }
+    }
+    ContentDecorators {
+        content: if depth.is_some() || role.is_some() { rest.to_string() } else { content.to_string() },
+        depth,
+        role,
+    }
+}
+
 /// Card `extensions.position` uses SillyTavern numbering, where 4 is
 /// "at depth"; De-Koi stores at-depth entries as 2.
 fn card_extension_position(entry: &Value) -> Option<i64> {
@@ -74,6 +118,30 @@ fn entry_value<'a>(entry: &'a Value, keys: &[&str]) -> Option<&'a Value> {
 }
 
 pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: usize) -> Value {
+    let mut normalized = normalize_lorebook_entry_fields(lorebook_id, entry, index);
+    apply_placement_decorators(&mut normalized, entry);
+    normalized
+}
+
+/// Applies leading `@@depth` / `@@role` decorators: the entry is placed at
+/// that depth (De-Koi position 2) with that role, and the decorator lines are
+/// removed from the stored content.
+fn apply_placement_decorators(normalized: &mut Value, entry: &Value) {
+    let decorators = take_placement_decorators(entry.get("content").and_then(Value::as_str).unwrap_or(""));
+    if decorators.depth.is_none() && decorators.role.is_none() {
+        return;
+    }
+    normalized["content"] = json!(decorators.content);
+    if let Some(depth) = decorators.depth {
+        normalized["position"] = json!(2);
+        normalized["depth"] = json!(depth);
+    }
+    if let Some(role) = decorators.role {
+        normalized["role"] = json!(role);
+    }
+}
+
+fn normalize_lorebook_entry_fields(lorebook_id: &str, entry: &Value, index: usize) -> Value {
     let keys = entry.get("key").or_else(|| entry.get("keys"));
     let secondary = entry
         .get("keysecondary")
@@ -234,6 +302,11 @@ pub(super) fn normalize_imported_lorebook_entry(
         "lorebookId".to_string(),
         Value::String(lorebook_id.to_string()),
     );
+    let mut normalized = Value::Object(object);
+    apply_placement_decorators(&mut normalized, entry);
+    let Value::Object(mut object) = normalized else {
+        unreachable!("normalized lorebook entry is an object");
+    };
     for key in [
         "id",
         "key",
@@ -321,6 +394,32 @@ mod tests {
         assert_eq!(normalized["scanDepth"], 3);
         assert_eq!(normalized["matchWholeWords"], true);
         assert_eq!(normalized["preventRecursion"], true);
+    }
+
+    #[test]
+    fn v3_depth_and_role_decorators_set_placement_and_leave_the_content() {
+        let entry = json!({
+            "keys": ["shrine"],
+            "content": "@@depth 3\n@@role assistant\n@@other keep\nShrine lore",
+            "position": "before_char"
+        });
+
+        let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
+
+        assert_eq!(normalized["position"], 2);
+        assert_eq!(normalized["depth"], 3);
+        assert_eq!(normalized["role"], "assistant");
+        assert_eq!(normalized["content"], "@@other keep\nShrine lore");
+    }
+
+    #[test]
+    fn content_without_decorators_is_untouched() {
+        let entry = json!({ "keys": ["k"], "content": "Plain @@depth 2 text", "position": "after_char" });
+
+        let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
+
+        assert_eq!(normalized["content"], "Plain @@depth 2 text");
+        assert_eq!(normalized["position"], 1);
     }
 
     #[test]
