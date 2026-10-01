@@ -834,9 +834,7 @@ export function DekiSurface({
   useEffect(() => {
     if (!preferencesLoaded || rawConnections === undefined || selectedConnectionId) return;
     if (connectionSelectionTouchedRef.current) return;
-    const defaultConnectionId = connectionCatalogApi.selectDefaultTextConnectionId(
-      rawConnections as DekiConnection[],
-    );
+    const defaultConnectionId = connectionCatalogApi.selectDefaultTextConnectionId(rawConnections as DekiConnection[]);
     if (defaultConnectionId) setSelectedConnectionId(defaultConnectionId);
   }, [preferencesLoaded, rawConnections, selectedConnectionId]);
 
