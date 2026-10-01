@@ -507,7 +507,7 @@
     "id": "deki",
     "title": "Deki-senpai",
     "category": "Help",
-    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts, library edits and cleanups you approve with a preview, live step-by-step work you can stop, scoped memory review, and durable retryable sessions separate from active chats.",
+    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts, library edits and cleanups you approve with a preview that lists everything a delete also removes or changes, live step-by-step work you can stop, scoped memory review, and durable retryable sessions separate from active chats.",
     "keywords": [
       "help",
       "assistant",
@@ -529,6 +529,7 @@
       "sessions",
       "delete",
       "cleanup",
+      "side effects",
       "stop"
     ],
     "audience": "Users who want help understanding or customizing De-Koi, drafting library records, or reviewing character and approved chat memories without interrupting a chat.",
