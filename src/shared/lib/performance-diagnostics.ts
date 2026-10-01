@@ -2,15 +2,6 @@ const LOCAL_STORAGE_KEY = "deKoiPerformanceDiagnostics";
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
 const OMIT_DETAIL_KEYS = new Set(["arg", "args", "body", "payload", "request", "value", "values"]);
 const emittedMilestones = new Set<string>();
-const PERFORMANCE_DIAGNOSTICS_STAGE_NAMES = [
-  "generation.prompt_assembly",
-  "generation.first_token",
-  "generation.post_save",
-  "generation.lorebook_keeper_backfill",
-  "deki.session_summaries",
-  "deki.active_history",
-  "generation.background_maintenance",
-] as const;
 const PERFORMANCE_DIAGNOSTICS_STAGE_METADATA_KEYS = [
   "messageCount",
   "promptMessageCount",
@@ -26,7 +17,14 @@ export type PerformanceDiagnosticsSpan = {
   details?: Record<string, unknown>;
 };
 
-export type PerformanceDiagnosticsStageName = (typeof PERFORMANCE_DIAGNOSTICS_STAGE_NAMES)[number];
+export type PerformanceDiagnosticsStageName =
+  | "generation.prompt_assembly"
+  | "generation.first_token"
+  | "generation.post_save"
+  | "generation.lorebook_keeper_backfill"
+  | "deki.session_summaries"
+  | "deki.active_history"
+  | "generation.background_maintenance";
 type PerformanceDiagnosticsStageMetadataKey = (typeof PERFORMANCE_DIAGNOSTICS_STAGE_METADATA_KEYS)[number];
 
 export type PerformanceDiagnosticsStageTiming = {
