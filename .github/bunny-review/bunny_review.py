@@ -42,6 +42,7 @@ MAX_CONTRACT_STATE_LIST_ITEMS = 3
 DEFAULT_MODEL_REQUEST_TIMEOUT = 120
 MODEL_MAX_RETRIES = 1
 CHUNK_REVIEW_MAX_ATTEMPTS = 2
+MAX_TIMEOUT_SPLIT_DEPTH = 2
 MAX_CHUNK_REVIEW_WORKERS = 4
 SECRET_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|passwd|authorization|bearer|client[_-]?secret)"
@@ -608,6 +609,7 @@ def build_stats(review_packet):
 def merge_stats(totals, partial):
     for key in (
         "model_calls",
+        "review_packet_chars",
         "extra_context_chars",
         "context_files",
         "context_searches",
@@ -642,6 +644,22 @@ def raise_if_model_call_cancelled(stop_event):
         raise ChunkReviewCancelled(
             "model call cancelled after another chunk exhausted"
         )
+
+
+def is_model_timeout(exc):
+    """True when `exc` (or what caused it) is a request timeout, such as openai.APITimeoutError."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, TimeoutError) or "Timeout" in type(exc).__name__:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def split_files_in_half(files):
+    middle = len(files) // 2
+    return [files[:middle], files[middle:]]
 
 
 def model_call(client, messages, stats, *, stop_event=None):
@@ -864,7 +882,13 @@ def review_chunk_with_retry(
     *,
     max_attempts=CHUNK_REVIEW_MAX_ATTEMPTS,
     stop_event=None,
+    split_on_timeout=False,
 ):
+    """Review one chunk, retrying the same packet on failure.
+
+    With `split_on_timeout`, a timeout is raised at once instead of resending the
+    same packet, so the caller can review smaller halves of the chunk.
+    """
     index = chunk_input["index"]
     count = chunk_input["count"]
     packet_chars = chunk_input["packet_chars"]
@@ -920,7 +944,7 @@ def review_chunk_with_retry(
                 f"model_calls={stats['model_calls']}; error_type={type(exc).__name__}",
                 flush=True,
             )
-            if attempt == max_attempts:
+            if attempt == max_attempts or (split_on_timeout and is_model_timeout(exc)):
                 raise
             continue
         elapsed = time.monotonic() - started_at
@@ -990,7 +1014,22 @@ def judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats):
     return review
 
 
-def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
+def review_chunked_packets(
+    client,
+    skill,
+    chunk_inputs,
+    stats,
+    review_context,
+    *,
+    split_chunk=None,
+):
+    """Review every chunk, then judge the results PR-wide.
+
+    `split_chunk(chunk_input, parts)` builds chunk inputs for subsets of a chunk's
+    focus files. When it is given, a chunk with several files that times out is
+    reviewed as two halves (up to MAX_TIMEOUT_SPLIT_DEPTH times) instead of
+    resending the same packet.
+    """
     if not chunk_inputs:
         raise ValueError("chunked review requires at least one chunk")
     worker_count = min(CHUNK_REVIEW_WORKERS, len(chunk_inputs))
@@ -1015,21 +1054,50 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
         chunk_stats = build_stats("")
         index = chunk_input["index"]
 
-        def run_chunk():
+        def review_chunk_tree(current, depth):
+            can_split = (
+                split_chunk is not None
+                and depth < MAX_TIMEOUT_SPLIT_DEPTH
+                and len(current["focus_files"]) > 1
+            )
             try:
                 review = review_chunk_with_retry(
                     client,
                     skill,
-                    chunk_input,
+                    current,
                     chunk_stats,
                     stop_event=stop_event,
+                    split_on_timeout=can_split,
                 )
+            except ChunkReviewCancelled:
+                raise
+            except Exception as exc:
+                if not can_split or not is_model_timeout(exc):
+                    raise
+                halves = split_chunk(current, split_files_in_half(current["focus_files"]))
+                print(
+                    "Bunny chunk telemetry: "
+                    f"chunk={index}/{current['count']}; state=split_after_timeout; "
+                    f"files={len(current['focus_files'])}; parts={len(halves)}; "
+                    f"depth={depth + 1}/{MAX_TIMEOUT_SPLIT_DEPTH}",
+                    flush=True,
+                )
+                results = []
+                for half in halves:
+                    chunk_stats["review_packet_chars"] += half["packet_chars"]
+                    results.extend(review_chunk_tree(half, depth + 1))
+                return results
+            return [(current["focus_files"], review)]
+
+        def run_chunk():
+            try:
+                reviews = review_chunk_tree(chunk_input, 0)
             except Exception as exc:
                 if not isinstance(exc, ChunkReviewCancelled):
                     stop_event.set()
                 completed.put((chunk_input, chunk_stats, None, exc))
             else:
-                completed.put((chunk_input, chunk_stats, review, None))
+                completed.put((chunk_input, chunk_stats, reviews, None))
 
         worker = Thread(
             target=run_chunk,
@@ -1041,17 +1109,20 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
         return True
 
     def record_completed(result):
-        chunk_input, chunk_stats, review, error = result
+        chunk_input, chunk_stats, reviews, error = result
         active.pop(chunk_input["index"], None)
         merge_stats(stats, dict(chunk_stats))
         if error is not None:
             failures.append((chunk_input["index"], error))
             return
-        chunk_reviews_by_index[chunk_input["index"]] = {
-            "chunk_index": chunk_input["index"],
-            "focus_files": chunk_input["focus_files"],
-            "review": review,
-        }
+        chunk_reviews_by_index[chunk_input["index"]] = [
+            {
+                "chunk_index": chunk_input["index"],
+                "focus_files": focus_files,
+                "review": review,
+            }
+            for focus_files, review in reviews
+        ]
 
     while next_chunk < len(chunk_inputs) and len(active) < worker_count:
         if not submit_next_chunk():
@@ -1081,8 +1152,9 @@ def review_chunked_packets(client, skill, chunk_inputs, stats, review_context):
         raise failures[0][1]
 
     chunk_reviews = [
-        chunk_reviews_by_index[index]
+        entry
         for index in sorted(chunk_reviews_by_index)
+        for entry in chunk_reviews_by_index[index]
     ]
     return judge_chunk_reviews(client, skill, review_context, chunk_reviews, stats)
 
@@ -2642,33 +2714,44 @@ def produce_review(args):
         )
         return triage
 
-    if use_chunked_review:
-        stats = build_stats("")
+    def build_chunk_input(index, count, focus_files, part_note=""):
+        review_packet = build_review_packet(
+            base,
+            ci_status,
+            effective_mode,
+            focus_files=focus_files,
+            include_full_patch=False,
+        )
+        focus_note = (
+            f"This is chunk {index} of {count}{part_note}. Review only these focus files: "
+            + ", ".join(focus_files)
+            + "."
+        )
+        return {
+            "index": index,
+            "count": count,
+            "focus_files": focus_files,
+            "packet_chars": len(review_packet),
+            "triage_content": triage_for_packet(review_packet, focus_note),
+        }
+
+    def split_chunk_input(chunk_input, parts):
+        return [
+            build_chunk_input(
+                chunk_input["index"],
+                chunk_input["count"],
+                part,
+                f" (part {number} of {len(parts)}, split after a model timeout)",
+            )
+            for number, part in enumerate(parts, 1)
+        ]
+
+    def chunked_review(review_chunks, stats):
         chunk_inputs = []
-        for index, chunk in enumerate(chunks, 1):
-            review_packet = build_review_packet(
-                base,
-                ci_status,
-                effective_mode,
-                focus_files=chunk,
-                include_full_patch=False,
-            )
-            stats["review_packet_chars"] += len(review_packet)
-            focus_note = (
-                f"This is chunk {index} of {len(chunks)}. Review only these focus files: "
-                + ", ".join(chunk)
-                + "."
-            )
-            triage_content = triage_for_packet(review_packet, focus_note)
-            chunk_inputs.append(
-                {
-                    "index": index,
-                    "count": len(chunks),
-                    "focus_files": chunk,
-                    "packet_chars": len(review_packet),
-                    "triage_content": triage_content,
-                }
-            )
+        for index, chunk in enumerate(review_chunks, 1):
+            chunk_input = build_chunk_input(index, len(review_chunks), chunk)
+            stats["review_packet_chars"] += chunk_input["packet_chars"]
+            chunk_inputs.append(chunk_input)
         review_context = build_chunk_judge_context(
             pr_num,
             base,
@@ -2676,17 +2759,27 @@ def produce_review(args):
             head_sha,
             effective_mode,
             files,
-            len(chunks),
+            len(review_chunks),
             prior_contract_context,
         )
+        review_obj = review_chunked_packets(
+            client,
+            skill,
+            chunk_inputs,
+            stats,
+            review_context,
+            split_chunk=split_chunk_input,
+        )
+        review_obj.setdefault("what_i_checked", []).append(
+            f"Examined the PR in {len(review_chunks)} file chunk(s), then applied one "
+            "PR-wide final judge."
+        )
+        return review_obj
+
+    if use_chunked_review:
+        stats = build_stats("")
         try:
-            review_obj = review_chunked_packets(
-                client,
-                skill,
-                chunk_inputs,
-                stats,
-                review_context,
-            )
+            review_obj = chunked_review(chunks, stats)
         except Exception as exc:
             write_skipped_review(
                 "Review Failed",
@@ -2702,9 +2795,6 @@ def produce_review(args):
             )
             print_telemetry(stats)
             return
-        review_obj.setdefault("what_i_checked", []).append(
-            f"Examined the PR in {len(chunks)} file chunk(s), then applied one PR-wide final judge."
-        )
     else:
         review_packet = (
             full_review_packet
@@ -2714,7 +2804,17 @@ def produce_review(args):
         stats = build_stats(review_packet)
         triage_content = triage_for_packet(review_packet, "Review the full current diff.")
         try:
-            review_obj = three_pass_review(client, skill, triage_content, stats)
+            try:
+                review_obj = three_pass_review(client, skill, triage_content, stats)
+            except Exception as exc:
+                if len(files) < 2 or not is_model_timeout(exc):
+                    raise
+                print(
+                    "Bunny telemetry: whole-PR review timed out; "
+                    f"retrying as 2 file chunks; files={len(files)}",
+                    flush=True,
+                )
+                review_obj = chunked_review(split_files_in_half(files), stats)
         except Exception as exc:
             write_skipped_review(
                 "Review Failed",

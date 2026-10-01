@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -551,6 +552,137 @@ def run_chunk_orchestration_case(module):
     return len(normal_completions.calls)
 
 
+class SplitChunkCompletions:
+    """Times out any chunk packet that covers more than `max_files` focus files."""
+
+    def __init__(self, *, max_files, fail_once_files=None):
+        self.max_files = max_files
+        self.fail_once_files = fail_once_files
+        self.chunk_calls = []
+        self.judge_prompts = []
+        self.lock = threading.Lock()
+
+    def create(self, **kwargs):
+        prompt = "\n".join(message["content"] for message in kwargs["messages"])
+        if "# Chunk Review Results" in prompt:
+            with self.lock:
+                self.judge_prompts.append(prompt)
+            payload = valid_review("final judge")
+        else:
+            files = re.search(r"SPLIT_FILES=(\S+)", prompt).group(1).split(",")
+            with self.lock:
+                self.chunk_calls.append(files)
+                seen = self.chunk_calls.count(files)
+            if len(files) > self.max_files:
+                raise TimeoutError("scripted oversized packet timeout")
+            if files == self.fail_once_files and seen == 1:
+                raise RuntimeError("scripted transient non-timeout failure")
+            payload = valid_review("chunk " + ",".join(files))
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="FINAL_REVIEW\n" + json.dumps(payload))
+                )
+            ],
+        )
+
+
+def split_chunk_input(index, count, files):
+    return {
+        "index": index,
+        "count": count,
+        "focus_files": files,
+        "packet_chars": 100 * len(files),
+        "triage_content": "SPLIT_FILES=" + ",".join(files),
+    }
+
+
+def run_timeout_split_case(module):
+    """A timed-out chunk is reviewed as smaller halves instead of resending it."""
+
+    class APITimeoutError(Exception):
+        pass
+
+    try:
+        raise RuntimeError("wrapped") from TimeoutError("read timed out")
+    except RuntimeError as wrapped:
+        assert module.is_model_timeout(wrapped)
+    assert module.is_model_timeout(APITimeoutError("Request timed out."))
+    assert not module.is_model_timeout(ValueError("schema-invalid"))
+
+    def split_chunk(chunk_input, parts):
+        return [
+            split_chunk_input(chunk_input["index"], chunk_input["count"], part)
+            for part in parts
+        ]
+
+    files = [f"src/split-{letter}.ts" for letter in "abcd"]
+    review_context = module.build_chunk_judge_context(
+        "1320", "origin/main", "main", "b" * 40, "full", files + ["src/other.ts"], 2, "none"
+    )
+
+    completions = SplitChunkCompletions(max_files=2)
+    stats = module.build_stats("")
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        review = module.review_chunked_packets(
+            SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+            "review skill",
+            [split_chunk_input(1, 2, files), split_chunk_input(2, 2, ["src/other.ts"])],
+            stats,
+            review_context,
+            split_chunk=split_chunk,
+        )
+    assert review["change_summary"] == ["Reviewed final judge."]
+    assert completions.chunk_calls.count(files) == 1, (
+        "a splittable chunk that timed out must not resend the same packet"
+    )
+    assert files[:2] in completions.chunk_calls and files[2:] in completions.chunk_calls
+    assert stats["model_calls"] == 4, "two halves, the untouched chunk, and the judge"
+    assert stats["review_packet_chars"] == 400, "split packets are counted"
+    assert "state=split_after_timeout" in output.getvalue()
+    judge_prompt = completions.judge_prompts[0]
+    covered = [judge_prompt.index(path) for path in files + ["src/other.ts"]]
+    assert covered == sorted(covered), "split halves keep file order in the judge evidence"
+
+    # Splitting stops at MAX_TIMEOUT_SPLIT_DEPTH; the last parts retry and then fail.
+    eight = [f"src/deep-{index}.ts" for index in range(8)]
+    deep = SplitChunkCompletions(max_files=1)
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            module.review_chunked_packets(
+                SimpleNamespace(chat=SimpleNamespace(completions=deep)),
+                "review skill",
+                [split_chunk_input(1, 1, eight)],
+                module.build_stats(""),
+                review_context,
+                split_chunk=split_chunk,
+            )
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("a chunk still timing out at the split limit must fail")
+    assert module.MAX_TIMEOUT_SPLIT_DEPTH == 2
+    assert deep.chunk_calls[:3] == [eight, eight[:4], eight[:2]]
+    assert deep.chunk_calls.count(eight[:2]) == module.CHUNK_REVIEW_MAX_ATTEMPTS
+    assert not deep.judge_prompts, "no final judge after incomplete coverage"
+
+    # Non-timeout failures keep retrying the same packet; they are not split.
+    flaky = SplitChunkCompletions(max_files=4, fail_once_files=files)
+    with contextlib.redirect_stdout(io.StringIO()):
+        module.review_chunked_packets(
+            SimpleNamespace(chat=SimpleNamespace(completions=flaky)),
+            "review skill",
+            [split_chunk_input(1, 1, files)],
+            module.build_stats(""),
+            review_context,
+            split_chunk=split_chunk,
+        )
+    assert flaky.chunk_calls == [files, files]
+    return True
+
+
 def run_model_key_case(module):
     old_llm = os.environ.get("LLM_API_KEY")
     old_openai = os.environ.get("OPENAI_API_KEY")
@@ -605,6 +737,7 @@ def main():
     packet_len = run_packet_case(module)
     repair_calls = run_semantic_repair_case(module)
     chunk_calls = run_chunk_orchestration_case(module)
+    run_timeout_split_case(module)
     run_model_key_case(module)
     run_status_case(module)
     print(
@@ -615,6 +748,7 @@ def main():
         "chunk_retry_scope=true "
         "chunk_schema_retry=true "
         "chunk_final_judge=true "
+        "chunk_timeout_split=true "
         "patch_overview_dedup=true "
         "packet_budget_chunking=true "
         "summary_fallback=true "
