@@ -917,8 +917,6 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     };
     return (
       <div
-        role="button"
-        tabIndex={0}
         key={chat.groupId ?? chat.id}
         data-chat-id={chat.id}
         {...(!multiSelectMode ? predictiveChatIntentHandlers(chat, requestChatPreload) : {})}
@@ -926,15 +924,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         onDragStart={(event) => handleChatDragStart(event, chat.id)}
         onDragEnd={clearChatDragState}
         onClick={() => void activateChatRow()}
-        onKeyDown={(event) => {
-          // The row is focusable and announced as a button, so Enter and Space open it.
-          if (event.target !== event.currentTarget) return;
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          void activateChatRow();
-        }}
         className={cn(
           "group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
+          "has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-[var(--primary)]/45",
           multiSelectMode && isSelected
             ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
             : isActive
@@ -1079,8 +1071,24 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           })()}
         </div>
 
-        {/* Name */}
-        <div className={CHAT_ROW_TITLE_CLASS_NAME}>
+        {/* Name: the row's button. The row's own action buttons sit outside it. */}
+        <div
+          role="button"
+          tabIndex={0}
+          data-row-action
+          aria-label={chat.name}
+          aria-current={isActive ? "true" : undefined}
+          aria-pressed={multiSelectMode ? isSelected : undefined}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            // Holding the key auto-repeats keydown; activate once.
+            if (event.repeat) return;
+            void activateChatRow();
+          }}
+          className={cn(CHAT_ROW_TITLE_CLASS_NAME, "outline-none")}
+        >
           <span
             className={cn(
               "block truncate text-sm",
