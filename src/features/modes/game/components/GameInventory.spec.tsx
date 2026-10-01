@@ -52,6 +52,10 @@ describe("GameInventory slot drag", () => {
     click(target);
   };
 
+  // jsdom has no layout or pointer capture; these stand in during each test.
+  const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+  const originalElementFromPoint = document.elementFromPoint;
+
   beforeEach(() => {
     vi.useFakeTimers();
     onReorderItem.mockReset();
@@ -71,7 +75,18 @@ describe("GameInventory slot drag", () => {
     root = null;
     container = null;
     pointerTarget = null;
+    HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+    document.elementFromPoint = originalElementFromPoint;
     vi.useRealTimers();
+  });
+
+  it("keeps the dragged slot's follow-up click from leaking onto other slots", () => {
+    dragRopeOntoLantern();
+    // A pointer-style click on another slot inside the window (for example
+    // from assistive tech, with no pointerdown) still selects that slot.
+    click(slot("Lantern"));
+
+    expect(slot("Lantern").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("swaps slots without selecting the dragged item", () => {
