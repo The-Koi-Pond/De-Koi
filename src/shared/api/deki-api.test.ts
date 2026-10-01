@@ -11,6 +11,7 @@ vi.mock("./tauri-client", () => ({
 }));
 
 vi.mock("./remote-runtime", () => ({
+  remoteRuntimeGeneration: vi.fn(() => 0),
   remoteRuntimeTarget: vi.fn(),
   streamRemoteJsonEvents: vi.fn(),
 }));
