@@ -1783,7 +1783,7 @@ function DekiActionCard({
   const diffRows = useMemo(() => {
     if (!action || action.type === "none" || action.type === "request_chat_access" || applied) return [];
     return createDekiActionDiffRows(action, currentRecordState.record);
-  }, [action, actionPreviewKey, applied, currentRecordState.record]);
+  }, [action, applied, currentRecordState.record]);
 
   if (!message || !action || action.type === "none") return null;
   const rows = actionPreviewRows(action);

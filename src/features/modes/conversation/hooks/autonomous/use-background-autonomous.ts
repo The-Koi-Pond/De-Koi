@@ -61,6 +61,7 @@ export function useBackgroundAutonomousPolling() {
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
     const delayTimers = new Map<ReturnType<typeof setTimeout>, { chatId: string; startedAt: number }>();
+    const generatingFor = generatingForRef.current;
     const backgroundChats = (JSON.parse(eligibleChatIdsKey) as string[]).map((id) => ({ id }));
 
     const poll = async () => {
@@ -234,7 +235,7 @@ export function useBackgroundAutonomousPolling() {
       for (const [timer, lock] of delayTimers) {
         clearTimeout(timer);
         clearGenerationInProgress(lock.chatId, lock.startedAt);
-        generatingForRef.current.delete(lock.chatId);
+        generatingFor.delete(lock.chatId);
       }
       delayTimers.clear();
     };
