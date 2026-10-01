@@ -151,6 +151,25 @@ describe("dekiApi settings persistence", () => {
     );
   });
 
+  it("lets loaded messages outrank a stale stored count", () => {
+    const session = {
+      id: "s",
+      title: "t",
+      messages: [
+        { id: "m1", role: "user" as const, content: "a", createdAt: "2026-06-25T12:00:00.000Z" },
+        { id: "m2", role: "assistant" as const, content: "b", createdAt: "2026-06-25T12:00:01.000Z" },
+      ],
+      compaction: { compactedSummary: null, compactedAt: null, compactedThroughMessageId: null },
+      createdAt: "2026-06-25T12:00:00.000Z",
+      updatedAt: "2026-06-25T12:00:01.000Z",
+      messageCount: 9,
+    };
+
+    expect(dekiSessionMessageCount(session)).toBe(2);
+    expect(dekiSessionMessageCount({ ...session, messages: [] })).toBe(9);
+    expect(dekiSessionMessageCount({ ...session, messages: [], messageCount: undefined })).toBe(0);
+  });
+
   it("keeps the stored count current as messages are added", async () => {
     await dekiApi.history.appendMessage({ role: "user", content: "Count me." });
     const [session] = [...recordsFor("deki-sessions").values()];

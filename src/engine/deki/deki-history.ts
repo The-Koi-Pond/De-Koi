@@ -43,7 +43,9 @@ export type DekiSession = {
  * counts were stored.
  */
 export function dekiSessionMessageCount(session: DekiSession): number | null {
-  return session.messageCount === undefined ? session.messages.length : session.messageCount;
+  // Loaded messages are the truth; a stored count only stands in for them.
+  if (session.messages.length > 0 || session.messageCount === undefined) return session.messages.length;
+  return session.messageCount;
 }
 
 export type DekiSessionsState = {

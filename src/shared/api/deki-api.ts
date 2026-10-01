@@ -481,7 +481,8 @@ function normalizeDekiSession(value: unknown): DekiSession | null {
     compaction: normalizeDekiCompaction(object.compaction ?? object),
     createdAt,
     updatedAt,
-    ...("messageCount" in object ? { messageCount } : {}),
+    // A stored count only describes a summary row whose messages are not loaded.
+    ...("messageCount" in object && messages.length === 0 ? { messageCount } : {}),
   };
 }
 
