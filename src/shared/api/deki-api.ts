@@ -44,7 +44,7 @@ import type { StorageEntity } from "../../engine/capabilities/storage";
 import { Channel } from "@tauri-apps/api/core";
 import { ApiError } from "./api-errors";
 import { planDekiHistoryPersistence, type DekiHistoryPersistenceSnapshot } from "./deki-history-persistence";
-import { remoteRuntimeTarget, streamRemoteJsonEvents } from "./remote-runtime";
+import { remoteRuntimeGeneration, remoteRuntimeTarget, streamRemoteJsonEvents } from "./remote-runtime";
 import { storageApi } from "./storage-api";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
 import { reportPerformanceStageTiming, type PerformanceDiagnosticsStageTiming } from "../lib/performance-diagnostics";
@@ -723,28 +723,11 @@ async function readSettingsValue(): Promise<Record<string, unknown>> {
   return asRecord(parsed.success ? parsed.data.value : null);
 }
 
-async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
-  const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
-  const source = existing ?? legacy;
-  const parsed = appSettingsResponseSchema.safeParse(source ?? { value: null });
-  const value = {
-    ...asRecord(parsed.success ? parsed.data.value : null),
-    ...patch,
-  };
-  const payload = appSettingsUpdateSchema.parse({ value });
-  if (existing) {
-    await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
-  } else {
-    await storageApi.create("app-settings", {
-      id: DEKI_SETTINGS_ID,
-      ...payload,
-    });
-  }
-  if (!existing && legacy) {
-    await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
-  }
-  return value;
+async function saveSettingsPatch(
+  patch: Record<string, unknown>,
+  beforeWrite: () => void = noop,
+): Promise<Record<string, unknown>> {
+  return saveSettingsTransform((settings) => ({ ...settings, ...patch }), beforeWrite);
 }
 
 function noop(): void {}
@@ -984,6 +967,7 @@ async function saveDurableSessionsState(
 async function saveIncrementalSessionsState(
   previousState: DekiSessionsState,
   nextState: DekiSessionsState,
+  beforeWrite: () => void,
 ): Promise<DekiSessionsState> {
   const previous = normalizeDekiSessionsState(previousState);
   const next = normalizeDekiSessionsState(nextState);
@@ -993,15 +977,18 @@ async function saveIncrementalSessionsState(
   );
 
   for (const record of plan.creates) {
+    beforeWrite();
     await storageApi.create(record.entity, record.value);
   }
   for (const record of plan.updates) {
+    beforeWrite();
     await storageApi.update(record.entity, record.id, record.value);
   }
   for (const record of plan.deletes) {
+    beforeWrite();
     await storageApi.delete(record.entity, record.id);
   }
-  await saveSettingsPatch({ activeSessionId: next.activeSessionId });
+  await saveSettingsPatch({ activeSessionId: next.activeSessionId }, beforeWrite);
   return next;
 }
 
@@ -1039,14 +1026,18 @@ let durableHistoryPreparation: DurableHistoryPreparation | null = null;
 
 class DekiHistoryRuntimeChangedError extends Error {
   constructor() {
-    super("The runtime changed while Deki history was being prepared.");
+    super("The runtime changed while Deki history was being read or saved. Try again.");
     this.name = "DekiHistoryRuntimeChangedError";
   }
 }
 
-/** Which runtime's storage Deki history calls read and write right now. */
+/**
+ * Which runtime's storage Deki history calls read and write right now. The
+ * generation changes on every Remote Runtime URL change, so switching away and
+ * back between two readings also counts as a change.
+ */
 function dekiHistoryRuntime(): string {
-  return remoteRuntimeTarget()?.baseUrl ?? "embedded";
+  return `${remoteRuntimeGeneration()}:${remoteRuntimeTarget()?.baseUrl ?? "embedded"}`;
 }
 
 function writeGuardFor(runtime: string): () => void {
@@ -1147,29 +1138,17 @@ async function readPreparedDurableHistoryOn(runtime: string): Promise<DurableHis
 }
 
 /**
- * Reads durable history, first finishing any preparation it needs. Resolves to
- * the migrated state when this call joined a first-run migration. If the
- * runtime changes mid-read, the result is discarded and the new runtime is read.
- */
-async function readPreparedDurableHistory(): Promise<DurableHistorySnapshot | DekiSessionsState> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const runtime = dekiHistoryRuntime();
-    try {
-      const result = await readPreparedDurableHistoryOn(runtime);
-      if (dekiHistoryRuntime() === runtime) return result;
-    } catch (error) {
-      if (!(error instanceof DekiHistoryRuntimeChangedError)) throw error;
-    }
-  }
-  throw new Error("The runtime kept changing while Deki history was loading. Try again.");
-}
-
-/**
  * Reads session state from one runtime. The runtime is checked after the
  * summaries and messages are loaded too, so a runtime change at any point
  * discards the whole result and the new runtime is read from scratch.
+ *
+ * `beforeWrite` throws once the runtime is no longer the one `state` came
+ * from. Every write based on `state` calls it first, so a change built from one
+ * runtime's history never lands in another runtime's storage.
  */
-async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
+async function readSessionsStateForWrite(
+  hydrateSessionId?: string | null,
+): Promise<{ state: DekiSessionsState; beforeWrite: () => void }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const runtime = dekiHistoryRuntime();
     try {
@@ -1177,7 +1156,7 @@ async function readSessionsState(hydrateSessionId?: string | null): Promise<Deki
       const state = "records" in prepared ? await durableSessionsFromSnapshot(prepared, hydrateSessionId) : prepared;
       if (dekiHistoryRuntime() !== runtime) continue;
       if (!state) throw new Error("Deki history has no sessions after preparing durable storage.");
-      return state;
+      return { state, beforeWrite: writeGuardFor(runtime) };
     } catch (error) {
       if (!(error instanceof DekiHistoryRuntimeChangedError)) throw error;
     }
@@ -1185,11 +1164,16 @@ async function readSessionsState(hydrateSessionId?: string | null): Promise<Deki
   throw new Error("The runtime kept changing while Deki history was loading. Try again.");
 }
 
+async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
+  return (await readSessionsStateForWrite(hydrateSessionId)).state;
+}
+
 async function saveSessionsState(
   previousState: DekiSessionsState,
   nextState: DekiSessionsState,
+  beforeWrite: () => void,
 ): Promise<DekiSessionsState> {
-  return saveIncrementalSessionsState(previousState, nextState);
+  return saveIncrementalSessionsState(previousState, nextState, beforeWrite);
 }
 
 async function hydrateSelectedDekiSessions(
@@ -1524,7 +1508,7 @@ async function writeDekiActionApplication(
   messages: DekiMessage[];
   compaction: DekiCompactionState;
 }> {
-  const state = await readSessionsState(sessionId ?? "");
+  const { state, beforeWrite } = await readSessionsStateForWrite(sessionId ?? "");
   let savedApplication: DekiActionApplication | null = null;
   const nextState = updateSession(state, sessionId, (session) => ({
     ...session,
@@ -1541,7 +1525,7 @@ async function writeDekiActionApplication(
   if (!savedApplication) {
     throw new Error("Deki-senpai action message was not found.");
   }
-  const saved = await saveSessionsState(state, nextState);
+  const saved = await saveSessionsState(state, nextState, beforeWrite);
   const session = sessionFromState(saved, sessionId);
   return {
     application: savedApplication,
@@ -1632,36 +1616,45 @@ export const dekiApi = {
       return normalizePreferences(await readSettingsValue());
     },
     save: async (preferences: DekiPreferences): Promise<DekiPreferences> => {
-      // Migration rewrites the same settings record; let it finish first.
-      await readPreparedDurableHistory();
+      // Migration rewrites the same settings record; let it finish first, and
+      // save to the runtime it finished on.
+      const runtime = dekiHistoryRuntime();
+      await readPreparedDurableHistoryOn(runtime);
       return normalizePreferences(
-        await saveSettingsPatch({
-          selectedConnectionId: preferences.selectedConnectionId,
-          selectedPersonaId: preferences.selectedPersonaId,
-        }),
+        await saveSettingsPatch(
+          {
+            selectedConnectionId: preferences.selectedConnectionId,
+            selectedPersonaId: preferences.selectedPersonaId,
+          },
+          writeGuardFor(runtime),
+        ),
       );
     },
   },
   sessions: {
     list: async (): Promise<DekiSessionsState> => readSessionsState(null),
     create: async (): Promise<DekiSessionsState> => {
-      const state = await readSessionsState(null);
+      const { state, beforeWrite } = await readSessionsStateForWrite(null);
       const session = createEmptyDekiSession();
-      return saveSessionsState(state, { activeSessionId: session.id, sessions: [session, ...state.sessions] });
+      return saveSessionsState(
+        state,
+        { activeSessionId: session.id, sessions: [session, ...state.sessions] },
+        beforeWrite,
+      );
     },
     select: async (sessionId: string): Promise<DekiSessionsState> => {
-      const state = await readSessionsState(null);
+      const { state, beforeWrite } = await readSessionsStateForWrite(null);
       const nextActiveSessionId = state.sessions.some((session) => session.id === sessionId)
         ? sessionId
         : state.activeSessionId;
-      return saveSessionsState(state, { ...state, activeSessionId: nextActiveSessionId });
+      return saveSessionsState(state, { ...state, activeSessionId: nextActiveSessionId }, beforeWrite);
     },
     delete: async (sessionId: string): Promise<DekiSessionsState> => {
       return dekiApi.sessions.deleteMany([sessionId]);
     },
     deleteMany: async (sessionIds: readonly string[]): Promise<DekiSessionsState> => {
       const ids = new Set(sessionIds.map((id) => id.trim()).filter(Boolean));
-      const summaries = await readSessionsState(null);
+      const { state: summaries, beforeWrite } = await readSessionsStateForWrite(null);
       if (ids.size === 0) return summaries;
 
       const selectedSessionIds = new Set(
@@ -1673,10 +1666,10 @@ export const dekiApi = {
       if (remaining.length === state.sessions.length) return state;
       if (remaining.length === 0) {
         const session = createEmptyDekiSession();
-        return saveSessionsState(state, { activeSessionId: session.id, sessions: [session] });
+        return saveSessionsState(state, { activeSessionId: session.id, sessions: [session] }, beforeWrite);
       }
       const activeSessionId = ids.has(state.activeSessionId) ? remaining[0]!.id : state.activeSessionId;
-      return saveSessionsState(state, { activeSessionId, sessions: remaining });
+      return saveSessionsState(state, { activeSessionId, sessions: remaining }, beforeWrite);
     },
   },
   history: {
@@ -1691,7 +1684,7 @@ export const dekiApi = {
       workspaceTrace?: DekiWorkspaceTraceItem[];
       workspaceHistory?: DekiWorkspaceHistoryItem[];
     }): Promise<DekiMessage> => {
-      const state = await readSessionsState(message.sessionId ?? "");
+      const { state, beforeWrite } = await readSessionsStateForWrite(message.sessionId ?? "");
       const nextMessage = createDekiMessage(message);
       const nextState = updateSession(state, message.sessionId, (session) => {
         const messages = [...session.messages, nextMessage];
@@ -1703,7 +1696,7 @@ export const dekiApi = {
           updatedAt: nextMessage.createdAt,
         };
       });
-      await saveSessionsState(state, nextState);
+      await saveSessionsState(state, nextState, beforeWrite);
       return nextMessage;
     },
     replaceMessages: async ({
@@ -1715,7 +1708,7 @@ export const dekiApi = {
       messages: DekiMessage[];
       compaction: DekiCompactionState;
     }): Promise<DekiHistorySnapshot> => {
-      const state = await readSessionsState(sessionId ?? "");
+      const { state, beforeWrite } = await readSessionsStateForWrite(sessionId ?? "");
       const nextCompaction = compactionForMessages(messages, compaction);
       const nextState = updateSession(state, sessionId, (session) => ({
         ...session,
@@ -1724,7 +1717,7 @@ export const dekiApi = {
         compaction: nextCompaction,
         updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
       }));
-      return historySnapshot(await saveSessionsState(state, nextState), sessionId);
+      return historySnapshot(await saveSessionsState(state, nextState, beforeWrite), sessionId);
     },
     updateMessage: async ({
       sessionId,
@@ -1735,7 +1728,7 @@ export const dekiApi = {
       messageId: string;
       content: string;
     }): Promise<DekiMessage> => {
-      const state = await readSessionsState(sessionId ?? "");
+      const { state, beforeWrite } = await readSessionsStateForWrite(sessionId ?? "");
       let updatedMessage: DekiMessage | null = null;
       const nextState = updateSession(state, sessionId, (session) => {
         const messages = session.messages.map((message) => {
@@ -1751,7 +1744,7 @@ export const dekiApi = {
         };
       });
       if (!updatedMessage) throw new Error("Deki-senpai message could not be found.");
-      await saveSessionsState(state, nextState);
+      await saveSessionsState(state, nextState, beforeWrite);
       return updatedMessage;
     },
     /** Records the outcome of a data-change approval on the message that proposed it. */
@@ -1764,7 +1757,7 @@ export const dekiApi = {
       messageId: string;
       entry: DekiWorkspaceHistoryEntry;
     }): Promise<DekiMessage[]> => {
-      const state = await readSessionsState(sessionId ?? "");
+      const { state, beforeWrite } = await readSessionsStateForWrite(sessionId ?? "");
       let found = false;
       const nextState = updateSession(state, sessionId, (session) => ({
         ...session,
@@ -1781,22 +1774,26 @@ export const dekiApi = {
         }),
       }));
       if (!found) throw new Error("Deki-senpai's data change could not be found in this chat.");
-      return sessionFromState(await saveSessionsState(state, nextState), sessionId).messages;
+      return sessionFromState(await saveSessionsState(state, nextState, beforeWrite), sessionId).messages;
     },
     markActionApplied: markDekiActionApplied,
     saveCompaction: async (
       sessionId: string | null | undefined,
       compaction: DekiCompactionState,
     ): Promise<DekiCompactionState> => {
-      const state = await readSessionsState(sessionId ?? "");
+      const { state, beforeWrite } = await readSessionsStateForWrite(sessionId ?? "");
       const nextState = updateSession(state, sessionId, (session) => ({ ...session, compaction }));
-      const saved = await saveSessionsState(state, nextState);
+      const saved = await saveSessionsState(state, nextState, beforeWrite);
       return sessionFromState(saved, sessionId).compaction;
     },
     reset: async (_sessionId?: string | null): Promise<DekiSessionsState> => {
-      const state = await readSessionsState(null);
+      const { state, beforeWrite } = await readSessionsStateForWrite(null);
       const session = createEmptyDekiSession();
-      return saveSessionsState(state, { activeSessionId: session.id, sessions: [session, ...state.sessions] });
+      return saveSessionsState(
+        state,
+        { activeSessionId: session.id, sessions: [session, ...state.sessions] },
+        beforeWrite,
+      );
     },
   },
 };

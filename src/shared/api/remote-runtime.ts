@@ -367,6 +367,24 @@ function normalizeRemoteRuntimeUrl(raw: string): RuntimeTarget | null {
   return { baseUrl: url.toString().replace(/\/+$/, ""), authorization };
 }
 
+let runtimeGeneration = 0;
+let runtimeGenerationTracked = false;
+
+/**
+ * A number that changes every time the Remote Runtime URL changes, including a
+ * switch away and back to the same URL. Callers compare two readings to know
+ * whether storage calls between them could have reached different runtimes.
+ */
+export function remoteRuntimeGeneration(): number {
+  if (!runtimeGenerationTracked) {
+    runtimeGenerationTracked = true;
+    useUIStore.subscribe((state, previous) => {
+      if (state.remoteRuntimeUrl !== previous.remoteRuntimeUrl) runtimeGeneration += 1;
+    });
+  }
+  return runtimeGeneration;
+}
+
 export function remoteRuntimeTarget(): RuntimeTarget | null {
   const configured = useUIStore.getState().remoteRuntimeUrl.trim();
   const raw = configured || sameOriginRemoteRuntimeUrl();
