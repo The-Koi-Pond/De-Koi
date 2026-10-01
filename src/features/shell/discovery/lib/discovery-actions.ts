@@ -10,10 +10,6 @@ function emitDiscoveryEvent(detail: DiscoveryAppEventDetail) {
   window.dispatchEvent(new CustomEvent<DiscoveryAppEventDetail>(DISCOVERY_APP_EVENT, { detail }));
 }
 
-export function openDiscover() {
-  emitDiscoveryEvent({ type: "open-discover" });
-}
-
 const DESTINATION_MODES: Partial<Record<DiscoveryChatDestination, readonly DiscoveryMode[]>> = {
   "chat-settings-workflow-profile": ["roleplay"],
   "slash-commands": ["conversation", "roleplay"],

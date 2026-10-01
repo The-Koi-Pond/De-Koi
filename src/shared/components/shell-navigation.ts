@@ -28,7 +28,7 @@ export type ShellPanelDestination =
   | "help";
 
 export type ShellNavDestination = "chats" | "deki" | ShellPanelDestination | "discover";
-export type ShellNavGroup = "primary" | "library" | "tools";
+type ShellNavGroup = "primary" | "library" | "tools";
 
 export interface ShellNavItem {
   destination: ShellNavDestination;

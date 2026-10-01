@@ -956,7 +956,7 @@ function chatToolsEnabledFor(chat: JsonRecord): boolean {
   return boolish(parseRecord(chat.metadata).enableTools, false);
 }
 
-export type CharacterWebResearchGrantState = "valid" | "expired" | "missing" | "invalid";
+type CharacterWebResearchGrantState = "valid" | "expired" | "missing" | "invalid";
 
 function characterWebResearchGrant(metadata: JsonRecord): {
   grant: CharacterWebResearchGrant | null;

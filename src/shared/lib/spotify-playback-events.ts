@@ -1,5 +1,4 @@
-export const SPOTIFY_SCENE_TRACK_CHANGE_EVENT = "marinara:spotify-scene-track-change";
-export const SPOTIFY_SCENE_TRACK_CHANGE_SUPPRESS_MS = 30_000;
+const SPOTIFY_SCENE_TRACK_CHANGE_EVENT = "marinara:spotify-scene-track-change";
 
 export type SpotifySceneTrackChangeDetail = {
   uri: string;

@@ -22,7 +22,7 @@ export const CONTINUITY_DIRECTOR_LIMITS = {
 
 export const CONTINUITY_DIRECTOR_CADENCE_OPTIONS = [5, 10, 20] as const;
 
-export type ContinuityDirectorCadence = (typeof CONTINUITY_DIRECTOR_CADENCE_OPTIONS)[number];
+type ContinuityDirectorCadence = (typeof CONTINUITY_DIRECTOR_CADENCE_OPTIONS)[number];
 
 export interface ContinuityDirectorCommandOptions {
   now?: () => string;

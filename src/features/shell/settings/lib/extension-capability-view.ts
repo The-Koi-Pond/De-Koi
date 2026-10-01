@@ -1,6 +1,6 @@
 import type { ExtensionPackagePermission, InstalledExtension } from "../../../../engine/contracts/types/extension";
 
-export type ExtensionCapabilityStatus = "available" | "unavailable" | "legacy-unscoped";
+type ExtensionCapabilityStatus = "available" | "unavailable" | "legacy-unscoped";
 export interface ExtensionCapabilityView {
   permission: ExtensionPackagePermission | "legacy";
   status: ExtensionCapabilityStatus;

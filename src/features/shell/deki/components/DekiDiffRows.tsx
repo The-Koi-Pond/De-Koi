@@ -176,7 +176,7 @@ function DekiProseDiff({ parts, collapsible }: { parts: DekiActionDiffPart[]; co
   );
 }
 
-export function DekiActionInlineDiff({ parts }: { parts: DekiActionDiffPart[] }) {
+function DekiActionInlineDiff({ parts }: { parts: DekiActionDiffPart[] }) {
   return (
     <div className="min-h-9 whitespace-pre-wrap break-words rounded-md bg-[var(--card)]/70 px-2.5 py-2 text-[0.75rem] leading-relaxed text-[var(--foreground)]/85">
       {parts.length > 0
