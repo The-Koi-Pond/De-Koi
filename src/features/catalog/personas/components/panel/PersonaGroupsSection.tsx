@@ -172,7 +172,10 @@ export function PersonaGroupsSection({
                 >
                   <div className="flex items-center gap-1.5 px-2.5 py-2">
                     <button
+                      type="button"
                       onClick={() => onExpandedGroupIdChange(isExpanded ? null : group.id)}
+                      aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group.name}`}
                       className="shrink-0 text-[var(--muted-foreground)]"
                     >
                       {isExpanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
