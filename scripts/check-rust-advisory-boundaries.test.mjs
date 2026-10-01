@@ -3,8 +3,14 @@ import test from "node:test";
 
 import { RUST_ADVISORY_PROFILES, evaluateRustAdvisoryBoundaries } from "./check-rust-advisory-boundaries.mjs";
 
-const patchedGraph = "de-koi v1.6.1\nh2 v0.4.16";
-const vulnerableGraph = "de-koi v1.6.1\nh2 v0.3.27\ntauri-plugin-devtools v2.1.0";
+const patchedGraph = "de-koi v1.6.1\nh2 v0.4.16\nringbuf v0.5.2";
+const vulnerableGraph = "de-koi v1.6.1\nh2 v0.3.27\nringbuf v0.4.8\ntauri-plugin-devtools v2.1.0";
+const h2OnlyGraph = "de-koi v1.6.1\nh2 v0.3.27\ntauri-plugin-devtools v2.1.0";
+const bothWaivers = ["RUSTSEC-2026-0258", "RUSTSEC-2026-0293"];
+
+function profiles(overrides = {}) {
+  return { desktop: patchedGraph, server: patchedGraph, pi: patchedGraph, devtools: vulnerableGraph, ...overrides };
+}
 
 test("resolves the Pi profile for the ARM64 Linux production target", () => {
   assert.deepEqual(RUST_ADVISORY_PROFILES.pi, {
@@ -13,80 +19,60 @@ test("resolves the Pi profile for the ARM64 Linux production target", () => {
   });
 });
 
-test("accepts the temporary waiver only when h2 0.3 is devtools-only", () => {
-  assert.doesNotThrow(() =>
-    evaluateRustAdvisoryBoundaries({
-      waiverConfigured: true,
-      profiles: {
-        desktop: patchedGraph,
-        server: patchedGraph,
-        pi: patchedGraph,
-        devtools: vulnerableGraph,
-      },
-    }),
-  );
+test("accepts the temporary waivers only when the vulnerable crates are devtools-only", () => {
+  assert.doesNotThrow(() => evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles() }));
 });
 
 test("rejects vulnerable h2 from a production feature graph", () => {
   assert.throws(
-    () =>
-      evaluateRustAdvisoryBoundaries({
-        waiverConfigured: true,
-        profiles: {
-          desktop: vulnerableGraph,
-          server: patchedGraph,
-          pi: patchedGraph,
-          devtools: vulnerableGraph,
-        },
-      }),
+    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles({ desktop: vulnerableGraph }) }),
     /desktop feature graph contains h2 0\.3\.27/,
   );
 });
 
 test("rejects vulnerable h2 from the Pi production feature graph", () => {
   assert.throws(
-    () =>
-      evaluateRustAdvisoryBoundaries({
-        waiverConfigured: true,
-        profiles: {
-          desktop: patchedGraph,
-          server: patchedGraph,
-          pi: vulnerableGraph,
-          devtools: vulnerableGraph,
-        },
-      }),
+    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles({ pi: h2OnlyGraph }) }),
     /pi feature graph contains h2 0\.3\.27/,
   );
 });
 
-test("rejects a stale waiver after the devtools dependency is patched", () => {
+test("rejects vulnerable ringbuf from a production feature graph", () => {
   assert.throws(
     () =>
       evaluateRustAdvisoryBoundaries({
-        waiverConfigured: true,
-        profiles: {
-          desktop: patchedGraph,
-          server: patchedGraph,
-          pi: patchedGraph,
-          devtools: patchedGraph,
-        },
+        waivedAdvisories: bothWaivers,
+        profiles: profiles({ server: "de-koi v1.6.1\nringbuf v0.4.8" }),
+      }),
+    /server feature graph contains ringbuf < 0\.5\.2 \(RUSTSEC-2026-0293\)/,
+  );
+});
+
+test("rejects a stale h2 waiver after the devtools dependency is patched", () => {
+  assert.throws(
+    () =>
+      evaluateRustAdvisoryBoundaries({
+        waivedAdvisories: bothWaivers,
+        profiles: profiles({ devtools: "de-koi v1.6.1\nh2 v0.4.16\nringbuf v0.4.8" }),
       }),
     /remove the stale RUSTSEC-2026-0258 waiver/,
   );
 });
 
+test("rejects a stale ringbuf waiver after the devtools dependency is patched", () => {
+  assert.throws(
+    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: bothWaivers, profiles: profiles({ devtools: h2OnlyGraph }) }),
+    /remove the stale RUSTSEC-2026-0293 waiver/,
+  );
+});
+
 test("rejects an unwaived vulnerable devtools graph", () => {
   assert.throws(
-    () =>
-      evaluateRustAdvisoryBoundaries({
-        waiverConfigured: false,
-        profiles: {
-          desktop: patchedGraph,
-          server: patchedGraph,
-          pi: patchedGraph,
-          devtools: vulnerableGraph,
-        },
-      }),
+    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: ["RUSTSEC-2026-0293"], profiles: profiles() }),
     /requires the reviewed RUSTSEC-2026-0258 waiver/,
+  );
+  assert.throws(
+    () => evaluateRustAdvisoryBoundaries({ waivedAdvisories: ["RUSTSEC-2026-0258"], profiles: profiles() }),
+    /requires the reviewed RUSTSEC-2026-0293 waiver/,
   );
 });
