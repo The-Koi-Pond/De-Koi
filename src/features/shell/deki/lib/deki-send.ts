@@ -1,4 +1,5 @@
 import {
+  dekiApprovalHistoryEntry,
   runDekiEntry,
   type DekiAttachment,
   type DekiChatAccessGrant,
@@ -7,6 +8,9 @@ import {
   type DekiMessage,
   type DekiPersonaContext,
   type DekiWebResearchGrant,
+  type DekiWorkspaceHistoryItem,
+  type DekiWorkspacePromptEvent,
+  type DekiWorkspaceTraceItem,
 } from "../../../../engine/deki/deki-entry";
 import {
   compactDekiHistory,
@@ -22,9 +26,18 @@ type DekiHistoryWriter = {
     role: "user" | "assistant";
     content: string;
     action?: DekiEntryAction | null;
+    workspaceTrace?: DekiWorkspaceTraceItem[];
+    workspaceHistory?: DekiWorkspaceHistoryItem[];
   }): Promise<DekiMessage>;
   saveCompaction(sessionId: string | null | undefined, compaction: DekiCompactionState): Promise<DekiCompactionState>;
 };
+
+const DEKI_DEFAULT_RUNTIME_SESSION_ID = "deki-session-default";
+
+/** The session id the Deki runtime scopes prompts, status, abort, and approvals to. */
+export function dekiRuntimeSessionId(sessionId: string | null | undefined): string {
+  return sessionId ?? DEKI_DEFAULT_RUNTIME_SESSION_ID;
+}
 
 export type DetachedDekiSendInput = {
   sessionId: string | null;
@@ -46,6 +59,8 @@ export type DetachedDekiSendInput = {
     assistant: DekiMessage,
     messagesWithAssistant: DekiMessage[],
   ) => void | Promise<void>;
+  /** Live workspace activity while Deki works. Omit to use the non-streaming prompt. */
+  onWorkspaceEvent?: (event: DekiWorkspacePromptEvent) => void;
 };
 
 export type DetachedDekiSendResult = {
@@ -82,7 +97,7 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
   );
   const response = await runDekiEntry(
     {
-      sessionId: input.sessionId ?? "deki-session-default",
+      sessionId: dekiRuntimeSessionId(input.sessionId),
       userMessage: input.userMessage,
       messages: contextMessages,
       compactedSummary: savedCompaction.compactedSummary,
@@ -93,12 +108,15 @@ export async function runDetachedDekiSend(input: DetachedDekiSendInput): Promise
       webResearchGrants: input.webResearchGrants ?? [],
     },
     input.gateway,
+    { onEvent: input.onWorkspaceEvent },
   );
   const assistant = await input.history.appendMessage({
     sessionId: input.sessionId,
     role: "assistant",
     content: response.content,
     action: response.action,
+    workspaceTrace: response.workspaceTrace,
+    workspaceHistory: (response.pendingApprovals ?? []).map(dekiApprovalHistoryEntry),
   });
   const messagesWithAssistant = [...messagesWithUser, assistant];
   await input.onAssistantMessagePersisted?.(assistant, messagesWithAssistant);

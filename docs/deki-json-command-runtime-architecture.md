@@ -1,7 +1,9 @@
 # Deki JSON Command Runtime Architecture
 
 This note indexes the architecture diagrams for issue #675 / Slice 2 of the
-Deki CLI-style assistant handoff. Use these diagrams as implementation anchors
+Deki CLI-style assistant handoff. Slices 3 and 4 (app-data approvals and live
+activity) are documented in `docs/deki-data-approvals.md`; statements below
+that call app-data mutation or streaming "future" describe the Slice 2 state. Use these diagrams as implementation anchors
 when changing Deki's prompt runtime.
 
 ## Diagram Index

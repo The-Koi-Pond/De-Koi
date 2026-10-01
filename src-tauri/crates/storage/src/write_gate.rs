@@ -11,15 +11,24 @@ pub(crate) struct WriteGate {
 #[derive(Default)]
 struct WriteGateState {
     atomic_owner: Option<ThreadId>,
+    exclusive_owner: Option<ThreadId>,
     active_writes: usize,
     waiting_atomic_updates: usize,
+    waiting_exclusive_sections: usize,
     recovery_required: bool,
+}
+
+impl WriteGateState {
+    fn excluded(&self, current: ThreadId) -> bool {
+        self.exclusive_owner.is_some_and(|owner| owner != current)
+    }
 }
 
 #[derive(Clone, Copy)]
 enum WritePermitKind {
     Ordinary,
     Atomic,
+    Exclusive,
 }
 
 pub(crate) struct WritePermit {
@@ -61,13 +70,17 @@ impl WriteGate {
                         .wait(state)
                         .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
                 }
-                None if state.active_writes > 0 => {
+                None if state.excluded(current) || state.active_writes > 0 => {
                     state = self
                         .changed
                         .wait(state)
                         .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
                 }
-                None if state.waiting_atomic_updates > 0 => {
+                // Queued atomic updates and exclusive sections go before later
+                // ordinary writes, except writes made by the exclusive owner.
+                None if state.exclusive_owner != Some(current)
+                    && (state.waiting_atomic_updates > 0 || state.waiting_exclusive_sections > 0) =>
+                {
                     state = self
                         .changed
                         .wait(state)
@@ -97,7 +110,7 @@ impl WriteGate {
             ));
         }
         state.waiting_atomic_updates = state.waiting_atomic_updates.saturating_add(1);
-        while state.atomic_owner.is_some() || state.active_writes > 0 {
+        while state.atomic_owner.is_some() || state.active_writes > 0 || state.excluded(current) {
             state = self
                 .changed
                 .wait(state)
@@ -114,6 +127,43 @@ impl WriteGate {
         Ok(WritePermit {
             gate: Arc::clone(self),
             kind: WritePermitKind::Atomic,
+        })
+    }
+
+    /// Starts a section in which only the calling thread may write. The
+    /// owner's ordinary writes and atomic updates proceed as usual; every other
+    /// thread's writes wait until the returned permit is dropped. Use it when a
+    /// check and the writes it guards must see no intervening mutation.
+    pub(crate) fn begin_exclusive(self: &Arc<Self>) -> AppResult<WritePermit> {
+        let current = thread::current().id();
+        let mut state = self.state()?;
+        if state.recovery_required {
+            return Err(Self::recovery_required_error());
+        }
+        if state.exclusive_owner == Some(current) || state.atomic_owner == Some(current) {
+            return Err(AppError::new(
+                "storage_transaction_active",
+                "Storage exclusive section cannot start inside another storage transaction",
+            ));
+        }
+        state.waiting_exclusive_sections = state.waiting_exclusive_sections.saturating_add(1);
+        while state.exclusive_owner.is_some() || state.atomic_owner.is_some() || state.active_writes > 0 {
+            state = self
+                .changed
+                .wait(state)
+                .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
+            if state.recovery_required {
+                state.waiting_exclusive_sections = state.waiting_exclusive_sections.saturating_sub(1);
+                self.changed.notify_all();
+                return Err(Self::recovery_required_error());
+            }
+        }
+        state.waiting_exclusive_sections = state.waiting_exclusive_sections.saturating_sub(1);
+        state.exclusive_owner = Some(current);
+        drop(state);
+        Ok(WritePermit {
+            gate: Arc::clone(self),
+            kind: WritePermitKind::Exclusive,
         })
     }
 
@@ -149,6 +199,9 @@ impl Drop for WritePermit {
             }
             WritePermitKind::Atomic => {
                 state.atomic_owner = None;
+            }
+            WritePermitKind::Exclusive => {
+                state.exclusive_owner = None;
             }
         }
         self.gate.changed.notify_all();
@@ -187,6 +240,44 @@ mod tests {
             Err("storage_append_journal_recovery_required".to_string())
         );
         waiter.join().unwrap();
+    }
+
+    #[test]
+    fn exclusive_section_blocks_other_writers_but_not_its_owner() {
+        let gate = Arc::new(WriteGate::default());
+        let exclusive = gate.begin_exclusive().unwrap();
+
+        drop(gate.begin_write().expect("the owner keeps writing"));
+        drop(gate.begin_atomic_update().expect("the owner keeps atomic updates"));
+
+        let other_gate = Arc::clone(&gate);
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let other = std::thread::spawn(move || {
+            let permit = other_gate.begin_write().unwrap();
+            acquired_tx.send(()).unwrap();
+            drop(permit);
+        });
+        assert!(
+            acquired_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "another thread must not write during the exclusive section"
+        );
+
+        drop(exclusive);
+        acquired_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("other writers continue after the section ends");
+        other.join().unwrap();
+    }
+
+    #[test]
+    fn exclusive_sections_do_not_nest() {
+        let gate = Arc::new(WriteGate::default());
+        let _exclusive = gate.begin_exclusive().unwrap();
+
+        assert_eq!(
+            gate.begin_exclusive().map(drop).unwrap_err().code,
+            "storage_transaction_active"
+        );
     }
 
     #[test]

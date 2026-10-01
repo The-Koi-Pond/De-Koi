@@ -75,12 +75,12 @@ For code changes, final responses must include behavior changed, primary files/m
 ### Current Map
 
 - `src/app`: React bootstrap, shell layout, app providers, startup effects, top bars, sidebars, and panel composition.
-- `src/features/shell/deki`: Deki-senpai's standalone assistant UI surface.
+- `src/features/shell/deki`: Deki-senpai's standalone assistant UI surface, including live workspace activity (`DekiWorkspaceActivity.tsx`, `lib/deki-workspace-activity.ts`) and app-data approval cards (`DekiDataApprovalCard.tsx`).
 - `src/features/shell/discovery`: In-app Discover guide, feature metadata registry, search/filter helpers, and discoverability action routing.
 - `src/features/shell/plugins`: Bundled opt-in core module registry, settings UI, React Query hooks, runtime contribution mounting, and the ME Notes chat notepad module.
 - `src/engine/deki`: TypeScript request/response contract for the Deki-senpai entrypoint.
-- `src-tauri/src/commands/storage/deki.rs` and `src-tauri/src/commands/storage/deki/*`: Privileged Deki-senpai agent execution, tool definitions, codebase search/read/edit access, scoped canonical character-memory and approved chat-memory read/edit access, scoped chat-read access, consent-gated web research/page reads, and extension/custom-agent creation.
-- `src/shared/api/deki-api.ts`: Focused frontend runtime wrapper for the Deki-senpai command.
+- `src-tauri/src/commands/storage/deki.rs` and `src-tauri/src/commands/storage/deki/*`: Privileged Deki-senpai agent execution, tool definitions, codebase search/read/edit access, scoped canonical character-memory and approved chat-memory read/edit access, scoped chat-read access, consent-gated web research/page reads, and extension/custom-agent creation. `deki/data_cli.rs` owns `deki_data` reads and dry-run planning, `deki/approvals.rs` owns owner-scoped pending approvals and history, and `deki/events.rs` owns live workspace events; `deki_prompt_events` (Tauri channel) and `/api/deki/prompt/stream` (SSE in `http_server.rs`) stream them. See `docs/deki-data-approvals.md`.
+- `src/shared/api/deki-api.ts`: Focused frontend runtime wrapper for the Deki-senpai command, streamed prompt events (`dekiApi.promptEvents`), and workspace status/abort/approve/reject.
 - `src/shared/api/local-sidecar-api.ts`: Focused frontend runtime wrapper for Local Model sidecar status, config, runtime/model downloads, process control, and smoke tests.
 - `src/shared/api/plugin-memory-api.ts`: Focused frontend wrapper for namespaced plugin memory stored in the `plugin-memory` collection and routed through embedded or remote runtime storage.
 - `src/engine`: React-free product behavior and mode orchestration.

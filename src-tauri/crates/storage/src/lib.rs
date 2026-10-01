@@ -1099,6 +1099,16 @@ impl FileStorage {
         Ok(updated)
     }
 
+    /// Runs `operation` while no other thread can write. Writes `operation`
+    /// makes on this thread (including through higher-level owners) proceed
+    /// normally. Use it when a validation and the writes it guards must see no
+    /// intervening mutation. `operation` must not wait on another thread that
+    /// writes to this storage.
+    pub fn with_exclusive_writes<T>(&self, operation: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+        let _exclusive = self.write_gate.begin_exclusive()?;
+        operation()
+    }
+
     pub fn patch_if<F>(
         &self,
         collection: &str,
