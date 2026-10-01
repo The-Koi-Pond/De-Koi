@@ -178,9 +178,7 @@ export function DekiDataApprovalCard({
   const alsoChanged = preview.slice(1).filter((row) => row.action !== "delete");
   const primaryRows = useMemo(
     () =>
-      primary && primary.action !== "delete"
-        ? orderDekiDiffRowsForReading(createDekiRowChangeDiffRows(primary))
-        : [],
+      primary && primary.action !== "delete" ? orderDekiDiffRowsForReading(createDekiRowChangeDiffRows(primary)) : [],
     [primary],
   );
   const deletedFields = useMemo(
