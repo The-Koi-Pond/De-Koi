@@ -251,6 +251,37 @@ body {
   z-index: 1;
 }
 
+/* Light theme: the same pond as shallow water over rice paper. The dark
+   gradients above would otherwise sit under light-theme ink. */
+[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse at 50% -12%, rgba(95, 178, 168, 0.16) 0%, transparent 52%),
+    radial-gradient(ellipse at 14% 88%, rgba(199, 90, 38, 0.08), transparent 34%), var(--background);
+}
+
+[data-theme="light"] .koi-pond-surface {
+  background:
+    radial-gradient(ellipse at 18% 18%, rgba(95, 178, 168, 0.14), transparent 34%),
+    radial-gradient(ellipse at 86% 68%, rgba(199, 90, 38, 0.08), transparent 38%),
+    radial-gradient(ellipse at 50% 46%, #fbf8f1 0%, #f4f0e6 68%, #ece6d8 100%);
+}
+
+[data-theme="light"] .koi-pond-surface::before {
+  opacity: 0.22;
+  filter: none;
+}
+
+[data-theme="light"] .koi-pond-surface::after {
+  background:
+    radial-gradient(
+      ellipse at 50% 45%,
+      rgba(250, 246, 238, 0.7) 0%,
+      rgba(250, 246, 238, 0.42) 46%,
+      rgba(250, 246, 238, 0) 100%
+    ),
+    linear-gradient(180deg, transparent 60%, rgba(95, 178, 168, 0.08) 100%);
+}
+
 @media (max-width: 640px) {
   .koi-pond-surface::before {
     opacity: 0.44;
@@ -274,6 +305,12 @@ body {
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent) inset,
     0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] .mari-app-chrome {
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent) inset,
+    0 6px 18px rgba(26, 42, 46, 0.08);
 }
 
 .mari-topbar,

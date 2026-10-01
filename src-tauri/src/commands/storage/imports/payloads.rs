@@ -313,7 +313,10 @@ fn resolve_charx_public_profile_banner(bytes: &[u8], card: &mut Value) -> AppRes
 /// Reads `emotion` assets into De-Koi sprite records (expression name plus an
 /// image data URL). Assets that are missing or not packaged are skipped.
 fn resolve_charx_emotion_sprites(bytes: &[u8], card: &Value) -> AppResult<Vec<Value>> {
-    let Some(assets) = charx_character_data(card).get("assets").and_then(Value::as_array) else {
+    let Some(assets) = charx_character_data(card)
+        .get("assets")
+        .and_then(Value::as_array)
+    else {
         return Ok(Vec::new());
     };
     let mut sprites = Vec::new();
@@ -509,7 +512,9 @@ pub(super) fn parse_character_file_from_path(
         let mut payload = extract_chara_from_png(bytes)?;
         payload
             .as_object_mut()
-            .ok_or_else(|| AppError::invalid_input("Embedded character data must be a JSON object"))?
+            .ok_or_else(|| {
+                AppError::invalid_input("Embedded character data must be a JSON object")
+            })?
             .remove(CHARX_SPRITES_FIELD);
         return Ok(payload);
     }
@@ -544,7 +549,8 @@ mod tests {
             "_charxSprites": [{ "expression": "x", "data": "data:image/png;base64,AAAA" }]
         });
 
-        let parsed = parse_character_file("card.json", card.to_string().as_bytes()).expect("json card");
+        let parsed =
+            parse_character_file("card.json", card.to_string().as_bytes()).expect("json card");
 
         assert!(parsed.get(CHARX_SPRITES_FIELD).is_none());
     }

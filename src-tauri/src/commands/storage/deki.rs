@@ -1586,9 +1586,11 @@ pub(crate) async fn deki_workspace_approve(
     // writes, so it runs on a blocking thread rather than an async worker.
     let state = state.clone();
     let runtime_owner = runtime_owner.clone();
-    tokio::task::spawn_blocking(move || approvals::approve(&state, &runtime_owner, &session_id, &id))
-        .await
-        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+    tokio::task::spawn_blocking(move || {
+        approvals::approve(&state, &runtime_owner, &session_id, &id)
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 pub(crate) async fn deki_workspace_reject(
