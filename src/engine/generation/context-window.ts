@@ -151,7 +151,7 @@ function isToolCallMessage(message: ContextMessage): boolean {
 }
 
 /** Groups provider-sensitive tool roundtrips and complete dialogue exchanges without changing their order. */
-export function groupContextMessages(messages: LlmMessage[]): AtomicMessageGroup[] {
+function groupContextMessages(messages: LlmMessage[]): AtomicMessageGroup[] {
   const source = messages as ContextMessage[];
   const groups: AtomicMessageGroup[] = [];
   let index = 0;

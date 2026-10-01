@@ -18,10 +18,6 @@ const themeKeys = {
   list: () => [...themeKeys.all, "list"] as const,
 };
 
-export function findDuplicateTheme(themes: Theme[], name: string, css: string) {
-  return themes.find((theme) => theme.name === name && theme.css === css) ?? null;
-}
-
 export function useThemes() {
   return useQuery({
     queryKey: themeKeys.list(),

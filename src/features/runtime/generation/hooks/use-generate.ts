@@ -767,7 +767,7 @@ async function buildPendingCardUpdates(
   });
 }
 
-export function formatAgentBubble(result: AgentResult, agentName: string): string | null {
+function formatAgentBubble(result: AgentResult, agentName: string): string | null {
   if (result.agentType === "world-state" || result.type === "game_state_update") {
     const patch = worldStatePatchFromAgentData(result.data, {
       allowFreeform: result.agentType === "world-state",

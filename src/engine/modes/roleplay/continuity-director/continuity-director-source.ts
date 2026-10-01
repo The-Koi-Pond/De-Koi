@@ -5,13 +5,13 @@ import { sha256MemoryId } from "../../../generation/deterministic-memory-id";
 import { eligibleStoryMessages, STORY_PROJECTION_VERSION } from "../../../generation/story-projections";
 import { parseRecord, readString, stringArray, type JsonRecord } from "../../../generation/runtime-records";
 
-export interface ContinuityDirectorTranscriptItem {
+interface ContinuityDirectorTranscriptItem {
   id: string;
   role: "user" | "assistant" | "narrator";
   content: string;
 }
 
-export interface ContinuityDirectorStoryItem {
+interface ContinuityDirectorStoryItem {
   id: string;
   level: "episode" | "arc";
   title: string;
@@ -21,7 +21,7 @@ export interface ContinuityDirectorStoryItem {
   updatedAt: string;
 }
 
-export interface ContinuityDirectorKnowledgeItem {
+interface ContinuityDirectorKnowledgeItem {
   edgeId: string;
   memoryId: string;
   holder: { kind: KnowledgeEdge["holder"]["kind"]; id: string; name: string };
