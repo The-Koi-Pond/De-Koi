@@ -1568,7 +1568,12 @@ mod tests {
                 json!({ "id": "book-sol", "name": "Sol Lorebook", "characterId": "char-sol", "sourceCharacterId": "char-sol" }),
             )
             .expect("seed lorebook");
-        for (index, (name, position, role)) in [("Koi", 1, "assistant"), ("Lantern", 0, "system"), ("Shrine", 2, "user")]
+        for (index, (name, position, role)) in [
+            ("Koi", 1, "assistant"),
+            ("Lantern", 0, "system"),
+            ("Shrine", 2, "user"),
+            ("Note", 3, "system"),
+        ]
             .iter()
             .enumerate()
         {
@@ -1706,7 +1711,7 @@ mod tests {
         let lorebook_id = imported["lorebook"]["lorebookId"].as_str().expect("lorebook imported");
         let mut entries = entries_for_lorebook(&state, lorebook_id);
         entries.sort_by_key(|entry| entry["order"].as_i64().unwrap_or_default());
-        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.len(), 4);
         assert_eq!(entries[0]["name"], "Koi");
         assert_eq!(entries[0]["position"], 1);
         assert_eq!(entries[0]["depth"], 7);
@@ -1719,6 +1724,8 @@ mod tests {
         assert_eq!(entries[2]["depth"], 7);
         assert_eq!(entries[2]["role"], "user");
         assert_eq!(entries[2]["content"], "Shrine lore", "decorators do not leak into content");
+        assert_eq!(entries[3]["position"], 3, "non-depth SillyTavern positions are not reminted as depth");
+        assert_eq!(entries[3]["content"], "Note lore");
         assert_eq!(entries[2]["useRegex"], true);
     }
 

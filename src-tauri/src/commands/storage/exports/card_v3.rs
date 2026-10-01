@@ -351,6 +351,13 @@ fn card_extension_position(position: i64) -> i64 {
     }
 }
 
+/// At-depth placement: De-Koi's @Depth (2), or SillyTavern's (4) kept from an
+/// imported card. Other SillyTavern positions (Author's Note, example
+/// messages) have no V3 equivalent and travel only in `extensions.position`.
+fn is_at_depth(position: i64) -> bool {
+    position == DE_KOI_DEPTH_POSITION || position == CARD_DEPTH_POSITION
+}
+
 /// The V3 `position` field only defines before/after the character, so
 /// depth placement leaves it out and is carried by `extensions.position`.
 fn card_primary_position(position: i64) -> Option<&'static str> {
@@ -402,7 +409,7 @@ fn character_book(state: &AppState, character_id: &str, source: &Value) -> AppRe
 /// decorator ignore it.
 fn decorated_content(entry: &Value, position: i64) -> String {
     let content = entry.get("content").and_then(Value::as_str).unwrap_or("");
-    if card_primary_position(position).is_some() {
+    if !is_at_depth(position) {
         return content.to_string();
     }
     let depth = entry.get("depth").and_then(Value::as_i64).unwrap_or(4).max(0);
@@ -569,6 +576,9 @@ mod tests {
         assert_eq!(decorated_content(&depth, 2), "@@depth 3\n@@role assistant\nShrine lore");
         assert_eq!(decorated_content(&before, 0), "Koi lore");
         assert_eq!(decorated_content(&before, 1), "Koi lore");
+        assert_eq!(decorated_content(&depth, 4), "@@depth 3\n@@role assistant\nShrine lore");
+        assert_eq!(decorated_content(&depth, 3), "Shrine lore", "Author's Note placement is not depth");
+        assert_eq!(card_extension_position(3), 3);
     }
 
     #[test]
