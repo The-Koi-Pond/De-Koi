@@ -892,6 +892,29 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     const isActive = activeChatId === chat.id || (chat.groupId != null && chat.groupId === activeGroupId);
     const isSelected = selectedChatIds.has(chat.id);
     const pinned = isChatPinned(chat);
+    const activateChatRow = async () => {
+      if (multiSelectMode) {
+        toggleSelectChat(chat.id);
+        return;
+      }
+      if (
+        chat.id !== activeChatId &&
+        !(await confirmDiscardPendingAppWork({
+          purpose: "navigation",
+          title: "Switch chats?",
+          confirmLabel: "Switch anyway",
+        }))
+      ) {
+        return;
+      }
+      if (hasAnyDetailOpen()) {
+        closeAllDetails();
+      }
+      internalNavRef.current = true;
+      setActiveChatId(chat.id);
+      useUIStore.getState().setMobileChatToolsOpen(false);
+      if (window.innerWidth < 768) onRequestClose();
+    };
     return (
       <div
         role="button"
@@ -902,28 +925,13 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         draggable={!multiSelectMode && modeFolders.length > 0}
         onDragStart={(event) => handleChatDragStart(event, chat.id)}
         onDragEnd={clearChatDragState}
-        onClick={async () => {
-          if (multiSelectMode) {
-            toggleSelectChat(chat.id);
-            return;
-          }
-          if (
-            chat.id !== activeChatId &&
-            !(await confirmDiscardPendingAppWork({
-              purpose: "navigation",
-              title: "Switch chats?",
-              confirmLabel: "Switch anyway",
-            }))
-          ) {
-            return;
-          }
-          if (hasAnyDetailOpen()) {
-            closeAllDetails();
-          }
-          internalNavRef.current = true;
-          setActiveChatId(chat.id);
-          useUIStore.getState().setMobileChatToolsOpen(false);
-          if (window.innerWidth < 768) onRequestClose();
+        onClick={() => void activateChatRow()}
+        onKeyDown={(event) => {
+          // The row is focusable and announced as a button, so Enter and Space open it.
+          if (event.target !== event.currentTarget) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          void activateChatRow();
         }}
         className={cn(
           "group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
