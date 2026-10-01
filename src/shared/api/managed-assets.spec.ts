@@ -22,8 +22,8 @@ vi.mock("./tauri-client", () => ({
   invokeTauri: tauriClientMock.invokeTauri,
 }));
 
-import { gameAssetUrl, remoteManagedAssetPath, userBackgroundUrl } from "./managed-asset-paths";
-import { resolveGalleryFileUrl } from "./managed-asset-resolvers";
+import { displayableAssetSrc, gameAssetUrl, remoteManagedAssetPath, userBackgroundUrl } from "./managed-asset-paths";
+import { backgroundFileUrlFromPath, gameAssetFileUrlFromPath, resolveGalleryFileUrl } from "./managed-asset-resolvers";
 import { managedAssetThumbnailRemotePath } from "./managed-asset-thumbnails";
 import {
   invalidateRemoteManagedAssetObjectUrls,
@@ -92,6 +92,32 @@ describe("remote managed assets", () => {
     expect(remoteManagedAssetUrl("game", "maps\\level 1/bg.png", "v=abc")).toBe(
       "http://127.0.0.1:3080/api/assets/game/maps/level%201/bg.png?v=abc",
     );
+  });
+
+  it("never hands out a server filesystem path when the remote runtime requires authorization", () => {
+    const serverPath = "D:/srv/de-koi/default-data/backgrounds/ancient_library.jpg";
+    remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
+
+    expect(backgroundFileUrlFromPath("ancient_library.jpg", serverPath)).toBe(userBackgroundUrl("ancient_library.jpg"));
+    expect(gameAssetFileUrlFromPath("maps/bg.png", "/srv/de-koi/game-assets/maps/bg.png")).toBe(
+      gameAssetUrl("maps/bg.png"),
+    );
+    // The markers resolve later through an authenticated fetch; an <img> gets no src until then.
+    expect(displayableAssetSrc(backgroundFileUrlFromPath("ancient_library.jpg", serverPath))).toBeUndefined();
+    expect(displayableAssetSrc(gameAssetFileUrlFromPath("maps/bg.png", serverPath))).toBeUndefined();
+  });
+
+  it("keeps plain remote URLs and embedded paths displayable", () => {
+    const remoteUrl = backgroundFileUrlFromPath("sky.png", "D:/srv/sky.png");
+    expect(remoteUrl).toMatch(/^http:\/\/127\.0\.0\.1:3080\/api\/assets\/background\/sky\.png(\?|$)/);
+    expect(displayableAssetSrc(remoteUrl)).toBe(remoteUrl);
+
+    remoteRuntimeMock.target = null;
+    expect(backgroundFileUrlFromPath("sky.png", "C:\\De-KoiData\\backgrounds\\sky.png")).toBe(
+      "C:\\De-KoiData\\backgrounds\\sky.png",
+    );
+    expect(displayableAssetSrc("blob:managed-asset")).toBe("blob:managed-asset");
+    expect(displayableAssetSrc("")).toBeUndefined();
   });
 
   it("uses object URLs for authorized remote assets and reuses the blob fetch cache", async () => {
