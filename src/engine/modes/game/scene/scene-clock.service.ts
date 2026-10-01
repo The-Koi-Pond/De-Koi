@@ -10,9 +10,7 @@ function hasElapsedMinutesEstimate(value: SceneAnalysis["elapsedMinutes"]): valu
   return typeof value === "number" && Number.isFinite(value);
 }
 
-export function resolveSceneClockUpdate(
-  scene: Pick<SceneAnalysis, "timeOfDay" | "elapsedMinutes">,
-): SceneClockUpdate {
+export function resolveSceneClockUpdate(scene: Pick<SceneAnalysis, "timeOfDay" | "elapsedMinutes">): SceneClockUpdate {
   const elapsedMinutes = hasElapsedMinutesEstimate(scene.elapsedMinutes) ? scene.elapsedMinutes : null;
   const timeOfDay = scene.timeOfDay || null;
 

@@ -33,9 +33,7 @@ const REMOTE_COMMANDS = new Set([
 
 describe("remote runtime dispatch check", () => {
   it("accepts matching desktop, remote allowlist, and HTTP dispatch command surfaces", () => {
-    expect(
-      findRemoteRuntimeDispatchMismatches({ libSource, dispatchSource, remoteRuntimeSource }),
-    ).toEqual([]);
+    expect(findRemoteRuntimeDispatchMismatches({ libSource, dispatchSource, remoteRuntimeSource })).toEqual([]);
   });
 
   it("reports commands missing from the TypeScript remote allowlist", () => {

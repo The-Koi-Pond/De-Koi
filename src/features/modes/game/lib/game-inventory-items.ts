@@ -12,8 +12,7 @@ function inventoryNameKey(value: string): string {
 function normalizeDetailedInventoryItem(item: InventoryItem): InventoryItem {
   const partial = item as Partial<InventoryItem>;
   const name = normalizeInventoryName(partial.name ?? "") || "Item";
-  const quantity =
-    typeof partial.quantity === "number" && Number.isFinite(partial.quantity) ? partial.quantity : 1;
+  const quantity = typeof partial.quantity === "number" && Number.isFinite(partial.quantity) ? partial.quantity : 1;
   return {
     inventoryItemId: partial.inventoryItemId?.trim() || makeManualTrackerRowId(),
     name,

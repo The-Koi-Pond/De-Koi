@@ -56,9 +56,7 @@ describe("agent import batch commit", () => {
     expect(result).toEqual({
       atomic: false,
       imported: 0,
-      failures: [
-        "second.json / second: duplicate type",
-      ],
+      failures: ["second.json / second: duplicate type"],
       created: [],
       kept: [],
       rolledBack: [{ fileName: "first.json", name: "first", id: "agent-1" }],

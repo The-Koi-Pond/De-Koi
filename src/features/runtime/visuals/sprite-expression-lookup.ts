@@ -19,11 +19,9 @@ function getSpriteExpressionForOwner(
   displayName?: string | null,
 ): string | undefined {
   const id = ownerId?.trim();
-  const candidates = [
-    id ? makeSpriteOwnerKey(ownerKind, id) : null,
-    id,
-    displayName?.trim() || null,
-  ].filter((candidate): candidate is string => !!candidate);
+  const candidates = [id ? makeSpriteOwnerKey(ownerKind, id) : null, id, displayName?.trim() || null].filter(
+    (candidate): candidate is string => !!candidate,
+  );
   for (const candidate of candidates) {
     const expression = expressions[candidate];
     if (expression) return expression;

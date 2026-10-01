@@ -1,4 +1,8 @@
-import type { QuickReplyModeScope, QuoteFormat, UserQuickReplyActionConfig } from "../../../../../shared/stores/ui.store";
+import type {
+  QuickReplyModeScope,
+  QuoteFormat,
+  UserQuickReplyActionConfig,
+} from "../../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
 import { matchSlashCommand } from "../../../../../shared/lib/slash-commands";
 

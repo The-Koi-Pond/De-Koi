@@ -241,7 +241,11 @@ export function resolveRoleplayWorkflowProfile(
       before: activeAgentIds,
       after: [...new Set([...activeAgentIds, agentId])],
       selectedByDefault:
-        selectable && metadata.enableAgents !== false && !isIllustrator && !isMusic && !activeAgentIds.includes(agentId),
+        selectable &&
+        metadata.enableAgents !== false &&
+        !isIllustrator &&
+        !isMusic &&
+        !activeAgentIds.includes(agentId),
       selectable,
       expectedExtraCalls: 1,
       modelUse: "One call when this helper runs",
@@ -682,7 +686,8 @@ function currentValueForReceiptField(
     case "metadata.roleplayContinuityDirector.refreshMode":
       return readContinuityDirectorConfiguration(current.metadata.roleplayContinuityDirector).refreshMode;
     case "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns":
-      return readContinuityDirectorConfiguration(current.metadata.roleplayContinuityDirector).refreshEveryAssistantTurns;
+      return readContinuityDirectorConfiguration(current.metadata.roleplayContinuityDirector)
+        .refreshEveryAssistantTurns;
   }
 }
 

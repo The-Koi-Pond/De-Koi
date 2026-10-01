@@ -94,9 +94,7 @@ export function resolveLorebookKeeperTarget(
   context: LorebookKeeperTargetContext,
 ): LorebookKeeperTarget | null {
   const lorebookById = new Map(
-    lorebooks
-      .map((lorebook) => [readString(lorebook.id), lorebook] as const)
-      .filter(([id]) => id.length > 0),
+    lorebooks.map((lorebook) => [readString(lorebook.id), lorebook] as const).filter(([id]) => id.length > 0),
   );
   const chat = context.chat ?? {};
   const metadata = parseRecord(chat.metadata);

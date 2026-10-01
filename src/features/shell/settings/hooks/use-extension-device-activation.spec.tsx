@@ -9,7 +9,10 @@ describe("extension device activation", () => {
     const extension = { id: "shared", enabled: true, permissions: [] } as never;
     const resolved = await resolveExtensionDeviceActivation(extension);
     expect(resolved.consent).toBeNull();
-    extensionDeviceConsentStore.grant(currentRuntimeConsentScope(), "shared", resolved.fingerprint, { css: true, javascript: false });
+    extensionDeviceConsentStore.grant(currentRuntimeConsentScope(), "shared", resolved.fingerprint, {
+      css: true,
+      javascript: false,
+    });
     expect((await resolveExtensionDeviceActivation(extension)).consent?.css).toBe(true);
   });
 });

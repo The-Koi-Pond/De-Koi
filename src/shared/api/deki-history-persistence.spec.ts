@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  planDekiHistoryPersistence,
-  type DekiHistoryPersistenceSnapshot,
-} from "./deki-history-persistence";
+import { planDekiHistoryPersistence, type DekiHistoryPersistenceSnapshot } from "./deki-history-persistence";
 
 function snapshot(
   activeSessionId: string,

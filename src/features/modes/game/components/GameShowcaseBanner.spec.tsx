@@ -7,8 +7,7 @@ import { GameShowcaseBanner } from "./GameShowcaseBanner";
 const openRightPanel = vi.fn();
 
 vi.mock("../../../../shared/stores/ui.store", () => ({
-  useUIStore: (selector: (state: { openRightPanel: typeof openRightPanel }) => unknown) =>
-    selector({ openRightPanel }),
+  useUIStore: (selector: (state: { openRightPanel: typeof openRightPanel }) => unknown) => selector({ openRightPanel }),
 }));
 
 describe("GameShowcaseBanner", () => {

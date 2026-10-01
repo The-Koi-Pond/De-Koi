@@ -12,12 +12,17 @@ const highRiskPathRules = [
   { name: "schema or migration", pattern: /(^|\/)(drizzle|migrations?|schema)(\/|\.|$)/i },
   { name: "storage layer", pattern: /(^|\/)(storage|repositories|database|db)(\/|\.|$)/i },
   { name: "import/export path", pattern: /(^|\/)(import|export)(\/|\.|$)/i },
-  { name: "version or release metadata", pattern: /(^|\/)(CHANGELOG\.md|android\/app\/build\.gradle|win\/installer\/|packages\/shared\/src\/constants\/defaults\.ts)$/i },
+  {
+    name: "version or release metadata",
+    pattern:
+      /(^|\/)(CHANGELOG\.md|android\/app\/build\.gradle|win\/installer\/|packages\/shared\/src\/constants\/defaults\.ts)$/i,
+  },
   { name: "prompt pipeline", pattern: /(^|\/)(prompt|prompting|generation|agents?|lorebook)(\/|\.|$)/i },
   { name: "auth or credentials", pattern: /(^|\/)(auth|oauth|credentials?|secrets?)(\/|\.|$)/i },
 ];
 
-const highRiskFlagPattern = /schema|version|dependency|auth|storage|prompt|external|hardware|credential|unproven|cannot reproduce|force-push|installer|upgrade|legacy|migration|import|export|destructive|compatibility/i;
+const highRiskFlagPattern =
+  /schema|version|dependency|auth|storage|prompt|external|hardware|credential|unproven|cannot reproduce|force-push|installer|upgrade|legacy|migration|import|export|destructive|compatibility/i;
 
 function usage() {
   console.log(`Usage:
@@ -77,9 +82,7 @@ function changedFiles() {
 
 function productionChangedFiles(files) {
   return files.filter(
-    (file) =>
-      !file.startsWith("scratch/") &&
-      file !== ".agents/automation/scripts/bugfix-fast-lane.mjs",
+    (file) => !file.startsWith("scratch/") && file !== ".agents/automation/scripts/bugfix-fast-lane.mjs",
   );
 }
 
@@ -146,9 +149,10 @@ function uiEvidenceState(ledger) {
   const localScratch = [...allText.matchAll(/(?:^|[\s"'`])(?<path>scratch[\\/][^\s"'`)]+)/gi)].map(
     (match) => match.groups.path,
   );
-  const published = /https:\/\/(?:github\.com\/user-attachments\/assets\/|user-images\.githubusercontent\.com\/|gist\.github\.com\/|gist\.githubusercontent\.com\/)/i.test(
-    visualProofText,
-  );
+  const published =
+    /https:\/\/(?:github\.com\/user-attachments\/assets\/|user-images\.githubusercontent\.com\/|gist\.github\.com\/|gist\.githubusercontent\.com\/)/i.test(
+      visualProofText,
+    );
   return { required: isUiRuntimeLedger(ledger), localScratch, published };
 }
 
@@ -178,7 +182,9 @@ function assess(ledger) {
   const eligibilityBlockers = [
     ...hardStops.map((stop) => `hard stop recorded: ${typeof stop === "string" ? stop : JSON.stringify(stop)}`),
     ...gitWarnings.map((warning) => `git state unavailable: ${warning}`),
-    ...committedEvidenceFiles.map((file) => `temporary PR evidence should be uploaded/attached, not committed: ${file}`),
+    ...committedEvidenceFiles.map(
+      (file) => `temporary PR evidence should be uploaded/attached, not committed: ${file}`,
+    ),
     ...pathRisks,
     ...flagRisks.map((flag) => `high-risk flag: ${flag}`),
   ];
@@ -238,7 +244,9 @@ function proofMarkdown(ledger, assessment) {
   const visualProof = evidenceSummary(ledger.evidence?.visualProof);
   const browserRecipes = evidenceSummary(ledger.evidence?.browserRecipes);
   const manualBlockers = asArray(ledger.manualBlockers).map((blocker) =>
-    typeof blocker === "string" ? blocker : `${blocker.description}${blocker.verifiedInstead ? `; verified instead: ${blocker.verifiedInstead}` : ""}`,
+    typeof blocker === "string"
+      ? blocker
+      : `${blocker.description}${blocker.verifiedInstead ? `; verified instead: ${blocker.verifiedInstead}` : ""}`,
   );
   const baselineStatus = ledger.checks?.baselineStatus ?? (ledger.verification?.baselinePassed ? "passed" : "not_run");
 

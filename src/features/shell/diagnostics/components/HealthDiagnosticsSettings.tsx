@@ -52,11 +52,12 @@ function providerConnectionId(item: DiagnosticItem): string {
   return String(detailRecord(item).connectionId ?? "").trim();
 }
 
-
 function latencySummary(result: unknown): string {
   if (!result || typeof result !== "object" || Array.isArray(result)) return "Probe completed.";
   const latencyMs = (result as { latencyMs?: unknown }).latencyMs;
-  return typeof latencyMs === "number" && Number.isFinite(latencyMs) ? `Probe completed in ${latencyMs} ms.` : "Probe completed.";
+  return typeof latencyMs === "number" && Number.isFinite(latencyMs)
+    ? `Probe completed in ${latencyMs} ms.`
+    : "Probe completed.";
 }
 
 function providerProbeSummary(result: ProbeState): string {
@@ -213,10 +214,15 @@ export function HealthDiagnosticsSettings() {
     if (!connectionId || providerBusy[connectionId]) return;
     setProviderBusy((current) => ({ ...current, [connectionId]: true }));
     try {
-      const result = await connectionCommandApi.test<{ success?: boolean; error?: string; latencyMs?: number }>(connectionId);
+      const result = await connectionCommandApi.test<{ success?: boolean; error?: string; latencyMs?: number }>(
+        connectionId,
+      );
       const success = result.success !== false;
       const message = success ? latencySummary(result) : result.error || "Provider probe failed.";
-      setProviderProbeResults((current) => ({ ...current, [connectionId]: { status: success ? "ok" : "error", message } }));
+      setProviderProbeResults((current) => ({
+        ...current,
+        [connectionId]: { status: success ? "ok" : "error", message },
+      }));
       if (!success) {
         recordClientDiagnostic({
           level: "error",
@@ -245,7 +251,10 @@ export function HealthDiagnosticsSettings() {
   const overall = effectiveSnapshot?.overallStatus ?? (loading ? "unknown" : "error");
 
   return (
-    <div id="settings-destination-health-diagnostics" className="scroll-mt-4 flex min-w-0 flex-col gap-3 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-health-diagnostics"
+      className="scroll-mt-4 flex min-w-0 flex-col gap-3 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
@@ -291,7 +300,12 @@ export function HealthDiagnosticsSettings() {
               </span>
               <h3 className="truncate text-xs font-semibold text-[var(--foreground)]">{section.title}</h3>
             </div>
-            <span className={cn("shrink-0 rounded-md px-2 py-0.5 text-[0.625rem] font-semibold ring-1", statusTone(section.status))}>
+            <span
+              className={cn(
+                "shrink-0 rounded-md px-2 py-0.5 text-[0.625rem] font-semibold ring-1",
+                statusTone(section.status),
+              )}
+            >
               {statusLabel(section.status)}
             </span>
           </div>
@@ -309,11 +323,18 @@ export function HealthDiagnosticsSettings() {
                   <div className="min-w-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <span className="min-w-0 truncate font-medium text-[var(--foreground)]">{item.label}</span>
-                      <span className={cn("rounded px-1.5 py-0.5 text-[0.625rem] font-semibold ring-1", statusTone(item.status))}>
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-[0.625rem] font-semibold ring-1",
+                          statusTone(item.status),
+                        )}
+                      >
                         {statusLabel(item.status)}
                       </span>
                     </div>
-                    <p className="mt-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">{item.summary}</p>
+                    <p className="mt-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+                      {item.summary}
+                    </p>
                     {isSidecar && sidecarSmokeResult && (
                       <p
                         className={cn(
@@ -342,7 +363,11 @@ export function HealthDiagnosticsSettings() {
                       disabled={sidecarBusy}
                       className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {sidecarBusy ? <Loader2 size="0.75rem" className="animate-spin" /> : <Stethoscope size="0.75rem" />}
+                      {sidecarBusy ? (
+                        <Loader2 size="0.75rem" className="animate-spin" />
+                      ) : (
+                        <Stethoscope size="0.75rem" />
+                      )}
                       Run smoke test
                     </button>
                   )}
@@ -353,7 +378,11 @@ export function HealthDiagnosticsSettings() {
                       disabled={!!providerBusy[connectionId]}
                       className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {providerBusy[connectionId] ? <Loader2 size="0.75rem" className="animate-spin" /> : <Wifi size="0.75rem" />}
+                      {providerBusy[connectionId] ? (
+                        <Loader2 size="0.75rem" className="animate-spin" />
+                      ) : (
+                        <Wifi size="0.75rem" />
+                      )}
                       Probe
                     </button>
                   )}
@@ -369,7 +398,10 @@ export function HealthDiagnosticsSettings() {
         {effectiveSnapshot && effectiveSnapshot.recentDiagnostics.length > 0 ? (
           <div className="flex flex-col gap-1.5">
             {effectiveSnapshot.recentDiagnostics.slice(0, 5).map((entry) => (
-              <div key={entry.id} className="rounded-md bg-[var(--background)]/55 p-2 text-[0.6875rem] ring-1 ring-[var(--border)]/70">
+              <div
+                key={entry.id}
+                className="rounded-md bg-[var(--background)]/55 p-2 text-[0.6875rem] ring-1 ring-[var(--border)]/70"
+              >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold text-[var(--foreground)]">{entry.source}</span>
                   <span className="text-[var(--muted-foreground)]">{new Date(entry.timestamp).toLocaleString()}</span>
@@ -398,7 +430,11 @@ export function HealthDiagnosticsSettings() {
               disabled={!packetText || reportStatus === "opening"}
               className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--background)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {reportStatus === "opening" ? <Loader2 size="0.75rem" className="animate-spin" /> : <Bug size="0.75rem" />}
+              {reportStatus === "opening" ? (
+                <Loader2 size="0.75rem" className="animate-spin" />
+              ) : (
+                <Bug size="0.75rem" />
+              )}
               {reportStatus === "failed" ? "Report failed" : "Report bug"}
             </button>
             <button

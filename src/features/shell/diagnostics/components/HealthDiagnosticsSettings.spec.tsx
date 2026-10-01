@@ -170,7 +170,6 @@ describe("HealthDiagnosticsSettings", () => {
     expect(connectionCommandApi.test).not.toHaveBeenCalled();
   });
 
-
   it("opens a bug report from the troubleshooting packet", async () => {
     await act(async () => {
       root = createRoot(container!);

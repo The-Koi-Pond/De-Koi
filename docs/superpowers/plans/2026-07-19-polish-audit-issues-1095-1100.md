@@ -11,6 +11,7 @@
 ## Task 1: Accessible shared help tooltips (#1095)
 
 **Files:**
+
 - Modify: `src/shared/components/ui/HelpTooltip.tsx`
 - Create: `src/shared/components/ui/HelpTooltip.spec.tsx`
 
@@ -22,6 +23,7 @@
 ## Task 2: Tokenized shared modal chrome (#1096)
 
 **Files:**
+
 - Modify: `src/shared/components/ui/Modal.tsx`
 - Modify: `src/shared/components/ui/Modal.spec.tsx`
 
@@ -33,6 +35,7 @@
 ## Task 3: One semantic shell destination registry and touch targets (#1097, #1099)
 
 **Files:**
+
 - Create: `src/shared/components/shell-navigation.ts`
 - Modify: `src/app/shell/PanelNavButtons.tsx`
 - Modify: `src/app/shell/RightPanel.tsx`
@@ -56,6 +59,7 @@
 ## Task 4: Enforce the persistent-copy readability floor (#1098)
 
 **Files:**
+
 - Modify: `src/app/shell/MobileTabBar.tsx`
 - Modify: `src/features/shell/settings/components/SettingsPanel.tsx`
 - Modify: `src/features/modes/shared/chat-ui/components/settings/readability-contract.spec.ts`
@@ -70,6 +74,7 @@
 ## Task 5: Task-first Connections empty state (#1100)
 
 **Files:**
+
 - Modify: `src/features/shell/connections/components/ConnectionsPanel.tsx`
 - Create or modify focused test: `src/features/shell/connections/components/ConnectionsPanel.empty-state.spec.tsx`
 

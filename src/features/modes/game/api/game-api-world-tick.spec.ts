@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildWorldTickTriggerKey,
-  worldTickHistoryFromMeta,
-  WORLD_TICK_HISTORY_LIMIT,
-} from "./game-api-world-tick";
+import { buildWorldTickTriggerKey, worldTickHistoryFromMeta, WORLD_TICK_HISTORY_LIMIT } from "./game-api-world-tick";
 
 describe("game-api-world-tick helpers", () => {
   it("reads only valid world tick history entries and keeps the latest bounded set", () => {
@@ -18,12 +14,7 @@ describe("game-api-world-tick helpers", () => {
     }));
 
     const result = worldTickHistoryFromMeta({
-      gameWorldTickHistory: [
-        { trigger: "manual", triggerKey: "", ranAt: "bad" },
-        ...history,
-        null,
-        "not-history",
-      ],
+      gameWorldTickHistory: [{ trigger: "manual", triggerKey: "", ranAt: "bad" }, ...history, null, "not-history"],
     });
 
     expect(result).toHaveLength(WORLD_TICK_HISTORY_LIMIT);

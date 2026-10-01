@@ -531,8 +531,7 @@ export function useSetCharacterVersionPinned() {
   return useMutation({
     mutationFn: ({ versionId, pinned }: { characterId: string; versionId: string; pinned: boolean }) =>
       storageApi.update<CharacterCardVersion>("character-versions", versionId, { pinned }),
-    onSuccess: (_data, variables) =>
-      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.characterId) }),
+    onSuccess: (_data, variables) => qc.invalidateQueries({ queryKey: characterKeys.versions(variables.characterId) }),
   });
 }
 

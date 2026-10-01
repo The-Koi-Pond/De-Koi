@@ -179,4 +179,4 @@ command loop. Silent truncation is not acceptable.
   Slice 3, and live trace streaming belongs to Slice 4.
 - Slice 2 may collect bounded internal trace events so Slice 4 can render them
   later, but it should still return the current final-response `content +
-  action` shape to the shell.
+action` shape to the shell.

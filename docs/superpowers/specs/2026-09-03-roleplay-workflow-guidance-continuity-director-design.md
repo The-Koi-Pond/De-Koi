@@ -32,12 +32,12 @@ The new Continuity Director has the opposite problem. It is a high-impact part o
 
 The chooser opens with the heading **What kind of roleplay are you setting up?** The four stable profile IDs remain unchanged, but their user-facing labels and summaries become outcome-oriented:
 
-| Stable profile ID | User-facing label | Use this when | What it does | Model usage summary |
-| --- | --- | --- | --- | --- |
-| `minimal-clean` | Simple Roleplay | You want a short or casual chat and expect the main model to handle the story. | Uses the standard Roleplay prompt and memory recall without automatic helper agents. | No background helper calls. |
-| `longform-continuity` | Long-Running Story | You are building a campaign or story that will span many scenes or sessions. | Tracks continuity, world state, summaries, and reviewable future story beats. | Uses occasional background calls, including Director planning every 10 assistant replies. |
-| `cinematic` | Cinematic Roleplay | You care most about expressions, backgrounds, artwork, or music while chatting. | Adds visual presentation helpers; artwork and music remain optional. | Helper calls vary; selected image or music features may use external services. |
-| `local-assist` | Local Helpers | You have the local sidecar configured and want supported background work routed locally. | Adds selected tracking and expression helpers without changing the writer connection. | Uses local helper calls and requires a ready sidecar. |
+| Stable profile ID     | User-facing label  | Use this when                                                                            | What it does                                                                          | Model usage summary                                                                       |
+| --------------------- | ------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `minimal-clean`       | Simple Roleplay    | You want a short or casual chat and expect the main model to handle the story.           | Uses the standard Roleplay prompt and memory recall without automatic helper agents.  | No background helper calls.                                                               |
+| `longform-continuity` | Long-Running Story | You are building a campaign or story that will span many scenes or sessions.             | Tracks continuity, world state, summaries, and reviewable future story beats.         | Uses occasional background calls, including Director planning every 10 assistant replies. |
+| `cinematic`           | Cinematic Roleplay | You care most about expressions, backgrounds, artwork, or music while chatting.          | Adds visual presentation helpers; artwork and music remain optional.                  | Helper calls vary; selected image or music features may use external services.            |
+| `local-assist`        | Local Helpers      | You have the local sidecar configured and want supported background work routed locally. | Adds selected tracking and expression helpers without changing the writer connection. | Uses local helper calls and requires a ready sidecar.                                     |
 
 Each card displays three short, consistently ordered fields: **Best for**, **Adds**, and **Model use**. The selected card remains visually distinct and accessible as a radio option. The cards must remain readable in the existing single-column mobile layout; the design does not add a comparison table to the rendered UI.
 

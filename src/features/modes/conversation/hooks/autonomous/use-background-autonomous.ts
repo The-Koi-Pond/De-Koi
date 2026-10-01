@@ -27,10 +27,7 @@ import { showLocalChatNotification } from "../../../../../shared/lib/local-notif
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
 import { chatKeys, useChatSummaries } from "../../../../catalog/chats/index";
 import { invalidateCharacterCollectionQueries } from "../../../../catalog/characters/index";
-import {
-  acquireChatGenerationController,
-  releaseChatGenerationController,
-} from "../../../../runtime/generation/index";
+import { acquireChatGenerationController, releaseChatGenerationController } from "../../../../runtime/generation/index";
 
 interface RawCharacter {
   id: string;

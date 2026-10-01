@@ -130,7 +130,11 @@ export async function toggleChatAgent({
   try {
     await updateMeta.mutateAsync(
       { id: chat.id, activeAgentIds: nextAgentIds },
-      { onSuccess: () => { metadataSaved = true; } },
+      {
+        onSuccess: () => {
+          metadataSaved = true;
+        },
+      },
     );
   } catch (error) {
     if (metadataSaved && isRemoving) {

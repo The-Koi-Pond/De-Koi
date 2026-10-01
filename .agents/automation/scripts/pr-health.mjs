@@ -238,16 +238,7 @@ query($owner:String!, $name:String!, $number:Int!, $after:String) {
 }
 
 function threadArgs(owner, name, number, after = null) {
-  const args = [
-    "api",
-    "graphql",
-    "-f",
-    `owner=${owner}`,
-    "-f",
-    `name=${name}`,
-    "-F",
-    `number=${number}`,
-  ];
+  const args = ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${number}`];
   if (after) args.push("-f", `after=${after}`);
   args.push("-f", `query=${threadQuery()}`);
   return args;
@@ -311,15 +302,7 @@ if (!options.prNumber) {
 }
 
 const { owner, name } = repoParts(options.repo);
-const prArgs = [
-  "pr",
-  "view",
-  options.prNumber,
-  "--repo",
-  options.repo,
-  "--json",
-  PR_JSON_FIELDS,
-];
+const prArgs = ["pr", "view", options.prNumber, "--repo", options.repo, "--json", PR_JSON_FIELDS];
 const offlineCaptureCommands = [
   `${ghCommand(prArgs)} | Out-File -Encoding utf8 scratch/pr-health-${options.prNumber}-pr.json`,
   `${ghCommand(threadArgs(owner, name, options.prNumber))} | Out-File -Encoding utf8 scratch/pr-health-${options.prNumber}-threads.json`,
@@ -457,8 +440,13 @@ if (template.missingHeadings.length > 0) {
 
 if (
   hasChecked(body, "Matching validation|pnpm check") &&
-  !/(matching validation|pnpm check|pnpm typecheck|pnpm build|pnpm check:|cargo check)[\s\S]{0,500}(passed|pass|success|successful)/i.test(body) &&
-  !checkSucceeded(pr.statusCheckRollup, /pnpm-validate|pnpm check|typecheck|build|architecture|docs|agent-workflow|cargo check/i)
+  !/(matching validation|pnpm check|pnpm typecheck|pnpm build|pnpm check:|cargo check)[\s\S]{0,500}(passed|pass|success|successful)/i.test(
+    body,
+  ) &&
+  !checkSucceeded(
+    pr.statusCheckRollup,
+    /pnpm-validate|pnpm check|typecheck|build|architecture|docs|agent-workflow|cargo check/i,
+  )
 ) {
   fail("matching validation checkbox is checked without matching pass evidence in the PR body");
 }
@@ -469,29 +457,56 @@ if (
 ) {
   fail("container checkbox is checked without matching container/Docker/Podman pass evidence in the PR body");
 }
-if (hasChecked(body, "Ran the app|clicked through") && !/(Playwright|browser|clicked|click-through|manual)[\s\S]{0,700}(passed|pass|verified|screenshot|evidence)/i.test(body)) {
+if (
+  hasChecked(body, "Ran the app|clicked through") &&
+  !/(Playwright|browser|clicked|click-through|manual)[\s\S]{0,700}(passed|pass|verified|screenshot|evidence)/i.test(
+    body,
+  )
+) {
   fail("app click-through checkbox is checked without matching browser/manual proof in the PR body");
 }
-if (hasChecked(body, "edge cases") && !/(edge case|light|dark|mobile|empty state|error path)[\s\S]{0,700}(passed|pass|verified|tested)/i.test(body)) {
+if (
+  hasChecked(body, "edge cases") &&
+  !/(edge case|light|dark|mobile|empty state|error path)[\s\S]{0,700}(passed|pass|verified|tested)/i.test(body)
+) {
   fail("edge-case checkbox is checked without matching edge-case proof in the PR body");
 }
-if (hasChecked(body, "manual verification completed") && !/(manual verification|machine verification|Codex verification|Playwright|scratch|evidence)[\s\S]{0,700}(passed|complete|completed|verified|no manual-only blocker)/i.test(body)) {
+if (
+  hasChecked(body, "manual verification completed") &&
+  !/(manual verification|machine verification|Codex verification|Playwright|scratch|evidence)[\s\S]{0,700}(passed|complete|completed|verified|no manual-only blocker)/i.test(
+    body,
+  )
+) {
   fail("manual verification checkbox is checked without matching verification completion proof in the PR body");
 }
-if (hasChecked(body, "CONTRIBUTING") && !/(CONTRIBUTING|AGENTS\.md)[\s\S]{0,500}(read|followed|checked|reviewed)/i.test(body)) {
+if (
+  hasChecked(body, "CONTRIBUTING") &&
+  !/(CONTRIBUTING|AGENTS\.md)[\s\S]{0,500}(read|followed|checked|reviewed)/i.test(body)
+) {
   fail("CONTRIBUTING checkbox is checked without matching rule-read evidence in the PR body");
 }
-if (hasChecked(body, "No docs changes needed") && !/(No docs|docs? changes?)[\s\S]{0,500}(needed|not needed|not applicable|N\/A)/i.test(body)) {
+if (
+  hasChecked(body, "No docs changes needed") &&
+  !/(No docs|docs? changes?)[\s\S]{0,500}(needed|not needed|not applicable|N\/A)/i.test(body)
+) {
   fail("no-docs checkbox is checked without matching docs impact note in the PR body");
 }
-if (hasChecked(body, "Updated docs") && !/(README|CONTRIBUTING|CHANGELOG|docs\/|android\/README)[\s\S]{0,700}(updated|changed|documented)/i.test(body)) {
+if (
+  hasChecked(body, "Updated docs") &&
+  !/(README|CONTRIBUTING|CHANGELOG|docs\/|android\/README)[\s\S]{0,700}(updated|changed|documented)/i.test(body)
+) {
   fail("updated-docs checkbox is checked without matching docs update evidence in the PR body");
 }
-if (hasChecked(body, "Version|release files") && !/(version|release)[\s\S]{0,700}(updated|bumped|sync|check|not applicable|N\/A)/i.test(body)) {
+if (
+  hasChecked(body, "Version|release files") &&
+  !/(version|release)[\s\S]{0,700}(updated|bumped|sync|check|not applicable|N\/A)/i.test(body)
+) {
   fail("version/release checkbox is checked without matching version/release evidence in the PR body");
 }
 
-if (!/pnpm check|pnpm-validate|baseline|matching validation|pnpm typecheck|pnpm build|pnpm check:|cargo check/i.test(body)) {
+if (
+  !/pnpm check|pnpm-validate|baseline|matching validation|pnpm typecheck|pnpm build|pnpm check:|cargo check/i.test(body)
+) {
   warn("PR body does not mention matching validation or CI evidence.");
 }
 
@@ -551,11 +566,15 @@ if (reviewDecision.blocksReady) {
 }
 
 if (evidence.localOnlyEvidence.length > 0) {
-  warn("PR body references local scratch paths; reviewer-visible evidence should use GitHub-viewable links when cited as proof.");
+  warn(
+    "PR body references local scratch paths; reviewer-visible evidence should use GitHub-viewable links when cited as proof.",
+  );
 }
 
 if (evidence.publishedEvidence.files.length > 0) {
-  fail(`Temporary PR evidence should be uploaded/attached instead of committed: ${evidence.publishedEvidence.files.join(", ")}`);
+  fail(
+    `Temporary PR evidence should be uploaded/attached instead of committed: ${evidence.publishedEvidence.files.join(", ")}`,
+  );
 }
 
 if (evidence.uiEvidenceRequired && !evidence.publishedEvidence.present) {

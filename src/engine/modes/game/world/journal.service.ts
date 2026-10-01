@@ -142,10 +142,7 @@ function addCombatEntry(journal: Journal, description: string, outcome: "victory
 }
 
 /** Add or update a quest in the journal. */
-function upsertQuest(
-  journal: Journal,
-  quest: Omit<QuestEntry, "discoveredAt"> & { discoveredAt?: string },
-): Journal {
+function upsertQuest(journal: Journal, quest: Omit<QuestEntry, "discoveredAt"> & { discoveredAt?: string }): Journal {
   const id = quest.id.trim() || quest.name.trim();
   const name = quest.name.trim() || id;
   if (!id || !name) return journal;

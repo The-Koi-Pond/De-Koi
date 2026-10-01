@@ -14,9 +14,7 @@ describe("HelpTooltip", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     act(() =>
-      root.render(
-        <HelpTooltip text="Controls how quickly replies appear. Native notifications stay private." />,
-      ),
+      root.render(<HelpTooltip text="Controls how quickly replies appear. Native notifications stay private." />),
     );
   });
 
@@ -36,9 +34,7 @@ describe("HelpTooltip", () => {
 
     act(() => trigger().focus());
 
-    expect(tooltip()?.textContent).toBe(
-      "Controls how quickly replies appear. Native notifications stay private.",
-    );
+    expect(tooltip()?.textContent).toBe("Controls how quickly replies appear. Native notifications stay private.");
     expect(tooltip()?.id).toBeTruthy();
     expect(trigger().getAttribute("aria-describedby")).toBe(tooltip()?.id);
     expect(trigger().getAttribute("aria-controls")).toBe(tooltip()?.id);

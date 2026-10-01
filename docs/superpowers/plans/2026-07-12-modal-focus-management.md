@@ -20,10 +20,12 @@
 ### Task 1: Specify the modal keyboard and accessibility contract
 
 **Files:**
+
 - Create: `src/shared/components/ui/Modal.spec.tsx`
 - Read: `src/shared/components/ui/Modal.tsx`
 
 **Interfaces:**
+
 - Consumes: `Modal({ open, onClose, title, children, width?, onExited? })`
 - Produces: behavior-level regression coverage without new production exports.
 
@@ -57,10 +59,12 @@ git commit -m "Test modal focus management"
 ### Task 2: Implement the minimal shared-modal behavior
 
 **Files:**
+
 - Modify: `src/shared/components/ui/Modal.tsx`
 - Test: `src/shared/components/ui/Modal.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: the existing `ModalProps` contract unchanged.
 - Produces: an internally managed dialog with deterministic close-button initial focus and focus restoration.
 
@@ -112,9 +116,11 @@ git commit -m "Harden modal focus management"
 ### Task 3: Shipping verification and review
 
 **Files:**
+
 - Review only: all branch changes against `origin/main`.
 
 **Interfaces:**
+
 - Consumes: Tasks 1 and 2 commits.
 - Produces: verified PR-ready branch.
 

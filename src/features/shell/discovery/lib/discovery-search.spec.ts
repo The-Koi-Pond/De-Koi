@@ -41,8 +41,8 @@ describe("discovery search ranking", () => {
       entry({ id: "partial", title: "Voice" }),
     ];
 
-    expect(filterDiscoveryEntries(entries, "voice tools", { category: "All", coverage: "All" }).map(({ id }) => id)).toEqual([
-      "first",
-    ]);
+    expect(
+      filterDiscoveryEntries(entries, "voice tools", { category: "All", coverage: "All" }).map(({ id }) => id),
+    ).toEqual(["first"]);
   });
 });

@@ -309,7 +309,11 @@ export function evaluateMemoryRecallCases(
   return { mode: options.mode, cases: caseResults, totals };
 }
 
-function memory(id: string, content: string, options: Partial<MemoryRecallEvaluationMemory> = {}): MemoryRecallEvaluationMemory {
+function memory(
+  id: string,
+  content: string,
+  options: Partial<MemoryRecallEvaluationMemory> = {},
+): MemoryRecallEvaluationMemory {
   return {
     id,
     content,

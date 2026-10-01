@@ -53,8 +53,23 @@ describe("runChatSidebarNewChatAction", () => {
 
 describe("ChatSidebarRecoveryView", () => {
   it.each([
-    [{ title: "Chats could not be loaded", description: "Unknown failure.", primaryAction: { id: "retry", label: "Retry" }, secondaryAction: { id: "view-health", label: "View Health" } }, "retry"],
-    [{ title: "No matching chats", description: "Filtered.", primaryAction: { id: "clear-filters", label: "Clear filters" } }, "clear-filters"],
+    [
+      {
+        title: "Chats could not be loaded",
+        description: "Unknown failure.",
+        primaryAction: { id: "retry", label: "Retry" },
+        secondaryAction: { id: "view-health", label: "View Health" },
+      },
+      "retry",
+    ],
+    [
+      {
+        title: "No matching chats",
+        description: "Filtered.",
+        primaryAction: { id: "clear-filters", label: "Clear filters" },
+      },
+      "clear-filters",
+    ],
     [{ title: "No games yet", description: "Empty.", primaryAction: { id: "create", label: "New Game" } }, "create"],
   ] as const)("renders and invokes the owner callback for %s", (recovery, expected) => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,8 +77,11 @@ describe("ChatSidebarRecoveryView", () => {
     const root = createRoot(host);
     const onAction = vi.fn();
     act(() => root.render(<ChatSidebarRecoveryView recovery={recovery} onAction={onAction} />));
-    const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent === recovery.primaryAction.label)!;
-    if ("secondaryAction" in recovery && recovery.secondaryAction) expect(host.textContent).toContain(recovery.secondaryAction.label);
+    const button = Array.from(host.querySelectorAll("button")).find(
+      (item) => item.textContent === recovery.primaryAction.label,
+    )!;
+    if ("secondaryAction" in recovery && recovery.secondaryAction)
+      expect(host.textContent).toContain(recovery.secondaryAction.label);
     act(() => button.click());
     expect(onAction).toHaveBeenCalledWith(expected);
     act(() => root.unmount());

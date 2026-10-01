@@ -286,7 +286,8 @@ export function normalizeImageStyleProfileSettings(raw: unknown): ImageStyleProf
   for (const profile of customProfiles) byId.set(profile.id, profile);
 
   const profiles = Array.from(byId.values());
-  const rawDefaultId = typeof raw.defaultProfileId === "string" ? slugId(raw.defaultProfileId) : defaults.defaultProfileId;
+  const rawDefaultId =
+    typeof raw.defaultProfileId === "string" ? slugId(raw.defaultProfileId) : defaults.defaultProfileId;
   const defaultProfileId = profiles.some((profile) => profile.id === rawDefaultId)
     ? rawDefaultId
     : defaults.defaultProfileId;
@@ -335,7 +336,8 @@ export function findImageStyleProfile(
   settings: ImageStyleProfileSettings,
   profileId: string | null | undefined,
 ): ImageStyleProfile {
-  const defaultId = slugId(settings.defaultProfileId || DEFAULT_IMAGE_STYLE_PROFILE_ID) || DEFAULT_IMAGE_STYLE_PROFILE_ID;
+  const defaultId =
+    slugId(settings.defaultProfileId || DEFAULT_IMAGE_STYLE_PROFILE_ID) || DEFAULT_IMAGE_STYLE_PROFILE_ID;
   const rawId = profileId?.trim();
   const id = rawId ? slugId(rawId) : defaultId;
   return (

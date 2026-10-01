@@ -167,9 +167,9 @@ test("remote managed assets render as Basic Auth blobs and refresh after invalid
     expect(result.objectUrls).toHaveLength(10);
 
     for (const assetPath of EXPECTED_ASSET_PATHS) {
-      expect(assetRequests.some((request) => new URL(request.url ?? "/", "http://127.0.0.1").pathname === assetPath)).toBe(
-        true,
-      );
+      expect(
+        assetRequests.some((request) => new URL(request.url ?? "/", "http://127.0.0.1").pathname === assetPath),
+      ).toBe(true);
     }
 
     expect(assetRequests.every((request) => request.authorization === EXPECTED_AUTHORIZATION)).toBe(true);
@@ -181,7 +181,6 @@ test("remote managed assets render as Basic Auth blobs and refresh after invalid
         return url.pathname === "/api/assets/game/scene/hero.svg" && url.searchParams.has("mriAssetV");
       }),
     ).toBe(true);
-
   } finally {
     await closeServer(assetServer);
   }

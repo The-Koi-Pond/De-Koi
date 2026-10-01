@@ -22,6 +22,7 @@
 ### Task 1: Define validated Discover and Settings destinations
 
 **Files:**
+
 - Modify: `src/shared/stores/ui/model.ts`
 - Modify: `src/shared/stores/ui.store.ts`
 - Modify: `src/features/shell/discovery/discovery-types.ts`
@@ -32,6 +33,7 @@
 - Modify: `scripts/check-discovery-metadata.mjs`
 
 **Interfaces:**
+
 - Produce `SettingsDestinationId`, `SETTINGS_DESTINATIONS`, `findSettingsDestination(id)`, and `searchSettingsDestinations(query)`.
 - Extend `open-settings` actions with optional `destination`.
 - Add `pendingSettingsDestination` and `setPendingSettingsDestination()` to the UI store.
@@ -45,6 +47,7 @@
 ### Task 2: Add deterministic weighted Discover ranking and task groups
 
 **Files:**
+
 - Modify: `src/features/shell/discovery/lib/discovery-search.ts`
 - Create: `src/features/shell/discovery/lib/discovery-search.spec.ts`
 - Create: `src/features/shell/discovery/lib/discovery-tasks.ts`
@@ -52,6 +55,7 @@
 - Modify: `src/features/shell/discovery/components/DiscoverPanel.tsx`
 
 **Interfaces:**
+
 - Produce `rankDiscoveryEntries(entries, query, filters)` with stable tie ordering.
 - Produce `DISCOVERY_TASKS` and `filterEntriesForDiscoveryTask(entries, taskId)`.
 
@@ -65,6 +69,7 @@
 ### Task 3: Make Discover a persistent right-panel destination
 
 **Files:**
+
 - Modify: `src/shared/stores/ui/model.ts`
 - Modify: `src/app/shell/right-panel-loaders.ts`
 - Modify: `src/app/shell/RightPanel.tsx`
@@ -78,6 +83,7 @@
 - Create: `src/app/shell/HelpHub.spec.tsx`
 
 **Interfaces:**
+
 - Add `discover` to the right-panel `Panel` union and lazy loader map.
 - Add `onOpenDiscover` to Help Hub, implemented through `openRightPanel("discover")`.
 
@@ -90,6 +96,7 @@
 ### Task 4: Add Settings search and destination consumption
 
 **Files:**
+
 - Modify: `src/features/shell/settings/components/SettingsPanel.tsx`
 - Create: `src/features/shell/settings/components/SettingsPanel.spec.tsx`
 - Create: `src/features/shell/settings/lib/settings-destination-navigation.ts`
@@ -100,6 +107,7 @@
 - Modify: `src/features/shell/discovery/discovery-entries.json`
 
 **Interfaces:**
+
 - `runDiscoveryAction` sets the owning tab and pending destination when present.
 - Settings consumes the pending destination once, scrolls after render, highlights, and clears it.
 
@@ -113,6 +121,7 @@
 ### Task 5: Integrate, visually prove, and prepare shipping evidence
 
 **Files:**
+
 - Modify only files already listed when a verified integration defect requires it.
 - Add no screenshots to the repository unless existing PR evidence policy requires them.
 
