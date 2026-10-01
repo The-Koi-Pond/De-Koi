@@ -173,7 +173,7 @@ import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } 
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
-import { SPOTIFY_MINI_PLAYER_MODULE_ID } from "../../../../../engine/contracts/constants/core-modules";
+import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../../../../engine/contracts/constants/core-modules";
 import { LIMITS } from "../../../../../engine/contracts/constants/defaults";
 import {
   BUILT_IN_AGENTS,
@@ -1576,7 +1576,7 @@ function ChatSettingsDrawerInner({
   const showMusicDjMiniPlayerModuleHint = useCallback(async () => {
     const settings = await coreModulesApi.settings.get().catch(() => null);
     const enabled = settings?.enabled ?? {};
-    const miniPlayerEnabled = enabled[SPOTIFY_MINI_PLAYER_MODULE_ID] === true;
+    const miniPlayerEnabled = enabled[MUSIC_DJ_MINI_PLAYER_MODULE_ID] === true;
     if (miniPlayerEnabled) return;
 
     await showAlertDialog({

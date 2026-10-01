@@ -52,7 +52,7 @@ export type DekiChatAccessGrant = {
   expiresAt?: string | null;
 };
 
-export type DekiWorkspaceToolTrace = {
+type DekiWorkspaceToolTrace = {
   id: string;
   name: DekiWorkspaceToolName;
   status: "running" | "done" | "error";
@@ -68,25 +68,11 @@ export type DekiWorkspaceTraceItem =
   | { type: "tool"; tool: DekiWorkspaceToolTrace }
   | { type: "unknown"; raw: unknown };
 
-export type DekiWorkspaceConnectionSummary = {
+type DekiWorkspaceConnectionSummary = {
   id: string;
   name: string;
   provider: string;
   model: string;
-};
-
-export type DekiWorkspaceValidationIssue = {
-  level: "error" | "notice" | "info";
-  entity?: string;
-  id?: string | null;
-  message: string;
-};
-
-export type DekiWorkspaceValidationResult = {
-  status: "passed" | "blocked";
-  errors: DekiWorkspaceValidationIssue[];
-  notices: DekiWorkspaceValidationIssue[];
-  infos: DekiWorkspaceValidationIssue[];
 };
 
 export type DekiWorkspaceRowChange = {
@@ -97,34 +83,6 @@ export type DekiWorkspaceRowChange = {
   after?: Record<string, unknown> | null;
   /** For a delete's side-effect row: what happens to it, in plain words. */
   effect?: string;
-};
-
-export type DekiWorkspaceDiffSummary = {
-  matchedRows: number;
-  affectedRows: number;
-  insertedRows: number;
-  updatedRows: number;
-  replacedRows: number;
-  deletedRows: number;
-  affectedEntities: Record<string, number>;
-  preview: DekiWorkspaceRowChange[];
-  truncated: boolean;
-};
-
-export type DekiWorkspaceCommandResult = {
-  ok: boolean;
-  mode: "read" | "dry-run" | "apply";
-  command: string;
-  output?: unknown;
-  summary?: DekiWorkspaceDiffSummary;
-  validation?: DekiWorkspaceValidationResult;
-  approval?: {
-    status: "not_required" | "pending" | "approved" | "rejected" | "cancelled" | "timed_out" | "state_changed";
-    id?: string;
-    operationHash?: string;
-  };
-  journalPath?: string | null;
-  error?: string;
 };
 
 export type DekiWorkspacePendingApproval = {
@@ -157,14 +115,14 @@ export type DekiWorkspaceHistoryEntry = {
   completedAt?: string | null;
 };
 
-export type DekiWorkspaceUnknownHistoryEntry = {
+type DekiWorkspaceUnknownHistoryEntry = {
   status: "unknown";
   raw: unknown;
   id?: string;
   createdAt?: string | null;
 };
 
-export type DekiWorkspaceMalformedHistoryEntry = {
+type DekiWorkspaceMalformedHistoryEntry = {
   status: "malformed";
   raw: unknown;
   reason: string;
@@ -190,7 +148,7 @@ export type DekiWorkspaceStatus = {
   error?: string | null;
 };
 
-export type DekiWorkspaceStatusEvent =
+type DekiWorkspaceStatusEvent =
   | string
   | {
       content: string;
@@ -256,7 +214,7 @@ export type DekiPersonaContext = {
   appearance?: string | null;
 };
 
-export type DekiWebResearchScope = {
+type DekiWebResearchScope = {
   type: "query";
   query: string;
   allowedDomains?: string[];

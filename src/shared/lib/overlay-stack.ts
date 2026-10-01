@@ -1,6 +1,6 @@
 export type OverlayEscapeHandler = () => boolean | void;
 
-export type OverlayStackEntry = {
+type OverlayStackEntry = {
   id: string;
   active?: boolean;
   onEscape: OverlayEscapeHandler;

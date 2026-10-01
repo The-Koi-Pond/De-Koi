@@ -21,7 +21,7 @@ import {
 } from "./story-projections";
 
 export const STORY_CONSOLIDATION_JOBS_COLLECTION = "story-consolidation-jobs" as StorageEntity;
-export const STORY_SUMMARIZER_VERSION = "story-projection-v1";
+const STORY_SUMMARIZER_VERSION = "story-projection-v1";
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
 const LEASE_HEARTBEAT_MS = 10_000;
@@ -876,7 +876,7 @@ export async function processStoryConsolidationQueue(
   }
 }
 
-export function scheduleStoryConsolidationQueueProcessing(dependencies: StoryConsolidationDependencies): void {
+function scheduleStoryConsolidationQueueProcessing(dependencies: StoryConsolidationDependencies): void {
   if (activeWorkers.has(dependencies.storage)) return;
   activeWorkers.add(dependencies.storage);
   setTimeout(() => {

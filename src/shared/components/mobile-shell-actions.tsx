@@ -35,5 +35,3 @@ export function createMobileToolsPanels(items: readonly ShellNavItem[]) {
 }
 
 export const TOOLS_PANELS = createMobileToolsPanels(SHELL_PANEL_ITEMS);
-
-export type MobileToolsPanel = (typeof TOOLS_PANELS)[number]["panel"];

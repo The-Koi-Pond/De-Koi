@@ -11,14 +11,14 @@ const STORAGE_KEY = "marinara-active-chat-id";
 const DRAFTS_KEY = "marinara-input-drafts";
 
 type NotificationAvatarCrop = AvatarCropValue | null;
-export type NewChatSetupIntent = {
+type NewChatSetupIntent = {
   chatId: string;
   openSettings: boolean;
   openWizard: boolean;
   shortcutMode: boolean;
 };
 
-export interface GenerationFailureState {
+interface GenerationFailureState {
   message: string;
   failedAt: number;
 }

@@ -4,14 +4,14 @@ export type MemoryRecallEvaluationMode =
   | "hybrid"
   | "hybrid_without_stale_superseded_filtering";
 
-export interface MemoryRecallEvaluationTurn {
+interface MemoryRecallEvaluationTurn {
   id: string;
   role: "user" | "assistant";
   speaker: string;
   content: string;
 }
 
-export interface MemoryRecallEvaluationMemory {
+interface MemoryRecallEvaluationMemory {
   id: string;
   content: string;
   embedding?: number[] | null;
@@ -53,7 +53,7 @@ export interface MemoryRecallEvaluationFixture {
   };
 }
 
-export interface MemoryRecallEvaluationCaseResult {
+interface MemoryRecallEvaluationCaseResult {
   id: string;
   recalledIds: string[];
   correctRecall: number;
@@ -163,7 +163,7 @@ function addFeature(vector: number[], feature: string, weight: number): void {
   vector[hash % MEMORY_EMBEDDING_DIMS] += weight * sign;
 }
 
-export function memoryRecallEvaluationEmbedding(text: string): number[] {
+function memoryRecallEvaluationEmbedding(text: string): number[] {
   const vector = Array.from({ length: MEMORY_EMBEDDING_DIMS }, () => 0);
   const words = meaningfulTokens(text);
   for (const token of words) {

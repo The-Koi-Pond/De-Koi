@@ -10,7 +10,7 @@ import { loadContinuityDirectorSource } from "./continuity-director-source";
 import { normalizeContinuityDirectorState } from "./continuity-director-state";
 import { publishContinuityDirectorRefreshCompletion } from "./continuity-director-refresh-events";
 
-export interface ContinuityDirectorRefreshDiagnostic {
+interface ContinuityDirectorRefreshDiagnostic {
   stage: "continuity_director_refresh";
   chatId: string;
   trigger: ContinuityDirectorRefreshTrigger;
