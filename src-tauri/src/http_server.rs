@@ -4279,7 +4279,12 @@ mod tests {
             deki_stream_prompt_request(&json!({ "request": request.clone() })).expect("envelope"),
             request
         );
-        for body in [request, json!({ "request": null }), json!({}), json!("text")] {
+        for body in [
+            request,
+            json!({ "request": null }),
+            json!({}),
+            json!("text"),
+        ] {
             assert_eq!(
                 deki_stream_prompt_request(&body)
                     .expect_err("non-envelope bodies are rejected")
