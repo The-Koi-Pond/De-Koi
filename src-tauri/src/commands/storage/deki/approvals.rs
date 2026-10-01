@@ -128,7 +128,11 @@ impl ApprovalStore {
             .filter(|record| &record.scope == scope)
             .count();
         if session_rows > MAX_HISTORY_PER_SESSION {
-            if let Some(index) = self.history.iter().position(|record| &record.scope == scope) {
+            if let Some(index) = self
+                .history
+                .iter()
+                .position(|record| &record.scope == scope)
+            {
                 self.history.remove(index);
             }
         }
@@ -232,7 +236,10 @@ pub(super) fn record_dry_run(
         preview_truncated: plan.preview_truncated,
     };
     let value = approval.to_value();
-    store.push_history(scope, history_entry(&approval.id, scope, plan, "dry-run", now));
+    store.push_history(
+        scope,
+        history_entry(&approval.id, scope, plan, "dry-run", now),
+    );
     store.pending.push(approval);
     Ok(Some(value))
 }
@@ -397,7 +404,9 @@ fn sentence(message: &str) -> &str {
 fn validate_approval_id(id: &str) -> AppResult<&str> {
     let id = id.trim();
     if id.is_empty() || id.chars().count() > APPROVAL_ID_MAX_CHARS {
-        return Err(AppError::invalid_input("A valid workspace approval id is required."));
+        return Err(AppError::invalid_input(
+            "A valid workspace approval id is required.",
+        ));
     }
     Ok(id)
 }
@@ -512,7 +521,10 @@ mod tests {
     fn seed_lorebook(state: &AppState) {
         state
             .storage
-            .create("lorebooks", json!({ "id": "book-pond", "name": "Pond Notes" }))
+            .create(
+                "lorebooks",
+                json!({ "id": "book-pond", "name": "Pond Notes" }),
+            )
             .expect("seed lorebook");
         state
             .storage
@@ -567,11 +579,19 @@ mod tests {
         assert_eq!(stored["content"], "Koi circle the lantern at dusk.");
         assert_eq!(pending_for(&scope).expect("pending approvals").len(), 1);
 
-        let decision = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
-            .expect("approval should apply");
+        let decision = approve(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect("approval should apply");
 
         assert_eq!(decision["status"], "approved");
-        assert_eq!(decision["pendingApprovals"].as_array().map(Vec::len), Some(0));
+        assert_eq!(
+            decision["pendingApprovals"].as_array().map(Vec::len),
+            Some(0)
+        );
         assert_eq!(decision["history"][0]["status"], "approved");
         let stored = state
             .storage
@@ -599,11 +619,20 @@ mod tests {
         );
         state
             .storage
-            .patch("lorebook-entries", "entry-koi", json!({ "content": "Edited by the user." }))
+            .patch(
+                "lorebook-entries",
+                "entry-koi",
+                json!({ "content": "Edited by the user." }),
+            )
             .expect("user edit");
 
-        let error = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
-            .expect_err("changed state must block the approval");
+        let error = approve(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect_err("changed state must block the approval");
 
         assert_eq!(error.code, "deki_workspace_state_changed");
         let stored = state
@@ -612,7 +641,10 @@ mod tests {
             .expect("read entry")
             .expect("entry exists");
         assert_eq!(stored["name"], "Koi");
-        assert_eq!(history_for(&scope).expect("approval history")[0]["status"], "state_changed");
+        assert_eq!(
+            history_for(&scope).expect("approval history")[0]["status"],
+            "state_changed"
+        );
         assert!(pending_for(&scope).expect("pending approvals").is_empty());
     }
 
@@ -637,7 +669,8 @@ mod tests {
             .to_string();
         let id = approval_id(&result);
 
-        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id).expect("insert should apply");
+        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect("insert should apply");
 
         let created = state
             .storage
@@ -666,8 +699,12 @@ mod tests {
             }),
         );
 
-        let decision =
-            reject(&DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result)).expect("reject resolves");
+        let decision = reject(
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect("reject resolves");
 
         assert_eq!(decision["status"], "rejected");
         assert_eq!(decision["history"][0]["status"], "rejected");
@@ -683,7 +720,10 @@ mod tests {
         let state = test_state("owner");
         seed_lorebook(&state);
         let session = unique_session("owner");
-        let alice = scope(DekiRuntimeOwner::Authenticated("alice".to_string()), &session);
+        let alice = scope(
+            DekiRuntimeOwner::Authenticated("alice".to_string()),
+            &session,
+        );
         let result = dry_run(
             &state,
             &alice,
@@ -699,7 +739,9 @@ mod tests {
         let decision = approve(&state, &bob, &session, &approval_id(&result)).expect("resolves");
 
         assert_eq!(decision["status"], "not_found");
-        assert!(pending_for(&scope(bob, &session)).expect("pending approvals").is_empty());
+        assert!(pending_for(&scope(bob, &session))
+            .expect("pending approvals")
+            .is_empty());
         assert_eq!(pending_for(&alice).expect("pending approvals").len(), 1);
         assert!(state
             .storage
@@ -787,7 +829,10 @@ mod tests {
             assert_eq!(summary["affectedEntities"], json!({}), "{result}");
         }
         assert!(pending_for(&scope).expect("pending approvals").is_empty());
-        assert_eq!(history_for(&scope).expect("approval history")[0]["status"], "blocked");
+        assert_eq!(
+            history_for(&scope).expect("approval history")[0]["status"],
+            "blocked"
+        );
     }
 
     #[test]
@@ -811,7 +856,10 @@ mod tests {
                 )
                 .expect("seed entry");
         }
-        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("delete-cascade"));
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("delete-cascade"),
+        );
 
         let result = dry_run(
             &state,
@@ -832,7 +880,10 @@ mod tests {
         let preview = summary["preview"].as_array().expect("preview rows");
         assert_eq!(preview.len(), 1 + 5);
         assert!(preview[1]["before"].get("content").is_none());
-        assert_eq!(state.storage.list("lorebook-entries").expect("list").len(), 9);
+        assert_eq!(
+            state.storage.list("lorebook-entries").expect("list").len(),
+            9
+        );
     }
 
     fn seed_character_with_side_effects(state: &AppState) {
@@ -1061,7 +1112,10 @@ mod tests {
                 }),
             )
             .expect("seed character");
-        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("character-patch"));
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("character-patch"),
+        );
 
         let result = dry_run(
             &state,
@@ -1076,10 +1130,21 @@ mod tests {
         );
 
         let row = &result["summary"]["preview"][0];
-        assert_eq!(row["before"], json!({ "data": { "scenario": "Old scenario" } }));
-        assert_eq!(row["after"], json!({ "data": { "scenario": "New scenario" } }));
-        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
-            .expect("character patch should apply");
+        assert_eq!(
+            row["before"],
+            json!({ "data": { "scenario": "Old scenario" } })
+        );
+        assert_eq!(
+            row["after"],
+            json!({ "data": { "scenario": "New scenario" } })
+        );
+        approve(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect("character patch should apply");
         let stored = state
             .storage
             .get("characters", "char-rina")
@@ -1093,7 +1158,10 @@ mod tests {
     fn prompt_context_reports_outcomes_without_dry_run_noise() {
         let state = test_state("prompt-context");
         seed_lorebook(&state);
-        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("prompt-context"));
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("prompt-context"),
+        );
         assert!(prompt_context(&scope).expect("approval context").is_none());
         let result = dry_run(
             &state,
@@ -1105,12 +1173,23 @@ mod tests {
                 "reason": "Duplicate entry"
             }),
         );
-        let waiting = prompt_context(&scope).expect("approval context").expect("pending approval is reported");
-        assert!(waiting.contains("waiting for approval: deki data delete lorebook-entries/entry-koi"));
+        let waiting = prompt_context(&scope)
+            .expect("approval context")
+            .expect("pending approval is reported");
+        assert!(
+            waiting.contains("waiting for approval: deki data delete lorebook-entries/entry-koi")
+        );
 
-        reject(&DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result)).expect("reject");
+        reject(
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect("reject");
 
-        let context = prompt_context(&scope).expect("approval context").expect("history is reported");
+        let context = prompt_context(&scope)
+            .expect("approval context")
+            .expect("history is reported");
         assert!(context.contains("- rejected: deki data delete lorebook-entries/entry-koi"));
         assert!(!context.contains("waiting for approval"));
     }
@@ -1174,7 +1253,11 @@ mod tests {
                 let handle = std::thread::spawn(move || {
                     competitor_state
                         .storage
-                        .patch("lorebook-entries", "entry-koi", json!({ "name": "Renamed meanwhile" }))
+                        .patch(
+                            "lorebook-entries",
+                            "entry-koi",
+                            json!({ "name": "Renamed meanwhile" }),
+                        )
                         .expect("competing write");
                     landed_tx.send(()).expect("signal competing write");
                 });
@@ -1189,8 +1272,13 @@ mod tests {
             }));
         });
 
-        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
-            .expect("approval applies");
+        approve(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect("approval applies");
 
         let (handle, landed_rx) = competitor
             .lock()

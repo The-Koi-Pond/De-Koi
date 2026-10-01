@@ -162,9 +162,7 @@ fn is_loopback_host(normalized: &str) -> bool {
         normalized,
         "localhost" | "localhost.localdomain" | "ip6-localhost" | "ip6-loopback"
     ) || normalized.ends_with(".localhost")
-        || normalized
-            .parse::<IpAddr>()
-            .is_ok_and(is_loopback_ip)
+        || normalized.parse::<IpAddr>().is_ok_and(is_loopback_ip)
 }
 
 fn is_loopback_ip(address: IpAddr) -> bool {
@@ -184,10 +182,7 @@ pub fn is_local_or_reserved_ip(address: IpAddr) -> bool {
     }
 }
 
-pub fn is_forbidden_provider_resolved_ip(
-    address: IpAddr,
-    allow_private_or_reserved: bool,
-) -> bool {
+pub fn is_forbidden_provider_resolved_ip(address: IpAddr, allow_private_or_reserved: bool) -> bool {
     !allow_private_or_reserved && is_local_or_reserved_ip(address)
 }
 

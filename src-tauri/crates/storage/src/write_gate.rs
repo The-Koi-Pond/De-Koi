@@ -79,7 +79,8 @@ impl WriteGate {
                 // Queued atomic updates and exclusive sections go before later
                 // ordinary writes, except writes made by the exclusive owner.
                 None if state.exclusive_owner != Some(current)
-                    && (state.waiting_atomic_updates > 0 || state.waiting_exclusive_sections > 0) =>
+                    && (state.waiting_atomic_updates > 0
+                        || state.waiting_exclusive_sections > 0) =>
                 {
                     state = self
                         .changed
@@ -147,13 +148,17 @@ impl WriteGate {
             ));
         }
         state.waiting_exclusive_sections = state.waiting_exclusive_sections.saturating_add(1);
-        while state.exclusive_owner.is_some() || state.atomic_owner.is_some() || state.active_writes > 0 {
+        while state.exclusive_owner.is_some()
+            || state.atomic_owner.is_some()
+            || state.active_writes > 0
+        {
             state = self
                 .changed
                 .wait(state)
                 .map_err(|_| AppError::new("lock_error", "Storage write gate poisoned"))?;
             if state.recovery_required {
-                state.waiting_exclusive_sections = state.waiting_exclusive_sections.saturating_sub(1);
+                state.waiting_exclusive_sections =
+                    state.waiting_exclusive_sections.saturating_sub(1);
                 self.changed.notify_all();
                 return Err(Self::recovery_required_error());
             }
@@ -248,7 +253,10 @@ mod tests {
         let exclusive = gate.begin_exclusive().unwrap();
 
         drop(gate.begin_write().expect("the owner keeps writing"));
-        drop(gate.begin_atomic_update().expect("the owner keeps atomic updates"));
+        drop(
+            gate.begin_atomic_update()
+                .expect("the owner keeps atomic updates"),
+        );
 
         let other_gate = Arc::clone(&gate);
         let (acquired_tx, acquired_rx) = mpsc::channel();
@@ -258,7 +266,9 @@ mod tests {
             drop(permit);
         });
         assert!(
-            acquired_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            acquired_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
             "another thread must not write during the exclusive section"
         );
 

@@ -513,14 +513,13 @@ pub(crate) async fn complete_google_rich(request: LlmRequest) -> AppResult<LlmCo
                 redact_sensitive_json(json.clone()),
             )
         })?;
-    let content = google_candidate_text(candidate)
-        .ok_or_else(|| {
-            AppError::with_details(
-                "llm_response_error",
-                "Provider response did not contain assistant text",
-                redact_sensitive_json(json.clone()),
-            )
-        })?;
+    let content = google_candidate_text(candidate).ok_or_else(|| {
+        AppError::with_details(
+            "llm_response_error",
+            "Provider response did not contain assistant text",
+            redact_sensitive_json(json.clone()),
+        )
+    })?;
     Ok(LlmCompletion {
         content,
         tool_calls: Vec::new(),
@@ -682,10 +681,7 @@ pub(crate) fn process_google_sse_block(
 }
 
 pub(crate) fn ensure_google_finish_reason_allows_complete(reason: &str) -> AppResult<()> {
-    if matches!(
-        reason.to_ascii_uppercase().as_str(),
-        "STOP" | "MAX_TOKENS"
-    ) {
+    if matches!(reason.to_ascii_uppercase().as_str(), "STOP" | "MAX_TOKENS") {
         return Ok(());
     }
     Err(AppError::new(

@@ -22,8 +22,7 @@ pub async fn deki_prompt_events(
         // continues and the final response still resolves the command.
         let _ = on_event.send(event);
     });
-    deki::deki_prompt_with_events(&state, request, &deki::DekiRuntimeOwner::Embedded, events)
-        .await
+    deki::deki_prompt_with_events(&state, request, &deki::DekiRuntimeOwner::Embedded, events).await
 }
 
 #[tauri::command]
