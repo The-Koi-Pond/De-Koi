@@ -22,6 +22,12 @@ requireText(
   "CI Full must publish Required Validation after every applicable lane.",
 );
 
+requireText(workflow.includes("run: pnpm format:check"), "CI Full must keep the Prettier format check blocking.");
+requireText(
+  workflow.includes("run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check"),
+  "CI Full must keep the Rust format check blocking.",
+);
+
 const denyStepStart = workflow.indexOf("- name: Rust dependency policy");
 const denyStepEnd = workflow.indexOf("\n      - name:", denyStepStart + 1);
 const denyStep = denyStepStart >= 0 ? workflow.slice(denyStepStart, denyStepEnd >= 0 ? denyStepEnd : undefined) : "";
