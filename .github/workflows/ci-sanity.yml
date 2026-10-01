@@ -32,6 +32,7 @@ jobs:
       - run: pnpm check:line-endings
       - run: pnpm check:architecture
       - run: pnpm lint
+      - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm test:allow-empty
       - run: pnpm build
