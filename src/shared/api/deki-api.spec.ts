@@ -16,6 +16,14 @@ vi.mock("./storage-api", () => ({
   storageApi: storageApiMock,
 }));
 
+// Which runtime storage calls currently go to; null means the embedded runtime.
+const runtimeTargetMock = vi.hoisted(() => ({ current: null as { baseUrl: string } | null }));
+
+vi.mock("./remote-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./remote-runtime")>()),
+  remoteRuntimeTarget: () => runtimeTargetMock.current,
+}));
+
 describe("normalizeDekiEntryAction lorebook redrafts", () => {
   it("keeps a whole-lorebook redraft as one pending action", () => {
     const action = normalizeDekiEntryAction({
@@ -1415,6 +1423,114 @@ describe("dekiApi.sessions first run", () => {
     expect(storage.rowIds("deki-messages").sort()).toEqual(["message-1", "message-2", "message-3"]);
     expect(storage.settings().sessions).toBeUndefined();
     expect(storage.settings().activeSessionId).toBe("session-two");
+  });
+
+  it("keeps a migration on the runtime it started on", async () => {
+    // Two runtimes with separate storage. Calls go to whichever is current when
+    // they are made, like the real storage adapter after a Remote Runtime URL change.
+    const runtimeA = "http://runtime-a.test";
+    const runtimeB = "http://runtime-b.test";
+    const stores = new Map<string, Map<string, Record<string, unknown>>>([
+      [runtimeA, new Map<string, Record<string, unknown>>(Object.entries(legacySettingsSeed()))],
+      [
+        runtimeB,
+        new Map<string, Record<string, unknown>>([
+          [
+            "app-settings/deki",
+            {
+              id: "deki",
+              value: {
+                activeSessionId: "session-b",
+                sessions: [
+                  {
+                    id: "session-b",
+                    title: "B",
+                    messages: [legacyMessage("message-b", "On runtime B")],
+                    createdAt: "2026-06-26T00:00:00.000Z",
+                    updatedAt: "2026-06-26T00:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          ],
+        ]),
+      ],
+    ]);
+    let current = runtimeA;
+    const switchTo = (runtime: string) => {
+      current = runtime;
+      runtimeTargetMock.current = { baseUrl: runtime };
+    };
+    switchTo(runtimeA);
+    let switched = false;
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      const rows = stores.get(current)!;
+      await tick();
+      return rows.get(`${entity}/${id}`) ?? null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      const rows = stores.get(current)!;
+      await tick();
+      return [...rows.entries()].filter(([key]) => key.startsWith(`${entity}/`)).map(([, row]) => row);
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+      const runtime = current;
+      const rows = stores.get(runtime)!;
+      await tick();
+      const key = `${entity}/${String(value.id)}`;
+      if (rows.has(key)) throw new Error(`${key} already exists`);
+      rows.set(key, value);
+      // Switch runtimes right after migration writes its first durable row on A.
+      if (!switched && runtime === runtimeA && key === "deki-sessions/session-one") {
+        switched = true;
+        switchTo(runtimeB);
+      }
+      return value;
+    });
+    storageApiMock.update.mockImplementation(async (entity: string, id: string, value: Record<string, unknown>) => {
+      const rows = stores.get(current)!;
+      await tick();
+      rows.set(`${entity}/${id}`, { ...rows.get(`${entity}/${id}`), ...value, id });
+      return rows.get(`${entity}/${id}`);
+    });
+    storageApiMock.delete.mockImplementation(async (entity: string, id: string) => {
+      const rows = stores.get(current)!;
+      await tick();
+      rows.delete(`${entity}/${id}`);
+    });
+    const ids = (runtime: string, entity: string) =>
+      [...stores.get(runtime)!.keys()]
+        .filter((key) => key.startsWith(`${entity}/`))
+        .map((key) => key.slice(entity.length + 1))
+        .sort();
+    const settings = (runtime: string) =>
+      (stores.get(runtime)!.get("app-settings/deki")?.value ?? {}) as Record<string, unknown>;
+
+    try {
+      const state = await dekiApi.sessions.list();
+
+      // The read ends on runtime B with only B's history.
+      expect(state.sessions.map((session) => session.id)).toEqual(["session-b"]);
+      expect(ids(runtimeB, "deki-sessions")).toEqual(["session-b"]);
+      expect(ids(runtimeB, "deki-messages")).toEqual(["message-b"]);
+      expect(settings(runtimeB).sessions).toBeUndefined();
+      // A's migration stopped at the switch: nothing of A reached B, and A
+      // keeps its legacy history for its own next read.
+      expect(ids(runtimeA, "deki-sessions")).toEqual(["session-one"]);
+      expect(ids(runtimeA, "deki-messages")).toEqual([]);
+      expect(settings(runtimeA).sessions).toBeDefined();
+
+      switchTo(runtimeA);
+      const back = await dekiApi.sessions.list();
+
+      expect(back.sessions.map((session) => session.id).sort()).toEqual(["session-one", "session-two"]);
+      expect(ids(runtimeA, "deki-messages")).toEqual(["message-1", "message-2", "message-3"]);
+      expect(settings(runtimeA).sessions).toBeUndefined();
+      expect(ids(runtimeB, "deki-sessions")).toEqual(["session-b"]);
+    } finally {
+      runtimeTargetMock.current = null;
+    }
   });
 
   it("finishes a migration whose settings cleanup failed", async () => {

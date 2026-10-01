@@ -747,8 +747,11 @@ async function saveSettingsPatch(patch: Record<string, unknown>): Promise<Record
   return value;
 }
 
+function noop(): void {}
+
 async function saveSettingsTransform(
   transform: (settings: Record<string, unknown>) => Record<string, unknown>,
+  beforeWrite: () => void = noop,
 ): Promise<Record<string, unknown>> {
   const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
   const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
@@ -756,6 +759,7 @@ async function saveSettingsTransform(
   const parsed = appSettingsResponseSchema.safeParse(source ?? { value: null });
   const value = transform(asRecord(parsed.success ? parsed.data.value : null));
   const payload = appSettingsUpdateSchema.parse({ value });
+  beforeWrite();
   if (existing) {
     await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
   } else {
@@ -853,8 +857,10 @@ async function writeStorageRecord(
   entity: "deki-sessions" | "deki-messages",
   id: string,
   value: Record<string, unknown>,
+  beforeWrite: () => void = noop,
 ): Promise<void> {
   const existing = await storageApi.get(entity, id).catch(() => null);
+  beforeWrite();
   if (existing) await storageApi.update(entity, id, value);
   else await storageApi.create(entity, value);
 }
@@ -941,23 +947,24 @@ async function durableSessionsFromSnapshot(
  */
 async function saveDurableSessionsState(
   state: DekiSessionsState,
-  { pruneUnlisted }: { pruneUnlisted: boolean },
+  { pruneUnlisted, beforeWrite }: { pruneUnlisted: boolean; beforeWrite: () => void },
 ): Promise<void> {
   const normalized = normalizeDekiSessionsState({ activeSessionId: state.activeSessionId, sessions: state.sessions });
   const sessionIds = new Set(normalized.sessions.map((session) => session.id));
   const messageIds = new Set<string>();
 
   for (const session of normalized.sessions) {
-    await writeStorageRecord("deki-sessions", session.id, dekiSessionRecord(session));
+    await writeStorageRecord("deki-sessions", session.id, dekiSessionRecord(session), beforeWrite);
     for (let index = 0; index < session.messages.length; index += 1) {
       const message = session.messages[index]!;
       messageIds.add(message.id);
-      await writeStorageRecord("deki-messages", message.id, dekiMessageRecord(session.id, message, index));
+      await writeStorageRecord("deki-messages", message.id, dekiMessageRecord(session.id, message, index), beforeWrite);
     }
   }
   if (!pruneUnlisted) return;
 
   const existingSessions = await storageApi.list<DekiSessionRecord>("deki-sessions");
+  beforeWrite();
   await Promise.all(
     existingSessions
       .filter((record) => typeof record.id === "string" && !sessionIds.has(record.id))
@@ -965,6 +972,7 @@ async function saveDurableSessionsState(
   );
 
   const existingMessages = await storageApi.list<DekiMessageRecord>("deki-messages");
+  beforeWrite();
   await Promise.all(
     existingMessages.flatMap((record) => {
       const id = typeof record.id === "string" ? record.id : "";
@@ -997,7 +1005,7 @@ async function saveIncrementalSessionsState(
   return next;
 }
 
-async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<void> {
+async function clearLegacyDekiHistorySettings(activeSessionId: string, beforeWrite: () => void): Promise<void> {
   await saveSettingsTransform((settings) => {
     const {
       sessions: _sessions,
@@ -1009,7 +1017,7 @@ async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<
       ...rest
     } = settings;
     return { ...rest, activeSessionId };
-  });
+  }, beforeWrite);
 }
 
 // Session reads and writes wait for one shared step that makes durable history
@@ -1020,8 +1028,32 @@ async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<
 // Migration clears the legacy history keys from settings as its last write, so
 // legacy keys that are still present mean a migration has not finished, even
 // when some durable rows exist. Every read checks this against the storage it
-// just read, so switching runtimes or profiles never reuses a stale answer.
-let durableHistoryPreparation: Promise<DekiSessionsState | null> | null = null;
+// just read, so switching runtimes never reuses a stale answer.
+//
+// The remote runtime can change in place (Settings > Remote Runtime URL), and
+// storage calls follow the current runtime. A preparation is therefore bound to
+// the runtime it started on: it stops before any write once the runtime changes,
+// and readers only use results produced for the runtime they are reading.
+type DurableHistoryPreparation = { runtime: string; promise: Promise<DekiSessionsState | null> };
+let durableHistoryPreparation: DurableHistoryPreparation | null = null;
+
+class DekiHistoryRuntimeChangedError extends Error {
+  constructor() {
+    super("The runtime changed while Deki history was being prepared.");
+    this.name = "DekiHistoryRuntimeChangedError";
+  }
+}
+
+/** Which runtime's storage Deki history calls read and write right now. */
+function dekiHistoryRuntime(): string {
+  return remoteRuntimeTarget()?.baseUrl ?? "embedded";
+}
+
+function writeGuardFor(runtime: string): () => void {
+  return () => {
+    if (dekiHistoryRuntime() !== runtime) throw new DekiHistoryRuntimeChangedError();
+  };
+}
 
 const LEGACY_DEKI_HISTORY_KEYS = [
   "sessions",
@@ -1041,10 +1073,13 @@ function durableHistoryNeedsPreparation({ records, settings }: DurableHistorySna
 }
 
 /** First run: no durable sessions yet, so the legacy history (or a fresh default) becomes durable. */
-async function migrateLegacyDekiHistory(settings: Record<string, unknown>): Promise<DekiSessionsState> {
+async function migrateLegacyDekiHistory(
+  settings: Record<string, unknown>,
+  beforeWrite: () => void,
+): Promise<DekiSessionsState> {
   const legacy = normalizeDekiSessionsState(settings);
-  await saveDurableSessionsState(legacy, { pruneUnlisted: true });
-  await clearLegacyDekiHistorySettings(legacy.activeSessionId);
+  await saveDurableSessionsState(legacy, { pruneUnlisted: true, beforeWrite });
+  await clearLegacyDekiHistorySettings(legacy.activeSessionId, beforeWrite);
   return legacy;
 }
 
@@ -1056,9 +1091,10 @@ async function migrateLegacyDekiHistory(settings: Record<string, unknown>): Prom
 async function finishInterruptedDekiHistoryMigration(
   settings: Record<string, unknown>,
   durableSessions: DekiSessionRecord[],
+  beforeWrite: () => void,
 ): Promise<void> {
   const legacy = normalizeDekiSessionsState(settings);
-  await saveDurableSessionsState(legacy, { pruneUnlisted: false });
+  await saveDurableSessionsState(legacy, { pruneUnlisted: false, beforeWrite });
   const requestedActiveId = readTrimmedString(settings.activeSessionId);
   const knownSessionIds = new Set([
     ...durableSessions.map((record) => readTrimmedString(record.id)),
@@ -1066,41 +1102,66 @@ async function finishInterruptedDekiHistoryMigration(
   ]);
   const activeSessionId =
     requestedActiveId && knownSessionIds.has(requestedActiveId) ? requestedActiveId : legacy.activeSessionId;
-  await clearLegacyDekiHistorySettings(activeSessionId);
+  await clearLegacyDekiHistorySettings(activeSessionId, beforeWrite);
 }
 
 /** Resolves to the migrated state when this preparation ran a first-run migration, else null. */
-function prepareDurableDekiHistory(): Promise<DekiSessionsState | null> {
-  durableHistoryPreparation ??= (async () => {
+function prepareDurableDekiHistory(runtime: string): Promise<DekiSessionsState | null> {
+  if (durableHistoryPreparation?.runtime === runtime) return durableHistoryPreparation.promise;
+  const previous = durableHistoryPreparation?.promise ?? null;
+  const beforeWrite = writeGuardFor(runtime);
+  const promise: Promise<DekiSessionsState | null> = (async () => {
+    // A preparation for another runtime stops at its next write. Wait for it to
+    // settle so two preparations never write at once; its result and errors
+    // belong to that runtime's callers.
+    if (previous) await previous.then(noop, noop);
+    beforeWrite();
     const [sessions, settings] = await Promise.all([
       storageApi.list<DekiSessionRecord>("deki-sessions"),
       readSettingsValue(),
     ]);
-    if (sessions.length === 0) return migrateLegacyDekiHistory(settings);
-    if (hasLegacyDekiHistory(settings)) await finishInterruptedDekiHistoryMigration(settings, sessions);
+    if (sessions.length === 0) return migrateLegacyDekiHistory(settings, beforeWrite);
+    if (hasLegacyDekiHistory(settings)) await finishInterruptedDekiHistoryMigration(settings, sessions, beforeWrite);
     return null;
   })().finally(() => {
     // A failed preparation is not cached; the next read checks storage again.
-    durableHistoryPreparation = null;
+    if (durableHistoryPreparation?.promise === promise) durableHistoryPreparation = null;
   });
-  return durableHistoryPreparation;
+  durableHistoryPreparation = { runtime, promise };
+  return promise;
 }
 
-/**
- * Reads durable history, first finishing any preparation it needs. Resolves to
- * the migrated state when this call joined a first-run migration.
- */
-async function readPreparedDurableHistory(): Promise<DurableHistorySnapshot | DekiSessionsState> {
-  if (durableHistoryPreparation) {
-    const migrated = await durableHistoryPreparation;
+async function readPreparedDurableHistoryOn(runtime: string): Promise<DurableHistorySnapshot | DekiSessionsState> {
+  const inFlight = durableHistoryPreparation;
+  if (inFlight?.runtime === runtime) {
+    const migrated = await inFlight.promise;
     if (migrated) return migrated;
   }
   const snapshot = await readDurableHistorySnapshot();
   // A preparation that started while this read was in flight may have written
   // part of its rows, so join it instead of trusting the snapshot.
-  if (!durableHistoryPreparation && !durableHistoryNeedsPreparation(snapshot)) return snapshot;
-  const migrated = await prepareDurableDekiHistory();
+  const started = durableHistoryPreparation?.runtime === runtime;
+  if (!started && !durableHistoryNeedsPreparation(snapshot)) return snapshot;
+  const migrated = await prepareDurableDekiHistory(runtime);
   return migrated ?? readDurableHistorySnapshot();
+}
+
+/**
+ * Reads durable history, first finishing any preparation it needs. Resolves to
+ * the migrated state when this call joined a first-run migration. If the
+ * runtime changes mid-read, the result is discarded and the new runtime is read.
+ */
+async function readPreparedDurableHistory(): Promise<DurableHistorySnapshot | DekiSessionsState> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const runtime = dekiHistoryRuntime();
+    try {
+      const result = await readPreparedDurableHistoryOn(runtime);
+      if (dekiHistoryRuntime() === runtime) return result;
+    } catch (error) {
+      if (!(error instanceof DekiHistoryRuntimeChangedError)) throw error;
+    }
+  }
+  throw new Error("The runtime kept changing while Deki history was loading. Try again.");
 }
 
 async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
