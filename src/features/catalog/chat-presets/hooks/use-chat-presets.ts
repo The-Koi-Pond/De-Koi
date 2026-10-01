@@ -94,7 +94,7 @@ async function listChatPresets(mode?: ChatMode | null): Promise<ChatPreset[]> {
   return mode ? presets.filter((preset) => preset.mode === mode) : presets;
 }
 
-export function findUserStarredChatPreset(
+function findUserStarredChatPreset(
   presets: readonly RawChatPreset[] | null | undefined,
   mode: ChatMode | null,
 ): ChatPreset | null {

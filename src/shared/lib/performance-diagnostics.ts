@@ -26,7 +26,7 @@ export type PerformanceDiagnosticsSpan = {
   details?: Record<string, unknown>;
 };
 
-export type PerformanceDiagnosticsStageName = (typeof PERFORMANCE_DIAGNOSTICS_STAGE_NAMES)[number];
+type PerformanceDiagnosticsStageName = (typeof PERFORMANCE_DIAGNOSTICS_STAGE_NAMES)[number];
 type PerformanceDiagnosticsStageMetadataKey = (typeof PERFORMANCE_DIAGNOSTICS_STAGE_METADATA_KEYS)[number];
 
 export type PerformanceDiagnosticsStageTiming = {

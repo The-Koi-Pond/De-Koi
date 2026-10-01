@@ -30,7 +30,7 @@ const rerollCandidateSchema = z
   })
   .strict();
 
-export type ContinuityDirectorPlannerErrorCode =
+type ContinuityDirectorPlannerErrorCode =
   | "disabled"
   | "connection_unavailable"
   | "invalid_output"
