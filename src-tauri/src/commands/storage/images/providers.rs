@@ -3621,6 +3621,8 @@ mod tests {
 
     #[tokio::test]
     async fn image_provider_blocks_metadata_base_url() {
+        // Asserts the default policy, so no other test may set the flag meanwhile.
+        let _env_lock = PROCESS_ENV_TEST_LOCK.lock().await;
         let connection = json!({
             "provider": "image_generation",
             "imageGenerationSource": "openai",
@@ -3649,6 +3651,8 @@ mod tests {
 
     #[tokio::test]
     async fn image_provider_blocks_metadata_download_url() {
+        // Asserts the default policy, so no other test may set the flag meanwhile.
+        let _env_lock = PROCESS_ENV_TEST_LOCK.lock().await;
         let payload = json!({
             "data": [{
                 "url": "http://169.254.169.254/image.png?api_key=sk-test-secret"
