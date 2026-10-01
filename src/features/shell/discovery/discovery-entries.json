@@ -1199,7 +1199,11 @@
     "audience": "Roleplay users who want long-running arcs and unresolved hooks to stay visible without surrendering control of their character.",
     "where": "Open a Roleplay chat > Continuity Director, or Chat Settings > Continuity > Director.",
     "actions": [
-      { "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Continuity Director" }
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings-continuity",
+        "label": "Open Continuity Director"
+      }
     ],
     "coverage": "core"
   },

@@ -56,9 +56,7 @@ export function createManualCharacterMemoryInput(
   };
 }
 
-export function characterMemoryImportPatch(
-  input: CharacterMemoryImportInput,
-): CanonicalMemoryPatch {
+export function characterMemoryImportPatch(input: CharacterMemoryImportInput): CanonicalMemoryPatch {
   const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...patch } = input;
   return patch;
 }
@@ -143,8 +141,7 @@ export function createCharacterMemoryExport(input: {
       // direct-character and world edges only. Full-profile backup owns every holder kind.
       .filter(
         (edge) =>
-          edge.holder.kind === "world" ||
-          (edge.holder.kind === "character" && edge.holder.id === input.character.id),
+          edge.holder.kind === "world" || (edge.holder.kind === "character" && edge.holder.id === input.character.id),
       )
       .map((edge) => ({
         ...edge,
@@ -168,7 +165,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function validEnvelope(value: unknown): value is CharacterMemoryExportV1 | CharacterMemoryExportV2 {
-  if (!isRecord(value) || value.type !== "de_koi_character_memories" || ![1, 2].includes(Number(value.version))) return false;
+  if (!isRecord(value) || value.type !== "de_koi_character_memories" || ![1, 2].includes(Number(value.version)))
+    return false;
   if (!isRecord(value.character) || typeof value.character.id !== "string") return false;
   return Array.isArray(value.memories) && (value.version === 1 || Array.isArray(value.edges));
 }
@@ -201,12 +199,10 @@ export function normalizeCharacterMemoryImportPackage(
     }
     const sourceScope: Record<string, unknown> = isRecord(memory.scope) ? memory.scope : {};
     const sourceCharacterId =
-      sourceScope.kind === "character" && typeof sourceScope.id === "string"
-        ? sourceScope.id
-        : value.character.id;
+      sourceScope.kind === "character" && typeof sourceScope.id === "string" ? sourceScope.id : value.character.id;
     const id = `character-memory-import-${stableHash(`${characterId}\u001f${memory.id}\u001f${memory.content}`)}`;
     memoryIdMap.set(memory.id, id);
-    const payload = isRecord(memory.payload) ? portableValue(memory.payload) as Record<string, unknown> : {};
+    const payload = isRecord(memory.payload) ? (portableValue(memory.payload) as Record<string, unknown>) : {};
     return {
       id,
       kind: memory.kind as CanonicalMemoryRecord["kind"],
@@ -218,8 +214,7 @@ export function normalizeCharacterMemoryImportPackage(
           ? Math.max(0, Math.min(1, memory.confidence))
           : 1,
       provenance: {
-        sourceChatId:
-          typeof memory.provenance.sourceChatId === "string" ? memory.provenance.sourceChatId : null,
+        sourceChatId: typeof memory.provenance.sourceChatId === "string" ? memory.provenance.sourceChatId : null,
         messageIds: memory.provenance.messageIds.filter(
           (messageId): messageId is string => typeof messageId === "string",
         ),
@@ -228,9 +223,7 @@ export function normalizeCharacterMemoryImportPackage(
         timestamp: typeof memory.provenance.timestamp === "string" ? memory.provenance.timestamp : null,
       },
       title: typeof memory.title === "string" ? memory.title : null,
-      tags: Array.isArray(memory.tags)
-        ? memory.tags.filter((tag): tag is string => typeof tag === "string")
-        : [],
+      tags: Array.isArray(memory.tags) ? memory.tags.filter((tag): tag is string => typeof tag === "string") : [],
       payload: {
         ...payload,
         importedFromMemoryId: memory.id,
@@ -241,25 +234,26 @@ export function normalizeCharacterMemoryImportPackage(
       updatedAt: importedAt,
     };
   });
-  const edges = value.version === 2
-    ? value.edges.flatMap((edge): KnowledgeEdgeInput[] => {
-        if (!isRecord(edge) || typeof edge.memoryId !== "string" || !isRecord(edge.holder)) return [];
-        const memoryId = memoryIdMap.get(edge.memoryId);
-        const holderKind = edge.holder.kind;
-        if (!memoryId || (holderKind !== "character" && holderKind !== "world")) return [];
-        if (typeof edge.stance !== "string" || !Array.isArray(edge.provenance)) return [];
-        return [{
-          memoryId,
-          holder: holderKind === "world"
-            ? { kind: "world", id: "world" }
-            : { kind: "character", id: characterId },
-          stance: edge.stance as KnowledgeEdgeInput["stance"],
-          status: edge.status === "proposed" || edge.status === "invalidated" ? edge.status : "active",
-          confidence: typeof edge.confidence === "number" ? edge.confidence : null,
-          provenance: edge.provenance as KnowledgeEdgeInput["provenance"],
-        }];
-      })
-    : [];
+  const edges =
+    value.version === 2
+      ? value.edges.flatMap((edge): KnowledgeEdgeInput[] => {
+          if (!isRecord(edge) || typeof edge.memoryId !== "string" || !isRecord(edge.holder)) return [];
+          const memoryId = memoryIdMap.get(edge.memoryId);
+          const holderKind = edge.holder.kind;
+          if (!memoryId || (holderKind !== "character" && holderKind !== "world")) return [];
+          if (typeof edge.stance !== "string" || !Array.isArray(edge.provenance)) return [];
+          return [
+            {
+              memoryId,
+              holder: holderKind === "world" ? { kind: "world", id: "world" } : { kind: "character", id: characterId },
+              stance: edge.stance as KnowledgeEdgeInput["stance"],
+              status: edge.status === "proposed" || edge.status === "invalidated" ? edge.status : "active",
+              confidence: typeof edge.confidence === "number" ? edge.confidence : null,
+              provenance: edge.provenance as KnowledgeEdgeInput["provenance"],
+            },
+          ];
+        })
+      : [];
   return { memories, edges };
 }
 
@@ -295,32 +289,34 @@ export function normalizeChatMemoriesForCharacter(
     const messageIds = Array.isArray(value.messageIds)
       ? value.messageIds.filter((messageId): messageId is string => typeof messageId === "string")
       : [];
-    return [{
-      id: `character-memory-copy-${stableHash(`${characterId}\u001f${sourceChatId ?? ""}\u001f${value.id}\u001f${content}`)}`,
-      kind: "episode" as const,
-      status: "active" as const,
-      scope: { kind: "character" as const, id: characterId },
-      content,
-      confidence: 1,
-      provenance: {
-        sourceChatId,
-        messageIds,
-        sceneId: typeof value.sceneChatId === "string" ? value.sceneChatId : null,
-        characterId,
-        timestamp:
-          typeof value.lastMessageAt === "string"
-            ? value.lastMessageAt
-            : typeof value.createdAt === "string"
-              ? value.createdAt
-              : copiedAt,
+    return [
+      {
+        id: `character-memory-copy-${stableHash(`${characterId}\u001f${sourceChatId ?? ""}\u001f${value.id}\u001f${content}`)}`,
+        kind: "episode" as const,
+        status: "active" as const,
+        scope: { kind: "character" as const, id: characterId },
+        content,
+        confidence: 1,
+        provenance: {
+          sourceChatId,
+          messageIds,
+          sceneId: typeof value.sceneChatId === "string" ? value.sceneChatId : null,
+          characterId,
+          timestamp:
+            typeof value.lastMessageAt === "string"
+              ? value.lastMessageAt
+              : typeof value.createdAt === "string"
+                ? value.createdAt
+                : copiedAt,
+        },
+        tags: ["copied-from-chat"],
+        payload: {
+          copiedFromChatMemoryId: value.id,
+          copiedAt,
+        },
+        createdAt: copiedAt,
+        updatedAt: copiedAt,
       },
-      tags: ["copied-from-chat"],
-      payload: {
-        copiedFromChatMemoryId: value.id,
-        copiedAt,
-      },
-      createdAt: copiedAt,
-      updatedAt: copiedAt,
-    }];
+    ];
   });
 }

@@ -45,9 +45,7 @@ function inlineImageDataUrl(value: unknown): string {
 
 function attachmentInlineImageDataUrl(attachment: PromptAttachment): string {
   return (
-    inlineImageDataUrl(attachment.data) ||
-    inlineImageDataUrl(attachment.url) ||
-    inlineImageDataUrl(attachment.imageUrl)
+    inlineImageDataUrl(attachment.data) || inlineImageDataUrl(attachment.url) || inlineImageDataUrl(attachment.imageUrl)
   );
 }
 
@@ -138,7 +136,8 @@ function managedAttachmentFromGallery(
   const url = galleryStringField(gallery, "url") || readString(attachment.url).trim();
   const galleryId = galleryStringField(gallery, "id") || readString(attachment.galleryId).trim();
   const filePath = galleryStringField(gallery, "filePath") || readString(attachment.filePath).trim();
-  const filename = galleryStringField(gallery, "filename") || readString(attachment.filename).trim() || fallbackFilename;
+  const filename =
+    galleryStringField(gallery, "filename") || readString(attachment.filename).trim() || fallbackFilename;
   const name = readString(attachment.name).trim() || filename;
   const next: PromptAttachment = {
     ...attachment,
@@ -316,7 +315,6 @@ export async function resolveImageAttachmentDeliveries(
   }
   return deliveries;
 }
-
 
 export async function resolveImageAttachmentDelivery(
   storage: StorageGateway,

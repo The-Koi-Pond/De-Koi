@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getSelectedDekiSessionIds, getDekiBatchDeleteCopy, toggleDekiSessionSelection } from "./deki-sidebar-selection";
+import {
+  getSelectedDekiSessionIds,
+  getDekiBatchDeleteCopy,
+  toggleDekiSessionSelection,
+} from "./deki-sidebar-selection";
 
 describe("Deki sidebar selection helpers", () => {
   it("toggles selected Deki session ids without mutating the previous selection", () => {

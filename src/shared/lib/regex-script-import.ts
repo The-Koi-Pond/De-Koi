@@ -2,10 +2,7 @@
 // ST Card Regex Script Extraction & Import
 // ──────────────────────────────────────────────
 import { storageApi } from "../../shared/api/storage-api";
-import {
-  createRegexScriptSchema,
-  type CreateRegexScriptInput,
-} from "../../engine/contracts/schemas/regex.schema";
+import { createRegexScriptSchema, type CreateRegexScriptInput } from "../../engine/contracts/schemas/regex.schema";
 import { isPatternSafe } from "../../engine/shared/regex/regex-safety";
 
 /** Numeric placement map from ST card format to engine placement strings. */

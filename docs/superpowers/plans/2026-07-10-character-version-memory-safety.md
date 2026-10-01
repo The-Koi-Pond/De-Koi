@@ -38,11 +38,13 @@
 ### Task 1: Bounded Streaming Collection Transformation
 
 **Files:**
+
 - Create: `src-tauri/crates/storage/src/streaming.rs`
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 - Test: `src-tauri/crates/storage/src/streaming.rs`
 
 **Interfaces:**
+
 - Produces: `StreamingTransformReport { input_records: usize, output_records: usize, changed_records: usize }`
 - Produces: `FileStorage::transform_collection_streaming<F>(&self, collection: &str, migration_suffix: &str, transform: F) -> AppResult<StreamingTransformReport>` where `F: FnMut(usize, Value) -> AppResult<Value>`.
 - Guarantees: write-gate serialization, input fingerprint recheck, atomic install, backup refresh, and cache invalidation.
@@ -107,11 +109,13 @@ git commit -m "storage: add bounded collection transformation"
 ### Task 2: Canonical Character-Version Media Normalizer
 
 **Files:**
+
 - Create: `src-tauri/src/commands/storage/character_version_media.rs`
 - Modify: `src-tauri/src/commands/storage.rs`
 - Test: `src-tauri/src/commands/storage/character_version_media.rs`
 
 **Interfaces:**
+
 - Consumes: existing `decode_image_payload`, `optimize_avatar_image_bytes`, `stored_managed_image`, and managed-path helpers.
 - Produces: `normalize_character_version_media(data_dir: &Path, record: &mut Map<String, Value>, created_files: &mut Vec<PathBuf>) -> AppResult<bool>`.
 - Produces: `reject_inline_character_version_media(record: &Value) -> AppResult<()>`.
@@ -149,12 +153,14 @@ git commit -m "storage: canonicalize character version media"
 ### Task 3: Resumable Character-Version Migration
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/startup_migrations.rs`
 - Modify: `src-tauri/src/state.rs`
 - Test: `src-tauri/src/commands/storage/startup_migrations.rs`
 - Test: `src-tauri/src/state.rs`
 
 **Interfaces:**
+
 - Consumes: `FileStorage::transform_collection_streaming` and `normalize_character_version_media`.
 - Produces: migration marker `characterVersionInlineMediaV2` in the existing `startup-migrations` settings row.
 - Produces: `migrate_character_version_inline_media(storage: &FileStorage, data_dir: &Path) -> AppResult<StreamingTransformReport>`.
@@ -191,6 +197,7 @@ git commit -m "storage: migrate inline version images safely"
 ### Task 4: Close Every Recurrence Boundary
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/characters.rs`
 - Modify: `src-tauri/src/commands/storage/imports/marinara.rs`
 - Modify: `src-tauri/src/commands/storage/profile/legacy.rs`
@@ -198,6 +205,7 @@ git commit -m "storage: migrate inline version images safely"
 - Test: existing colocated Rust test modules in those files.
 
 **Interfaces:**
+
 - Consumes: `normalize_character_version_media` for trusted owner paths.
 - Consumes: `reject_inline_character_version_media` for direct generic entity creates/updates.
 - Preserves: existing Tauri and hostable HTTP command names, arguments, and responses.
@@ -232,11 +240,13 @@ git commit -m "characters: prevent inline version media"
 ### Task 5: Pi Host Containment And Documentation
 
 **Files:**
+
 - Modify: `docker-compose.pi.yml`
 - Add: `docs/superpowers/specs/2026-07-10-character-version-memory-safety-design.md`
 - Add: `docs/superpowers/plans/2026-07-10-character-version-memory-safety.md`
 
 **Interfaces:**
+
 - Produces: Compose `mem_limit: 2g` and `memswap_limit: 2304m` for `de-koi-server` only.
 
 - [ ] **Step 1: Add a failing Compose assertion**
@@ -255,8 +265,8 @@ Expected: command throws `server memory limit missing`.
 Under `de-koi-server`, add:
 
 ```yaml
-    mem_limit: 2g
-    memswap_limit: 2304m
+mem_limit: 2g
+memswap_limit: 2304m
 ```
 
 Do not limit `de-koi-web` and do not change restart behavior.
@@ -281,10 +291,12 @@ git commit -m "pi: contain hostable server memory"
 ### Task 6: Full Verification, Pi Migration, And Shipping
 
 **Files:**
+
 - No new production files expected.
 - Temporary local/Pi proof artifacts must remain uncommitted and be removed after evidence capture.
 
 **Interfaces:**
+
 - Consumes: completed implementation and migration-capable server image.
 - Produces: review packet with local checks, Pi before/after evidence, Bunny result, CI state, and merge readiness.
 

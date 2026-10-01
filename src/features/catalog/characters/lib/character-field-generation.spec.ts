@@ -82,8 +82,7 @@ describe("buildCharacterFieldGenerationMessages", () => {
       ?.content;
     const personalityPrompt = buildCharacterFieldGenerationMessages("personality", { data: characterData() })[1]
       ?.content;
-    const appearancePrompt = buildCharacterFieldGenerationMessages("appearance", { data: characterData() })[1]
-      ?.content;
+    const appearancePrompt = buildCharacterFieldGenerationMessages("appearance", { data: characterData() })[1]?.content;
 
     expect(descriptionPrompt).not.toContain("identity, role, motivations, mannerisms, and speech patterns");
     expect(personalityPrompt).not.toContain("core traits, temperament, quirks, and behavioral patterns");
@@ -176,7 +175,8 @@ describe("buildCharacterFieldGenerationMessages", () => {
   });
 
   it("asks vibe notes for 3-5 sentences instead of a short search phrase", () => {
-    const prompt = buildCharacterFieldGenerationMessages("music_vibe_notes", { data: characterData() })[1]?.content ?? "";
+    const prompt =
+      buildCharacterFieldGenerationMessages("music_vibe_notes", { data: characterData() })[1]?.content ?? "";
 
     expect(prompt).toContain("3-5 sentences");
     expect(prompt).toContain("visible characterization reasoning");

@@ -196,4 +196,3 @@ describe("music profile editor text helpers", () => {
     expect(serializeMusicTextList(["synthwave", "dark ambient"])).toBe("synthwave, dark ambient");
   });
 });
-

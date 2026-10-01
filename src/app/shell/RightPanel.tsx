@@ -51,11 +51,7 @@ export function RightPanel() {
   const accent = SHELL_ACCENT_STYLES[config?.accentRole ?? "muted"];
 
   return (
-    <section
-      data-component="RightPanel"
-      aria-label={title}
-      className="mari-right-panel-content flex h-full flex-col"
-    >
+    <section data-component="RightPanel" aria-label={title} className="mari-right-panel-content flex h-full flex-col">
       {/* Header - OS window style */}
       <div className="mari-right-panel-header relative flex h-12 flex-shrink-0 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />

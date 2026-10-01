@@ -10,7 +10,9 @@ const ready: HomeSuggestionContext = {
 
 describe("getHomeSuggestions", () => {
   it("caps contextual journeys at three", () => {
-    expect(getHomeSuggestions({ ...ready, needsServerSetup: true, hasLanguageModel: false, libraryIsEmpty: true })).toHaveLength(3);
+    expect(
+      getHomeSuggestions({ ...ready, needsServerSetup: true, hasLanguageModel: false, libraryIsEmpty: true }),
+    ).toHaveLength(3);
   });
 
   it("prioritizes server setup when the web runtime is incomplete", () => {
@@ -18,11 +20,15 @@ describe("getHomeSuggestions", () => {
   });
 
   it("offers the sample world when no language model is connected", () => {
-    expect(getHomeSuggestions({ ...ready, hasLanguageModel: false }).map((item) => item.destination)).toContain("sample-world");
+    expect(getHomeSuggestions({ ...ready, hasLanguageModel: false }).map((item) => item.destination)).toContain(
+      "sample-world",
+    );
   });
 
   it("offers import when the library is empty", () => {
-    expect(getHomeSuggestions({ ...ready, libraryIsEmpty: true }).map((item) => item.destination)).toContain("library-import");
+    expect(getHomeSuggestions({ ...ready, libraryIsEmpty: true }).map((item) => item.destination)).toContain(
+      "library-import",
+    );
   });
 
   it("offers Discover to active users without inventory language", () => {

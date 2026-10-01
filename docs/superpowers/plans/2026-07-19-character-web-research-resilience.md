@@ -53,11 +53,13 @@
 ### Task 1: Shared Rust provider chain
 
 **Files:**
+
 - Create: `src-tauri/src/commands/storage/web_search.rs`
 - Modify: `src-tauri/src/commands/storage.rs`
 - Modify: `src-tauri/src/commands/storage/web_research.rs`
 
 **Interfaces:**
+
 - Produces:
 
 ```rust
@@ -240,9 +242,11 @@ git commit -m "web research: add resilient search providers"
 ### Task 2: Reuse the provider chain from Deki
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/deki.rs`
 
 **Interfaces:**
+
 - Consumes: `super::web_search::search(query, max_results, user_agent)`.
 - Preserves: `DekiWebResearchGrant`, exact-query matching, allowed domains, action message IDs, and Deki's JSON tool response.
 
@@ -321,6 +325,7 @@ git commit -m "deki: reuse resilient web search"
 ### Task 3: Quiet research presentation in the generation engine
 
 **Files:**
+
 - Create: `src/engine/generation/web-research-presentation.ts`
 - Create: `src/engine/generation/web-research-presentation.spec.ts`
 - Create: `src/engine/generation/start-generation.web-research-presentation.spec.ts`
@@ -332,13 +337,13 @@ git commit -m "deki: reuse resilient web search"
 - Modify: `src/engine/generation/tools-runtime.main.spec.ts`
 
 **Interfaces:**
+
 - Produces:
 
 ```ts
 export type CharacterWebResearchPresentation = "quiet" | "visible";
 
-export function characterWebResearchPresentation(metadata: unknown):
-  CharacterWebResearchPresentation;
+export function characterWebResearchPresentation(metadata: unknown): CharacterWebResearchPresentation;
 
 export function isCharacterWebToolName(name: string): boolean;
 ```
@@ -482,10 +487,12 @@ git commit -m "chat: keep character research in the background"
 ### Task 4: Organic character research decisions
 
 **Files:**
+
 - Modify: `src/engine/generation/tools-runtime.ts`
 - Modify: `src/engine/generation/tools-runtime.main.spec.ts`
 
 **Interfaces:**
+
 - Produces: `MainToolDefinitions.characterWebResearchPresentation`.
 - Consumes: `characterWebResearchPresentation(chat.metadata)`.
 
@@ -517,9 +524,7 @@ Expected: the generic current description lacks the organic and presentation-spe
 Replace the static request definition with:
 
 ```ts
-function characterWebResearchRequestTool(
-  presentation: CharacterWebResearchPresentation,
-): LlmToolDefinition
+function characterWebResearchRequestTool(presentation: CharacterWebResearchPresentation): LlmToolDefinition;
 ```
 
 The shared guidance must say:
@@ -564,6 +569,7 @@ git commit -m "chat: guide organic character web research"
 ### Task 5: Chat setting and collapsed source disclosure
 
 **Files:**
+
 - Modify: `src/features/modes/shared/chat-ui/components/CharacterWebResearchCard.tsx`
 - Modify: `src/features/modes/shared/chat-ui/components/CharacterWebResearchCard.spec.tsx`
 - Modify: `src/features/modes/shared/chat-ui/components/ChatSettingsDrawer.tsx`
@@ -571,6 +577,7 @@ git commit -m "chat: guide organic character web research"
 - Modify: `src/features/shell/discovery/discovery-entries.json`
 
 **Interfaces:**
+
 - Persists: `characterWebResearchPresentation: "quiet" | "visible"` in chat metadata.
 - Consumes: existing `characterWebResearchSources`.
 
@@ -582,10 +589,7 @@ Render sources and assert:
 const disclosure = container.querySelector("details");
 expect(disclosure?.open).toBe(false);
 expect(screen.getByText("Sources")).toBeInTheDocument();
-expect(screen.getByRole("link", { name: "NASA Gateway" })).toHaveAttribute(
-  "href",
-  "https://www.nasa.gov/gateway/",
-);
+expect(screen.getByRole("link", { name: "NASA Gateway" })).toHaveAttribute("href", "https://www.nasa.gov/gateway/");
 ```
 
 Extend the settings architecture test to require the exact setting label and metadata values.
@@ -676,10 +680,12 @@ git commit -m "chat: add immersive research controls"
 ### Task 6: Integration, shipping, and Pi acceptance
 
 **Files:**
+
 - Review all files changed by Tasks 1-5.
 - Update the design or discovery text only if implementation uncovered a contract mismatch.
 
 **Interfaces:**
+
 - Verifies the complete embedded, hostable, engine, UI, and deployment path.
 
 - [ ] **Step 1: Run architecture and full repository gates**

@@ -50,18 +50,20 @@ function outcomeFailure(outcome: AgentImportBatchOutcome): string | null {
 function resultFromOutcomes(outcomes: AgentImportBatchOutcome[]): AgentImportBatchResult {
   const atomic = outcomes.every((outcome) => outcome.status === "imported");
   const created = outcomes
-    .filter((outcome): outcome is Extract<AgentImportBatchOutcome, { status: "imported" }> =>
-      outcome.status === "imported",
+    .filter(
+      (outcome): outcome is Extract<AgentImportBatchOutcome, { status: "imported" }> => outcome.status === "imported",
     )
     .map(({ fileName, name, id }) => ({ fileName, name, id }));
   const kept = outcomes
-    .filter((outcome): outcome is Extract<AgentImportBatchOutcome, { status: "rollback_failed" }> =>
-      outcome.status === "rollback_failed",
+    .filter(
+      (outcome): outcome is Extract<AgentImportBatchOutcome, { status: "rollback_failed" }> =>
+        outcome.status === "rollback_failed",
     )
     .map(({ fileName, name, id }) => ({ fileName, name, id }));
   const rolledBack = outcomes
-    .filter((outcome): outcome is Extract<AgentImportBatchOutcome, { status: "rolled_back" }> =>
-      outcome.status === "rolled_back",
+    .filter(
+      (outcome): outcome is Extract<AgentImportBatchOutcome, { status: "rolled_back" }> =>
+        outcome.status === "rolled_back",
     )
     .map(({ fileName, name, id }) => ({ fileName, name, id }));
   const failures = outcomes.map(outcomeFailure).filter((failure): failure is string => Boolean(failure));

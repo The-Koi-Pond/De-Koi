@@ -1,9 +1,6 @@
 import { Image } from "lucide-react";
 import { cn } from "../../../../../../shared/lib/utils";
-import {
-  hasSpriteDisplayMode,
-  type SpriteDisplayMode,
-} from "../../../../../runtime/visuals/sprite-display-modes";
+import { hasSpriteDisplayMode, type SpriteDisplayMode } from "../../../../../runtime/visuals/sprite-display-modes";
 
 export function SpriteDisplayModeToggle({
   modes,

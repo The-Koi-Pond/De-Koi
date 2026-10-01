@@ -71,14 +71,14 @@ Changes to the category selection take effect after pressing **De-Koi Sync HA To
 
 ## Entities
 
-| Entity                      | Type   | Description                                                                         |
-| --------------------------- | ------ | ----------------------------------------------------------------------------------- |
-| De-Koi Chat Count           | Sensor | Total number of chats                                                               |
-| De-Koi Active Agent Count   | Sensor | Number of globally enabled agents                                                   |
-| De-Koi Active Chat          | Select | Choose which chat HA services target                                                |
-| De-Koi Agent: _name_        | Switch | Enable / disable each AI agent globally                                             |
-| De-Koi Abort Generation     | Button | Legacy compatibility button; desktop generation is not exposed by `de-koi-server`   |
-| De-Koi Sync HA Tools        | Button | Re-sync all tool definitions and agent to De-Koi                                    |
+| Entity                    | Type   | Description                                                                       |
+| ------------------------- | ------ | --------------------------------------------------------------------------------- |
+| De-Koi Chat Count         | Sensor | Total number of chats                                                             |
+| De-Koi Active Agent Count | Sensor | Number of globally enabled agents                                                 |
+| De-Koi Active Chat        | Select | Choose which chat HA services target                                              |
+| De-Koi Agent: _name_      | Switch | Enable / disable each AI agent globally                                           |
+| De-Koi Abort Generation   | Button | Legacy compatibility button; desktop generation is not exposed by `de-koi-server` |
+| De-Koi Sync HA Tools      | Button | Re-sync all tool definitions and agent to De-Koi                                  |
 
 ## Tool categories
 
@@ -113,11 +113,11 @@ Use these in automations to interact with De-Koi from Home Assistant's side.
 
 Send a message to a De-Koi chat through the remote runtime storage API.
 
-| Field                | Required | Description                                                                                           |
-| -------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `message`            | Yes      | Message content                                                                                       |
-| `chat_id`            | No       | Target chat ID (defaults to primary chat)                                                             |
-| `role`               | No       | `user` / `assistant` / `system` / `narrator`                                                          |
+| Field                | Required | Description                                                                                  |
+| -------------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `message`            | Yes      | Message content                                                                              |
+| `chat_id`            | No       | Target chat ID (defaults to primary chat)                                                    |
+| `role`               | No       | `user` / `assistant` / `system` / `narrator`                                                 |
 | `trigger_generation` | No       | Compatibility flag; the message is stored, but generation still happens from the desktop app |
 
 **Example - notify the AI when someone arrives:**

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeConnectionModels, selectConnectionModel, selectConnectionModelLimits } from "./connection-model-selection";
+import {
+  mergeConnectionModels,
+  selectConnectionModel,
+  selectConnectionModelLimits,
+} from "./connection-model-selection";
 
 describe("connection model selection", () => {
   it("uses known catalog limits when fetched models omit metadata", () => {

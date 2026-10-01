@@ -58,9 +58,7 @@ export function decideContinuityDirectorRefresh(
   const successfulBaseline = input.state.sourceSnapshot?.visibleAssistantTurnCount ?? null;
   const failedAttemptBaseline = input.state.lastPlanningAttemptAssistantTurnCount ?? null;
   const hasBaseline = successfulBaseline !== null || failedAttemptBaseline !== null;
-  const previousAssistantTurnCount = hasBaseline
-    ? Math.max(successfulBaseline ?? 0, failedAttemptBaseline ?? 0)
-    : null;
+  const previousAssistantTurnCount = hasBaseline ? Math.max(successfulBaseline ?? 0, failedAttemptBaseline ?? 0) : null;
   const elapsed = assistantTurnsElapsed(input.currentSourceSnapshot, previousAssistantTurnCount);
   const cadence = input.state.refreshEveryAssistantTurns ?? 10;
   if (hasBaseline && elapsed < cadence) {

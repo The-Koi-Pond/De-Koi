@@ -34,7 +34,10 @@ function CoreModulesSettings() {
   };
 
   return (
-    <div id="settings-destination-modules" className="scroll-mt-4 flex flex-col gap-3 rounded-xl transition-shadow duration-700">
+    <div
+      id="settings-destination-modules"
+      className="scroll-mt-4 flex flex-col gap-3 rounded-xl transition-shadow duration-700"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">

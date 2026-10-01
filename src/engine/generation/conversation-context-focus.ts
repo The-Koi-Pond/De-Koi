@@ -66,7 +66,10 @@ function boundarySlice(text: string, maxChars: number, fromEnd: boolean): string
 }
 
 function compactText(value: string | undefined, maxChars: number): string | undefined {
-  const text = readString(value).replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  const text = readString(value)
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (!text) return undefined;
   if (text.length <= maxChars) return text;
   const available = Math.max(2, maxChars - COMPACTION_MARKER.length);
@@ -82,14 +85,13 @@ function compactMemories(memories: string[] | undefined): string[] | undefined {
 }
 
 function stripExampleActions(value: string): string {
-  return value.replace(/\*[^*]*\*/gs, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/\*[^*]*\*/gs, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function cardConversationVoiceExamples(
-  value: string | undefined,
-  characterName: string,
-  userName: string,
-): string[] {
+function cardConversationVoiceExamples(value: string | undefined, characterName: string, userName: string): string[] {
   const blocks = readString(value)
     .split(/<START>/gi)
     .map((block) => block.trim())
@@ -99,9 +101,7 @@ function cardConversationVoiceExamples(
       const userMatch = /\{\{user\}\}\s*:/i.exec(block);
       const characterMatch = /\{\{char\}\}\s*:/i.exec(block);
       if (!userMatch || !characterMatch || characterMatch.index <= userMatch.index) return [];
-      const userText = stripExampleActions(
-        block.slice(userMatch.index + userMatch[0].length, characterMatch.index),
-      );
+      const userText = stripExampleActions(block.slice(userMatch.index + userMatch[0].length, characterMatch.index));
       const characterSection = block.slice(characterMatch.index + characterMatch[0].length);
       const spokenLines = Array.from(characterSection.matchAll(/"([^"]+)"|“([^”]+)”/g), (match) =>
         readString(match[1] ?? match[2]).trim(),

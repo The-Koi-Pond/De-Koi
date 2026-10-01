@@ -1,4 +1,8 @@
-import type { CanonicalMemoryRecord, StoryProjectionJob, StoryProjectionPayload } from "../../engine/contracts/types/memory";
+import type {
+  CanonicalMemoryRecord,
+  StoryProjectionJob,
+  StoryProjectionPayload,
+} from "../../engine/contracts/types/memory";
 import {
   enqueueAndScheduleStoryEpisode,
   enqueueStoryEpisodeJob,
@@ -22,7 +26,9 @@ function isStoryProjection(memory: CanonicalMemoryRecord): boolean {
 
 async function generationIdentity(chat: JsonRecord) {
   const connectionId = readString(chat.connectionId).trim() || null;
-  const connection = connectionId ? await storageApi.get<JsonRecord>("connections", connectionId).catch(() => null) : null;
+  const connection = connectionId
+    ? await storageApi.get<JsonRecord>("connections", connectionId).catch(() => null)
+    : null;
   return {
     connectionId,
     provider: readString(connection?.provider).trim() || null,
@@ -81,7 +87,8 @@ export const storyContinuityApi = {
         if (status === "failed" || status === "retryable" || status === "stale") {
           throw new Error(refreshed?.lastError ? String(refreshed.lastError) : `Story job stopped as ${status}.`);
         }
-        if (result.processed === 0 && status !== "completed") throw new Error("Story builder could not acquire its worker.");
+        if (result.processed === 0 && status !== "completed")
+          throw new Error("Story builder could not acquire its worker.");
       }
       if (status !== "completed") throw new Error("Story builder reached its safety limit.");
       completed += 1;
@@ -98,7 +105,9 @@ export const storyContinuityApi = {
     const story = memory.payload as StoryProjectionPayload;
     const citation = {
       text: editedContent,
-      ...(story.level === "episode" ? { sourceMessageIds: story.messageIds } : { sourceEpisodeIds: story.sourceEpisodeIds }),
+      ...(story.level === "episode"
+        ? { sourceMessageIds: story.messageIds }
+        : { sourceEpisodeIds: story.sourceEpisodeIds }),
     };
     return storageApi.updateMemory?.(memoryId, {
       content: editedContent,

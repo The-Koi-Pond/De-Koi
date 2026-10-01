@@ -19,9 +19,7 @@ import {
 
 const PREDICTIVE_MESSAGE_PAGE_SIZE = 20;
 
-export function createPredictiveChatPreloadDependencies(
-  queryClient: QueryClient,
-): PredictiveChatPreloadDependencies {
+export function createPredictiveChatPreloadDependencies(queryClient: QueryClient): PredictiveChatPreloadDependencies {
   return {
     hasDetail: (chatId) => queryClient.getQueryData(chatKeys.detail(chatId)) !== undefined,
     hasMessages: (chatId) => queryClient.getQueryData(chatKeys.messages(chatId)) !== undefined,
@@ -53,16 +51,10 @@ export function usePredictiveChatPreload({
 
   useEffect(() => controller.setActiveChatId(activeChatId), [activeChatId, controller]);
 
-  const recentCandidates = useMemo(
-    () => selectRecentPredictiveChats(chats, activeChatId),
-    [activeChatId, chats],
-  );
+  const recentCandidates = useMemo(() => selectRecentPredictiveChats(chats, activeChatId), [activeChatId, chats]);
   const preload = useCallback((chat: PredictiveChatCandidate) => controller.preload(chat), [controller]);
 
-  useEffect(
-    () => scheduleIdlePredictiveChatPreloads(recentCandidates, preload),
-    [preload, recentCandidates],
-  );
+  useEffect(() => scheduleIdlePredictiveChatPreloads(recentCandidates, preload), [preload, recentCandidates]);
 
   return useCallback((chat: PredictiveChatCandidate) => void preload(chat), [preload]);
 }

@@ -121,7 +121,9 @@ describe("Continuity Director review visibility", () => {
 
   it("renders metadata-derived desktop and mobile review entry points with accessible actions", () => {
     const onOpen = vi.fn();
-    act(() => root?.render(<ContinuityDirectorReviewFixture chatMeta={continuityDirectorMetadata(1)} onOpen={onOpen} />));
+    act(() =>
+      root?.render(<ContinuityDirectorReviewFixture chatMeta={continuityDirectorMetadata(1)} onOpen={onOpen} />),
+    );
 
     const buttons = Array.from(container!.querySelectorAll<HTMLButtonElement>("button"));
     const desktop = buttons.find((button) => button.textContent === "1");
@@ -140,7 +142,9 @@ describe("Continuity Director review visibility", () => {
 
   it("omits zero counts and updates both entry points when persisted metadata changes", () => {
     const onOpen = vi.fn();
-    act(() => root?.render(<ContinuityDirectorReviewFixture chatMeta={continuityDirectorMetadata(0)} onOpen={onOpen} />));
+    act(() =>
+      root?.render(<ContinuityDirectorReviewFixture chatMeta={continuityDirectorMetadata(0)} onOpen={onOpen} />),
+    );
 
     const zeroButtons = Array.from(container!.querySelectorAll<HTMLButtonElement>("button"));
     expect(zeroButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
@@ -149,7 +153,9 @@ describe("Continuity Director review visibility", () => {
     ]);
     expect(zeroButtons.some((button) => button.textContent?.includes("to review"))).toBe(false);
 
-    act(() => root?.render(<ContinuityDirectorReviewFixture chatMeta={continuityDirectorMetadata(2)} onOpen={onOpen} />));
+    act(() =>
+      root?.render(<ContinuityDirectorReviewFixture chatMeta={continuityDirectorMetadata(2)} onOpen={onOpen} />),
+    );
 
     const updatedButtons = Array.from(container!.querySelectorAll<HTMLButtonElement>("button"));
     expect(updatedButtons.map((button) => button.getAttribute("aria-label"))).toEqual([

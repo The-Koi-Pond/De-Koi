@@ -231,7 +231,16 @@ function optionalKind(kind: string): boolean {
 }
 
 function truncatableKind(kind: string): boolean {
-  return ["summary", "canonical_memory", "story_projection", "memory", "memory_recall", "lorebook", "injection", "optional"].includes(kind);
+  return [
+    "summary",
+    "canonical_memory",
+    "story_projection",
+    "memory",
+    "memory_recall",
+    "lorebook",
+    "injection",
+    "optional",
+  ].includes(kind);
 }
 
 function truncatedMessageToBudget(message: ContextMessage, availableTokens: number): ContextMessage | null {

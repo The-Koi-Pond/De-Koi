@@ -20,10 +20,12 @@
 ### Task 1: Reproduce the reported fidelity failures
 
 **Files:**
+
 - Modify: `src/engine/generation/automatic-memory-capture.spec.ts`
 - Modify: `src/engine/generation/memory-context-clarity.fixtures.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `extractCanonicalMemoryConsequences(...)` and `standaloneMemoryFailure(...)`.
 - Produces: failing public-behavior fixtures for pronoun, speaker, and specificity drift.
 
@@ -37,11 +39,13 @@
 ### Task 2: Enforce source fidelity at the capture owner
 
 **Files:**
+
 - Modify: `src/engine/generation/automatic-memory-capture.ts`
 - Modify: `src/engine/generation/automatic-memory-capture.spec.ts`
 - Modify: `src/engine/generation/memory-context-clarity.fixtures.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `CanonicalConsequenceSourceMessage[]` already resolved from candidate evidence IDs.
 - Produces: conservative deterministic acceptance helpers used before `CanonicalMemoryInput` construction.
 
@@ -57,9 +61,11 @@
 ### Task 3: Validate and ship
 
 **Files:**
+
 - Review all changed files; no additional production owner is expected.
 
 **Interfaces:**
+
 - Consumes: focused red-green proof and the repository shipping workflow.
 - Produces: one reviewed PR merged to `main`, followed by exact-SHA Pi deployment.
 

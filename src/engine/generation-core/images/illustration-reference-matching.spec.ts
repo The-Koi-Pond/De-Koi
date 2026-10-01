@@ -8,9 +8,7 @@ import {
 
 describe("illustration reference matching", () => {
   it("normalizes names and builds aliases for titled or parenthetical names", () => {
-    expect(normalizeIllustrationReferenceName("Dr. Élodie Vance (Winter Coat)")).toBe(
-      "dr elodie vance winter coat",
-    );
+    expect(normalizeIllustrationReferenceName("Dr. Élodie Vance (Winter Coat)")).toBe("dr elodie vance winter coat");
     expect(illustrationReferenceNameAliases("Dr. Élodie Vance (Winter Coat)")).toEqual(
       expect.arrayContaining(["dr elodie vance winter coat", "dr elodie vance", "elodie", "vance"]),
     );
@@ -18,25 +16,16 @@ describe("illustration reference matching", () => {
 
   it("matches explicit requested names without falling back to every chat character", () => {
     expect(
-      illustrationSubjectMatches(
-        { name: "Mira Stone" },
-        { requestedNames: ["Mira"], prompt: "A quiet tavern scene." },
-      ),
+      illustrationSubjectMatches({ name: "Mira Stone" }, { requestedNames: ["Mira"], prompt: "A quiet tavern scene." }),
     ).toBe(true);
     expect(
-      illustrationSubjectMatches(
-        { name: "Cass Vale" },
-        { requestedNames: ["Mira"], prompt: "A quiet tavern scene." },
-      ),
+      illustrationSubjectMatches({ name: "Cass Vale" }, { requestedNames: ["Mira"], prompt: "A quiet tavern scene." }),
     ).toBe(false);
   });
 
   it("matches prompt aliases on word boundaries only", () => {
     expect(
-      illustrationSubjectMatches(
-        { name: "Captain Vale" },
-        { prompt: "Captain Vale stands beside the burning gate." },
-      ),
+      illustrationSubjectMatches({ name: "Captain Vale" }, { prompt: "Captain Vale stands beside the burning gate." }),
     ).toBe(true);
     expect(illustrationSubjectMatches({ name: "Ann" }, { prompt: "An ancient ruin at dusk." })).toBe(false);
     expect(illustrationSubjectMatches({ name: "Hero" }, { prompt: "A heroic victory banner." })).toBe(false);

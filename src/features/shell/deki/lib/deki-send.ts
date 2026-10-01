@@ -55,10 +55,7 @@ export type DetachedDekiSendInput = {
   gateway: DekiGateway;
   onUserMessagePersisted?: (user: DekiMessage, messagesWithUser: DekiMessage[]) => void | Promise<void>;
   onCompactionSaved?: (compaction: DekiCompactionState) => void | Promise<void>;
-  onAssistantMessagePersisted?: (
-    assistant: DekiMessage,
-    messagesWithAssistant: DekiMessage[],
-  ) => void | Promise<void>;
+  onAssistantMessagePersisted?: (assistant: DekiMessage, messagesWithAssistant: DekiMessage[]) => void | Promise<void>;
   /** Live workspace activity while Deki works. Omit to use the non-streaming prompt. */
   onWorkspaceEvent?: (event: DekiWorkspacePromptEvent) => void;
 };

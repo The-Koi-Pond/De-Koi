@@ -81,8 +81,7 @@ export function useCharacterImportFlow(open: boolean) {
         await storageApi.delete("character-versions", snapshotId);
       } catch (rollbackError) {
         const updateMessage = error instanceof Error ? error.message : "Character update failed.";
-        const rollbackMessage =
-          rollbackError instanceof Error ? rollbackError.message : "Snapshot rollback failed.";
+        const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : "Snapshot rollback failed.";
         throw new Error(`${updateMessage} ${rollbackMessage}`);
       }
       throw error;

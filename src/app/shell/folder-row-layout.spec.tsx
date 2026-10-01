@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { FolderHeaderRow } from "./ChatSidebar";
 
-
 function render(element: ReactElement) {
   const container = document.createElement("div");
   document.body.appendChild(container);

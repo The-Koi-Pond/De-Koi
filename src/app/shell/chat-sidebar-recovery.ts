@@ -32,9 +32,7 @@ const VIEW_HEALTH = { id: "view-health", label: "View Health" } as const;
 
 function isKnownRecoveryError(error: unknown): error is ChatSidebarRecoveryError {
   if (typeof error !== "object" || error === null || !("kind" in error)) return false;
-  return ["startup", "missing-runtime", "unhealthy-runtime", "storage", "connection"].includes(
-    String(error.kind),
-  );
+  return ["startup", "missing-runtime", "unhealthy-runtime", "storage", "connection"].includes(String(error.kind));
 }
 
 function emptyRecovery(context: Extract<ChatSidebarRecoveryContext, { state: "empty" }>): ChatSidebarRecovery {
@@ -47,7 +45,8 @@ function emptyRecovery(context: Extract<ChatSidebarRecoveryContext, { state: "em
     };
   }
 
-  const label = context.mode === "conversation" ? "New Conversation" : context.mode === "roleplay" ? "New Roleplay" : "New Game";
+  const label =
+    context.mode === "conversation" ? "New Conversation" : context.mode === "roleplay" ? "New Roleplay" : "New Game";
   return {
     title: `No ${noun} yet`,
     description: `Create your first ${context.mode === "conversation" ? "conversation" : context.mode}.`,

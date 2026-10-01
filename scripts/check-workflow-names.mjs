@@ -23,8 +23,7 @@ const productOutputSubjectPattern = [
   "content",
   "completions?",
 ].join("|");
-const productOutputRelativeBridgePattern =
-  "(?:(?:(?:that|which)\\s+)?(?:are|is|were|was|be|being)\\s+(?:being\\s+)?)?";
+const productOutputRelativeBridgePattern = "(?:(?:(?:that|which)\\s+)?(?:are|is|were|was|be|being)\\s+(?:being\\s+)?)?";
 const productOutputPrefixPattern = new RegExp(
   `\\b(?:${productOutputSubjectPattern})\\s+${productOutputRelativeBridgePattern}$`,
   "i",
@@ -76,8 +75,7 @@ if (presentFields.length === 0) {
 const failures = [];
 for (const { label, value } of presentFields) {
   for (const marker of bannedAuthorshipMarkers) {
-    const markerMatches =
-      typeof marker.matches === "function" ? marker.matches(value) : marker.pattern.test(value);
+    const markerMatches = typeof marker.matches === "function" ? marker.matches(value) : marker.pattern.test(value);
     if (markerMatches) {
       failures.push(`${label} contains ${marker.label}: "${value}"`);
     }
