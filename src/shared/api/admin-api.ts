@@ -1,7 +1,7 @@
 import { invokeTauri } from "./tauri-client";
 import { ApiError } from "./api-errors";
 
-export type ExpungeCause = {
+type ExpungeCause = {
   code: string;
   message: string;
   details?: unknown;

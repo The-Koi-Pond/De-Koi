@@ -5,7 +5,7 @@ export interface SpriteAssetInfo {
 
 export type SpriteOwnerType = "character" | "persona";
 
-export interface BackgroundAssetInfo {
+interface BackgroundAssetInfo {
   filename?: string | null;
   name?: string | null;
   path?: string | null;
@@ -15,7 +15,7 @@ export interface BackgroundAssetInfo {
   [key: string]: unknown;
 }
 
-export interface GameAssetManifestEntry {
+interface GameAssetManifestEntry {
   tag?: string | null;
   category?: string | null;
   subcategory?: string | null;
@@ -24,7 +24,7 @@ export interface GameAssetManifestEntry {
   [key: string]: unknown;
 }
 
-export interface GameAssetManifest {
+interface GameAssetManifest {
   byCategory?: Record<string, GameAssetManifestEntry[]>;
   [key: string]: unknown;
 }

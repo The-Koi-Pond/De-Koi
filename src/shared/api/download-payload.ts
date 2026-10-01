@@ -1,5 +1,5 @@
 /** What an export packaged and what it could not represent, per character. */
-export type ExportReport = {
+type ExportReport = {
   included: Array<{ character: string; asset: string }>;
   skipped: Array<{ character: string; asset: string; reason: string }>;
 };

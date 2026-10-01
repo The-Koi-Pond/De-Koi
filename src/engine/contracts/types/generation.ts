@@ -27,7 +27,7 @@ export interface GenerationMemoryEmbeddingUnavailableWarning extends GenerationA
   reason: "missing_connection" | "missing_model" | "unsupported_provider";
 }
 
-export type GenerationAgentConnectionWarning =
+type GenerationAgentConnectionWarning =
   | GenerationDefaultAgentConnectionWarning
   | GenerationLocalSidecarUnavailableWarning
   | GenerationImageAttachmentDeliveryWarning

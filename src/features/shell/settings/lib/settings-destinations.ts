@@ -1,4 +1,4 @@
-export const SETTINGS_TABS = [
+const SETTINGS_TABS = [
   "general",
   "appearance",
   "themes",

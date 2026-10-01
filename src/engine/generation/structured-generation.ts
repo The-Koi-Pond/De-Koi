@@ -2,7 +2,7 @@ import type { LlmGateway, LlmMessage, LlmRequest } from "../capabilities/llm";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import type { z } from "zod";
 
-export interface StructuredGenerationFailure {
+interface StructuredGenerationFailure {
   taskName: string;
   message: string;
   validationErrors: string[];

@@ -4,7 +4,7 @@ import type { KnowledgeEdgeInput } from "../../../../engine/contracts/types/memo
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 
-export const knowledgeEdgeKeys = {
+const knowledgeEdgeKeys = {
   memory: (memoryId: string) => ["memory-knowledge-edges", memoryId] as const,
   holders: ["memory-knowledge-holders"] as const,
 };
