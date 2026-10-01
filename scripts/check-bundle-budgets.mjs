@@ -5,10 +5,11 @@ import { gzipSync } from "node:zlib";
 
 export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   startupJs: 700 * 1024,
-  // Keep predictive chat warming on the existing deferred shell boundary:
-  // current main measures 1724.8 KiB and the guarded path measures 1726.4 KiB,
-  // leaving a narrow 1.6-KiB ceiling margin without increasing startup JS.
-  totalJs: 1728 * 1024,
+  // Keep Deki's typed approval diff renderers in the lazy Deki shell chunk:
+  // current main measures 1727.2 KiB and the typed-diff path measures
+  // 1729.0 KiB, leaving a narrow two-KiB ceiling margin without increasing
+  // startup JS.
+  totalJs: 1731 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });
