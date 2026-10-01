@@ -1533,6 +1533,85 @@ describe("dekiApi.sessions first run", () => {
     }
   });
 
+  it("never returns history mixed from two runtimes", async () => {
+    // Two runtimes whose history is already durable. A runtime switch is
+    // triggered inside one storage read, after that read picked its runtime.
+    const runtimeA = "http://runtime-a.test";
+    const runtimeB = "http://runtime-b.test";
+    const durable = (session: string, message: string, content: string) =>
+      new Map<string, Record<string, unknown>>([
+        ["app-settings/deki", { id: "deki", value: { activeSessionId: session } }],
+        [
+          `deki-sessions/${session}`,
+          {
+            id: session,
+            title: session,
+            createdAt: "2026-06-24T00:00:00.000Z",
+            updatedAt: "2026-06-24T00:00:00.000Z",
+          },
+        ],
+        [
+          `deki-messages/${message}`,
+          {
+            id: message,
+            sessionId: session,
+            role: "user",
+            content,
+            createdAt: "2026-06-24T00:00:00.000Z",
+            sortOrder: 0,
+          },
+        ],
+      ]);
+    const stores = new Map([
+      [runtimeA, durable("session-a", "message-a", "On runtime A")],
+      [runtimeB, durable("session-b", "message-b", "On runtime B")],
+    ]);
+    let current = runtimeA;
+    let switchDuringList: string | null = null;
+    const switchRuntime = (runtime: string) => {
+      current = runtime;
+      runtimeTargetMock.current = { baseUrl: runtime };
+    };
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      const rows = stores.get(current)!;
+      await tick();
+      return rows.get(`${entity}/${id}`) ?? null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string, options?: { filters?: Record<string, unknown> }) => {
+      const rows = stores.get(current)!;
+      await tick();
+      const found = [...rows.entries()]
+        .filter(([key]) => key.startsWith(`${entity}/`))
+        .map(([, row]) => row)
+        .filter((row) => !options?.filters?.sessionId || row.sessionId === options.filters.sessionId);
+      if (switchDuringList === entity) {
+        switchDuringList = null;
+        switchRuntime(runtimeB);
+      }
+      return found;
+    });
+
+    try {
+      // A switch while history.get loads messages.
+      switchRuntime(runtimeA);
+      switchDuringList = "deki-messages";
+      const history = await dekiApi.history.get("session-a");
+      expect(JSON.stringify(history)).not.toContain("runtime A");
+      expect(JSON.stringify(history)).not.toContain("session-a");
+      expect(JSON.stringify(history)).toContain("On runtime B");
+
+      // A switch while sessions.list loads summaries.
+      switchRuntime(runtimeA);
+      switchDuringList = "deki-sessions";
+      const listed = await dekiApi.sessions.list();
+      expect(listed.sessions.map((session) => session.id)).toEqual(["session-b"]);
+      expect(listed.activeSessionId).toBe("session-b");
+    } finally {
+      runtimeTargetMock.current = null;
+    }
+  });
+
   it("finishes a migration whose settings cleanup failed", async () => {
     let failCleanup = true;
     const storage = installMemoryStorage({

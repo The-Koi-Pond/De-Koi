@@ -1164,12 +1164,25 @@ async function readPreparedDurableHistory(): Promise<DurableHistorySnapshot | De
   throw new Error("The runtime kept changing while Deki history was loading. Try again.");
 }
 
+/**
+ * Reads session state from one runtime. The runtime is checked after the
+ * summaries and messages are loaded too, so a runtime change at any point
+ * discards the whole result and the new runtime is read from scratch.
+ */
 async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
-  const prepared = await readPreparedDurableHistory();
-  if (!("records" in prepared)) return prepared;
-  const durable = await durableSessionsFromSnapshot(prepared, hydrateSessionId);
-  if (!durable) throw new Error("Deki history has no sessions after preparing durable storage.");
-  return durable;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const runtime = dekiHistoryRuntime();
+    try {
+      const prepared = await readPreparedDurableHistoryOn(runtime);
+      const state = "records" in prepared ? await durableSessionsFromSnapshot(prepared, hydrateSessionId) : prepared;
+      if (dekiHistoryRuntime() !== runtime) continue;
+      if (!state) throw new Error("Deki history has no sessions after preparing durable storage.");
+      return state;
+    } catch (error) {
+      if (!(error instanceof DekiHistoryRuntimeChangedError)) throw error;
+    }
+  }
+  throw new Error("The runtime kept changing while Deki history was loading. Try again.");
 }
 
 async function saveSessionsState(
