@@ -3,7 +3,6 @@ import {
   DISCORD_MIRROR_MODULE_ID,
   LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID,
   MUSIC_DJ_MINI_PLAYER_MODULE_ID,
-  SPOTIFY_MINI_PLAYER_MODULE_ID,
 } from "../../../../engine/contracts/constants/core-modules";
 import { coreModuleViews, isCoreModuleEnabled } from "./core-module-registry";
 
@@ -26,7 +25,6 @@ describe("core module registry", () => {
     expect(musicModule?.description).toContain("fresh pick at any time");
     expect(musicModule?.description).not.toMatch(/YouTube-first/i);
     expect(modules.some((module) => module.id === LEGACY_SPOTIFY_MINI_PLAYER_MODULE_ID)).toBe(false);
-    expect(SPOTIFY_MINI_PLAYER_MODULE_ID).toBe(MUSIC_DJ_MINI_PLAYER_MODULE_ID);
   });
 
   it("enables the Music Player from current and legacy module settings", () => {

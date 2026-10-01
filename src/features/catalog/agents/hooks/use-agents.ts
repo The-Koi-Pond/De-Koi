@@ -48,7 +48,7 @@ export interface AgentRunRow {
   createdAt: string;
 }
 
-export const LEGACY_BUILT_IN_AGENT_TYPES = new Set([
+const LEGACY_BUILT_IN_AGENT_TYPES = new Set([
   "spotify",
   "narrative-craft",
   "prose-guardian",
@@ -219,17 +219,6 @@ export function useUpdateAgent() {
   return useMutation({
     mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) =>
       storageApi.update("agents", id, normalizeAgentUpdatePayload(data)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: agentKeys.all });
-    },
-  });
-}
-
-export function useUpdateAgentByType() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ agentType, ...data }: { agentType: string } & Record<string, unknown>) =>
-      agentApi.patchByType(agentType, updateAgentConfigSchema.parse(data)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
     },

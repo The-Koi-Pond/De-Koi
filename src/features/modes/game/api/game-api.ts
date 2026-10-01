@@ -10,24 +10,7 @@ import * as spotifySceneApi from "./game-api-spotify";
 import * as worldTickApi from "./game-api-world-tick";
 import type { GameAssetGenerationPayload } from "./game-api-support";
 
-export type { GameWorldTickResponse } from "./game-api-world-tick";
-
-export type {
-  CreateGameResponse,
-  GameAssetGenerationPayload,
-  GameAssetGenerationResult,
-  GameCheckpointWarning,
-  GameImagePromptReviewItem,
-  GameJournalResponse,
-  MapResponse,
-  PartyCardResponse,
-  RegenerateSessionLorebookResponse,
-  SessionSummaryResponse,
-  SetupResponse,
-  StartGameResponse,
-  StartSessionResponse,
-  UpdateCampaignProgressionResponse,
-} from "./game-api-support";
+export type { GameAssetGenerationPayload, GameAssetGenerationResult } from "./game-api-support";
 
 export { applyGameJsonRepair } from "./game-api-repair";
 

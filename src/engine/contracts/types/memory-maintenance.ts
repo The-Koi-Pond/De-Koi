@@ -33,8 +33,6 @@ export interface MemoryCleanupSource {
   embedding?: number[];
 }
 
-export const MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS = 1_000;
-
 export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "clarify" | "conflict";
 
 export type MemoryCleanupReason =
@@ -69,14 +67,14 @@ export interface MemoryCleanupPreview {
   deferredCandidateCount: number;
 }
 
-export type MemoryCleanupStore = "chat" | "canonical";
+type MemoryCleanupStore = "chat" | "canonical";
 
 export interface MemoryCleanupTarget {
   store: MemoryCleanupStore;
   scope: MemoryCleanupScope;
 }
 
-export interface MemoryCleanupApplyRequestV1 {
+interface MemoryCleanupApplyRequestV1 {
   version: 1;
   scope: MemoryCleanupScope;
   proposals: MemoryCleanupProposal[];
@@ -99,7 +97,7 @@ export interface MemoryCleanupApplyResult {
   created: number;
 }
 
-export interface MemoryCleanupUndoRequestV1 {
+interface MemoryCleanupUndoRequestV1 {
   scope: MemoryCleanupScope;
   batchId: string;
 }

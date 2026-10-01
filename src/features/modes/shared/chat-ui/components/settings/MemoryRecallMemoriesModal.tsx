@@ -54,7 +54,7 @@ export function formatMemoryDate(value: string | null | undefined): string {
 export type MemoryStatusFilter = "all" | "active" | "deleted" | "wrong";
 export type MemoryTypeFilter = "all" | ChatMemoryKind;
 export type MemoryScopeFilter = "all" | "current" | "imported" | "targeted";
-export type DisplayMemoryOwner =
+type DisplayMemoryOwner =
   | { kind: "local"; label: "Local to this chat" | "Local to this scene" }
   | { kind: "character"; characterId: string; label: string };
 export type DisplayMemory = ChatMemoryChunk & {

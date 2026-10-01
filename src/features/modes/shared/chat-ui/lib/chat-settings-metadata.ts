@@ -8,10 +8,10 @@ export interface ScheduleBlock {
   status: "online" | "idle" | "dnd" | "offline";
 }
 
-export type RoutineBusyAvailability = "available" | "delayed" | "busy" | "unavailable";
-export type RoutineSocialEnergyLevel = "low" | "medium" | "high";
+type RoutineBusyAvailability = "available" | "delayed" | "busy" | "unavailable";
+type RoutineSocialEnergyLevel = "low" | "medium" | "high";
 
-export interface ConversationRoutineBusyPeriod {
+interface ConversationRoutineBusyPeriod {
   when: string;
   summary: string;
   availability: RoutineBusyAvailability;

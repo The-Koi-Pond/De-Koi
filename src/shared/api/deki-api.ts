@@ -3,7 +3,6 @@ import {
   validateDekiRecordActionPayload,
   type DekiActionApplication,
   type DekiActionEntity,
-  type DekiChatAccessGrant,
   type DekiEntryAction,
   type DekiEntryRequest,
   type DekiGatewayResponse,
@@ -406,7 +405,7 @@ function normalizeDekiWorkspaceRowChange(value: unknown): DekiWorkspaceRowChange
   };
 }
 
-export function normalizeDekiWorkspacePendingApproval(value: unknown): DekiWorkspacePendingApproval | null {
+function normalizeDekiWorkspacePendingApproval(value: unknown): DekiWorkspacePendingApproval | null {
   const object = asRecord(value);
   const id = readTrimmedString(object.id);
   const sessionId = readTrimmedString(object.sessionId);
@@ -450,6 +449,7 @@ function currentDekiWorkspaceHistory(value: unknown): DekiWorkspaceHistoryEntry[
 }
 
 /** Normalizes one live workspace event; unknown or malformed events are dropped. */
+/** @public Exercised directly by deki-api.test.ts. */
 export function normalizeDekiWorkspacePromptEvent(value: unknown): DekiWorkspacePromptEvent | null {
   const object = asRecord(value);
   const data = object.data;
@@ -1787,5 +1787,3 @@ export const dekiApi = {
     },
   },
 };
-
-export type { DekiChatAccessGrant };

@@ -21,7 +21,7 @@ export interface RoleplayQualitySignal {
   occurrences?: number;
 }
 
-export interface RoleplayQualityMessage {
+interface RoleplayQualityMessage {
   role?: unknown;
   content?: unknown;
   extra?: unknown;

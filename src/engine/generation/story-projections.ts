@@ -2,11 +2,10 @@ import { getEffectiveMemoryRecallEnabled, type ChatMetadata } from "../contracts
 import { hiddenFromAi, parseRecord, readString, type JsonRecord } from "./runtime-records";
 
 export const STORY_PROJECTION_VERSION = 1 as const;
-export const STORY_EPISODE_MESSAGE_THRESHOLD = 24;
-export const STORY_ARC_EPISODE_THRESHOLD = 4;
+const STORY_EPISODE_MESSAGE_THRESHOLD = 24;
+const STORY_ARC_EPISODE_THRESHOLD = 4;
 
-export type StoryProjectionLevel = "episode" | "arc";
-export type StoryEpisodeBoundaryReason = "message_threshold" | "manual" | "scene_conclusion";
+type StoryEpisodeBoundaryReason = "message_threshold" | "manual" | "scene_conclusion";
 
 export interface StoryEpisodePlan {
   level: "episode";
