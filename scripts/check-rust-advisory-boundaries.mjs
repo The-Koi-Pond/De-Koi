@@ -3,8 +3,19 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ADVISORY_ID = "RUSTSEC-2026-0258";
-const VULNERABLE_H2_PATTERN = /^h2 v0\.3\.27(?:\s|$)/m;
+/**
+ * Advisories waived in deny.toml because the vulnerable crate is reachable
+ * only through the opt-in devtools feature. Each must stay out of every
+ * production graph, and its waiver must go once devtools no longer needs it.
+ */
+export const DEVTOOLS_ONLY_ADVISORIES = [
+  { id: "RUSTSEC-2026-0258", crate: "h2 0.3.27", pattern: /^h2 v0\.3\.27(?:\s|$)/m },
+  {
+    id: "RUSTSEC-2026-0293",
+    crate: "ringbuf < 0.5.2",
+    pattern: /^ringbuf v(?:0\.[0-4]\.\d+|0\.5\.[01])(?:\s|$)/m,
+  },
+];
 export const RUST_ADVISORY_PROFILES = {
   desktop: { features: "desktop" },
   server: { features: "server" },
@@ -13,20 +24,33 @@ export const RUST_ADVISORY_PROFILES = {
 };
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-export function evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles }) {
-  for (const profile of Object.keys(RUST_ADVISORY_PROFILES)) {
-    if (VULNERABLE_H2_PATTERN.test(profiles[profile])) {
-      throw new Error(`${profile} feature graph contains h2 0.3.27`);
+export function evaluateRustAdvisoryBoundaries({ waivedAdvisories, profiles }) {
+  const waived = new Set(waivedAdvisories);
+  for (const advisory of DEVTOOLS_ONLY_ADVISORIES) {
+    for (const profile of Object.keys(RUST_ADVISORY_PROFILES)) {
+      if (advisory.pattern.test(profiles[profile])) {
+        throw new Error(`${profile} feature graph contains ${advisory.crate} (${advisory.id})`);
+      }
+    }
+    const devtoolsVulnerable = advisory.pattern.test(profiles.devtools);
+    if (waived.has(advisory.id) && !devtoolsVulnerable) {
+      throw new Error(`remove the stale ${advisory.id} waiver`);
+    }
+    if (!waived.has(advisory.id) && devtoolsVulnerable) {
+      throw new Error(`the devtools feature graph requires the reviewed ${advisory.id} waiver`);
     }
   }
+}
 
-  const devtoolsVulnerable = VULNERABLE_H2_PATTERN.test(profiles.devtools);
-  if (waiverConfigured && !devtoolsVulnerable) {
-    throw new Error(`remove the stale ${ADVISORY_ID} waiver`);
-  }
-  if (!waiverConfigured && devtoolsVulnerable) {
-    throw new Error(`the devtools feature graph requires the reviewed ${ADVISORY_ID} waiver`);
-  }
+/** Advisory ids in deny.toml's active `[advisories] ignore = [...]` list; comments do not count. */
+export function parseWaivedAdvisories(denyConfig) {
+  const withoutComments = denyConfig
+    .split(/\r?\n/)
+    .map((line) => line.replace(/#.*$/, ""))
+    .join("\n");
+  const section = withoutComments.match(/^\[advisories\]\s*$([\s\S]*?)(?=^\[[^\]]+\]\s*$|(?![\s\S]))/m)?.[1] ?? "";
+  const list = section.match(/^\s*ignore\s*=\s*\[([\s\S]*?)\]/m)?.[1] ?? "";
+  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 }
 
 function cargoTree({ features, target }) {
@@ -60,17 +84,17 @@ function cargoTree({ features, target }) {
 
 function main() {
   const denyConfig = readFileSync(resolve(repoRoot, "deny.toml"), "utf8");
-  const waiverConfigured = denyConfig.includes(`"${ADVISORY_ID}"`);
+  const waivedAdvisories = parseWaivedAdvisories(denyConfig);
   const profiles = Object.fromEntries(
     Object.entries(RUST_ADVISORY_PROFILES).map(([profile, config]) => [profile, cargoTree(config)]),
   );
   profiles.devtools = cargoTree({ features: "devtools" });
 
-  evaluateRustAdvisoryBoundaries({ waiverConfigured, profiles });
+  evaluateRustAdvisoryBoundaries({ waivedAdvisories, profiles });
   console.log(
-    `Rust advisory boundary check passed: desktop/server/Pi ARM64 Linux exclude h2 0.3.27; devtools waiver ${
-      waiverConfigured ? "is required" : "is absent"
-    }.`,
+    `Rust advisory boundary check passed: desktop/server/Pi ARM64 Linux exclude ${DEVTOOLS_ONLY_ADVISORIES.map(
+      (advisory) => advisory.crate,
+    ).join(" and ")}; devtools waivers: ${waivedAdvisories.join(", ") || "none"}.`,
   );
 }
 
