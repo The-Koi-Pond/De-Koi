@@ -134,7 +134,9 @@ describe("RoleplayWorkflowProfileChooser", () => {
 
     const guidance = container.querySelector("#workflow-profile-longform-continuity-guidance");
     expect(guidance?.textContent).toContain("Best for: A campaign or story spanning many scenes or sessions.");
-    expect(guidance?.textContent).toContain("Adds: Continuity checks, world state, summaries, and reviewable future story beats.");
+    expect(guidance?.textContent).toContain(
+      "Adds: Continuity checks, world state, summaries, and reviewable future story beats.",
+    );
     expect(guidance?.textContent).toContain(
       "Model use: Applying Long-Running Story makes one immediate background Director planning call only when it newly enables Director and no saved plan exists. Later background calls are occasional, including one non-blocking planning call every 10 assistant replies.",
     );
@@ -167,7 +169,9 @@ describe("RoleplayWorkflowProfileChooser", () => {
     });
 
     expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(true);
-    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(
+      false,
+    );
     expect(container.textContent).toContain("Background model activity: occasional");
     expect(container.textContent).toContain(
       "One immediate background planning call only when applying this workflow newly enables Director and no saved plan exists",
@@ -446,11 +450,9 @@ describe("RoleplayWorkflowProfileChooser", () => {
       skippedLocalRoutingAgentIds: [],
       shouldCreateContinuityPlan: true,
     });
-    mocks.createInitialPlan.mockImplementation(
-      (_id: string, options: { onError?: (error: Error) => void }) => {
-        onPlannerError = options.onError;
-      },
-    );
+    mocks.createInitialPlan.mockImplementation((_id: string, options: { onError?: (error: Error) => void }) => {
+      onPlannerError = options.onError;
+    });
     mocks.revert.mockResolvedValueOnce({ outcome: "reverted", chat: revertedChat, skippedConflicts: [] });
 
     await applyLongRunningStory();
@@ -556,12 +558,16 @@ describe("RoleplayWorkflowProfileChooser", () => {
 
     await renderChooser(chatWithLongformV1Receipt, "drawer");
 
-    expect(container.querySelector('[aria-label="Choose Long-Running Story"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector('[aria-label="Choose Long-Running Story"]')?.getAttribute("aria-checked")).toBe(
+      "true",
+    );
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
       "Update available: add automatic story planning",
     );
     expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(false);
-    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(
+      false,
+    );
     expect(mocks.apply).not.toHaveBeenCalled();
   });
 
@@ -601,14 +607,18 @@ describe("RoleplayWorkflowProfileChooser", () => {
 
     await renderChooser(longformV1Chat, "drawer");
     expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(true);
-    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(true);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(
+      true,
+    );
 
     await act(async () => {
       root.render(<RoleplayWorkflowProfileChooser chat={longformWithDirector} entryPoint="drawer" />);
     });
 
     expect((container.querySelector('[aria-label="continuity director"]') as HTMLInputElement).checked).toBe(false);
-    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(false);
+    expect((container.querySelector('[aria-label="continuity director cadence"]') as HTMLInputElement).checked).toBe(
+      false,
+    );
 
     const simpleReceiptChat = {
       ...longformWithDirector,
@@ -850,8 +860,9 @@ describe("RoleplayWorkflowProfileChooser", () => {
         (container.querySelector('[aria-label="Choose Local Helpers"]') as HTMLButtonElement).click();
       });
 
-      expect(container.querySelector('[aria-label="Roleplay workflow profile chooser"]')?.getAttribute("data-entry-point"))
-        .toBe(entryPoint);
+      expect(
+        container.querySelector('[aria-label="Roleplay workflow profile chooser"]')?.getAttribute("data-entry-point"),
+      ).toBe(entryPoint);
       expect((container.querySelector('[aria-label="Enable automatic agents"]') as HTMLInputElement).checked).toBe(
         false,
       );

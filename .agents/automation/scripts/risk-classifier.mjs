@@ -171,12 +171,7 @@ export function classifyLedgerRisk(ledger) {
 export function classifyPrRisk(pr) {
   return classify({
     paths: (pr.files ?? []).map((file) => file.path),
-    texts: [
-      pr.title,
-      authoredPrBodyText(pr.body),
-      ...(pr.labels ?? []).map((label) => label.name),
-      pr.headRefName,
-    ],
+    texts: [pr.title, authoredPrBodyText(pr.body), ...(pr.labels ?? []).map((label) => label.name), pr.headRefName],
   });
 }
 

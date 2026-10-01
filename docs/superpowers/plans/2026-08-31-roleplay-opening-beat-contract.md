@@ -19,10 +19,12 @@
 ### Task 1: Enforce the opening-beat contract
 
 **Files:**
+
 - Modify: `src/engine/modes/roleplay/scene/scene-service.ts`
 - Test: `src/engine/modes/roleplay/scene/scene-service.spec.ts`
 
 **Interfaces:**
+
 - Consumes: planner JSON field `firstMessage: string`.
 - Produces: `SceneFullPlan.firstMessage` as a compact, sentence-bounded beat brief.
 

@@ -22,10 +22,12 @@
 ### Task 1: Restore direct Anthropic prompt caching
 
 **Files:**
+
 - Modify: `src-tauri/crates/llm/src/providers/anthropic.rs`
 - Test: `src-tauri/crates/llm/src/lib.rs`
 
 **Interfaces:**
+
 - Consumes: `LlmConnection.enable_caching: bool`, `LlmConnection.caching_at_depth: Option<u64>`.
 - Produces: an Anthropic body with at most two explicit ephemeral breakpoints: last system block and configured message-history block.
 
@@ -66,12 +68,14 @@ Run the focused Rust tests, then `cargo check --manifest-path src-tauri/Cargo.to
 ### Task 2: Give game and roleplay prompt facts one owner
 
 **Files:**
+
 - Modify: `src/engine/generation/prompt-assembly.ts`
 - Modify: `src/engine/generation/summary-context.ts`
 - Test: `src/engine/generation/prompt-assembly.context-priority.spec.ts`
 - Test: `src/engine/generation/summary-context.spec.ts`
 
 **Interfaces:**
+
 - Consumes: chat mode and preset marker entries.
 - Produces: game character/persona/lore sentinels and roleplay scene continuity exactly once.
 
@@ -80,7 +84,12 @@ Run the focused Rust tests, then `cargo check --manifest-path src-tauri/Cargo.to
 Add a game fixture whose character, persona, before-lore, after-lore, creator notes, greeting/examples/system/post-history fields each have unique sentinels. Assert each sentinel occurs once and arbitrary preset instructions survive. Add roleplay fixtures for explicit `chat_summary` marker and fallback insertion, asserting `lastRoleplaySceneSummary` occurs once.
 
 ```ts
-expect(messages.map((message) => message.content).join("\n").split("UNIQUE_SCENE_SENTINEL")).toHaveLength(2);
+expect(
+  messages
+    .map((message) => message.content)
+    .join("\n")
+    .split("UNIQUE_SCENE_SENTINEL"),
+).toHaveLength(2);
 ```
 
 - [ ] **Step 2: Run tests and verify RED**
@@ -110,10 +119,12 @@ Run the two focused suites plus `pnpm typecheck`.
 ### Task 3: Persist daily summaries before weekly consolidation
 
 **Files:**
+
 - Modify: `src/engine/modes/chat/core/summaries/auto-summary.service.ts`
 - Test: `src/engine/modes/chat/core/summaries/auto-summary.service.test.ts`
 
 **Interfaces:**
+
 - Consumes: generated daily summary entries.
 - Produces: an awaited daily checkpoint before any weekly provider call, using existing metadata merge semantics.
 
@@ -140,11 +151,13 @@ Run the focused summary suite and `pnpm typecheck`.
 ### Task 4: Remove Card Evolution's second full-card serialization
 
 **Files:**
+
 - Modify: `src/engine/contracts/constants/agent-prompts.ts`
 - Modify: `src/engine/agents-runtime/executor/agent-executor.ts`
 - Test: `src/engine/agents-runtime/executor/agent-context-profile.spec.ts`
 
 **Interfaces:**
+
 - Consumes: the full-identity `<lore><characters>` projection already emitted for `card-evolution-auditor`.
 - Produces: the auditor's exact-match edit contract without a separate `<character_cards>` copy.
 

@@ -21,10 +21,12 @@
 ### Task 1: Bound deterministic cleanup preparation
 
 **Files:**
+
 - Modify: `src/engine/entities/memory-maintenance.ts`
 - Test: `src/engine/entities/memory-maintenance.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `MemoryCleanupSource[]`
 - Produces: `PreparedMemoryCleanupCandidates` with exhaustive `valueGroups`, at most 12 `groups`, and an accurate `deferredCandidateCount`
 
@@ -75,6 +77,7 @@ git commit -m "fix: bound memory cleanup analysis groups"
 ### Task 2: Expose and render real progress
 
 **Files:**
+
 - Modify: `src/engine/generation/memory-cleanup.ts`
 - Modify: `src/engine/generation/memory-cleanup.spec.ts`
 - Modify: `src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.ts`
@@ -83,6 +86,7 @@ git commit -m "fix: bound memory cleanup analysis groups"
 - Modify: `src/features/catalog/memory-maintenance/components/MemoryCleanupReviewModal.spec.tsx`
 
 **Interfaces:**
+
 - Produces: `MemoryCleanupAnalysisProgress { completedGroups: number; totalGroups: number }`
 - Extends: `analyzeMemoryCleanup` input with optional `onProgress`
 - Exposes: hook field `analysisProgress`
@@ -152,9 +156,11 @@ git commit -m "fix: show bounded memory cleanup progress"
 ### Task 3: Validate and ship the regression fix
 
 **Files:**
+
 - Create: `.github/pr-evidence/bounded-memory-cleanup/proof-ledger.json`
 
 **Interfaces:**
+
 - Consumes: final branch diff and test evidence
 - Produces: current-head Bunny pass, healthy PR, merged main revision, and matched Pi deployment
 

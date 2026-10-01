@@ -110,14 +110,15 @@ function generationTimingDiagnostic(entry: ClientDiagnosticRecord): GenerationTi
   const details = isRecord(entry.details) ? entry.details : {};
   if (details.kind !== "timing") return null;
   const name = typeof details.name === "string" ? details.name.trim() : "";
-  const durationMs = typeof details.durationMs === "number" && Number.isFinite(details.durationMs) ? details.durationMs : NaN;
+  const durationMs =
+    typeof details.durationMs === "number" && Number.isFinite(details.durationMs) ? details.durationMs : NaN;
   if (!name || !Number.isFinite(durationMs)) return null;
-  const groupChatMode = typeof details.groupChatMode === "string" && details.groupChatMode.trim()
-    ? details.groupChatMode.trim()
-    : null;
-  const targetCharacterId = typeof details.targetCharacterId === "string" && details.targetCharacterId.trim()
-    ? details.targetCharacterId.trim()
-    : null;
+  const groupChatMode =
+    typeof details.groupChatMode === "string" && details.groupChatMode.trim() ? details.groupChatMode.trim() : null;
+  const targetCharacterId =
+    typeof details.targetCharacterId === "string" && details.targetCharacterId.trim()
+      ? details.targetCharacterId.trim()
+      : null;
   const timing: GenerationTimingDiagnostic = {
     name,
     durationMs,

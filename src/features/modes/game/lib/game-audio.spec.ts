@@ -170,9 +170,12 @@ describe("game audio disposal", () => {
           };
         }),
     );
-    vi.stubGlobal("AudioContext", vi.fn(function () {
-      return context;
-    }));
+    vi.stubGlobal(
+      "AudioContext",
+      vi.fn(function () {
+        return context;
+      }),
+    );
     const { audioManager } = await import("./game-audio");
     audioManager.unlock();
     audioManager.dispose();
@@ -204,9 +207,12 @@ describe("game audio disposal", () => {
   it("contains suspend rejection after releasing existing audio resources", async () => {
     const context = createAudioContextStub();
     context.suspend.mockImplementation(() => Promise.reject(new Error("device unavailable")));
-    vi.stubGlobal("AudioContext", vi.fn(function () {
-      return context;
-    }));
+    vi.stubGlobal(
+      "AudioContext",
+      vi.fn(function () {
+        return context;
+      }),
+    );
     const { audioManager } = await import("./game-audio");
     audioManager.unlock();
 
@@ -240,9 +246,12 @@ describe("game audio disposal", () => {
       }),
     );
     const context = createAudioContextStub();
-    vi.stubGlobal("AudioContext", vi.fn(function () {
-      return context;
-    }));
+    vi.stubGlobal(
+      "AudioContext",
+      vi.fn(function () {
+        return context;
+      }),
+    );
     const { audioManager } = await import("./game-audio");
     audioManager.unlock();
     audioManager.playSfx("custom:old-request");
@@ -257,9 +266,12 @@ describe("game audio disposal", () => {
 
   it("allows a new post-disposal SFX request to resume and play", async () => {
     const context = createAudioContextStub();
-    vi.stubGlobal("AudioContext", vi.fn(function () {
-      return context;
-    }));
+    vi.stubGlobal(
+      "AudioContext",
+      vi.fn(function () {
+        return context;
+      }),
+    );
     const { audioManager } = await import("./game-audio");
     audioManager.unlock();
     audioManager.dispose();
@@ -282,9 +294,12 @@ describe("game audio disposal", () => {
           };
         }),
     );
-    vi.stubGlobal("AudioContext", vi.fn(function () {
-      return context;
-    }));
+    vi.stubGlobal(
+      "AudioContext",
+      vi.fn(function () {
+        return context;
+      }),
+    );
     const { audioManager } = await import("./game-audio");
     audioManager.unlock();
     context.state = "suspended";
@@ -309,9 +324,12 @@ describe("game audio disposal", () => {
           resolveOldDecode = resolve;
         }),
     );
-    vi.stubGlobal("AudioContext", vi.fn(function () {
-      return context;
-    }));
+    vi.stubGlobal(
+      "AudioContext",
+      vi.fn(function () {
+        return context;
+      }),
+    );
     const { audioManager } = await import("./game-audio");
     audioManager.unlock();
     audioManager.playAmbient("ambient:same-tag");

@@ -458,9 +458,7 @@ function gameStatePatchFromAgentResult(
       if (status) playerStats.status = status;
     }
     if (Array.isArray(data.inventory)) {
-      const inventory = data.inventory
-        .map(parseInventoryItem)
-        .filter((item): item is InventoryItem => !!item);
+      const inventory = data.inventory.map(parseInventoryItem).filter((item): item is InventoryItem => !!item);
       if (inventory.length > 0) playerStats.inventory = inventory;
     }
     const patch: TrackerStatePatch = { playerStats };

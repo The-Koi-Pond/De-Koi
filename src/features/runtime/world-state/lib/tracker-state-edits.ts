@@ -201,7 +201,13 @@ export function mergeInventoryItemListUpdate(
   latestItems: readonly InventoryItem[],
   nextItems: readonly InventoryItem[],
 ): InventoryItem[] {
-  return mergeTrackerListUpdate(previousItems, latestItems, nextItems, mergeChangedTrackerFields, inventoryTrackerItemKey);
+  return mergeTrackerListUpdate(
+    previousItems,
+    latestItems,
+    nextItems,
+    mergeChangedTrackerFields,
+    inventoryTrackerItemKey,
+  );
 }
 
 export function mergeInventoryItemListItemUpdate(

@@ -41,7 +41,7 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
       if (event.key !== "Tab") return;
       const dialog = lightboxDialogRef.current;
       if (!dialog) return;
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'));
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"));
       if (focusable.length === 0) {
         event.preventDefault();
         dialog.focus();
@@ -145,10 +145,7 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
               >
                 <CharacterGalleryThumbnail image={image} alt={image.prompt || characterName || "Character image"} />
               </button>
-              <CustomEmojiTagButton
-                image={image}
-                onApply={(patch) => tag.mutate({ imageId: image.id, patch })}
-              />
+              <CustomEmojiTagButton image={image} onApply={(patch) => tag.mutate({ imageId: image.id, patch })} />
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/75 via-black/25 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
                 <span className="max-w-[8rem] truncate text-[0.6875rem] font-medium text-white/85">
                   {new Date(image.createdAt).toLocaleDateString()}
@@ -240,13 +237,7 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
   );
 }
 
-function CharacterGalleryThumbnail({
-  image,
-  alt,
-}: {
-  image: CharacterGalleryImage;
-  alt: string;
-}) {
+function CharacterGalleryThumbnail({ image, alt }: { image: CharacterGalleryImage; alt: string }) {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {

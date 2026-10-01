@@ -70,14 +70,14 @@ Each streaming request receives a two-minute **inactivity** deadline after respo
 
 The provider stream must end in one of these states:
 
-| Terminal state | Runtime result | Conversation result |
-| --- | --- | --- |
-| Explicit normal finish | Success | Save the completed reply |
-| Explicit `length` finish | Interrupted/truncated | Save useful partial text and mark it interrupted |
-| User abort | Cancelled | Preserve useful partial text under the existing Stop behavior |
-| Two-minute inactivity | Interrupted | End typing; save useful partial text; expose Continue and Regenerate |
-| EOF before terminal event | Interrupted | Same as inactivity; never report success |
-| Provider/transport error | Failed or interrupted | Preserve useful partial text if present; otherwise create no blank assistant message |
+| Terminal state            | Runtime result        | Conversation result                                                                  |
+| ------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| Explicit normal finish    | Success               | Save the completed reply                                                             |
+| Explicit `length` finish  | Interrupted/truncated | Save useful partial text and mark it interrupted                                     |
+| User abort                | Cancelled             | Preserve useful partial text under the existing Stop behavior                        |
+| Two-minute inactivity     | Interrupted           | End typing; save useful partial text; expose Continue and Regenerate                 |
+| EOF before terminal event | Interrupted           | Same as inactivity; never report success                                             |
+| Provider/transport error  | Failed or interrupted | Preserve useful partial text if present; otherwise create no blank assistant message |
 
 The parser will propagate finish metadata instead of collapsing every clean socket close into success. Existing provider adapters that have a different terminal representation will normalize into the same stream result contract.
 

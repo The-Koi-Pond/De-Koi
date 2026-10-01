@@ -13,14 +13,14 @@ In De-Koi, this skill adds UI critique, hardening, polish, and product-fit judgm
 
 Before any design work or file edits, pass these gates. Skipping them produces generic output that ignores the project.
 
-| Gate     | Required check                                                                                                    | If fail                                                                                                                   |
-| -------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Context  | The PRODUCT.md / DESIGN.md loader result is known from `node skills/impeccable/scripts/load-context.mjs`. | Run the loader before continuing.                                                                                         |
-| Product  | PRODUCT.md exists and is not empty or placeholder (`[TODO]` markers, <200 chars).                                 | Run `$impeccable teach`, refresh context, then resume. Never synthesize PRODUCT.md from the user's original prompt alone. |
-| Command  | The matching command reference is loaded when a sub-command is used.                                              | Load the reference before continuing.                                                                                     |
-| Craft    | `$impeccable craft` has a user-confirmed shape brief for this task. `teach` / PRODUCT.md never counts as shape.   | Run `$impeccable shape` and wait for explicit brief confirmation.                                                         |
-| Image    | Required visual probes / mocks are generated or skipped with a reason.                                            | Resolve the image-generation gate in `shape.md` or `craft.md` before code.                                                |
-| Mutation | All active gates above pass.                                                                                      | Do not edit project files yet.                                                                                            |
+| Gate     | Required check                                                                                                  | If fail                                                                                                                   |
+| -------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Context  | The PRODUCT.md / DESIGN.md loader result is known from `node skills/impeccable/scripts/load-context.mjs`.       | Run the loader before continuing.                                                                                         |
+| Product  | PRODUCT.md exists and is not empty or placeholder (`[TODO]` markers, <200 chars).                               | Run `$impeccable teach`, refresh context, then resume. Never synthesize PRODUCT.md from the user's original prompt alone. |
+| Command  | The matching command reference is loaded when a sub-command is used.                                            | Load the reference before continuing.                                                                                     |
+| Craft    | `$impeccable craft` has a user-confirmed shape brief for this task. `teach` / PRODUCT.md never counts as shape. | Run `$impeccable shape` and wait for explicit brief confirmation.                                                         |
+| Image    | Required visual probes / mocks are generated or skipped with a reason.                                          | Resolve the image-generation gate in `shape.md` or `craft.md` before code.                                                |
+| Mutation | All active gates above pass.                                                                                    | Do not edit project files yet.                                                                                            |
 
 Codex-style agents must state this before editing files:
 

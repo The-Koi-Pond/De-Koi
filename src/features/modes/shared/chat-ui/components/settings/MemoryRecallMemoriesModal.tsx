@@ -951,7 +951,9 @@ export function MemoryRecallMemoriesModal({
                   ) : (
                     <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 p-3 text-[0.6875rem] text-[var(--muted-foreground)]">
                       <span className="font-semibold text-[var(--foreground)]">Who knows this?</span>
-                      <span className="ml-1">Knowledge assignments apply to canonical memories. This row is local to the chat.</span>
+                      <span className="ml-1">
+                        Knowledge assignments apply to canonical memories. This row is local to the chat.
+                      </span>
                     </div>
                   )}
 

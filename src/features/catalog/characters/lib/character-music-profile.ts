@@ -263,5 +263,3 @@ export function serializeFavoriteSongsText(value: readonly CharacterMusicFavorit
     })
     .join("\n");
 }
-
-

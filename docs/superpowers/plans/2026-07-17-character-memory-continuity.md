@@ -29,6 +29,7 @@ This change alters storage, prompt assembly, cross-chat identity, deletion, impo
 ### Task 1: Character Persistence Contract and Scope Resolver
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/character.ts`
 - Modify: `src/engine/contracts/schemas/character.schema.ts`
 - Test: `src/engine/contracts/schemas/character.schema.spec.ts`
@@ -37,14 +38,13 @@ This change alters storage, prompt assembly, cross-chat identity, deletion, impo
 - Modify: `src/engine/generation/prompt-assembly.ts`
 
 **Interfaces:**
+
 - Produces:
 
 ```ts
 export type CharacterMemoryPersistence = "character" | "chat";
 
-export function effectiveCharacterMemoryPersistence(
-  value: unknown,
-): CharacterMemoryPersistence;
+export function effectiveCharacterMemoryPersistence(value: unknown): CharacterMemoryPersistence;
 
 export interface CharacterMemoryScopeCharacter {
   id: string;
@@ -54,11 +54,7 @@ export interface CharacterMemoryScopeCharacter {
 export type AutomaticMemoryScopeResolution = {
   scope: { kind: "character" | "chat" | "scene"; id: string };
   characterId: string | null;
-  reason:
-    | "attributed_character"
-    | "character_chat_only"
-    | "ambiguous_scene"
-    | "ambiguous_chat";
+  reason: "attributed_character" | "character_chat_only" | "ambiguous_scene" | "ambiguous_chat";
 };
 
 export function resolveAutomaticMemoryScope(input: {
@@ -78,12 +74,14 @@ Cover the absent-value default, explicit chat value, schema rejection of unsuppo
 
 ```ts
 expect(effectiveCharacterMemoryPersistence(undefined)).toBe("character");
-expect(resolveAutomaticMemoryScope({
-  chatId: "chat-1",
-  mode: "conversation",
-  assistantCharacterId: "char-1",
-  activeCharacters: [{ id: "char-1" }],
-})).toMatchObject({
+expect(
+  resolveAutomaticMemoryScope({
+    chatId: "chat-1",
+    mode: "conversation",
+    assistantCharacterId: "char-1",
+    activeCharacters: [{ id: "char-1" }],
+  }),
+).toMatchObject({
   scope: { kind: "character", id: "char-1" },
   reason: "attributed_character",
 });
@@ -120,6 +118,7 @@ git commit -m "Add character memory persistence contract"
 ### Task 2: Idempotent Character-Scoped Automatic Capture
 
 **Files:**
+
 - Modify: `src/engine/generation/automatic-memory-capture-queue.ts`
 - Test: `src/engine/generation/automatic-memory-capture-queue.spec.ts`
 - Modify: `src/engine/generation/start-generation.ts`
@@ -127,6 +126,7 @@ git commit -m "Add character memory persistence contract"
 - Test: `src/engine/generation/start-generation.group-typing.spec.ts`
 
 **Interfaces:**
+
 - `AutomaticMemoryCaptureScheduleInput` gains `characters: CharacterMemoryScopeCharacter[]`.
 - Capture jobs persist `scopeKind`, `scopeId`, `scopeReason`, `characterId`, and optional `sceneId`.
 - Character canonical IDs use:
@@ -206,12 +206,14 @@ git commit -m "Persist automatic character memories"
 ### Task 3: Cross-Conversation and Cross-Roleplay Retrieval
 
 **Files:**
+
 - Modify: `src/engine/generation/canonical-memory-context.ts`
 - Test: `src/engine/generation/canonical-memory-context.spec.ts`
 - Modify: `src/engine/generation/prompt-assembly.ts`
 - Test: `src/engine/generation/start-generation.memory-recall.e2e.spec.ts`
 
 **Interfaces:**
+
 - `CanonicalMemoryCharacterContext` gains `memoryPersistence`.
 - Canonical retrieval is enabled when ordinary Memory Recall is effectively enabled and `enableCanonicalMemoryRecall !== false`.
 - Character scope queries include only effective `character` characters.
@@ -251,9 +253,11 @@ git commit -m "Recall memories across character chats"
 ### Task 4: Portable Connection-Independent Memory Import
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/chat_memory.rs`
 
 **Interfaces:**
+
 - `import_chat_memories` returns:
 
 ```json
@@ -312,6 +316,7 @@ git commit -m "Make memory file import provider independent"
 ### Task 5: Character Preference and Memory Manager
 
 **Files:**
+
 - Create: `src/features/catalog/characters/lib/character-memory-model.ts`
 - Test: `src/features/catalog/characters/lib/character-memory-model.spec.ts`
 - Create: `src/features/catalog/characters/hooks/use-character-memories.ts`
@@ -325,6 +330,7 @@ git commit -m "Make memory file import provider independent"
 - Modify: `src/features/catalog/characters/index.ts`
 
 **Interfaces:**
+
 - `CharacterMemoriesTab` receives `characterId`, `characterName`, `memoryPersistence`, and `onMemoryPersistenceChange`.
 - Query key: `["character-memories", characterId]`.
 - Character export envelope:
@@ -383,12 +389,14 @@ git commit -m "Add character memory management"
 ### Task 6: Distinguish Inherited Memories in Chat
 
 **Files:**
+
 - Modify: `src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx`
 - Test: `src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.spec.ts`
 - Modify: `src/features/catalog/chats/hooks/use-chats.ts`
 - Modify: `src/features/catalog/chats/index.ts`
 
 **Interfaces:**
+
 - Add a hook that loads active character IDs from the chat, resolves effective across-enabled characters, and queries canonical rows for each character scope.
 - UI rows use:
 
@@ -429,6 +437,7 @@ git commit -m "Show inherited character memories in chats"
 ### Task 7: Character Deletion Cleanup and Runtime Parity
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/canonical_memory.rs`
 - Modify: `src-tauri/src/commands/storage/commands/entities/delete.rs`
 - Modify: `src-tauri/src/commands/storage/commands/entities.rs`
@@ -439,6 +448,7 @@ git commit -m "Show inherited character memories in chats"
 - Test: `src/shared/api/remote-runtime.spec.ts` when routing changes
 
 **Interfaces:**
+
 - Rust helper:
 
 ```rust
@@ -486,6 +496,7 @@ git commit -m "Clean up deleted character memories"
 ### Task 8: Combined Verification and Shipping
 
 **Files:**
+
 - Modify: `docs/superpowers/plans/2026-07-17-character-memory-continuity.md` checkboxes as work completes
 - Modify: PR body only after local proof
 

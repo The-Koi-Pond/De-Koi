@@ -259,17 +259,24 @@ function validate(ledger) {
     failures.push("finalGate.coreClaimProven must be true unless a blocking manual blocker is recorded");
   }
   if (visualProofRequired && !ledger.finalGate?.visualProofPresent && !blockingManual) {
-    failures.push("finalGate.visualProofPresent must be true for UI/runtime tasks unless a blocking manual blocker is recorded");
+    failures.push(
+      "finalGate.visualProofPresent must be true for UI/runtime tasks unless a blocking manual blocker is recorded",
+    );
   }
   if (ledger.checks?.baselineStatus !== "passed" && ledger.verification?.baselinePassed !== true && !blockingManual) {
-    failures.push("checks.baselineStatus must be passed or verification.baselinePassed must be true unless a blocking manual blocker is recorded");
+    failures.push(
+      "checks.baselineStatus must be passed or verification.baselinePassed must be true unless a blocking manual blocker is recorded",
+    );
   }
   if (!ledger.finalGate?.readyToReportDone) failures.push("finalGate.readyToReportDone must be true");
 
   if (ledger.task?.type === "bugfix" && ledger.finalGate?.readyToReportDone) {
-    if (!ledger.finalDoneGate?.bugfixComplete && !blockingManual) failures.push("finalDoneGate.bugfixComplete must be true");
+    if (!ledger.finalDoneGate?.bugfixComplete && !blockingManual)
+      failures.push("finalDoneGate.bugfixComplete must be true");
     if (!ledger.finalDoneGate?.noBlockingManualVerification && !blockingManual) {
-      failures.push("finalDoneGate.noBlockingManualVerification must be true unless a blocking manual blocker is recorded");
+      failures.push(
+        "finalDoneGate.noBlockingManualVerification must be true unless a blocking manual blocker is recorded",
+      );
     }
   }
 
@@ -325,11 +332,7 @@ if (command === "init" || command === "set") {
   for (const [path, value] of updates) setPath(ledger, normalizeShortcutPath(path, command), value);
   if (!ledger.run.startedAt) ledger.run.startedAt = nowIso();
   if (!ledger.task.status || ledger.task.status === "not_started") ledger.task.status = "in_progress";
-  appendPath(
-    ledger,
-    "trace",
-    traceEvent(updates, { phase: "run", action: "start", outcome: ledger.task.status }),
-  );
+  appendPath(ledger, "trace", traceEvent(updates, { phase: "run", action: "start", outcome: ledger.task.status }));
   writeLedger(file, ledger);
 } else if (command === "append") {
   for (const [path, value] of parseUpdates(args)) appendPath(ledger, path, value);
@@ -342,17 +345,14 @@ if (command === "init" || command === "set") {
   const hasStatusUpdate = updates.some(([path]) => path === "status" || path === "task.status");
   for (const [path, value] of updates) setPath(ledger, normalizeShortcutPath(path, command), value);
   if (!ledger.run.finishedAt) ledger.run.finishedAt = nowIso();
-  if (!hasStatusUpdate && (!ledger.task.status || ledger.task.status === "in_progress")) ledger.task.status = "complete";
+  if (!hasStatusUpdate && (!ledger.task.status || ledger.task.status === "in_progress"))
+    ledger.task.status = "complete";
   const started = Date.parse(ledger.run.startedAt);
   const finished = Date.parse(ledger.run.finishedAt);
   if (Number.isFinite(started) && Number.isFinite(finished)) {
     ledger.run.elapsedMinutes = Math.round(((finished - started) / 60000) * 100) / 100;
   }
-  appendPath(
-    ledger,
-    "trace",
-    traceEvent(updates, { phase: "run", action: "finish", outcome: ledger.task.status }),
-  );
+  appendPath(ledger, "trace", traceEvent(updates, { phase: "run", action: "finish", outcome: ledger.task.status }));
   writeLedger(file, ledger);
 } else if (command === "validate") {
   const failures = validate(ledger);

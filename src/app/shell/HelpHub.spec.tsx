@@ -45,9 +45,7 @@ describe("HelpHub feature discovery", () => {
     useUIStore.setState({ rightPanelOpen: true, rightPanel: "help" });
 
     act(() => {
-      root.render(
-        <HelpHub />,
-      );
+      root.render(<HelpHub />);
     });
 
     const button = Array.from(container.querySelectorAll("button")).find((item) =>

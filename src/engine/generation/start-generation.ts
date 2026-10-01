@@ -1139,7 +1139,7 @@ export async function generateIllustrationAttachments(args: {
             type: "illustration_error",
             data: { error: "No image generation connection configured for the Illustrator agent." },
           });
-      }
+        }
         continue;
       }
       const referenceData = await illustrationReferenceData({
@@ -5510,10 +5510,9 @@ async function* startGenerationImpl(
   );
   const previewMessagesDirect = withModeProseShapeGuidance(
     withUserMessageRegenerationRewritePrompt(
-      [
-        ...(promptPreviewMessagesDirect ?? []),
-        ...generationGuideMessages(input, chatForGeneration),
-      ].filter((message): message is LlmMessage => !!message),
+      [...(promptPreviewMessagesDirect ?? []), ...generationGuideMessages(input, chatForGeneration)].filter(
+        (message): message is LlmMessage => !!message,
+      ),
       assembly.userRegenerationSourceMessage,
     ),
     readString(chatForGeneration.mode || chatForGeneration.chatMode),
@@ -5780,10 +5779,7 @@ async function resolveForegroundGenerationConnection(
   return { connection: visionConnection, warnings: [] };
 }
 
-function generationGuideMessages(
-  input: StartGenerationInput,
-  _chat: JsonRecord,
-): LlmMessage[] {
+function generationGuideMessages(input: StartGenerationInput, _chat: JsonRecord): LlmMessage[] {
   return buildGenerationGuideMessages({
     generationGuide: input.generationGuide,
     generationGuideSource: input.generationGuideSource,
@@ -6065,41 +6061,41 @@ async function* streamMainGenerationLoop(args: {
       };
 
       for await (const chunk of deps.llm.stream(
-          {
-            connectionId: readString(connection.id) || input.connectionId,
-            model: readString(connection.model) || undefined,
-            messages: providerRequestMessages,
-            parameters: requestParameters,
-            tools: requestTools,
-          },
-          signal,
-        )) {
-          throwIfAborted(signal);
-          const chunkProviderMetadata =
-            chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
-          if (chunkProviderMetadata != null) {
-            turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
-            providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
+        {
+          connectionId: readString(connection.id) || input.connectionId,
+          model: readString(connection.model) || undefined,
+          messages: providerRequestMessages,
+          parameters: requestParameters,
+          tools: requestTools,
+        },
+        signal,
+      )) {
+        throwIfAborted(signal);
+        const chunkProviderMetadata =
+          chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
+        if (chunkProviderMetadata != null) {
+          turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
+          providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
+        }
+        if (chunk.type === "token") {
+          onFirstToken?.();
+          const text = llmChunkText(chunk);
+          if (text) {
+            yield* emitInlineParts(text);
           }
-          if (chunk.type === "token") {
-            onFirstToken?.();
-            const text = llmChunkText(chunk);
-            if (text) {
-              yield* emitInlineParts(text);
-            }
-          } else if (chunk.type === "thinking") {
-            const text = llmChunkText(chunk);
-            if (text) yield* emitTurnThinking(text);
-          } else if (chunk.type === "tool_call") {
-            const normalized = normalizeToolCall(chunk.data);
-            if (normalized) pendingToolCalls.push(normalized);
-          } else if (chunk.type === "usage" && chunk.data != null) {
-            streamUsages.push(chunk.data);
-          } else if (chunk.type === "provider_metadata") {
-            continue;
-          } else if (chunk.type === "error") {
-            throw llmStreamError(chunk);
-          }
+        } else if (chunk.type === "thinking") {
+          const text = llmChunkText(chunk);
+          if (text) yield* emitTurnThinking(text);
+        } else if (chunk.type === "tool_call") {
+          const normalized = normalizeToolCall(chunk.data);
+          if (normalized) pendingToolCalls.push(normalized);
+        } else if (chunk.type === "usage" && chunk.data != null) {
+          streamUsages.push(chunk.data);
+        } else if (chunk.type === "provider_metadata") {
+          continue;
+        } else if (chunk.type === "error") {
+          throw llmStreamError(chunk);
+        }
       }
       const truncatedFinishReason = incompleteFinishReason(turnProviderMetadata);
       if (truncatedFinishReason) {

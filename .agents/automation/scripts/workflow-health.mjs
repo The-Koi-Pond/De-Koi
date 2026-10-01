@@ -30,7 +30,8 @@ const STALE_BRANCH_GUIDANCE = [
   },
   {
     pattern: new RegExp(String.raw`\bPasta-Devs/Marinara-Engine:` + "stag" + String.raw`ing\b`, "i"),
-    message: "stale PR target references the old Marinara staging branch; default De-Koi PRs target The-Koi-Pond/De-Koi:main",
+    message:
+      "stale PR target references the old Marinara staging branch; default De-Koi PRs target The-Koi-Pond/De-Koi:main",
   },
   {
     pattern: /\borigin\/refactor\b/i,
@@ -42,7 +43,8 @@ const STALE_BRANCH_GUIDANCE = [
   },
   {
     pattern: /\b(?:CodeRabbit\b.{0,80}\b(?:required|gate|blocking)|(?:required|gate|blocking)\b.{0,80}\bCodeRabbit)\b/i,
-    message: "stale reviewer guidance treats CodeRabbit as a required gate; De-Koi uses Bunny Review unless a maintainer explicitly asks for CodeRabbit",
+    message:
+      "stale reviewer guidance treats CodeRabbit as a required gate; De-Koi uses Bunny Review unless a maintainer explicitly asks for CodeRabbit",
   },
   {
     pattern: new RegExp(
@@ -168,9 +170,7 @@ function bunnyReviewState(statusCheckRollup) {
   if (
     checks.some(
       (check) =>
-        check.state === "PENDING" ||
-        check.state === "EXPECTED" ||
-        (check.status && check.status !== "COMPLETED"),
+        check.state === "PENDING" || check.state === "EXPECTED" || (check.status && check.status !== "COMPLETED"),
     )
   ) {
     return "pending";
@@ -228,11 +228,15 @@ function evidenceRisks(pr) {
     .map((file) => file.path)
     .filter((path) => path.startsWith("docs/pr-evidence/"));
   if (committedEvidenceFiles.length > 0) {
-    risks.push(`PR commits temporary screenshot evidence; upload/attach proof instead: ${committedEvidenceFiles.join(", ")}`);
+    risks.push(
+      `PR commits temporary screenshot evidence; upload/attach proof instead: ${committedEvidenceFiles.join(", ")}`,
+    );
   }
   const checked = checkedChecklistLines(pr.body);
   if (checked.length > 0) {
-    risks.push(`PR body has ${checked.length} checked checklist item(s); agent-authored PRs should leave human validation boxes unchecked.`);
+    risks.push(
+      `PR body has ${checked.length} checked checklist item(s); agent-authored PRs should leave human validation boxes unchecked.`,
+    );
   }
   return risks;
 }
@@ -363,18 +367,7 @@ query($owner:String!, $name:String!, $number:Int!) {
   }
 }`;
   const result = ghJson(
-    [
-      "api",
-      "graphql",
-      "-f",
-      `owner=${owner}`,
-      "-f",
-      `name=${name}`,
-      "-F",
-      `number=${number}`,
-      "-f",
-      `query=${query}`,
-    ],
+    ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${number}`, "-f", `query=${query}`],
     warnings,
     `review threads for PR #${number}`,
   );
@@ -390,19 +383,7 @@ query($owner:String!, $name:String!, $number:Int!) {
 
 function draftPullRequests(repo, warnings) {
   const listed = ghJson(
-    [
-      "pr",
-      "list",
-      "--repo",
-      repo,
-      "--state",
-      "open",
-      "--draft",
-      "--limit",
-      "100",
-      "--json",
-      "number",
-    ],
+    ["pr", "list", "--repo", repo, "--state", "open", "--draft", "--limit", "100", "--json", "number"],
     warnings,
     "draft PR list",
   );
@@ -565,9 +546,8 @@ function buildReport(options) {
     openIssueCount: issues.length,
     activeOpenIssueCount: activeIssues.length,
     fixedInStagingIssueCount: issues.filter((issue) => issue.fixedInStaging).length,
-    activeOpenIssuesWithLikelyDuplicatePrs: activeIssues.filter(
-      (issue) => issue.likelyDuplicatePullRequests.length > 0,
-    ).length,
+    activeOpenIssuesWithLikelyDuplicatePrs: activeIssues.filter((issue) => issue.likelyDuplicatePullRequests.length > 0)
+      .length,
     activeVaultTaskCount: vaultTasks.length,
     warningsCount: warnings.length,
   };
@@ -612,9 +592,7 @@ function printText(report) {
       const threadState = pr.reviewThreads.available
         ? `${pr.reviewThreads.unresolved}/${pr.reviewThreads.total} unresolved threads`
         : "review threads unavailable";
-      console.log(
-        `- #${pr.number} ${pr.title} (${pr.headRefName} -> ${pr.baseRefName}) ${pr.url}`,
-      );
+      console.log(`- #${pr.number} ${pr.title} (${pr.headRefName} -> ${pr.baseRefName}) ${pr.url}`);
       console.log(`  checks: ${checkState}; Bunny Review: ${pr.checks.bunnyReview}; ${threadState}`);
       if (pr.linkedIssues.length > 0) {
         const issues = pr.linkedIssues

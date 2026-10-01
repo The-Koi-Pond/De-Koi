@@ -18,7 +18,12 @@ import { lorebookFolderApi } from "../../../../shared/api/lorebook-folder-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { lorebookCommandApi } from "../../../../shared/api/lorebook-command-api";
-import type { Lorebook, LorebookActivationTrace, LorebookEntry, LorebookFolder } from "../../../../engine/contracts/types/lorebook";
+import type {
+  Lorebook,
+  LorebookActivationTrace,
+  LorebookEntry,
+  LorebookFolder,
+} from "../../../../engine/contracts/types/lorebook";
 import { characterKeys } from "../../characters/query-keys";
 
 export { lorebookKeys } from "../query-keys";

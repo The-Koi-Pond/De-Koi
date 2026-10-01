@@ -10,10 +10,7 @@ import {
   type CreateConnectionInput,
   updateConnectionSchema,
 } from "../../../../engine/contracts/schemas/connection.schema";
-import {
-  connectionCatalogApi,
-  type AvailableConnectionSummary,
-} from "../../../../shared/api/connection-catalog-api";
+import { connectionCatalogApi, type AvailableConnectionSummary } from "../../../../shared/api/connection-catalog-api";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";

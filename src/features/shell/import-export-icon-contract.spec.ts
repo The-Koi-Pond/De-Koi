@@ -6,12 +6,8 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 
 describe("import and export icon direction", () => {
   it("uses Download for incoming memory and chat-preset imports and Upload for exports", () => {
-    const memories = readSource(
-      "src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx",
-    );
-    const characterMemories = readSource(
-      "src/features/catalog/characters/components/CharacterMemoriesTab.tsx",
-    );
+    const memories = readSource("src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx");
+    const characterMemories = readSource("src/features/catalog/characters/components/CharacterMemoriesTab.tsx");
     const presets = readSource("src/features/modes/shared/chat-ui/components/settings/ChatPresetBar.tsx");
 
     expect(memories).toMatch(/title="Export (?:local )?memories"[\s\S]{0,240}<Upload/);

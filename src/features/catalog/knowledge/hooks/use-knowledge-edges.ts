@@ -54,8 +54,14 @@ export function useKnowledgeEdgeActions(memoryId: string) {
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: knowledgeEdgeKeys.memory(memoryId) });
   return {
-    upsert: useMutation({ mutationFn: (body: KnowledgeEdgeInput) => canonicalMemoryApi.knowledge.upsert(body), onSuccess: invalidate }),
-    approve: useMutation({ mutationFn: (edgeId: string) => canonicalMemoryApi.knowledge.approve(edgeId), onSuccess: invalidate }),
+    upsert: useMutation({
+      mutationFn: (body: KnowledgeEdgeInput) => canonicalMemoryApi.knowledge.upsert(body),
+      onSuccess: invalidate,
+    }),
+    approve: useMutation({
+      mutationFn: (edgeId: string) => canonicalMemoryApi.knowledge.approve(edgeId),
+      onSuccess: invalidate,
+    }),
     invalidate: useMutation({
       mutationFn: ({ edgeId, reason }: { edgeId: string; reason: string }) =>
         canonicalMemoryApi.knowledge.invalidate(edgeId, reason),

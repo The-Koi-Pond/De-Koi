@@ -7,9 +7,7 @@ import type {
   RoleplayContinuityDirectorState,
 } from "../../../contracts/types/roleplay-continuity-director";
 import { createDefaultContinuityDirectorState } from "./continuity-director-state";
-import {
-  subscribeContinuityDirectorRefreshCompletions,
-} from "./continuity-director-refresh-events";
+import { subscribeContinuityDirectorRefreshCompletions } from "./continuity-director-refresh-events";
 import { createContinuityDirectorRefreshScheduler } from "./continuity-director-scheduler";
 
 const NOW = "2026-09-02T12:00:00.000Z";

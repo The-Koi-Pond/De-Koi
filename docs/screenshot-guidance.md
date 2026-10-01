@@ -13,13 +13,13 @@ is available.
 
 ## Required Release Captures
 
-| Slot | Current image | Capture target |
-| --- | --- | --- |
+| Slot         | Current image                               | Capture target                                  |
+| ------------ | ------------------------------------------- | ----------------------------------------------- |
 | Conversation | `docs/screenshots/release/conversation.png` | Conversation setup path with no private content |
-| Roleplay | `docs/screenshots/release/roleplay.png` | Roleplay setup path with no private content |
-| Game mode | `docs/screenshots/release/game-mode.png` | Game setup path with no private content |
-| Settings | `docs/screenshots/release/settings.png` | Settings panel without secrets |
-| Connections | `docs/screenshots/release/connections.png` | Connections panel without provider keys |
+| Roleplay     | `docs/screenshots/release/roleplay.png`     | Roleplay setup path with no private content     |
+| Game mode    | `docs/screenshots/release/game-mode.png`    | Game setup path with no private content         |
+| Settings     | `docs/screenshots/release/settings.png`     | Settings panel without secrets                  |
+| Connections  | `docs/screenshots/release/connections.png`  | Connections panel without provider keys         |
 
 ## Capture Rules
 

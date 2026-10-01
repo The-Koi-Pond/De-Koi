@@ -244,7 +244,15 @@ export function useAutonomousMessaging(
         busyGenerationRef.current = null;
       }
     };
-  }, [autonomousEnabled, chatId, conversationStatusMessagesEnabled, exchangesEnabled, qc, schedulePoll, triggerAutonomousGeneration]);
+  }, [
+    autonomousEnabled,
+    chatId,
+    conversationStatusMessagesEnabled,
+    exchangesEnabled,
+    qc,
+    schedulePoll,
+    triggerAutonomousGeneration,
+  ]);
 
   return {
     recordUserActivity,

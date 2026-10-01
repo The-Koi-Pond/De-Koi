@@ -1,5 +1,9 @@
 import type { Message } from "../../../../engine/contracts/types/chat";
-import type { CombatEnemy, CombatPartyMember, EncounterSettings } from "../../../../engine/contracts/types/combat-encounter";
+import type {
+  CombatEnemy,
+  CombatPartyMember,
+  EncounterSettings,
+} from "../../../../engine/contracts/types/combat-encounter";
 import type { Combatant } from "../../../../engine/contracts/types/game";
 
 export type GameDirectAddressMode = "party" | "gm";

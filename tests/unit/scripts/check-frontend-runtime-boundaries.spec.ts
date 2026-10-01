@@ -27,11 +27,7 @@ describe("frontend runtime boundary check", () => {
 
   it("rejects app and feature imports of Tauri runtime modules", () => {
     const root = fixtureRoot();
-    writeFixture(
-      root,
-      "src/features/shell/example/Bad.tsx",
-      'import { invoke } from "@tauri-apps/api/core";\n',
-    );
+    writeFixture(root, "src/features/shell/example/Bad.tsx", 'import { invoke } from "@tauri-apps/api/core";\n');
 
     expect(findFrontendRuntimeBoundaryViolations(root)).toEqual([
       expect.objectContaining({
@@ -44,11 +40,7 @@ describe("frontend runtime boundary check", () => {
   it("rejects direct imports of the shared API Tauri client from app and feature code", () => {
     const root = fixtureRoot();
     writeFixture(root, "src/shared/api/tauri-client.ts", "export const invokeTauri = () => {};\n");
-    writeFixture(
-      root,
-      "src/app/startup/bad.ts",
-      'import { invokeTauri } from "../../shared/api/tauri-client";\n',
-    );
+    writeFixture(root, "src/app/startup/bad.ts", 'import { invokeTauri } from "../../shared/api/tauri-client";\n');
 
     expect(findFrontendRuntimeBoundaryViolations(root)).toEqual([
       expect.objectContaining({

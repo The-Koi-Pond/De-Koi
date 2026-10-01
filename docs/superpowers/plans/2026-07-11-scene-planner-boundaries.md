@@ -19,10 +19,12 @@
 ### Task 1: Constrain and normalize scene plans
 
 **Files:**
+
 - Modify: `src/engine/modes/roleplay/scene/scene-service.ts`
 - Test: `src/engine/modes/roleplay/scene/scene-service.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `planRoleplayScene(capabilities, input)` and `createRoleplayScene(storage, input)`.
 - Produces: sanitized `SceneFullPlan` values with normalized narrative prose and no planner-controlled instructions or `presetChoices`.
 

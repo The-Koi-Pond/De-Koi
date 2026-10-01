@@ -28,7 +28,6 @@ const CARD_TEXT_FIELDS: Array<keyof CharacterData> = [
   "post_history_instructions",
 ];
 
-
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }

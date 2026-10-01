@@ -215,8 +215,7 @@ async function canPersistChatGameState(
   const visibleTarget = await latestAssistantTarget(chatId).catch(() => null);
   if (!visibleTarget?.messageId) return true;
   return (
-    visibleTarget.messageId === requestedTarget.messageId &&
-    visibleTarget.swipeIndex === requestedTarget.swipeIndex
+    visibleTarget.messageId === requestedTarget.messageId && visibleTarget.swipeIndex === requestedTarget.swipeIndex
   );
 }
 

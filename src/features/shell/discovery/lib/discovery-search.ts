@@ -16,7 +16,9 @@ function scoreDiscoveryEntry(entry: DiscoveryEntry, query: string) {
 
   const title = normalize(entry.title);
   const keywords = entry.keywords.map(normalize);
-  const descriptiveText = normalize([entry.category, entry.summary, entry.audience, entry.where, entry.coverage].join(" "));
+  const descriptiveText = normalize(
+    [entry.category, entry.summary, entry.audience, entry.where, entry.coverage].join(" "),
+  );
   let score = title === normalizedQuery ? 1_000 : title.startsWith(normalizedQuery) ? 700 : 0;
 
   for (const term of terms) {
@@ -40,11 +42,7 @@ function searchDiscoveryEntries(entries: readonly DiscoveryEntry[], query: strin
     .map(({ entry }) => entry);
 }
 
-export function filterDiscoveryEntries(
-  entries: readonly DiscoveryEntry[],
-  query: string,
-  filters: DiscoveryFilters,
-) {
+export function filterDiscoveryEntries(entries: readonly DiscoveryEntry[], query: string, filters: DiscoveryFilters) {
   return searchDiscoveryEntries(entries, query).filter((entry) => {
     if (filters.category !== "All" && entry.category !== filters.category) return false;
     if (filters.coverage !== "All" && entry.coverage !== filters.coverage) return false;

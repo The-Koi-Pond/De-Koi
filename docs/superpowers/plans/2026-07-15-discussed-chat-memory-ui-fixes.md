@@ -23,12 +23,14 @@
 ### Task 1: Re-engage transcript following for a new turn (#1034)
 
 **Files:**
+
 - Modify/Test: `src/features/modes/shared/chat-ui/lib/transcript-scroll-geometry.ts`
 - Modify/Test: `src/features/modes/shared/chat-ui/lib/transcript-scroll-geometry.spec.ts`
 - Modify/Test: `src/features/modes/conversation/components/ConversationView.tsx`
 - Modify/Test: `src/features/modes/roleplay/hooks/use-roleplay-transcript-scroll.ts`
 
 **Interfaces:**
+
 - Consumes: optimistic user-tail state, explicit bottom requests, and current-generation scroll-away state.
 - Produces: a new outbound turn clears an idle reading-position latch, while an upward gesture during the active generation still disables bottom following.
 
@@ -41,11 +43,13 @@
 ### Task 2: Restore tap-scoped mobile message actions (#1035)
 
 **Files:**
+
 - Modify/Test: `src/styles/globals/07-responsive-accessibility.css`
 - Modify/Test: `src/features/shell/action-visibility-contract.spec.ts`
 - Modify/Test: `src/features/modes/conversation/components/ConversationMessage.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: `ConversationMessage`'s existing tapped/hovered/focused `showActions` state.
 - Produces: coarse pointers no longer force every message toolbar visible; tapped and keyboard-focused messages remain accessible.
 
@@ -58,6 +62,7 @@
 ### Task 3: Route image turns through an optional vision connection (#1032)
 
 **Files:**
+
 - Modify/Test: `src/engine/generation/start-generation.image-attachments.spec.ts`
 - Modify: `src/engine/generation/start-generation.ts`
 - Modify: `src/engine/contracts/types/chat.ts`
@@ -66,6 +71,7 @@
 - Modify/Test: `src/features/catalog/chat-presets/hooks/use-chat-presets.ts`
 
 **Interfaces:**
+
 - Consumes: `chat.metadata.visionConnectionId`, current-turn image attachments, and language-generation connections.
 - Produces: text-only turns retain the normal connection; image-bearing main requests use the configured vision connection; missing/invalid overrides preserve explicit warnings instead of silent fallback.
 
@@ -79,6 +85,7 @@
 ### Task 4: Show exact automatic-memory capture details (#1033)
 
 **Files:**
+
 - Modify/Test: `src-tauri/src/commands/storage/chat_memory.rs`
 - Modify/Test: `src/engine/generation/automatic-memory-capture-queue.ts`
 - Modify/Test: `src/engine/generation/automatic-memory-capture-queue.spec.ts`
@@ -93,6 +100,7 @@
 - Modify/Test: `src/app/shell/AppShell.tsx`
 
 **Interfaces:**
+
 - Produces: focused memory refresh returns the affected exact record and created/updated operation; the queue persists that detail on the assistant message and emits an in-process completion event; shell UI shows a default-on in-app toast; the remembered chip reopens exact details.
 
 - [ ] Add failing Rust coverage for the focused capture result and failing queue/UI/store tests for persisted details, default-on preference, opt-out, and chip disclosure.
@@ -105,10 +113,12 @@
 ### Task 5: Standardize Import and Export icons (#1036)
 
 **Files:**
+
 - Create/Test: `src/features/shell/imports/lib/import-export-icon-contract.spec.ts`
 - Modify: all user-facing controls explicitly labelled Import or Export found by the source audit, including Memory Console, Chat Preset bar, Chat Files drawer, catalog panels, and Agent editor.
 
 **Interfaces:**
+
 - Produces: Import uses `Download` (data enters De-Koi) and Export uses `Upload` (data leaves De-Koi); ordinary file download/upload controls are unchanged.
 
 - [ ] Add a failing source contract enumerating every labelled Import/Export control and its expected icon.
@@ -120,12 +130,14 @@
 ### Task 6: Keep the setup journey reachable from active routes (#1037)
 
 **Files:**
+
 - Modify/Test: `src/app/shell/AppShell.tsx`
 - Modify/Test: `src/app/shell/app-shell-center-surfaces.spec.ts`
 - Modify/Test: `src/features/modes/router/components/ModeSurface.tsx`
 - Modify/Test: `src/features/modes/router/components/ModeHomeSurface.tsx`
 
 **Interfaces:**
+
 - Consumes: shell setup intent and current active/detail surface.
 - Produces: exactly one `SetupReadinessJourney` consumer remains mounted whether Home, a detail surface, or an active Conversation/Roleplay/Game route occupies the center.
 

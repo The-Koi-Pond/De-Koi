@@ -21,11 +21,13 @@
 ### Task 1: Baseline craft guidance
 
 **Files:**
+
 - Create: `src/engine/generation/narrative-craft-guidance.ts`
 - Modify: `src/engine/generation/agent-runner.ts`
 - Test: `src/engine/generation/agent-runner.test.ts`
 
 **Interfaces:**
+
 - Produces: `NARRATIVE_CRAFT_BASELINE_GUIDANCE: string`
 - Consumes: existing `AgentInjection`, `consumeNarrativeCraftPendingGuidance`, and `mergeAgentInjections` contracts.
 
@@ -52,11 +54,13 @@ Expected: all tests pass with no provider request created merely to produce the 
 ### Task 2: First completed-response analysis
 
 **Files:**
+
 - Modify: `src/engine/generation/agent-runner.ts`
 - Test: `src/engine/generation/agent-runner.test.ts`
 - Test: `src/engine/generation/start-generation.narrative-craft-background.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `context.memory._narrativeCraftState`, `narrativeCraftHasRecurringShape`, and `GenerationAgentRuntime.runNarrativeCraftAnalysis`.
 - Produces: first analysis runs when saved state is absent; later automatic analyses remain recurrence-gated.
 
@@ -83,10 +87,12 @@ Expected: the first response is analyzed, established state stays sparse, the vi
 ### Task 3: Harlequin and StoryScope proof
 
 **Files:**
+
 - Modify only if evaluation falsifies the wording: `src/engine/generation/narrative-craft-guidance.ts`
 - Temporary outside-repository artifacts: Harlequin source/treatment text, StoryScope input, extracted features, blind-review results.
 
 **Interfaces:**
+
 - Consumes: pinned StoryScope revision `642e746804e1ee4138ffdcf13b7412eb3dc2a70b` and the agent-configured writer model.
 - Produces: measured feature comparison, quality judgment, and foreground-call-count proof.
 
@@ -109,10 +115,12 @@ If treatment loses StoryScope or blind quality, revise the baseline wording, add
 ### Task 4: Verification and shipping
 
 **Files:**
+
 - Update if user-visible behavior changed: `src/features/shell/discovery/discovery-entries.json` or record `Feature Discoverability: N/A` with the reason that existing Narrative Craft activation/UI is unchanged.
 - Update risky proof: `.github/pr-evidence/narrative-craft-first-reply/proof-ledger.json` if required by proof health.
 
 **Interfaces:**
+
 - Produces: clean diff, full local checks, current-head Bunny pass, green hosted CI, merged PR, and exact Pi deployment receipt.
 
 - [ ] **Step 1: Run local verification**

@@ -128,5 +128,4 @@ describe("agent pipeline scheduling", () => {
     expect(calls.sort()).toEqual(["expression", "lorebook-keeper", "world-state"]);
     expect(getMaxActive()).toBeLessThanOrEqual(2);
   });
-
 });

@@ -21,9 +21,11 @@
 ### Task 1: Prove atomic preparation blocks reads
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 
 **Interfaces:**
+
 - Consumes: `FileStorage::update_collections_atomically`, `DIRTY_FLUSH_CLONE_TEST_HOOK` test-hook pattern.
 - Produces: a deterministic regression proving reads finish while replacement temp files are being prepared.
 
@@ -40,9 +42,11 @@ Expected: FAIL because the read cannot acquire the current global storage read l
 ### Task 2: Prepare replacement files outside the global lock
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 
 **Interfaces:**
+
 - Consumes: `PendingCollectionReplacement`, transaction manifest/rollback helpers, `WriteGate::begin_atomic_update`, `CollectionContentStamp`.
 - Produces: `prepare_collection_replacement_files` and `install_prepared_collection_replacements_locked` helper phases reused by atomic updates and `replace_all_many_locked`.
 
@@ -77,9 +81,11 @@ Expected: all matching tests PASS, including queued writer, conflict, recovery, 
 ### Task 3: Skip the no-op connected-chat rewrite
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/chats.rs`
 
 **Interfaces:**
+
 - Consumes: `disconnect_connected_chat`, `AtomicCollectionRows::rows`, `AtomicCollectionRows::rows_mut`.
 - Produces: unchanged disconnect result with no collection replacement when no link or connected note changes.
 
@@ -106,9 +112,11 @@ Expected: PASS.
 ### Task 4: Validate, review, and ship
 
 **Files:**
+
 - Review: all branch changes against `origin/main`.
 
 **Interfaces:**
+
 - Consumes: Tasks 1-3.
 - Produces: merged PR and exact deployed Pi revision.
 

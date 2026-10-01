@@ -170,10 +170,18 @@ assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "sr
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "#!/usr/bin/env bash");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "required_package_paths");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "require_manifest_path");
-assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, 'git archive --format=tar HEAD -- "${snapshot_entries[@]}"');
+assertContains(
+  "scripts/pi-bare-metal-package.sh",
+  piBareMetalPackageScript,
+  'git archive --format=tar HEAD -- "${snapshot_entries[@]}"',
+);
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "contract_members");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "final_members");
-assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "Package manifest does not match final tarball members.");
+assertContains(
+  "scripts/pi-bare-metal-package.sh",
+  piBareMetalPackageScript,
+  "Package manifest does not match final tarball members.",
+);
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "PACKAGE-MANIFEST.txt");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "package_schema=1");
 assertContains("scripts/pi-bare-metal-package.sh", piBareMetalPackageScript, "package_root=%s");
@@ -185,19 +193,39 @@ assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "top_
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "listing_file");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "tar -xOzf");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "required_manifest_entries");
-assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Package manifest does not match archive members.");
+assertContains(
+  "scripts/pi-bare-metal-update.sh",
+  piBareMetalUpdateScript,
+  "Package manifest does not match archive members.",
+);
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "extracted_top_levels");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Extracted package root contract mismatch.");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "extracted-members.txt");
-assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Extracted package files do not match package manifest.");
+assertContains(
+  "scripts/pi-bare-metal-update.sh",
+  piBareMetalUpdateScript,
+  "Extracted package files do not match package manifest.",
+);
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Package root contract mismatch.");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "PACKAGE-MANIFEST.txt");
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "DE_KOI_MANAGED_PUBLIC_ORIGIN");
-assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "Rerun with --refresh-env and DE_KOI_PUBLIC_ORIGIN");
+assertContains(
+  "scripts/pi-bare-metal-update.sh",
+  piBareMetalUpdateScript,
+  "Rerun with --refresh-env and DE_KOI_PUBLIC_ORIGIN",
+);
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "set_env_value");
-assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "DE_KOI_RESOURCE_DIR=$install_root/current/app/src-tauri");
+assertContains(
+  "scripts/pi-bare-metal-update.sh",
+  piBareMetalUpdateScript,
+  "DE_KOI_RESOURCE_DIR=$install_root/current/app/src-tauri",
+);
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "preserving secrets");
-assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "ExecStart=$install_root/current/bin/de-koi-server");
+assertContains(
+  "scripts/pi-bare-metal-update.sh",
+  piBareMetalUpdateScript,
+  "ExecStart=$install_root/current/bin/de-koi-server",
+);
 assertContains("scripts/pi-bare-metal-update.sh", piBareMetalUpdateScript, "ReadWritePaths=$data_dir");
 assertContains("scripts/pi-image-guard.mjs", piImageGuard, "same cooked batch");
 assertContains("scripts/pi-image-guard.mjs", piImageGuard, "Refusing to deploy older Pi images");
@@ -227,7 +255,11 @@ assertContains(
   "docker compose -f docker-compose.pi.yml -f docker-compose.pi.trusted-lan.yml pull",
 );
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "De-Koi-PreAlpha-pi-bare-metal-arm64");
-assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "asset=De-Koi-PreAlpha-pi-bare-metal-arm64-v<version>-<sha>.tar.gz");
+assertContains(
+  "docs/pi-bare-metal.md",
+  piBareMetalDocs,
+  "asset=De-Koi-PreAlpha-pi-bare-metal-arm64-v<version>-<sha>.tar.gz",
+);
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "DE_KOI_PUBLIC_ORIGIN");
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "--refresh-env");
 assertContains("docs/pi-bare-metal.md", piBareMetalDocs, "--validate-only");

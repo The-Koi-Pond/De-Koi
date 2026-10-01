@@ -294,8 +294,7 @@ export function PersonasPanel() {
   );
 
   const handlePersonaListDragStart = useCallback(
-    (event: DragEvent<HTMLDivElement>, personaId: string) =>
-      handlePersonaDragStart(event, personaId, { kind: "list" }),
+    (event: DragEvent<HTMLDivElement>, personaId: string) => handlePersonaDragStart(event, personaId, { kind: "list" }),
     [handlePersonaDragStart],
   );
 
