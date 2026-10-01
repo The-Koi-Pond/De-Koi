@@ -85,7 +85,7 @@ function libraryCharacterIds(value: unknown): string[] {
     : [];
 }
 
-export function musicDjSetupConfig(config: g.GameSetupConfig): g.GameSetupConfig {
+function musicDjSetupConfig(config: g.GameSetupConfig): g.GameSetupConfig {
   if (!config.enableMusicDj) return config;
   const { enableSpotifyDj, spotifySourceType, spotifyPlaylistId, spotifyPlaylistName, spotifyArtist, ...rest } = config;
   return { ...rest, enableMusicDj: true };

@@ -1,7 +1,5 @@
 export {
-  deriveSetupJourneyAction,
   isSetupReady,
-  type SetupJourneyAction,
   type SetupJourneyIntent,
   type SetupJourneyRecovery,
   type SetupJourneyRecoveryStage,

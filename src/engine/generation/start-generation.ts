@@ -180,7 +180,7 @@ import {
 
 export type { StartGenerationInput } from "./start-generation-input";
 
-export type GenerationPerformanceTiming = {
+type GenerationPerformanceTiming = {
   name:
     | "generation.prompt_assembly"
     | "generation.first_token"

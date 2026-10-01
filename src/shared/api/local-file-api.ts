@@ -14,7 +14,6 @@ export {
   avatarThumbnailFileUrlFromPath,
   canGenerateAvatarThumbnail,
   resolveAvatarThumbnailFileUrl,
-  type ManagedAssetThumbnailKind,
 } from "./managed-asset-thumbnails";
 export {
   avatarFileUrlFromPath,

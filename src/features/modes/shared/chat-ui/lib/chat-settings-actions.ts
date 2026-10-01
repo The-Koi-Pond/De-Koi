@@ -47,7 +47,7 @@ export function buildModePromptMetadataPatch({
   return { [field]: field === "gameExtraPrompt" ? draft || null : draft };
 }
 
-export function chatActiveAgentIds(chat: Chat): string[] {
+function chatActiveAgentIds(chat: Chat): string[] {
   const metadata =
     chat.metadata && typeof chat.metadata === "object" && !Array.isArray(chat.metadata) ? chat.metadata : {};
   return enabledChatAgentIds(metadata, chat.mode as ChatMode);
