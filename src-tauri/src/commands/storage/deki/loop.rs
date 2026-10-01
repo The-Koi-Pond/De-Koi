@@ -1,4 +1,5 @@
 use super::budget::{truncate_to_chars, DekiEvidenceBudget, DekiRuntimeBudget};
+use super::events::DekiEventSink;
 use super::model_client::{DekiModelClient, DekiModelMessage};
 use super::protocol::{extract_command_frame, DekiCommandFrame, JSON_PROTOCOL_PROMPT};
 use super::status::DekiRuntimeCancellation;
@@ -11,6 +12,7 @@ const FINAL_SYNTHESIS_PROMPT: &str = "This is the final bounded runtime round. D
 
 pub(super) struct DekiJsonRuntimeInput<'a> {
     pub(super) state: &'a AppState,
+    pub(super) approval_scope: super::approvals::DekiApprovalScope,
     pub(super) connection: marinara_llm::LlmConnection,
     pub(super) system_prompt: String,
     pub(super) task_prompt: String,
@@ -18,21 +20,22 @@ pub(super) struct DekiJsonRuntimeInput<'a> {
     pub(super) chat_access_grants: Vec<super::chat_access::DekiChatAccessGrant>,
     pub(super) web_research_grants: Vec<super::commands::web::DekiWebResearchGrant>,
     pub(super) cancellation: DekiRuntimeCancellation,
+    pub(super) events: DekiEventSink,
 }
 
 pub(super) struct DekiJsonRuntimeOutput {
     pub(super) content: String,
     pub(super) workspace_trace: Vec<Value>,
     pub(super) usage: Vec<Value>,
+    pub(super) pending_approvals: Vec<Value>,
 }
 
 struct DekiCommandRoundContext<'a> {
-    state: &'a AppState,
-    chat_access_grants: &'a [super::chat_access::DekiChatAccessGrant],
-    web_research_grants: &'a [super::commands::web::DekiWebResearchGrant],
+    commands: super::commands::DekiCommandContext<'a>,
     command_state: &'a mut super::commands::DekiCommandTurnState,
     budget: &'a DekiRuntimeBudget,
     cancellation: &'a DekiRuntimeCancellation,
+    events: &'a DekiEventSink,
     evidence_budget: &'a mut DekiEvidenceBudget,
     trace: &'a mut Vec<Value>,
     trace_chars: &'a mut usize,
@@ -51,10 +54,11 @@ pub(super) async fn run_json_command_runtime(
     let mut evidence_budget = DekiEvidenceBudget::default();
     let mut messages = vec![
         DekiModelMessage::system(format!(
-            "{}\n\n{}\n\n{}",
+            "{}\n\n{}\n\n{}\n\n{}",
             input.system_prompt.trim(),
             JSON_PROTOCOL_PROMPT,
             super::commands::JSON_COMMAND_GUIDE,
+            super::data_cli::DEKI_DATA_GUIDE,
         )),
         DekiModelMessage::user(input.task_prompt),
     ];
@@ -63,8 +67,10 @@ pub(super) async fn run_json_command_runtime(
     let mut trace_chars = 0usize;
     let mut last_say = String::new();
     let mut has_repository_evidence = false;
-    let mut command_state =
-        super::commands::DekiCommandTurnState::new(budget.max_web_pages_per_turn());
+    let mut command_state = super::commands::DekiCommandTurnState::new(
+        budget.max_web_pages_per_turn(),
+        budget.max_data_mutations_per_turn(),
+    );
 
     for round_index in 0..budget.max_rounds() {
         input.cancellation.ensure_not_cancelled()?;
@@ -93,6 +99,7 @@ pub(super) async fn run_json_command_runtime(
         let frame = match extract_command_frame(&raw) {
             Ok(frame) => frame,
             Err(error) => {
+                input.events.retry();
                 push_trace(
                     &mut trace,
                     &mut trace_chars,
@@ -123,22 +130,36 @@ pub(super) async fn run_json_command_runtime(
         if frame_is_terminal(&frame, final_round) {
             return Ok(DekiJsonRuntimeOutput {
                 content: final_content_from_frame(&frame, &last_say),
-                workspace_trace: trace,
+                workspace_trace: history_trace(trace),
                 usage,
+                pending_approvals: command_state.take_pending_approvals(),
             });
         }
 
+        if !frame.say.trim().is_empty() {
+            input.events.narration(&frame.say);
+            push_trace(
+                &mut trace,
+                &mut trace_chars,
+                budget.max_trace_chars(),
+                json!({ "type": "status", "content": frame.say.trim() }),
+            );
+        }
         let assistant_frame = raw_frame_for_memory(&frame);
         let command_round = execute_command_round(
             round_index,
             frame,
             DekiCommandRoundContext {
-                state: input.state,
-                chat_access_grants: &input.chat_access_grants,
-                web_research_grants: &input.web_research_grants,
+                commands: super::commands::DekiCommandContext {
+                    state: input.state,
+                    approval_scope: &input.approval_scope,
+                    chat_access_grants: &input.chat_access_grants,
+                    web_research_grants: &input.web_research_grants,
+                },
                 command_state: &mut command_state,
                 budget: &budget,
                 cancellation: &input.cancellation,
+                events: &input.events,
                 evidence_budget: &mut evidence_budget,
                 trace: &mut trace,
                 trace_chars: &mut trace_chars,
@@ -157,8 +178,9 @@ pub(super) async fn run_json_command_runtime(
 
     Ok(DekiJsonRuntimeOutput {
         content: max_rounds_fallback(&last_say),
-        workspace_trace: trace,
+        workspace_trace: history_trace(trace),
         usage,
+        pending_approvals: command_state.take_pending_approvals(),
     })
 }
 
@@ -168,12 +190,11 @@ async fn execute_command_round(
     context: DekiCommandRoundContext<'_>,
 ) -> AppResult<DekiCommandRoundOutput> {
     let DekiCommandRoundContext {
-        state,
-        chat_access_grants,
-        web_research_grants,
+        commands,
         command_state,
         budget,
         cancellation,
+        events,
         evidence_budget,
         trace,
         trace_chars,
@@ -186,15 +207,19 @@ async fn execute_command_round(
         cancellation.ensure_not_cancelled()?;
         budget.ensure_not_expired()?;
         let id = format!("deki_r{}_c{}", round_index + 1, command_index + 1);
-        let execution = super::commands::execute(
-            id,
-            state,
-            chat_access_grants,
-            web_research_grants,
-            command_state,
-            command,
-        )
-        .await;
+        let display_name = super::commands::display_name(&command.name);
+        events.tool_start(&id, &display_name, &command.args);
+        let approvals_before = command_state.pending_approval_count();
+        let execution = super::commands::execute(id, commands, command_state, command).await;
+        events.tool_end(
+            &execution.id,
+            &execution.trace_name,
+            !execution.ok,
+            &command_output_text(&execution),
+        );
+        for approval in command_state.pending_approvals_since(approvals_before) {
+            events.approval_pending(approval);
+        }
         has_repository_evidence |=
             execution.ok && super::commands::is_repository_command(&execution.name);
         cancellation.ensure_not_cancelled()?;
@@ -308,8 +333,8 @@ fn protocol_repair_prompt(error: &AppError) -> String {
     )
 }
 
-fn command_trace(execution: &super::commands::DekiCommandExecution) -> Value {
-    let output = if execution.ok {
+fn command_output_text(execution: &super::commands::DekiCommandExecution) -> String {
+    if execution.ok {
         serde_json::to_string(&execution.output).unwrap_or_else(|_| "{}".to_string())
     } else {
         execution
@@ -318,7 +343,30 @@ fn command_trace(execution: &super::commands::DekiCommandExecution) -> Value {
             .and_then(Value::as_str)
             .unwrap_or("Deki command failed.")
             .to_string()
-    };
+    }
+}
+
+/// The trace kept with the assistant message: visible narration and command
+/// steps with bounded output. Internal protocol-repair notes stay out.
+fn history_trace(trace: Vec<Value>) -> Vec<Value> {
+    trace
+        .into_iter()
+        .filter(|item| item.get("internal").and_then(Value::as_bool) != Some(true))
+        .map(|mut item| {
+            if let Some(output) = item
+                .pointer("/tool/output")
+                .and_then(Value::as_str)
+                .map(super::events::bounded_output)
+            {
+                item["tool"]["output"] = json!(output);
+            }
+            item
+        })
+        .collect()
+}
+
+fn command_trace(execution: &super::commands::DekiCommandExecution) -> Value {
+    let output = command_output_text(execution);
     let (output, truncated) = truncate_to_chars(&output, 4 * 1024);
     json!({
         "type": "tool",
@@ -340,6 +388,7 @@ fn command_trace(execution: &super::commands::DekiCommandExecution) -> Value {
 fn protocol_repair_trace(round_index: usize, error: &AppError) -> Value {
     json!({
         "type": "status",
+        "internal": true,
         "content": format!(
             "Deki protocol repair requested in round {}: {}",
             round_index + 1,

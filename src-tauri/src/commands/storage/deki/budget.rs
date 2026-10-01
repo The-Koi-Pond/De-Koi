@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 const DEFAULT_MAX_ROUNDS: usize = 8;
 const DEFAULT_MAX_COMMANDS_PER_ROUND: usize = 4;
 const DEFAULT_MAX_WEB_PAGES_PER_TURN: usize = 2;
+const DEFAULT_MAX_DATA_MUTATIONS_PER_TURN: usize = 6;
 const DEFAULT_MAX_SINGLE_EVIDENCE_CHARS: usize = 12 * 1024;
 const DEFAULT_MAX_TOTAL_EVIDENCE_CHARS: usize = 48 * 1024;
 const DEFAULT_MAX_TRACE_CHARS: usize = 64 * 1024;
@@ -15,6 +16,7 @@ pub(super) struct DekiRuntimeBudget {
     max_rounds: usize,
     max_commands_per_round: usize,
     max_web_pages_per_turn: usize,
+    max_data_mutations_per_turn: usize,
     max_trace_chars: usize,
     deadline: Instant,
 }
@@ -102,6 +104,7 @@ impl Default for DekiRuntimeBudget {
             max_rounds: DEFAULT_MAX_ROUNDS,
             max_commands_per_round: DEFAULT_MAX_COMMANDS_PER_ROUND,
             max_web_pages_per_turn: DEFAULT_MAX_WEB_PAGES_PER_TURN,
+            max_data_mutations_per_turn: DEFAULT_MAX_DATA_MUTATIONS_PER_TURN,
             max_trace_chars: DEFAULT_MAX_TRACE_CHARS,
             deadline: Instant::now() + Duration::from_secs(DEFAULT_WALL_CLOCK_SECS),
         }
@@ -129,6 +132,10 @@ impl DekiRuntimeBudget {
 
     pub(super) fn max_web_pages_per_turn(&self) -> usize {
         self.max_web_pages_per_turn
+    }
+
+    pub(super) fn max_data_mutations_per_turn(&self) -> usize {
+        self.max_data_mutations_per_turn
     }
 
     pub(super) fn max_trace_chars(&self) -> usize {

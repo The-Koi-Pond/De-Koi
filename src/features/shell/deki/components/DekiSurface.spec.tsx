@@ -197,6 +197,7 @@ describe("DekiSurface message retry actions", () => {
         connectionId: "conn-1",
       }),
       dekiApi,
+      { onEvent: expect.any(Function) },
     );
     expect(dekiApi.history.appendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -242,6 +243,7 @@ describe("DekiSurface message retry actions", () => {
         connectionId: "conn-1",
       }),
       dekiApi,
+      { onEvent: expect.any(Function) },
     );
   });
 
@@ -687,6 +689,7 @@ describe("DekiSurface message retry actions", () => {
         ],
       }),
       dekiApi,
+      { onEvent: expect.any(Function) },
     );
   });
   it("restores approved chat grants from history before retrying", async () => {
@@ -767,6 +770,7 @@ describe("DekiSurface message retry actions", () => {
         ],
       }),
       dekiApi,
+      { onEvent: expect.any(Function) },
     );
   });
 });
@@ -924,6 +928,7 @@ describe("DekiSurface concurrent sessions", () => {
     expect(runDekiEntry).toHaveBeenCalledWith(
       expect.objectContaining({ userMessage: "Second question", connectionId: "conn-1" }),
       dekiApi,
+      { onEvent: expect.any(Function) },
     );
     expect(container!.textContent).toContain("Reply to Second question");
 

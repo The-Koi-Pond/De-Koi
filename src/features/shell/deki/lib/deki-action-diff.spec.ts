@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { DekiEntryAction } from "../../../../engine/deki/deki-entry";
-import { createDekiActionDiffRows } from "./deki-action-diff";
+import {
+  createDekiActionDiffRows,
+  createDekiDeletePreviewFields,
+  createDekiRowChangeDiffRows,
+} from "./deki-action-diff";
 
 describe("createDekiActionDiffRows", () => {
   it("shows create action fields as added rows", () => {
@@ -192,6 +196,49 @@ describe("createDekiActionDiffRows", () => {
         after: "manual",
         status: "unchanged",
       }),
+    ]);
+  });
+});
+
+describe("createDekiDeletePreviewFields", () => {
+  it("summarizes a deleted record without ids, timestamps, or JSON list syntax", () => {
+    const fields = createDekiDeletePreviewFields({
+      entity: "lorebook-entries",
+      id: "entry-koi",
+      action: "delete",
+      before: {
+        id: "entry-koi",
+        lorebookId: "book-pond",
+        name: "Koi (copy)",
+        keys: ["koi", "carp"],
+        content: "x".repeat(400),
+        createdAt: "2026-06-25T12:00:00.000Z",
+        folderId: "",
+      },
+    });
+
+    expect(fields.map((field) => field.label)).toEqual(["name", "keys", "content"]);
+    expect(fields[1]!.value).toBe("koi, carp");
+    expect(fields[2]!.value.length).toBe(280);
+    expect(fields[2]!.value.endsWith("...")).toBe(true);
+  });
+});
+
+describe("inline diff word boundaries", () => {
+  it("shows a changed word whole instead of splitting it at shared letters", () => {
+    const [row] = createDekiRowChangeDiffRows({
+      entity: "lorebook-entries",
+      id: "entry-koi",
+      action: "update",
+      before: { content: "The koi circle the lantern at dusk." },
+      after: { content: "The koi circle the lantern at dawn, when the pond is cold." },
+    });
+
+    expect(row?.inlineDiff).toEqual([
+      { text: "The koi circle the lantern at ", kind: "unchanged" },
+      { text: "dusk", kind: "removed" },
+      { text: "dawn, when the pond is cold", kind: "added" },
+      { text: ".", kind: "unchanged" },
     ]);
   });
 });

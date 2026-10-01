@@ -270,6 +270,19 @@ fn library_type_for(raw: &str) -> AppResult<LibraryType> {
         })
 }
 
+/// Resolves a user- or model-supplied library type/collection name to its
+/// storage entity. This is the allowlist for Deki app-data commands.
+pub(super) fn library_entity_for(raw: &str) -> AppResult<&'static str> {
+    library_type_for(raw).map(|library_type| library_type.entity)
+}
+
+/// Library collections as `(overviewType, entity)` pairs, in display order.
+pub(super) fn library_collections() -> impl Iterator<Item = (&'static str, &'static str)> {
+    LIBRARY_TYPES
+        .iter()
+        .map(|library_type| (library_type.overview_type, library_type.entity))
+}
+
 fn library_type_for_entity(entity: &str) -> AppResult<LibraryType> {
     LIBRARY_TYPES
         .iter()

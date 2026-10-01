@@ -13,7 +13,10 @@ const USER_ERROR_MESSAGES = {
   dekiHistoryLoad: "Deki-senpai couldn't load chat history. Try again.",
   dekiPreferencesLoad: "Deki-senpai couldn't load preferences. Try again.",
   dekiPreferencesSave: "Deki-senpai couldn't save preferences. Try again.",
+  dekiApprovalRecord:
+    "Your decision went through, but this chat couldn't save the outcome. Reopen the chat to see the current state.",
   dekiRetry: "Deki-senpai couldn't retry that message. Your chat is unchanged. Try again.",
+  dekiStop: "Couldn't stop Deki-senpai. It will finish on its own.",
   dekiSend: "Deki-senpai couldn't send that. Your draft is still here. Try again.",
   downloadBackup: "Couldn't download that backup. Try again.",
   exportProfile: "Couldn't export that profile. Choose a location and try again.",
