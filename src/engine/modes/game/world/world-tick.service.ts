@@ -13,16 +13,16 @@ export type GameWorldTickTrigger =
   | "time_skip"
   | "day_start";
 
-export type GameWorldTickSkipReason = "disabled" | "duplicate";
+type GameWorldTickSkipReason = "disabled" | "duplicate";
 
-export type GameWorldTickWeatherReason = "new_day" | "travel" | "rest";
+type GameWorldTickWeatherReason = "new_day" | "travel" | "rest";
 
 export interface GameWorldTickNpcRule {
   npcId: string;
   note: string;
 }
 
-export interface GameWorldTickNpcUpdate {
+interface GameWorldTickNpcUpdate {
   npcId: string;
   npcName: string;
   note: string;
@@ -39,7 +39,7 @@ export interface GameWorldTickHistoryEntry {
   weatherIntent: GameWorldTickWeatherIntent | null;
 }
 
-export interface GameWorldTickWeatherIntent {
+interface GameWorldTickWeatherIntent {
   refresh: true;
   reason: GameWorldTickWeatherReason;
 }

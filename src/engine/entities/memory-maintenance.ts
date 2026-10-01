@@ -17,7 +17,7 @@ const EMBEDDING_THRESHOLD = 0.78;
 const MIN_CONTAINMENT_SHARED_TOKENS = 2;
 const MIN_JACCARD_SHARED_TOKENS = 3;
 
-export type MemoryCleanupEvidenceKind = "exact" | "provenance" | "embedding" | "containment" | "jaccard";
+type MemoryCleanupEvidenceKind = "exact" | "provenance" | "embedding" | "containment" | "jaccard";
 
 export interface MemoryCleanupCandidateEvidence {
   kind: MemoryCleanupEvidenceKind;
@@ -56,13 +56,13 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
-export interface MemoryCleanupCandidateGroup {
+interface MemoryCleanupCandidateGroup {
   id: string;
   sourceIds: string[];
   evidence: MemoryCleanupCandidateEvidence;
 }
 
-export interface MemoryCleanupValueGroup {
+interface MemoryCleanupValueGroup {
   id: string;
   sourceIds: string[];
 }

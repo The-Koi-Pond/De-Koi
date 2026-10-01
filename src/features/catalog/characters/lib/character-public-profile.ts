@@ -247,9 +247,7 @@ export function buildCharacterPublicProfileBannerPrompt(input: CharacterPublicPr
     context || "No additional public character context was provided.",
   ].join("\n");
 }
-export function getSavedCharacterPublicProfile(
-  data: CharacterPublicProfileData | null | undefined,
-): CharacterPublicProfile {
+function getSavedCharacterPublicProfile(data: CharacterPublicProfileData | null | undefined): CharacterPublicProfile {
   const extensions = readRecord(data?.extensions);
   return readRecord(extensions.publicProfile) as CharacterPublicProfile;
 }
