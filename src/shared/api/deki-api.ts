@@ -21,6 +21,7 @@ import {
 } from "../../engine/deki/deki-entry";
 import {
   createDekiSession,
+  dekiSessionMessageCount,
   getActiveDekiSession,
   type DekiCompactionState,
   type DekiSession,
@@ -118,6 +119,7 @@ type DekiSessionRecord = {
   compaction?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
+  messageCount?: unknown;
 };
 
 type DekiMessageRecord = StoredMessageRecord & {
@@ -660,6 +662,7 @@ function normalizeDekiSession(value: unknown): DekiSession | null {
       ? object.updatedAt
       : (messages.at(-1)?.createdAt ?? createdAt);
   const title = typeof object.title === "string" && object.title.trim() ? object.title : titleFromMessages(messages);
+  const messageCount = readMessageCount(object.messageCount);
   return {
     id,
     title,
@@ -667,7 +670,13 @@ function normalizeDekiSession(value: unknown): DekiSession | null {
     compaction: normalizeDekiCompaction(object.compaction ?? object),
     createdAt,
     updatedAt,
+    // A stored count only describes a summary row whose messages are not loaded.
+    ...("messageCount" in object && messages.length === 0 ? { messageCount } : {}),
   };
+}
+
+function readMessageCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function normalizeDekiSessionsState(settings: unknown): DekiSessionsState {
@@ -761,7 +770,16 @@ async function saveSettingsTransform(
   return value;
 }
 
-function normalizeDekiSessionRecord(record: DekiSessionRecord, messages: DekiMessage[]): DekiSession | null {
+/**
+ * `summaryMessageCount` is the stored count (or null if unknown) for a summary
+ * row whose messages were not loaded; pass undefined when `messages` is the
+ * session's real history.
+ */
+function normalizeDekiSessionRecord(
+  record: DekiSessionRecord,
+  messages: DekiMessage[],
+  summaryMessageCount: number | null | undefined,
+): DekiSession | null {
   const id = typeof record.id === "string" && record.id.trim() ? record.id : null;
   if (!id) return null;
   const createdAt =
@@ -780,6 +798,7 @@ function normalizeDekiSessionRecord(record: DekiSessionRecord, messages: DekiMes
     compaction: normalizeDekiCompaction(record.compaction),
     createdAt,
     updatedAt,
+    ...(summaryMessageCount !== undefined ? { messageCount: summaryMessageCount } : {}),
   };
 }
 
@@ -799,6 +818,7 @@ function dekiMessageRecord(sessionId: string, message: DekiMessage, index: numbe
 }
 
 function dekiSessionRecord(session: DekiSession): Record<string, unknown> {
+  const messageCount = dekiSessionMessageCount(session);
   const createdAt = readTrimmedString(session.createdAt) ?? new Date().toISOString();
   const updatedAt = readTrimmedString(session.updatedAt) ?? createdAt;
   return {
@@ -807,6 +827,7 @@ function dekiSessionRecord(session: DekiSession): Record<string, unknown> {
     compaction: normalizeDekiCompaction(session.compaction),
     createdAt,
     updatedAt,
+    ...(messageCount !== null ? { messageCount } : {}),
   };
 }
 
@@ -874,18 +895,19 @@ async function readDurableSessionsState(hydrateSessionId?: string | null): Promi
       : summarySessionIds.includes(hydrateSessionId ?? "")
         ? hydrateSessionId!
         : activeSessionId;
+  const loadsMessages = (sessionId: string) => sessionId === messageSessionId || hydrateSessionId === undefined;
   const sessions: DekiSession[] = [];
   const seen = new Set<string>();
   for (const record of records) {
     const sessionId = readTrimmedString(record.id);
     if (!sessionId || seen.has(sessionId)) continue;
-    const messages =
-      sessionId === messageSessionId
-        ? await readDekiSessionMessages(sessionId, true)
-        : hydrateSessionId === undefined
-          ? await readDekiSessionMessages(sessionId, false)
-          : [];
-    const session = normalizeDekiSessionRecord({ ...record, id: sessionId }, messages);
+    const loaded = loadsMessages(sessionId);
+    const messages = loaded ? await readDekiSessionMessages(sessionId, sessionId === messageSessionId) : [];
+    const session = normalizeDekiSessionRecord(
+      { ...record, id: sessionId },
+      messages,
+      loaded ? undefined : readMessageCount(record.messageCount),
+    );
     if (session) {
       seen.add(session.id);
       sessions.push(session);
@@ -993,9 +1015,11 @@ async function hydrateSelectedDekiSessions(
   sessionIds: ReadonlySet<string>,
 ): Promise<DekiSessionsState> {
   const sessions = await Promise.all(
-    state.sessions.map(async (session) =>
-      sessionIds.has(session.id) ? { ...session, messages: await readDekiSessionMessages(session.id, false) } : session,
-    ),
+    state.sessions.map(async (session) => {
+      if (!sessionIds.has(session.id)) return session;
+      const { messageCount: _summaryCount, ...loaded } = session;
+      return { ...loaded, messages: await readDekiSessionMessages(session.id, false) };
+    }),
   );
   return { activeSessionId: state.activeSessionId, sessions };
 }
@@ -1008,7 +1032,14 @@ function updateSession(
   const target = session ?? getActiveDekiSession(state);
   return {
     activeSessionId: state.activeSessionId,
-    sessions: state.sessions.map((item) => (item.id === target.id ? update(target) : item)),
+    sessions: state.sessions.map((item) => {
+      if (item.id !== target.id) return item;
+      const next = update(target);
+      if (next.messages === target.messages || !("messageCount" in next)) return next;
+      // New messages replace the summary count; a stale count must never be saved.
+      const { messageCount: _summaryCount, ...withMessages } = next;
+      return withMessages;
+    }),
   };
 }
 
