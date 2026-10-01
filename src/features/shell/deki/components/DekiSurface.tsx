@@ -59,6 +59,7 @@ import {
 } from "../lib/deki-workspace-activity";
 import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
 import { createDekiActionDiffRows, type DekiActionDiffRow } from "../lib/deki-action-diff";
+import { orderDekiDiffRowsForReading } from "../lib/deki-diff-presentation";
 import { DekiActionDiffRowView } from "./DekiDiffRows";
 import { DekiDataApprovalCard, type DekiApprovalAvailability } from "./DekiDataApprovalCard";
 import { DekiLiveActivityPanel, DekiTraceDisclosure } from "./DekiWorkspaceActivity";
@@ -1784,7 +1785,6 @@ function DekiActionCard({
       !action ||
       action.type === "none" ||
       action.type === "request_chat_access" ||
-      action.type === "apply_lorebook_redraft" ||
       applied
     )
       return [];
@@ -1859,6 +1859,7 @@ function DekiActionCard({
       {!applied && (
         <DekiActionDiffView
           action={action}
+          subject={dekiActionSubject(action, currentRecordState.record)}
           rows={diffRows}
           loading={action.type === "edit_record" && currentRecordState.status === "loading"}
           warning={diffWarning}
@@ -1882,24 +1883,54 @@ function DekiActionCard({
   );
 }
 
+/** The record a single-record action changes, named the way users know it. */
+function dekiActionSubject(
+  action: Exclude<DekiEntryAction, { type: "none" }>,
+  currentRecord: Record<string, unknown> | null,
+): string | null {
+  if (action.type === "apply_lorebook_redraft") {
+    return typeof action.lorebook.name === "string" && action.lorebook.name.trim() ? action.lorebook.name.trim() : null;
+  }
+  if (action.type !== "create_record" && action.type !== "edit_record") return null;
+  const payload = action.type === "create_record" ? action.draft : action.patch;
+  for (const source of [payload, currentRecord]) {
+    if (!source) continue;
+    const data = source.data && typeof source.data === "object" ? (source.data as Record<string, unknown>) : null;
+    const name = source.name ?? data?.name ?? source.identifier ?? source.variableName;
+    if (typeof name === "string" && name.trim()) return name.trim();
+  }
+  return null;
+}
+
 function DekiActionDiffView({
   action,
+  subject,
   rows,
   loading,
   warning,
 }: {
   action: Exclude<DekiEntryAction, { type: "none" }>;
+  subject: string | null;
   rows: DekiActionDiffRow[];
   loading: boolean;
   warning?: string | null;
 }) {
   const changedRows = rows.filter((row) => row.status !== "unchanged").length;
+  const countLabel =
+    action.type === "apply_lorebook_redraft"
+      ? `${action.entries.length} entr${action.entries.length === 1 ? "y" : "ies"}`
+      : action.type === "create_record"
+        ? `${rows.length} added`
+        : `${changedRows} changed`;
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-[var(--border)]/70 bg-[var(--secondary)]/55">
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)]/70 px-2.5 py-1.5">
-        <div className="min-w-0 flex-1 text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">Diff preview</div>
+        <div className="min-w-0 flex-1 truncate text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
+          Diff preview
+          {subject && <span className="font-normal text-[var(--foreground)]/75"> · {subject}</span>}
+        </div>
         <span className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[0.625rem] font-semibold text-[var(--muted-foreground)]">
-          {action.type === "create_record" ? `${rows.length} added` : `${changedRows} changed`}
+          {countLabel}
         </span>
       </div>
       {warning && (
@@ -1915,8 +1946,8 @@ function DekiActionDiffView({
         </div>
       ) : rows.length > 0 ? (
         <div className="max-h-80 overflow-auto">
-          {rows.map((row) => (
-            <DekiActionDiffRowView key={row.path} row={row} create={action.type === "create_record"} />
+          {orderDekiDiffRowsForReading(rows).map((row) => (
+            <DekiActionDiffRowView key={row.path} row={row} />
           ))}
         </div>
       ) : (

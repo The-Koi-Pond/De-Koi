@@ -7,6 +7,7 @@ import type {
 } from "../../../../engine/deki/deki-entry";
 import { cn } from "../../../../shared/lib/utils";
 import { createDekiDeletePreviewFields, createDekiRowChangeDiffRows } from "../lib/deki-action-diff";
+import { orderDekiDiffRowsForReading } from "../lib/deki-diff-presentation";
 import { DekiActionDiffRowView, formatDekiActionDiffLabel } from "./DekiDiffRows";
 
 const COLLECTION_LABELS: Record<string, [singular: string, plural: string]> = {
@@ -176,7 +177,10 @@ export function DekiDataApprovalCard({
   const alsoDeleted = preview.slice(1).filter((row) => row.action === "delete");
   const alsoChanged = preview.slice(1).filter((row) => row.action !== "delete");
   const primaryRows = useMemo(
-    () => (primary && primary.action !== "delete" ? createDekiRowChangeDiffRows(primary) : []),
+    () =>
+      primary && primary.action !== "delete"
+        ? orderDekiDiffRowsForReading(createDekiRowChangeDiffRows(primary))
+        : [],
     [primary],
   );
   const deletedFields = useMemo(
@@ -270,7 +274,7 @@ export function DekiDataApprovalCard({
           ) : primaryRows.length > 0 ? (
             <div className="max-h-80 overflow-auto">
               {primaryRows.map((row) => (
-                <DekiActionDiffRowView key={row.path} row={row} create={command.action === "insert"} />
+                <DekiActionDiffRowView key={row.path} row={row} />
               ))}
             </div>
           ) : (

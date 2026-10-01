@@ -11,6 +11,13 @@ export type DekiActionDiffRow = {
   after: string;
   status: "added" | "changed" | "unchanged" | "removed";
   inlineDiff: DekiActionDiffPart[];
+  /** The unformatted values, so presentation can pick a format by shape. */
+  beforeValue?: unknown;
+  afterValue?: unknown;
+  /** Overrides the label derived from `path`, e.g. a lorebook entry's name. */
+  label?: string;
+  /** Overrides the status pill text when `status` alone would mislead. */
+  statusLabel?: string;
 };
 
 type FlatValue = {
@@ -133,6 +140,8 @@ function buildDiffRow(path: string, beforeValue: unknown, afterValue: unknown, c
     after,
     status,
     inlineDiff: inlineDiffForRow(before, after, status),
+    beforeValue: create ? undefined : beforeValue,
+    afterValue,
   };
 }
 
@@ -164,6 +173,7 @@ export function createDekiRowChangeDiffRows(change: DekiWorkspaceRowChange): Dek
           after: "",
           status: "removed" as const,
           inlineDiff: before ? [{ text: before, kind: "removed" as const }] : [],
+          beforeValue: entry.value,
         };
       });
   }
@@ -212,16 +222,37 @@ export function createDekiDeletePreviewFields(change: DekiWorkspaceRowChange): D
     }));
 }
 
+function redraftEntryName(entry: Record<string, unknown>, index: number): string {
+  const name = typeof entry.name === "string" ? entry.name.trim() : "";
+  return name || `Entry ${index + 1}`;
+}
+
+/**
+ * A lorebook redraft previews as the lorebook's own fields followed by one
+ * row per entry, headed by the entry name, with the entry content as prose.
+ */
+function createLorebookRedraftDiffRows(
+  action: Extract<DekiEntryAction, { type: "apply_lorebook_redraft" }>,
+): DekiActionDiffRow[] {
+  // Redrafting an existing lorebook replaces its content; only a new one is "added".
+  const statusLabel = action.id ? "proposed" : undefined;
+  const lorebookRows = ["name", "description"]
+    .filter((field) => action.lorebook[field] !== undefined && action.lorebook[field] !== "")
+    .map((field) => ({ ...buildDiffRow(field, undefined, action.lorebook[field], true), statusLabel }));
+  const entryRows = action.entries.map((entry, index) => ({
+    ...buildDiffRow(`entries.${index}.content`, undefined, entry.content ?? "", true),
+    label: redraftEntryName(entry, index),
+    statusLabel,
+  }));
+  return [...lorebookRows, ...entryRows];
+}
+
 export function createDekiActionDiffRows(
   action: DekiEntryAction,
   currentRecord?: Record<string, unknown> | null,
 ): DekiActionDiffRow[] {
-  if (
-    action.type === "none" ||
-    action.type === "request_chat_access" ||
-    action.type === "request_web_research" ||
-    action.type === "apply_lorebook_redraft"
-  )
+  if (action.type === "apply_lorebook_redraft") return createLorebookRedraftDiffRows(action);
+  if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research")
     return [];
   const payload = action.type === "create_record" ? action.draft : action.patch;
   return flattenProposedValue(payload).map((entry) => {
