@@ -41,10 +41,8 @@ import { PersonaAvatarImage, usePersonaSummaries } from "../../../catalog/person
 import { ConversationMessage } from "../../../modes/conversation/message-shell";
 import type { CharacterMap, PersonaInfo } from "../../../modes/shared/chat-ui/types";
 import type { Message } from "../../../../engine/contracts/types/chat";
-import {
-  filterLanguageGenerationConnections,
-  pickDefaultLanguageConnection,
-} from "../../../../shared/lib/connection-filters";
+import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
@@ -132,7 +130,8 @@ type DekiConnection = {
   provider?: string;
   model?: string | null;
   maxContext?: unknown;
-  isDefault?: boolean | null;
+  isDefault?: unknown;
+  default?: unknown;
 };
 
 type DekiPersona = {
@@ -830,14 +829,16 @@ export function DekiSurface({
     }
   }, [connections, preferencesLoaded, rawConnections, selectedConnectionId]);
 
-  // Until the user picks a connection for Deki, start with the default one
-  // (or the only one) instead of refusing to send.
+  // Until the user picks a connection for Deki, start with the app's default
+  // text connection (the same rule generation uses) instead of refusing to send.
   useEffect(() => {
     if (!preferencesLoaded || rawConnections === undefined || selectedConnectionId) return;
     if (connectionSelectionTouchedRef.current) return;
-    const defaultConnection = pickDefaultLanguageConnection(connections);
-    if (defaultConnection) setSelectedConnectionId(defaultConnection.id);
-  }, [connections, preferencesLoaded, rawConnections, selectedConnectionId]);
+    const defaultConnectionId = connectionCatalogApi.selectDefaultTextConnectionId(
+      rawConnections as DekiConnection[],
+    );
+    if (defaultConnectionId) setSelectedConnectionId(defaultConnectionId);
+  }, [preferencesLoaded, rawConnections, selectedConnectionId]);
 
   useEffect(() => {
     if (!preferencesLoaded || rawPersonas === undefined || !selectedPersonaId) return;

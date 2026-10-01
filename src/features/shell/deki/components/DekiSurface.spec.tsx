@@ -46,10 +46,13 @@ vi.mock("../../../../shared/api/deki-api", () => ({
   },
 }));
 
+const DEFAULT_TEST_CONNECTIONS = [
+  { id: "conn-1", name: "Local Model", provider: "openai", model: "test-model", maxContext: 128000 },
+];
+const connectionsMock = vi.hoisted(() => ({ data: [] as Array<Record<string, unknown>> }));
+
 vi.mock("../../../catalog/connections/index", () => ({
-  useConnections: () => ({
-    data: [{ id: "conn-1", name: "Local Model", provider: "openai", model: "test-model", maxContext: 128000 }],
-  }),
+  useConnections: () => connectionsMock,
 }));
 
 vi.mock("../../../catalog/personas/index", () => ({
@@ -84,6 +87,7 @@ describe("DekiSurface message retry actions", () => {
   let queryClient: QueryClient | null = null;
 
   beforeEach(() => {
+    connectionsMock.data = DEFAULT_TEST_CONNECTIONS;
     window.localStorage.clear();
     HTMLElement.prototype.scrollIntoView = vi.fn();
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
@@ -210,7 +214,12 @@ describe("DekiSurface message retry actions", () => {
     expect(container!.textContent).not.toContain("Open the Connections panel.");
   });
 
-  it("starts with the only connection when Deki has none saved", async () => {
+  it("starts on the app's default connection when Deki has none saved", async () => {
+    // Stored rows can carry the default flag as a string.
+    connectionsMock.data = [
+      { id: "conn-0", name: "Another Model", provider: "openai", model: "other-model", maxContext: 128000 },
+      { ...DEFAULT_TEST_CONNECTIONS[0], isDefault: "true" },
+    ];
     vi.mocked(dekiApi.preferences.get).mockResolvedValue({ selectedConnectionId: null, selectedPersonaId: null });
     await act(async () => {
       root = createRoot(container!);
@@ -807,6 +816,7 @@ describe("DekiSurface concurrent sessions", () => {
   let queryClient: QueryClient | null = null;
 
   beforeEach(() => {
+    connectionsMock.data = DEFAULT_TEST_CONNECTIONS;
     window.localStorage.clear();
     HTMLElement.prototype.scrollIntoView = vi.fn();
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
@@ -1019,6 +1029,7 @@ describe("DekiSurface hero state", () => {
   let queryClient: QueryClient | null = null;
 
   beforeEach(() => {
+    connectionsMock.data = DEFAULT_TEST_CONNECTIONS;
     window.localStorage.clear();
     HTMLElement.prototype.scrollIntoView = vi.fn();
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
