@@ -60,9 +60,13 @@ function normalizeLlmCompletion(value: unknown): LlmCompletion {
 
 async function completeRich(request: LlmRequest): Promise<LlmCompletion> {
   return normalizeLlmCompletion(
-    await invokeTauri("llm_complete", {
-      request,
-    }, { timeoutMs: LLM_COMPLETE_TIMEOUT_MS }),
+    await invokeTauri(
+      "llm_complete",
+      {
+        request,
+      },
+      { timeoutMs: LLM_COMPLETE_TIMEOUT_MS },
+    ),
   );
 }
 

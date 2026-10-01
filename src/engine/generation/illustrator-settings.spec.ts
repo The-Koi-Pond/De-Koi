@@ -36,19 +36,14 @@ describe("built-in agent parity defaults", () => {
 
   it("keeps existing deliberate legacy false configs disabling chat metadata", () => {
     expect(illustratorAvatarReferenceMode({ useAvatarReferences: false })).toBe("disabled");
-    expect(illustratorAvatarReferencesEnabled({ useAvatarReferences: false }, { illustrationUseAvatarReferences: true })).toBe(
-      false,
-    );
+    expect(
+      illustratorAvatarReferencesEnabled({ useAvatarReferences: false }, { illustrationUseAvatarReferences: true }),
+    ).toBe(false);
   });
 
   it("still lets newly saved deliberate agent-level false disable chat metadata", () => {
     const savedSettings = serializeIllustratorAvatarReferenceSettings("disabled");
-    expect(
-      illustratorAvatarReferencesEnabled(
-        savedSettings,
-        { illustrationUseAvatarReferences: true },
-      ),
-    ).toBe(false);
+    expect(illustratorAvatarReferencesEnabled(savedSettings, { illustrationUseAvatarReferences: true })).toBe(false);
   });
 
   it("uses one resolver for agent-runner reference collection and retry image generation settings", () => {

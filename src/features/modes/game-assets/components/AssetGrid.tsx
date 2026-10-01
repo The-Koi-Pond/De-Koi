@@ -6,10 +6,7 @@ import { useEffect, useState } from "react";
 import type { TreeNode } from "../hooks/use-game-assets";
 import type { GameAssetSelectionStatus } from "../../game/assets";
 import { formatBytes, formatDate } from "../../../../shared/lib/format";
-import {
-  gameAssetFileUrlFromPath,
-  resolveManagedAssetThumbnailFileUrl,
-} from "../../../../shared/api/local-file-api";
+import { gameAssetFileUrlFromPath, resolveManagedAssetThumbnailFileUrl } from "../../../../shared/api/local-file-api";
 import { CATEGORY_ICONS } from "./constants";
 import { FileIcon, isImage } from "./utils";
 

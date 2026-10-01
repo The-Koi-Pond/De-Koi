@@ -134,10 +134,7 @@ export const updatePromptGroupSchema = z.object({
 
 // ── Presets ──
 
-function validatePromptPresetDefaultFlags(
-  value: { isDefault?: boolean; default?: boolean },
-  ctx: z.RefinementCtx,
-) {
+function validatePromptPresetDefaultFlags(value: { isDefault?: boolean; default?: boolean }, ctx: z.RefinementCtx) {
   if (value.isDefault !== undefined && value.default !== undefined && value.isDefault !== value.default) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

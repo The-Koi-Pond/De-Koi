@@ -95,8 +95,7 @@ function sanitizeMusicTrack(
       : raw && typeof raw === "object"
         ? sanitizeString((raw as Record<string, unknown>).id)
         : null;
-  const provider =
-    raw && typeof raw === "object" ? sanitizeString((raw as Record<string, unknown>).provider) : null;
+  const provider = raw && typeof raw === "object" ? sanitizeString((raw as Record<string, unknown>).provider) : null;
   if (!id) return null;
 
   const candidate = candidates.find((track) => track.id === id && (!provider || track.provider === provider));
@@ -264,7 +263,9 @@ function postProcessSegment(seg: SceneSegmentEffect, ctx: PostProcessContext): S
           logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" â†’ "${gen}" (no tag match)`);
           out.background = gen;
         } else {
-          logger.debug(`[postprocess] seg[${seg.segment}] bg: "${out.background}" â†’ dropped (generation unavailable)`);
+          logger.debug(
+            `[postprocess] seg[${seg.segment}] bg: "${out.background}" â†’ dropped (generation unavailable)`,
+          );
           out.background = undefined;
         }
       }

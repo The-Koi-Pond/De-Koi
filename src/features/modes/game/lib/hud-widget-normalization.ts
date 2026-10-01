@@ -74,7 +74,9 @@ export function normalizeHudWidgets(widgets: readonly LegacyHudWidget[]): HudWid
       }
     }
 
-    const legacyItems = legacyInventoryGridItems((normalized.config as HudWidget["config"] & { items?: unknown }).items);
+    const legacyItems = legacyInventoryGridItems(
+      (normalized.config as HudWidget["config"] & { items?: unknown }).items,
+    );
     if (normalized.type === "inventory_grid" && !Array.isArray(normalized.config.contents) && legacyItems) {
       normalized = {
         ...normalized,

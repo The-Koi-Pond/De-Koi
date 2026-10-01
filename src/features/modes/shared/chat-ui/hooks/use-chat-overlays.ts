@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
-import {
-  DISCOVERY_APP_EVENT,
-  type DiscoveryAppEventDetail,
-} from "../../../../../shared/lib/discovery-navigation";
+import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../../../../shared/lib/discovery-navigation";
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -194,23 +191,27 @@ export function useChatOverlays(activeChatId: string) {
     const intent = newChatSetupIntent?.chatId === activeChatId ? newChatSetupIntent : null;
     if (intent) {
       setNewChatSetupChatId(intent.chatId);
-      queueSetupOverlayOpen(`intent:${intent.chatId}`, () => {
-        const consumed = useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
-        if (!consumed) {
-          setNewChatSetupChatId(null);
-          return;
-        }
+      queueSetupOverlayOpen(
+        `intent:${intent.chatId}`,
+        () => {
+          const consumed = useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
+          if (!consumed) {
+            setNewChatSetupChatId(null);
+            return;
+          }
 
-        setNewChatSetupChatId(consumed.chatId);
-        if (consumed.openWizard) {
-          if (consumed.shortcutMode) useChatStore.getState().setShouldOpenWizardInShortcutMode(true);
-          setWizardOpen(true);
-        } else if (consumed.openSettings) {
-          setSettingsOpen(true);
-        }
-      }, () => {
-        setNewChatSetupChatId((current) => (current === intent.chatId ? null : current));
-      });
+          setNewChatSetupChatId(consumed.chatId);
+          if (consumed.openWizard) {
+            if (consumed.shortcutMode) useChatStore.getState().setShouldOpenWizardInShortcutMode(true);
+            setWizardOpen(true);
+          } else if (consumed.openSettings) {
+            setSettingsOpen(true);
+          }
+        },
+        () => {
+          setNewChatSetupChatId((current) => (current === intent.chatId ? null : current));
+        },
+      );
       return;
     }
 

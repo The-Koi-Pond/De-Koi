@@ -81,11 +81,7 @@ export function UserQuickRepliesManager() {
     setActions(actions.map((action) => (action.id === id ? { ...action, ...patch } : action)));
   };
 
-  const updateActionText = (
-    action: UserQuickReplyActionConfig,
-    field: keyof ActionTextDraft,
-    value: string,
-  ) => {
+  const updateActionText = (action: UserQuickReplyActionConfig, field: keyof ActionTextDraft, value: string) => {
     const nextLabel = field === "label" ? value : action.label;
     const nextCommandTemplate = field === "commandTemplate" ? value : action.commandTemplate;
 
@@ -144,7 +140,10 @@ export function UserQuickRepliesManager() {
   };
 
   return (
-    <div id="settings-destination-quick-replies" className="scroll-mt-4 grid gap-1.5 border-t border-[var(--border)]/60 bg-[var(--background)]/20 p-1.5 transition-shadow duration-700">
+    <div
+      id="settings-destination-quick-replies"
+      className="scroll-mt-4 grid gap-1.5 border-t border-[var(--border)]/60 bg-[var(--background)]/20 p-1.5 transition-shadow duration-700"
+    >
       <div className="flex min-h-7 items-center justify-between gap-2 px-0.5">
         <span className="text-[0.6875rem] font-semibold text-[var(--foreground)]">Custom actions</span>
         <button

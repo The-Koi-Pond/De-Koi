@@ -29,6 +29,7 @@
 ### Task 1: Deterministic setup journey model and focused state owner
 
 **Files:**
+
 - Create: `src/engine/onboarding/setup-journey.ts`
 - Create: `src/engine/onboarding/setup-journey.spec.ts`
 - Create: `src/engine/onboarding/index.ts`
@@ -38,6 +39,7 @@
 - Modify: `src/shared/stores/ui/persistence.test.ts`
 
 **Interfaces:**
+
 - Produces `SetupJourneyIntent`, `SetupReadinessFacts`, `SetupJourneyAction`, `deriveSetupJourneyAction(facts, intent)`, and `isSetupReady(facts)` from `src/engine/onboarding`.
 - Produces `useSetupJourneyStore` with `begin(mode, originCharacterId?)`, `dismiss()`, `resume()`, `markConnection(connectionId)`, `markCompleted()`, `replaceIntent(...)`, and `clearIntent()`.
 - Persistence stores only mode, optional character id, optional selected connection id, dismissal, and completion-presentation metadata.
@@ -50,7 +52,9 @@ Cover this table as separate assertions:
 expect(deriveSetupJourneyAction(webFacts({ runtimeUrl: "" }), intent("game"))).toBe("configure-runtime");
 expect(deriveSetupJourneyAction(webFacts({ runtimeHealth: "error" }), intent("game"))).toBe("repair-runtime");
 expect(deriveSetupJourneyAction(desktopFacts({ connections: [] }), intent("roleplay"))).toBe("create-connection");
-expect(deriveSetupJourneyAction(desktopFacts({ connectionTest: "required" }), intent("conversation"))).toBe("test-connection");
+expect(deriveSetupJourneyAction(desktopFacts({ connectionTest: "required" }), intent("conversation"))).toBe(
+  "test-connection",
+);
 expect(deriveSetupJourneyAction(desktopFacts({ ready: true }), intent("game"))).toBe("configure-chat");
 expect(deriveSetupJourneyAction(desktopFacts({ ready: true }), null)).toBe("choose-experience");
 ```
@@ -128,6 +132,7 @@ git commit -m "feat: add resumable setup journey state"
 ### Task 2: Adaptive readiness checklist and prerequisite detours
 
 **Files:**
+
 - Create: `src/features/shell/onboarding/components/SetupReadinessChecklist.tsx`
 - Create: `src/features/shell/onboarding/components/SetupReadinessChecklist.spec.tsx`
 - Create: `src/features/shell/onboarding/lib/setup-readiness.ts`
@@ -140,6 +145,7 @@ git commit -m "feat: add resumable setup journey state"
 - Modify: `src/features/shell/connections/components/ConnectionsPanel.tsx`
 
 **Interfaces:**
+
 - Consumes Task 1 journey model/store.
 - Produces `buildSetupReadinessFacts(...)` from existing runtime health and language-connection data.
 - Produces checklist callbacks `onConfigureRuntime`, `onRepairRuntime`, `onCreateConnection`, `onTestConnection`, and `onContinueChat`.
@@ -212,6 +218,7 @@ git commit -m "feat: guide users through setup readiness"
 ### Task 3: Exactly-once chat launch intent consumption
 
 **Files:**
+
 - Create: `src/features/modes/router/lib/setup-chat-launch.ts`
 - Create: `src/features/modes/router/lib/setup-chat-launch.spec.ts`
 - Modify: `src/features/modes/router/components/ModeHomeSurface.tsx`
@@ -222,6 +229,7 @@ git commit -m "feat: guide users through setup readiness"
 - Modify: nearby existing specs for each touched path.
 
 **Interfaces:**
+
 - Consumes `SetupJourneyIntent` and selected usable connection from Tasks 1–2.
 - Produces `claimSetupLaunch(): ClaimedSetupLaunch | null` with a monotonic claim token or equivalent atomic consumed state.
 - Reuses the existing `newChatSetupIntent` overlay contract after a chat exists.
@@ -272,6 +280,7 @@ git commit -m "feat: resume setup into one chat launch"
 ### Task 4: Action-focused Home and dedicated Discover surface
 
 **Files:**
+
 - Create: `src/features/modes/router/lib/home-suggestions.ts`
 - Create: `src/features/modes/router/lib/home-suggestions.spec.ts`
 - Modify: `src/features/modes/router/components/ModeHomeSurface.tsx`
@@ -283,6 +292,7 @@ git commit -m "feat: resume setup into one chat launch"
 - Modify: `src/app/shell/app-shell-center-surfaces.spec.ts`
 
 **Interfaces:**
+
 - Produces `getHomeSuggestions(context): HomeSuggestion[]` capped at three.
 - Adds a dedicated Discover center/shell route using the existing `DiscoverPanel`; Home no longer embeds the full registry.
 
@@ -332,6 +342,7 @@ git commit -m "feat: focus home on common journeys"
 ### Task 5: Labeled, grouped desktop and mobile navigation
 
 **Files:**
+
 - Create: `src/app/shell/shell-navigation.ts`
 - Create: `src/app/shell/shell-navigation.spec.ts`
 - Modify: `src/app/shell/PanelNavButtons.tsx`
@@ -342,6 +353,7 @@ git commit -m "feat: focus home on common journeys"
 - Modify: `src/app/shell/MobileTabBar.spec.tsx`
 
 **Interfaces:**
+
 - Produces `PRIMARY_NAV_ITEMS`, `LIBRARY_NAV_ITEMS`, and `TOOLS_NAV_ITEMS` from one typed registry.
 - Library contains Browser, Characters, Personas, Lorebooks, Presets, Gallery.
 - Tools contains Connections, Agents, Settings, Discover.
@@ -403,6 +415,7 @@ git commit -m "feat: group and label shell navigation"
 ### Task 6: Contextual chat recovery states and integration verification
 
 **Files:**
+
 - Create: `src/app/shell/chat-sidebar-recovery.ts`
 - Create: `src/app/shell/chat-sidebar-recovery.spec.ts`
 - Modify: `src/app/shell/ChatSidebar.tsx`
@@ -412,6 +425,7 @@ git commit -m "feat: group and label shell navigation"
 - Modify: `src/features/shell/discovery/discovery-entries.json`
 
 **Interfaces:**
+
 - Produces `getChatSidebarRecovery(error, context)` returning `{ title, description, primaryAction, secondaryAction? }` for startup, missing runtime, unhealthy runtime, storage, connection, and unknown failures.
 - Recovery action IDs map only at the component edge to Retry, Connect server, Open Connections, View Health, or Copy support details.
 

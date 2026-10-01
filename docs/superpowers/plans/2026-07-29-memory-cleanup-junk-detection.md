@@ -29,11 +29,13 @@
 ### Task 1: Add discard contracts, value-scan batches, and TypeScript validation
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/memory-maintenance.ts`
 - Modify: `src/engine/entities/memory-maintenance.ts`
 - Test: `src/engine/entities/memory-maintenance.spec.ts`
 
 **Interfaces:**
+
 - Consumes: existing `MemoryCleanupSource`, `isMemoryCleanupEligible`, and 8-record/12,000-character cleanup bounds.
 - Produces: `MemoryCleanupProposalType` including `discard`; `MemoryCleanupReason` including `Low-value memory`; `MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS`; `MemoryCleanupApplyResult.discarded`; `PreparedMemoryCleanupCandidates.valueGroups`; discard validation.
 
@@ -91,11 +93,7 @@ it("includes pinned manual and edited memories but excludes inactive rows from v
     source({ id: "wrong", status: "wrong" }),
   ]);
 
-  expect(prepared.valueGroups.flatMap((group) => group.sourceIds)).toEqual([
-    "edited",
-    "manual",
-    "pinned",
-  ]);
+  expect(prepared.valueGroups.flatMap((group) => group.sourceIds)).toEqual(["edited", "manual", "pinned"]);
 });
 ```
 
@@ -132,7 +130,10 @@ it("accepts one unchecked discard without a winner or replacement", () => {
 it("rejects discard with zero or multiple sources, a winner, or a replacement", () => {
   const one = source({ id: "one" });
   const two = source({ id: "two" });
-  const sources = new Map([[one.id, one], [two.id, two]]);
+  const sources = new Map([
+    [one.id, one],
+    [two.id, two],
+  ]);
   const base = {
     type: "discard" as const,
     reason: "Low-value memory" as const,
@@ -145,9 +146,9 @@ it("rejects discard with zero or multiple sources, a winner, or a replacement", 
   expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one", "two"] }), sources)).toThrow(
     "exactly one",
   );
-  expect(() =>
-    validateCleanupProposal(proposal({ ...base, sourceIds: ["one"], winnerId: "two" }), sources),
-  ).toThrow("winner");
+  expect(() => validateCleanupProposal(proposal({ ...base, sourceIds: ["one"], winnerId: "two" }), sources)).toThrow(
+    "winner",
+  );
   expect(() =>
     validateCleanupProposal(
       proposal({
@@ -177,11 +178,7 @@ export const MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS = 1_000;
 
 export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "conflict";
 
-export type MemoryCleanupReason =
-  | "Low-value memory"
-  | "Repeated fact"
-  | "Overlapping memories"
-  | "Possible conflict";
+export type MemoryCleanupReason = "Low-value memory" | "Repeated fact" | "Overlapping memories" | "Possible conflict";
 
 export interface MemoryCleanupApplyResult {
   batchId: string;
@@ -272,10 +269,12 @@ git commit -m "memory: prepare low-value cleanup candidates"
 ### Task 2: Analyze low-value memories and resolve discard first
 
 **Files:**
+
 - Modify: `src/engine/generation/memory-cleanup.ts`
 - Test: `src/engine/generation/memory-cleanup.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `PreparedMemoryCleanupCandidates.valueGroups`, `discard` contract, existing structured-generation and proposal resolver.
 - Produces: sequential value-scan requests; normalized unchecked discards; discard-first overlap resolution.
 
@@ -418,9 +417,7 @@ it("keeps discard ahead of exact and semantic cleanup for the same memory", asyn
     llm,
   });
 
-  expect(preview.proposals).toEqual([
-    expect.objectContaining({ type: "discard", sourceIds: ["duplicate-a"] }),
-  ]);
+  expect(preview.proposals).toEqual([expect.objectContaining({ type: "discard", sourceIds: ["duplicate-a"] })]);
 });
 
 it("rejects invented discard IDs and coalesces repeated discard suggestions", async () => {
@@ -481,12 +478,7 @@ const VALUE_SYSTEM_PROMPT = [
 Extend the allowed sets and normalization:
 
 ```ts
-const PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>([
-  "discard",
-  "keep_one",
-  "combine",
-  "conflict",
-]);
+const PROPOSAL_TYPES = new Set<MemoryCleanupProposalType>(["discard", "keep_one", "combine", "conflict"]);
 const REASONS = new Set<MemoryCleanupReason>([
   "Low-value memory",
   "Repeated fact",
@@ -544,6 +536,7 @@ git commit -m "memory: flag low-value cleanup candidates"
 ### Task 3: Require explicit discard consent in the review UI
 
 **Files:**
+
 - Modify: `src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.ts`
 - Test: `src/features/catalog/memory-maintenance/hooks/use-memory-cleanup.spec.tsx`
 - Modify: `src/features/catalog/memory-maintenance/components/MemoryCleanupReviewModal.tsx`
@@ -552,6 +545,7 @@ git commit -m "memory: flag low-value cleanup candidates"
 - Test: `src/features/shell/discovery/discovery-registry.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `discard` proposal and `MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS`.
 - Produces: unchecked discard state even for malformed previews, explicit removal copy and source labels, client-side 1,000-selection guard.
 
@@ -642,9 +636,7 @@ Before storage apply:
 
 ```ts
 if (proposals.length > MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS) {
-  throw new Error(
-    `Select at most ${MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS.toLocaleString()} cleanup changes at once.`,
-  );
+  throw new Error(`Select at most ${MEMORY_CLEANUP_MAX_SELECTED_PROPOSALS.toLocaleString()} cleanup changes at once.`);
 }
 ```
 
@@ -673,12 +665,8 @@ expect(apply?.disabled).toBe(true);
 Update copy assertions:
 
 ```ts
-expect(container.textContent).toContain(
-  "Find memories that can be combined or are not useful to keep.",
-);
-expect(container.textContent).toContain(
-  "No cleanup opportunities found. These memories look distinct and useful.",
-);
+expect(container.textContent).toContain("Find memories that can be combined or are not useful to keep.");
+expect(container.textContent).toContain("No cleanup opportunities found. These memories look distinct and useful.");
 ```
 
 - [ ] **Step 5: Run the modal tests and verify RED**
@@ -702,39 +690,43 @@ const source = discard ? sourcesById.get(proposal.sourceIds[0] ?? "") : undefine
 Render source badges from real metadata:
 
 ```tsx
-{discard && source && (
-  <span className="mt-1 flex flex-wrap gap-1">
-    {source.pinned && <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Pinned</span>}
-    {source.origin === "manual" && <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Manual</span>}
-    {source.userEdited && <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Edited</span>}
-  </span>
-)}
+{
+  discard && source && (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {source.pinned && <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Pinned</span>}
+      {source.origin === "manual" && <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Manual</span>}
+      {source.userEdited && <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5">Edited</span>}
+    </span>
+  );
+}
 ```
 
 Render the after state:
 
 ```tsx
-{discard ? (
-  <p className="mt-1 rounded border border-amber-400/30 bg-amber-400/10 p-2 text-xs">
-    Remove from active memories. Undo can restore it.
-  </p>
-) : proposal.replacement ? (
-  <textarea
-    aria-label={`Replacement for ${proposal.reason}`}
-    value={controller.replacementText[proposal.id] ?? ""}
-    disabled={isBusy}
-    onChange={(event) => controller.updateReplacement(proposal.id, event.currentTarget.value)}
-    className="mt-1 min-h-24 w-full resize-y rounded border border-[var(--border)] bg-[var(--background)] p-2 text-xs leading-relaxed"
-  />
-) : proposal.winnerId ? (
-  <p className="mt-1 rounded bg-[var(--secondary)]/65 p-2 text-xs leading-relaxed">
-    {sourcesById.get(proposal.winnerId)?.content ?? "Retained memory unavailable"}
-  </p>
-) : (
-  <p className="mt-1 rounded border border-amber-400/30 bg-amber-400/10 p-2 text-xs">
-    Possible conflict — nothing will be changed.
-  </p>
-)}
+{
+  discard ? (
+    <p className="mt-1 rounded border border-amber-400/30 bg-amber-400/10 p-2 text-xs">
+      Remove from active memories. Undo can restore it.
+    </p>
+  ) : proposal.replacement ? (
+    <textarea
+      aria-label={`Replacement for ${proposal.reason}`}
+      value={controller.replacementText[proposal.id] ?? ""}
+      disabled={isBusy}
+      onChange={(event) => controller.updateReplacement(proposal.id, event.currentTarget.value)}
+      className="mt-1 min-h-24 w-full resize-y rounded border border-[var(--border)] bg-[var(--background)] p-2 text-xs leading-relaxed"
+    />
+  ) : proposal.winnerId ? (
+    <p className="mt-1 rounded bg-[var(--secondary)]/65 p-2 text-xs leading-relaxed">
+      {sourcesById.get(proposal.winnerId)?.content ?? "Retained memory unavailable"}
+    </p>
+  ) : (
+    <p className="mt-1 rounded border border-amber-400/30 bg-amber-400/10 p-2 text-xs">
+      Possible conflict — nothing will be changed.
+    </p>
+  );
+}
 ```
 
 Update helper and no-op copy exactly as specified.
@@ -777,9 +769,11 @@ git commit -m "memory: require explicit low-value removal"
 ### Task 4: Extend the privileged Rust proposal contract
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/memory_maintenance/contracts.rs`
 
 **Interfaces:**
+
 - Consumes: version 1 cleanup JSON.
 - Produces: `ProposalType::Discard`, exact singleton shape checks, and a 1,000-proposal request ceiling.
 
@@ -951,9 +945,11 @@ git commit -m "memory: validate discard cleanup requests"
 ### Task 5: Apply and undo chat-memory discards
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/memory_maintenance/chat.rs`
 
 **Interfaces:**
+
 - Consumes: validated selected `ProposalType::Discard`.
 - Produces: recoverable `deleted` chat source history, `discarded` apply count, exact undo restoration.
 
@@ -1093,9 +1089,11 @@ git commit -m "memory: apply undoable chat discards"
 ### Task 6: Apply and undo canonical-memory discards with index updates
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/memory_maintenance/canonical.rs`
 
 **Interfaces:**
+
 - Consumes: validated selected `ProposalType::Discard`.
 - Produces: recoverable `deleted` canonical source history, lexical index removal/restoration, `discarded` apply count.
 
@@ -1266,10 +1264,12 @@ git commit -m "memory: apply undoable canonical discards"
 ### Task 7: Run integration, architecture, build, and boundary verification
 
 **Files:**
+
 - Verify all files changed in Tasks 1-6.
 - Modify only test/code files required by a proven failure.
 
 **Interfaces:**
+
 - Consumes: complete discard feature.
 - Produces: fresh proof for the engine, UI, both storage owners, architecture, docs, production build, and clean branch boundary.
 

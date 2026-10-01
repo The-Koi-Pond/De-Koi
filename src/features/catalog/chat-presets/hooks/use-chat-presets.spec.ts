@@ -235,7 +235,11 @@ describe("roleplay workflow profile persistence", () => {
   ) {
     return {
       get,
-      updateChatIfUnchanged: async (chatId: string, _expected: Record<string, unknown>, patch: Record<string, unknown>) => ({
+      updateChatIfUnchanged: async (
+        chatId: string,
+        _expected: Record<string, unknown>,
+        patch: Record<string, unknown>,
+      ) => ({
         updated: true,
         chat: await update("chats", chatId, patch),
       }),
@@ -273,9 +277,7 @@ describe("roleplay workflow profile persistence", () => {
     const preview = resolveRoleplayWorkflowProfile("longform-continuity", { chat: currentChat, capabilities });
     const selectedItemIds =
       selectedItemIdsOverride ??
-      preview.rows
-        .filter((row) => row.kind === "change" && row.selectedByDefault)
-        .map((row) => row.id);
+      preview.rows.filter((row) => row.kind === "change" && row.selectedByDefault).map((row) => row.id);
     return applyRoleplayWorkflowProfile({
       chatId: currentChat.id,
       profileId: "longform-continuity",
@@ -392,7 +394,11 @@ describe("roleplay workflow profile persistence", () => {
 
   it("rejects a stale preview without writing", async () => {
     const preview = resolveRoleplayWorkflowProfile("minimal-clean", {
-      chat: { mode: roleplayMode, promptPresetId: null, metadata: { enableMemoryRecall: undefined, activeAgentIds: [] } },
+      chat: {
+        mode: roleplayMode,
+        promptPresetId: null,
+        metadata: { enableMemoryRecall: undefined, activeAgentIds: [] },
+      },
       capabilities,
     });
     const currentChat = {
@@ -1008,9 +1014,7 @@ describe("roleplay workflow profile persistence", () => {
           profileVersion: 1,
           appliedAt: NOW,
           selectedItemIds: ["memory-recall"],
-          changes: [
-            { itemIds: ["memory-recall"], field: "metadata.enableMemoryRecall", before: false, after: true },
-          ],
+          changes: [{ itemIds: ["memory-recall"], field: "metadata.enableMemoryRecall", before: false, after: true }],
         },
       },
     } as unknown as Chat;
@@ -1065,9 +1069,24 @@ describe("roleplay workflow profile persistence", () => {
           appliedAt: NOW,
           selectedItemIds: ["continuity-director", "continuity-director-cadence"],
           changes: [
-            { itemIds: ["continuity-director"], field: "metadata.roleplayContinuityDirector.enabled", before: false, after: true },
-            { itemIds: ["continuity-director-cadence"], field: "metadata.roleplayContinuityDirector.refreshMode", before: "manual", after: "cadence" },
-            { itemIds: ["continuity-director-cadence"], field: "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns", before: null, after: 10 },
+            {
+              itemIds: ["continuity-director"],
+              field: "metadata.roleplayContinuityDirector.enabled",
+              before: false,
+              after: true,
+            },
+            {
+              itemIds: ["continuity-director-cadence"],
+              field: "metadata.roleplayContinuityDirector.refreshMode",
+              before: "manual",
+              after: "cadence",
+            },
+            {
+              itemIds: ["continuity-director-cadence"],
+              field: "metadata.roleplayContinuityDirector.refreshEveryAssistantTurns",
+              before: null,
+              after: 10,
+            },
           ],
         },
       },

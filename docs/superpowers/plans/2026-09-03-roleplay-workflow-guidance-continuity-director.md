@@ -25,10 +25,12 @@
 ### Task 1: Add a content-safe Continuity Director configuration boundary
 
 **Files:**
+
 - Modify: `src/engine/modes/roleplay/continuity-director/continuity-director-state.ts:145-270`
 - Modify: `src/engine/modes/roleplay/continuity-director/continuity-director-state.spec.ts:35-100`
 
 **Interfaces:**
+
 - Consumes: `RoleplayContinuityDirectorState`, `ContinuityDirectorRefreshMode`, and the existing cadence normalization rules.
 - Produces: `ContinuityDirectorConfiguration`, `readContinuityDirectorConfiguration(value)`, `applyContinuityDirectorConfiguration(state, patch, options)`, and `countProposedContinuityDirectorBeats(value)`.
 
@@ -39,12 +41,16 @@ Add focused cases proving configuration edits preserve content, invalid cadence 
 ```ts
 it("updates only director configuration and preserves plan content", () => {
   const options = commandOptions();
-  const state = applyContinuityDirectorCommand(createDefaultContinuityDirectorState(NOW), {
-    type: "replace_director_proposals",
-    arc: "Recover the sealed archive",
-    threads: ["Who altered the map?"],
-    beats: ["The map points beneath the city."],
-  }, options);
+  const state = applyContinuityDirectorCommand(
+    createDefaultContinuityDirectorState(NOW),
+    {
+      type: "replace_director_proposals",
+      arc: "Recover the sealed archive",
+      threads: ["Who altered the map?"],
+      beats: ["The map points beneath the city."],
+    },
+    options,
+  );
 
   const next = applyContinuityDirectorConfiguration(
     state,
@@ -66,10 +72,12 @@ it("updates only director configuration and preserves plan content", () => {
 
 it("counts only proposed beats from normalized state", () => {
   const state = proposedState();
-  expect(countProposedContinuityDirectorBeats({
-    ...state,
-    beats: [state.beats[0]!, { ...state.beats[1]!, status: "approved" }],
-  })).toBe(1);
+  expect(
+    countProposedContinuityDirectorBeats({
+      ...state,
+      beats: [state.beats[0]!, { ...state.beats[1]!, status: "approved" }],
+    }),
+  ).toBe(1);
   expect(countProposedContinuityDirectorBeats(undefined)).toBe(0);
 });
 ```
@@ -115,9 +123,7 @@ export function applyContinuityDirectorConfiguration(
 ): RoleplayContinuityDirectorState {
   const refreshMode = patch.refreshMode ?? state.refreshMode;
   const refreshEveryAssistantTurns =
-    refreshMode === "cadence"
-      ? cadence(patch.refreshEveryAssistantTurns ?? state.refreshEveryAssistantTurns)
-      : null;
+    refreshMode === "cadence" ? cadence(patch.refreshEveryAssistantTurns ?? state.refreshEveryAssistantTurns) : null;
   const next = {
     ...state,
     enabled: patch.enabled ?? state.enabled,
@@ -128,7 +134,8 @@ export function applyContinuityDirectorConfiguration(
     next.enabled === state.enabled &&
     next.refreshMode === state.refreshMode &&
     next.refreshEveryAssistantTurns === state.refreshEveryAssistantTurns
-  ) return state;
+  )
+    return state;
   const now = options.now?.() ?? new Date().toISOString();
   return { ...next, revision: state.revision + 1, updatedAt: now };
 }
@@ -156,6 +163,7 @@ git commit -m "feat: add continuity director configuration boundary"
 ### Task 2: Version Long-Running Story and make Director changes reversible
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/chat.ts:125-158`
 - Modify: `src/engine/modes/roleplay/workflow-profiles.ts:1-520`
 - Modify: `src/engine/modes/roleplay/workflow-profiles.spec.ts:1-430`
@@ -163,6 +171,7 @@ git commit -m "feat: add continuity director configuration boundary"
 - Modify: `src/features/catalog/chat-presets/hooks/use-chat-presets.spec.ts:120-570`
 
 **Interfaces:**
+
 - Consumes: Task 1 configuration helpers and the existing atomic workflow apply/revert functions.
 - Produces: version-2 Longform rows `continuity-director` and `continuity-director-cadence`; `ApplyRoleplayWorkflowProfileResult.shouldCreateContinuityPlan`; receipt support for three Director configuration field paths.
 
@@ -201,11 +210,9 @@ it("adds selected-by-default Director configuration to Longform version 2", () =
     expectedExtraCalls: 1,
     modelUse: "One non-blocking planning call every 10 assistant replies",
   });
-  expect(() => buildRoleplayWorkflowProfilePatch(
-    resolution,
-    ["continuity-director-cadence"],
-    NOW,
-  )).toThrow("requires Continuity Director to be enabled");
+  expect(() => buildRoleplayWorkflowProfilePatch(resolution, ["continuity-director-cadence"], NOW)).toThrow(
+    "requires Continuity Director to be enabled",
+  );
 });
 
 it("preserves an explicit Director choice", () => {
@@ -359,8 +366,20 @@ export const ROLEPLAY_WORKFLOW_PROFILE_RECIPES = {
     runIntervalOverrides: { [BUILT_IN_AGENT_IDS.CHAT_SUMMARY]: 5 },
     continuityDirector: { enabled: true, mode: "cadence", everyAssistantTurns: 10 },
   },
-  cinematic: { version: 1, agentIds: [BUILT_IN_AGENT_IDS.EXPRESSION, BUILT_IN_AGENT_IDS.BACKGROUND], optionalAgentIds: [BUILT_IN_AGENT_IDS.ILLUSTRATOR, BUILT_IN_AGENT_IDS.MUSIC_DJ] },
-  "local-assist": { version: 1, agentIds: [BUILT_IN_AGENT_IDS.WORLD_STATE, BUILT_IN_AGENT_IDS.EXPRESSION, BUILT_IN_AGENT_IDS.CHARACTER_TRACKER], connectionOverrides: { [BUILT_IN_AGENT_IDS.WORLD_STATE]: LOCAL_SIDECAR_CONNECTION_ID, [BUILT_IN_AGENT_IDS.EXPRESSION]: LOCAL_SIDECAR_CONNECTION_ID, [BUILT_IN_AGENT_IDS.CHARACTER_TRACKER]: LOCAL_SIDECAR_CONNECTION_ID } },
+  cinematic: {
+    version: 1,
+    agentIds: [BUILT_IN_AGENT_IDS.EXPRESSION, BUILT_IN_AGENT_IDS.BACKGROUND],
+    optionalAgentIds: [BUILT_IN_AGENT_IDS.ILLUSTRATOR, BUILT_IN_AGENT_IDS.MUSIC_DJ],
+  },
+  "local-assist": {
+    version: 1,
+    agentIds: [BUILT_IN_AGENT_IDS.WORLD_STATE, BUILT_IN_AGENT_IDS.EXPRESSION, BUILT_IN_AGENT_IDS.CHARACTER_TRACKER],
+    connectionOverrides: {
+      [BUILT_IN_AGENT_IDS.WORLD_STATE]: LOCAL_SIDECAR_CONNECTION_ID,
+      [BUILT_IN_AGENT_IDS.EXPRESSION]: LOCAL_SIDECAR_CONNECTION_ID,
+      [BUILT_IN_AGENT_IDS.CHARACTER_TRACKER]: LOCAL_SIDECAR_CONNECTION_ID,
+    },
+  },
 } as const satisfies Readonly<Record<RoleplayWorkflowProfileId, RoleplayWorkflowProfileRecipe>>;
 ```
 
@@ -371,9 +390,12 @@ Add this exact configuration-only baseline field to `RoleplayWorkflowProfileReso
 ```ts
 baseline: {
   promptPresetId: string | null;
-  metadata: Pick<ChatMetadata, "enableMemoryRecall" | "enableAgents" | "activeAgentIds" | "agentConnectionOverrides" | "agentRunIntervalOverrides">;
+  metadata: Pick<
+    ChatMetadata,
+    "enableMemoryRecall" | "enableAgents" | "activeAgentIds" | "agentConnectionOverrides" | "agentRunIntervalOverrides"
+  >;
   continuityDirector: ContinuityDirectorConfiguration;
-};
+}
 ```
 
 Only select the Director rows by default when `chat.metadata.roleplayContinuityDirector === undefined`. Existing metadata, including explicit `enabled: false`, is a user choice.
@@ -388,7 +410,7 @@ export function buildRoleplayWorkflowProfilePatch(
   itemIds: readonly string[],
   appliedAt: string,
   currentDirectorValue?: unknown,
-): RoleplayWorkflowProfilePatch
+): RoleplayWorkflowProfilePatch;
 ```
 
 Build one next state with `applyContinuityDirectorConfiguration`, record the three scalar before/after changes with their row item IDs, and assign the complete preserved state only to `metadata.roleplayContinuityDirector`. Extend `currentValueForReceiptField` and revert assembly for the three scalar fields. Treat refresh mode and cadence as the coupled `continuity-director-cadence` row during conflict detection: a mismatch in either skips both. Revert must build one next Director state and bump its revision once; it must never serialize or compare plan content in a receipt.
@@ -400,7 +422,7 @@ export function buildRoleplayWorkflowProfileRevertPatch(
   current: { promptPresetId: string | null; metadata: Partial<ChatMetadata> },
   receipt: RoleplayWorkflowApplicationReceipt,
   now: () => string = () => new Date().toISOString(),
-): RoleplayWorkflowProfileRevertResult
+): RoleplayWorkflowProfileRevertResult;
 ```
 
 - [ ] **Step 6: Write failing apply-result tests for initial-plan eligibility**
@@ -485,11 +507,13 @@ git commit -m "feat: add continuity director to longform workflow"
 ### Task 3: Replace technical profile descriptions with decision guidance
 
 **Files:**
+
 - Modify: `src/features/catalog/chat-presets/components/RoleplayWorkflowProfileChooser.tsx:16-170,395-520`
 - Modify: `src/features/catalog/chat-presets/components/RoleplayWorkflowProfileChooser.spec.tsx:55-145,560-690`
 - Modify: `src/features/catalog/chat-presets/components/RoleplayWorkflowProfileDrawerControl.tsx:25-40`
 
 **Interfaces:**
+
 - Consumes: Task 2 profile versions, row `modelUse`, and existing receipt metadata.
 - Produces: structured `ProfilePresentation`; plain-language cards; version-1 Longform update affordance; honest aggregate activity summary.
 
@@ -549,10 +573,34 @@ interface ProfilePresentation {
 }
 
 const PROFILES: readonly ProfilePresentation[] = [
-  { id: "minimal-clean", label: "Simple Roleplay", bestFor: "A short or casual chat where the main model handles the story.", adds: "Standard Roleplay prompting and memory recall without automatic helpers.", modelUse: "No background helper calls." },
-  { id: "longform-continuity", label: "Long-Running Story", bestFor: "A campaign or story spanning many scenes or sessions.", adds: "Continuity checks, world state, summaries, and reviewable future story beats.", modelUse: "Occasional background calls, including Director planning every 10 assistant replies." },
-  { id: "cinematic", label: "Cinematic Roleplay", bestFor: "Roleplay where expressions, backgrounds, artwork, or music matter most.", adds: "Visual presentation helpers; artwork and music remain optional.", modelUse: "Varies by selection; image or music features may use external services." },
-  { id: "local-assist", label: "Local Helpers", bestFor: "A setup with the local sidecar configured for supported background work.", adds: "Local tracking and expression helpers without changing the writer connection.", modelUse: "Uses local helper calls and requires a ready sidecar." },
+  {
+    id: "minimal-clean",
+    label: "Simple Roleplay",
+    bestFor: "A short or casual chat where the main model handles the story.",
+    adds: "Standard Roleplay prompting and memory recall without automatic helpers.",
+    modelUse: "No background helper calls.",
+  },
+  {
+    id: "longform-continuity",
+    label: "Long-Running Story",
+    bestFor: "A campaign or story spanning many scenes or sessions.",
+    adds: "Continuity checks, world state, summaries, and reviewable future story beats.",
+    modelUse: "Occasional background calls, including Director planning every 10 assistant replies.",
+  },
+  {
+    id: "cinematic",
+    label: "Cinematic Roleplay",
+    bestFor: "Roleplay where expressions, backgrounds, artwork, or music matter most.",
+    adds: "Visual presentation helpers; artwork and music remain optional.",
+    modelUse: "Varies by selection; image or music features may use external services.",
+  },
+  {
+    id: "local-assist",
+    label: "Local Helpers",
+    bestFor: "A setup with the local sidecar configured for supported background work.",
+    adds: "Local tracking and expression helpers without changing the writer connection.",
+    modelUse: "Uses local helper calls and requires a ready sidecar.",
+  },
 ] as const;
 ```
 
@@ -625,12 +673,14 @@ git commit -m "feat: explain roleplay workflow choices"
 ### Task 4: Start the first plan after workflow persistence
 
 **Files:**
+
 - Modify: `src/features/catalog/chat-presets/hooks/use-chat-presets.ts:452-475`
 - Create: `src/features/catalog/chat-presets/hooks/use-chat-presets.continuity-director.spec.tsx`
 - Modify: `src/features/catalog/chat-presets/components/RoleplayWorkflowProfileChooser.tsx:300-390`
 - Modify: `src/features/catalog/chat-presets/components/RoleplayWorkflowProfileChooser.spec.tsx:1-30,280-560`
 
 **Interfaces:**
+
 - Consumes: Task 2 `shouldCreateContinuityPlan` and `roleplayContinuityDirectorApi.refresh(chatId)`.
 - Produces: `useCreateInitialContinuityPlan`; detached first-plan status flow; chat query invalidation after planner settlement.
 
@@ -751,10 +801,11 @@ if (result.shouldCreateContinuityPlan) {
   setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
   initialPlan.mutate(displayedChat.id, {
     onSuccess: () => setStatus({ tone: "success", message: "Story plan ready for review." }),
-    onError: () => setStatus({
-      tone: "info",
-      message: "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
-    }),
+    onError: () =>
+      setStatus({
+        tone: "info",
+        message: "Workflow applied, but the first story plan could not be created. Open Continuity Director to retry.",
+      }),
   });
   return;
 }
@@ -784,11 +835,13 @@ git commit -m "feat: create longform story plan after setup"
 ### Task 5: Keep proposed beats visibly reviewable
 
 **Files:**
+
 - Create: `src/features/modes/roleplay/components/ContinuityDirectorReviewBadge.tsx`
 - Create: `src/features/modes/roleplay/components/ContinuityDirectorReviewBadge.spec.tsx`
 - Modify: `src/features/modes/roleplay/components/ChatRoleplaySurface.tsx:316-345,820-840,1145-1160,1568-1590`
 
 **Interfaces:**
+
 - Consumes: Task 1 `countProposedContinuityDirectorBeats(chatMeta.roleplayContinuityDirector)`.
 - Produces: `ContinuityDirectorReviewBadge({ count, compact })`, desktop icon count, and mobile `N to review` label.
 
@@ -838,9 +891,11 @@ export function ContinuityDirectorReviewBadge({ count, compact = false }: { coun
   return (
     <span
       aria-label={`${count} story ${count === 1 ? "beat" : "beats"} to review`}
-      className={compact
-        ? "absolute -right-1 -top-1 min-w-4 rounded-full bg-[var(--primary)] px-1 text-center text-[0.5625rem] font-bold text-[var(--primary-foreground)]"
-        : "ml-auto rounded-full bg-[var(--primary)]/15 px-2 py-0.5 text-[0.625rem] font-semibold text-[var(--primary)]"}
+      className={
+        compact
+          ? "absolute -right-1 -top-1 min-w-4 rounded-full bg-[var(--primary)] px-1 text-center text-[0.5625rem] font-bold text-[var(--primary-foreground)]"
+          : "ml-auto rounded-full bg-[var(--primary)]/15 px-2 py-0.5 text-[0.625rem] font-semibold text-[var(--primary)]"
+      }
     >
       {compact ? count : `${count} to review`}
     </span>
@@ -917,10 +972,12 @@ git commit -m "feat: show continuity beats awaiting review"
 ### Task 6: Prove cross-boundary behavior and prepare the shipping gate
 
 **Files:**
+
 - Test: `src/features/catalog/chat-presets/workflow-profile-entrypoints.spec.ts`
 - Track proof in the repository-prescribed ignored `scratch/` ledger; do not add generated proof artifacts to git.
 
 **Interfaces:**
+
 - Consumes: Tasks 1-5 completed behavior.
 - Produces: complete regression proof, desktop/mobile browser evidence, and a reviewable shipping diff.
 

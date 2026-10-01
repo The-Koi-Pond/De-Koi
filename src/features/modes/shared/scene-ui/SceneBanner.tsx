@@ -17,7 +17,14 @@ interface SceneBannerProps {
   onReopen?: (sceneChatId: string) => void | Promise<void>;
 }
 
-export function SceneBanner({ variant, sceneChatId, sceneChatName, originChatId, description, onReopen }: SceneBannerProps) {
+export function SceneBanner({
+  variant,
+  sceneChatId,
+  sceneChatName,
+  originChatId,
+  description,
+  onReopen,
+}: SceneBannerProps) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
 
   if (variant === "scene") {
@@ -126,14 +133,7 @@ interface EndSceneBarProps {
 }
 
 /** End Scene bar — placed above the input area in scene chats */
-export function EndSceneBar({
-  sceneChatId,
-  originChatId,
-  onConclude,
-  onAbandon,
-  onFork,
-  isForking,
-}: EndSceneBarProps) {
+export function EndSceneBar({ sceneChatId, originChatId, onConclude, onAbandon, onFork, isForking }: EndSceneBarProps) {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [isEnding, setIsEnding] = useState(false);

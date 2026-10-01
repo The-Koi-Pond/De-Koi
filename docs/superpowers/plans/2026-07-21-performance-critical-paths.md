@@ -22,6 +22,7 @@
 ### Task 1: Stage diagnostics (#1145)
 
 **Files:**
+
 - Modify: `src/shared/lib/performance-diagnostics.ts`
 - Modify: `src/shared/lib/performance-diagnostics.spec.ts`
 - Modify: `src/engine/generation/start-generation.ts`
@@ -30,6 +31,7 @@
 - Modify: `docs/performance-diagnostics.md`
 
 **Interfaces:**
+
 - Produces stable span names `generation.prompt_assembly`, `generation.first_token`, `generation.post_save`, `deki.session_summaries`, `deki.active_history`, and `generation.background_maintenance` through the existing diagnostics helper.
 - Produces an optional engine timing callback/event DTO containing only `name`, `elapsedMs`, `status`, and bounded numeric/count metadata; the feature runtime adapter maps it to the concrete diagnostics helper.
 
@@ -42,6 +44,7 @@
 ### Task 2: Low-risk Rust runtime wins (#1135, #1141, #1144)
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/llm.rs`
 - Modify: `src-tauri/src/http_server.rs`
 - Modify: `src-tauri/src/commands/storage/prompts.rs` only if the existing helper needs visibility changes
@@ -49,6 +52,7 @@
 - Modify: `src-tauri/src/http_dispatch.rs`
 
 **Interfaces:**
+
 - Consumes the existing provider-aware `embed_texts` helper.
 - Produces an owned blocking-dispatch adapter and a pure referenced-media set reducer.
 
@@ -61,11 +65,13 @@
 ### Task 3: Bounded blocking backup and export work (#1142)
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/commands/backup.rs`
 - Modify: `src-tauri/src/http_dispatch.rs`
 - Modify: focused backup/export tests in their existing Rust owners
 
 **Interfaces:**
+
 - Produces async command facades whose synchronous capability bodies run in `spawn_blocking` and return the existing JSON/AppResult contract.
 
 - [ ] Add failing tests using a blocking probe that prove unrelated Tokio work can progress during backup/export execution.
@@ -76,12 +82,14 @@
 ### Task 4: Generation critical path (#1136, #1137)
 
 **Files:**
+
 - Modify: `src/engine/generation/prompt-assembly.ts`
 - Modify: `src/engine/generation/start-generation.ts`
 - Create or modify: `src/engine/generation/lorebook-keeper-background.ts`
 - Add focused specs beside the existing prompt-assembly and start-generation suites
 
 **Interfaces:**
+
 - Produces `scheduleLorebookKeeperBackfill(...)` with per-chat single-flight semantics.
 - Keeps `assembleGenerationPrompt(...)` return type and deterministic output unchanged.
 
@@ -94,6 +102,7 @@
 ### Task 5: Bounded Deki and context reads (#1138, #1139, #1140)
 
 **Files:**
+
 - Modify: `src/shared/api/deki-api.ts` and `src/shared/api/deki-api.spec.ts`
 - Modify: `src/engine/capabilities/storage.ts`
 - Modify: `src/engine/generation/canonical-memory-context.ts`
@@ -101,6 +110,7 @@
 - Modify: focused shared API, remote-runtime, HTTP dispatch, and Rust storage owners required by the new batch contracts
 
 **Interfaces:**
+
 - Produces target-only Deki history hydration.
 - Produces batched canonical-memory scope queries and bounded sibling-conversation context queries through the storage capability port.
 
@@ -114,11 +124,13 @@
 ### Task 6: Bound journal compaction (#1143)
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/journal.rs`
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 - Add or modify: storage benchmarks and focused recovery/flush tests
 
 **Interfaces:**
+
 - Extends the existing collection journal with explicit age, entry-count, and byte-size compaction decisions.
 - Keeps `FileStorage` public CRUD signatures unchanged.
 
@@ -131,6 +143,7 @@
 ### Task 7: Integration, review, and shipping
 
 **Files:**
+
 - Modify only documentation, discovery metadata, or proof files required by repository gates.
 
 - [ ] Run all focused suites from Tasks 1-6.

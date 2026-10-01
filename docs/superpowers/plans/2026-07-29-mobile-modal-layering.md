@@ -20,10 +20,12 @@
 ### Task 1: Raise the shared modal above mobile navigation
 
 **Files:**
+
 - Modify: `src/shared/components/ui/Modal.spec.tsx`
 - Modify: `src/shared/components/ui/Modal.tsx`
 
 **Interfaces:**
+
 - Consumes: The existing `ModalProps` public component interface and `mari-modal` root selector.
 - Produces: The same `Modal` interface with a root overlay layer of 90 instead of 50.
 
@@ -59,7 +61,8 @@ Expected: one failure in `renders above the fixed mobile shell navigation` becau
 In `src/shared/components/ui/Modal.tsx`, change only the modal root's stacking utility:
 
 ```tsx
-className="mari-modal fixed inset-0 z-[90] flex items-center justify-center p-3 max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4"
+className =
+  "mari-modal fixed inset-0 z-[90] flex items-center justify-center p-3 max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4";
 ```
 
 - [x] **Step 4: Run the focused test and verify GREEN**
@@ -90,12 +93,12 @@ In the browser, compare the computed layers:
 
 ```js
 const dialog = document.querySelector('[role="dialog"]');
-const navigation = document.querySelector('.mari-mobile-tab-bar');
+const navigation = document.querySelector(".mari-mobile-tab-bar");
 ({
   dialogZ: Number(getComputedStyle(dialog).zIndex),
   navigationZ: Number(getComputedStyle(navigation).zIndex),
-  actionVisible: [...dialog.querySelectorAll('button')].some(
-    (button) => button.textContent.trim() === 'Cancel' && button.getBoundingClientRect().bottom <= innerHeight,
+  actionVisible: [...dialog.querySelectorAll("button")].some(
+    (button) => button.textContent.trim() === "Cancel" && button.getBoundingClientRect().bottom <= innerHeight,
   ),
 });
 ```

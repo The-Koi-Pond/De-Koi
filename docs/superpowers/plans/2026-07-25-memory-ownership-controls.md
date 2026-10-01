@@ -25,9 +25,11 @@
 ### Task 1: Canonical chat-source cleanup
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/canonical_memory.rs`
 
 **Interfaces:**
+
 - Consumes: `AppState`, canonical memory rows, memory index rows, and a `HashSet<String>` of deleted chat IDs.
 - Produces: `delete_memories_learned_only_from_chats(state: &AppState, chat_ids: &HashSet<String>) -> AppResult<ChatMemoryCleanupResult>`.
 
@@ -108,6 +110,7 @@ git commit -m "feat: add canonical chat memory cleanup"
 ### Task 2: Chat deletion policy across embedded and remote runtimes
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/chats.rs`
 - Modify: `src-tauri/src/commands/storage/commands/entities/delete.rs`
 - Modify: `src-tauri/src/commands/storage/commands/entities.rs`
@@ -121,6 +124,7 @@ git commit -m "feat: add canonical chat memory cleanup"
 - Test: `src/shared/api/chat-command-api.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `deleteMemories?: boolean` from typed frontend callers.
 - Produces: chat deletion results with `deletedChatIds` and `memoryCleanup`.
 
@@ -252,6 +256,7 @@ git commit -m "feat: add chat deletion memory policy"
 ### Task 3: Option-bearing confirmations and every user deletion entrypoint
 
 **Files:**
+
 - Modify: `src/shared/stores/dialog.store.ts`
 - Modify: `src/shared/lib/app-dialogs.ts`
 - Modify: `src/shared/components/ui/AppDialogRenderer.tsx`
@@ -266,6 +271,7 @@ git commit -m "feat: add chat deletion memory policy"
 - Modify: `src/features/modes/shared/chat-ui/components/ChatFilesDrawer.tsx`
 
 **Interfaces:**
+
 - Produces: `showConfirmDialogWithOption(...) -> Promise<{ confirmed: boolean; optionChecked: boolean }>` and `confirmChatDeletion(count)`.
 - Consumes: option-aware `useDeleteChat` and `useDeleteChatGroup`.
 
@@ -372,6 +378,7 @@ git commit -m "feat: let chat deletion preserve memories"
 ### Task 4: Portable native character memories
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/exports.rs`
 - Modify: `src-tauri/src/commands/storage/commands/profile.rs`
 - Modify: `src-tauri/src/commands/storage/imports/marinara.rs`
@@ -379,6 +386,7 @@ git commit -m "feat: let chat deletion preserve memories"
 - Modify: `src-tauri/src/http_dispatch.rs`
 
 **Interfaces:**
+
 - Consumes: `include_memories: Option<bool>` for single/bulk native character export.
 - Produces: sanitized optional `memories` arrays and import rebinding to the new character ID.
 
@@ -467,6 +475,7 @@ git commit -m "feat: add portable character memories"
 ### Task 5: Character export choice in single and bulk UI
 
 **Files:**
+
 - Modify: `src/shared/api/export-api.ts`
 - Modify: `src/shared/api/export-api.spec.ts`
 - Modify: `src/shared/components/ui/ExportFormatDialog.tsx`
@@ -478,6 +487,7 @@ git commit -m "feat: add portable character memories"
 - Modify: `src/features/catalog/characters/components/CharactersPanel.tsx`
 
 **Interfaces:**
+
 - Consumes: unchecked `includeMemories` UI state.
 - Produces: `exportApi.character(id, format, { includeMemories })` and equivalent bulk calls.
 
@@ -580,10 +590,12 @@ git commit -m "feat: add memory choice to character export"
 ### Task 6: Discoverability, proof, and shipping
 
 **Files:**
+
 - Modify: `src/features/shell/discovery/discovery-entries.json`
 - Modify: `docs/superpowers/specs/2026-07-25-memory-ownership-controls-design.md` only if implementation evidence requires a correction.
 
 **Interfaces:**
+
 - Produces: discoverable copy for memory ownership controls and final shipping evidence.
 
 - [ ] **Step 1: Update feature discovery**

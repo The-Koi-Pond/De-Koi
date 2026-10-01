@@ -121,10 +121,7 @@ export function resolveConversationVisiblePartCount({
   return freshRevealStart ? Math.min(partCount, visibleFloor) : partCount;
 }
 
-export function startConversationRevealGeneration(
-  generations: ConversationRevealGenerationMap,
-  key: string,
-): number {
+export function startConversationRevealGeneration(generations: ConversationRevealGenerationMap, key: string): number {
   const nextGeneration = (generations[key] ?? 0) + 1;
   generations[key] = nextGeneration;
   return nextGeneration;

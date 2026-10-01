@@ -545,9 +545,7 @@ export function LorebooksPanel() {
     sorted.length === 0 &&
     (lorebookFoldersError || lorebookFiltersActive || displayedLorebookFolders.length === 0);
   const showLorebookList =
-    !lorebookLibraryLoading &&
-    !lorebookFoldersError &&
-    (sorted.length > 0 || displayedLorebookFolders.length > 0);
+    !lorebookLibraryLoading && !lorebookFoldersError && (sorted.length > 0 || displayedLorebookFolders.length > 0);
   const showLorebookFlatFallback = !lorebookLibraryLoading && lorebookFoldersError && sorted.length > 0;
 
   return (
@@ -812,7 +810,9 @@ export function LorebooksPanel() {
       )}
 
       {/* Lorebook list */}
-      {showLorebookFlatFallback && <div className="stagger-children flex flex-col gap-1">{sorted.map(renderLorebookRow)}</div>}
+      {showLorebookFlatFallback && (
+        <div className="stagger-children flex flex-col gap-1">{sorted.map(renderLorebookRow)}</div>
+      )}
 
       {showLorebookList && (
         <div className="flex flex-col gap-1">

@@ -153,7 +153,9 @@ export async function generateConversationSchedules(
 
   const meta = parseJsonObject(chat.metadata);
   const existingSchedules = hasSchedules(meta.characterSchedules) ? meta.characterSchedules : {};
-  const existingRoutines = hasRoutines(meta.characterRoutines) ? normalizeCharacterRoutines(meta.characterRoutines) : {};
+  const existingRoutines = hasRoutines(meta.characterRoutines)
+    ? normalizeCharacterRoutines(meta.characterRoutines)
+    : {};
   const characterIds = input.characterIds?.length
     ? input.characterIds
     : parseJsonArray<string>(chat.characterIds).filter(Boolean);
@@ -286,7 +288,9 @@ export async function generateConversationSchedules(
     }
   }
 
-  const hasRequestedRoutine = characterIds.some((characterId) => !!newRoutines[characterId] || !!newSchedules[characterId]);
+  const hasRequestedRoutine = characterIds.some(
+    (characterId) => !!newRoutines[characterId] || !!newSchedules[characterId],
+  );
   if (!hasRequestedRoutine) {
     const failures = Object.values(results)
       .map((result) => result.status)
@@ -337,7 +341,11 @@ async function generateCharacterRoutine(
   userSchedulePreferences?: string,
   recentContinuityContext?: string,
   scheduleLorebookContext?: string,
-): Promise<{ routine?: Omit<ConversationRoutine, "weekStart" | "generatedAt">; schedule?: Omit<WeekSchedule, "weekStart">; raw: string }> {
+): Promise<{
+  routine?: Omit<ConversationRoutine, "weekStart" | "generatedAt">;
+  schedule?: Omit<WeekSchedule, "weekStart">;
+  raw: string;
+}> {
   const systemPrompt = [
     `You are a fuzzy conversation routine generator. Create an organic routine profile for a character based on their personality and description.`,
     `The routine should feel like how a person would describe their life, not like a calendar export.`,
@@ -426,9 +434,10 @@ async function generateCharacterRoutine(
   return { ...parsed, raw: content };
 }
 
-function parseAvailabilityGenerationResponse(
-  content: string,
-): { routine?: Omit<ConversationRoutine, "weekStart" | "generatedAt">; schedule?: Omit<WeekSchedule, "weekStart"> } {
+function parseAvailabilityGenerationResponse(content: string): {
+  routine?: Omit<ConversationRoutine, "weekStart" | "generatedAt">;
+  schedule?: Omit<WeekSchedule, "weekStart">;
+} {
   const data = parseGeneratedJson(content);
   const record = parseJsonObject(data);
   if (record.days || parseJsonObject(record.schedule).days || parseJsonObject(record.weeklySchedule).days) {
@@ -570,7 +579,10 @@ function normalizeRoutineSocialEnergy(value: unknown): ConversationRoutineSocial
 }
 
 function routineAvailability(value: unknown): RoutineBusyAvailability | null {
-  const normalized = stringValue(value).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const normalized = stringValue(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   switch (normalized) {
     case "available":
     case "free":
@@ -922,7 +934,11 @@ export function getAvailabilityDecision(
       ? getRoutineCurrentStatus(profile, now)
       : getCurrentStatus(profile, now)
     : { status: "online" as const, activity: fallbackActivity };
-  const source: ConversationAvailabilitySource = profile ? (isConversationRoutine(profile) ? "routine" : "schedule") : "fallback";
+  const source: ConversationAvailabilitySource = profile
+    ? isConversationRoutine(profile)
+      ? "routine"
+      : "schedule"
+    : "fallback";
   return {
     source,
     status: current.status,
@@ -1003,7 +1019,10 @@ export function getAvailabilityAutonomousPolicy(
 /**
  * Check if a schedule needs regeneration (older than 7 days from current Monday).
  */
-export function scheduleNeedsRefresh(schedule: Pick<ConversationAvailabilityProfile, "weekStart">, now: Date = new Date()): boolean {
+export function scheduleNeedsRefresh(
+  schedule: Pick<ConversationAvailabilityProfile, "weekStart">,
+  now: Date = new Date(),
+): boolean {
   const weekStart = new Date(schedule.weekStart);
   const currentMonday = getMonday(now);
   return currentMonday.getTime() > weekStart.getTime();
@@ -1329,7 +1348,10 @@ function preserveTimingSettings(schedule: WeekSchedule, existing?: WeekSchedule)
 
 function preserveRoutineTimingSettings(
   routine: ConversationRoutine,
-  existing?: Pick<ConversationRoutine | WeekSchedule, "inactivityThresholdMinutes" | "idleResponseDelayMinutes" | "dndResponseDelayMinutes">,
+  existing?: Pick<
+    ConversationRoutine | WeekSchedule,
+    "inactivityThresholdMinutes" | "idleResponseDelayMinutes" | "dndResponseDelayMinutes"
+  >,
 ): ConversationRoutine {
   if (!existing) return routine;
   const merged: ConversationRoutine = {
@@ -1378,8 +1400,12 @@ async function syncGeneratedAvailabilityToOtherChats(
   newRoutines: CharacterRoutines,
   newSchedules: CharacterSchedules,
 ): Promise<void> {
-  const generatedRoutineIds = requestedCharacterIds.filter((id) => results[id]?.routine && results[id]?.status === "generated");
-  const generatedScheduleIds = requestedCharacterIds.filter((id) => results[id]?.schedule && results[id]?.status === "generated_legacy");
+  const generatedRoutineIds = requestedCharacterIds.filter(
+    (id) => results[id]?.routine && results[id]?.status === "generated",
+  );
+  const generatedScheduleIds = requestedCharacterIds.filter(
+    (id) => results[id]?.schedule && results[id]?.status === "generated_legacy",
+  );
   if (generatedRoutineIds.length === 0 && generatedScheduleIds.length === 0) return;
 
   const allChats = await storage.list<JsonRecord>("chats");
@@ -1399,7 +1425,10 @@ async function syncGeneratedAvailabilityToOtherChats(
     for (const characterId of routineOverlap) {
       const routine = newRoutines[characterId];
       if (!routine) continue;
-      chatRoutines[characterId] = preserveRoutineTimingSettings(routine, chatRoutines[characterId] ?? chatSchedules[characterId]);
+      chatRoutines[characterId] = preserveRoutineTimingSettings(
+        routine,
+        chatRoutines[characterId] ?? chatSchedules[characterId],
+      );
       delete chatSchedules[characterId];
       changed = true;
     }
@@ -1426,7 +1455,9 @@ function buildRoutineContinuityContext(routine: ConversationRoutine): string {
   const parts = [
     `Previous fuzzy routine:`,
     `Sleep: ${routine.sleep || "unknown"}`,
-    routine.busy.length ? `Busy: ${routine.busy.map((item) => `${item.when}: ${item.summary}`).join("; ")}` : "Busy: none noted",
+    routine.busy.length
+      ? `Busy: ${routine.busy.map((item) => `${item.when}: ${item.summary}`).join("; ")}`
+      : "Busy: none noted",
     routine.freeish.length ? `Free-ish: ${routine.freeish.join("; ")}` : "Free-ish: none noted",
     `Reply style: ${routine.replyStyle || "unknown"}`,
     `Check-in style: ${routine.checkInStyle || "unknown"}`,

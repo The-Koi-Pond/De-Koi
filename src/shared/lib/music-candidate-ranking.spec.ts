@@ -58,7 +58,10 @@ describe("rankMusicCandidates", () => {
   it("normalizes YouTube IDs when avoiding repeat tracks", () => {
     const ranked = rankMusicCandidates(
       [
-        { ...candidate("youtube:abc123XYZ09", "Quiet tavern ambience instrumental", 0.99), url: "https://youtu.be/abc123XYZ09" },
+        {
+          ...candidate("youtube:abc123XYZ09", "Quiet tavern ambience instrumental", 0.99),
+          url: "https://youtu.be/abc123XYZ09",
+        },
         candidate("freshChoice", "Quiet tavern instrumental background", 0.7),
       ],
       {

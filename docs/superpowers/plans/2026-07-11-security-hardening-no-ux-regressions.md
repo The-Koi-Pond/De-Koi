@@ -20,9 +20,11 @@
 ### Task 1: Harden master-key permissions
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/connection_secrets.rs`
 
 **Interfaces:**
+
 - Produces: internal permission-hardening helpers used whenever the master key is created or loaded.
 - Consumes: the existing `master_key`, `encrypt_secret`, and `decrypt_secret` flow without changing ciphertext format.
 
@@ -34,12 +36,14 @@
 ### Task 2: Add non-disruptive desktop security policy guardrails
 
 **Files:**
+
 - Create: `scripts/check-security-policy.mjs`
 - Modify: `package.json`
 - Modify: `src-tauri/tauri.conf.json` only if the check can narrow redundant scope without breaking known asset consumers.
 - Modify: `docs/release-readiness-checklist.md`
 
 **Interfaces:**
+
 - Produces: `pnpm check:security-policy`, a check that rejects future weakening and records CSP/asset enforcement as evidence-gated follow-up work.
 - Consumes: current Tauri configuration and repository check conventions.
 
@@ -50,6 +54,7 @@
 ### Task 3: Validate and ship
 
 **Files:**
+
 - Review all files changed by Tasks 1-2.
 
 - [x] Run focused Vitest and Rust tests.

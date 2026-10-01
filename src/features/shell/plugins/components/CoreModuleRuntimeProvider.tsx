@@ -53,7 +53,6 @@ class CoreModuleErrorBoundary extends Component<{ children: ReactNode; onRetry: 
     return { hasError: true };
   }
 
-
   render() {
     if (this.state.hasError) return <CoreModuleFallback tone="error" onRetry={this.props.onRetry} />;
     return this.props.children;
@@ -84,9 +83,7 @@ export function CoreModuleRuntimeProvider() {
 
   return (
     <CoreModuleErrorBoundary key={notepadLoadAttempt} onRetry={retryMeNotesLoad}>
-      <Suspense fallback={<CoreModuleFallback />}>
-        {meNotesEnabled ? <MeNotepadModule /> : null}
-      </Suspense>
+      <Suspense fallback={<CoreModuleFallback />}>{meNotesEnabled ? <MeNotepadModule /> : null}</Suspense>
     </CoreModuleErrorBoundary>
   );
 }

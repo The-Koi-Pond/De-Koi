@@ -67,10 +67,12 @@ export function prioritizeMemoryRecallAgainstCharacterMemories<T extends MemoryR
   candidates: T[],
   characterMemoryLines: string[],
 ): MemoryRecallPriorityResult<T> {
-  const sourceLines = characterMemoryLines.map((line, index) => ({
-    label: `Character memory ${index + 1}`,
-    text: line.trim(),
-  })).filter((line) => line.text.length > 0);
+  const sourceLines = characterMemoryLines
+    .map((line, index) => ({
+      label: `Character memory ${index + 1}`,
+      text: line.trim(),
+    }))
+    .filter((line) => line.text.length > 0);
 
   if (sourceLines.length === 0 || candidates.length === 0) {
     return { retained: candidates, skipped: [] };

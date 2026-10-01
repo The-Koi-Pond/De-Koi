@@ -41,10 +41,7 @@ const agentResultTypeSchema = z.enum([
 const customAgentActivationSettingsSchema = z
   .object({
     activationKeywords: z
-      .preprocess(
-        normalizeCustomAgentActivationKeywords,
-        z.array(z.string().trim().min(1)).max(100),
-      )
+      .preprocess(normalizeCustomAgentActivationKeywords, z.array(z.string().trim().min(1)).max(100))
       .optional(),
     activationScanDepth: z
       .preprocess(

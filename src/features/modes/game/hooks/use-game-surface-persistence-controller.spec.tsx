@@ -8,10 +8,7 @@ import type { HudWidget } from "../../../../engine/contracts/types/game";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { chatKeys } from "../../../catalog/chats/index";
 import { gameApi } from "../api/game-api";
-import {
-  flushPendingGameMetadataPatches,
-  persistGameMetadataPatch,
-} from "../lib/game-metadata-persistence";
+import { flushPendingGameMetadataPatches, persistGameMetadataPatch } from "../lib/game-metadata-persistence";
 import { useGameSurfacePersistenceController } from "./use-game-surface-persistence-controller";
 
 const patchFieldMock = vi.hoisted(() => vi.fn());

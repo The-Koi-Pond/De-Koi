@@ -1,8 +1,4 @@
-import {
-  BUILT_IN_AGENTS,
-  DEFAULT_AGENT_TOOLS,
-  getDefaultBuiltInAgentSettings,
-} from "../contracts/types/agent";
+import { BUILT_IN_AGENTS, DEFAULT_AGENT_TOOLS, getDefaultBuiltInAgentSettings } from "../contracts/types/agent";
 import type { JsonRecord } from "./runtime-records";
 
 export const BUILT_IN_AGENT_TYPES = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));

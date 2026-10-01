@@ -28,12 +28,14 @@
 **Durable test rationale:** A provider can leave a stream open or close it without a terminal marker, which strands typing state or silently truncates user-visible text. Session proof cannot guard every NanoGPT/OpenAI-compatible response, while narrow transport tests can permanently protect the terminal contract.
 
 **Files:**
+
 - Modify: `src-tauri/crates/llm/src/lib.rs`
 - Modify: `src-tauri/crates/llm/src/providers/openai.rs`
 - Modify: `src/shared/api/remote-runtime.ts`
 - Modify: `src/shared/api/remote-runtime.spec.ts`
 
 **Interfaces:**
+
 - Produces: `PROVIDER_STREAM_IDLE_TIMEOUT_SECS = 120` and a reqwest per-read timeout.
 - Produces: OpenAI-compatible streams that return `llm_stream_incomplete` when EOF arrives before `[DONE]` or a finish reason.
 - Produces: `provider_metadata` containing `{ finishReason }` when a finish reason is present.
@@ -107,6 +109,7 @@ git commit -m "generation: reject stalled and incomplete streams"
 **Durable test rationale:** Partial model text is user data. A regression test at `startGeneration` is the narrow stable seam proving a transport interruption ends typing, saves the partial, marks it interrupted, and avoids blank rows.
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/chat.ts`
 - Modify: `src/engine/generation/start-generation.ts`
 - Create: `src/engine/generation/start-generation.interrupted-stream.spec.ts`
@@ -118,6 +121,7 @@ git commit -m "generation: reject stalled and incomplete streams"
 - Modify: `src/features/catalog/chats/lib/timeline-message.spec.ts`
 
 **Interfaces:**
+
 - Produces: `MessageExtra.generationInterrupted?: { reason: "idle_timeout" | "incomplete_stream" | "length" | "transport"; message: string } | null`.
 - Produces: an interrupted save path that accepts the thrown cause, persists non-empty partials, and rethrows the original error.
 - Produces: visible `Generation interrupted` status with Regenerate and the existing continuation affordance where supported.
@@ -164,6 +168,7 @@ git commit -m "generation: preserve interrupted partial replies"
 **Durable test rationale:** `random` is a UI selection sentinel, not a storage ID. Public resolver and scene-summary tests prevent mode-specific precedence from leaking it into provider lookup again.
 
 **Files:**
+
 - Modify: `src/engine/generation/context.ts`
 - Modify: `src/engine/generation/context.spec.ts`
 - Modify: `src/engine/modes/roleplay/scene/scene-service.ts`
@@ -175,6 +180,7 @@ git commit -m "generation: preserve interrupted partial replies"
 - Create: `src/shared/api/llm-api.spec.ts`
 
 **Interfaces:**
+
 - Produces: `resolveGenerationConnection(storage, chat, input, options?) -> Promise<JsonRecord>` supporting explicit, Random, chat, and default selection without returning `random`.
 - Produces: `invokeTauri` options `{ signal?: AbortSignal; timeoutMs?: number }`.
 - Consumes: existing `invokeRemote` timeout option.
@@ -214,9 +220,11 @@ git commit -m "generation: resolve random selections before execution"
 **Durable test rationale:** Automatic memory capture currently fails for ordinary chat connections without embedding models. Rust storage tests are the stable public seam for proving explicit configuration stays strict while implicit capture remains functional.
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/chat_memory.rs`
 
 **Interfaces:**
+
 - Produces: explicit `embeddingConnectionId` errors for missing/invalid embedding models.
 - Produces: `Ok(None)` for implicit chat/default embedding selections that are absent, `random`, unavailable, or lack an embedding model, causing existing lexical vectorization.
 
@@ -246,6 +254,7 @@ git commit -m "memory: use lexical capture without embedding config"
 **Durable test rationale:** Approval currently replaces visible saved content with an empty regeneration draft, and failed research has no durable outcome. Engine and card tests protect the visible lifecycle and reload behavior without exposing raw tool payloads.
 
 **Files:**
+
 - Modify: `src/engine/contracts/types/chat.ts`
 - Modify: `src/engine/generation/character-web-research.ts`
 - Modify: `src/engine/generation/character-web-research.spec.ts`
@@ -257,6 +266,7 @@ git commit -m "memory: use lexical capture without embedding config"
 - Modify: `src/features/modes/shared/chat-ui/components/CharacterWebResearchCard.spec.tsx`
 
 **Interfaces:**
+
 - Produces: request status `pending | researching | completed | failed | declined` plus optional sanitized `failureMessage`.
 - Produces: approval patch to the message (`researching`) before regeneration and success/failure message patches after it.
 - Produces: regeneration display that preserves saved consent content while active research is running.
@@ -291,6 +301,7 @@ git commit -m "chat: make web research outcomes visible"
 **Durable test rationale:** These are shell ownership and navigation regressions. Pure arbitration tests plus component tests are narrower and more stable than relying only on manual clicking.
 
 **Files:**
+
 - Modify: `src/shared/components/shell-navigation.ts`
 - Modify: `src/shared/stores/ui/model.ts`
 - Modify: `src/app/shell/right-panel-loaders.ts`
@@ -307,6 +318,7 @@ git commit -m "chat: make web research outcomes visible"
 - Modify: `src/features/shell/discovery/lib/discovery-actions.spec.ts`
 
 **Interfaces:**
+
 - Produces: `help` as a `ShellPanelDestination` with a registered lazy loader.
 - Produces: Discover visibility independent of `rightPanelOpen`.
 - Produces: `discoveryActionReplacesCenter(action)` used to close Discover before center/detail actions.
@@ -347,12 +359,14 @@ git commit -m "shell: unify help and discover navigation"
 **Durable test rationale:** Version-only status cannot identify a deployed Pi build. Rust payload tests and a pure UI formatter protect unknown, exact, and different-build semantics without depending on live GitHub availability.
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/updates.rs`
 - Modify: `src/shared/api/updates-api.ts`
 - Modify: `src/shared/api/updates-api.spec.ts`
 - Modify: `src/features/shell/settings/components/settings/SettingsSurfaces.tsx`
 
 **Interfaces:**
+
 - Produces: `currentCommit`, `targetCommit`, and `targetChannel: "main" | "release"` in `UpdateCheckResponse`.
 - Produces: `formatUpdateIdentity(version, commit)` returning `1.6.1 - f5094c3` or `1.6.1 - commit unavailable`.
 
@@ -384,6 +398,7 @@ git commit -m "updates: report exact source revisions"
 ### Task 8: Integrated Verification, Bunny, PR, and Merge
 
 **Files:**
+
 - Modify only files required by failures found in the gates.
 
 - [ ] **Step 1: Run owner-boundary gates**

@@ -190,7 +190,12 @@ export function QuickReplyMenu({ actions, disabled = false }: QuickReplyMenuProp
 
       {open && (
         <div className="absolute bottom-full left-1/2 z-[60] mb-2 -translate-x-1/2">
-          <div role="menu" aria-label="Quick replies" aria-orientation="vertical" className="flex flex-col items-center gap-1.5">
+          <div
+            role="menu"
+            aria-label="Quick replies"
+            aria-orientation="vertical"
+            className="flex flex-col items-center gap-1.5"
+          >
             {visibleActions.map((action, index) => (
               <button
                 ref={(element) => {

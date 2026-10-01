@@ -26,14 +26,20 @@ describe("AppShell Discover history", () => {
     const add = vi.spyOn(window, "addEventListener");
     const remove = vi.spyOn(window, "removeEventListener");
     const close = vi.fn();
-    function Harness({ open }: { open: boolean }) { useDiscoverHistoryLifecycle(open, close); return null; }
-    const host = document.createElement("div"); const root = createRoot(host);
+    function Harness({ open }: { open: boolean }) {
+      useDiscoverHistoryLifecycle(open, close);
+      return null;
+    }
+    const host = document.createElement("div");
+    const root = createRoot(host);
     act(() => root.render(createElement(Harness, { open: true })));
     expect(add.mock.calls.filter(([type]) => type === "popstate")).toHaveLength(1);
     act(() => window.dispatchEvent(new PopStateEvent("popstate")));
     expect(close).toHaveBeenCalledOnce();
     act(() => root.render(createElement(Harness, { open: false })));
     expect(remove.mock.calls.filter(([type]) => type === "popstate")).toHaveLength(1);
-    act(() => root.unmount()); add.mockRestore(); remove.mockRestore();
+    act(() => root.unmount());
+    add.mockRestore();
+    remove.mockRestore();
   });
 });

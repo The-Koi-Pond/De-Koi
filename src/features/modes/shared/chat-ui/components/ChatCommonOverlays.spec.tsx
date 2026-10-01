@@ -10,9 +10,7 @@ vi.mock("../../../../runtime/visuals/index", () => ({
 }));
 
 vi.mock("./ChatSetupWizard", () => {
-  throw new TypeError(
-    "Failed to fetch dynamically imported module: http://pi:7860/assets/ChatSetupWizard-B6ustY6j.js",
-  );
+  throw new TypeError("Failed to fetch dynamically imported module: http://pi:7860/assets/ChatSetupWizard-B6ustY6j.js");
 });
 
 class OuterBoundary extends Component<{ children: ReactNode }, { error: unknown }> {

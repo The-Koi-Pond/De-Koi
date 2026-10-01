@@ -73,8 +73,8 @@ describe("ConnectionsPanel setup routing", () => {
     useUIStore.setState({ linkApiBannerDismissed: false });
     act(() => root.render(<ConnectionsPanel />));
 
-    const dismiss = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.includes("Don't show again"),
+    const dismiss = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes("Don't show again"),
     )!;
     act(() => dismiss.click());
 

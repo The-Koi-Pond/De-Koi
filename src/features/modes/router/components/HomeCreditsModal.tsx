@@ -22,9 +22,7 @@ export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: ()
               >
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-[var(--foreground)]">{item.label}</span>
-                  <span className="block truncate text-[0.6875rem] text-[var(--muted-foreground)]">
-                    {item.detail}
-                  </span>
+                  <span className="block truncate text-[0.6875rem] text-[var(--muted-foreground)]">{item.detail}</span>
                 </span>
                 <ExternalLink
                   size="0.75rem"
@@ -36,9 +34,7 @@ export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: ()
         </section>
 
         <section className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-            Brand Assets
-          </h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Brand Assets</h3>
           <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
             The current De-Koi logo and app icon family are original project assets created by The Koi Pond team for
             De-Koi.

@@ -108,14 +108,24 @@ export function SettingsPanel() {
     });
     const timeout = window.setTimeout(() => {
       const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
-      element?.classList.remove("ring-2", "ring-[var(--primary)]/55", "ring-offset-4", "ring-offset-[var(--background)]");
+      element?.classList.remove(
+        "ring-2",
+        "ring-[var(--primary)]/55",
+        "ring-offset-4",
+        "ring-offset-[var(--background)]",
+      );
       setPendingSettingsDestination(null);
     }, 1800);
     return () => {
       cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
       const element = document.getElementById(`settings-destination-${pendingSettingsDestination}`);
-      element?.classList.remove("ring-2", "ring-[var(--primary)]/55", "ring-offset-4", "ring-offset-[var(--background)]");
+      element?.classList.remove(
+        "ring-2",
+        "ring-[var(--primary)]/55",
+        "ring-offset-4",
+        "ring-offset-[var(--background)]",
+      );
     };
   }, [pendingSettingsDestination, setPendingSettingsDestination]);
   const activateTab = (tabId: SettingsTabId, shouldFocus = false) => {
@@ -167,7 +177,10 @@ export function SettingsPanel() {
           />
         </label>
         {query.trim() && (
-          <div className="absolute inset-x-3 top-[3.6rem] z-20 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-xl" aria-live="polite">
+          <div
+            className="absolute inset-x-3 top-[3.6rem] z-20 max-h-64 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-xl"
+            aria-live="polite"
+          >
             <p className="de-koi-caption px-2 py-1 font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
               {searchResults.length} result{searchResults.length === 1 ? "" : "s"}
             </p>
@@ -219,9 +232,7 @@ export function SettingsPanel() {
                 <Icon size="0.95rem" className={cn("mt-px shrink-0", selected && "text-[var(--primary)]")} />
                 <span className="min-w-0">
                   <span className="block whitespace-nowrap text-xs font-semibold leading-tight">{tab.label}</span>
-                  <span className="de-koi-caption mt-1 hidden font-normal @3xl:block">
-                    {tab.description}
-                  </span>
+                  <span className="de-koi-caption mt-1 hidden font-normal @3xl:block">{tab.description}</span>
                 </span>
               </button>
             );
@@ -236,7 +247,13 @@ export function SettingsPanel() {
         >
           <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
             {setupIntent && !setupIntent.completed && (
-              <div className="mb-4"><SetupJourneyContextBanner owner="runtime" mode={setupIntent.mode} onReturn={() => useUIStore.getState().closeRightPanel()} /></div>
+              <div className="mb-4">
+                <SetupJourneyContextBanner
+                  owner="runtime"
+                  mode={setupIntent.mode}
+                  onReturn={() => useUIStore.getState().closeRightPanel()}
+                />
+              </div>
             )}
             <header className="mb-5 border-b border-[var(--border)] pb-4">
               <h2 className="text-lg font-semibold leading-tight text-[var(--foreground)]">{activeTab.label}</h2>

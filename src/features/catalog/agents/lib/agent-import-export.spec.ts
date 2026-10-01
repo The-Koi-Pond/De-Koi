@@ -149,43 +149,41 @@ describe("agent import/export", () => {
   });
 
   it("imports the M.E. agent folder shape without emptying fields", () => {
-    const imported = normalizeAgentImportPayloads(
-      {
-        kind: "marinara.agent-folder",
-        version: 1,
-        exportedAt: "2026-06-20T14:35:03.670Z",
-        folderName: "Agents",
-        agents: [
-          {
-            path: "Agents/custom-efp-tracker/manifest.json",
-            manifest: {
-              kind: "marinara.agent",
-              version: 1,
-              config: {
-                type: "custom-efp-tracker",
-                name: "EFP Tracker",
-                description: "Infers the user's likely emotional state.",
-                credit: "Chai",
-                phase: "pre_generation",
-                enabled: true,
-                connectionId: null,
-                imagePath: null,
-                promptTemplate: "You are a hidden pre-generation scene-direction agent.",
-                settings: {
-                  author: "Chai",
-                  resultType: "context_injection",
-                  contextSize: 8,
-                  maxTokens: 512,
-                  runInterval: 1,
-                  enabledTools: [],
-                },
+    const imported = normalizeAgentImportPayloads({
+      kind: "marinara.agent-folder",
+      version: 1,
+      exportedAt: "2026-06-20T14:35:03.670Z",
+      folderName: "Agents",
+      agents: [
+        {
+          path: "Agents/custom-efp-tracker/manifest.json",
+          manifest: {
+            kind: "marinara.agent",
+            version: 1,
+            config: {
+              type: "custom-efp-tracker",
+              name: "EFP Tracker",
+              description: "Infers the user's likely emotional state.",
+              credit: "Chai",
+              phase: "pre_generation",
+              enabled: true,
+              connectionId: null,
+              imagePath: null,
+              promptTemplate: "You are a hidden pre-generation scene-direction agent.",
+              settings: {
+                author: "Chai",
                 resultType: "context_injection",
+                contextSize: 8,
+                maxTokens: 512,
+                runInterval: 1,
+                enabledTools: [],
               },
+              resultType: "context_injection",
             },
           },
-        ],
-      },
-    );
+        },
+      ],
+    });
 
     expect(imported).toHaveLength(1);
     expect(imported[0]).toMatchObject({

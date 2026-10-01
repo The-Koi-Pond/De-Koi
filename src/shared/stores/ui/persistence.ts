@@ -44,15 +44,11 @@ interface SetupJourneyPersistableState {
 export function partializeSetupJourneyState(state: SetupJourneyPersistableState): SetupJourneyPersistableState {
   const intent = state.intent;
   const recovery = state.recovery;
-  const persistedRecovery = recovery && [
-    "created",
-    "reconciled",
-    "preset-applied",
-    "greeting-initialized",
-    "finalizing",
-  ].includes(recovery.stage)
-    ? { createdChatId: recovery.createdChatId, journeyId: recovery.journeyId, stage: recovery.stage }
-    : null;
+  const persistedRecovery =
+    recovery &&
+    ["created", "reconciled", "preset-applied", "greeting-initialized", "finalizing"].includes(recovery.stage)
+      ? { createdChatId: recovery.createdChatId, journeyId: recovery.journeyId, stage: recovery.stage }
+      : null;
   if (!intent) return { intent: null, recovery: persistedRecovery };
   return {
     intent: {

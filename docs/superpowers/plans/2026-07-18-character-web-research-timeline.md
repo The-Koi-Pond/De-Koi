@@ -19,10 +19,12 @@
 ### Task 1: Preserve web-research metadata in timeline rows
 
 **Files:**
+
 - Modify: `src/features/catalog/chats/lib/timeline-message.spec.ts`
 - Modify: `src/features/catalog/chats/lib/timeline-message.ts`
 
 **Interfaces:**
+
 - Consumes: `timelineMessageProjection(): ChatMessageListOptions`
 - Produces: `fieldSelections.extra` containing `characterWebResearchRequest` and `characterWebResearchSources`
 
@@ -82,9 +84,11 @@ git commit -m "chat: preserve character web research timeline metadata"
 ### Task 2: Review and publish
 
 **Files:**
+
 - Review all changes against `origin/main`.
 
 **Interfaces:**
+
 - Consumes: committed repair and validation evidence.
 - Produces: merged pull request targeting `The-Koi-Pond/De-Koi:main`.
 

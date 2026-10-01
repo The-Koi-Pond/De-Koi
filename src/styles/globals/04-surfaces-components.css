@@ -439,6 +439,67 @@
   text-shadow: 0 0 0.45rem color-mix(in srgb, var(--quick-start-shadow, rgba(255, 137, 87, 0.1)) 35%, transparent);
 }
 
+/* Light theme home: paper tiles with the same mode rims. Mode label colors
+   are tuned for dark tiles, so they are inked down to stay readable. */
+[data-theme="light"] .koi-logo-tile {
+  background:
+    radial-gradient(circle at 50% 22%, rgba(95, 178, 168, 0.22), transparent 44%) padding-box,
+    linear-gradient(145deg, #1d3a40, #10242a) padding-box,
+    linear-gradient(145deg, rgba(95, 178, 168, 0.6), rgba(216, 183, 123, 0.5) 48%, rgba(199, 90, 38, 0.5)) border-box;
+  box-shadow:
+    0 12px 28px rgba(26, 42, 46, 0.18),
+    inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="light"] .koi-glow-text {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+[data-theme="light"] .koi-home-splash {
+  color: #9a6a00;
+  opacity: 1;
+  text-shadow: 0.05rem 0.05rem 0 rgba(255, 244, 214, 0.9);
+}
+
+[data-theme="light"] .koi-start-card {
+  background:
+    radial-gradient(circle at 50% 8%, color-mix(in srgb, var(--quick-start-border) 12%, transparent), transparent 42%)
+      padding-box,
+    linear-gradient(150deg, #ffffff 0%, #f7f3ea 100%) padding-box,
+    linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--quick-start-border) 70%, transparent),
+        color-mix(in srgb, var(--quick-start-border) 28%, transparent) 58%,
+        rgba(26, 42, 46, 0.08)
+      )
+      border-box;
+  box-shadow:
+    0 10px 24px rgba(26, 42, 46, 0.1),
+    0 0 0 1px color-mix(in srgb, var(--quick-start-border) 10%, transparent) inset;
+}
+
+[data-theme="light"] .koi-start-card:hover {
+  box-shadow:
+    0 14px 30px rgba(26, 42, 46, 0.14),
+    0 0 0 1px color-mix(in srgb, var(--quick-start-border) 22%, transparent) inset;
+}
+
+[data-theme="light"] .koi-start-icon {
+  border-color: rgba(26, 42, 46, 0.08);
+  box-shadow:
+    0 6px 14px rgba(26, 42, 46, 0.14),
+    inset 0 1px rgba(255, 255, 255, 0.35);
+}
+
+[data-theme="light"] .koi-start-label {
+  color: color-mix(in srgb, var(--quick-start-label, var(--muted-foreground)) 44%, var(--foreground));
+  text-shadow: none;
+}
+
+[data-theme="light"] .koi-start-card.btn-scanlines::after {
+  opacity: 0.35;
+}
+
 .koi-start-card.btn-scanlines::after {
   z-index: 0;
   background:

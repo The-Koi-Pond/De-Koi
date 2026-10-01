@@ -20,13 +20,15 @@ const NAME_STOP_WORDS = new Set([
 ]);
 
 function normalizeCharacterName(name: string): string {
-  return name
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    // Preserve letters, numbers, and combining marks from non-Latin scripts.
-    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
-    .trim();
+  return (
+    name
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      // Preserve letters, numbers, and combining marks from non-Latin scripts.
+      .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
+      .trim()
+  );
 }
 
 function getCharacterNameTokens(name: string): string[] {

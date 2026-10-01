@@ -129,7 +129,9 @@ export function ChatPresetBar({
           onClick={onSaveIntoPreset}
           disabled={!selectedChatPreset || selectedChatPresetIsDefault}
           title={
-            selectedChatPresetIsDefault ? "Cannot save into the Default preset" : "Save current chat settings into this preset"
+            selectedChatPresetIsDefault
+              ? "Cannot save into the Default preset"
+              : "Save current chat settings into this preset"
           }
           className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
         >

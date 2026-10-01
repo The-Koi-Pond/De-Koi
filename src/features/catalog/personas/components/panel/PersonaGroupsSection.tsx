@@ -276,7 +276,9 @@ export function PersonaGroupsSection({
                               <div
                                 key={personaId}
                                 draggable={canDragPersonas}
-                                onDragStart={(event) => onPersonaDragStart(event, personaId, isSynthetic ? null : group.id)}
+                                onDragStart={(event) =>
+                                  onPersonaDragStart(event, personaId, isSynthetic ? null : group.id)
+                                }
                                 onDragEnd={onPersonaDragEnd}
                                 className={cn(
                                   "flex items-center gap-2 rounded-lg px-1 py-1 text-xs",
