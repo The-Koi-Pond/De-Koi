@@ -210,6 +210,32 @@ describe("DekiSurface message retry actions", () => {
     expect(container!.textContent).not.toContain("Open the Connections panel.");
   });
 
+  it("starts with the only connection when Deki has none saved", async () => {
+    vi.mocked(dekiApi.preferences.get).mockResolvedValue({ selectedConnectionId: null, selectedPersonaId: null });
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <DekiSurface sessionId="session-1" />
+        </QueryClientProvider>,
+      );
+    });
+    await tick();
+
+    expect(dekiApi.preferences.save).toHaveBeenCalledWith({ selectedConnectionId: "conn-1", selectedPersonaId: null });
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[title="Regenerate"]')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(runDekiEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: "conn-1" }),
+      dekiApi,
+      expect.anything(),
+    );
+    expect(container!.textContent).not.toContain("No connection set for Deki-senpai");
+  });
+
   it("resends a user message by rerunning from that turn", async () => {
     await act(async () => {
       root = createRoot(container!);

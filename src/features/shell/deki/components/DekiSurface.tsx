@@ -41,7 +41,10 @@ import { PersonaAvatarImage, usePersonaSummaries } from "../../../catalog/person
 import { ConversationMessage } from "../../../modes/conversation/message-shell";
 import type { CharacterMap, PersonaInfo } from "../../../modes/shared/chat-ui/types";
 import type { Message } from "../../../../engine/contracts/types/chat";
-import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
+import {
+  filterLanguageGenerationConnections,
+  pickDefaultLanguageConnection,
+} from "../../../../shared/lib/connection-filters";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
@@ -129,6 +132,7 @@ type DekiConnection = {
   provider?: string;
   model?: string | null;
   maxContext?: unknown;
+  isDefault?: boolean | null;
 };
 
 type DekiPersona = {
@@ -824,6 +828,15 @@ export function DekiSurface({
     if (!connections.some((connection) => connection.id === selectedConnectionId)) {
       setSelectedConnectionId(null);
     }
+  }, [connections, preferencesLoaded, rawConnections, selectedConnectionId]);
+
+  // Until the user picks a connection for Deki, start with the default one
+  // (or the only one) instead of refusing to send.
+  useEffect(() => {
+    if (!preferencesLoaded || rawConnections === undefined || selectedConnectionId) return;
+    if (connectionSelectionTouchedRef.current) return;
+    const defaultConnection = pickDefaultLanguageConnection(connections);
+    if (defaultConnection) setSelectedConnectionId(defaultConnection.id);
   }, [connections, preferencesLoaded, rawConnections, selectedConnectionId]);
 
   useEffect(() => {
