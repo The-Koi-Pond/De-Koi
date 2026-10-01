@@ -1609,7 +1609,9 @@ describe("dekiApi.sessions first run", () => {
       switchDuringList = "deki-sessions";
       const hydrated = await dekiApi.history.get("session-shared");
       expect(hydrated.session.title).toBe("Title B");
-      expect(hydrated.messages.map((message) => [message.id, message.content])).toEqual([["message-b", "On runtime B"]]);
+      expect(hydrated.messages.map((message) => [message.id, message.content])).toEqual([
+        ["message-b", "On runtime B"],
+      ]);
 
       // A switch while sessions.list loads summaries: the title and message
       // count come from runtime B, and no messages are hydrated.
