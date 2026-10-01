@@ -222,6 +222,8 @@ export function DekiSidebar({
                     if (event.target !== event.currentTarget) return;
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
+                    // Holding the key auto-repeats keydown; activate once.
+                    if (event.repeat) return;
                     if (multiSelectMode) {
                       toggleSelectSession(session.id);
                       return;

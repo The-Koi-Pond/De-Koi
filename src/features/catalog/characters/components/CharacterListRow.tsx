@@ -180,6 +180,8 @@ export function CharacterListRow({
           if (event.target !== event.currentTarget) return;
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
+          // Holding the key auto-repeats keydown; activate once.
+          if (event.repeat) return;
           activateRow();
         }}
         className="min-w-0 flex-1 outline-none"

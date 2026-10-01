@@ -1083,6 +1083,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             if (event.target !== event.currentTarget) return;
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
+            // Holding the key auto-repeats keydown; activate once.
+            if (event.repeat) return;
             void activateChatRow();
           }}
           className={cn(CHAT_ROW_TITLE_CLASS_NAME, "outline-none")}

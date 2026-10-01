@@ -63,6 +63,8 @@ export function PersonaListItem({
     if (event.currentTarget !== event.target) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    // Holding the key auto-repeats keydown; activate once.
+    if (event.repeat) return;
     handleRowAction();
   };
 
