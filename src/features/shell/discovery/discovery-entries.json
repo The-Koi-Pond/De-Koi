@@ -123,7 +123,7 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, organize into groups, edit character cards, manage version history and character-level memories, optionally include sanitized character memories in De-Koi Native exports, choose cross-chat continuity, inspect automatic evidence-backed behavior for sparse cards, generate concrete card fields, tune Public Profile details, and save Music Taste for visible Listening To flavor, play cues, and shuffled profile music.",
+    "summary": "Create, import, organize into groups, edit character cards, manage version history and character-level memories, optionally include sanitized character memories in De-Koi Native exports, export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, choose cross-chat continuity, inspect automatic evidence-backed behavior for sparse cards, generate concrete card fields, tune Public Profile details, and save Music Taste for visible Listening To flavor, play cues, and shuffled profile music.",
     "keywords": [
       "card",
       "character",
@@ -157,13 +157,17 @@
       "memory export",
       "include character memories",
       "De-Koi Native memory export",
+      "export",
+      "character card v3",
+      "charx",
+      "export charx",
       "music taste",
       "listening to",
       "profile music",
       "shuffle music"
     ],
     "audience": "Users building or collecting characters to chat or roleplay with.",
-    "where": "Title bar > Characters; open a character, then use Behavior for automatic sparse-card interpretation, Memories for cross-chat continuity, version history for saved card versions, or Export > De-Koi Native to optionally include sanitized character memories.",
+    "where": "Title bar > Characters; open a character, then use Behavior for automatic sparse-card interpretation, Memories for cross-chat continuity, version history for saved card versions, or Export to choose De-Koi Native (optionally with sanitized character memories), V2 JSON, PNG, Character Card V3, or CHARX.",
     "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
     "coverage": "core"
   },

@@ -36,7 +36,7 @@ enum SpriteRestoreOwnerKind {
     Persona,
 }
 
-pub(super) fn restore_sprites(
+pub(crate) fn restore_sprites(
     state: &AppState,
     target_id: &str,
     sprites: Option<&Value>,

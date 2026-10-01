@@ -2,6 +2,12 @@ import { downloadPayloadFromApiValue, triggerDownload, type DownloadPayload } fr
 import { invokeTauri } from "./tauri-client";
 
 type ExportFormat = string | null | undefined;
+
+function characterFallbackFilename(format: ExportFormat): string {
+  if (format === "charx") return "character.charx";
+  if (format === "compatible" || format === "v3") return "character.json";
+  return "character.dekoi.json";
+}
 export type CharacterExportOptions = {
   includeMemories?: boolean;
 };
@@ -28,7 +34,7 @@ export const exportApi = {
         format: format ?? null,
         ...(options?.includeMemories === undefined ? {} : { includeMemories: options.includeMemories }),
       },
-      format === "compatible" ? "character.json" : "character.dekoi.json",
+      characterFallbackFilename(format),
     ),
   characterPng: (id: string): Promise<DownloadPayload> =>
     exportDownload("character_export_png", { id }, "character.png"),

@@ -310,6 +310,43 @@ fn resolve_charx_public_profile_banner(bytes: &[u8], card: &mut Value) -> AppRes
     }
     Ok(())
 }
+/// Reads `emotion` assets into De-Koi sprite records (expression name plus an
+/// image data URL). Assets that are missing or not packaged are skipped.
+fn resolve_charx_emotion_sprites(bytes: &[u8], card: &Value) -> AppResult<Vec<Value>> {
+    let Some(assets) = charx_character_data(card).get("assets").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let mut sprites = Vec::new();
+    for asset in assets {
+        if asset.get("type").and_then(Value::as_str) != Some("emotion") {
+            continue;
+        }
+        let Some(uri) = asset.get("uri").and_then(Value::as_str) else {
+            continue;
+        };
+        let ext = asset.get("ext").and_then(Value::as_str);
+        let Some(data) = resolve_charx_asset(bytes, uri, ext)? else {
+            continue;
+        };
+        let expression = asset
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or("sprite");
+        let ext = ext
+            .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "png".to_string());
+        sprites.push(json!({
+            "expression": expression,
+            "filename": format!("{expression}.{ext}"),
+            "data": data,
+        }));
+    }
+    Ok(sprites)
+}
+
 fn extract_charx(bytes: &[u8]) -> AppResult<Value> {
     validate_charx_zip_package_limits(bytes)?;
     let Some(card_bytes) =
@@ -361,6 +398,13 @@ fn extract_charx(bytes: &[u8]) -> AppResult<Value> {
         }
     }
     resolve_charx_public_profile_banner(bytes, &mut card)?;
+    let sprites = resolve_charx_emotion_sprites(bytes, &card)?;
+    if !sprites.is_empty() {
+        let object = card
+            .as_object_mut()
+            .ok_or_else(|| AppError::invalid_input("card.json must contain an object"))?;
+        object.insert(CHARX_SPRITES_FIELD.to_string(), Value::Array(sprites));
+    }
     if let Some(avatar) = avatar {
         let object = card
             .as_object_mut()
@@ -420,6 +464,9 @@ fn validate_character_json_payload(payload: Value) -> AppResult<Value> {
     Ok(payload)
 }
 
+/// Internal field only `extract_charx` may set; a card file cannot supply it.
+pub(super) const CHARX_SPRITES_FIELD: &str = "_charxSprites";
+
 pub(super) fn parse_character_file(filename: &str, bytes: &[u8]) -> AppResult<Value> {
     let lower = filename.to_ascii_lowercase();
     if lower.ends_with(".png") {
@@ -427,6 +474,7 @@ pub(super) fn parse_character_file(filename: &str, bytes: &[u8]) -> AppResult<Va
         let object = payload.as_object_mut().ok_or_else(|| {
             AppError::invalid_input("Embedded character data must be a JSON object")
         })?;
+        object.remove(CHARX_SPRITES_FIELD);
         object.insert(
             "_avatarDataUrl".to_string(),
             Value::String(format!(
@@ -444,6 +492,12 @@ pub(super) fn parse_character_file(filename: &str, bytes: &[u8]) -> AppResult<Va
             AppError::invalid_input("Invalid file format. Expected a JSON character card, PNG with embedded character data, or .charx file.")
         })
         .and_then(validate_character_json_payload)
+        .map(|mut payload| {
+            if let Some(object) = payload.as_object_mut() {
+                object.remove(CHARX_SPRITES_FIELD);
+            }
+            payload
+        })
 }
 
 pub(super) fn parse_character_file_from_path(
@@ -452,10 +506,11 @@ pub(super) fn parse_character_file_from_path(
     bytes: &[u8],
 ) -> AppResult<Value> {
     if filename.to_ascii_lowercase().ends_with(".png") {
-        let payload = extract_chara_from_png(bytes)?;
-        payload.as_object().ok_or_else(|| {
-            AppError::invalid_input("Embedded character data must be a JSON object")
-        })?;
+        let mut payload = extract_chara_from_png(bytes)?;
+        payload
+            .as_object_mut()
+            .ok_or_else(|| AppError::invalid_input("Embedded character data must be a JSON object"))?
+            .remove(CHARX_SPRITES_FIELD);
         return Ok(payload);
     }
     parse_character_file(filename, bytes)
@@ -480,6 +535,19 @@ pub(super) fn import_payload(body: Value) -> AppResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_card_files_cannot_supply_charx_sprites() {
+        let card = json!({
+            "spec": "chara_card_v3",
+            "data": { "name": "Smuggler", "first_mes": "Hi" },
+            "_charxSprites": [{ "expression": "x", "data": "data:image/png;base64,AAAA" }]
+        });
+
+        let parsed = parse_character_file("card.json", card.to_string().as_bytes()).expect("json card");
+
+        assert!(parsed.get(CHARX_SPRITES_FIELD).is_none());
+    }
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::CompressionMethod;

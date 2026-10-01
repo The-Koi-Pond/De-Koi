@@ -171,6 +171,7 @@ fn import_st_character_payload(
             &mut created_banner_gallery_id,
             &mut banner_gallery_file_path,
         )?;
+        let sprites_imported = restore_sprites(state, &character_id, payload.get("_charxSprites"))?;
 
         let import_embedded = body
             .get("importEmbeddedLorebook")
@@ -211,6 +212,7 @@ fn import_st_character_payload(
             "character": character,
             "name": name,
             "filename": filename,
+            "spritesImported": sprites_imported,
             "embeddedLorebook": {
                 "hasEmbeddedLorebook": embedded.as_ref().map(lorebook_entry_count).unwrap_or(0) > 0,
                 "entries": embedded.as_ref().map(lorebook_entry_count).unwrap_or(0),
@@ -238,6 +240,7 @@ fn import_st_character_payload(
             rollback_managed_file_path(state, "gallery", path, &mut rollback_errors);
         }
         if let Some(character_id) = created_character_id.as_deref() {
+            rollback_managed_child_dir(state, "sprites", character_id, &mut rollback_errors);
             rollback_created_records(
                 state,
                 "characters",
@@ -270,7 +273,11 @@ pub(crate) fn import_st_character(state: &AppState, body: Value) -> AppResult<Va
         )?;
         parse_character_file(&uploaded.name, &uploaded.bytes)?
     } else {
-        body.clone()
+        let mut payload = body.clone();
+        if let Some(object) = payload.as_object_mut() {
+            object.remove(CHARX_SPRITES_FIELD);
+        }
+        payload
     };
     import_st_character_payload(state, payload, None, &body, None)
 }

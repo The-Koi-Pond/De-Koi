@@ -1,6 +1,37 @@
+/** What an export packaged and what it could not represent, per character. */
+export type ExportReport = {
+  included: Array<{ character: string; asset: string }>;
+  skipped: Array<{ character: string; asset: string; reason: string }>;
+};
+
 export interface DownloadPayload {
   blob: Blob;
   filename: string;
+  report?: ExportReport;
+}
+
+function readText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeExportReport(value: unknown): ExportReport | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as { included?: unknown; skipped?: unknown };
+  const rows = (items: unknown) =>
+    (Array.isArray(items) ? items : []).filter(
+      (item): item is Record<string, unknown> => !!item && typeof item === "object",
+    );
+  return {
+    included: rows(record.included).map((item) => ({
+      character: readText(item.character),
+      asset: readText(item.asset),
+    })),
+    skipped: rows(record.skipped).map((item) => ({
+      character: readText(item.character),
+      asset: readText(item.asset),
+      reason: readText(item.reason),
+    })),
+  };
 }
 
 function jsonBlob(value: unknown, type = "application/json") {
@@ -27,6 +58,7 @@ export function downloadPayloadFromApiValue(
       contentType?: unknown;
       mimeType?: unknown;
       filename?: unknown;
+      report?: unknown;
     };
     const base64 =
       typeof record.base64 === "string"
@@ -47,6 +79,7 @@ export function downloadPayloadFromApiValue(
               : fallbackType,
         ),
         filename: typeof record.filename === "string" && record.filename.trim() ? record.filename : fallbackFilename,
+        ...(normalizeExportReport(record.report) ? { report: normalizeExportReport(record.report) } : {}),
       };
     }
   }
