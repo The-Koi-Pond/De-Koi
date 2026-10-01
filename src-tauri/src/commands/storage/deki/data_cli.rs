@@ -10,7 +10,7 @@
 use super::approvals::{self, DekiApprovalScope};
 use super::library;
 use crate::state::AppState;
-use crate::storage_commands::entity_commands;
+use crate::storage_commands::{canonical_memory, entity_commands, knowledge_edges};
 use marinara_core::{new_id, AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -415,7 +415,7 @@ pub(super) fn plan_mutation(
     let mut validation = DekiDataValidation::default();
     let mut payload = mutation.payload.clone();
     let current = state.storage.get(entity, id)?;
-    let mut cascade: Vec<(&'static str, Vec<Value>)> = Vec::new();
+    let mut side_effects: Vec<DeleteSideEffect> = Vec::new();
     let mut preview = Vec::new();
 
     match mutation.kind {
@@ -471,17 +471,15 @@ pub(super) fn plan_mutation(
         DekiDataMutationKind::Delete => match current.as_ref() {
             None => validation.error(entity, id, format!("{entity}/{id} was not found.")),
             Some(current) => {
-                cascade = cascade_rows(state, entity, id)?;
-                for (child_entity, rows) in &cascade {
-                    if !rows.is_empty() {
-                        validation.notice(
-                            entity,
-                            id,
-                            format!("Also deletes {} {child_entity} row(s).", rows.len()),
-                        );
-                    }
+                side_effects = delete_side_effects(state, entity, id, current)?;
+                for effect in &side_effects {
+                    validation.notice(
+                        entity,
+                        id,
+                        format!("Also {} {} {} row(s).", effect.verb(), effect.rows.len(), effect.entity),
+                    );
                 }
-                if let Some(note) = delete_side_effect_note(entity) {
+                if let Some(note) = delete_file_note(entity) {
                     validation.notice(entity, id, note);
                 }
                 preview.push(row_change(entity, id, "delete", Some(current), None));
@@ -505,26 +503,35 @@ pub(super) fn plan_mutation(
         affected_entities.insert(entity.to_string(), json!(primary_rows));
     }
     let mut affected_rows = primary_rows;
-    for (child_entity, rows) in &cascade {
-        if rows.is_empty() {
-            continue;
-        }
+    let (mut side_deleted, mut side_updated) = (0, 0);
+    for effect in &side_effects {
         if can_apply {
-            affected_rows += rows.len();
-            affected_entities.insert(child_entity.to_string(), json!(rows.len()));
+            affected_rows += effect.rows.len();
+            let counted = affected_entities
+                .get(effect.entity)
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            affected_entities.insert(
+                effect.entity.to_string(),
+                json!(counted + effect.rows.len() as u64),
+            );
+            if effect.action == "delete" {
+                side_deleted += effect.rows.len();
+            } else {
+                side_updated += effect.rows.len();
+            }
         }
-        for row in rows.iter().take(CASCADE_PREVIEW_ROWS) {
-            let child_id = row.get("id").and_then(Value::as_str).unwrap_or_default();
-            preview.push(row_change(child_entity, child_id, "delete", Some(&row_label(row)), None));
+        for row in effect.rows.iter().take(CASCADE_PREVIEW_ROWS) {
+            preview.push(effect.preview_row(row));
         }
-        preview_truncated |= rows.len() > CASCADE_PREVIEW_ROWS;
+        preview_truncated |= effect.rows.len() > CASCADE_PREVIEW_ROWS;
     }
 
-    let operation_hash = operation_hash(mutation, &payload, current.as_ref(), &cascade);
+    let operation_hash = operation_hash(mutation, &payload, current.as_ref(), &side_effects);
     let (inserted, updated, deleted) = match mutation.kind {
         DekiDataMutationKind::Insert => (primary_rows, 0, 0),
         DekiDataMutationKind::Patch => (0, primary_rows, 0),
-        DekiDataMutationKind::Delete => (0, 0, affected_rows),
+        DekiDataMutationKind::Delete => (0, side_updated, primary_rows + side_deleted),
     };
     let summary = json!({
         "matchedRows": usize::from(current.is_some()),
@@ -676,45 +683,211 @@ fn has_text(object: &Map<String, Value>, field: &str) -> bool {
         .is_some_and(|value| !value.trim().is_empty())
 }
 
-fn cascade_rows(
+/// A durable change an approved delete makes beyond its primary row. Each one
+/// mirrors a cleanup the storage owner performs (see `delete_entity`), is shown
+/// in the preview and counts, and is folded into the operation hash so
+/// approval-time revalidation rejects a plan whose related rows changed.
+struct DeleteSideEffect {
+    entity: &'static str,
+    /// `delete` removes the rows; `update` changes them in place.
+    action: &'static str,
+    /// What happens to each row, in words the approval card can show.
+    effect: &'static str,
+    rows: Vec<Value>,
+}
+
+impl DeleteSideEffect {
+    fn verb(&self) -> &'static str {
+        if self.action == "delete" {
+            "deletes"
+        } else {
+            "changes"
+        }
+    }
+
+    fn preview_row(&self, row: &Value) -> Value {
+        let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
+        let label = row_label(row);
+        let after = (self.action != "delete").then_some(&label);
+        let mut change = row_change(self.entity, id, self.action, Some(&label), after);
+        change["effect"] = json!(self.effect);
+        change
+    }
+}
+
+fn delete_side_effects(
     state: &AppState,
     entity: &str,
     id: &str,
-) -> AppResult<Vec<(&'static str, Vec<Value>)>> {
-    let children: &[(&'static str, &str)] = match entity {
-        "lorebooks" => &[("lorebook-entries", "lorebookId")],
-        "prompts" => &[
-            ("prompt-sections", "presetId"),
-            ("prompt-groups", "presetId"),
-            ("prompt-variables", "presetId"),
-        ],
-        _ => &[],
+    current: &Value,
+) -> AppResult<Vec<DeleteSideEffect>> {
+    let mut effects = Vec::new();
+    let mut push = |entity: &'static str, action: &'static str, effect: &'static str, rows: Vec<Value>| {
+        if !rows.is_empty() {
+            effects.push(DeleteSideEffect { entity, action, effect, rows });
+        }
     };
-    let mut cascade = Vec::new();
-    for (child_entity, field) in children {
-        let mut rows = state
-            .storage
-            .list(child_entity)?
-            .into_iter()
-            .filter(|row| row.get(*field).and_then(Value::as_str) == Some(id))
-            .collect::<Vec<_>>();
-        rows.sort_by(|left, right| {
-            left.get("id")
-                .and_then(Value::as_str)
-                .cmp(&right.get("id").and_then(Value::as_str))
-        });
-        cascade.push((*child_entity, rows));
+    match entity {
+        "lorebooks" => {
+            push(
+                "lorebook-entries",
+                "delete",
+                "deleted with the lorebook",
+                rows_where(state, "lorebook-entries", |row| text_field(row, "lorebookId") == Some(id))?,
+            );
+            push(
+                "lorebook-folders",
+                "delete",
+                "deleted with the lorebook",
+                rows_where(state, "lorebook-folders", |row| text_field(row, "lorebookId") == Some(id))?,
+            );
+            push(
+                "chats",
+                "update",
+                "stops using this lorebook",
+                rows_where(state, "chats", |row| chat_uses_lorebook(row, id))?,
+            );
+            push(
+                "characters",
+                "update",
+                "loses its linked copy of this lorebook",
+                rows_where(state, "characters", |row| embedded_lorebook_id(row) == Some(id))?,
+            );
+        }
+        "lorebook-entries" => {
+            if let Some(lorebook_id) = text_field(current, "lorebookId") {
+                push(
+                    "characters",
+                    "update",
+                    "drops this entry from its linked lorebook copy",
+                    rows_where(state, "characters", |row| embedded_lorebook_id(row) == Some(lorebook_id))?,
+                );
+            }
+        }
+        "prompts" => {
+            for child in ["prompt-sections", "prompt-groups", "prompt-variables"] {
+                push(
+                    child,
+                    "delete",
+                    "deleted with the prompt preset",
+                    rows_where(state, child, |row| text_field(row, "presetId") == Some(id))?,
+                );
+            }
+        }
+        "characters" => {
+            push(
+                "character-gallery",
+                "delete",
+                "gallery image deleted with the character",
+                rows_where(state, "character-gallery", |row| text_field(row, "characterId") == Some(id))?,
+            );
+            push(
+                knowledge_edges::COLLECTION,
+                "update",
+                "knowledge link invalidated",
+                knowledge_links(state, "character", id)?,
+            );
+            push(
+                canonical_memory::MEMORY_COLLECTION,
+                "update",
+                "memory moved to deleted",
+                rows_where(state, canonical_memory::MEMORY_COLLECTION, |row| {
+                    row.get("scope").is_some_and(|scope| {
+                        text_field(scope, "kind") == Some("character") && text_field(scope, "id") == Some(id)
+                    }) && text_field(row, "status") != Some("deleted")
+                })?,
+            );
+        }
+        "personas" => {
+            push(
+                "persona-gallery",
+                "delete",
+                "gallery image deleted with the persona",
+                rows_where(state, "persona-gallery", |row| text_field(row, "personaId") == Some(id))?,
+            );
+            push(
+                knowledge_edges::COLLECTION,
+                "update",
+                "knowledge link invalidated",
+                knowledge_links(state, "persona", id)?,
+            );
+        }
+        "character-groups" => push(
+            knowledge_edges::COLLECTION,
+            "update",
+            "knowledge link invalidated",
+            knowledge_links(state, "group", id)?,
+        ),
+        _ => {}
     }
-    Ok(cascade)
+    Ok(effects)
 }
 
-fn delete_side_effect_note(entity: &str) -> Option<&'static str> {
+/// Rows of `collection` matching `predicate`, sorted by id so the preview and
+/// the operation hash are stable.
+fn rows_where(
+    state: &AppState,
+    collection: &str,
+    predicate: impl Fn(&Value) -> bool,
+) -> AppResult<Vec<Value>> {
+    let mut rows = state
+        .storage
+        .list(collection)?
+        .into_iter()
+        .filter(|row| predicate(row))
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| text_field(left, "id").cmp(&text_field(right, "id")));
+    Ok(rows)
+}
+
+/// Knowledge links the holder delete invalidates (active or proposed ones).
+fn knowledge_links(state: &AppState, holder_kind: &str, holder_id: &str) -> AppResult<Vec<Value>> {
+    rows_where(state, knowledge_edges::COLLECTION, |row| {
+        row.get("holder").is_some_and(|holder| {
+            text_field(holder, "kind") == Some(holder_kind) && text_field(holder, "id") == Some(holder_id)
+        }) && matches!(text_field(row, "status"), Some("active" | "proposed"))
+    })
+}
+
+fn text_field<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
+    row.get(field).and_then(Value::as_str)
+}
+
+/// Objects may be stored as JSON text; read either shape.
+fn object_field(row: &Value, field: &str) -> Option<Value> {
+    match row.get(field)? {
+        Value::String(text) => serde_json::from_str::<Value>(text).ok().filter(Value::is_object),
+        value @ Value::Object(_) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+fn lists_id(value: Option<&Value>, id: &str) -> bool {
+    value
+        .and_then(Value::as_array)
+        .is_some_and(|ids| ids.iter().any(|value| value.as_str() == Some(id)))
+}
+
+fn chat_uses_lorebook(chat: &Value, lorebook_id: &str) -> bool {
+    lists_id(chat.get("activeLorebookIds"), lorebook_id)
+        || object_field(chat, "metadata")
+            .is_some_and(|metadata| lists_id(metadata.get("activeLorebookIds"), lorebook_id))
+}
+
+fn embedded_lorebook_id(character: &Value) -> Option<&str> {
+    character
+        .pointer("/data/extensions/importMetadata/embeddedLorebook/lorebookId")
+        .and_then(Value::as_str)
+}
+
+/// Managed files are not rows, so they are named rather than listed.
+fn delete_file_note(entity: &str) -> Option<&'static str> {
     match entity {
         "characters" => Some(
-            "Deleting a character also removes its gallery images and knowledge links, and soft-deletes its canonical memories.",
+            "Also removes the character's avatar, sprite, and gallery image files.",
         ),
-        "personas" => Some("Deleting a persona also removes its gallery images and knowledge links."),
-        "character-groups" => Some("Deleting a character group also removes its knowledge links."),
+        "personas" => Some("Also removes the persona's avatar, sprite, and gallery image files."),
+        "lorebooks" => Some("Also removes the lorebook's image file."),
         _ => None,
     }
 }
@@ -809,10 +982,13 @@ fn row_change(
 
 fn row_label(row: &Value) -> Value {
     let mut label = Map::new();
-    for key in ["id", "name", "title", "identifier", "variableName"] {
+    for key in ["id", "name", "title", "identifier", "variableName", "filename"] {
         if let Some(value) = row.get(key) {
             label.insert(key.to_string(), value.clone());
         }
+    }
+    if let Some(name) = row.pointer("/data/name") {
+        label.insert("data".to_string(), json!({ "name": name }));
     }
     Value::Object(label)
 }
@@ -866,11 +1042,11 @@ fn operation_hash(
     mutation: &DekiDataMutation,
     payload: &Value,
     current: Option<&Value>,
-    cascade: &[(&'static str, Vec<Value>)],
+    side_effects: &[DeleteSideEffect],
 ) -> String {
-    let cascade = cascade
+    let cascade = side_effects
         .iter()
-        .map(|(entity, rows)| json!({ "entity": entity, "rows": rows }))
+        .map(|effect| json!({ "entity": effect.entity, "action": effect.action, "rows": effect.rows }))
         .collect::<Vec<_>>();
     let material = canonical_json(&json!({
         "kind": mutation.kind.as_str(),

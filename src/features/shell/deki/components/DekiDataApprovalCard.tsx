@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Database, Loader2, Trash2, X } from "lucide-react";
 import type {
   DekiWorkspaceHistoryEntry,
@@ -21,6 +21,12 @@ const COLLECTION_LABELS: Record<string, [singular: string, plural: string]> = {
   "prompt-sections": ["prompt section", "prompt sections"],
   "prompt-groups": ["prompt group", "prompt groups"],
   "prompt-variables": ["prompt variable", "prompt variables"],
+  "lorebook-folders": ["lorebook folder", "lorebook folders"],
+  "character-gallery": ["character gallery image", "character gallery images"],
+  "persona-gallery": ["persona gallery image", "persona gallery images"],
+  "memory-knowledge-edges": ["knowledge link", "knowledge links"],
+  "canonical-memories": ["memory", "memories"],
+  chats: ["chat", "chats"],
 };
 
 type ParsedCommand = { action: "insert" | "patch" | "delete" | null; collection: string; id: string };
@@ -58,13 +64,15 @@ function recordName(row: DekiWorkspaceRowChange | undefined): string | null {
   const data = source.data;
   const nested =
     data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>).name : undefined;
-  const name = source.name ?? nested ?? source.title;
+  const name = source.name ?? nested ?? source.title ?? source.filename;
   return typeof name === "string" && name.trim() ? name.trim() : null;
 }
 
-function affectsLabel(affectedEntities: Record<string, number>): string {
+/** Counts per collection, the record the command names first. */
+function affectsLabel(affectedEntities: Record<string, number>, primary: string): string {
   const parts = Object.entries(affectedEntities)
     .filter(([, count]) => count > 0)
+    .sort(([left], [right]) => Number(right === primary) - Number(left === primary))
     .map(([collection, count]) => `${count} ${collectionLabel(collection, count)}`);
   return parts.length > 0 ? parts.join(", ") : "No stored rows";
 }
@@ -77,6 +85,23 @@ export function dekiApprovalExpiryLabel(expiresAt: string, now: number): string 
   const minutes = Math.floor(remainingMs / 60_000);
   if (minutes < 1) return "Expires in under a minute";
   return `Expires in ${minutes} min`;
+}
+
+/**
+ * The current time, refreshed whenever the expiry label would change and at
+ * the moment of expiry, so an idle card never keeps its decision buttons
+ * after its approval expires.
+ */
+function useDekiApprovalClock(expiresAt: string | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const remainingMs = expiresAt ? Date.parse(expiresAt) - now : Number.NaN;
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) return;
+    // Wake just past the next whole minute (or the expiry), where the label changes.
+    const timer = setTimeout(() => setNow(Date.now()), (remainingMs % 60_000) + 1);
+    return () => clearTimeout(timer);
+  }, [expiresAt, now]);
+  return now;
 }
 
 type Outcome = { label: string; tone: "success" | "neutral" | "warning" | "error" };
@@ -110,6 +135,23 @@ export function dekiApprovalOutcome(
   }
 }
 
+function SideEffectRows({ title, tone, rows }: { title: string; tone: string; rows: DekiWorkspaceRowChange[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="border-t border-[var(--border)]/70 px-2.5 py-2 text-[0.6875rem] text-[var(--foreground)]/80">
+      <div className={cn("mb-1 font-semibold", tone)}>{title}</div>
+      <ul className="grid gap-0.5">
+        {rows.map((row) => (
+          <li key={`${row.entity}/${row.id}`} className="truncate" title={row.effect}>
+            {collectionLabel(row.entity)}: {recordName(row) ?? row.id}
+            {row.effect && <span className="text-[var(--muted-foreground)]"> · {row.effect}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function DekiDataApprovalCard({
   entry,
   pending: pendingApproval,
@@ -125,18 +167,18 @@ export function DekiDataApprovalCard({
   error?: string;
   onDecide: (approve: boolean) => void;
 }) {
-  const expiryLabel = pendingApproval ? dekiApprovalExpiryLabel(pendingApproval.expiresAt, Date.now()) : null;
+  const now = useDekiApprovalClock(pendingApproval?.expiresAt ?? null);
+  const expiryLabel = pendingApproval ? dekiApprovalExpiryLabel(pendingApproval.expiresAt, now) : null;
   // A pending approval past its expiry is shown as expired, never as actionable.
   const pending = pendingApproval && expiryLabel !== null ? pendingApproval : null;
   const command = parseDekiDataCommand(entry.command);
   const preview = pending?.diffPreview ?? [];
   const primary = preview[0];
-  const cascade = preview.slice(1);
+  const alsoDeleted = preview.slice(1).filter((row) => row.action === "delete");
+  const alsoChanged = preview.slice(1).filter((row) => row.action !== "delete");
   const primaryRows = useMemo(
     () =>
-      primary && primary.action !== "delete"
-        ? orderDekiDiffRowsForReading(createDekiRowChangeDiffRows(primary))
-        : [],
+      primary && primary.action !== "delete" ? orderDekiDiffRowsForReading(createDekiRowChangeDiffRows(primary)) : [],
     [primary],
   );
   const deletedFields = useMemo(
@@ -173,7 +215,8 @@ export function DekiDataApprovalCard({
             {name && <span className="font-normal text-[var(--foreground)]/70"> · {name}</span>}
           </div>
           <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]" title={entry.command}>
-            {pending ? "Waiting for your approval" : "Library change"} · {affectsLabel(entry.affectedEntities)}
+            {pending ? "Waiting for your approval" : "Library change"} ·{" "}
+            {affectsLabel(entry.affectedEntities, command.collection)}
           </div>
         </div>
         {outcome && (
@@ -235,17 +278,11 @@ export function DekiDataApprovalCard({
           ) : (
             <div className="px-2.5 py-3 text-[0.6875rem] text-[var(--muted-foreground)]">No field preview.</div>
           )}
-          {cascade.length > 0 && (
-            <div className="border-t border-[var(--border)]/70 px-2.5 py-2 text-[0.6875rem] text-[var(--foreground)]/80">
-              <div className="mb-1 font-semibold text-red-400">Also deleted</div>
-              <ul className="grid gap-0.5">
-                {cascade.map((row) => (
-                  <li key={`${row.entity}/${row.id}`} className="truncate">
-                    {collectionLabel(row.entity)}: {recordName(row) ?? row.id}
-                  </li>
-                ))}
-                {pending.diffTruncated && <li className="text-[var(--muted-foreground)]">…and more</li>}
-              </ul>
+          <SideEffectRows title="Also deleted" tone="text-red-400" rows={alsoDeleted} />
+          <SideEffectRows title="Also changed" tone="text-amber-500" rows={alsoChanged} />
+          {pending.diffTruncated && (
+            <div className="border-t border-[var(--border)]/70 px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+              …and more rows; the counts above include every row.
             </div>
           )}
         </div>

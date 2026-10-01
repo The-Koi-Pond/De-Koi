@@ -148,11 +148,20 @@ function buildDiffRow(path: string, beforeValue: unknown, afterValue: unknown, c
 const DEKI_ROW_CHANGE_HIDDEN_FIELDS = new Set(["id", "createdAt", "updatedAt"]);
 
 /**
+ * Storage owns ids and timestamps at every depth (nested JSON records carry
+ * them too), so previews judge a flattened path by its last segment only. A
+ * user field is never hidden because of its parent's name.
+ */
+function isStorageOwnedPath(path: string): boolean {
+  return DEKI_ROW_CHANGE_HIDDEN_FIELDS.has(path.split(".").at(-1) ?? path);
+}
+
+/**
  * Diff rows for one row of a Deki data-change preview. The runtime already
  * reduced updates to the changed fields, so every row here is a real change.
  */
 export function createDekiRowChangeDiffRows(change: DekiWorkspaceRowChange): DekiActionDiffRow[] {
-  const visible = (entry: FlatValue) => !DEKI_ROW_CHANGE_HIDDEN_FIELDS.has(entry.path);
+  const visible = (entry: FlatValue) => !isStorageOwnedPath(entry.path);
   if (change.action === "delete") {
     return flattenProposedValue(change.before ?? {})
       .filter(visible)
@@ -200,7 +209,7 @@ export function createDekiDeletePreviewFields(change: DekiWorkspaceRowChange): D
   return flattenProposedValue(change.before ?? {})
     .filter((entry) => {
       const field = entry.path.split(".").at(-1) ?? entry.path;
-      return !DEKI_ROW_CHANGE_HIDDEN_FIELDS.has(field) && !/(^id|Id|Ids)$/.test(field);
+      return !isStorageOwnedPath(entry.path) && !/(^id|Id|Ids)$/.test(field) && entry.value != null;
     })
     .map((entry) => ({ path: entry.path, value: readablePreviewValue(entry.value).trim() }))
     .filter((entry) => entry.value.length > 0)

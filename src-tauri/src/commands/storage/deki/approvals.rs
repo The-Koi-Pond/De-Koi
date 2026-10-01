@@ -300,6 +300,14 @@ fn take_pending(scope: &DekiApprovalScope, id: &str) -> AppResult<Option<Pending
     Ok(Some(store.pending.remove(index)))
 }
 
+/// Puts an approval taken by a failed apply back, so the user can retry it.
+/// Only called once the failure is known to have written nothing.
+fn restore_pending(approval: PendingApproval) -> AppResult<()> {
+    let mut store = store()?;
+    store.pending.push(approval);
+    Ok(())
+}
+
 fn complete(scope: &DekiApprovalScope, id: &str, status: &str) -> AppResult<()> {
     let mut store = store()?;
     store.complete(scope, id, status, Utc::now());
@@ -319,28 +327,40 @@ enum ApplyOutcome {
     Applied,
     Blocked(String),
     StateChanged,
+    /// The write failed and storage still matches the approved plan, so
+    /// nothing was written and the approval can be retried.
+    FailedWithoutWrite(AppError),
+    /// The write failed after changing storage (or its effect could not be
+    /// checked), so replaying the approval could double-apply part of it.
+    FailedAfterWrite(AppError),
 }
+
+#[cfg(test)]
+type BeforeApplyHook = Box<dyn FnOnce() -> AppResult<()>>;
 
 #[cfg(test)]
 thread_local! {
     /// Runs between the final hash check and the write, so a test can race a
-    /// competing mutation against an approval.
-    static BEFORE_APPLY_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+    /// competing mutation against an approval or fail the write.
+    static BEFORE_APPLY_HOOK: std::cell::RefCell<Option<BeforeApplyHook>> =
         std::cell::RefCell::new(None);
 }
 
-fn run_before_apply_hook() {
+fn run_before_apply_hook() -> AppResult<()> {
     #[cfg(test)]
-    BEFORE_APPLY_HOOK.with(|hook| {
-        if let Some(hook) = hook.borrow_mut().take() {
-            hook();
+    {
+        if let Some(hook) = BEFORE_APPLY_HOOK.with(|hook| hook.borrow_mut().take()) {
+            return hook();
         }
-    });
+    }
+    Ok(())
 }
 
 /// Re-plans against current storage and applies only if the plan still
 /// matches the approved hash, all inside one exclusive storage section so no
-/// other writer can change the rows between the check and the write.
+/// other writer can change the rows between the check and the write. A failed
+/// write is reconciled by planning again: an unchanged hash proves nothing was
+/// written.
 fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<ApplyOutcome> {
     state.storage.with_exclusive_writes(|| {
         let plan = data_cli::plan_mutation(state, &pending.mutation)?;
@@ -355,10 +375,23 @@ fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<
         if plan.operation_hash != pending.operation_hash {
             return Ok(ApplyOutcome::StateChanged);
         }
-        run_before_apply_hook();
-        data_cli::apply_mutation(state, &pending.mutation)?;
-        Ok(ApplyOutcome::Applied)
+        let applied = run_before_apply_hook()
+            .and_then(|()| data_cli::apply_mutation(state, &pending.mutation).map(|_| ()));
+        let Err(error) = applied else {
+            return Ok(ApplyOutcome::Applied);
+        };
+        let unchanged = data_cli::plan_mutation(state, &pending.mutation)
+            .is_ok_and(|replan| replan.operation_hash == pending.operation_hash);
+        Ok(if unchanged {
+            ApplyOutcome::FailedWithoutWrite(error)
+        } else {
+            ApplyOutcome::FailedAfterWrite(error)
+        })
     })
+}
+
+fn sentence(message: &str) -> &str {
+    message.trim().trim_end_matches('.')
 }
 
 fn validate_approval_id(id: &str) -> AppResult<&str> {
@@ -385,6 +418,26 @@ pub(super) fn approve(
         return decision_value(id, "not_found", &scope);
     };
     match apply_if_unchanged(state, &pending) {
+        Ok(ApplyOutcome::FailedWithoutWrite(error)) => {
+            restore_pending(pending)?;
+            Err(AppError::new(
+                "deki_workspace_apply_failed",
+                format!(
+                    "Nothing was applied: {}. The change is still waiting for approval, so it can be tried again.",
+                    sentence(&error.message)
+                ),
+            ))
+        }
+        Ok(ApplyOutcome::FailedAfterWrite(error)) => {
+            complete(&scope, id, "failed")?;
+            Err(AppError::new(
+                "deki_workspace_partial_apply",
+                format!(
+                    "Part of this change may have been saved before it failed: {}. Check the affected records, then ask Deki-senpai for a fresh dry-run.",
+                    sentence(&error.message)
+                ),
+            ))
+        }
         Ok(ApplyOutcome::Applied) => {
             complete(&scope, id, "approved")?;
             let mut value = decision_value(id, "approved", &scope)?;
@@ -409,8 +462,9 @@ pub(super) fn approve(
                 "Nothing was applied because this data changed after Deki-senpai's dry-run. Ask Deki-senpai for a fresh dry-run.",
             ))
         }
+        // Planning failed before any write, so the approval stays retryable.
         Err(error) => {
-            complete(&scope, id, "failed")?;
+            restore_pending(pending)?;
             Err(error)
         }
     }
@@ -429,6 +483,7 @@ pub(super) fn reject(owner: &DekiRuntimeOwner, session_id: &str, id: &str) -> Ap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage_commands::{canonical_memory, knowledge_edges};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state(label: &str) -> AppState {
@@ -780,6 +835,215 @@ mod tests {
         assert_eq!(state.storage.list("lorebook-entries").expect("list").len(), 9);
     }
 
+    fn seed_character_with_side_effects(state: &AppState) {
+        let rows = [
+            (
+                "characters",
+                json!({ "id": "char-mei", "data": { "name": "Mei" } }),
+            ),
+            (
+                "characters",
+                json!({ "id": "char-other", "data": { "name": "Other" } }),
+            ),
+            (
+                "character-gallery",
+                json!({ "id": "img-1", "characterId": "char-mei", "filename": "mei-1.png" }),
+            ),
+            (
+                "character-gallery",
+                json!({ "id": "img-2", "characterId": "char-other", "filename": "other.png" }),
+            ),
+            (
+                knowledge_edges::COLLECTION,
+                json!({ "id": "edge-1", "memoryId": "mem-1", "holder": { "kind": "character", "id": "char-mei" }, "status": "active" }),
+            ),
+            (
+                knowledge_edges::COLLECTION,
+                json!({ "id": "edge-old", "memoryId": "mem-1", "holder": { "kind": "character", "id": "char-mei" }, "status": "invalidated" }),
+            ),
+        ];
+        for (collection, row) in rows {
+            state.storage.create(collection, row).expect("seed row");
+        }
+        for (id, status) in [("mem-1", "active"), ("mem-gone", "deleted")] {
+            canonical_memory::create_memory(
+                state,
+                json!({
+                    "id": id,
+                    "kind": "fact",
+                    "status": status,
+                    "scope": { "kind": "character", "id": "char-mei" },
+                    "title": "Brass key",
+                    "content": "Mei keeps a brass key.",
+                    "confidence": 0.8,
+                    "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"], "timestamp": "2026-09-30T12:00:00.000Z" }
+                }),
+            )
+            .expect("seed memory");
+        }
+    }
+
+    #[test]
+    fn character_delete_previews_every_side_effect_it_applies() {
+        let state = test_state("character-delete");
+        seed_character_with_side_effects(&state);
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("character-delete"),
+        );
+
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({ "action": "delete", "collection": "characters", "id": "char-mei", "reason": "Retire Mei" }),
+        );
+
+        let summary = &result["summary"];
+        assert_eq!(
+            summary["affectedEntities"],
+            json!({
+                "characters": 1,
+                "character-gallery": 1,
+                (knowledge_edges::COLLECTION): 1,
+                (canonical_memory::MEMORY_COLLECTION): 1,
+            }),
+            "{result}"
+        );
+        assert_eq!(summary["affectedRows"], 4);
+        assert_eq!(summary["deletedRows"], 2);
+        assert_eq!(summary["updatedRows"], 2);
+        let preview = summary["preview"].as_array().expect("preview rows");
+        let side_rows = preview[1..]
+            .iter()
+            .map(|row| {
+                format!("{} {} {}", row["action"], row["entity"], row["id"]).replace('"', "")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            side_rows,
+            [
+                "delete character-gallery img-1".to_string(),
+                format!("update {} edge-1", knowledge_edges::COLLECTION),
+                format!("update {} mem-1", canonical_memory::MEMORY_COLLECTION),
+            ]
+        );
+        assert_eq!(preview[3]["effect"], "memory moved to deleted");
+        assert_eq!(preview[3]["before"]["title"], "Brass key");
+
+        approve(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect("delete applies");
+
+        let gallery = state.storage.list("character-gallery").expect("gallery");
+        assert_eq!(gallery.len(), 1);
+        assert_eq!(gallery[0]["id"], "img-2");
+        let edge = state
+            .storage
+            .get(knowledge_edges::COLLECTION, "edge-1")
+            .expect("read edge")
+            .expect("edge kept");
+        assert_eq!(edge["status"], "invalidated");
+        let memory = state
+            .storage
+            .get(canonical_memory::MEMORY_COLLECTION, "mem-1")
+            .expect("read memory")
+            .expect("memory kept");
+        assert_eq!(memory["status"], "deleted");
+    }
+
+    #[test]
+    fn a_related_row_change_after_the_dry_run_blocks_the_delete() {
+        let state = test_state("character-delete-stale");
+        seed_character_with_side_effects(&state);
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("character-delete-stale"),
+        );
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({ "action": "delete", "collection": "characters", "id": "char-mei", "reason": "Retire Mei" }),
+        );
+        state
+            .storage
+            .create(
+                "character-gallery",
+                json!({ "id": "img-3", "characterId": "char-mei", "filename": "mei-new.png" }),
+            )
+            .expect("new gallery image after the dry-run");
+
+        let error = approve(
+            &state,
+            &DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            &approval_id(&result),
+        )
+        .expect_err("the unseen gallery image must block the delete");
+
+        assert_eq!(error.code, "deki_workspace_state_changed");
+        assert!(state
+            .storage
+            .get("characters", "char-mei")
+            .expect("read")
+            .is_some());
+        assert_eq!(
+            state
+                .storage
+                .list("character-gallery")
+                .expect("gallery")
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn lorebook_delete_previews_folders_and_unlinked_references() {
+        let state = test_state("lorebook-delete-refs");
+        seed_lorebook(&state);
+        for (collection, row) in [
+            (
+                "lorebook-folders",
+                json!({ "id": "folder-1", "lorebookId": "book-pond", "name": "Fish" }),
+            ),
+            (
+                "chats",
+                json!({ "id": "chat-1", "name": "Pond chat", "metadata": "{\"activeLorebookIds\":[\"book-pond\"]}" }),
+            ),
+            (
+                "chats",
+                json!({ "id": "chat-2", "name": "Other chat", "activeLorebookIds": ["book-other"] }),
+            ),
+            (
+                "characters",
+                json!({ "id": "char-linked", "data": { "name": "Linked", "extensions": { "importMetadata": { "embeddedLorebook": { "lorebookId": "book-pond" } } } } }),
+            ),
+        ] {
+            state.storage.create(collection, row).expect("seed row");
+        }
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("lorebook-delete-refs"),
+        );
+
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({ "action": "delete", "collection": "lorebooks", "id": "book-pond", "reason": "Retire" }),
+        );
+
+        assert_eq!(
+            result["summary"]["affectedEntities"],
+            json!({ "lorebooks": 1, "lorebook-entries": 1, "lorebook-folders": 1, "chats": 1, "characters": 1 }),
+            "{result}"
+        );
+        assert_eq!(result["summary"]["deletedRows"], 3);
+        assert_eq!(result["summary"]["updatedRows"], 2);
+    }
+
     #[test]
     fn character_patch_preview_shows_only_changed_card_fields() {
         let state = test_state("character-patch");
@@ -921,6 +1185,7 @@ mod tests {
                     "a competing write must not land between the hash check and the approved write"
                 );
                 *competitor_handle.lock().expect("competitor slot") = Some((handle, landed_rx));
+                Ok(())
             }));
         });
 
@@ -943,6 +1208,121 @@ mod tests {
             .expect("entry exists");
         assert_eq!(stored["content"], "Deki's approved text.");
         assert_eq!(stored["name"], "Renamed meanwhile");
+    }
+
+    fn fail_next_apply(write_first: Option<(AppState, Value)>) {
+        BEFORE_APPLY_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                if let Some((state, patch)) = write_first {
+                    state
+                        .storage
+                        .patch("lorebook-entries", "entry-koi", patch)
+                        .expect("partial write");
+                }
+                Err(AppError::new("storage_error", "disk unavailable"))
+            }));
+        });
+    }
+
+    #[test]
+    fn a_failed_write_that_changed_nothing_keeps_the_approval_retryable() {
+        let state = test_state("retry");
+        seed_lorebook(&state);
+        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("retry"));
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "patch",
+                "collection": "lorebook-entries",
+                "id": "entry-koi",
+                "patch": { "content": "Koi circle the lantern at dawn." },
+                "reason": "Fix the time of day"
+            }),
+        );
+        let id = approval_id(&result);
+        fail_next_apply(None);
+
+        let error = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect_err("the injected write failure surfaces");
+
+        assert_eq!(error.code, "deki_workspace_apply_failed");
+        assert!(
+            error
+                .message
+                .starts_with("Nothing was applied: disk unavailable."),
+            "{}",
+            error.message
+        );
+        let pending = pending_for(&scope).expect("pending approvals");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["id"], id);
+        assert_eq!(
+            pending[0]["operationHash"],
+            result["approval"]["operationHash"]
+        );
+        assert_eq!(
+            history_for(&scope).expect("history")[0]["status"],
+            "dry-run"
+        );
+
+        let decision = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect("the retry applies");
+
+        assert_eq!(decision["status"], "approved");
+        let history = history_for(&scope).expect("history");
+        assert_eq!(
+            history.len(),
+            1,
+            "a retry must not add history rows: {history:?}"
+        );
+        assert_eq!(history[0]["status"], "approved");
+        let stored = state
+            .storage
+            .get("lorebook-entries", "entry-koi")
+            .expect("read entry")
+            .expect("entry exists");
+        assert_eq!(stored["content"], "Koi circle the lantern at dawn.");
+    }
+
+    #[test]
+    fn a_failed_write_that_changed_storage_is_not_replayable() {
+        let state = test_state("partial");
+        seed_lorebook(&state);
+        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("partial"));
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "patch",
+                "collection": "lorebook-entries",
+                "id": "entry-koi",
+                "patch": { "content": "Koi circle the lantern at dawn." },
+                "reason": "Fix the time of day"
+            }),
+        );
+        let id = approval_id(&result);
+        fail_next_apply(Some((state.clone(), json!({ "name": "Half-written" }))));
+
+        let error = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect_err("the injected write failure surfaces");
+
+        assert_eq!(error.code, "deki_workspace_partial_apply");
+        assert!(
+            error
+                .message
+                .starts_with("Part of this change may have been saved"),
+            "{}",
+            error.message
+        );
+        assert!(pending_for(&scope).expect("pending approvals").is_empty());
+        let history = history_for(&scope).expect("history");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["status"], "failed");
+        let replay = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect("a replay resolves");
+        assert_eq!(replay["status"], "not_found");
+        assert_eq!(history_for(&scope).expect("history").len(), 1);
     }
 
     #[test]

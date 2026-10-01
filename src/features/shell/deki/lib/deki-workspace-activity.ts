@@ -9,7 +9,8 @@ export type DekiActivityStep = {
   id: string;
   name: DekiWorkspaceToolName;
   label: string;
-  status: "running" | "done" | "error";
+  /** `interrupted`: a finished turn ended while this command was still running. */
+  status: "running" | "done" | "error" | "interrupted";
   output?: string;
 };
 
@@ -84,7 +85,7 @@ export function dekiTraceSteps(trace: readonly DekiWorkspaceTraceItem[] | undefi
         name: item.tool.name,
         label: describeDekiStep(item.tool.name, item.tool.input),
         // A persisted step can only be running if its turn ended mid-command.
-        status: item.tool.status === "error" ? "error" : "done",
+        status: item.tool.status === "running" ? "interrupted" : item.tool.status,
         ...(typeof item.tool.output === "string" ? { output: item.tool.output } : {}),
       } satisfies DekiActivityStep,
     ];

@@ -38,11 +38,18 @@ normalization. Use `patch` with only the fields that change.
 1. A mutation command plans against current storage and writes nothing. The
    plan normalizes the payload with the same card-field contract Deki action
    cards use, checks parent references (`lorebookId`, `presetId`), rejects
-   storage-owned fields (`id`, `createdAt`, `updatedAt`) and no-op patches, and
-   counts cascades (lorebook entries, prompt children).
+   storage-owned fields (`id`, `createdAt`, `updatedAt`) and no-op patches.
+   A delete also lists every row the storage owner's cleanup touches: lorebook
+   entries and folders plus the chats and characters that stop using the
+   lorebook; prompt sections, groups, and variables; character and persona
+   gallery rows; knowledge links it invalidates; and character memories it
+   moves to deleted. Each side-effect row says what happens to it. Managed
+   files (avatars, sprites, gallery and lorebook images) are named in a
+   validation notice because they are not rows.
 2. A plan that passes validation becomes a pending approval with a bounded diff
    preview and a `sha256:` operation hash over the payload, the current row,
-   and every cascaded row. Inserts pre-assign their id, so the preview, the
+   and every side-effect row, so a related row that changes after the dry-run
+   makes the approval `state_changed`. Inserts pre-assign their id, so the preview, the
    hash, and the created record name the same row. Blocked plans are recorded
    in history and create no approval.
 3. Approve and reject take the Deki session id and act only on approvals in
@@ -57,6 +64,12 @@ normalization. Use `patch` with only the fields that change.
    `storage_create_inner`, `storage_update_inner`, or `delete_entity`, the same
    owners the app editors use, so normalization, cascades, and character
    version snapshots match manual edits.
+4. If the write fails, the runtime plans again inside the same exclusive
+   section. An unchanged hash proves nothing was written, so the approval goes
+   back to pending under the same id and can be retried without a new history
+   row. A changed hash means part of the change may have been saved; the
+   approval is recorded as `failed` and is never replayed, and the user is
+   told to check the records and ask for a fresh dry-run.
 
 Limits: 6 data dry-runs per Deki turn, 12 pending approvals per session,
 30-minute approval expiry, 64 KiB payloads, and previews capped per string,

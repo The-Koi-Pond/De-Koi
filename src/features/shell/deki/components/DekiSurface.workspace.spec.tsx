@@ -109,7 +109,12 @@ const assistantMessage: DekiMessage = {
   workspaceTrace: [
     {
       type: "tool",
-      tool: { id: "deki_r1_c1", name: "deki_data", status: "done", input: { action: "get", collection: "lorebook-entries", id: "entry-koi" } },
+      tool: {
+        id: "deki_r1_c1",
+        name: "deki_data",
+        status: "done",
+        input: { action: "get", collection: "lorebook-entries", id: "entry-koi" },
+      },
     },
   ],
   workspaceHistory: [historyEntry],
@@ -271,6 +276,33 @@ describe("DekiSurface workspace activity and data approvals", () => {
     );
   });
 
+  it("keeps an approval actionable after a failed write that saved nothing", async () => {
+    vi.mocked(dekiApi.workspace.approve).mockRejectedValue(
+      new ApiError("failed", 500, { code: "deki_workspace_apply_failed" }),
+    );
+    await render([userMessage, assistantMessage]);
+    vi.mocked(dekiApi.workspace.status).mockResolvedValue({
+      enabled: true,
+      workspace: null,
+      dataDir: null,
+      tools: [],
+      dataAccess: "server-managed",
+      connection: null,
+      active: false,
+      pendingApprovals: [pendingApproval],
+      history: [historyEntry],
+    });
+
+    await act(async () => {
+      buttonByText(container!, "Approve")!.click();
+    });
+    await tick();
+
+    expect(container!.textContent).toContain("still waiting for your approval");
+    expect(buttonByText(container!, "Approve")).not.toBeNull();
+    expect(dekiApi.history.updateWorkspaceHistoryEntry).not.toHaveBeenCalled();
+  });
+
   it("shows a pending approval past its expiry as expired, not actionable", async () => {
     vi.mocked(dekiApi.workspace.status).mockResolvedValue({
       enabled: true,
@@ -344,7 +376,10 @@ describe("DekiSurface workspace activity and data approvals", () => {
     let finish: (() => void) | null = null;
     vi.mocked(runDekiEntry).mockImplementation(async (_input, _gateway, options) => {
       options?.onEvent?.({ type: "status", data: { content: "Looking for the shell owner.", kind: "info" } });
-      options?.onEvent?.({ type: "tool_start", data: { id: "deki_r1_c1", name: "grep", input: { query: "AppShell" } } });
+      options?.onEvent?.({
+        type: "tool_start",
+        data: { id: "deki_r1_c1", name: "grep", input: { query: "AppShell" } },
+      });
       await new Promise<void>((resolve) => {
         finish = resolve;
       });

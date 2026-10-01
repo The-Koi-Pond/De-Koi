@@ -242,3 +242,62 @@ describe("inline diff word boundaries", () => {
     ]);
   });
 });
+
+describe("storage-owned preview fields", () => {
+  const record = {
+    name: "Mei",
+    id: "char-mei",
+    updatedAt: "2026-09-30T12:00:00.000Z",
+    data: { scenario: "Pond", id: "nested-id", createdAt: "2026-09-30T11:00:00.000Z", updatedAtNote: "keep me" },
+  };
+
+  it("hides ids and timestamps at every depth in update previews", () => {
+    const rows = createDekiRowChangeDiffRows({
+      entity: "characters",
+      id: "char-mei",
+      action: "update",
+      before: {},
+      after: record,
+    });
+
+    expect(rows.map((row) => row.path)).toEqual(["name", "data.scenario", "data.updatedAtNote"]);
+  });
+
+  it("shows the same user fields for the same record in update and delete previews", () => {
+    const update = createDekiRowChangeDiffRows({
+      entity: "characters",
+      id: "char-mei",
+      action: "update",
+      before: {},
+      after: record,
+    });
+    const remove = createDekiRowChangeDiffRows({
+      entity: "characters",
+      id: "char-mei",
+      action: "delete",
+      before: record,
+    });
+    const removeFields = createDekiDeletePreviewFields({
+      entity: "characters",
+      id: "char-mei",
+      action: "delete",
+      before: record,
+    });
+
+    expect(remove.map((row) => row.path)).toEqual(update.map((row) => row.path));
+    expect(removeFields.map((field) => field.label)).toEqual(update.map((row) => row.path));
+  });
+});
+
+describe("delete preview empty values", () => {
+  it("leaves out fields with no stored value", () => {
+    const fields = createDekiDeletePreviewFields({
+      entity: "characters",
+      id: "char-mei",
+      action: "delete",
+      before: { avatarPath: null, data: { name: "Mei", creator_notes: "" } },
+    });
+
+    expect(fields.map((field) => field.label)).toEqual(["data.name"]);
+  });
+});
