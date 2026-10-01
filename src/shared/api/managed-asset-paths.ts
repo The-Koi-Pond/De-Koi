@@ -39,6 +39,17 @@ export function gameAssetUrl(path: string): string {
   return `${GAME_ASSET_URL_PREFIX}${encodeLocalAssetPath(path)}`;
 }
 
+/**
+ * `url` for an element's `src`, or undefined while it is empty or still a logical
+ * asset marker. Markers must go through resolveManagedLocalAssetUrl first; the
+ * browser cannot load them.
+ */
+export function displayableAssetSrc(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  const markers = [USER_BACKGROUND_URL_PREFIX, GAME_ASSET_URL_PREFIX, LOREBOOK_IMAGE_URL_PREFIX];
+  return markers.some((prefix) => url.startsWith(prefix)) ? undefined : url;
+}
+
 export function filePathToAssetUrl(path: string | null | undefined): string {
   if (!path) return "";
   if (path.startsWith("asset:") || path.startsWith("http://asset.localhost")) return path;

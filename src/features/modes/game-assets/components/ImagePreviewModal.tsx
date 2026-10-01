@@ -7,7 +7,11 @@ import type { TreeNode } from "../hooks/use-game-assets";
 import { useGameAssetFileInfo } from "../hooks/use-game-assets";
 import { cn } from "../../../../shared/lib/utils";
 import { formatBytes, formatDate } from "../../../../shared/lib/format";
-import { gameAssetFileUrlFromPath, resolveGameAssetFileUrl } from "../../../../shared/api/local-file-api";
+import {
+  displayableAssetSrc,
+  gameAssetFileUrlFromPath,
+  resolveGameAssetFileUrl,
+} from "../../../../shared/api/local-file-api";
 import { useEscapeOverlay } from "../../../../shared/hooks/use-escape-overlay";
 
 /**
@@ -53,7 +57,7 @@ export function ImagePreviewModal({ node, onClose }: { node: TreeNode; onClose: 
       <div className="relative flex max-h-[90vh] max-w-[90vw]">
         <div className="relative">
           <img
-            src={imageSrc}
+            src={displayableAssetSrc(imageSrc)}
             alt={node.name}
             className={cn(
               "max-h-[85vh] rounded-lg object-contain shadow-2xl",
