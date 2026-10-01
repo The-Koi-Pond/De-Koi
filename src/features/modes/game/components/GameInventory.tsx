@@ -145,8 +145,9 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
         if (pending.current?.pointerId === event.pointerId) reset();
       },
       onClickCapture: (event: MouseEvent<HTMLButtonElement>) => {
-        // A finished drag is not also a click that selects the slot.
-        if (performance.now() >= suppressClickUntil.current) return;
+        // A finished drag is not also a click that selects the slot. Keyboard
+        // activation (Enter/Space) reports detail 0 and is never a drag's click.
+        if (event.detail === 0 || performance.now() >= suppressClickUntil.current) return;
         suppressClickUntil.current = 0;
         event.preventDefault();
         event.stopPropagation();

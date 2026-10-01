@@ -31,9 +31,10 @@ describe("GameInventory slot drag", () => {
     });
   };
 
-  const click = (target: Element) =>
+  /** A pointer click reports detail 1; keyboard activation (Enter/Space) reports 0. */
+  const click = (target: Element, { keyboard = false } = {}) =>
     act(() => {
-      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: keyboard ? 0 : 1 }));
     });
 
   /** Drag Rope onto Lantern; the release is not followed by a click. */
@@ -97,10 +98,18 @@ describe("GameInventory slot drag", () => {
     expect(slot("Lantern").getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("does not swallow a later keyboard activation after a drag", () => {
+  it("does not swallow keyboard activation right after a drag", () => {
+    dragRopeOntoLantern();
+    // Enter or Space on a focused button fires a click with no pointer events,
+    // here inside the window where a drag's own click would be skipped.
+    click(slot("Lantern"), { keyboard: true });
+
+    expect(slot("Lantern").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("stops skipping clicks once the drag's window has passed", () => {
     dragRopeOntoLantern();
     act(() => vi.advanceTimersByTime(1000));
-    // Enter or Space on a focused button fires click with no pointer events.
     click(slot("Lantern"));
 
     expect(slot("Lantern").getAttribute("aria-pressed")).toBe("true");
