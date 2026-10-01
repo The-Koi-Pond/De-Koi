@@ -1229,3 +1229,49 @@ describe("dekiApi.sessions.deleteMany", () => {
     expect(storageApiMock.delete).toHaveBeenCalledWith("deki-messages", "message-delete");
   });
 });
+
+describe("dekiApi.sessions first run", () => {
+  beforeEach(() => {
+    storageApiMock.create.mockReset();
+    storageApiMock.delete.mockReset();
+    storageApiMock.get.mockReset();
+    storageApiMock.list.mockReset();
+    storageApiMock.update.mockReset();
+  });
+
+  it("creates the default session once when several readers start together", async () => {
+    // Mirrors the storage owner: a second create of the same id is rejected.
+    const rows = new Map<string, Record<string, unknown>>();
+    const key = (entity: string, id: string) => `${entity}/${id}`;
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      await tick();
+      return rows.get(key(entity, id)) ?? null;
+    });
+    storageApiMock.list.mockImplementation(async (entity: string) => {
+      await tick();
+      return [...rows.entries()].filter(([rowKey]) => rowKey.startsWith(`${entity}/`)).map(([, row]) => row);
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+      await tick();
+      const id = String(value.id);
+      if (rows.has(key(entity, id))) throw new Error(`${entity}/${id} already exists`);
+      rows.set(key(entity, id), value);
+      return value;
+    });
+    storageApiMock.update.mockImplementation(async (entity: string, id: string, value: Record<string, unknown>) => {
+      await tick();
+      rows.set(key(entity, id), { ...rows.get(key(entity, id)), ...value, id });
+      return rows.get(key(entity, id));
+    });
+
+    const states = await Promise.all([dekiApi.sessions.list(), dekiApi.sessions.list(), dekiApi.sessions.list()]);
+
+    expect(states.map((state) => state.activeSessionId)).toEqual([
+      "deki-session-default",
+      "deki-session-default",
+      "deki-session-default",
+    ]);
+    expect(storageApiMock.create.mock.calls.filter(([entity]) => entity === "deki-sessions")).toHaveLength(1);
+  });
+});

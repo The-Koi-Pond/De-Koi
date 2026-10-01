@@ -993,14 +993,26 @@ async function clearLegacyDekiHistorySettings(activeSessionId: string): Promise<
   });
 }
 
-async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
-  const durable = await readDurableSessionsState(hydrateSessionId);
-  if (durable) return durable;
+// Concurrent readers share one first-run migration. Otherwise every caller that
+// finds no durable sessions creates the default session, and all but the first
+// create fail with "deki-sessions/deki-session-default already exists".
+let legacyHistoryMigration: Promise<DekiSessionsState> | null = null;
 
+async function migrateLegacyDekiHistory(): Promise<DekiSessionsState> {
   const legacy = normalizeDekiSessionsState(await readSettingsValue());
   await saveDurableSessionsState(legacy);
   await clearLegacyDekiHistorySettings(legacy.activeSessionId);
   return legacy;
+}
+
+async function readSessionsState(hydrateSessionId?: string | null): Promise<DekiSessionsState> {
+  const durable = await readDurableSessionsState(hydrateSessionId);
+  if (durable) return durable;
+
+  legacyHistoryMigration ??= migrateLegacyDekiHistory().finally(() => {
+    legacyHistoryMigration = null;
+  });
+  return legacyHistoryMigration;
 }
 
 async function saveSessionsState(
