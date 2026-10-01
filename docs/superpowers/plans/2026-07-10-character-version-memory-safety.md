@@ -262,7 +262,7 @@ Expected: command throws `server memory limit missing`.
 
 - [ ] **Step 2: Add the Pi-only resource limits**
 
-Under `de-koi-server`, add:
+In `docker-compose.pi.yml`, add these two keys to the existing `de-koi-server` service (the snippet shows where they sit in the file):
 
 ```yaml
 services:
