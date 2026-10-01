@@ -63,19 +63,16 @@ export function PersonaListItem({
     if (event.currentTarget !== event.target) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    // Holding the key auto-repeats keydown; activate once.
+    if (event.repeat) return;
     handleRowAction();
   };
 
   return (
     <div
-      role="button"
-      tabIndex={0}
       draggable={draggable}
-      aria-label={rowActionLabel}
-      aria-current={active ? "true" : undefined}
-      aria-pressed={selectionMode ? isSelected : targetGroup ? isInTargetGroup : undefined}
       className={cn(
-        "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/50",
+        "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)] has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-[var(--primary)]/50",
         selectionMode && isSelected && "bg-emerald-400/8 ring-1 ring-emerald-400/40",
         active && "bg-emerald-400/5 ring-1 ring-emerald-400/40",
         assigningToGroup && isInTargetGroup && "bg-violet-500/10 ring-1 ring-violet-500/50",
@@ -85,7 +82,6 @@ export function PersonaListItem({
       onClick={handleRowAction}
       onDragStart={(event) => onPersonaDragStart(event, persona.id)}
       onDragEnd={onPersonaDragEnd}
-      onKeyDown={handleRowKeyDown}
     >
       {selectionMode && (
         <button
@@ -128,7 +124,17 @@ export function PersonaListItem({
         )}
       </button>
 
-      <div className="min-w-0 flex-1">
+      {/* The row's own buttons sit outside this block, so it can be the row's button. */}
+      <div
+        role="button"
+        tabIndex={0}
+        data-row-action
+        aria-label={rowActionLabel}
+        aria-current={active ? "true" : undefined}
+        aria-pressed={selectionMode ? isSelected : targetGroup ? isInTargetGroup : undefined}
+        onKeyDown={handleRowKeyDown}
+        className="min-w-0 flex-1 outline-none"
+      >
         <div className="truncate text-sm font-medium">{persona.name}</div>
         {persona.comment && (
           <div className="truncate text-[0.625rem] italic text-[var(--muted-foreground)]">{persona.comment}</div>

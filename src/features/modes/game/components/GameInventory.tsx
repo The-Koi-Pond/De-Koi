@@ -1,15 +1,5 @@
 // Game: Inventory Panel
-import { useState, useCallback, useEffect } from "react";
-import {
-  DndContext,
-  type DragEndEvent,
-  MouseSensor,
-  TouchSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
+import { useState, useCallback, useEffect, useRef, type MouseEvent, type PointerEvent } from "react";
 import { Check, ChevronLeft, ChevronRight, Minus, Package, Plus, Trash2, Wand2, X } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 
@@ -41,6 +31,129 @@ interface GameInventoryProps {
 }
 
 const ITEMS_PER_PAGE = 20;
+// Mouse: 4px distance threshold so quick clicks still select.
+// Touch: 200ms hold within 5px so a quick swipe does not start a drag.
+const MOUSE_DRAG_DISTANCE_PX = 4;
+const TOUCH_HOLD_MS = 200;
+const TOUCH_HOLD_TOLERANCE_PX = 5;
+
+type SlotDragState = { from: number; over: number | null };
+type PendingSlotDrag = {
+  index: number;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  touch: boolean;
+  holdTimer: number | null;
+  active: boolean;
+};
+
+/** Index of the reorderable slot under a viewport point, if any. */
+function reorderableSlotIndexAt(x: number, y: number): number | null {
+  const slot = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-inventory-slot]");
+  const index = slot ? Number(slot.dataset.inventorySlot) : Number.NaN;
+  return Number.isInteger(index) ? index : null;
+}
+
+/** Drag one inventory slot onto another to swap them, with mouse or touch. */
+function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => void) | undefined) {
+  const [drag, setDrag] = useState<SlotDragState | null>(null);
+  const pending = useRef<PendingSlotDrag | null>(null);
+  const suppressNextClick = useRef(false);
+
+  const reset = useCallback(() => {
+    if (pending.current?.holdTimer != null) window.clearTimeout(pending.current.holdTimer);
+    pending.current = null;
+    setDrag(null);
+  }, []);
+
+  useEffect(() => reset, [reset]);
+
+  // Leaving the window (alt-tab, focus loss) ends any pointer sequence.
+  useEffect(() => {
+    const onBlur = () => {
+      if (pending.current) reset();
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [reset]);
+
+  const activate = useCallback((current: PendingSlotDrag) => {
+    current.active = true;
+    current.holdTimer = null;
+    setDrag({ from: current.index, over: current.index });
+  }, []);
+
+  const slotHandlers = useCallback(
+    (index: number, enabled: boolean) => ({
+      onPointerDown: (event: PointerEvent<HTMLButtonElement>) => {
+        if (!enabled || !onSwap) return;
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        // A sequence that never finished must not block this one.
+        if (pending.current) reset();
+        // Capture from the start, so the release reaches this slot even when it
+        // happens outside the slot or the inventory before a drag activates.
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const current: PendingSlotDrag = {
+          index,
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          touch: event.pointerType !== "mouse",
+          holdTimer: null,
+          active: false,
+        };
+        pending.current = current;
+        if (current.touch) {
+          current.holdTimer = window.setTimeout(() => {
+            if (pending.current === current) activate(current);
+          }, TOUCH_HOLD_MS);
+        }
+      },
+      onPointerMove: (event: PointerEvent<HTMLButtonElement>) => {
+        const current = pending.current;
+        if (!current || current.pointerId !== event.pointerId) return;
+        if (!current.active) {
+          const distance = Math.hypot(event.clientX - current.startX, event.clientY - current.startY);
+          if (current.touch) {
+            if (distance > TOUCH_HOLD_TOLERANCE_PX) reset();
+            return;
+          }
+          if (distance < MOUSE_DRAG_DISTANCE_PX) return;
+          activate(current);
+        }
+        setDrag({ from: current.index, over: reorderableSlotIndexAt(event.clientX, event.clientY) });
+      },
+      onPointerUp: (event: PointerEvent<HTMLButtonElement>) => {
+        const current = pending.current;
+        if (!current || current.pointerId !== event.pointerId) return;
+        if (current.active) {
+          suppressNextClick.current = true;
+          const toIndex = reorderableSlotIndexAt(event.clientX, event.clientY);
+          if (toIndex !== null && toIndex !== current.index) onSwap?.(current.index, toIndex);
+        }
+        reset();
+      },
+      onPointerCancel: reset,
+      onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => {
+        // Capture also ends after pointerup; only a still-pending sequence needs clearing.
+        if (pending.current?.pointerId === event.pointerId) reset();
+      },
+      onClickCapture: (event: MouseEvent<HTMLButtonElement>) => {
+        // A finished drag is not also a click that selects the slot.
+        if (!suppressNextClick.current) return;
+        suppressNextClick.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+    }),
+    [activate, onSwap, reset],
+  );
+
+  return { drag, slotHandlers };
+}
+
+type InventorySlotDragHandlers = ReturnType<ReturnType<typeof useInventorySlotSwap>["slotHandlers"]>;
 
 export function GameInventory({
   items,
@@ -63,12 +176,11 @@ export function GameInventory({
   const [usePending, setUsePending] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
 
-  // Mouse: 4px distance threshold so quick clicks still select.
-  // Touch: 200ms hold within 5px so swipe-to-scroll still works on mobile.
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  const swapSlots = useCallback(
+    (fromIndex: number, toIndex: number) => void onReorderItem?.(fromIndex, toIndex),
+    [onReorderItem],
   );
+  const { drag, slotHandlers } = useInventorySlotSwap(onReorderItem ? swapSlots : undefined);
 
   const handleItemClick = useCallback(
     (item: InventoryItem) => {
@@ -203,18 +315,6 @@ export function GameInventory({
     [onClearItem],
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      if (!onReorderItem) return;
-      const fromIndex = event.active.data.current?.index;
-      const toIndex = event.over?.data.current?.index;
-      if (typeof fromIndex !== "number" || typeof toIndex !== "number") return;
-      if (fromIndex === toIndex) return;
-      void onReorderItem(fromIndex, toIndex);
-    },
-    [onReorderItem],
-  );
-
   if (!open) return null;
 
   const slots: Array<InventoryItem | null> = [];
@@ -269,23 +369,27 @@ export function GameInventory({
                   </button>
                 </div>
               )}
-              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {slots.map((item, i) => {
-                    const globalIndex = pageStart + i;
-                    return (
-                      <InventorySlot
-                        key={`slot-${globalIndex}`}
-                        item={item}
-                        globalIndex={globalIndex}
-                        selected={Boolean(item && selectedItem === item.name)}
-                        reorderEnabled={Boolean(onReorderItem)}
-                        onClick={() => item && handleItemClick(item)}
-                      />
-                    );
-                  })}
-                </div>
-              </DndContext>
+              <div className="grid grid-cols-5 gap-1.5">
+                {slots.map((item, i) => {
+                  const globalIndex = pageStart + i;
+                  const reorderable = Boolean(onReorderItem && item);
+                  return (
+                    <InventorySlot
+                      key={`slot-${globalIndex}`}
+                      item={item}
+                      globalIndex={globalIndex}
+                      selected={Boolean(item && selectedItem === item.name)}
+                      reorderable={reorderable}
+                      dragging={drag?.from === globalIndex}
+                      dropTarget={
+                        reorderable && drag !== null && drag.from !== globalIndex && drag.over === globalIndex
+                      }
+                      dragHandlers={slotHandlers(globalIndex, reorderable)}
+                      onClick={() => item && handleItemClick(item)}
+                    />
+                  );
+                })}
+              </div>
             </>
           ) : (
             <div className="flex min-h-40 flex-col items-center justify-center rounded border border-dashed border-white/10 bg-white/[0.02] px-4 text-center">
@@ -419,55 +523,46 @@ interface InventorySlotProps {
   item: InventoryItem | null;
   globalIndex: number;
   selected: boolean;
-  reorderEnabled: boolean;
+  reorderable: boolean;
+  dragging: boolean;
+  dropTarget: boolean;
+  dragHandlers: InventorySlotDragHandlers;
   onClick: () => void;
 }
 
-function InventorySlot({ item, globalIndex, selected, reorderEnabled, onClick }: InventorySlotProps) {
-  const enabled = reorderEnabled && Boolean(item);
-  const slotData = { index: globalIndex };
-  const {
-    setNodeRef: setDragRef,
-    attributes,
-    listeners,
-    isDragging,
-  } = useDraggable({ id: `slot-drag-${globalIndex}`, data: slotData, disabled: !enabled });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: `slot-drop-${globalIndex}`,
-    data: slotData,
-    disabled: !enabled,
-  });
-  const setRefs = useCallback(
-    (node: HTMLButtonElement | null) => {
-      setDragRef(node);
-      setDropRef(node);
-    },
-    [setDragRef, setDropRef],
-  );
-
+function InventorySlot({
+  item,
+  globalIndex,
+  selected,
+  reorderable,
+  dragging,
+  dropTarget,
+  dragHandlers,
+  onClick,
+}: InventorySlotProps) {
   return (
     <button
-      ref={setRefs}
-      {...attributes}
-      {...listeners}
+      type="button"
+      {...dragHandlers}
+      data-inventory-slot={reorderable ? globalIndex : undefined}
       onClick={onClick}
       disabled={!item}
       title={item ? (item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name) : undefined}
       aria-label={item ? (item.quantity > 1 ? `${item.name} x${item.quantity}` : item.name) : undefined}
-      aria-pressed={enabled ? isDragging : undefined}
+      aria-pressed={item ? selected : undefined}
       className={cn(
         "group relative flex aspect-square flex-col items-center justify-center overflow-hidden rounded border transition-all",
-        // touch-action: none lets the TouchSensor activate without browser scroll-gestures stealing the touch.
+        // touch-action: none keeps the browser from turning a touch hold into a scroll gesture.
         // Scrolling the inventory panel is still possible by touching the modal background / pagination row.
-        enabled && "touch-none",
+        reorderable && "touch-none",
         item
           ? selected
             ? "border-amber-500/50 bg-amber-500/10 shadow-[inset_0_0_12px_rgba(245,158,11,0.08)]"
             : "border-white/8 bg-white/[0.03] hover:border-white/15 hover:bg-white/[0.06]"
           : "cursor-default border-white/5 bg-white/[0.015]",
-        enabled && "cursor-grab active:cursor-grabbing",
-        isDragging && "opacity-40",
-        isOver && !isDragging && "border-amber-400/70 ring-2 ring-amber-400/60",
+        reorderable && "cursor-grab active:cursor-grabbing",
+        dragging && "opacity-40",
+        dropTarget && "border-amber-400/70 ring-2 ring-amber-400/60",
       )}
     >
       {item && (
