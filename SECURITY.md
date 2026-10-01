@@ -79,3 +79,23 @@ Dependency updates and vulnerability alerts are handled via Dependabot
 (see `.github/dependabot.yml`). If you find a vulnerable dependency with a
 concrete exploit path in De-Koi, report it through the channels above rather
 than only flagging the dependency version.
+
+Patched transitive versions are pinned through `pnpm.overrides` in
+`package.json` until the parent packages pick them up. `pnpm audit --prod`
+must stay clean; the shipped app has no known vulnerable dependency.
+
+### Advisory Waivers
+
+A waiver is only for an advisory with no patched release, in a dependency that
+never ships in the app. Each one names its exposure and the condition that
+ends it. Re-check this list whenever Dependabot reports a new version.
+
+- **`extract-zip@2.0.1`**: GHSA-7pqw-9j4j-h8q3 and GHSA-jmr9-qjv8-65gv
+  (symlink path traversal and arbitrary file write).
+  - Exposure: dev-only. `@puppeteer/browsers` (via `@lhci/cli`, `impeccable`,
+    and `@size-limit/preset-app`) uses it to unpack the Chrome for Testing
+    archive it downloads over HTTPS from Google during install and in CI. An
+    attack needs a malicious archive from that source. It is not in the Vite
+    bundle, the Tauri binary, or the server images.
+  - Why waived: no release of `extract-zip` fixes it.
+  - Remove when: `extract-zip` ships a fix, or `@puppeteer/browsers` drops it.
