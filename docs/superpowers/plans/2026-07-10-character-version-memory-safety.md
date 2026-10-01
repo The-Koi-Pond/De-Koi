@@ -265,8 +265,10 @@ Expected: command throws `server memory limit missing`.
 Under `de-koi-server`, add:
 
 ```yaml
-mem_limit: 2g
-memswap_limit: 2304m
+services:
+  de-koi-server:
+    mem_limit: 2g
+    memswap_limit: 2304m
 ```
 
 Do not limit `de-koi-web` and do not change restart behavior.
