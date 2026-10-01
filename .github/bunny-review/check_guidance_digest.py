@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -572,6 +573,71 @@ def run_model_key_case(module):
             os.environ["OPENAI_API_KEY"] = old_openai
 
 
+def run_format_only_case(module):
+    """Format-only PRs pass without a model review; anything else still gets one."""
+    calls = []
+
+    def strip_whitespace(contents, trusted_ref):
+        calls.append((trusted_ref, sorted(contents)))
+        return {key: re.sub(rb"\s+", b"", data) for key, data in contents.items()}
+
+    def unavailable(contents, trusted_ref):
+        raise module.FormatterUnavailable("no formatter on this runner")
+
+    formatters = ((module.PRETTIER_FORMAT_ONLY_EXTENSIONS, strip_whitespace),)
+
+    def pr_repo(root, changes, extra=None):
+        run_git(root, "init", "-q", "-b", "main")
+        run_git(root, "config", "user.email", "bunny@example.invalid")
+        run_git(root, "config", "user.name", "Bunny Proof")
+        run_git(root, "config", "core.autocrlf", "false")
+        (root / "src").mkdir()
+        (root / "src" / "a.ts").write_text("export const a = 1;\n", encoding="utf-8")
+        (root / "README.md").write_text("# Title\n", encoding="utf-8")
+        run_git(root, "add", "-A")
+        run_git(root, "commit", "-q", "-m", "base")
+        run_git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        run_git(root, "checkout", "-q", "-b", "pr")
+        for rel, text in changes.items():
+            (root / rel).write_text(text, encoding="utf-8")
+        run_git(root, "add", "-A")
+        run_git(root, "commit", "-q", "-m", "pr")
+        module.REPO_ROOT = root
+
+    cases = [
+        ({"src/a.ts": "export  const a=1;\n\n"}, True, "format identically"),
+        ({"src/a.ts": "export const a = 2;\n"}, False, "formats differently"),
+        ({"README.md": "#  Title\n"}, False, "not Prettier or rustfmt source"),
+        ({"src/a.ts": "export const a = 1;\n", "src/b.ts": "export {};\n"}, False, "added"),
+    ]
+    for changes, expected, reason in cases:
+        calls.clear()
+        with tempfile.TemporaryDirectory(prefix="bunny-format-proof-") as tmp:
+            pr_repo(pathlib.Path(tmp), changes)
+            ok, detail = module.format_only_pr("main", formatters)
+        assert ok is expected, (changes, detail)
+        assert reason in detail, detail
+        if "src/a.ts" in changes and len(changes) == 1:
+            assert calls == [("origin/main", ["base/src/a.ts", "head/src/a.ts"])], calls
+        else:
+            assert not calls, "files the shortcut cannot judge must not reach a formatter"
+
+    with tempfile.TemporaryDirectory(prefix="bunny-format-proof-") as tmp:
+        pr_repo(pathlib.Path(tmp), {"src/a.ts": "export  const a=1;\n"})
+        try:
+            module.format_only_pr("main", ((module.PRETTIER_FORMAT_ONLY_EXTENSIONS, unavailable),))
+        except module.FormatterUnavailable:
+            pass
+        else:
+            raise AssertionError("a missing formatter must not count as format-only")
+
+    signal = module.merge_signal({"review_state": "format_only"}, [], [], [])
+    assert signal["title"] == "Format Only" and signal["admonition"] == "NOTE"
+    assert ".md" not in module.PRETTIER_FORMAT_ONLY_EXTENSIONS
+    assert ".yml" not in module.PRETTIER_FORMAT_ONLY_EXTENSIONS
+    return True
+
+
 def run_status_case(module):
     with tempfile.TemporaryDirectory(prefix="bunny-status-proof-") as tmp:
         root = pathlib.Path(tmp)
@@ -606,6 +672,7 @@ def main():
     repair_calls = run_semantic_repair_case(module)
     chunk_calls = run_chunk_orchestration_case(module)
     run_model_key_case(module)
+    run_format_only_case(module)
     run_status_case(module)
     print(
         "bunny_review_smoke "
@@ -618,6 +685,7 @@ def main():
         "patch_overview_dedup=true "
         "packet_budget_chunking=true "
         "summary_fallback=true "
+        "format_only_shortcut=true "
         "semantic_repair=true "
         "render_voice=true "
         "model_key_fallback=true "

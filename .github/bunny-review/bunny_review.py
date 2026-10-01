@@ -9,6 +9,7 @@ import posixpath
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from queue import Empty, Queue
@@ -358,6 +359,182 @@ def build_identifier_context(patch):
 def changed_files(base):
     names = run_git(["diff", "--name-only", f"{base}...HEAD"])
     return [line.strip() for line in names.splitlines() if line.strip()]
+
+
+# A PR is format-only when every changed file formats to the same bytes on the
+# base and on the head. Prettier and rustfmt rewrite from the parsed syntax tree,
+# so equal output means equal code. A whitespace-insensitive diff is no substitute:
+# it passes `return x` vs `return\nx` in JS and `.a.b` vs `.a .b` in CSS, and it
+# rejects real reformats that join lines or change quotes and commas. Markdown,
+# YAML, and Python are left to the model: their whitespace carries meaning, and
+# Prettier rewrites code embedded in Markdown.
+PRETTIER_FORMAT_ONLY_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css")
+RUSTFMT_FORMAT_ONLY_EXTENSIONS = (".rs",)
+MAX_FORMAT_ONLY_FILES = 1500
+
+
+class FormatterUnavailable(Exception):
+    pass
+
+
+def git_bytes(args, timeout=90):
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git {' '.join(args)} failed: {result.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    return result.stdout
+
+
+def format_only_candidate(base_ref):
+    """(merge_base, files) when the PR could be formatting only, else (None, reason)."""
+    merge_base = git_bytes(["merge-base", f"origin/{base_ref}", "HEAD"]).decode().strip()
+    status = git_bytes(["diff", "--name-status", "--no-renames", "-z", merge_base, "HEAD"])
+    fields = [field.decode("utf-8") for field in status.split(b"\0") if field]
+    entries = list(zip(fields[0::2], fields[1::2]))
+    if not entries:
+        return None, "no changed files"
+    if any(code != "M" for code, _ in entries):
+        return None, "files were added, deleted, or retyped"
+    files = [path for _, path in entries]
+    if len(files) > MAX_FORMAT_ONLY_FILES:
+        return None, f"more than {MAX_FORMAT_ONLY_FILES} files"
+    allowed = PRETTIER_FORMAT_ONLY_EXTENSIONS + RUSTFMT_FORMAT_ONLY_EXTENSIONS
+    if any(not path.endswith(allowed) for path in files):
+        return None, "some changed files are not Prettier or rustfmt source"
+    if git_bytes(["diff", "--summary", merge_base, "HEAD"]).strip():
+        return None, "file modes changed"
+    return (merge_base, files), ""
+
+
+def trusted_prettier_version(trusted_ref):
+    lock = git_bytes(["show", f"{trusted_ref}:pnpm-lock.yaml"]).decode("utf-8")
+    match = re.search(r"^  prettier@(\d+\.\d+\.\d+):$", lock, re.MULTILINE)
+    if not match:
+        raise FormatterUnavailable("no pinned prettier version in the trusted lockfile")
+    return match.group(1)
+
+
+def trusted_rust_edition(trusted_ref):
+    manifest = git_bytes(["show", f"{trusted_ref}:src-tauri/Cargo.toml"]).decode("utf-8")
+    match = re.search(r'^edition\s*=\s*"(\d{4})"', manifest, re.MULTILINE)
+    if not match:
+        raise FormatterUnavailable("no Rust edition in the trusted Cargo.toml")
+    return match.group(1)
+
+
+def format_with_prettier(contents, trusted_ref):
+    """Format {relative_path: bytes} with the base branch's Prettier version and config.
+
+    Only data is read from the PR: the config and version come from `trusted_ref`,
+    and Prettier runs outside the checkout so no PR config or plugin is loaded.
+    """
+    npm = shutil.which("npm")
+    node = shutil.which("node")
+    if npm is None or node is None:
+        raise FormatterUnavailable("node/npm is not installed on this runner")
+    version = trusted_prettier_version(trusted_ref)
+    with tempfile.TemporaryDirectory(prefix="bunny-prettier-") as tmp:
+        root = pathlib.Path(tmp)
+        install = subprocess.run(
+            [
+                npm, "install", "--no-save", "--no-package-lock", "--ignore-scripts",
+                "--no-audit", "--no-fund", "--prefix", str(root / "tool"), f"prettier@{version}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        if install.returncode != 0:
+            raise FormatterUnavailable(f"npm install prettier@{version} failed")
+        config_file = root / "prettierrc.json"
+        config_file.write_bytes(git_bytes(["show", f"{trusted_ref}:.prettierrc.json"]))
+        ignore_file = root / "empty.prettierignore"
+        ignore_file.write_text("", "utf-8")
+        tree = root / "tree"
+        for rel, data in contents.items():
+            target = tree / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        result = subprocess.run(
+            [
+                node, str(root / "tool" / "node_modules" / "prettier" / "bin" / "prettier.cjs"),
+                "--config", str(config_file),
+                "--no-editorconfig", "--ignore-path", str(ignore_file),
+                "--log-level", "warn", "--write", str(tree),
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("prettier could not format every file")
+        return {rel: (tree / rel).read_bytes() for rel in contents}
+
+
+def format_with_rustfmt(contents, trusted_ref):
+    """Format {relative_path: bytes} with rustfmt, one file at a time from stdin."""
+    rustfmt = shutil.which("rustfmt")
+    if rustfmt is None:
+        raise FormatterUnavailable("rustfmt is not installed on this runner")
+    edition = trusted_rust_edition(trusted_ref)
+    formatted = {}
+    with tempfile.TemporaryDirectory(prefix="bunny-rustfmt-") as tmp:
+        for rel, data in contents.items():
+            # stdin mode does not follow `mod` declarations; an empty cwd keeps any
+            # rustfmt.toml from the PR checkout out of the run.
+            result = subprocess.run(
+                [rustfmt, "--edition", edition, "--emit", "stdout"],
+                cwd=tmp,
+                input=data,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"rustfmt could not format {rel}")
+            formatted[rel] = result.stdout
+    return formatted
+
+
+# rustfmt first: it needs no install, so a Rust code change stops the check early.
+FORMAT_ONLY_FORMATTERS = (
+    (RUSTFMT_FORMAT_ONLY_EXTENSIONS, format_with_rustfmt),
+    (PRETTIER_FORMAT_ONLY_EXTENSIONS, format_with_prettier),
+)
+
+
+def format_only_pr(base_ref, formatters=None):
+    """(True, detail) when the PR's whole diff against the base is formatting only."""
+    candidate, reason = format_only_candidate(base_ref)
+    if candidate is None:
+        return False, reason
+    merge_base, files = candidate
+    for extensions, formatter in formatters or FORMAT_ONLY_FORMATTERS:
+        group = [path for path in files if path.endswith(extensions)]
+        if not group:
+            continue
+        contents = {}
+        for path in group:
+            contents[f"base/{path}"] = git_bytes(["show", f"{merge_base}:{path}"])
+            contents[f"head/{path}"] = git_bytes(["show", f"HEAD:{path}"])
+        formatted = formatter(contents, f"origin/{base_ref}")
+        changed = [
+            path for path in group
+            if formatted[f"base/{path}"] != formatted[f"head/{path}"]
+        ]
+        if changed:
+            return False, f"{changed[0]} formats differently on the base and the head"
+    return True, f"all {len(files)} changed file(s) format identically on the base and the head"
 
 
 def load_json_file(path):
@@ -1479,6 +1656,13 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "admonition": "NOTE",
             "detail": "Bunny already reviewed this head; this run did not inspect new changes.",
         }
+    if state == "format_only":
+        return {
+            "label": "FORMAT ONLY",
+            "title": "Format Only",
+            "admonition": "NOTE",
+            "detail": "Every changed file formats identically on the base and the head; no code changed.",
+        }
     review_incomplete = has_incomplete_review_check(pre_merge)
     if review_incomplete:
         return {
@@ -2580,6 +2764,35 @@ def produce_review(args):
         )
         print("Bunny telemetry: skipped=no_new_diff_reviewed", flush=True)
         return
+
+    if requested_mode == "auto":
+        try:
+            format_only, format_detail = format_only_pr(base_ref)
+        except (FormatterUnavailable, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            # The model review below still runs; only the shortcut is unavailable.
+            format_only, format_detail = False, f"check unavailable: {exc}"
+        print(
+            f"Bunny telemetry: format_only={str(format_only).lower()}; detail={format_detail}",
+            flush=True,
+        )
+        if format_only:
+            write_skipped_review(
+                "Format Only",
+                "Every changed file formats to the same output with the base branch's "
+                f"Prettier and rustfmt setup ({format_detail}), so the PR changes no code "
+                "and there was nothing for the model to review.",
+                status="pass",
+                metadata={
+                    "head_sha": head_sha,
+                    "head_commit_message": commit_subject(head_sha),
+                    "review_base": base,
+                    "base_ref": base_ref,
+                    "mode": effective_mode,
+                    "review_state": "format_only",
+                },
+            )
+            print("Bunny telemetry: skipped=format_only", flush=True)
+            return
 
     if not api_key:
         write_skipped_review(
