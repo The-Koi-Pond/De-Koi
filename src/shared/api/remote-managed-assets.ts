@@ -162,6 +162,14 @@ export function remoteManagedAssetUrl(
   return asset.url;
 }
 
+/** True when the remote runtime serves this asset only to authenticated fetches, so no plain URL can load it. */
+export function remoteManagedAssetRequiresAuthorizedFetch(
+  kind: RemoteManagedAssetKind,
+  path: string | null | undefined,
+): boolean {
+  return !!remoteManagedAsset(kind, path)?.target.authorization;
+}
+
 export async function remoteManagedAssetResolvableUrl(
   kind: RemoteManagedAssetKind,
   path: string | null | undefined,

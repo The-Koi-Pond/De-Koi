@@ -2,6 +2,7 @@ export {
   GAME_ASSET_URL_PREFIX,
   USER_BACKGROUND_URL_PREFIX,
   decodeLocalAssetPath,
+  displayableAssetSrc,
   gameAssetUrl,
   userBackgroundUrl,
 } from "./managed-asset-paths";
