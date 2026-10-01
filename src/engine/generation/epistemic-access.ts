@@ -1,6 +1,6 @@
 import type { KnowledgeEdge, KnowledgeHolderKind, KnowledgeStance } from "../contracts/types/memory";
 
-export type EpistemicAccessReason =
+type EpistemicAccessReason =
   | "legacy_fallback"
   | "direct_edge"
   | "group_edge"
@@ -21,7 +21,7 @@ export interface EpistemicGroup {
   characterIds: string[];
 }
 
-export interface EpistemicSubjectDecision {
+interface EpistemicSubjectDecision {
   subject: EpistemicSubject;
   admitted: boolean;
   stance?: KnowledgeStance;

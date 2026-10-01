@@ -14,15 +14,15 @@ export type MemoryScopeKind = "user" | "character" | "chat" | "scene" | "world" 
 
 export type KnowledgeHolderKind = "character" | "persona" | "group" | "world";
 export type KnowledgeStance = "knows" | "believes" | "suspects" | "disbelieves" | "unknown";
-export type KnowledgeEdgeStatus = "active" | "proposed" | "invalidated";
+type KnowledgeEdgeStatus = "active" | "proposed" | "invalidated";
 export type KnowledgeEvidenceKind = "user_edit" | "targeted_disclosure" | "scene_witness" | "import" | "supersession";
 
-export interface KnowledgeHolder {
+interface KnowledgeHolder {
   kind: KnowledgeHolderKind;
   id: string;
 }
 
-export interface KnowledgeEdgeProvenance {
+interface KnowledgeEdgeProvenance {
   kind: KnowledgeEvidenceKind;
   author: "user" | "system";
   sourceChatId?: string | null;
@@ -58,7 +58,7 @@ export interface MemoryScope {
   id: string;
 }
 
-export interface MemoryProvenance {
+interface MemoryProvenance {
   sourceChatId?: string | null;
   messageIds: string[];
   sceneId?: string | null;
@@ -66,9 +66,9 @@ export interface MemoryProvenance {
   timestamp?: string | null;
 }
 
-export type StoryProjectionLevel = "episode" | "arc";
-export type StoryEpisodeBoundaryReason = "message_threshold" | "manual" | "scene_conclusion";
-export type StoryProjectionJobStatus = "pending" | "processing" | "retryable" | "completed" | "failed" | "stale";
+type StoryProjectionLevel = "episode" | "arc";
+type StoryEpisodeBoundaryReason = "message_threshold" | "manual" | "scene_conclusion";
+type StoryProjectionJobStatus = "pending" | "processing" | "retryable" | "completed" | "failed" | "stale";
 
 export interface StoryProjectionCitation {
   text: string;

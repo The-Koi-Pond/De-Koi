@@ -1,12 +1,12 @@
 import type { GenerationParameters } from "../contracts/types/prompt";
 
-export const RECOMMENDED_GENERATION_PROFILE_VERSION = 1 as const;
+const RECOMMENDED_GENERATION_PROFILE_VERSION = 1 as const;
 
-export type RecommendedGenerationMode = "conversation" | "roleplay" | "visual_novel" | "game" | "structured" | "agent";
+type RecommendedGenerationMode = "conversation" | "roleplay" | "visual_novel" | "game" | "structured" | "agent";
 
-export type RecommendedGenerationProfileSource = "recommended" | "provider-neutral-fallback";
+type RecommendedGenerationProfileSource = "recommended" | "provider-neutral-fallback";
 
-export type RecommendedGenerationParameters = Partial<
+type RecommendedGenerationParameters = Partial<
   Pick<GenerationParameters, "temperature" | "topP" | "maxTokens" | "reasoningEffort" | "verbosity">
 >;
 

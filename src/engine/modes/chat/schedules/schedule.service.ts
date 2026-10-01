@@ -46,16 +46,16 @@ interface CharacterSchedules {
   [characterId: string]: WeekSchedule;
 }
 
-export type RoutineBusyAvailability = "available" | "delayed" | "busy" | "unavailable";
-export type RoutineSocialEnergyLevel = "low" | "medium" | "high";
+type RoutineBusyAvailability = "available" | "delayed" | "busy" | "unavailable";
+type RoutineSocialEnergyLevel = "low" | "medium" | "high";
 
-export interface ConversationRoutineBusyPeriod {
+interface ConversationRoutineBusyPeriod {
   when: string;
   summary: string;
   availability: RoutineBusyAvailability;
 }
 
-export interface ConversationRoutineSocialEnergy {
+interface ConversationRoutineSocialEnergy {
   level: RoutineSocialEnergyLevel;
   reason: string;
 }
@@ -810,9 +810,9 @@ export function getCurrentStatus(
   return { status: "online", activity: "free time" };
 }
 
-export type ConversationAvailability = "available" | "delayed" | "busy" | "unavailable";
-export type ConversationAvailabilityDelayKind = "none" | "short" | "long" | "blocked";
-export type ConversationAvailabilitySource = "schedule" | "routine" | "fallback";
+type ConversationAvailability = "available" | "delayed" | "busy" | "unavailable";
+type ConversationAvailabilityDelayKind = "none" | "short" | "long" | "blocked";
+type ConversationAvailabilitySource = "schedule" | "routine" | "fallback";
 
 export interface ConversationAvailabilityDecision {
   source: ConversationAvailabilitySource;
@@ -950,7 +950,7 @@ export function getAvailabilityDecision(
     reason: current.activity,
   };
 }
-export type ConversationAvailabilityExplanationLabel = "Available" | "Delayed" | "Busy" | "Unavailable";
+type ConversationAvailabilityExplanationLabel = "Available" | "Delayed" | "Busy" | "Unavailable";
 
 export interface ConversationAvailabilityExplanation {
   label: ConversationAvailabilityExplanationLabel;
@@ -1632,14 +1632,14 @@ function getConfiguredResponseDelay(
   }
 }
 
-export function getBusyDelay(
+function getBusyDelay(
   status: "online" | "idle" | "dnd" | "offline",
   schedule?: Pick<WeekSchedule, "idleResponseDelayMinutes" | "dndResponseDelayMinutes">,
 ): number {
   return getConfiguredResponseDelay(status, schedule);
 }
 
-export function getMentionDelay(status: "online" | "idle" | "dnd" | "offline"): number {
+function getMentionDelay(status: "online" | "idle" | "dnd" | "offline"): number {
   switch (status) {
     case "online":
     case "offline":

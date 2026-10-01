@@ -8,7 +8,7 @@ export type LocalSidecarLogTail = {
   truncated: boolean;
   error?: string;
 };
-export type LocalSidecarStatus =
+type LocalSidecarStatus =
   | "not_configured"
   | "downloading_runtime"
   | "downloading_model"
@@ -21,7 +21,7 @@ export type LocalSidecarStatus =
 export type LocalSidecarQuantization = "q8_0" | "q4_k_m";
 export type LocalSidecarRuntimePreference = "auto" | "nvidia" | "amd" | "intel" | "vulkan" | "cpu" | "system";
 
-export interface LocalSidecarDownloadProgress {
+interface LocalSidecarDownloadProgress {
   phase: "runtime" | "model";
   status: "downloading" | "complete" | "error";
   downloaded: number;
@@ -31,7 +31,7 @@ export interface LocalSidecarDownloadProgress {
   error: string | null;
 }
 
-export interface LocalSidecarRuntimeInfo {
+interface LocalSidecarRuntimeInfo {
   installed: boolean;
   build: string | null;
   variant: string | null;
@@ -41,7 +41,7 @@ export interface LocalSidecarRuntimeInfo {
   serverPath: string | null;
 }
 
-export interface LocalSidecarModelInfo {
+interface LocalSidecarModelInfo {
   quantization: LocalSidecarQuantization;
   backend: "llama_cpp";
   label: string;
@@ -59,7 +59,7 @@ export interface LocalSidecarCustomModelEntry {
   downloadUrl: string;
 }
 
-export interface LocalSidecarConfig {
+interface LocalSidecarConfig {
   enabled: boolean;
   executablePath: string | null;
   modelPath: string | null;

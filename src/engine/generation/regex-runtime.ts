@@ -76,6 +76,7 @@ export function applyRuntimeRegexScriptSnapshot(
   return output;
 }
 
+/** @public Exercised directly by regex-runtime.test.ts. */
 export async function applyRuntimeRegexScripts(
   storage: StorageGateway,
   placement: RegexPlacement,
