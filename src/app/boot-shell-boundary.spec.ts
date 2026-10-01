@@ -50,12 +50,12 @@ function readMemoryMaintenanceStartupSource() {
 }
 
 describe("app boot shell boundary", () => {
-  it("keeps lazy drag-and-drop dependencies separate from eager motion dependencies", () => {
+  it("keeps motion in its own vendor chunk without a drag-and-drop library", () => {
     const source = readViteConfigSource();
 
     expect(source).toContain('"vendor-motion": ["framer-motion", "motion"]');
-    expect(source).toContain('"vendor-dnd": ["@dnd-kit"]');
-    expect(source).not.toContain('"vendor-ui": ["framer-motion", "motion", "@dnd-kit"]');
+    // Game inventory reordering uses local pointer handling, not @dnd-kit.
+    expect(source).not.toContain("@dnd-kit");
   });
 
   it("keeps the root App module free of deferred shell and feature imports", () => {

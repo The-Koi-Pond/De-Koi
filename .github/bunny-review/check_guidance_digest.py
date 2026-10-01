@@ -732,6 +732,78 @@ def run_status_case(module):
         assert "Expected CI controls failed" not in text
 
 
+def run_review_range_case(module):
+    """Merging the base branch into a PR is not new PR code to review."""
+    with tempfile.TemporaryDirectory(prefix="bunny-range-proof-") as tmp:
+        root = pathlib.Path(tmp)
+        module.REPO_ROOT = root
+
+        def commit(path, text, message):
+            (root / path).write_text(text, encoding="utf-8")
+            run_git(root, "add", path)
+            run_git(root, "commit", "-q", "-m", message)
+            return run_git(root, "rev-parse", "HEAD").strip()
+
+        run_git(root, "init", "-q", "-b", "main")
+        run_git(root, "config", "user.email", "bunny@example.invalid")
+        run_git(root, "config", "user.name", "Bunny Proof")
+        commit("shared.ts", "export const shared = 1;\n", "base")
+        run_git(root, "checkout", "-q", "-b", "pr")
+        reviewed = commit("feature.ts", "export const feature = 1;\n", "pr change")
+
+        run_git(root, "checkout", "-q", "main")
+        main_tip = commit("main-only.ts", "export const fromMain = 1;\n", "main change")
+        run_git(root, "update-ref", "refs/remotes/origin/main", main_tip)
+
+        run_git(root, "checkout", "-q", "pr")
+        run_git(root, "merge", "-q", "--no-edit", "main")
+        merged = run_git(root, "rev-parse", "HEAD").strip()
+        assert module.classify_review_range(reviewed, merged, "main") == "base_merge_only"
+
+        # A merge that changes the PR's own diff (like a conflict resolution) is reviewed.
+        run_git(root, "checkout", "-q", "main")
+        main_tip = commit("shared.ts", "export const shared = 2;\n", "main edits shared")
+        run_git(root, "update-ref", "refs/remotes/origin/main", main_tip)
+        run_git(root, "checkout", "-q", "pr")
+        run_git(root, "merge", "-q", "--no-commit", "main")
+        (root / "feature.ts").write_text("export const feature = 1;\nexport const resolved = true;\n", encoding="utf-8")
+        run_git(root, "add", "feature.ts")
+        run_git(root, "commit", "-q", "--no-edit")
+        changed_merge = run_git(root, "rev-parse", "HEAD").strip()
+        assert module.classify_review_range(merged, changed_merge, "main") == "full"
+
+        # PR commits mixed with a base merge: review the PR's whole diff, not main's.
+        mixed = commit("feature.ts", "export const feature = 3;\n", "pr follow-up")
+        assert module.classify_review_range(reviewed, mixed, "main") == "full"
+
+        # Only PR commits since the last review: incremental, as before.
+        follow_up = commit("feature.ts", "export const feature = 4;\n", "pr second follow-up")
+        assert module.classify_review_range(mixed, follow_up, "main") == "incremental"
+
+    # The skip only applies after a clean review; a blocking one forces a full review.
+    marker = "<!-- bunny-review:last-reviewed-sha=" + "a" * 40 + " -->"
+    original = module.sorted_walkthrough_comments
+    try:
+        module.sorted_walkthrough_comments = lambda pr_num: [
+            {"body": marker + "\n## Bunny Merge Signal: Ready With Notes"}
+        ]
+        assert module.last_completed_review_was_clean("1")
+        module.sorted_walkthrough_comments = lambda pr_num: [
+            {"body": marker + "\n## Bunny Merge Signal: Ready"},
+            {"body": marker + "\n## Bunny Merge Signal: Do Not Merge"},
+        ]
+        assert not module.last_completed_review_was_clean("1")
+        module.sorted_walkthrough_comments = lambda pr_num: [
+            {"body": marker + "\n## Bunny Merge Signal: No New PR Changes"}
+        ]
+        assert module.last_completed_review_was_clean("1")
+        module.sorted_walkthrough_comments = lambda pr_num: []
+        assert not module.last_completed_review_was_clean("1")
+    finally:
+        module.sorted_walkthrough_comments = original
+    return True
+
+
 def main():
     module = load_bunny_review()
     packet_len = run_packet_case(module)
@@ -740,6 +812,7 @@ def main():
     run_timeout_split_case(module)
     run_model_key_case(module)
     run_status_case(module)
+    run_review_range_case(module)
     print(
         "bunny_review_smoke "
         f"packet_len={packet_len} "
@@ -755,7 +828,8 @@ def main():
         "semantic_repair=true "
         "render_voice=true "
         "model_key_fallback=true "
-        "ci_control_status_ignored=true"
+        "ci_control_status_ignored=true "
+        "base_merge_only_range=true"
     )
 
 
