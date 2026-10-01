@@ -13,21 +13,35 @@ import {
   USER_BACKGROUND_URL_PREFIX,
   userBackgroundUrl,
 } from "./managed-asset-paths";
-import { remoteManagedAssetResolvableUrl, remoteManagedAssetUrl } from "./remote-managed-assets";
+import {
+  remoteManagedAssetRequiresAuthorizedFetch,
+  remoteManagedAssetResolvableUrl,
+  remoteManagedAssetUrl,
+} from "./remote-managed-assets";
 import { resolveManagedAssetThumbnailFileUrl } from "./managed-asset-thumbnails";
 
 type PathResponse = { path?: string | null };
 
+// On a remote runtime that requires authorization, `absolutePath` is a path on
+// the server's disk and no plain URL can load the file. These sync helpers then
+// return the logical marker, which resolveManagedLocalAssetUrl turns into an
+// authenticated blob URL.
 export function gameAssetFileUrlFromPath(path: string, absolutePath?: string | null): string {
   const remoteUrl = remoteManagedAssetUrl("game", path);
   if (remoteUrl) return remoteUrl;
-  return absolutePath ? filePathToAssetUrl(absolutePath) : gameAssetUrl(path);
+  if (absolutePath && !remoteManagedAssetRequiresAuthorizedFetch("game", path)) {
+    return filePathToAssetUrl(absolutePath);
+  }
+  return gameAssetUrl(path);
 }
 
 export function backgroundFileUrlFromPath(filename: string, absolutePath?: string | null): string {
   const remoteUrl = remoteManagedAssetUrl("background", filename);
   if (remoteUrl) return remoteUrl;
-  return absolutePath ? filePathToAssetUrl(absolutePath) : userBackgroundUrl(filename);
+  if (absolutePath && !remoteManagedAssetRequiresAuthorizedFetch("background", filename)) {
+    return filePathToAssetUrl(absolutePath);
+  }
+  return userBackgroundUrl(filename);
 }
 
 export function avatarFileUrlFromPath(
