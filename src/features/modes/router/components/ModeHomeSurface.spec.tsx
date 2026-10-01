@@ -111,8 +111,9 @@ describe("ModeHomeSurface launch splash", () => {
 
     const splash = container!.querySelector(".koi-home-splash");
     expect(splash).toBeTruthy();
+    expect(splash?.hasAttribute("aria-label")).toBe(false);
     expect([...HOME_SPLASH_TEXTS].map((text) => `Launch splash: ${text}`)).toContain(
-      splash?.getAttribute("aria-label") ?? "",
+      splash?.querySelector(".sr-only")?.textContent ?? "",
     );
     expect(splash?.querySelectorAll(".koi-home-splash-letter").length).toBeGreaterThan(0);
   });
