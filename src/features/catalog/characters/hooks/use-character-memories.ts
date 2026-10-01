@@ -10,7 +10,7 @@ import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api"
 import { storageApi } from "../../../../shared/api/storage-api";
 import { characterMemoryImportPatch, createManualCharacterMemoryInput } from "../lib/character-memory-model";
 
-export const characterMemoryKeys = {
+const characterMemoryKeys = {
   detail: (characterId: string) => ["character-memories", characterId] as const,
   chats: (characterId: string) => ["character-memory-chats", characterId] as const,
   chatRows: (chatId: string) => ["character-memory-chat-rows", chatId] as const,

@@ -108,7 +108,7 @@ type Outcome = { label: string; tone: "success" | "neutral" | "warning" | "error
 
 export type DekiApprovalAvailability = "loading" | "ready" | "unavailable";
 
-export function dekiApprovalOutcome(
+function dekiApprovalOutcome(
   status: DekiWorkspaceHistoryEntry["status"],
   pending: boolean,
   availability: DekiApprovalAvailability,

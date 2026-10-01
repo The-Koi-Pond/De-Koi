@@ -3,12 +3,7 @@ export type SceneAssistantMessage = {
   content?: string | null;
 };
 
-export type SceneAssistantProcessStatus =
-  | "missing-message"
-  | "missing-content"
-  | "duplicate"
-  | "restored-skip"
-  | "processed";
+type SceneAssistantProcessStatus = "missing-message" | "missing-content" | "duplicate" | "restored-skip" | "processed";
 
 export type SceneAssistantProcessOutcome<TMessage extends SceneAssistantMessage = SceneAssistantMessage> = {
   messageToProcess: (TMessage & { content: string }) | null;
@@ -51,7 +46,7 @@ export function processLatestSceneAssistantMessage<TMessage extends SceneAssista
   return { messageId: latestMessage.id, messageToProcess, status: "processed" };
 }
 
-export type SceneAssistantProcessingTimeout = {
+type SceneAssistantProcessingTimeout = {
   attempts: number;
   latestMessageHadContent: boolean;
   latestMessageId: string | null;

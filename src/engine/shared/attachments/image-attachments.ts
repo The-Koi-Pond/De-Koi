@@ -228,13 +228,6 @@ export async function deletePreparedManagedImageAttachments(
   await deleteGalleryIds(storage, prepared.createdGalleryIds);
 }
 
-export async function resolveImageAttachmentDataUrls(
-  storage: StorageGateway,
-  attachments: PromptAttachment[] | undefined,
-): Promise<string[]> {
-  return (await resolveImageAttachmentDelivery(storage, attachments)).images;
-}
-
 type ImageAttachmentResolution =
   | { status: "fulfilled"; value: string | null }
   | { status: "rejected"; reason: unknown };

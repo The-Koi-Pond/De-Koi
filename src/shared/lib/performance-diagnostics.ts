@@ -17,7 +17,7 @@ export type PerformanceDiagnosticsSpan = {
   details?: Record<string, unknown>;
 };
 
-export type PerformanceDiagnosticsStageName =
+type PerformanceDiagnosticsStageName =
   | "generation.prompt_assembly"
   | "generation.first_token"
   | "generation.post_save"
