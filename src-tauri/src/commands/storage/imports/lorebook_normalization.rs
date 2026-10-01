@@ -94,7 +94,11 @@ fn take_placement_decorators(content: &str) -> ContentDecorators {
         }
     }
     ContentDecorators {
-        content: if depth.is_some() || role.is_some() { rest.to_string() } else { content.to_string() },
+        content: if depth.is_some() || role.is_some() {
+            rest.to_string()
+        } else {
+            content.to_string()
+        },
         depth,
         role,
     }
@@ -113,7 +117,10 @@ fn card_extension_position(entry: &Value) -> Option<i64> {
 /// Reads the first non-null field from the entry, then from its
 /// SillyTavern/V3-style `extensions`, where cards keep placement details.
 fn entry_value<'a>(entry: &'a Value, keys: &[&str]) -> Option<&'a Value> {
-    let find = |source: &'a Value| keys.iter().find_map(|key| source.get(*key).filter(|value| !value.is_null()));
+    let find = |source: &'a Value| {
+        keys.iter()
+            .find_map(|key| source.get(*key).filter(|value| !value.is_null()))
+    };
     find(entry).or_else(|| entry.get("extensions").and_then(find))
 }
 
@@ -127,7 +134,8 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
 /// that depth (De-Koi position 2) with that role, and the decorator lines are
 /// removed from the stored content.
 fn apply_placement_decorators(normalized: &mut Value, entry: &Value) {
-    let decorators = take_placement_decorators(entry.get("content").and_then(Value::as_str).unwrap_or(""));
+    let decorators =
+        take_placement_decorators(entry.get("content").and_then(Value::as_str).unwrap_or(""));
     if decorators.depth.is_none() && decorators.role.is_none() {
         return;
     }
@@ -161,10 +169,11 @@ fn normalize_lorebook_entry_fields(lorebook_id: &str, entry: &Value, index: usiz
         (None, Some(Value::Number(raw))) => raw.as_i64().unwrap_or(0),
         _ => 0,
     };
-    let probability = match entry_value(entry, &["useProbability", "use_probability"]).and_then(Value::as_bool) {
-        Some(false) => Value::Null,
-        _ => optional_number(entry_value(entry, &["probability"])),
-    };
+    let probability =
+        match entry_value(entry, &["useProbability", "use_probability"]).and_then(Value::as_bool) {
+            Some(false) => Value::Null,
+            _ => optional_number(entry_value(entry, &["probability"])),
+        };
     json!({
         "lorebookId": lorebook_id,
         "name": entry.get("comment").or_else(|| entry.get("name")).and_then(Value::as_str).unwrap_or(&format!("Entry {}", index + 1)),
@@ -414,7 +423,8 @@ mod tests {
 
     #[test]
     fn content_without_decorators_is_untouched() {
-        let entry = json!({ "keys": ["k"], "content": "Plain @@depth 2 text", "position": "after_char" });
+        let entry =
+            json!({ "keys": ["k"], "content": "Plain @@depth 2 text", "position": "after_char" });
 
         let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
 

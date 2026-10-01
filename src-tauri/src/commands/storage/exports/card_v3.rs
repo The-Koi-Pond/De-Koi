@@ -142,8 +142,17 @@ pub(super) fn build_portable_card(
     }
     match avatar {
         Some((ext, bytes)) if target == CardTarget::Charx => {
-            match packager.add("assets/icon/images/main", &ext, bytes, &name, "Avatar", &mut report) {
-                Some(uri) => assets.push(json!({ "type": "icon", "uri": uri, "name": "main", "ext": ext })),
+            match packager.add(
+                "assets/icon/images/main",
+                &ext,
+                bytes,
+                &name,
+                "Avatar",
+                &mut report,
+            ) {
+                Some(uri) => {
+                    assets.push(json!({ "type": "icon", "uri": uri, "name": "main", "ext": ext }))
+                }
                 None => assets.push(default_icon()),
             }
         }
@@ -161,18 +170,30 @@ pub(super) fn build_portable_card(
     // Profile banner: packaged under a custom asset type and referenced from
     // the publicProfile extension, which is where De-Koi reads it back.
     if let Some(banner) = take_local_banner(&mut extensions) {
-        match (target, decode_image_data_url(&banner).or_else(|| banner_file_bytes(state, &banner))) {
+        match (
+            target,
+            decode_image_data_url(&banner).or_else(|| banner_file_bytes(state, &banner)),
+        ) {
             (CardTarget::Charx, Some((ext, bytes))) => {
-                if let Some(uri) =
-                    packager.add("assets/other/images/banner", &ext, bytes, &name, "Profile banner", &mut report)
-                {
-                    assets.push(json!({ "type": "x-banner", "uri": uri, "name": "banner", "ext": ext }));
+                if let Some(uri) = packager.add(
+                    "assets/other/images/banner",
+                    &ext,
+                    bytes,
+                    &name,
+                    "Profile banner",
+                    &mut report,
+                ) {
+                    assets.push(
+                        json!({ "type": "x-banner", "uri": uri, "name": "banner", "ext": ext }),
+                    );
                     set_banner(&mut extensions, &uri);
                 }
             }
-            (CardTarget::Charx, None) => {
-                report.skip(&name, "Profile banner", "The banner image file could not be read.")
-            }
+            (CardTarget::Charx, None) => report.skip(
+                &name,
+                "Profile banner",
+                "The banner image file could not be read.",
+            ),
             (CardTarget::JsonV3, _) => report.skip(
                 &name,
                 "Profile banner",
@@ -193,13 +214,20 @@ pub(super) fn build_portable_card(
         } else {
             let mut used_names = HashSet::new();
             for sprite in &sprites {
-                let filename = sprite.get("filename").and_then(Value::as_str).unwrap_or("sprite");
+                let filename = sprite
+                    .get("filename")
+                    .and_then(Value::as_str)
+                    .unwrap_or("sprite");
                 let Some((ext, bytes)) = sprite
                     .get("data")
                     .and_then(Value::as_str)
                     .and_then(decode_image_data_url)
                 else {
-                    report.skip(&name, format!("Sprite {filename}"), "The sprite image could not be read.");
+                    report.skip(
+                        &name,
+                        format!("Sprite {filename}"),
+                        "The sprite image could not be read.",
+                    );
                     continue;
                 };
                 let expression = Path::new(filename)
@@ -208,10 +236,17 @@ pub(super) fn build_portable_card(
                     .unwrap_or("sprite");
                 let stem = unique_name(&safe_export_name(expression, "sprite"), &mut used_names);
                 let path = format!("assets/emotion/images/{stem}");
-                if let Some(uri) =
-                    packager.add(&path, &ext, bytes, &name, format!("Sprite {filename}"), &mut report)
-                {
-                    assets.push(json!({ "type": "emotion", "uri": uri, "name": expression, "ext": ext }));
+                if let Some(uri) = packager.add(
+                    &path,
+                    &ext,
+                    bytes,
+                    &name,
+                    format!("Sprite {filename}"),
+                    &mut report,
+                ) {
+                    assets.push(
+                        json!({ "type": "emotion", "uri": uri, "name": expression, "ext": ext }),
+                    );
                 }
             }
         }
@@ -261,7 +296,12 @@ const V3_TEXT_FIELDS: &[&str] = &[
     "character_version",
 ];
 
-const V3_LIST_FIELDS: &[&str] = &["tags", "alternate_greetings", "group_only_greetings", "source"];
+const V3_LIST_FIELDS: &[&str] = &[
+    "tags",
+    "alternate_greetings",
+    "group_only_greetings",
+    "source",
+];
 
 fn portable_card_fields(source: &Value, character: &Value) -> Map<String, Value> {
     let mut data = Map::new();
@@ -273,17 +313,33 @@ fn portable_card_fields(source: &Value, character: &Value) -> Map<String, Value>
         let values = source
             .get(*field)
             .and_then(Value::as_array)
-            .map(|items| items.iter().filter(|item| item.is_string()).cloned().collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|item| item.is_string())
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         data.insert(field.to_string(), Value::Array(values));
     }
-    if let Some(nickname) = source.get("nickname").and_then(Value::as_str).filter(|value| !value.trim().is_empty()) {
+    if let Some(nickname) = source
+        .get("nickname")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
         data.insert("nickname".to_string(), json!(nickname));
     }
-    if let Some(notes) = source.get("creator_notes_multilingual").filter(|value| value.is_object()) {
+    if let Some(notes) = source
+        .get("creator_notes_multilingual")
+        .filter(|value| value.is_object())
+    {
         data.insert("creator_notes_multilingual".to_string(), notes.clone());
     }
-    for (record_field, card_field) in [("createdAt", "creation_date"), ("updatedAt", "modification_date")] {
+    for (record_field, card_field) in [
+        ("createdAt", "creation_date"),
+        ("updatedAt", "modification_date"),
+    ] {
         if let Some(seconds) = character
             .get(record_field)
             .and_then(Value::as_str)
@@ -320,7 +376,10 @@ fn take_local_banner(extensions: &mut Map<String, Value>) -> Option<String> {
 }
 
 fn set_banner(extensions: &mut Map<String, Value>, uri: &str) {
-    if let Some(profile) = extensions.get_mut("publicProfile").and_then(Value::as_object_mut) {
+    if let Some(profile) = extensions
+        .get_mut("publicProfile")
+        .and_then(Value::as_object_mut)
+    {
         profile.insert("bannerImage".to_string(), json!(uri));
     }
 }
@@ -330,12 +389,14 @@ fn banner_file_bytes(state: &AppState, banner: &str) -> Option<(String, Vec<u8>)
 }
 
 fn has_avatar_reference(character: &Value) -> bool {
-    ["avatar", "avatarPath", "avatarFilePath"].iter().any(|field| {
-        character
-            .get(*field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| !value.trim().is_empty())
-    })
+    ["avatar", "avatarPath", "avatarFilePath"]
+        .iter()
+        .any(|field| {
+            character
+                .get(*field)
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+        })
 }
 
 /// De-Koi stores "@Depth" as 2; SillyTavern-style card extensions use 4.
@@ -373,17 +434,31 @@ fn default_icon() -> Value {
 }
 
 /// Writes the linked lorebook (or the card's original book) as `character_book`.
-fn character_book(state: &AppState, character_id: &str, source: &Value) -> AppResult<Option<Value>> {
+fn character_book(
+    state: &AppState,
+    character_id: &str,
+    source: &Value,
+) -> AppResult<Option<Value>> {
     let Some(lorebook_id) = linked_embedded_lorebook_id(state, character_id, source)? else {
-        return Ok(source.get("character_book").filter(|book| book.is_object()).cloned());
+        return Ok(source
+            .get("character_book")
+            .filter(|book| book.is_object())
+            .cloned());
     };
     let Some(lorebook) = state.storage.get("lorebooks", &lorebook_id)? else {
-        return Ok(source.get("character_book").filter(|book| book.is_object()).cloned());
+        return Ok(source
+            .get("character_book")
+            .filter(|book| book.is_object())
+            .cloned());
     };
-    let mut entries = list_collection(state, "lorebook-entries", Some(("lorebookId", lorebook_id.as_str())))?
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let mut entries = list_collection(
+        state,
+        "lorebook-entries",
+        Some(("lorebookId", lorebook_id.as_str())),
+    )?
+    .as_array()
+    .cloned()
+    .unwrap_or_default();
     entries.sort_by_key(|entry| entry.get("order").and_then(Value::as_i64).unwrap_or(0));
     let entries = entries
         .iter()
@@ -412,7 +487,11 @@ fn decorated_content(entry: &Value, position: i64) -> String {
     if !is_at_depth(position) {
         return content.to_string();
     }
-    let depth = entry.get("depth").and_then(Value::as_i64).unwrap_or(4).max(0);
+    let depth = entry
+        .get("depth")
+        .and_then(Value::as_i64)
+        .unwrap_or(4)
+        .max(0);
     let mut decorated = format!("@@depth {depth}\n");
     if let Some(role) = entry
         .get("role")
@@ -427,7 +506,10 @@ fn decorated_content(entry: &Value, position: i64) -> String {
 
 fn character_book_entry(entry: &Value, index: usize) -> Value {
     let name = entry.get("name").and_then(Value::as_str).unwrap_or("");
-    let order = entry.get("order").and_then(Value::as_i64).unwrap_or(index as i64);
+    let order = entry
+        .get("order")
+        .and_then(Value::as_i64)
+        .unwrap_or(index as i64);
     let position = entry.get("position").and_then(Value::as_i64).unwrap_or(0);
     let probability = entry.get("probability").cloned().unwrap_or(Value::Null);
     let mut card_entry = json!({
@@ -502,26 +584,39 @@ impl AssetPackager {
             report.skip(
                 character,
                 label,
-                format!("The file is larger than the {} MB CHARX asset limit.", CHARX_MAX_ASSET_BYTES / (1024 * 1024)),
+                format!(
+                    "The file is larger than the {} MB CHARX asset limit.",
+                    CHARX_MAX_ASSET_BYTES / (1024 * 1024)
+                ),
             );
             return None;
         }
         // card.json takes one entry.
         if self.files.len() + 1 >= CHARX_MAX_ENTRIES {
-            report.skip(character, label, format!("The package reached the {CHARX_MAX_ENTRIES}-file CHARX limit."));
+            report.skip(
+                character,
+                label,
+                format!("The package reached the {CHARX_MAX_ENTRIES}-file CHARX limit."),
+            );
             return None;
         }
         if self.total_bytes.saturating_add(bytes.len()) > CHARX_MAX_TOTAL_BYTES {
             report.skip(
                 character,
                 label,
-                format!("The package reached the {} MB CHARX size limit.", CHARX_MAX_TOTAL_BYTES / (1024 * 1024)),
+                format!(
+                    "The package reached the {} MB CHARX size limit.",
+                    CHARX_MAX_TOTAL_BYTES / (1024 * 1024)
+                ),
             );
             return None;
         }
         let path = format!("{stem}.{ext}");
         self.total_bytes += bytes.len();
-        self.files.push(PackagedAsset { path: path.clone(), bytes });
+        self.files.push(PackagedAsset {
+            path: path.clone(),
+            bytes,
+        });
         report.include(character, label);
         Some(format!("{CHARX_SCHEME}{path}"))
     }
@@ -573,11 +668,21 @@ mod tests {
         let depth = json!({ "content": "Shrine lore", "depth": 3, "role": "assistant" });
         let before = json!({ "content": "Koi lore", "depth": 3, "role": "assistant" });
 
-        assert_eq!(decorated_content(&depth, 2), "@@depth 3\n@@role assistant\nShrine lore");
+        assert_eq!(
+            decorated_content(&depth, 2),
+            "@@depth 3\n@@role assistant\nShrine lore"
+        );
         assert_eq!(decorated_content(&before, 0), "Koi lore");
         assert_eq!(decorated_content(&before, 1), "Koi lore");
-        assert_eq!(decorated_content(&depth, 4), "@@depth 3\n@@role assistant\nShrine lore");
-        assert_eq!(decorated_content(&depth, 3), "Shrine lore", "Author's Note placement is not depth");
+        assert_eq!(
+            decorated_content(&depth, 4),
+            "@@depth 3\n@@role assistant\nShrine lore"
+        );
+        assert_eq!(
+            decorated_content(&depth, 3),
+            "Shrine lore",
+            "Author's Note placement is not depth"
+        );
         assert_eq!(card_extension_position(3), 3);
     }
 
@@ -595,9 +700,18 @@ mod tests {
         let mut report = ExportReport::default();
 
         let too_big = vec![0u8; CHARX_MAX_ASSET_BYTES + 1];
-        assert!(packager.add("assets/x/huge", "png", too_big, "Sol", "Huge", &mut report).is_none());
+        assert!(packager
+            .add("assets/x/huge", "png", too_big, "Sol", "Huge", &mut report)
+            .is_none());
         let uri = packager
-            .add("assets/x/small", "png", vec![1, 2, 3], "Sol", "Small", &mut report)
+            .add(
+                "assets/x/small",
+                "png",
+                vec![1, 2, 3],
+                "Sol",
+                "Small",
+                &mut report,
+            )
             .expect("small asset fits");
 
         assert_eq!(uri, "embeded://assets/x/small.png");
@@ -607,8 +721,14 @@ mod tests {
 
     #[test]
     fn image_data_urls_decode_only_for_supported_images() {
-        let png = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode([1u8, 2, 3]));
-        assert_eq!(decode_image_data_url(&png), Some(("png".to_string(), vec![1, 2, 3])));
+        let png = format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode([1u8, 2, 3])
+        );
+        assert_eq!(
+            decode_image_data_url(&png),
+            Some(("png".to_string(), vec![1, 2, 3]))
+        );
         assert!(decode_image_data_url("data:image/svg+xml;base64,PHN2Zz4=").is_none());
         assert!(decode_image_data_url("https://example.com/a.png").is_none());
     }
