@@ -42,8 +42,7 @@ export function knowledgeEdgesForCapturedMemory(input: CapturedMemoryKnowledgeIn
   if (!memoryId) return [];
   const personaId = input.personaId?.trim() ?? "";
   const witnessedScene =
-    !!input.sceneId?.trim() &&
-    (input.memoryKind === "scene_event" || input.memoryKind === "episode");
+    !!input.sceneId?.trim() && (input.memoryKind === "scene_event" || input.memoryKind === "episode");
   if (witnessedScene) {
     const characterIds = Array.from(new Set(input.participantCharacterIds.map((id) => id.trim()).filter(Boolean)));
     if (characterIds.length === 0) return [];
@@ -58,8 +57,6 @@ export function knowledgeEdgesForCapturedMemory(input: CapturedMemoryKnowledgeIn
   if (input.scopeReason !== "attributed_character" || !characterId) return [];
   return [
     edge(input, { kind: "character", id: characterId }, "believes", "targeted_disclosure"),
-    ...(personaId
-      ? [edge(input, { kind: "persona", id: personaId }, "believes", "targeted_disclosure")]
-      : []),
+    ...(personaId ? [edge(input, { kind: "persona", id: personaId }, "believes", "targeted_disclosure")] : []),
   ];
 }

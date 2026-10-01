@@ -4380,9 +4380,7 @@ function CroppedAvatar({
   className?: string;
   onLoadError?: () => void;
 }) {
-  return (
-    <AvatarImage src={src} alt={alt} crop={crop} className={className} onError={onLoadError} />
-  );
+  return <AvatarImage src={src} alt={alt} crop={crop} className={className} onError={onLoadError} />;
 }
 
 function PartyOverlayBox({

@@ -23,9 +23,7 @@
         "section_v2_history",
         "section_v2_output"
       ],
-      "groupOrder": [
-        "group_v2_context"
-      ],
+      "groupOrder": ["group_v2_context"],
       "variableOrder": [
         "choice_v2_mode",
         "choice_v2_content_boundary",

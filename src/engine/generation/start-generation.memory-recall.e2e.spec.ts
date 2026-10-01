@@ -9,7 +9,12 @@ import type {
   StorageGateway,
 } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
-import type { CanonicalMemoryInput, CanonicalMemoryPatch, CanonicalMemoryRecord, KnowledgeEdge } from "../contracts/types/memory";
+import type {
+  CanonicalMemoryInput,
+  CanonicalMemoryPatch,
+  CanonicalMemoryRecord,
+  KnowledgeEdge,
+} from "../contracts/types/memory";
 import { startGeneration } from "./start-generation";
 
 type StoredMessage = {
@@ -382,10 +387,12 @@ function memoryRecallStorage(
       );
     },
     async queryKnowledgeEdges(query = {}): Promise<KnowledgeEdge[]> {
-      return [...knowledgeEdges.values()].filter((edge) =>
-        (!query.memoryIds || query.memoryIds.includes(edge.memoryId)) &&
-        (!query.holders || query.holders.some((holder) => holder.kind === edge.holder.kind && holder.id === edge.holder.id)) &&
-        (!query.statuses || query.statuses.includes(edge.status))
+      return [...knowledgeEdges.values()].filter(
+        (edge) =>
+          (!query.memoryIds || query.memoryIds.includes(edge.memoryId)) &&
+          (!query.holders ||
+            query.holders.some((holder) => holder.kind === edge.holder.kind && holder.id === edge.holder.id)) &&
+          (!query.statuses || query.statuses.includes(edge.status)),
       );
     },
     querySemanticMemories: semanticQueries,
@@ -480,17 +487,31 @@ describe("startGeneration Memory Recall preflight", () => {
       holder: { kind: "character", id: "someone-else" },
       stance: "knows",
       status: "active",
-      provenance: [{ kind: "targeted_disclosure", author: "system", sourceChatId: "chat-1", messageIds: ["old-message"], createdAt: "2026-08-30T12:00:00Z" }],
+      provenance: [
+        {
+          kind: "targeted_disclosure",
+          author: "system",
+          sourceChatId: "chat-1",
+          messageIds: ["old-message"],
+          createdAt: "2026-08-30T12:00:00Z",
+        },
+      ],
       createdAt: "2026-08-30T12:00:00Z",
       updatedAt: "2026-08-30T12:00:00Z",
     });
 
-    await collectEvents(startGeneration(
-      { storage: harness.storage, llm: memoryAwareLlm(calls), integrations: {} as IntegrationGateway },
-      { chatId: "chat-1", connectionId: "conn-1", userMessage: "What is the password?" },
-    ));
+    await collectEvents(
+      startGeneration(
+        { storage: harness.storage, llm: memoryAwareLlm(calls), integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", userMessage: "What is the password?" },
+      ),
+    );
 
-    const modelRequest = calls.at(-1)?.messages.map((message) => message.content).join("\n") ?? "";
+    const modelRequest =
+      calls
+        .at(-1)
+        ?.messages.map((message) => message.content)
+        .join("\n") ?? "";
     expect(modelRequest).not.toContain("swordfish");
   });
 

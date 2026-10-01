@@ -8,7 +8,9 @@ function avatarReferencesDisabledExplicitly(settings: JsonRecord | null | undefi
   return settings?.useAvatarReferencesOverride === AVATAR_REFERENCES_OVERRIDE_DISABLED;
 }
 
-export function illustratorAvatarReferenceMode(settings: JsonRecord | null | undefined): IllustratorAvatarReferenceMode {
+export function illustratorAvatarReferenceMode(
+  settings: JsonRecord | null | undefined,
+): IllustratorAvatarReferenceMode {
   if (avatarReferencesDisabledExplicitly(settings)) return "disabled";
   if (boolish(settings?.useAvatarReferences, false)) return "enabled";
   if (settings?.useAvatarReferences !== undefined && settings.useAvatarReferences !== null) {

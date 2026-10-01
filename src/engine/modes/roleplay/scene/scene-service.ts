@@ -1031,7 +1031,10 @@ function parseSceneStorySummary(raw: string): SceneStorySummary {
     unresolvedHooks: [],
     currentState: [],
   };
-  const unfenced = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const unfenced = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
   const looksStructured = /^```(?:json)?\b/i.test(raw.trim()) || /^[{[]/.test(unfenced);
   try {
     const parsed = JSON.parse(unfenced) as unknown;
@@ -1046,7 +1049,8 @@ function parseSceneStorySummary(raw: string): SceneStorySummary {
     const sectionRecord = record.sections as JsonRecord;
     const sections = { ...emptySections };
     for (const key of SCENE_STORY_SECTION_KEYS) {
-      if (!Array.isArray(sectionRecord[key])) throw new Error(`The model returned invalid ${key} scene summary details`);
+      if (!Array.isArray(sectionRecord[key]))
+        throw new Error(`The model returned invalid ${key} scene summary details`);
       sections[key] = sectionRecord[key]
         .map((entry) => {
           if (typeof entry === "string") return compactPromptText(entry, 600);
@@ -1164,8 +1168,9 @@ function isScriptedSceneOpening(value: string, request: string, allowFallbackPre
   if (sentenceCount > 3) return true;
 
   const isFallbackPremise = allowFallbackPremise && /^Premise:\s+\S/.test(value);
-  const isStructuredBeat =
-    /^Participants:\s+\S[^\r\n]*\r?\nAction:\s+\S[^\r\n]*\r?\nPressure:\s+\S[^\r\n]*$/.test(value);
+  const isStructuredBeat = /^Participants:\s+\S[^\r\n]*\r?\nAction:\s+\S[^\r\n]*\r?\nPressure:\s+\S[^\r\n]*$/.test(
+    value,
+  );
   if (!isFallbackPremise && !isStructuredBeat) return true;
 
   const dialogue = [...value.matchAll(/["“]([^"”]+)["”]/g)].map((match) => match[1]?.trim()).filter(Boolean);

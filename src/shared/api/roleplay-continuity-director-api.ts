@@ -161,10 +161,7 @@ export function createRoleplayContinuityDirectorApi(
       });
       const updateChatIfUnchanged = capabilities.storage.updateChatIfUnchanged;
       if (!updateChatIfUnchanged) {
-        throw new ContinuityDirectorApiError(
-          "persistence_failed",
-          "Conditional chat persistence is unavailable.",
-        );
+        throw new ContinuityDirectorApiError("persistence_failed", "Conditional chat persistence is unavailable.");
       }
       let result: { updated: boolean; chat: JsonRecord };
       try {

@@ -22,6 +22,7 @@
 ### Task 1: Character-scoped manual memory creation
 
 **Files:**
+
 - Modify: `src/features/catalog/characters/lib/character-memory-model.ts`
 - Modify: `src/features/catalog/characters/lib/character-memory-model.spec.ts`
 - Modify: `src/features/catalog/characters/hooks/use-character-memories.ts`
@@ -29,6 +30,7 @@
 - Create: `src/features/catalog/characters/components/CharacterMemoriesTab.spec.tsx`
 
 **Interfaces:**
+
 - Produces: `createManualCharacterMemoryInput(characterId: string, content: string, createdAt?: string): CanonicalMemoryInput`
 - Produces: `useCreateCharacterMemory(characterId: string)` mutation returning `{ memory: CanonicalMemoryRecord; indexRefreshFailed: boolean }`
 - Consumes: `canonicalMemoryApi.create`, `canonicalMemoryApi.index.rebuildLexical`, and `characterMemoryKeys.detail`
@@ -98,9 +100,7 @@ Expected: FAIL because the action and mutation hook do not exist.
 `useCreateCharacterMemory` must:
 
 ```ts
-const memory = await canonicalMemoryApi.create(
-  createManualCharacterMemoryInput(characterId, content),
-);
+const memory = await canonicalMemoryApi.create(createManualCharacterMemoryInput(characterId, content));
 let indexRefreshFailed = false;
 try {
   await canonicalMemoryApi.index.rebuildLexical({
@@ -141,6 +141,7 @@ git commit -m "feat: add manual character memories"
 ### Task 2: Chat-memory creation capability and runtime routing
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/storage/chat_memory.rs`
 - Modify: `src-tauri/src/commands/storage/commands/chats.rs`
 - Modify: `src-tauri/src/http_dispatch.rs`
@@ -150,6 +151,7 @@ git commit -m "feat: add manual character memories"
 - Create: `src/shared/api/chat-command-api.spec.ts`
 
 **Interfaces:**
+
 - Produces: `chat_memory::create_chat_memory(state: &AppState, chat_id: &str, body: Value) -> AppResult<Value>`
 - Produces: Tauri command `chat_memory_create(chat_id: String, body: Value)`
 - Produces: `chatCommandApi.memoryCreate<T>(chatId, { content })`
@@ -262,11 +264,13 @@ git commit -m "feat: create manual chat memories"
 ### Task 3: Chat Memory Console composer
 
 **Files:**
+
 - Modify: `src/features/catalog/chats/hooks/use-chats.ts`
 - Modify: `src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.tsx`
 - Modify: `src/features/modes/shared/chat-ui/components/settings/MemoryRecallMemoriesModal.spec.ts`
 
 **Interfaces:**
+
 - Produces: `useCreateChatMemory(chatId: string | null)`
 - Consumes: `chatCommandApi.memoryCreate<ChatMemoryChunk>` and `chatKeys.memories`
 
@@ -293,7 +297,7 @@ Expected: FAIL because the composer and create hook do not exist.
 The hook calls:
 
 ```ts
-chatCommandApi.memoryCreate<ChatMemoryChunk>(chatId, { content })
+chatCommandApi.memoryCreate<ChatMemoryChunk>(chatId, { content });
 ```
 
 and invalidates `chatKeys.memories(chatId)` on success. Add the composer near
@@ -324,15 +328,18 @@ git commit -m "feat: add chat memory composer"
 ### Task 4: Discoverability, integrated validation, and shipping
 
 **Files:**
+
 - Modify: `src/features/shell/discovery/discovery-entries.json`
 
 **Interfaces:**
+
 - Consumes: the shipped character Memories tab and chat Memory Console actions.
 
 - [ ] **Step 1: Update the existing memory discovery entry**
 
 Update `chat-memory-summaries` so its summary/keywords state that users can
 manually add chat-local memories and add durable memories from Character Editor
+
 > Memories. Keep the existing route and avoid adding a duplicate discovery item.
 
 - [ ] **Step 2: Run focused and lane validation**

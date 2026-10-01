@@ -90,9 +90,7 @@ function normalizeCustomTrackerFields(
   });
 }
 
-function normalizeQuestObjectives(
-  objectives: readonly Partial<QuestObjective>[] | null | undefined,
-): QuestObjective[] {
+function normalizeQuestObjectives(objectives: readonly Partial<QuestObjective>[] | null | undefined): QuestObjective[] {
   return (objectives ?? []).map((objective, index) => {
     const text = readString(objective.text) || "Objective";
     return {
@@ -113,7 +111,8 @@ function normalizeQuestProgressRows(quests: readonly Partial<QuestProgress>[] | 
       questEntryId: readString(quest.questEntryId) || makeManualTrackerRowId(),
       name,
       ...(description ? { description } : {}),
-      currentStage: typeof quest.currentStage === "number" && Number.isFinite(quest.currentStage) ? quest.currentStage : 0,
+      currentStage:
+        typeof quest.currentStage === "number" && Number.isFinite(quest.currentStage) ? quest.currentStage : 0,
       objectives: normalizeQuestObjectives(quest.objectives),
       ...(rewards ? { rewards } : {}),
       ...(notes ? { notes } : {}),

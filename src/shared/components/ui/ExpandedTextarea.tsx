@@ -72,61 +72,61 @@ export function ExpandedTextarea({ open, onClose, title, value, onChange, placeh
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-[var(--background)] opacity-100 transition-opacity duration-150 max-md:pt-[env(safe-area-inset-top)]">
-          {/* Header */}
-          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-3">
-            <h2 className="text-sm font-semibold">{magicRewriteMode ? "Magic Rewrite" : title}</h2>
-            <div className="flex items-center gap-2">
-              {!magicRewriteMode && (
-                <button
-                  onClick={() => setMagicRewriteMode(true)}
-                  className="flex items-center gap-1.5 rounded-lg border border-violet-400/30 bg-violet-500/10 px-2.5 py-1.5 text-xs font-medium text-violet-200 hover:bg-violet-500/20"
-                  title="Open Magic Rewrite"
-                >
-                  <Sparkles size="0.875rem" />
-                  Rewrite
-                </button>
-              )}
-              {magicRewriteMode && (
-                <button
-                  onClick={handleMagicRewriteBack}
-                  className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--accent)]"
-                >
-                  Back
-                </button>
-              )}
-              {magicRewriteMode && (
-                <button
-                  onClick={handleMagicRewriteApply}
-                  disabled={!magicRewriteResult}
-                  className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Apply
-                </button>
-              )}
-              <span className="text-[0.625rem] text-[var(--muted-foreground)]">{local.length} characters</span>
-              <button
-                onClick={handleClose}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-              >
-                <Minimize2 size="0.875rem" />
-                <span className="max-md:hidden">Collapse</span>
-              </button>
-            </div>
-          </div>
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-3">
+        <h2 className="text-sm font-semibold">{magicRewriteMode ? "Magic Rewrite" : title}</h2>
+        <div className="flex items-center gap-2">
+          {!magicRewriteMode && (
+            <button
+              onClick={() => setMagicRewriteMode(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-violet-400/30 bg-violet-500/10 px-2.5 py-1.5 text-xs font-medium text-violet-200 hover:bg-violet-500/20"
+              title="Open Magic Rewrite"
+            >
+              <Sparkles size="0.875rem" />
+              Rewrite
+            </button>
+          )}
+          {magicRewriteMode && (
+            <button
+              onClick={handleMagicRewriteBack}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--accent)]"
+            >
+              Back
+            </button>
+          )}
+          {magicRewriteMode && (
+            <button
+              onClick={handleMagicRewriteApply}
+              disabled={!magicRewriteResult}
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Apply
+            </button>
+          )}
+          <span className="text-[0.625rem] text-[var(--muted-foreground)]">{local.length} characters</span>
+          <button
+            onClick={handleClose}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          >
+            <Minimize2 size="0.875rem" />
+            <span className="max-md:hidden">Collapse</span>
+          </button>
+        </div>
+      </div>
 
-          <div className="flex-1 overflow-hidden p-4 md:p-6">
-            {magicRewriteMode ? (
-              <MagicRewritePanel value={local} onResultChange={handleMagicRewriteResultChange} />
-            ) : (
-              <textarea
-                ref={textareaRef}
-                value={local}
-                onChange={(e) => setLocal(e.target.value)}
-                placeholder={placeholder}
-                className="h-full w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-5 text-sm leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-              />
-            )}
-          </div>
+      <div className="flex-1 overflow-hidden p-4 md:p-6">
+        {magicRewriteMode ? (
+          <MagicRewritePanel value={local} onResultChange={handleMagicRewriteResultChange} />
+        ) : (
+          <textarea
+            ref={textareaRef}
+            value={local}
+            onChange={(e) => setLocal(e.target.value)}
+            placeholder={placeholder}
+            className="h-full w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-5 text-sm leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+          />
+        )}
+      </div>
     </div>,
     document.body,
   );

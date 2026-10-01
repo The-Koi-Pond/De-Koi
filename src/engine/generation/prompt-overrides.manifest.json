@@ -31,7 +31,11 @@
     "description": "Prompt template for generating one portrait expression sprite.",
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this sprite request." },
-      { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
+      {
+        "name": "appearance",
+        "description": "Character appearance text.",
+        "example": "silver hair, travel cloak, sharp green eyes"
+      },
       { "name": "expression", "description": "Requested expression label.", "example": "happy" },
       { "name": "spriteType", "description": "Sprite type from the generation request.", "example": "expressions" }
     ],
@@ -48,9 +52,21 @@
     "description": "Prompt template for generating an expression portrait sprite sheet.",
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this sprite sheet request." },
-      { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
-      { "name": "expressions", "description": "Comma-separated requested expression labels.", "example": "neutral, happy, sad, angry" },
-      { "name": "expressionList", "description": "Legacy alias for comma-separated requested expression labels.", "example": "neutral, happy, sad, angry" },
+      {
+        "name": "appearance",
+        "description": "Character appearance text.",
+        "example": "silver hair, travel cloak, sharp green eyes"
+      },
+      {
+        "name": "expressions",
+        "description": "Comma-separated requested expression labels.",
+        "example": "neutral, happy, sad, angry"
+      },
+      {
+        "name": "expressionList",
+        "description": "Legacy alias for comma-separated requested expression labels.",
+        "example": "neutral, happy, sad, angry"
+      },
       { "name": "expressionCount", "description": "Legacy alias for the requested expression count.", "example": "4" },
       { "name": "cols", "description": "Requested grid columns.", "example": "2" },
       { "name": "rows", "description": "Requested grid rows.", "example": "2" },
@@ -79,7 +95,11 @@
     "description": "Prompt template for generating one full-body sprite pose.",
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this full-body sprite request." },
-      { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
+      {
+        "name": "appearance",
+        "description": "Character appearance text.",
+        "example": "silver hair, travel cloak, sharp green eyes"
+      },
       { "name": "expression", "description": "Requested pose or expression label.", "example": "idle" },
       { "name": "pose", "description": "Legacy alias for the requested full-body pose label.", "example": "idle" },
       { "name": "spriteType", "description": "Sprite type from the generation request.", "example": "full-body" }
@@ -98,9 +118,21 @@
     "description": "Prompt template for generating a full-body pose sprite sheet.",
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this full-body sheet request." },
-      { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
-      { "name": "expressions", "description": "Comma-separated requested pose labels.", "example": "idle, attack, cast, victory" },
-      { "name": "poseList", "description": "Legacy alias for comma-separated requested pose labels.", "example": "idle, attack, cast, victory" },
+      {
+        "name": "appearance",
+        "description": "Character appearance text.",
+        "example": "silver hair, travel cloak, sharp green eyes"
+      },
+      {
+        "name": "expressions",
+        "description": "Comma-separated requested pose labels.",
+        "example": "idle, attack, cast, victory"
+      },
+      {
+        "name": "poseList",
+        "description": "Legacy alias for comma-separated requested pose labels.",
+        "example": "idle, attack, cast, victory"
+      },
       { "name": "poseCount", "description": "Legacy alias for the requested pose count.", "example": "4" },
       { "name": "cellCount", "description": "Legacy alias for the total grid cell count.", "example": "4" },
       { "name": "cols", "description": "Requested grid columns.", "example": "2" },
@@ -131,8 +163,16 @@
     "description": "Prompt template for generating a full-body sheet where only facial expression changes.",
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this full-body expression sheet request." },
-      { "name": "appearance", "description": "Character appearance text.", "example": "silver hair, travel cloak, sharp green eyes" },
-      { "name": "expressions", "description": "Comma-separated requested expression labels.", "example": "neutral, happy, worried, angry" },
+      {
+        "name": "appearance",
+        "description": "Character appearance text.",
+        "example": "silver hair, travel cloak, sharp green eyes"
+      },
+      {
+        "name": "expressions",
+        "description": "Comma-separated requested expression labels.",
+        "example": "neutral, happy, worried, angry"
+      },
       { "name": "cols", "description": "Requested grid columns.", "example": "2" },
       { "name": "rows", "description": "Requested grid rows.", "example": "2" },
       { "name": "sheetWidth", "description": "Resolved sheet width in pixels.", "example": "1024" },
@@ -160,7 +200,11 @@
       { "name": "defaultPrompt", "description": "The built-in prompt for this background request." },
       { "name": "label", "description": "Requested background tag or label.", "example": "misty forest shrine" },
       { "name": "detail", "description": "Prompt detail used by the builder.", "example": "misty forest shrine" },
-      { "name": "artStyle", "description": "Resolved Game Mode art style prompt.", "example": "painterly fantasy visual novel art" },
+      {
+        "name": "artStyle",
+        "description": "Resolved Game Mode art style prompt.",
+        "example": "painterly fantasy visual novel art"
+      },
       { "name": "format", "description": "Prompt format setting.", "example": "descriptive" },
       { "name": "sceneDescription", "description": "Legacy-compatible background scene description." },
       { "name": "styleLine", "description": "Legacy-compatible style prompt line." }
@@ -180,8 +224,16 @@
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this illustration request." },
       { "name": "label", "description": "Illustration label or reason.", "example": "party enters the sealed library" },
-      { "name": "detail", "description": "Illustration prompt detail.", "example": "lantern light catches floating dust as the party opens a rune-locked door" },
-      { "name": "artStyle", "description": "Resolved Game Mode art style prompt.", "example": "painterly fantasy visual novel art" },
+      {
+        "name": "detail",
+        "description": "Illustration prompt detail.",
+        "example": "lantern light catches floating dust as the party opens a rune-locked door"
+      },
+      {
+        "name": "artStyle",
+        "description": "Resolved Game Mode art style prompt.",
+        "example": "painterly fantasy visual novel art"
+      },
       { "name": "format", "description": "Prompt format setting.", "example": "descriptive" },
       { "name": "scenePrompt", "description": "Legacy-compatible raw scene illustration prompt." },
       { "name": "characterDescriptions", "description": "Legacy-compatible visible character description block." },
@@ -203,10 +255,22 @@
     "variables": [
       { "name": "defaultPrompt", "description": "The built-in prompt for this NPC portrait request." },
       { "name": "label", "description": "NPC display name.", "example": "Mira" },
-      { "name": "detail", "description": "NPC appearance or description detail.", "example": "silver hair, green cloak, wary smile" },
-      { "name": "artStyle", "description": "Resolved Game Mode art style prompt.", "example": "painterly fantasy visual novel art" },
+      {
+        "name": "detail",
+        "description": "NPC appearance or description detail.",
+        "example": "silver hair, green cloak, wary smile"
+      },
+      {
+        "name": "artStyle",
+        "description": "Resolved Game Mode art style prompt.",
+        "example": "painterly fantasy visual novel art"
+      },
       { "name": "format", "description": "Prompt format setting.", "example": "descriptive" },
-      { "name": "includeAppearances", "description": "Whether appearance detail is included in the built-in prompt.", "example": "true" },
+      {
+        "name": "includeAppearances",
+        "description": "Whether appearance detail is included in the built-in prompt.",
+        "example": "true"
+      },
       { "name": "appearanceLine", "description": "Legacy-compatible NPC appearance prompt line." },
       { "name": "styleLine", "description": "Legacy-compatible style prompt line." }
     ],

@@ -156,7 +156,9 @@ export function metadataCharacterRoutines(value: unknown): CharacterRoutineMap {
     const generatedAt = metadataString(routine.generatedAt).trim();
     const sleep = metadataString(routine.sleep).trim();
     const busy = metadataRoutineBusyPeriods(routine.busy);
-    const freeish = metadataStringArray(routine.freeish).map((item) => item.trim()).filter(Boolean);
+    const freeish = metadataStringArray(routine.freeish)
+      .map((item) => item.trim())
+      .filter(Boolean);
     const replyStyle = metadataString(routine.replyStyle).trim();
     const checkInStyle = metadataString(routine.checkInStyle).trim();
     const socialEnergyRaw = metadataRecord(routine.socialEnergy);

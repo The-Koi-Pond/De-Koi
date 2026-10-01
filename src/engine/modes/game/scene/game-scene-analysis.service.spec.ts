@@ -287,7 +287,6 @@ describe("analyzeGameScene structured generation", () => {
     expect(llm.requests[1]?.messages.at(-1)?.content).toContain("5000");
   });
 
-
   it("returns a no-op analysis after final invalid output without malformed fallback mutations", async () => {
     const llm = llmWithResponses([
       "not json",

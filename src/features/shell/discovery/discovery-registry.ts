@@ -104,7 +104,8 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
     case "show-active-chat":
       break;
     case "open-mode-setup":
-      if (!hasText(action.mode) || !modeSet.has(action.mode)) errors.push(`${path}.mode must target a known chat mode.`);
+      if (!hasText(action.mode) || !modeSet.has(action.mode))
+        errors.push(`${path}.mode must target a known chat mode.`);
       break;
     case "open-chat-destination":
       if (!hasText(destination) || !chatDestinationSet.has(destination)) {
@@ -187,10 +188,4 @@ export function validateDiscoveryEntries(entries: readonly unknown[] = rawDiscov
 
 export const DISCOVERY_ENTRIES = rawDiscoveryEntries as DiscoveryEntry[];
 
-export type {
-  DiscoveryAction,
-  DiscoveryCategory,
-  DiscoveryCoverage,
-  DiscoveryEntry,
-  DiscoveryPanelTarget,
-};
+export type { DiscoveryAction, DiscoveryCategory, DiscoveryCoverage, DiscoveryEntry, DiscoveryPanelTarget };

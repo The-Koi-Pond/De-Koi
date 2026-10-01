@@ -40,13 +40,7 @@ export async function previewGeneratedAssets(
   if (typeof record.backgroundTag === "string" && record.backgroundTag.trim()) {
     const id = imageReviewId("background", record.backgroundTag);
     const detail = promptDetail([record.backgroundTag, sceneContext]);
-    const defaultPrompt = g.sceneAssetPrompt(
-      "background",
-      record.backgroundTag,
-      detail,
-      artStyle,
-      promptSettings,
-    );
+    const defaultPrompt = g.sceneAssetPrompt("background", record.backgroundTag, detail, artStyle, promptSettings);
     items.push({
       id,
       kind: "background",

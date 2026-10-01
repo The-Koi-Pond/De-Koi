@@ -4,10 +4,7 @@
 import { useState, useEffect } from "react";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  createAgentConfigSchema,
-  updateAgentConfigSchema,
-} from "../../../../engine/contracts/schemas/agent.schema";
+import { createAgentConfigSchema, updateAgentConfigSchema } from "../../../../engine/contracts/schemas/agent.schema";
 import { agentCreditLabel } from "../hooks/use-agents";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useConnections } from "../../connections/index";

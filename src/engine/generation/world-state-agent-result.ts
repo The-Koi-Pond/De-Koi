@@ -133,8 +133,9 @@ function titleCaseWord(text: string): string {
 }
 
 function normalizeTimeSuffix(text: string): string {
-  return normalizeSpaces(text).replace(/\s*(a\.m\.|p\.m\.|am|pm)\b/i, (match) =>
-    ` ${match.replace(/\./g, "").toUpperCase().trim()}`,
+  return normalizeSpaces(text).replace(
+    /\s*(a\.m\.|p\.m\.|am|pm)\b/i,
+    (match) => ` ${match.replace(/\./g, "").toUpperCase().trim()}`,
   );
 }
 
@@ -169,7 +170,9 @@ function exactTimeFromText(text: string): string | null {
   const hour = text.match(/\b\d{1,2}\s*(?:am|pm|a\.m\.|p\.m\.)\b/i)?.[0];
   if (hour) return normalizeTimeSuffix(hour);
 
-  const named = text.match(/\b(?:noon|midnight|dawn|daybreak|sunrise|morning|afternoon|sunset|dusk|evening|night|twilight)\b/i)?.[0];
+  const named = text.match(
+    /\b(?:noon|midnight|dawn|daybreak|sunrise|morning|afternoon|sunset|dusk|evening|night|twilight)\b/i,
+  )?.[0];
   return named ? normalizeSpaces(named) : null;
 }
 

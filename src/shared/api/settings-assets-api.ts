@@ -1,4 +1,9 @@
-import { fileToUploadPayload, FONT_UPLOAD_SIZE_ERROR, IMAGE_UPLOAD_SIZE_ERROR, MAX_IMAGE_UPLOAD_BYTES } from "./file-payload";
+import {
+  fileToUploadPayload,
+  FONT_UPLOAD_SIZE_ERROR,
+  IMAGE_UPLOAD_SIZE_ERROR,
+  MAX_IMAGE_UPLOAD_BYTES,
+} from "./file-payload";
 import { MAX_FILE_SIZES } from "../../engine/contracts/constants/defaults";
 import { invokeTauri } from "./tauri-client";
 import { invalidateRemoteManagedAssetObjectUrlsAfter } from "./local-file-api";

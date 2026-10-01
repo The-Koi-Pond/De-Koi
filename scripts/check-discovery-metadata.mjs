@@ -159,7 +159,9 @@ function validateRegistry(entries) {
     if (!Array.isArray(entry.actions)) {
       errors.push(`${id || `Entry ${index}`}.actions must be an array.`);
     } else {
-      entry.actions.forEach((action, actionIndex) => errors.push(...validateAction(action, id || `Entry ${index}`, actionIndex)));
+      entry.actions.forEach((action, actionIndex) =>
+        errors.push(...validateAction(action, id || `Entry ${index}`, actionIndex)),
+      );
     }
   });
 
@@ -226,7 +228,9 @@ function cleanDecisionLine(line) {
 
 function readInlineNaReason(line) {
   const cleaned = cleanDecisionLine(line);
-  const match = cleaned.match(/(?:^|\b)(?:n\/?a|not applicable|no discovery(?: metadata)?(?: update)? needed)\b(?:\s*(?:because|:|-|--)\s*)?(.*)$/i);
+  const match = cleaned.match(
+    /(?:^|\b)(?:n\/?a|not applicable|no discovery(?: metadata)?(?: update)? needed)\b(?:\s*(?:because|:|-|--)\s*)?(.*)$/i,
+  );
   return match ? cleanReasonLine(match[1] ?? "") : "";
 }
 
@@ -260,7 +264,9 @@ function readFeatureDiscoverabilityReason(body) {
     return "";
   }
 
-  const inlineReason = cleanReasonLine(lines[reasonIndex].replace(/^#{0,6}\s*(feature discoverability\s+)?reason\s*:/i, ""));
+  const inlineReason = cleanReasonLine(
+    lines[reasonIndex].replace(/^#{0,6}\s*(feature discoverability\s+)?reason\s*:/i, ""),
+  );
   if (inlineReason && inlineReason !== "-") return inlineReason;
 
   for (const line of lines.slice(reasonIndex + 1)) {
@@ -326,7 +332,8 @@ function isLikelyUserFacingPath(path) {
   if (isDiscoveryMetadataPath(path)) return false;
   if (/\.(test|spec)\.(ts|tsx|js|jsx)$/.test(path)) return false;
   if (path.startsWith("docs/") || path.startsWith("skills/") || path.startsWith("scripts/")) return false;
-  if (path.startsWith(".github/") || path === "AGENTS.md" || path === "CONTRIBUTING.md" || path === "README.md") return false;
+  if (path.startsWith(".github/") || path === "AGENTS.md" || path === "CONTRIBUTING.md" || path === "README.md")
+    return false;
 
   return (
     path.startsWith("src/app/") ||
@@ -361,7 +368,8 @@ async function main() {
   }
 
   const prAware = hasArg("--pr-aware");
-  const changedFrom = getArgValue("--changed-from") ?? (prAware ? `origin/${process.env.GITHUB_BASE_REF || "main"}` : undefined);
+  const changedFrom =
+    getArgValue("--changed-from") ?? (prAware ? `origin/${process.env.GITHUB_BASE_REF || "main"}` : undefined);
   const pullRequestBody = await readPullRequestBodyFromEvent();
   const featureDiscoverabilityDecision = parseFeatureDiscoverabilityDecision(pullRequestBody);
   const featureDiscoverabilityDecisionCount =
@@ -370,8 +378,7 @@ async function main() {
   const localAllowMissingDiscovery =
     localOverrideAllowed && (hasArg("--allow-missing") || process.env.DISCOVERY_CHECK_ALLOW_MISSING === "1");
   const allowMissingDiscovery =
-    localAllowMissingDiscovery ||
-    (featureDiscoverabilityDecision.na && hasText(featureDiscoverabilityDecision.reason));
+    localAllowMissingDiscovery || (featureDiscoverabilityDecision.na && hasText(featureDiscoverabilityDecision.reason));
 
   if (changedFrom) {
     const changed = gitChangedFiles(changedFrom);

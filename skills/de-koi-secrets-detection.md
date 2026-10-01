@@ -5,34 +5,41 @@ Patterns to flag when scanning for hardcoded credentials.
 ## Patterns
 
 **Cloud Providers**
+
 - AWS Access Key: `AKIA[0-9A-Z]{16}`
 - AWS Temp Key: `ASIA[0-9A-Z]{16}`
 - AWS Secret: `[0-9a-zA-Z/+]{40}` (in vars named `*SECRET*`, `*AWS*`)
 - Google Cloud: `AIza[0-9A-Za-z\-_]{35}`
 
 **AI Providers**
+
 - OpenAI: `sk-[a-zA-Z0-9]{48}` or `sk-proj-[a-zA-Z0-9]{48}`
 - Anthropic: `sk-ant-[a-zA-Z0-9-_]{95,}`
 - DeepSeek: `sk-[a-zA-Z0-9]{64}`
 
 **Payment & SaaS**
+
 - Stripe live: `(sk|pk|rk)_live_[0-9a-zA-Z]{24,}`
 - Slack: `xox[baprs]-[a-zA-Z0-9-]{10,72}`
 
 **Version Control**
+
 - GitHub PAT: `ghp_[a-zA-Z0-9]{36}` or `github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}`
 - GitHub OAuth: `gho_[a-zA-Z0-9]{36}`
 
 **Auth Tokens**
+
 - JWT: `eyJ[a-zA-Z0-9-_]+\.eyJ[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+`
 - Private keys: `-----BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----`
 
 **Database**
+
 - PostgreSQL: `postgresql://[^:]+:[^@]+@(?!localhost|127\.0\.0\.1|example\.com)[^/]+`
 - MySQL: `mysql://[^:]+:[^@]+@(?!localhost|127\.0\.0\.1|example\.com)[^/]+`
 - MongoDB: `mongodb(\+srv)?://[^:]+:[^@]+@(?!localhost|127\.0\.0\.1|example\.com)[^/]+`
 
 **Generic High-Entropy**
+
 - Vars named `*SECRET*`, `*KEY*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTIAL*`, `*API_KEY*` assigned strings >20 chars with mixed case/numbers
 
 ## Ignore

@@ -15,8 +15,7 @@ export const connectionCommandApi = {
       invokeTauri<T>("connection_image_upload", { id, body: { image, filename } }),
       "entity-image",
     ),
-  reorderFolders: <T = unknown>(orderedIds: string[]) =>
-    invokeTauri<T>("connection_folder_reorder", { orderedIds }),
+  reorderFolders: <T = unknown>(orderedIds: string[]) => invokeTauri<T>("connection_folder_reorder", { orderedIds }),
   move: <T = unknown>(connectionId: string, folderId: string | null) =>
     invokeTauri<T>("connection_move", { connectionId, folderId }),
 };

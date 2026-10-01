@@ -22,12 +22,14 @@
 ### Task 1: Make infrastructure readiness independent of connection-test memory
 
 **Files:**
+
 - Modify: `src/engine/onboarding/setup-journey.ts`
 - Modify: `src/engine/onboarding/setup-journey.spec.ts`
 - Modify: `src/features/shell/onboarding/lib/setup-readiness.ts`
 - Modify: `src/features/shell/onboarding/lib/setup-readiness.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `SetupReadinessFacts` with environment, runtime URL/health, and usable connection count.
 - Produces: `isSetupReady(facts): boolean` that is true for a healthy hosted runtime or embedded runtime with at least one usable language-model connection.
 
@@ -87,12 +89,14 @@ git commit -m "Allow established connections to launch chats"
 ### Task 2: Auto-launch ready New chat intents through the recovery-safe orchestrator
 
 **Files:**
+
 - Modify: `src/features/shell/onboarding/components/SetupReadinessJourney.tsx`
 - Modify: `src/features/shell/onboarding/components/SetupReadinessJourney.spec.tsx`
 - Modify: `src/features/shell/onboarding/components/SetupReadinessChecklist.tsx`
 - Modify: `src/features/shell/onboarding/components/SetupReadinessChecklist.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: `isSetupReady(facts)` from Task 1 and the existing `createSetupChatLaunchOrchestrator`.
 - Produces: one automatic launch per ready journey; missing prerequisites continue to render `SetupReadinessChecklist`.
 
@@ -142,18 +146,20 @@ useEffect(() => {
 Render the checklist only for missing prerequisites:
 
 ```tsx
-{!setupReady && (
-  <SetupReadinessChecklist
-    facts={facts}
-    dismissed={intent.dismissed}
-    completed={intent.completed}
-    onDismiss={() => useSetupJourneyStore.getState().dismiss()}
-    onResume={() => useSetupJourneyStore.getState().resume()}
-    onConfigureRuntime={openSettings}
-    onRepairRuntime={openSettings}
-    onCreateConnection={openConnections}
-  />
-)}
+{
+  !setupReady && (
+    <SetupReadinessChecklist
+      facts={facts}
+      dismissed={intent.dismissed}
+      completed={intent.completed}
+      onDismiss={() => useSetupJourneyStore.getState().dismiss()}
+      onResume={() => useSetupJourneyStore.getState().resume()}
+      onConfigureRuntime={openSettings}
+      onRepairRuntime={openSettings}
+      onCreateConnection={openConnections}
+    />
+  );
+}
 ```
 
 Preserve the existing error alert and its Retry / Continue with defaults actions. The orchestrator remains responsible for single-flight protection and recovery.
@@ -191,11 +197,13 @@ git commit -m "Launch ready chats without setup friction"
 ### Task 3: Select the hosted same-origin runtime synchronously
 
 **Files:**
+
 - Modify: `src/shared/api/remote-runtime.ts`
 - Modify: `src/shared/api/remote-runtime.spec.ts`
 - Modify: `src/app/startup/remote-runtime-health.ts`
 
 **Interfaces:**
+
 - Produces: `sameOriginRemoteRuntimeUrl(): string` and `remoteRuntimeTarget(): RuntimeTarget | null` with configured URL priority.
 - Consumes: `hasEmbeddedTauriRuntime()` and `useUIStore.getState().remoteRuntimeUrl`.
 
@@ -275,9 +283,11 @@ git commit -m "Resolve hosted runtime before startup effects"
 ### Task 4: Validate, review, publish, and merge
 
 **Files:**
+
 - Review all files changed since `origin/main`.
 
 **Interfaces:**
+
 - Consumes: completed Tasks 1–3.
 - Produces: a merged GitHub PR targeting `main` with no unrelated root-worktree changes.
 

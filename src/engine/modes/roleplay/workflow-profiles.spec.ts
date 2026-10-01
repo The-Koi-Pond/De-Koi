@@ -122,9 +122,9 @@ describe("roleplay workflow profile recipes", () => {
       expectedExtraCalls: 1,
       modelUse: "One non-blocking planning call every 10 assistant replies",
     });
-    expect(() =>
-      buildRoleplayWorkflowProfilePatch(resolution, ["continuity-director-cadence"], NOW),
-    ).toThrow("requires Continuity Director to be enabled");
+    expect(() => buildRoleplayWorkflowProfilePatch(resolution, ["continuity-director-cadence"], NOW)).toThrow(
+      "requires Continuity Director to be enabled",
+    );
   });
 
   it("preserves an explicit Director choice", () => {

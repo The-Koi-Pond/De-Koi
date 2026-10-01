@@ -92,9 +92,7 @@ function storageForScene(args: {
         ] as T[];
       }
       if (entity === "story-consolidation-jobs") {
-        return createdRecords
-          .filter((record) => record.entity === entity)
-          .map((record) => record.value) as T[];
+        return createdRecords.filter((record) => record.entity === entity).map((record) => record.value) as T[];
       }
       return [] as T[];
     },
@@ -241,12 +239,14 @@ function priorSceneEpisode(index: number): CanonicalMemoryInput {
       coverageId: `prior-coverage-${index}`,
       sourceFingerprint: `prior-fingerprint-${index}`,
       messageIds: [`prior-message-${first}`, `prior-message-${first + 1}`],
-      sourceMessages: [{
-        id: `prior-message-${first}`,
-        role: "user",
-        content: `Prior story beat ${first}.`,
-        createdAt: `2026-08-27T0${index - 1}:00:00.000Z`,
-      }],
+      sourceMessages: [
+        {
+          id: `prior-message-${first}`,
+          role: "user",
+          content: `Prior story beat ${first}.`,
+          createdAt: `2026-08-27T0${index - 1}:00:00.000Z`,
+        },
+      ],
       firstMessageId: `prior-message-${first}`,
       lastMessageId: `prior-message-${first + 1}`,
       sourceEpisodeIds: [],
@@ -1025,13 +1025,18 @@ describe("roleplay scene conclusion summaries", () => {
           sections: {
             events: ["Mara entered the flooded archive."],
             choices: ["Mara chose to rescue the ledger."],
-            relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [],
+            relationshipShifts: [],
+            promises: [],
+            reveals: [],
+            unresolvedHooks: [],
             currentState: ["Mara still holds the rescued ledger."],
           },
         });
       }),
       async *stream() {},
-      async listModels() { return []; },
+      async listModels() {
+        return [];
+      },
     } as LlmGateway;
 
     await concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" });
@@ -1047,7 +1052,12 @@ describe("roleplay scene conclusion summaries", () => {
             level: "episode",
             boundaryReason: "scene_conclusion",
             sections: expect.objectContaining({
-              choices: [expect.objectContaining({ text: "Mara chose to rescue the ledger.", sourceMessageIds: ["opening", "choice"] })],
+              choices: [
+                expect.objectContaining({
+                  text: "Mara chose to rescue the ledger.",
+                  sourceMessageIds: ["opening", "choice"],
+                }),
+              ],
             }),
             summarizer: expect.objectContaining({ provider: "openai", model: "model-1" }),
           }),
@@ -1081,22 +1091,27 @@ describe("roleplay scene conclusion summaries", () => {
       await storage.createMemory?.(priorSceneEpisode(index));
     }
     const llm = {
-      complete: vi.fn()
+      complete: vi
+        .fn()
         .mockResolvedValueOnce("Mara entered the flooded archive and chose to rescue the ledger.")
-        .mockResolvedValueOnce(JSON.stringify({
-          summary: "Mara entered the flooded archive and chose to rescue the ledger.",
-          sections: {
-            events: ["Mara entered the flooded archive."],
-            choices: ["Mara chose to rescue the ledger."],
-            relationshipShifts: [],
-            promises: [],
-            reveals: [],
-            unresolvedHooks: [],
-            currentState: ["Mara still holds the rescued ledger."],
-          },
-        })),
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            summary: "Mara entered the flooded archive and chose to rescue the ledger.",
+            sections: {
+              events: ["Mara entered the flooded archive."],
+              choices: ["Mara chose to rescue the ledger."],
+              relationshipShifts: [],
+              promises: [],
+              reveals: [],
+              unresolvedHooks: [],
+              currentState: ["Mara still holds the rescued ledger."],
+            },
+          }),
+        ),
       async *stream() {},
-      async listModels() { return []; },
+      async listModels() {
+        return [];
+      },
     } as unknown as LlmGateway;
 
     await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).resolves.toBeDefined();
@@ -1145,22 +1160,27 @@ describe("roleplay scene conclusion summaries", () => {
       await storage.createMemory?.(priorSceneEpisode(index));
     }
     const llm = {
-      complete: vi.fn()
+      complete: vi
+        .fn()
         .mockResolvedValueOnce("Mara entered the flooded archive and chose to rescue the ledger.")
-        .mockResolvedValueOnce(JSON.stringify({
-          summary: "Mara entered the flooded archive and chose to rescue the ledger.",
-          sections: {
-            events: ["Mara entered the flooded archive."],
-            choices: ["Mara chose to rescue the ledger."],
-            relationshipShifts: [],
-            promises: [],
-            reveals: [],
-            unresolvedHooks: [],
-            currentState: ["Mara still holds the rescued ledger."],
-          },
-        })),
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            summary: "Mara entered the flooded archive and chose to rescue the ledger.",
+            sections: {
+              events: ["Mara entered the flooded archive."],
+              choices: ["Mara chose to rescue the ledger."],
+              relationshipShifts: [],
+              promises: [],
+              reveals: [],
+              unresolvedHooks: [],
+              currentState: ["Mara still holds the rescued ledger."],
+            },
+          }),
+        ),
       async *stream() {},
-      async listModels() { return []; },
+      async listModels() {
+        return [];
+      },
     } as unknown as LlmGateway;
 
     await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(
@@ -1173,7 +1193,9 @@ describe("roleplay scene conclusion summaries", () => {
     });
     expect(
       createdRecords.filter(
-        (record) => record.entity === "canonical-memories" && record.value.payload &&
+        (record) =>
+          record.entity === "canonical-memories" &&
+          record.value.payload &&
           (record.value.payload as JsonRecord).boundaryReason === "scene_conclusion",
       ),
     ).toHaveLength(1);
@@ -1208,12 +1230,19 @@ describe("roleplay scene conclusion summaries", () => {
             summary: "Mara rescued the archive ledger.",
             sections: {
               events: ["Mara rescued the ledger."],
-              choices: [], relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [], currentState: [],
+              choices: [],
+              relationshipShifts: [],
+              promises: [],
+              reveals: [],
+              unresolvedHooks: [],
+              currentState: [],
             },
           }),
         ),
       async *stream() {},
-      async listModels() { return []; },
+      async listModels() {
+        return [];
+      },
     } as unknown as LlmGateway;
 
     await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(
@@ -1228,8 +1257,21 @@ describe("roleplay scene conclusion summaries", () => {
   });
 
   it.each([
-    ["missing summary", JSON.stringify({ sections: { events: [], choices: [], relationshipShifts: [], promises: [], reveals: [], unresolvedHooks: [], currentState: [] } })],
-    ["malformed fenced JSON", "```json\n{\"summary\": \"The archive closes\""],
+    [
+      "missing summary",
+      JSON.stringify({
+        sections: {
+          events: [],
+          choices: [],
+          relationshipShifts: [],
+          promises: [],
+          reveals: [],
+          unresolvedHooks: [],
+          currentState: [],
+        },
+      }),
+    ],
+    ["malformed fenced JSON", '```json\n{"summary": "The archive closes"'],
     ["malformed sections", JSON.stringify({ summary: "The archive closes.", sections: { events: "not-an-array" } })],
   ])("rejects %s instead of displaying machine payload as scene prose", async (_label, finalRaw) => {
     const { storage, createdMessages } = storageForScene({
@@ -1252,9 +1294,14 @@ describe("roleplay scene conclusion summaries", () => {
       },
     });
     const llm = {
-      complete: vi.fn().mockResolvedValueOnce("The section records the archive rescue.").mockResolvedValueOnce(finalRaw),
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce("The section records the archive rescue.")
+        .mockResolvedValueOnce(finalRaw),
       async *stream() {},
-      async listModels() { return []; },
+      async listModels() {
+        return [];
+      },
     } as unknown as LlmGateway;
 
     await expect(concludeRoleplayScene({ storage, llm }, { sceneChatId: "scene" })).rejects.toThrow(

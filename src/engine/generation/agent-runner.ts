@@ -9,10 +9,7 @@ import {
   type AgentContext,
   type AgentResult,
 } from "../contracts/types/agent";
-import {
-  getDefaultAgentPrompt,
-  ROLEPLAY_QUALITY_EDITOR_PROMPT,
-} from "../contracts/constants/agent-prompts";
+import { getDefaultAgentPrompt, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "../contracts/constants/agent-prompts";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -170,10 +167,7 @@ const CHAT_SUMMARY_AGENT_TYPE = "chat-summary";
 const KNOWLEDGE_RETRIEVAL_AGENT_TYPE = "knowledge-retrieval";
 const KNOWLEDGE_ROUTER_AGENT_TYPE = "knowledge-router";
 const KNOWLEDGE_AGENT_TYPES = new Set([KNOWLEDGE_RETRIEVAL_AGENT_TYPE, KNOWLEDGE_ROUTER_AGENT_TYPE]);
-const ASSISTANT_INTERVAL_AGENT_TYPES = new Set([
-  ILLUSTRATOR_AGENT_TYPE,
-  CARD_EVOLUTION_AUDITOR_AGENT_TYPE,
-]);
+const ASSISTANT_INTERVAL_AGENT_TYPES = new Set([ILLUSTRATOR_AGENT_TYPE, CARD_EVOLUTION_AUDITOR_AGENT_TYPE]);
 const USER_INTERVAL_AGENT_TYPES = new Set([CHAT_SUMMARY_AGENT_TYPE]);
 const STATIC_CONTEXT_INJECTION_AGENT_TYPES = new Set<string>([BUILT_IN_AGENT_IDS.HTML]);
 const TRACKER_AGENT_TYPES = new Set(
@@ -1196,10 +1190,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const isKnownBuiltIn = BUILT_IN_AGENT_TYPES.has(type);
     if (!isBuiltInAgentAvailableInChatMode(chatMode(input), type)) return false;
     const requestedExplicitly = requestedAgentTypes && (requestedAgentTypes.has(type) || requestedAgentTypes.has(id));
-    if (
-      !boolish(agent.enabled, true) &&
-      !(isKnownBuiltIn && requestedExplicitly)
-    ) {
+    if (!boolish(agent.enabled, true) && !(isKnownBuiltIn && requestedExplicitly)) {
       return false;
     }
     const scopedToChat = scopedAgentIds.size > 0 && (scopedAgentIds.has(type) || scopedAgentIds.has(id));
@@ -1262,11 +1253,7 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
       continue;
     }
     const storedConnectionId = readString(agent.connectionId).trim();
-    const chatConnectionOverride = chatAgentOverride<unknown>(
-      chatMetadata(input).agentConnectionOverrides,
-      id,
-      type,
-    );
+    const chatConnectionOverride = chatAgentOverride<unknown>(chatMetadata(input).agentConnectionOverrides, id, type);
     const requestedConnectionId = chatConnectionOverride.present
       ? readString(chatConnectionOverride.value).trim()
       : storedConnectionId;

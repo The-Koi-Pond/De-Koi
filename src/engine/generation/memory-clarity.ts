@@ -13,11 +13,7 @@ import {
   resolveAutomaticMemorySpeakerContext,
   type AutomaticMemorySourceMessage,
 } from "./automatic-memory-context";
-import {
-  contentSupportedByEvidence,
-  stableHash,
-  standaloneMemoryFailure,
-} from "./automatic-memory-capture";
+import { contentSupportedByEvidence, stableHash, standaloneMemoryFailure } from "./automatic-memory-capture";
 import { generateStructured } from "./structured-generation";
 import { hiddenFromAi, isRecord, parseArray, readString, type JsonRecord } from "./runtime-records";
 
