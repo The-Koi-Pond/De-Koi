@@ -517,6 +517,10 @@ function dekiApprovalErrorMessage(error: unknown): string {
       return "Nothing was applied: this record changed after Deki-senpai previewed it. Ask for a fresh preview.";
     case "deki_workspace_approval_blocked":
       return "Nothing was applied: the change no longer passes De-Koi's checks. Ask Deki-senpai for a fresh preview.";
+    case "deki_workspace_apply_failed":
+      return "Nothing was applied, and the change is still waiting for your approval. Try again.";
+    case "deki_workspace_partial_apply":
+      return "Part of this change may have been saved before it failed. Check the affected records, then ask Deki-senpai for a fresh preview.";
     default:
       return "Deki-senpai couldn't apply that change. Nothing was changed.";
   }
@@ -755,7 +759,8 @@ export function DekiSurface({
       .finally(() => {
         if (!active) return;
         setHistoryLoadState((current) => {
-          if (current.sessionKey !== currentSessionRunKey || current.generation !== historyLoadGeneration) return current;
+          if (current.sessionKey !== currentSessionRunKey || current.generation !== historyLoadGeneration)
+            return current;
           return { ...current, completed: true };
         });
       });
@@ -847,7 +852,6 @@ export function DekiSurface({
       return next;
     });
   };
-
 
   /** Runs a Deki turn with live activity. Events from an older run of the same session are ignored. */
   const runLiveDekiSend = async (input: DetachedDekiSendInput): Promise<DetachedDekiSendResult> => {
@@ -2046,9 +2050,7 @@ function DekiChatAccessCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{actionTitle(action)}</div>
-          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            Chat context and scoped memory access
-          </div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">Chat context and scoped memory access</div>
         </div>
         {handled && (
           <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-lg bg-emerald-500/10 px-2 font-semibold text-emerald-500">

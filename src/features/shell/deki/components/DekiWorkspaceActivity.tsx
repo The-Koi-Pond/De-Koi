@@ -1,4 +1,4 @@
-import { AlertCircle, Check, ChevronRight, Loader2, Square } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, CircleSlash, Loader2, Square } from "lucide-react";
 import type { DekiWorkspaceTraceItem } from "../../../../engine/deki/deki-entry";
 import { cn } from "../../../../shared/lib/utils";
 import { dekiTraceSteps, type DekiActivityStep, type DekiLiveActivity } from "../lib/deki-workspace-activity";
@@ -11,6 +11,9 @@ function StepStatusIcon({ status }: { status: DekiActivityStep["status"] }) {
   }
   if (status === "error") {
     return <AlertCircle size="0.75rem" className="shrink-0 text-amber-500" aria-label="Failed" />;
+  }
+  if (status === "interrupted") {
+    return <CircleSlash size="0.75rem" className="shrink-0 text-[var(--muted-foreground)]" aria-label="Interrupted" />;
   }
   return <Check size="0.75rem" className="shrink-0 text-emerald-500" aria-label="Done" />;
 }
@@ -33,6 +36,9 @@ function DekiStepList({ steps }: { steps: DekiActivityStep[] }) {
             >
               {step.label}
             </span>
+            {step.status === "interrupted" && (
+              <span className="block text-[0.6875rem] text-[var(--muted-foreground)]">Stopped before it finished</span>
+            )}
             {step.status === "error" && step.output && (
               <span className="block truncate text-[0.6875rem] text-amber-500/90" title={step.output}>
                 {step.output}
@@ -105,12 +111,14 @@ export function DekiTraceDisclosure({ trace }: { trace?: DekiWorkspaceTraceItem[
   const steps = dekiTraceSteps(trace);
   if (steps.length === 0) return null;
   const failed = steps.filter((step) => step.status === "error").length;
+  const interrupted = steps.filter((step) => step.status === "interrupted").length;
   return (
     <details className="deki-trace group mb-2 ml-[4.5rem] mr-4 text-xs text-[var(--muted-foreground)]">
       <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-1 py-0.5 text-[0.6875rem] font-medium transition-colors hover:text-[var(--foreground)] [&::-webkit-details-marker]:hidden">
         <ChevronRight size="0.75rem" className="transition-transform group-open:rotate-90" aria-hidden />
         Checked {steps.length} thing{steps.length === 1 ? "" : "s"}
         {failed > 0 && <span className="text-amber-500">, {failed} failed</span>}
+        {interrupted > 0 && <span>, {interrupted} interrupted</span>}
       </summary>
       <div className="mt-1.5 rounded-lg border border-[var(--border)]/70 bg-[var(--card)]/60 px-3 py-2">
         <DekiStepList steps={steps} />

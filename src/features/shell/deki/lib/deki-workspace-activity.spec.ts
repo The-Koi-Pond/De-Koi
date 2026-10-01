@@ -27,8 +27,14 @@ describe("reduceDekiLiveActivity", () => {
   it("pairs tool ends with their starts and keeps the latest narration", () => {
     let state: DekiLiveActivity = EMPTY_DEKI_LIVE_ACTIVITY;
     state = reduceDekiLiveActivity(state, { type: "status", data: { content: "Checking.", kind: "info" } });
-    state = reduceDekiLiveActivity(state, { type: "tool_start", data: { id: "a", name: "grep", input: { query: "x" } } });
-    state = reduceDekiLiveActivity(state, { type: "tool_start", data: { id: "b", name: "read", input: { path: "a.ts" } } });
+    state = reduceDekiLiveActivity(state, {
+      type: "tool_start",
+      data: { id: "a", name: "grep", input: { query: "x" } },
+    });
+    state = reduceDekiLiveActivity(state, {
+      type: "tool_start",
+      data: { id: "b", name: "read", input: { path: "a.ts" } },
+    });
     state = reduceDekiLiveActivity(state, { type: "tool_end", data: { id: "a", isError: true, output: "boom" } });
 
     expect(state.narration).toBe("Checking.");
@@ -47,7 +53,10 @@ describe("reduceDekiLiveActivity", () => {
   });
 
   it("ignores end events for unknown steps and duplicate approvals", () => {
-    let state = reduceDekiLiveActivity(EMPTY_DEKI_LIVE_ACTIVITY, { type: "tool_end", data: { id: "missing", isError: false } });
+    let state = reduceDekiLiveActivity(EMPTY_DEKI_LIVE_ACTIVITY, {
+      type: "tool_end",
+      data: { id: "missing", isError: false },
+    });
     expect(state).toBe(EMPTY_DEKI_LIVE_ACTIVITY);
     state = reduceDekiLiveActivity(state, { type: "approval_pending", data: approval });
     const again = reduceDekiLiveActivity(state, { type: "approval_pending", data: approval });
@@ -67,7 +76,9 @@ describe("reduceDekiLiveActivity", () => {
 
 describe("describeDekiStep", () => {
   it("describes commands in plain language", () => {
-    expect(describeDekiStep("grep", { query: "AppShell", path: "src/app" })).toBe('Searched code for "AppShell" in src/app');
+    expect(describeDekiStep("grep", { query: "AppShell", path: "src/app" })).toBe(
+      'Searched code for "AppShell" in src/app',
+    );
     expect(describeDekiStep("read_deki_code_file", { path: "AGENTS.md" })).toBe("Read AGENTS.md");
     expect(describeDekiStep("deki_data", { action: "patch", collection: "personas", id: "p1" })).toBe(
       "Drafted an edit to persona p1 for approval",
@@ -83,16 +94,18 @@ describe("describeDekiStep", () => {
 });
 
 describe("dekiTraceSteps", () => {
-  it("keeps only command steps and never shows a finished step as running", () => {
+  it("keeps only command steps and marks a step its turn cut off as interrupted, not done", () => {
     const steps = dekiTraceSteps([
       { type: "status", content: "Checking." },
       { type: "tool", tool: { id: "a", name: "ls", status: "running", input: { path: "src" } } },
       { type: "tool", tool: { id: "b", name: "grep", status: "error", output: "bad args" } },
+      { type: "tool", tool: { id: "c", name: "read", status: "done", input: { path: "a.ts" } } },
     ]);
 
     expect(steps.map((step) => [step.id, step.status])).toEqual([
-      ["a", "done"],
+      ["a", "interrupted"],
       ["b", "error"],
+      ["c", "done"],
     ]);
   });
 });

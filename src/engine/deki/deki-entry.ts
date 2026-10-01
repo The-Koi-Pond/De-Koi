@@ -95,6 +95,8 @@ export type DekiWorkspaceRowChange = {
   action: "insert" | "update" | "replace" | "delete";
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+  /** For a delete's side-effect row: what happens to it, in plain words. */
+  effect?: string;
 };
 
 export type DekiWorkspaceDiffSummary = {

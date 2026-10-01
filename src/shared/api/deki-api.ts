@@ -386,16 +386,21 @@ function normalizeDekiWorkspaceRowChange(value: unknown): DekiWorkspaceRowChange
   const entity = readTrimmedString(object.entity);
   const id = readTrimmedString(object.id);
   const action =
-    object.action === "insert" || object.action === "update" || object.action === "replace" || object.action === "delete"
+    object.action === "insert" ||
+    object.action === "update" ||
+    object.action === "replace" ||
+    object.action === "delete"
       ? object.action
       : null;
   if (!entity || !id || !action) return null;
+  const effect = readTrimmedString(object.effect);
   return {
     entity,
     id,
     action,
     ...("before" in object ? { before: asRecord(object.before) } : {}),
     ...("after" in object ? { after: asRecord(object.after) } : {}),
+    ...(effect ? { effect } : {}),
   };
 }
 
