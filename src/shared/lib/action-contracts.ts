@@ -14,7 +14,7 @@ export const ACTION_VERB_RULES = {
 } as const;
 
 export type ActionImpact = "permanent" | "unlink" | "choice";
-export type ConfirmActionKind = "delete" | "remove" | "import";
+type ConfirmActionKind = "delete" | "remove" | "import";
 
 type ActionDialogOptions = {
   action: ConfirmActionKind;

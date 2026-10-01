@@ -91,14 +91,14 @@ export interface AutomaticMemoryCaptureQueueDependencies {
   llm: LlmGateway;
 }
 
-export interface AutomaticMemoryCaptureCompletion {
+interface AutomaticMemoryCaptureCompletion {
   chatId: string;
   assistantMessageId: string;
   operation: "created" | "updated";
   memory: { id: string; content: string };
 }
 
-export interface AutomaticMemoryCaptureStatus {
+interface AutomaticMemoryCaptureStatus {
   chatId: string;
   assistantMessageId: string;
   status: "processing" | "retryable" | "failed" | "completed";

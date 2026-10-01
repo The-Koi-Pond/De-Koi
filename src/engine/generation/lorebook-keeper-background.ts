@@ -8,7 +8,7 @@ export interface ScheduleLorebookKeeperBackfillInput {
   now?: () => number;
 }
 
-export interface LorebookKeeperBackfillDiagnostic {
+interface LorebookKeeperBackfillDiagnostic {
   stage: "lorebook_keeper_backfill";
   status: "ok" | "error";
   durationMs: number;

@@ -10,15 +10,15 @@ export type ExtensionPackagePermission =
 
 export type ExtensionPackageUiSlot = "settings" | "overlay" | "messages" | "theme";
 
-export interface ExtensionPackageCompatibility {
+interface ExtensionPackageCompatibility {
   deKoi?: string;
 }
 
-export interface ExtensionUiContributions {
+interface ExtensionUiContributions {
   slots?: ExtensionPackageUiSlot[];
 }
 
-export type ExtensionSource = "file" | "package" | "profile";
+type ExtensionSource = "file" | "package" | "profile";
 
 /**
  * A user-installed extension stored on the Marinara server.
