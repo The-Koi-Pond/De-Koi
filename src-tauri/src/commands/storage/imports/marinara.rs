@@ -17,6 +17,10 @@ use marinara_helpers::*;
 use marinara_memories::*;
 use marinara_rollback::*;
 
+// Shared with the character-card import path, which restores CHARX sprites.
+pub(super) use marinara_assets::restore_sprites;
+pub(super) use marinara_rollback::rollback_managed_child_dir;
+
 const PROFILE_IMPORT_GUIDANCE: &str =
     "Full profile exports must be imported with Import Profile in Settings -> Import. Use Import Profile (JSON/ZIP) instead.";
 

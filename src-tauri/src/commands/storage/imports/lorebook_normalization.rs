@@ -56,7 +56,92 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
     }
 }
 
+/// Placement a V3 card expresses with leading `@@depth` / `@@role` content
+/// decorators. Only those two are applied and removed; other decorator lines
+/// stay in the content unchanged.
+struct ContentDecorators {
+    content: String,
+    depth: Option<i64>,
+    role: Option<String>,
+}
+
+fn take_placement_decorators(content: &str) -> ContentDecorators {
+    let mut depth = None;
+    let mut role = None;
+    let mut rest = content;
+    loop {
+        let (line, remainder) = match rest.split_once('\n') {
+            Some((line, remainder)) => (line, remainder),
+            None => (rest, ""),
+        };
+        let line = line.trim_end_matches('\r').trim();
+        if let Some(value) = line.strip_prefix("@@depth ") {
+            match value.trim().parse::<i64>() {
+                Ok(parsed) if parsed >= 0 => depth = Some(parsed),
+                _ => break,
+            }
+        } else if let Some(value) = line.strip_prefix("@@role ") {
+            match value.trim() {
+                value @ ("assistant" | "system" | "user") => role = Some(value.to_string()),
+                _ => break,
+            }
+        } else {
+            break;
+        }
+        rest = remainder;
+        if rest.is_empty() {
+            break;
+        }
+    }
+    ContentDecorators {
+        content: if depth.is_some() || role.is_some() { rest.to_string() } else { content.to_string() },
+        depth,
+        role,
+    }
+}
+
+/// Card `extensions.position` uses SillyTavern numbering, where 4 is
+/// "at depth"; De-Koi stores at-depth entries as 2.
+fn card_extension_position(entry: &Value) -> Option<i64> {
+    let position = entry
+        .get("extensions")
+        .and_then(|extensions| extensions.get("position"))
+        .and_then(Value::as_i64)?;
+    Some(if position == 4 { 2 } else { position })
+}
+
+/// Reads the first non-null field from the entry, then from its
+/// SillyTavern/V3-style `extensions`, where cards keep placement details.
+fn entry_value<'a>(entry: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    let find = |source: &'a Value| keys.iter().find_map(|key| source.get(*key).filter(|value| !value.is_null()));
+    find(entry).or_else(|| entry.get("extensions").and_then(find))
+}
+
 pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: usize) -> Value {
+    let mut normalized = normalize_lorebook_entry_fields(lorebook_id, entry, index);
+    apply_placement_decorators(&mut normalized, entry);
+    normalized
+}
+
+/// Applies leading `@@depth` / `@@role` decorators: the entry is placed at
+/// that depth (De-Koi position 2) with that role, and the decorator lines are
+/// removed from the stored content.
+fn apply_placement_decorators(normalized: &mut Value, entry: &Value) {
+    let decorators = take_placement_decorators(entry.get("content").and_then(Value::as_str).unwrap_or(""));
+    if decorators.depth.is_none() && decorators.role.is_none() {
+        return;
+    }
+    normalized["content"] = json!(decorators.content);
+    if let Some(depth) = decorators.depth {
+        normalized["position"] = json!(2);
+        normalized["depth"] = json!(depth);
+    }
+    if let Some(role) = decorators.role {
+        normalized["role"] = json!(role);
+    }
+}
+
+fn normalize_lorebook_entry_fields(lorebook_id: &str, entry: &Value, index: usize) -> Value {
     let keys = entry.get("key").or_else(|| entry.get("keys"));
     let secondary = entry
         .get("keysecondary")
@@ -67,19 +152,18 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         .and_then(Value::as_bool)
         .map(|disabled| !disabled)
         .unwrap_or_else(|| bool_field(entry.get("enabled"), true));
-    let position = match entry.get("position") {
-        Some(Value::String(raw)) if raw == "after_char" => 1,
-        Some(Value::String(raw)) if raw == "at_depth" || raw == "depth" => 2,
-        Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0),
+    // A numeric extensions.position is more precise than the V2/V3 string.
+    let numeric_extension_position = card_extension_position(entry);
+    let position = match (numeric_extension_position, entry.get("position")) {
+        (Some(position), _) => position,
+        (None, Some(Value::String(raw))) if raw == "after_char" => 1,
+        (None, Some(Value::String(raw))) if raw == "at_depth" || raw == "depth" => 2,
+        (None, Some(Value::Number(raw))) => raw.as_i64().unwrap_or(0),
         _ => 0,
     };
-    let probability = match entry
-        .get("useProbability")
-        .or_else(|| entry.get("use_probability"))
-        .and_then(Value::as_bool)
-    {
+    let probability = match entry_value(entry, &["useProbability", "use_probability"]).and_then(Value::as_bool) {
         Some(false) => Value::Null,
-        _ => optional_number(entry.get("probability")),
+        _ => optional_number(entry_value(entry, &["probability"])),
     };
     json!({
         "lorebookId": lorebook_id,
@@ -91,12 +175,12 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "enabled": enabled,
         "constant": bool_field(entry.get("constant"), false),
         "selective": bool_field(entry.get("selective"), false),
-        "selectiveLogic": selective_logic_value(entry.get("selectiveLogic").or_else(|| entry.get("selective_logic"))),
+        "selectiveLogic": selective_logic_value(entry_value(entry, &["selectiveLogic", "selective_logic"])),
         "probability": probability,
-        "scanDepth": optional_number(entry.get("scanDepth").or_else(|| entry.get("scan_depth"))),
-        "matchWholeWords": bool_field(entry.get("matchWholeWords").or_else(|| entry.get("match_whole_words")), false),
-        "caseSensitive": bool_field(entry.get("caseSensitive").or_else(|| entry.get("case_sensitive")), false),
-        "useRegex": bool_field(entry.get("useRegex").or_else(|| entry.get("regex")), false),
+        "scanDepth": optional_number(entry_value(entry, &["scanDepth", "scan_depth"])),
+        "matchWholeWords": bool_field(entry_value(entry, &["matchWholeWords", "match_whole_words"]), false),
+        "caseSensitive": bool_field(entry_value(entry, &["caseSensitive", "case_sensitive"]), false),
+        "useRegex": bool_field(entry_value(entry, &["useRegex", "use_regex", "regex"]), false),
         "characterFilterMode": "any",
         "characterFilterIds": [],
         "characterTagFilterMode": "any",
@@ -105,17 +189,20 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "generationTriggerFilters": [],
         "additionalMatchingSources": [],
         "position": position,
-        "depth": number(entry.get("depth"), 4),
+        "depth": number(entry_value(entry, &["depth"]), 4),
         "order": number(entry.get("order").or_else(|| entry.get("insertion_order")).or_else(|| entry.get("uid")).or_else(|| entry.get("id")), index as i64),
-        "role": normalize_lorebook_entry_role(entry.get("role")),
-        "sticky": optional_number(entry.get("sticky")),
-        "cooldown": optional_number(entry.get("cooldown")),
-        "delay": optional_number(entry.get("delay")),
+        "role": normalize_lorebook_entry_role(entry_value(entry, &["role"])),
+        "sticky": optional_number(entry_value(entry, &["sticky"])),
+        "cooldown": optional_number(entry_value(entry, &["cooldown"])),
+        "delay": optional_number(entry_value(entry, &["delay"])),
         "ephemeral": optional_number(entry.get("ephemeral")),
-        "group": string_field(entry, "group"),
-        "groupWeight": optional_number(entry.get("groupWeight")),
+        "group": entry_value(entry, &["group"]).and_then(Value::as_str).unwrap_or("").to_string(),
+        "groupWeight": optional_number(entry_value(entry, &["groupWeight", "group_weight"])),
         "folderId": Value::Null,
-        "preventRecursion": bool_field(entry.get("preventRecursion").or_else(|| entry.get("excludeRecursion")), false),
+        "preventRecursion": bool_field(
+            entry_value(entry, &["preventRecursion", "prevent_recursion", "excludeRecursion", "exclude_recursion"]),
+            false,
+        ),
         "locked": bool_field(entry.get("locked"), false),
         "tag": detect_entry_tag(entry),
         "relationships": {},
@@ -173,8 +260,11 @@ pub(super) fn normalize_imported_lorebook_entry(
     if let Some(disabled) = entry.get("disable").and_then(Value::as_bool) {
         object.insert("enabled".to_string(), Value::Bool(!disabled));
     }
-    if let Some(position) = object.get("position").cloned() {
+    if let Some(position) = card_extension_position(entry) {
+        object.insert("position".to_string(), json!(position));
+    } else if let Some(position) = object.get("position").cloned() {
         let normalized_position = match position {
+            Value::String(raw) if raw == "before_char" => Some(0),
             Value::String(raw) if raw == "after_char" => Some(1),
             Value::String(raw) if raw == "at_depth" || raw == "depth" => Some(2),
             Value::String(raw) => raw.parse::<i64>().ok(),
@@ -212,6 +302,11 @@ pub(super) fn normalize_imported_lorebook_entry(
         "lorebookId".to_string(),
         Value::String(lorebook_id.to_string()),
     );
+    let mut normalized = Value::Object(object);
+    apply_placement_decorators(&mut normalized, entry);
+    let Value::Object(mut object) = normalized else {
+        unreachable!("normalized lorebook entry is an object");
+    };
     for key in [
         "id",
         "key",
@@ -261,4 +356,85 @@ pub(super) fn normalize_lorebook(
         "sourceAgentId": Value::Null,
     });
     (lorebook, entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn card_entries_read_placement_from_extensions() {
+        let entry = json!({
+            "keys": ["koi"],
+            "content": "Koi lore",
+            "name": "Koi",
+            "position": "before_char",
+            "extensions": {
+                "position": 4,
+                "depth": 2,
+                "role": 2,
+                "probability": 30,
+                "useProbability": true,
+                "group": "pond",
+                "group_weight": 50,
+                "scan_depth": 3,
+                "match_whole_words": true,
+                "prevent_recursion": true
+            }
+        });
+
+        let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
+
+        assert_eq!(normalized["position"], 2);
+        assert_eq!(normalized["depth"], 2);
+        assert_eq!(normalized["role"], "assistant");
+        assert_eq!(normalized["probability"], 30);
+        assert_eq!(normalized["group"], "pond");
+        assert_eq!(normalized["groupWeight"], 50);
+        assert_eq!(normalized["scanDepth"], 3);
+        assert_eq!(normalized["matchWholeWords"], true);
+        assert_eq!(normalized["preventRecursion"], true);
+    }
+
+    #[test]
+    fn v3_depth_and_role_decorators_set_placement_and_leave_the_content() {
+        let entry = json!({
+            "keys": ["shrine"],
+            "content": "@@depth 3\n@@role assistant\n@@other keep\nShrine lore",
+            "position": "before_char"
+        });
+
+        let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
+
+        assert_eq!(normalized["position"], 2);
+        assert_eq!(normalized["depth"], 3);
+        assert_eq!(normalized["role"], "assistant");
+        assert_eq!(normalized["content"], "@@other keep\nShrine lore");
+    }
+
+    #[test]
+    fn content_without_decorators_is_untouched() {
+        let entry = json!({ "keys": ["k"], "content": "Plain @@depth 2 text", "position": "after_char" });
+
+        let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
+
+        assert_eq!(normalized["content"], "Plain @@depth 2 text");
+        assert_eq!(normalized["position"], 1);
+    }
+
+    #[test]
+    fn top_level_fields_still_win_and_before_char_becomes_a_number() {
+        let entry = json!({
+            "keys": ["lantern"],
+            "content": "Lantern lore",
+            "position": "before_char",
+            "depth": 9,
+            "extensions": { "depth": 2 }
+        });
+
+        let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
+
+        assert_eq!(normalized["position"], 0);
+        assert_eq!(normalized["depth"], 9);
+    }
 }

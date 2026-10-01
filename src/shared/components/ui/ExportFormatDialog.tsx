@@ -1,8 +1,8 @@
-import { Archive, FileJson, ImageDown, Layers, X } from "lucide-react";
+import { Archive, FileJson, FileJson2, ImageDown, Layers, Package, X } from "lucide-react";
 import { Modal } from "./Modal";
 import { cn } from "../../lib/utils";
 
-export type ExportFormatChoice = "native" | "compatible" | "zip" | "compatible-png";
+export type ExportFormatChoice = "native" | "compatible" | "zip" | "compatible-png" | "v3" | "charx";
 
 interface ExportFormatDialogProps {
   open: boolean;
@@ -14,6 +14,8 @@ interface ExportFormatDialogProps {
   pngDescription?: string;
   showZipOption?: boolean;
   showPngOption?: boolean;
+  /** Character Card V3 JSON and CHARX package options. */
+  showCardV3Options?: boolean;
   onClose: () => void;
   onSelect: (format: ExportFormatChoice) => void;
   option?: {
@@ -34,6 +36,7 @@ export function ExportFormatDialog({
   zipDescription = "Packages the native export with external asset files for large profiles and recovery.",
   showZipOption = false,
   showPngOption = false,
+  showCardV3Options = false,
   onClose,
   onSelect,
   option,
@@ -51,6 +54,22 @@ export function ExportFormatDialog({
       : []),
     ...(showPngOption
       ? [{ id: "compatible-png" as const, label: "Compatible PNG Card", icon: ImageDown, description: pngDescription }]
+      : []),
+    ...(showCardV3Options
+      ? [
+          {
+            id: "v3" as const,
+            label: "Character Card V3",
+            icon: FileJson2,
+            description: "V3 JSON with the current lorebook. Images need CHARX or PNG.",
+          },
+          {
+            id: "charx" as const,
+            label: "CHARX Package",
+            icon: Package,
+            description: "V3 card plus avatar, banner, and expression sprites in one file.",
+          },
+        ]
       : []),
   ];
   const gridColumns = options.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2";
