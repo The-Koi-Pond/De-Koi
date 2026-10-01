@@ -231,58 +231,61 @@ export function CharacterGroupsSection({
                         </>
                       )}
                     </div>
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
-                      {hasActiveChat && (
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onAddGroupToChat(group.memberIds);
-                          }}
-                          className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                          title="Add all to chat"
-                        >
-                          <UserPlus size="0.6875rem" className="text-[var(--primary)]" />
-                        </button>
-                      )}
-                      {!isSynthetic && (
-                        <>
+                    {/* The synthetic Ungrouped folder has no actions without an active chat; skip the empty tray. */}
+                    {(hasActiveChat || !isSynthetic) && (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+                        {hasActiveChat && (
                           <button
                             onClick={(event) => {
                               event.stopPropagation();
-                              onToggleAssigningToGroup(group.id);
-                            }}
-                            className={cn(
-                              "rounded-lg p-1 transition-all hover:bg-[var(--accent)]",
-                              isAssigning && "bg-[var(--primary)]/15 text-[var(--primary)]",
-                            )}
-                            title={isAssigning ? "Done moving" : "Move characters"}
-                          >
-                            <Users size="0.6875rem" />
-                          </button>
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onEditingGroupChange(group.id);
-                              onEditGroupNameChange(group.name);
+                              onAddGroupToChat(group.memberIds);
                             }}
                             className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                            title="Rename folder"
+                            title="Add all to chat"
                           >
-                            <Pencil size="0.6875rem" />
+                            <UserPlus size="0.6875rem" className="text-[var(--primary)]" />
                           </button>
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onDeleteGroup(group.id);
-                            }}
-                            className="rounded-lg p-1 transition-all hover:bg-[var(--destructive)]/15"
-                            title="Delete folder"
-                          >
-                            <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                        )}
+                        {!isSynthetic && (
+                          <>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onToggleAssigningToGroup(group.id);
+                              }}
+                              className={cn(
+                                "rounded-lg p-1 transition-all hover:bg-[var(--accent)]",
+                                isAssigning && "bg-[var(--primary)]/15 text-[var(--primary)]",
+                              )}
+                              title={isAssigning ? "Done moving" : "Move characters"}
+                            >
+                              <Users size="0.6875rem" />
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onEditingGroupChange(group.id);
+                                onEditGroupNameChange(group.name);
+                              }}
+                              className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
+                              title="Rename folder"
+                            >
+                              <Pencil size="0.6875rem" />
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteGroup(group.id);
+                              }}
+                              className="rounded-lg p-1 transition-all hover:bg-[var(--destructive)]/15"
+                              title="Delete folder"
+                            >
+                              <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {isExpanded && (
