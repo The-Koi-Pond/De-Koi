@@ -141,7 +141,9 @@ export function ModeHomeSurface({
                 />
               </div>
 
-              <p className="koi-home-splash" aria-label={`Launch splash: ${homeSplashText}`}>
+              <p className="koi-home-splash">
+                {/* aria-label is not allowed on a plain <p>; screen readers get the text once, here. */}
+                <span className="sr-only">Launch splash: {homeSplashText}</span>
                 <HomeSplashLetters text={homeSplashText} />
               </p>
 
