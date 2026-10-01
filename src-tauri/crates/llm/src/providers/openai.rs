@@ -38,11 +38,9 @@ pub(crate) async fn complete_openai_compatible_rich(
     }
     apply_openai_parameters(&mut body, &request);
     log_prompt_connection_request("openai.chat.completions", &url, &request, &body);
-    let client = provider_http_client_for_url_with_read_timeout(
-        &url,
-        provider_non_stream_read_timeout(),
-    )
-    .await?;
+    let client =
+        provider_http_client_for_url_with_read_timeout(&url, provider_non_stream_read_timeout())
+            .await?;
     let mut req = client.post(url).json(&body);
     if !request.connection.api_key.trim().is_empty() {
         req = req.bearer_auth(request.connection.api_key.trim());
@@ -754,7 +752,8 @@ pub(crate) async fn stream_openai_responses(
     // the optional trailing blank line. No other leftover can mark completion.
     if !completed
         && !buffer.trim().is_empty()
-        && process_openai_responses_sse_block(&buffer, emit, &mut tool_calls)? == SseBlockStatus::Complete
+        && process_openai_responses_sse_block(&buffer, emit, &mut tool_calls)?
+            == SseBlockStatus::Complete
     {
         completed = true;
     }

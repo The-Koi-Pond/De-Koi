@@ -236,7 +236,9 @@ pub(crate) fn render_claude_subscription_current_prompt(
     )
 }
 
-pub(crate) fn claude_subscription_prompt(request: &LlmRequest) -> AppResult<ClaudeSubscriptionPrompt> {
+pub(crate) fn claude_subscription_prompt(
+    request: &LlmRequest,
+) -> AppResult<ClaudeSubscriptionPrompt> {
     let messages = request_messages(request);
     ensure_claude_subscription_supports_messages(&messages)?;
     if claude_subscription_should_use_session(&request.parameters) {
