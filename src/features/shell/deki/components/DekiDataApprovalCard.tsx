@@ -68,10 +68,13 @@ function affectsLabel(affectedEntities: Record<string, number>): string {
   return parts.length > 0 ? parts.join(", ") : "No stored rows";
 }
 
-function expiresLabel(expiresAt: string, now: number): string {
-  const minutes = Math.round((Date.parse(expiresAt) - now) / 60_000);
-  if (!Number.isFinite(minutes)) return "Expires with this app session";
-  if (minutes <= 1) return "Expires in about a minute";
+/** Null once the approval has expired; a label while it can still be decided. */
+export function dekiApprovalExpiryLabel(expiresAt: string, now: number): string | null {
+  const remainingMs = Date.parse(expiresAt) - now;
+  if (!Number.isFinite(remainingMs)) return "Expires with this app session";
+  if (remainingMs <= 0) return null;
+  const minutes = Math.floor(remainingMs / 60_000);
+  if (minutes < 1) return "Expires in under a minute";
   return `Expires in ${minutes} min`;
 }
 
@@ -108,7 +111,7 @@ export function dekiApprovalOutcome(
 
 export function DekiDataApprovalCard({
   entry,
-  pending,
+  pending: pendingApproval,
   availability,
   deciding,
   error,
@@ -121,6 +124,9 @@ export function DekiDataApprovalCard({
   error?: string;
   onDecide: (approve: boolean) => void;
 }) {
+  const expiryLabel = pendingApproval ? dekiApprovalExpiryLabel(pendingApproval.expiresAt, Date.now()) : null;
+  // A pending approval past its expiry is shown as expired, never as actionable.
+  const pending = pendingApproval && expiryLabel !== null ? pendingApproval : null;
   const command = parseDekiDataCommand(entry.command);
   const preview = pending?.diffPreview ?? [];
   const primary = preview[0];
@@ -249,7 +255,7 @@ export function DekiDataApprovalCard({
       {pending && (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           <span className="basis-full text-[0.6875rem] text-[var(--muted-foreground)] sm:mr-auto sm:basis-auto">
-            {expiresLabel(pending.expiresAt, Date.now())}
+            {expiryLabel}
           </span>
           <button
             type="button"

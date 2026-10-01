@@ -45,10 +45,15 @@ normalization. Use `patch` with only the fields that change.
    and every cascaded row. Inserts pre-assign their id, so the preview, the
    hash, and the created record name the same row. Blocked plans are recorded
    in history and create no approval.
-3. Approve removes the pending entry first, so a second approve resolves as
-   `not_found`. It then recomputes the plan: if validation now fails the result
-   is `blocked`, and if the hash differs the result is `state_changed`. In
-   both cases nothing is written. Otherwise the change is applied through
+3. Approve and reject take the Deki session id and act only on approvals in
+   the caller's owner and session scope; anything else resolves as
+   `not_found`. Approve removes the pending entry first, so a second approve
+   resolves as `not_found`. It then re-plans, checks, and writes inside one
+   exclusive storage section (`FileStorage::with_exclusive_writes`), so no
+   other writer can change the rows between the check and the write. If
+   validation now fails the result is `blocked`, and if the hash differs the
+   result is `state_changed`. In both cases nothing is written. A blocked
+   dry-run reports zero affected rows. Otherwise the change is applied through
    `storage_create_inner`, `storage_update_inner`, or `delete_entity`, the same
    owners the app editors use, so normalization, cascades, and character
    version snapshots match manual edits.
@@ -79,8 +84,10 @@ structured edits.
   protocol frames or raw model output.
 - Embedded: `deki_prompt_events` sends events over a Tauri `Channel` and
   resolves with the final response. It is a non-remote command.
-- Hostable: `POST /api/deki/prompt/stream` (SSE) sends the same events and ends
-  with `done` (the final response) or `error`. It uses the verified runtime
+- Hostable: `POST /api/deki/prompt/stream` (SSE) takes the same
+  `{ "request": DekiPromptRequest }` body as `/api/invoke`, rejects any other
+  body before streaming, sends the same events, and ends with `done` (the final
+  response) or `error`. It uses the verified runtime
   owner like `/api/invoke`, and the `deki` rate-limit bucket.
 - The final response carries `workspaceTrace` (narration and command steps,
   outputs clipped to 1.2k chars; protocol-repair notes are dropped) and the

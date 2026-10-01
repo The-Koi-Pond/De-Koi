@@ -60,15 +60,17 @@ pub async fn deki_workspace_abort(
 #[tauri::command]
 pub async fn deki_workspace_approve(
     state: State<'_, AppState>,
+    session_id: String,
     id: String,
 ) -> Result<Value, AppError> {
-    deki::deki_workspace_approve(&state, &deki::DekiRuntimeOwner::Embedded, id).await
+    deki::deki_workspace_approve(&state, &deki::DekiRuntimeOwner::Embedded, session_id, id).await
 }
 
 #[tauri::command]
 pub async fn deki_workspace_reject(
     state: State<'_, AppState>,
+    session_id: String,
     id: String,
 ) -> Result<Value, AppError> {
-    deki::deki_workspace_reject(&state, &deki::DekiRuntimeOwner::Embedded, id).await
+    deki::deki_workspace_reject(&state, &deki::DekiRuntimeOwner::Embedded, session_id, id).await
 }

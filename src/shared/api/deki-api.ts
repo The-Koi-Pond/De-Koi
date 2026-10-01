@@ -1354,13 +1354,13 @@ export const dekiApi = {
       requireDekiWorkspaceRuntime("deki_workspace_abort");
       return invokeTauri<DekiWorkspaceAbortResult>("deki_workspace_abort", { sessionId });
     },
-    approve: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
+    approve: async (sessionId: string, id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_approve");
-      return normalizeDekiApprovalDecision(await invokeTauri<unknown>("deki_workspace_approve", { id }));
+      return normalizeDekiApprovalDecision(await invokeTauri<unknown>("deki_workspace_approve", { sessionId, id }));
     },
-    reject: async (id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
+    reject: async (sessionId: string, id: string): Promise<DekiWorkspaceApprovalDecisionResult> => {
       requireDekiWorkspaceRuntime("deki_workspace_reject");
-      return normalizeDekiApprovalDecision(await invokeTauri<unknown>("deki_workspace_reject", { id }));
+      return normalizeDekiApprovalDecision(await invokeTauri<unknown>("deki_workspace_reject", { sessionId, id }));
     },
   },
   actions: {

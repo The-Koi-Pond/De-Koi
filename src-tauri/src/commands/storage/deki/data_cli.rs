@@ -305,7 +305,7 @@ fn status(state: &AppState, scope: &DekiApprovalScope) -> AppResult<Value> {
     }
     Ok(json!({
         "collections": counts,
-        "pendingApprovals": approvals::pending_for(scope).len(),
+        "pendingApprovals": approvals::pending_for(scope)?.len(),
     }))
 }
 
@@ -489,20 +489,30 @@ pub(super) fn plan_mutation(
         },
     }
 
+    // A blocked plan cannot apply, so it affects nothing. Its preview stays as
+    // evidence for the validation messages.
+    let can_apply = !validation.blocked();
     let mut preview_truncated = false;
     let mut affected_entities = Map::new();
-    let primary_rows = usize::from(match mutation.kind {
-        DekiDataMutationKind::Insert => true,
-        _ => current.is_some(),
-    });
-    affected_entities.insert(entity.to_string(), json!(primary_rows));
+    let primary_rows = usize::from(
+        can_apply
+            && match mutation.kind {
+                DekiDataMutationKind::Insert => true,
+                _ => current.is_some(),
+            },
+    );
+    if primary_rows > 0 {
+        affected_entities.insert(entity.to_string(), json!(primary_rows));
+    }
     let mut affected_rows = primary_rows;
     for (child_entity, rows) in &cascade {
         if rows.is_empty() {
             continue;
         }
-        affected_rows += rows.len();
-        affected_entities.insert(child_entity.to_string(), json!(rows.len()));
+        if can_apply {
+            affected_rows += rows.len();
+            affected_entities.insert(child_entity.to_string(), json!(rows.len()));
+        }
         for row in rows.iter().take(CASCADE_PREVIEW_ROWS) {
             let child_id = row.get("id").and_then(Value::as_str).unwrap_or_default();
             preview.push(row_change(child_entity, child_id, "delete", Some(&row_label(row)), None));

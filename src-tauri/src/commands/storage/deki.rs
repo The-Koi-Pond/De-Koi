@@ -1462,7 +1462,7 @@ pub(crate) async fn deki_prompt_with_events(
     if !use_native_tool_path {
         let runtime_guard = status::begin_runtime(runtime_owner, &input.session_id)?;
         let approval_scope = approvals::DekiApprovalScope::new(runtime_owner, &input.session_id)?;
-        let task_prompt = match approvals::prompt_context(&approval_scope) {
+        let task_prompt = match approvals::prompt_context(&approval_scope)? {
             Some(approval_context) => format!("{approval_context}\n\n{task_prompt}"),
             None => task_prompt,
         };
@@ -1579,17 +1579,25 @@ pub(crate) async fn deki_workspace_abort(
 pub(crate) async fn deki_workspace_approve(
     state: &AppState,
     runtime_owner: &DekiRuntimeOwner,
+    session_id: String,
     id: String,
 ) -> AppResult<Value> {
-    approvals::approve(state, runtime_owner, &id)
+    // The approval holds an exclusive storage section while it re-checks and
+    // writes, so it runs on a blocking thread rather than an async worker.
+    let state = state.clone();
+    let runtime_owner = runtime_owner.clone();
+    tokio::task::spawn_blocking(move || approvals::approve(&state, &runtime_owner, &session_id, &id))
+        .await
+        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 pub(crate) async fn deki_workspace_reject(
     _state: &AppState,
     runtime_owner: &DekiRuntimeOwner,
+    session_id: String,
     id: String,
 ) -> AppResult<Value> {
-    approvals::reject(runtime_owner, &id)
+    approvals::reject(runtime_owner, &session_id, &id)
 }
 
 fn deki_no_action_contract() -> Value {

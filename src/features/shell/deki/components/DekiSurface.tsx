@@ -921,7 +921,10 @@ export function DekiSurface({
     let decisionError: string | null = null;
     let collection: string | null = null;
     try {
-      const result = approve ? await dekiApi.workspace.approve(entry.id) : await dekiApi.workspace.reject(entry.id);
+      const runtimeSessionId = dekiRuntimeSessionId(targetSessionId);
+      const result = approve
+        ? await dekiApi.workspace.approve(runtimeSessionId, entry.id)
+        : await dekiApi.workspace.reject(runtimeSessionId, entry.id);
       collection = result.applied?.entity ?? null;
       status = result.status === "not_found" ? "timed_out" : result.status;
     } catch (error) {

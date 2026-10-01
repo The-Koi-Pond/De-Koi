@@ -226,7 +226,7 @@ describe("DekiSurface workspace activity and data approvals", () => {
     });
     await tick();
 
-    expect(dekiApi.workspace.approve).toHaveBeenCalledWith(approvalId);
+    expect(dekiApi.workspace.approve).toHaveBeenCalledWith("session-1", approvalId);
     expect(dekiApi.history.updateWorkspaceHistoryEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "session-1",
@@ -269,6 +269,24 @@ describe("DekiSurface workspace activity and data approvals", () => {
     expect(dekiApi.history.updateWorkspaceHistoryEntry).toHaveBeenCalledWith(
       expect.objectContaining({ entry: expect.objectContaining({ status: "state_changed" }) }),
     );
+  });
+
+  it("shows a pending approval past its expiry as expired, not actionable", async () => {
+    vi.mocked(dekiApi.workspace.status).mockResolvedValue({
+      enabled: true,
+      workspace: null,
+      dataDir: null,
+      tools: [],
+      dataAccess: "server-managed",
+      connection: null,
+      active: false,
+      pendingApprovals: [{ ...pendingApproval, expiresAt: new Date(Date.now() - 1_000).toISOString() }],
+      history: [historyEntry],
+    });
+    await render([userMessage, assistantMessage]);
+
+    expect(container!.textContent).toContain("Expired");
+    expect(buttonByText(container!, "Approve")).toBeNull();
   });
 
   it("marks a change the runtime no longer holds as expired", async () => {
@@ -317,7 +335,7 @@ describe("DekiSurface workspace activity and data approvals", () => {
     });
     await tick();
 
-    expect(dekiApi.workspace.reject).toHaveBeenCalledWith(approvalId);
+    expect(dekiApi.workspace.reject).toHaveBeenCalledWith("session-1", approvalId);
     expect(dekiApi.history.updateWorkspaceHistoryEntry).not.toHaveBeenCalled();
     expect(buttonByText(container!, "Approve")).toBeNull();
   });

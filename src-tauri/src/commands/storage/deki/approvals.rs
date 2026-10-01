@@ -93,15 +93,16 @@ struct ApprovalStore {
 static STORE: OnceLock<Mutex<ApprovalStore>> = OnceLock::new();
 
 fn store() -> AppResult<MutexGuard<'static, ApprovalStore>> {
-    STORE
-        .get_or_init(|| Mutex::new(ApprovalStore::default()))
-        .lock()
-        .map_err(|_| {
-            AppError::new(
-                "deki_workspace_state_failed",
-                "Deki workspace approval state is unavailable.",
-            )
-        })
+    lock_store(STORE.get_or_init(|| Mutex::new(ApprovalStore::default())))
+}
+
+fn lock_store(store: &Mutex<ApprovalStore>) -> AppResult<MutexGuard<'_, ApprovalStore>> {
+    store.lock().map_err(|_| {
+        AppError::new(
+            "deki_workspace_state_failed",
+            "Deki workspace approval state is unavailable. Restart De-Koi to clear pending approvals.",
+        )
+    })
 }
 
 impl ApprovalStore {
@@ -236,27 +237,23 @@ pub(super) fn record_dry_run(
     Ok(Some(value))
 }
 
-pub(super) fn pending_for(scope: &DekiApprovalScope) -> Vec<Value> {
-    let Ok(mut store) = store() else {
-        return Vec::new();
-    };
+pub(super) fn pending_for(scope: &DekiApprovalScope) -> AppResult<Vec<Value>> {
+    let mut store = store()?;
     store.prune_expired(Utc::now());
-    store.pending_for(scope)
+    Ok(store.pending_for(scope))
 }
 
-pub(super) fn history_for(scope: &DekiApprovalScope) -> Vec<Value> {
-    let Ok(mut store) = store() else {
-        return Vec::new();
-    };
+pub(super) fn history_for(scope: &DekiApprovalScope) -> AppResult<Vec<Value>> {
+    let mut store = store()?;
     store.prune_expired(Utc::now());
-    store.history_for(scope)
+    Ok(store.history_for(scope))
 }
 
 /// Summarizes this session's approvals for the next model turn, so Deki knows
 /// what the user approved or rejected instead of guessing.
-pub(super) fn prompt_context(scope: &DekiApprovalScope) -> Option<String> {
-    let pending = pending_for(scope);
-    let history = history_for(scope);
+pub(super) fn prompt_context(scope: &DekiApprovalScope) -> AppResult<Option<String>> {
+    let pending = pending_for(scope)?;
+    let history = history_for(scope)?;
     let mut lines = Vec::new();
     for approval in &pending {
         lines.push(format!(
@@ -278,25 +275,25 @@ pub(super) fn prompt_context(scope: &DekiApprovalScope) -> Option<String> {
         ));
     }
     if lines.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(format!(
+    Ok(Some(format!(
         "Deki app-data approvals in this session (\"approved\" means the change was applied; every other status means it was not):\n{}",
         lines.join("\n")
-    ))
+    )))
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn take_pending(owner: &DekiRuntimeOwner, id: &str) -> AppResult<Option<PendingApproval>> {
+fn take_pending(scope: &DekiApprovalScope, id: &str) -> AppResult<Option<PendingApproval>> {
     let mut store = store()?;
     store.prune_expired(Utc::now());
     let Some(index) = store
         .pending
         .iter()
-        .position(|approval| approval.id == id && &approval.scope.owner == owner)
+        .position(|approval| approval.id == id && &approval.scope == scope)
     else {
         return Ok(None);
     };
@@ -309,16 +306,58 @@ fn complete(scope: &DekiApprovalScope, id: &str, status: &str) -> AppResult<()> 
     Ok(())
 }
 
-fn decision_value(id: &str, status: &str, scope: Option<&DekiApprovalScope>) -> Value {
-    let (pending, history) = match scope {
-        Some(scope) => (pending_for(scope), history_for(scope)),
-        None => (Vec::new(), Vec::new()),
-    };
-    json!({
+fn decision_value(id: &str, status: &str, scope: &DekiApprovalScope) -> AppResult<Value> {
+    Ok(json!({
         "id": id,
         "status": status,
-        "pendingApprovals": pending,
-        "history": history,
+        "pendingApprovals": pending_for(scope)?,
+        "history": history_for(scope)?,
+    }))
+}
+
+enum ApplyOutcome {
+    Applied,
+    Blocked(String),
+    StateChanged,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs between the final hash check and the write, so a test can race a
+    /// competing mutation against an approval.
+    static BEFORE_APPLY_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+fn run_before_apply_hook() {
+    #[cfg(test)]
+    BEFORE_APPLY_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().take() {
+            hook();
+        }
+    });
+}
+
+/// Re-plans against current storage and applies only if the plan still
+/// matches the approved hash, all inside one exclusive storage section so no
+/// other writer can change the rows between the check and the write.
+fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<ApplyOutcome> {
+    state.storage.with_exclusive_writes(|| {
+        let plan = data_cli::plan_mutation(state, &pending.mutation)?;
+        if plan.validation.blocked() {
+            return Ok(ApplyOutcome::Blocked(
+                plan.validation
+                    .first_error()
+                    .unwrap_or("the change no longer passes validation.")
+                    .to_string(),
+            ));
+        }
+        if plan.operation_hash != pending.operation_hash {
+            return Ok(ApplyOutcome::StateChanged);
+        }
+        run_before_apply_hook();
+        data_cli::apply_mutation(state, &pending.mutation)?;
+        Ok(ApplyOutcome::Applied)
     })
 }
 
@@ -330,52 +369,45 @@ fn validate_approval_id(id: &str) -> AppResult<&str> {
     Ok(id)
 }
 
-/// Applies a pending approval. The plan is recomputed against current storage
-/// first; if validation now fails or the operation hash differs from the one
-/// the user saw, nothing is written.
-pub(super) fn approve(state: &AppState, owner: &DekiRuntimeOwner, id: &str) -> AppResult<Value> {
-    validate_runtime_owner(owner)?;
+/// Applies a pending approval from the caller's own owner and session scope.
+/// The plan is recomputed and applied inside one exclusive storage section; if
+/// validation now fails or the operation hash differs from the one the user
+/// saw, nothing is written.
+pub(super) fn approve(
+    state: &AppState,
+    owner: &DekiRuntimeOwner,
+    session_id: &str,
+    id: &str,
+) -> AppResult<Value> {
+    let scope = DekiApprovalScope::new(owner, session_id)?;
     let id = validate_approval_id(id)?;
-    let Some(pending) = take_pending(owner, id)? else {
-        return Ok(decision_value(id, "not_found", None));
+    let Some(pending) = take_pending(&scope, id)? else {
+        return decision_value(id, "not_found", &scope);
     };
-    let scope = pending.scope.clone();
-    let plan = match data_cli::plan_mutation(state, &pending.mutation) {
-        Ok(plan) => plan,
-        Err(error) => {
-            complete(&scope, id, "failed")?;
-            return Err(error);
-        }
-    };
-    if plan.validation.blocked() {
-        complete(&scope, id, "blocked")?;
-        return Err(AppError::new(
-            "deki_workspace_approval_blocked",
-            format!(
-                "Nothing was applied: {}",
-                plan.validation
-                    .first_error()
-                    .unwrap_or("the change no longer passes validation.")
-            ),
-        ));
-    }
-    if plan.operation_hash != pending.operation_hash {
-        complete(&scope, id, "state_changed")?;
-        return Err(AppError::new(
-            "deki_workspace_state_changed",
-            "Nothing was applied because this data changed after Deki-senpai's dry-run. Ask Deki-senpai for a fresh dry-run.",
-        ));
-    }
-    match data_cli::apply_mutation(state, &pending.mutation) {
-        Ok(_) => {
+    match apply_if_unchanged(state, &pending) {
+        Ok(ApplyOutcome::Applied) => {
             complete(&scope, id, "approved")?;
-            let mut value = decision_value(id, "approved", Some(&scope));
+            let mut value = decision_value(id, "approved", &scope)?;
             value["applied"] = json!({
                 "entity": pending.mutation.collection,
                 "id": pending.mutation.id,
                 "command": pending.mutation.command_label(),
             });
             Ok(value)
+        }
+        Ok(ApplyOutcome::Blocked(reason)) => {
+            complete(&scope, id, "blocked")?;
+            Err(AppError::new(
+                "deki_workspace_approval_blocked",
+                format!("Nothing was applied: {reason}"),
+            ))
+        }
+        Ok(ApplyOutcome::StateChanged) => {
+            complete(&scope, id, "state_changed")?;
+            Err(AppError::new(
+                "deki_workspace_state_changed",
+                "Nothing was applied because this data changed after Deki-senpai's dry-run. Ask Deki-senpai for a fresh dry-run.",
+            ))
         }
         Err(error) => {
             complete(&scope, id, "failed")?;
@@ -384,14 +416,14 @@ pub(super) fn approve(state: &AppState, owner: &DekiRuntimeOwner, id: &str) -> A
     }
 }
 
-pub(super) fn reject(owner: &DekiRuntimeOwner, id: &str) -> AppResult<Value> {
-    validate_runtime_owner(owner)?;
+pub(super) fn reject(owner: &DekiRuntimeOwner, session_id: &str, id: &str) -> AppResult<Value> {
+    let scope = DekiApprovalScope::new(owner, session_id)?;
     let id = validate_approval_id(id)?;
-    let Some(pending) = take_pending(owner, id)? else {
-        return Ok(decision_value(id, "not_found", None));
+    let Some(pending) = take_pending(&scope, id)? else {
+        return decision_value(id, "not_found", &scope);
     };
     complete(&pending.scope, id, "rejected")?;
-    Ok(decision_value(id, "rejected", Some(&pending.scope)))
+    decision_value(id, "rejected", &scope)
 }
 
 #[cfg(test)]
@@ -478,9 +510,9 @@ mod tests {
             .expect("read entry")
             .expect("entry exists");
         assert_eq!(stored["content"], "Koi circle the lantern at dusk.");
-        assert_eq!(pending_for(&scope).len(), 1);
+        assert_eq!(pending_for(&scope).expect("pending approvals").len(), 1);
 
-        let decision = approve(&state, &DekiRuntimeOwner::Embedded, &approval_id(&result))
+        let decision = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
             .expect("approval should apply");
 
         assert_eq!(decision["status"], "approved");
@@ -515,7 +547,7 @@ mod tests {
             .patch("lorebook-entries", "entry-koi", json!({ "content": "Edited by the user." }))
             .expect("user edit");
 
-        let error = approve(&state, &DekiRuntimeOwner::Embedded, &approval_id(&result))
+        let error = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
             .expect_err("changed state must block the approval");
 
         assert_eq!(error.code, "deki_workspace_state_changed");
@@ -525,8 +557,8 @@ mod tests {
             .expect("read entry")
             .expect("entry exists");
         assert_eq!(stored["name"], "Koi");
-        assert_eq!(history_for(&scope)[0]["status"], "state_changed");
-        assert!(pending_for(&scope).is_empty());
+        assert_eq!(history_for(&scope).expect("approval history")[0]["status"], "state_changed");
+        assert!(pending_for(&scope).expect("pending approvals").is_empty());
     }
 
     #[test]
@@ -550,7 +582,7 @@ mod tests {
             .to_string();
         let id = approval_id(&result);
 
-        approve(&state, &DekiRuntimeOwner::Embedded, &id).expect("insert should apply");
+        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id).expect("insert should apply");
 
         let created = state
             .storage
@@ -558,7 +590,7 @@ mod tests {
             .expect("read entry")
             .expect("entry created with the previewed id");
         assert_eq!(created["name"], "Lantern");
-        let second = approve(&state, &DekiRuntimeOwner::Embedded, &id)
+        let second = approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
             .expect("second approve should resolve");
         assert_eq!(second["status"], "not_found");
     }
@@ -580,7 +612,7 @@ mod tests {
         );
 
         let decision =
-            reject(&DekiRuntimeOwner::Embedded, &approval_id(&result)).expect("reject resolves");
+            reject(&DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result)).expect("reject resolves");
 
         assert_eq!(decision["status"], "rejected");
         assert_eq!(decision["history"][0]["status"], "rejected");
@@ -609,11 +641,11 @@ mod tests {
         );
         let bob = DekiRuntimeOwner::Authenticated("bob".to_string());
 
-        let decision = approve(&state, &bob, &approval_id(&result)).expect("resolves");
+        let decision = approve(&state, &bob, &session, &approval_id(&result)).expect("resolves");
 
         assert_eq!(decision["status"], "not_found");
-        assert!(pending_for(&scope(bob, &session)).is_empty());
-        assert_eq!(pending_for(&alice).len(), 1);
+        assert!(pending_for(&scope(bob, &session)).expect("pending approvals").is_empty());
+        assert_eq!(pending_for(&alice).expect("pending approvals").len(), 1);
         assert!(state
             .storage
             .get("lorebook-entries", "entry-koi")
@@ -678,13 +710,29 @@ mod tests {
             }),
         );
 
-        for result in [&missing_parent, &owned_field, &no_op] {
+        let duplicate = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "delete",
+                "collection": "lorebook-entries",
+                "id": "entry-missing",
+                "reason": "Remove"
+            }),
+        );
+
+        for result in [&missing_parent, &owned_field, &no_op, &duplicate] {
             assert_eq!(result["ok"], false, "{result}");
             assert_eq!(result["validation"]["status"], "blocked", "{result}");
             assert!(result.get("approval").is_none(), "{result}");
+            let summary = &result["summary"];
+            for counter in ["affectedRows", "insertedRows", "updatedRows", "deletedRows"] {
+                assert_eq!(summary[counter], 0, "{counter} in {result}");
+            }
+            assert_eq!(summary["affectedEntities"], json!({}), "{result}");
         }
-        assert!(pending_for(&scope).is_empty());
-        assert_eq!(history_for(&scope)[0]["status"], "blocked");
+        assert!(pending_for(&scope).expect("pending approvals").is_empty());
+        assert_eq!(history_for(&scope).expect("approval history")[0]["status"], "blocked");
     }
 
     #[test]
@@ -766,7 +814,7 @@ mod tests {
         let row = &result["summary"]["preview"][0];
         assert_eq!(row["before"], json!({ "data": { "scenario": "Old scenario" } }));
         assert_eq!(row["after"], json!({ "data": { "scenario": "New scenario" } }));
-        approve(&state, &DekiRuntimeOwner::Embedded, &approval_id(&result))
+        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
             .expect("character patch should apply");
         let stored = state
             .storage
@@ -782,7 +830,7 @@ mod tests {
         let state = test_state("prompt-context");
         seed_lorebook(&state);
         let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("prompt-context"));
-        assert!(prompt_context(&scope).is_none());
+        assert!(prompt_context(&scope).expect("approval context").is_none());
         let result = dry_run(
             &state,
             &scope,
@@ -793,13 +841,124 @@ mod tests {
                 "reason": "Duplicate entry"
             }),
         );
-        let waiting = prompt_context(&scope).expect("pending approval is reported");
+        let waiting = prompt_context(&scope).expect("approval context").expect("pending approval is reported");
         assert!(waiting.contains("waiting for approval: deki data delete lorebook-entries/entry-koi"));
 
-        reject(&DekiRuntimeOwner::Embedded, &approval_id(&result)).expect("reject");
+        reject(&DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result)).expect("reject");
 
-        let context = prompt_context(&scope).expect("history is reported");
+        let context = prompt_context(&scope).expect("approval context").expect("history is reported");
         assert!(context.contains("- rejected: deki data delete lorebook-entries/entry-koi"));
         assert!(!context.contains("waiting for approval"));
+    }
+
+    #[test]
+    fn approvals_are_isolated_by_session_for_the_same_owner() {
+        let state = test_state("session");
+        seed_lorebook(&state);
+        let first = scope(DekiRuntimeOwner::Embedded, &unique_session("session-a"));
+        let second = scope(DekiRuntimeOwner::Embedded, &unique_session("session-b"));
+        let result = dry_run(
+            &state,
+            &first,
+            json!({
+                "action": "delete",
+                "collection": "lorebook-entries",
+                "id": "entry-koi",
+                "reason": "Remove entry"
+            }),
+        );
+        let id = approval_id(&result);
+
+        let approved = approve(&state, &DekiRuntimeOwner::Embedded, &second.session_id, &id)
+            .expect("cross-session approve resolves");
+        let rejected = reject(&DekiRuntimeOwner::Embedded, &second.session_id, &id)
+            .expect("cross-session reject resolves");
+
+        assert_eq!(approved["status"], "not_found");
+        assert_eq!(rejected["status"], "not_found");
+        assert_eq!(approved["pendingApprovals"], json!([]));
+        assert_eq!(pending_for(&first).expect("pending approvals").len(), 1);
+        assert!(state
+            .storage
+            .get("lorebook-entries", "entry-koi")
+            .expect("read entry")
+            .is_some());
+    }
+
+    #[test]
+    fn competing_writes_wait_until_the_approved_change_is_applied() {
+        let state = test_state("race");
+        seed_lorebook(&state);
+        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("race"));
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "patch",
+                "collection": "lorebook-entries",
+                "id": "entry-koi",
+                "patch": { "content": "Deki's approved text." },
+                "reason": "Rewrite"
+            }),
+        );
+        let (landed_tx, landed_rx) = std::sync::mpsc::channel();
+        let competitor_state = state.clone();
+        let competitor = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let competitor_handle = competitor.clone();
+        BEFORE_APPLY_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                let handle = std::thread::spawn(move || {
+                    competitor_state
+                        .storage
+                        .patch("lorebook-entries", "entry-koi", json!({ "name": "Renamed meanwhile" }))
+                        .expect("competing write");
+                    landed_tx.send(()).expect("signal competing write");
+                });
+                assert!(
+                    landed_rx
+                        .recv_timeout(std::time::Duration::from_millis(150))
+                        .is_err(),
+                    "a competing write must not land between the hash check and the approved write"
+                );
+                *competitor_handle.lock().expect("competitor slot") = Some((handle, landed_rx));
+            }));
+        });
+
+        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &approval_id(&result))
+            .expect("approval applies");
+
+        let (handle, landed_rx) = competitor
+            .lock()
+            .expect("competitor slot")
+            .take()
+            .expect("hook ran between check and apply");
+        landed_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("competing write lands after the approval");
+        handle.join().expect("competitor thread");
+        let stored = state
+            .storage
+            .get("lorebook-entries", "entry-koi")
+            .expect("read entry")
+            .expect("entry exists");
+        assert_eq!(stored["content"], "Deki's approved text.");
+        assert_eq!(stored["name"], "Renamed meanwhile");
+    }
+
+    #[test]
+    fn a_poisoned_approval_store_reports_unavailable_instead_of_empty() {
+        let poisoned = std::sync::Arc::new(Mutex::new(ApprovalStore::default()));
+        let poisoner = poisoned.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().expect("lock before poisoning");
+            panic!("poison the approval store");
+        })
+        .join();
+
+        let error = lock_store(&poisoned)
+            .map(|_| ())
+            .expect_err("poisoned state must not read as empty");
+
+        assert_eq!(error.code, "deki_workspace_state_failed");
     }
 }

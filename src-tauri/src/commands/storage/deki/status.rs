@@ -217,8 +217,8 @@ pub(crate) async fn deki_workspace_status(
         "dataAccess": "server-managed",
         "connection": connection,
         "active": runtime_is_active(&scope),
-        "pendingApprovals": super::approvals::pending_for(&approval_scope),
-        "history": super::approvals::history_for(&approval_scope),
+        "pendingApprovals": super::approvals::pending_for(&approval_scope)?,
+        "history": super::approvals::history_for(&approval_scope)?,
         "error": error,
     }))
 }

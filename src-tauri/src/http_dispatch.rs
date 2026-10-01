@@ -1603,6 +1603,7 @@ pub(crate) async fn dispatch_for_runtime_owner(
             deki::deki_workspace_approve(
                 state,
                 &runtime_owner,
+                required_string(&args, "sessionId")?.to_string(),
                 required_string(&args, "id")?.to_string(),
             )
             .await
@@ -1611,6 +1612,7 @@ pub(crate) async fn dispatch_for_runtime_owner(
             deki::deki_workspace_reject(
                 state,
                 &runtime_owner,
+                required_string(&args, "sessionId")?.to_string(),
                 required_string(&args, "id")?.to_string(),
             )
             .await

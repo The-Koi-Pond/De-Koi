@@ -1139,6 +1139,17 @@ async fn import_st_bulk_run_stream(
     Ok(Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
+/// The stream route takes the same `{ "request": DekiPromptRequest }` envelope
+/// `/api/invoke` uses for `deki_prompt`; anything else is rejected up front.
+fn deki_stream_prompt_request(body: &Value) -> AppResult<Value> {
+    match body.get("request") {
+        Some(request @ Value::Object(_)) => Ok(request.clone()),
+        _ => Err(AppError::invalid_input(
+            "Deki prompt streams require a JSON body of the form {\"request\": {...}}.",
+        )),
+    }
+}
+
 /// Hostable streaming variant of `deki_prompt`. Live workspace events are sent
 /// as they happen; the stream ends with `done` (carrying the final response,
 /// including the complete bounded trace) or `error`.
@@ -1150,7 +1161,7 @@ async fn deki_prompt_stream(
     Json(body): Json<Value>,
 ) -> Result<Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>, HttpError> {
     require_admin_access_for_command("deki_prompt", &headers, addr.ip())?;
-    let request = body.get("request").cloned().unwrap_or(Value::Null);
+    let request = deki_stream_prompt_request(&body)?;
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(SSE_EVENT_CHANNEL_CAPACITY);
     tokio::spawn(async move {
         let started = Instant::now();
@@ -4258,6 +4269,25 @@ mod tests {
         );
 
         assert!(security.evaluate_request(&request).is_ok());
+    }
+
+    #[test]
+    fn deki_stream_route_requires_the_prompt_request_envelope() {
+        let request = json!({ "sessionId": "s", "userMessage": "hi" });
+
+        assert_eq!(
+            deki_stream_prompt_request(&json!({ "request": request.clone() })).expect("envelope"),
+            request
+        );
+        for body in [request, json!({ "request": null }), json!({}), json!("text")] {
+            assert_eq!(
+                deki_stream_prompt_request(&body)
+                    .expect_err("non-envelope bodies are rejected")
+                    .code,
+                "invalid_input",
+                "{body}"
+            );
+        }
     }
 
     #[test]

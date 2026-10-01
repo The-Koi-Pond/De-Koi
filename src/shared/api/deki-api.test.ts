@@ -547,7 +547,7 @@ describe("dekiApi settings persistence", () => {
 
     const status = dekiApi.workspace.status("session-1", "conn-1");
     const abort = dekiApi.workspace.abort("session-1");
-    const approval = dekiApi.workspace.approve("approval-1");
+    const approval = dekiApi.workspace.approve("session-1", "approval-1");
 
     await expect(status).rejects.toMatchObject({
       message: "Deki workspace runtime requires the Tauri app shell or a configured remote runtime.",
@@ -628,9 +628,9 @@ describe("dekiApi settings persistence", () => {
       history: [],
     });
 
-    await dekiApi.workspace.reject("approval-1");
+    await dekiApi.workspace.reject("session-1", "approval-1");
 
-    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_reject", { id: "approval-1" });
+    expect(invokeMock).toHaveBeenCalledWith("deki_workspace_reject", { sessionId: "session-1", id: "approval-1" });
   });
 });
 
