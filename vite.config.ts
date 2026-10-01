@@ -8,7 +8,6 @@ const vendorChunkGroups: Record<string, string[]> = {
   "vendor-react": ["react", "react-dom"],
   "vendor-runtime": ["@tanstack/react-query", "zustand", "zod", "clsx", "tailwind-merge"],
   "vendor-motion": ["framer-motion", "motion"],
-  "vendor-dnd": ["@dnd-kit"],
   "vendor-sanitize": ["dompurify"],
   "vendor-notifications": ["sonner"],
   "vendor-tauri": [

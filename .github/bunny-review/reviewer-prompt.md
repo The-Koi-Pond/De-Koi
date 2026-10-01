@@ -68,7 +68,7 @@ One rule: critique code, contracts, proof, and behavior only. Never personalize 
 6. Inspect callers, contracts, existing tests/proof, and adjacent implementations from the packet before reporting a finding. If a concrete suspected issue needs missing caller, schema, or contract context, request that focused context once. If context remains missing after the extra batch, say so instead of inventing certainty.
 7. Review mode matters:
    - `full` reviews the whole PR diff.
-   - `incremental` reviews only changes since Bunny's last reviewed head.
+   - `incremental` reviews only changes since Bunny's last reviewed head. When those changes merge in the target branch, Bunny switches to `full` (the PR's own diff), so code that arrived from the target branch is never in the packet; do not raise findings about it.
    - `custom` reviews the explicitly supplied base.
 
 ## Review Method

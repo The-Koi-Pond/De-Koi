@@ -1663,6 +1663,13 @@ def merge_signal(review_obj, findings, nitpicks, pre_merge):
             "admonition": "NOTE",
             "detail": "Every changed file formats identically on the base and the head; no code changed.",
         }
+    if state == "base_merge_only":
+        return {
+            "label": "NO NEW PR CHANGES",
+            "title": "No New PR Changes",
+            "admonition": "NOTE",
+            "detail": "Only the base branch was merged in since the last clean review; the PR's own diff is unchanged.",
+        }
     review_incomplete = has_incomplete_review_check(pre_merge)
     if review_incomplete:
         return {
@@ -2677,6 +2684,67 @@ def valid_review_base_sha(candidate, head_sha):
     return ancestor.returncode == 0
 
 
+def git_lines(args, timeout=60):
+    result = run(["git", *args], timeout=timeout)
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def pr_patch_id(tip, base_ref):
+    """Stable id of the PR's own diff against the base branch at `tip`."""
+    diff = run(["git", "diff", f"origin/{base_ref}...{tip}"], timeout=120)
+    if diff.returncode != 0:
+        return None
+    if not diff.stdout.strip():
+        return ""
+    ids = run(["git", "patch-id", "--stable"], input_text=diff.stdout, timeout=60)
+    if ids.returncode != 0:
+        return None
+    return " ".join(sorted(line.split()[0] for line in ids.stdout.splitlines() if line.strip()))
+
+
+def classify_review_range(previous, head_sha, base_ref):
+    """How to review `previous..head_sha` when `previous` was the last reviewed head.
+
+    "incremental": the new commits are the PR's own; review them.
+    "base_merge_only": the new commits only bring in the base branch, and the PR's
+        own diff against the base is unchanged; there is nothing new to review.
+    "full": base-branch commits are mixed with PR changes (or a merge changed the
+        PR's diff, such as a conflict resolution); review the PR's whole diff
+        against the base so code that only came from the base is never reviewed.
+    """
+    in_range = git_lines(["rev-list", head_sha, f"^{previous}"])
+    pr_only = git_lines(["rev-list", head_sha, f"^{previous}", f"^origin/{base_ref}"])
+    if in_range is None or pr_only is None:
+        return "incremental"
+    if len(pr_only) == len(in_range):
+        return "incremental"
+    own_changes = git_lines(["rev-list", "--no-merges", head_sha, f"^{previous}", f"^origin/{base_ref}"])
+    if own_changes == []:
+        before = pr_patch_id(previous, base_ref)
+        after = pr_patch_id(head_sha, base_ref)
+        if before is not None and before == after:
+            return "base_merge_only"
+    return "full"
+
+
+CLEAN_MERGE_SIGNALS = ("Merge Signal: Ready", "Merge Signal: No New PR Changes")
+
+
+def last_completed_review_was_clean(pr_num):
+    """True when the last completed review had a Ready signal and no open findings."""
+    for comment in reversed(sorted_walkthrough_comments(pr_num)):
+        body = comment.get("body", "")
+        if not is_completed_review_body(body):
+            continue
+        if not any(signal in body for signal in CLEAN_MERGE_SIGNALS):
+            return False
+        entries = decode_contract_state_from_body(body)
+        return not any(str(entry.get("status", "")).lower() == "open" for entry in entries)
+    return False
+
+
 def resolve_review_base(pr_num, requested_mode):
     pr = run_gh(
         [
@@ -2698,11 +2766,20 @@ def resolve_review_base(pr_num, requested_mode):
     if mode == "full":
         return f"origin/{base_ref}", base_ref, head_sha, mode
     explicit_previous = os.environ.get("BUNNY_LAST_REVIEWED_SHA", "").strip()
-    if valid_review_base_sha(explicit_previous, head_sha):
-        return explicit_previous, base_ref, head_sha, "incremental"
-    previous = discover_last_reviewed_sha(pr_num)
+    previous = (
+        explicit_previous
+        if valid_review_base_sha(explicit_previous, head_sha)
+        else discover_last_reviewed_sha(pr_num)
+    )
     if valid_review_base_sha(previous, head_sha):
-        return previous, base_ref, head_sha, "incremental"
+        range_mode = classify_review_range(previous, head_sha, base_ref)
+        # Never turn an earlier blocking review into a pass just because main
+        # was merged in; review the PR's whole diff again instead.
+        if range_mode == "base_merge_only" and not last_completed_review_was_clean(pr_num):
+            range_mode = "full"
+        if range_mode == "full":
+            return f"origin/{base_ref}", base_ref, head_sha, "full"
+        return previous, base_ref, head_sha, range_mode
     return f"origin/{base_ref}", base_ref, head_sha, "full"
 
 
@@ -2747,6 +2824,23 @@ def produce_review(args):
     ensure_local_head(head_sha, pr_num)
     patch_command_status_running(pr_num, head_sha, effective_mode)
     ci_status = os.environ.get("CI_STATUS", "")
+    if effective_mode == "base_merge_only":
+        write_skipped_review(
+            "No New PR Changes",
+            "Since the last review, only the base branch was merged in and the PR's own "
+            "diff is unchanged, so there was nothing new to review.",
+            status="pass",
+            metadata={
+                "head_sha": head_sha,
+                "head_commit_message": commit_subject(head_sha),
+                "review_base": base,
+                "base_ref": base_ref,
+                "mode": "incremental",
+                "review_state": "base_merge_only",
+            },
+        )
+        print("Bunny telemetry: skipped=base_merge_only", flush=True)
+        return
     files = changed_files(base)
     if not files and effective_mode == "incremental":
         write_skipped_review(
