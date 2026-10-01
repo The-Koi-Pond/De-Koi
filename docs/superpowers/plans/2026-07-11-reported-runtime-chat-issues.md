@@ -20,12 +20,14 @@
 ### Task 1: Connection defaults and model metadata (#975, #978, #979)
 
 **Files:**
+
 - Create: `src/features/shell/connections/lib/connection-model-selection.ts`
 - Test: `src/features/shell/connections/lib/connection-model-selection.spec.ts`
 - Modify: `src/features/shell/connections/components/ConnectionEditor.tsx`
 - Modify: `src/features/shell/connections/components/ConnectionsPanel.tsx`
 
 **Interfaces:**
+
 - Produces: `normalizeModelMetadata(model): { context: number | null; maxOutput: number | null }` and `nextModelLimits(current, model)`.
 - Consumes: provider model IDs and optional remote metadata already owned by `ConnectionEditor`.
 
@@ -38,6 +40,7 @@
 ### Task 2: Update workflow and runtime compatibility (#976, #977)
 
 **Files:**
+
 - Modify/Test: `src/shared/api/updates-api.ts` and adjacent spec
 - Modify/Test: `src/shared/api/remote-runtime.ts` and adjacent spec
 - Modify/Test: `src-tauri/src/commands/storage/updates.rs`
@@ -45,6 +48,7 @@
 - Modify/Test: `src/features/shell/settings/components/settings/SettingsSurfaces.tsx`
 
 **Interfaces:**
+
 - Consumes: `update_check`, `update_apply`, runtime health/version information, and storage collection allowlists.
 - Produces: visible update outcomes and an explicit incompatible-runtime error/action instead of an unsupported-entity toast.
 
@@ -57,6 +61,7 @@
 ### Task 3: Conversation persistence and setup (#980, #982)
 
 **Files:**
+
 - Modify/Test: `src/features/catalog/chats/hooks/use-create-message.spec.ts`
 - Modify: `src/features/catalog/chats/hooks/use-chats.ts`
 - Create/Test: `src/features/modes/shared/chat-ui/lib/chat-setup-start.spec.ts`
@@ -64,6 +69,7 @@
 - Modify: `src/features/modes/shared/chat-ui/components/ChatSetupWizard.tsx`
 
 **Interfaces:**
+
 - Produces: stable optimistic-to-saved message replacement during streaming and `startChatSetup(input): Promise<Result>` with visible errors.
 - Consumes: chat-owned mutation/cache keys, metadata mutation, schedule generation callback, and `onFinish`.
 
@@ -76,11 +82,13 @@
 ### Task 4: Firefox transcript history (#981)
 
 **Files:**
+
 - Modify/Test: `src/features/modes/shared/chat-ui/lib/transcript-scroll-geometry.ts`
 - Modify/Test: `src/features/modes/shared/chat-ui/lib/transcript-scroll-geometry.spec.ts`
 - Modify the transcript owner component identified by call-site tracing.
 
 **Interfaces:**
+
 - Produces: anchor-preserving upward pagination that does not let streaming bottom-follow overwrite explicit user scroll-away.
 
 - [ ] Add a failing Firefox-shaped geometry test using fractional scroll values and prepend height growth.
@@ -92,9 +100,11 @@
 ### Task 5: Pi performance evidence (#983)
 
 **Files:**
+
 - Modify/Test only the runtime timing/diagnostics owner proven by baseline tracing; do not change generation behavior without a demonstrated De-Koi bottleneck.
 
 **Interfaces:**
+
 - Produces: timings separating prompt preparation, request dispatch, first token, and completion where current instrumentation cannot distinguish them.
 
 - [ ] Establish a local representative baseline and inspect existing timing fields.

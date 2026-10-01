@@ -260,14 +260,11 @@ export function ConversationInput({
     [setCurrentInput],
   );
 
-  const replaceAttachments = useCallback(
-    (next: Attachment[], chatId = useChatStore.getState().activeChatId) => {
-      if (chatId) ephemeralAttachmentDrafts.replace("conversation", chatId, next);
-      attachmentsRef.current = next;
-      setAttachments(next);
-    },
-    [],
-  );
+  const replaceAttachments = useCallback((next: Attachment[], chatId = useChatStore.getState().activeChatId) => {
+    if (chatId) ephemeralAttachmentDrafts.replace("conversation", chatId, next);
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }, []);
 
   const updateAttachments = useCallback((updater: (current: Attachment[]) => Attachment[]) => {
     const next = updater(attachmentsRef.current);
@@ -281,12 +278,9 @@ export function ConversationInput({
     ephemeralAttachmentDrafts.adjustPendingReads("conversation", chatId, delta);
   }, []);
 
-  const appendAttachmentForChat = useCallback(
-    (chatId: string, attachment: Attachment) => {
-      ephemeralAttachmentDrafts.append("conversation", chatId, attachment);
-    },
-    [],
-  );
+  const appendAttachmentForChat = useCallback((chatId: string, attachment: Attachment) => {
+    ephemeralAttachmentDrafts.append("conversation", chatId, attachment);
+  }, []);
 
   useEffect(() => {
     attachmentsRef.current = attachments;

@@ -31,9 +31,7 @@ function parseDesktopCommands(libSource) {
 }
 
 function parseNonRemoteCommands(dispatchSource) {
-  const source = dispatchSource
-    .split("const NON_REMOTE_COMMANDS: &[&str] = &[")[1]
-    ?.split("];", 1)[0];
+  const source = dispatchSource.split("const NON_REMOTE_COMMANDS: &[&str] = &[")[1]?.split("];", 1)[0];
   if (source === undefined) {
     throw new Error("Could not parse NON_REMOTE_COMMANDS from src-tauri/src/http_dispatch.rs");
   }
@@ -41,9 +39,7 @@ function parseNonRemoteCommands(dispatchSource) {
 }
 
 function parseRemoteAllowlist(remoteRuntimeSource) {
-  const source = remoteRuntimeSource
-    .split("const REMOTE_COMMANDS = new Set([")[1]
-    ?.split("]);", 1)[0];
+  const source = remoteRuntimeSource.split("const REMOTE_COMMANDS = new Set([")[1]?.split("]);", 1)[0];
   if (source === undefined) {
     throw new Error("Could not parse REMOTE_COMMANDS from src/shared/api/remote-runtime.ts");
   }
@@ -51,21 +47,17 @@ function parseRemoteAllowlist(remoteRuntimeSource) {
 }
 
 function parseDispatchCommands(dispatchSource) {
-  const source = dispatchSource
-    .split("match command {")[1]
-    ?.split("_ => Err", 1)[0];
+  const source = dispatchSource.split("match command {")[1]?.split("_ => Err", 1)[0];
   if (source === undefined) {
     throw new Error("Could not parse dispatch command match from src-tauri/src/http_dispatch.rs");
   }
 
   return uniqueSorted(
-    source
-      .split(/\r?\n/)
-      .flatMap((line) => {
-        const trimmed = line.trimStart();
-        if (!trimmed.startsWith('"') || !trimmed.includes("=>")) return [];
-        return quotedCommands(trimmed.split("=>", 1)[0]);
-      }),
+    source.split(/\r?\n/).flatMap((line) => {
+      const trimmed = line.trimStart();
+      if (!trimmed.startsWith('"') || !trimmed.includes("=>")) return [];
+      return quotedCommands(trimmed.split("=>", 1)[0]);
+    }),
   );
 }
 

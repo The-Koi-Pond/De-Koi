@@ -109,7 +109,9 @@ function currentBlock(schedule: AvailabilitySchedule, now: Date): ScheduleBlock 
   const minute = now.getHours() * 60 + now.getMinutes();
   const todayBlock = (schedule.days[scheduleDayName(now)] ?? []).find((block) => blockContainsMinute(block, minute));
   if (todayBlock) return todayBlock;
-  return (schedule.days[previousScheduleDayName(now)] ?? []).find((block) => blockCarriesIntoMinute(block, minute)) ?? null;
+  return (
+    (schedule.days[previousScheduleDayName(now)] ?? []).find((block) => blockCarriesIntoMinute(block, minute)) ?? null
+  );
 }
 
 function availabilityBlock(block: ScheduleBlock): AvailabilitySummaryBlock {

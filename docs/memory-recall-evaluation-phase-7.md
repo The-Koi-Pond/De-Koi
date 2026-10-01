@@ -25,12 +25,12 @@ The fixture builds 56 roleplay turns and covers:
 
 Totals from the deterministic fixture after tuning:
 
-| Retrieval mode | Correct recall | Wrong recall | Missing recall | Stale/superseded recall | Token cost |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Vector-only candidates | 6 | 0 | 3 | 0 | 108 |
-| Lexical fallback | 9 | 0 | 0 | 0 | 249 |
-| Hybrid vector + canonical rerank | 9 | 0 | 0 | 0 | 173 |
-| Hybrid without stale/superseded filtering | 9 | 0 | 0 | 1 | 187 |
+| Retrieval mode                            | Correct recall | Wrong recall | Missing recall | Stale/superseded recall | Token cost |
+| ----------------------------------------- | -------------: | -----------: | -------------: | ----------------------: | ---------: |
+| Vector-only candidates                    |              6 |            0 |              3 |                       0 |        108 |
+| Lexical fallback                          |              9 |            0 |              0 |                       0 |        249 |
+| Hybrid vector + canonical rerank          |              9 |            0 |              0 |                       0 |        173 |
+| Hybrid without stale/superseded filtering |              9 |            0 |              0 |                       1 |        187 |
 
 Interpretation: embeddings/indexes improve precision and token cost when available, lexical fallback prevents missing recall when migrated memories have no rebuildable vector yet, and stale/superseded filtering removes a false-canon risk that hybrid ranking alone does not solve.
 

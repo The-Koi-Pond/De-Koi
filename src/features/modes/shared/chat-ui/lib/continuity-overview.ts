@@ -135,18 +135,31 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
         ]
       : []),
     ...(input.chatMode === "roleplay" && input.storyCounts
-      ? [{
-          id: "story" as const,
-          label: "Story",
-          status: input.storyCounts.stale > 0 ? "warning" as const : input.storyCounts.episodes > 0 || input.storyCounts.pending > 0 ? "active" as const : "idle" as const,
-          value: input.storyCounts.episodes > 0 ? `${pluralize(input.storyCounts.episodes, "episode")} · ${pluralize(input.storyCounts.arcs, "arc")}` : input.storyCounts.pending > 0 ? `${input.storyCounts.pending} pending` : "Not built",
-          detail: input.storyCounts.stale > 0
-            ? `${pluralize(input.storyCounts.stale, "stale projection")} ${input.storyCounts.stale === 1 ? "needs" : "need"} review or regeneration.`
-            : input.storyCounts.pending > 0
-              ? `${pluralize(input.storyCounts.pending, "background job")} queued or running.`
-              : "Durable episodes and arcs carry long-form Roleplay continuity.",
-          action: "open_story" as const,
-        }]
+      ? [
+          {
+            id: "story" as const,
+            label: "Story",
+            status:
+              input.storyCounts.stale > 0
+                ? ("warning" as const)
+                : input.storyCounts.episodes > 0 || input.storyCounts.pending > 0
+                  ? ("active" as const)
+                  : ("idle" as const),
+            value:
+              input.storyCounts.episodes > 0
+                ? `${pluralize(input.storyCounts.episodes, "episode")} · ${pluralize(input.storyCounts.arcs, "arc")}`
+                : input.storyCounts.pending > 0
+                  ? `${input.storyCounts.pending} pending`
+                  : "Not built",
+            detail:
+              input.storyCounts.stale > 0
+                ? `${pluralize(input.storyCounts.stale, "stale projection")} ${input.storyCounts.stale === 1 ? "needs" : "need"} review or regeneration.`
+                : input.storyCounts.pending > 0
+                  ? `${pluralize(input.storyCounts.pending, "background job")} queued or running.`
+                  : "Durable episodes and arcs carry long-form Roleplay continuity.",
+            action: "open_story" as const,
+          },
+        ]
       : []),
     {
       id: "summary",
@@ -186,7 +199,8 @@ export function buildContinuityOverviewViewModel(input: ContinuityOverviewInput)
 
   const activeCount = sections.filter((section) => section.status === "active").length;
   return {
-    headline: activeCount > 0 ? `${pluralize(activeCount, "continuity source")} active` : "No continuity sources active yet",
+    headline:
+      activeCount > 0 ? `${pluralize(activeCount, "continuity source")} active` : "No continuity sources active yet",
     sections,
   };
 }

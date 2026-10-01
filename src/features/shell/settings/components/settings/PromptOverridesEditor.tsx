@@ -74,7 +74,10 @@ export function PromptOverridesEditor() {
   };
 
   return (
-    <section id="settings-destination-prompt-overrides" className="scroll-mt-4 overflow-hidden rounded-xl bg-[var(--secondary)]/40 ring-1 ring-[var(--border)] transition-shadow duration-700">
+    <section
+      id="settings-destination-prompt-overrides"
+      className="scroll-mt-4 overflow-hidden rounded-xl bg-[var(--secondary)]/40 ring-1 ring-[var(--border)] transition-shadow duration-700"
+    >
       <div className="flex items-start gap-2 p-3">
         <button
           type="button"

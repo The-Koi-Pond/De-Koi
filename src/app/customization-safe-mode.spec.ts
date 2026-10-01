@@ -9,8 +9,6 @@ describe("customization safe mode routing", () => {
   });
 
   it("builds a return URL without discarding unrelated query parameters", () => {
-    expect(normalAppUrl("https://de-koi.test/app?safe-mode=customizations&tab=themes#top")).toBe(
-      "/app?tab=themes#top",
-    );
+    expect(normalAppUrl("https://de-koi.test/app?safe-mode=customizations&tab=themes#top")).toBe("/app?tab=themes#top");
   });
 });

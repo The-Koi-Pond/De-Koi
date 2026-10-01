@@ -155,11 +155,7 @@ export function useExportSpritesArchive() {
         throw new Error("No sprites selected.");
       }
       const body = variables.expressions === undefined ? {} : { expressions: variables.expressions };
-      return spriteApi.exportArchive<SpriteArchiveExportResult>(
-        owner.id,
-        body,
-        { ownerType: owner.type },
-      );
+      return spriteApi.exportArchive<SpriteArchiveExportResult>(owner.id, body, { ownerType: owner.type });
     },
   });
 }

@@ -21,7 +21,12 @@ describe("conversation part reveal", () => {
           key: "assistant-1",
           role: "assistant",
           createdAtMs: 100_000,
-          message: { id: "assistant-1", role: "assistant", content: "Already here", createdAt: "1970-01-01T00:01:40.000Z" },
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: "Already here",
+            createdAt: "1970-01-01T00:01:40.000Z",
+          },
         },
       ],
       previousMessageKeys,

@@ -65,8 +65,8 @@ describe("built-in agent chat mode availability", () => {
         "roleplay",
       ),
     ).toEqual(["illustrator"]);
-    expect(
-      [...filterAgentIdsForChatMode(["narrative-craft", "builtin:narrative-craft", "continuity"], "roleplay")],
-    ).toEqual(["continuity"]);
+    expect([
+      ...filterAgentIdsForChatMode(["narrative-craft", "builtin:narrative-craft", "continuity"], "roleplay"),
+    ]).toEqual(["continuity"]);
   });
 });

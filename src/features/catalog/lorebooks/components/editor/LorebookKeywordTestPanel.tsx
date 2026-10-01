@@ -2,7 +2,6 @@ import { ChevronDown, FlaskConical, X } from "lucide-react";
 import type { LorebookActivationTraceEntry } from "../../../../../engine/contracts/types/lorebook";
 import { cn } from "../../../../../shared/lib/utils";
 
-
 export function getKeywordTraceSummary(
   traceEntries: LorebookActivationTraceEntry[],
   visibleTraceEntryIds: string[],
@@ -108,7 +107,11 @@ export function LorebookKeywordTestPanel({
               <p>
                 {traceScopeLabel}: {includedCount} included, {matchedCount} matched, {skippedCount} skipped
               </p>
-              {firstSkipped && <p>First skipped: {firstSkipped.name} - {firstSkipped.hint}</p>}
+              {firstSkipped && (
+                <p>
+                  First skipped: {firstSkipped.name} - {firstSkipped.hint}
+                </p>
+              )}
             </div>
           )}
         </div>

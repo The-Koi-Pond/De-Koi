@@ -201,9 +201,7 @@ function wrapCharactersForWave(html: string): string {
     const chars = [...text];
     const wrapped = chars
       .map((ch, i) =>
-        ch === " "
-          ? " "
-          : `<span class="anim-text-wave-char anim-text-wave-char-${i % 10}">${ch}</span>`,
+        ch === " " ? " " : `<span class="anim-text-wave-char anim-text-wave-char-${i % 10}">${ch}</span>`,
       )
       .join("");
     return `<span class="anim-text-wave">${wrapped}</span>`;

@@ -239,7 +239,10 @@ async function createConversation(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: "Start Conversation chat" }).click();
   await expect(page.getByRole("heading", { name: "New Conversation" })).toBeVisible();
   await page.getByText("E2E Koi", { exact: true }).click();
-  await page.locator("select").filter({ has: page.locator('option[value="connection-e2e"]') }).selectOption(connection.id);
+  await page
+    .locator("select")
+    .filter({ has: page.locator('option[value="connection-e2e"]') })
+    .selectOption(connection.id);
   await page.getByRole("button", { name: "Start Chatting" }).click();
   await expect(page.getByPlaceholder(/Message/)).toBeVisible();
   await page.locator("div.absolute.inset-0.z-40").click({ position: { x: 10, y: 10 } });
@@ -294,9 +297,7 @@ test("a received conversation message follows the transcript to the bottom", asy
   releaseHeldStream?.();
   await expect(page.getByText("Deterministic streamed reply 1")).toBeVisible();
   await expect
-    .poll(() =>
-      transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight),
-    )
+    .poll(() => transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight))
     .toBeLessThan(2);
 });
 

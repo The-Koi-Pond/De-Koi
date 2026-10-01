@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  canOpenUpdateRelease,
-  formatUpdateIdentity,
-  openUpdateRelease,
-  type UpdateCheckResponse,
-} from "./updates-api";
+import { canOpenUpdateRelease, formatUpdateIdentity, openUpdateRelease, type UpdateCheckResponse } from "./updates-api";
 
 const updateInfo = {
   releaseUrl: "https://github.com/The-Koi-Pond/De-Koi/releases/latest",

@@ -88,7 +88,11 @@ async function runtimeSection(remoteRuntimeUrl: string): Promise<DiagnosticsSect
 
   const result = await checkRemoteRuntimeHealth(url);
   const status: DiagnosticStatus =
-    result.status === "ok" ? "ok" : result.status === "not-writable" || result.status === "unconfigured" ? "warning" : "error";
+    result.status === "ok"
+      ? "ok"
+      : result.status === "not-writable" || result.status === "unconfigured"
+        ? "warning"
+        : "error";
   return section("runtime", "Runtime", [
     {
       id: "remote-runtime",
@@ -104,7 +108,11 @@ function sidecarStatus(status: LocalSidecarStatusResponse): DiagnosticStatus {
   if (!status.configured) return "unknown";
   if (status.ready && status.status === "ready") return "ok";
   if (status.status === "server_error") return "error";
-  if (status.status === "starting" || status.status === "downloading_model" || status.status === "downloading_runtime") {
+  if (
+    status.status === "starting" ||
+    status.status === "downloading_model" ||
+    status.status === "downloading_runtime"
+  ) {
     return "warning";
   }
   return "degraded";
@@ -249,7 +257,11 @@ async function storageSection(): Promise<DiagnosticsSection> {
   return section("storage", "Storage", items);
 }
 
-async function sectionOrError(id: string, title: string, load: () => Promise<DiagnosticsSection>): Promise<DiagnosticsSection> {
+async function sectionOrError(
+  id: string,
+  title: string,
+  load: () => Promise<DiagnosticsSection>,
+): Promise<DiagnosticsSection> {
   try {
     return await load();
   } catch (error) {

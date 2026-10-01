@@ -25,7 +25,11 @@ const DISTRACTING_TERMS = ["lyrics", "lyric video", "karaoke", "cover", "officia
 const TOKEN_STOPWORDS = new Set(["a", "an", "and", "for", "in", "of", "on", "or", "the", "to", "with"]);
 
 function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function candidateText(candidate: MusicCandidate): string {
@@ -44,8 +48,13 @@ function tokenize(value: string | null | undefined): string[] {
 
 function intentNeedles(options: MusicCandidateRankingOptions): string[] {
   const constraints = Array.isArray(options.intent?.constraints) ? options.intent.constraints : [];
-  return [options.query, options.intent?.mood, options.intent?.intensity, options.intent?.setting, ...constraints]
-    .flatMap((value) => tokenize(value ?? ""));
+  return [
+    options.query,
+    options.intent?.mood,
+    options.intent?.intensity,
+    options.intent?.setting,
+    ...constraints,
+  ].flatMap((value) => tokenize(value ?? ""));
 }
 
 function unique(values: string[]): string[] {

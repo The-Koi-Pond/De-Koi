@@ -13,6 +13,7 @@
 ### Task 1: Prove the clone amplification
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 
 - [ ] Add a test-only observer at the exact row-clone boundary.
@@ -22,6 +23,7 @@
 ### Task 2: Select before cloning
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 
 - [ ] Snapshot dirty collection names without cloning row vectors.
@@ -32,6 +34,7 @@
 ### Task 3: Verify and ship
 
 **Files:**
+
 - Modify only proof or workflow files required by repository gates.
 
 - [ ] Run formatting, the complete storage crate suite, Rust workspace checks, architecture checks, and `pnpm check`.

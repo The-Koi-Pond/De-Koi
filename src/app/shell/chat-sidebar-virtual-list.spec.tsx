@@ -2,7 +2,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ChatSidebarVirtualList, buildChatSidebarListRows, type ChatSidebarVirtualRow } from "./chat-sidebar-virtual-list";
+import {
+  ChatSidebarVirtualList,
+  buildChatSidebarListRows,
+  type ChatSidebarVirtualRow,
+} from "./chat-sidebar-virtual-list";
 
 const virtualIndexes = Array.from({ length: 12 }, (_, index) => index);
 const scrollToIndex = vi.fn();

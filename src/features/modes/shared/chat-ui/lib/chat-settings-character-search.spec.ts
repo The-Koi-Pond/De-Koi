@@ -41,16 +41,7 @@ describe("chat settings character search", () => {
           tags: ["mystery", 1987],
         },
       }),
-    ).toEqual([
-      "character-7",
-      "Mara Venn",
-      "Archive lead",
-      "Celia",
-      "Cold case specialist",
-      "2.1",
-      "mystery",
-      "1987",
-    ]);
+    ).toEqual(["character-7", "Mara Venn", "Archive lead", "Celia", "Cold case specialist", "2.1", "mystery", "1987"]);
   });
 
   it("normalizes whitespace and case while requiring every term to match", () => {

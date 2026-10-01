@@ -106,7 +106,12 @@ describe("lorebook keyword scanner", () => {
       },
     );
 
-    expect(result.activatedEntries.map((item) => item.entry.id)).toEqual(["constant", "semantic", "group-winner", "sticky"]);
+    expect(result.activatedEntries.map((item) => item.entry.id)).toEqual([
+      "constant",
+      "semantic",
+      "group-winner",
+      "sticky",
+    ]);
 
     const traceById = new Map(result.trace.entries.map((item) => [item.entryId, item]));
     expect(traceById.get("constant")).toMatchObject({
@@ -156,5 +161,4 @@ describe("lorebook keyword scanner", () => {
       matchedKeys: ["[sticky]"],
     });
   });
-
 });

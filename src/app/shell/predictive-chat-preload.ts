@@ -31,10 +31,7 @@ export function selectRecentPredictiveChats(
     .slice(0, Math.max(0, limit));
 }
 
-export function createPredictiveChatPreloadController(
-  dependencies: PredictiveChatPreloadDependencies,
-  capacity = 3,
-) {
+export function createPredictiveChatPreloadController(dependencies: PredictiveChatPreloadDependencies, capacity = 3) {
   let activeChatId: string | null = null;
   const entries: SpeculativeEntry[] = [];
   const inFlight = new Map<string, Promise<void>>();

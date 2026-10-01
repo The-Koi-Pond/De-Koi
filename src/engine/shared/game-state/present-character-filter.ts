@@ -30,9 +30,7 @@ function readTextList(value: unknown): string[] {
     if (!trimmed) return [];
     try {
       const parsed = JSON.parse(trimmed);
-      return Array.isArray(parsed)
-        ? parsed.map(readText).filter(Boolean)
-        : [readText(parsed)].filter(Boolean);
+      return Array.isArray(parsed) ? parsed.map(readText).filter(Boolean) : [readText(parsed)].filter(Boolean);
     } catch {
       return [trimmed];
     }

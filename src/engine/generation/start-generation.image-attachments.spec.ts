@@ -47,20 +47,23 @@ function imageAttachmentStorage(
       : {}),
     "char-a": { id: "char-a", name: "Aki", data: { name: "Aki", personality: "warm" } },
   };
-  const messages: StoredMessage[] = options.storedImage === false ? [] : [
-    {
-      id: "message-1",
-      chatId: "chat-1",
-      role: "user",
-      content: "",
-      characterId: null,
-      activeSwipeIndex: 0,
-      swipeCount: 1,
-      extra: {
-        attachments: [{ type: "image/png", galleryId: "gallery-1", filename: "cat.png", name: "cat.png" }],
-      },
-    },
-  ];
+  const messages: StoredMessage[] =
+    options.storedImage === false
+      ? []
+      : [
+          {
+            id: "message-1",
+            chatId: "chat-1",
+            role: "user",
+            content: "",
+            characterId: null,
+            activeSwipeIndex: 0,
+            swipeCount: 1,
+            extra: {
+              attachments: [{ type: "image/png", galleryId: "gallery-1", filename: "cat.png", name: "cat.png" }],
+            },
+          },
+        ];
   const storage: StorageGateway = {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return Object.values(records).filter((record) => record.provider) as T[];

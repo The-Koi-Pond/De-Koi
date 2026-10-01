@@ -70,7 +70,12 @@ export function getAppShellCenterSurfaceState({
 }: AppShellCenterSurfaceInput): AppShellCenterSurfaceState {
   const fullViewSurfaceOpen = botBrowserOpen || gameAssetsBrowserOpen;
   const dekiSurfaceVisible =
-    Boolean(activeDekiSessionId) && dekiOpen && !discoverOpen && !fullViewSurfaceOpen && !rightPanelOpen && !detailViewOpen;
+    Boolean(activeDekiSessionId) &&
+    dekiOpen &&
+    !discoverOpen &&
+    !fullViewSurfaceOpen &&
+    !rightPanelOpen &&
+    !detailViewOpen;
   const discoverSurfaceVisible = discoverOpen && !fullViewSurfaceOpen && !detailViewOpen;
 
   return {

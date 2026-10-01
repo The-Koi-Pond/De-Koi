@@ -65,7 +65,6 @@ afterEach(() => {
   useUIStore.getState().setStreamingSpeed(50);
 });
 
-
 describe("off-chat assistant notifications", () => {
   it("shows the local notification with chat identity for Roleplay messages", async () => {
     const queryClient = new QueryClient();
@@ -547,9 +546,7 @@ describe("runGenerationWithUi", () => {
       releaseStaleQuery();
       await staleQuery.catch(() => undefined);
 
-      const cachedRows = queryClient
-        .getQueryData<{ pages: Message[][] }>(chatKeys.messages(chatId))
-        ?.pages.flat();
+      const cachedRows = queryClient.getQueryData<{ pages: Message[][] }>(chatKeys.messages(chatId))?.pages.flat();
       expect(cachedRows).toEqual(expect.arrayContaining([expect.objectContaining({ id: savedReply.id })]));
       expect(scrollRequests).toContainEqual({ chatId, behavior: "auto" });
     } finally {

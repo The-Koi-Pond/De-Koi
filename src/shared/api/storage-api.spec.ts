@@ -102,17 +102,14 @@ describe("storageApi chat summary patches", () => {
     { updated: "yes", chat: null },
     { updated: true, chat: {} },
     { updated: true, chat: { id: "another-chat" } },
-  ])(
-    "rejects malformed conditional chat patch response %#",
-    async (response) => {
-      invokeTauriMock.mockResolvedValueOnce(response);
-      const { storageApi } = await import("./storage-api");
+  ])("rejects malformed conditional chat patch response %#", async (response) => {
+    invokeTauriMock.mockResolvedValueOnce(response);
+    const { storageApi } = await import("./storage-api");
 
-      await expect(storageApi.updateChatIfUnchanged?.("chat-1", {}, {})).rejects.toThrow(
-        "Invalid conditional chat update response",
-      );
-    },
-  );
+    await expect(storageApi.updateChatIfUnchanged?.("chat-1", {}, {})).rejects.toThrow(
+      "Invalid conditional chat update response",
+    );
+  });
 
   it("sends summary map deltas through the atomic runtime command", async () => {
     invokeTauriMock.mockResolvedValueOnce({ id: "chat-1" });

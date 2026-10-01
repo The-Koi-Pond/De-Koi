@@ -12,9 +12,7 @@ test("settings shows conversation native notification opt-in", async ({ page }) 
   if (await directSettings.isVisible()) {
     await directSettings.click();
   } else {
-    const navigationTrigger = (await tools.isVisible())
-      ? tools
-      : moreNavigation;
+    const navigationTrigger = (await tools.isVisible()) ? tools : moreNavigation;
     await navigationTrigger.click();
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   }

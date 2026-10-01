@@ -22,10 +22,12 @@
 ### Task 1: Bound authenticated managed-asset blobs
 
 **Files:**
+
 - Modify: `src/shared/api/remote-managed-assets.ts`
 - Test: `src/shared/api/managed-assets.spec.ts`
 
 **Interfaces:**
+
 - Produces: internal cache entries with `byteSize` and `lastAccess`; existing `remoteManagedAssetResolvableUrl` signature remains unchanged.
 
 - [ ] Write failing tests that resolve more than 64 authenticated assets, assert oldest URLs are revoked, and prove invalidation still revokes retained URLs.
@@ -37,6 +39,7 @@
 ### Task 2: Paginate and virtualize the global gallery
 
 **Files:**
+
 - Modify: `src/features/catalog/gallery/hooks/use-global-gallery.ts`
 - Modify: `src/features/catalog/gallery/components/GlobalGalleryPanel.tsx`
 - Modify as required: `src/shared/api/storage-api.ts`, `src-tauri/src/commands/storage/commands/entities.rs`
@@ -44,6 +47,7 @@
 - Test: `src/features/catalog/gallery/components/GlobalGalleryPanel.spec.tsx`
 
 **Interfaces:**
+
 - Produces: `useGlobalGalleryImages()` backed by an infinite query with 48-row pages and stable cursor ordering; panel consumes flattened rows.
 - Consumes: existing storage list ordering/limit options; add a cursor option only if current offset/cursor support cannot provide stable pages.
 
@@ -59,11 +63,13 @@
 ### Task 3: Bound Rust storage caches
 
 **Files:**
+
 - Modify: `src-tauri/crates/storage/src/cache.rs`
 - Modify: `src-tauri/crates/storage/src/lib.rs`
 - Test: colocated Rust tests in those modules or the existing storage test module.
 
 **Interfaces:**
+
 - Produces: internal cache admission/eviction helpers; public `FileStorage` methods remain source-compatible.
 
 - [ ] Write failing tests for oversized clean-collection bypass, total-budget LRU eviction, projection-shape cap, and dirty-entry preservation.
@@ -76,11 +82,13 @@
 ### Task 4: Add safe resumable sidecar downloads
 
 **Files:**
+
 - Modify: `src-tauri/crates/sidecar/Cargo.toml`
 - Modify: `src-tauri/crates/sidecar/src/lib.rs` or split a focused `download.rs` module if the owner grows broader.
 - Test: colocated sidecar download tests.
 
 **Interfaces:**
+
 - Produces: deterministic partial path and metadata, disk-headroom validator, and resume-aware request builder; existing public download commands remain unchanged.
 
 - [ ] Write failing HTTP harness tests for valid range resume, ignored range restart, mismatched validator restart, cancellation retention, and insufficient-space rejection.
@@ -94,12 +102,14 @@
 ### Task 5: Enforce route-specific bundle budgets
 
 **Files:**
+
 - Modify: `package.json`
 - Modify or create: `scripts/check-bundle-budgets.mjs`
 - Test: `scripts/check-bundle-budgets.test.mjs` or existing script-test convention.
 - Modify: CI workflow invoking performance size checks if the script is not already covered.
 
 **Interfaces:**
+
 - Produces: deterministic command `pnpm perf:size` that builds and checks boot/startup, lazy-route, total JS, and CSS gzip budgets.
 
 - [ ] Write failing script tests using synthetic manifest/assets over and under each budget.
@@ -112,6 +122,7 @@
 ### Task 6: Integrated verification and shipping
 
 **Files:**
+
 - Modify only evidence/docs required by repository checks.
 
 - [ ] Run all focused frontend and Rust suites from Tasks 1–5.
