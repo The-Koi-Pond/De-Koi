@@ -534,7 +534,7 @@ export function useChatTimelineActions({
         if (options?.propagateErrors) throw error;
       }
     },
-    [activeChatId, generate, guideGenerations, isStreaming],
+    [activeChatId, generate, guideGenerations],
   );
 
   const handleRetryFailedAgents = useCallback(async () => {

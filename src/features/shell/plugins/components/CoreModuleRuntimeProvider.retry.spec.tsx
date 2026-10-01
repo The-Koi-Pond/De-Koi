@@ -1,4 +1,4 @@
-import { act, Component, Suspense, useMemo, useState, type ReactNode } from "react";
+import { act, Component, Suspense, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCoreModuleLazy } from "./CoreModuleRuntimeProvider";
@@ -24,9 +24,13 @@ class TestBoundary extends Component<{ children: ReactNode; onRetry: () => void 
 
 function RetryHarness({ load }: { load: () => Promise<{ default: typeof LoadedNotes }> }) {
   const [attempt, setAttempt] = useState(0);
-  const LazyNotes = useMemo(() => createCoreModuleLazy(load), [attempt, load]);
+  const [LazyNotes, setLazyNotes] = useState(() => createCoreModuleLazy(load));
+  const retry = () => {
+    setLazyNotes(() => createCoreModuleLazy(load));
+    setAttempt((current) => current + 1);
+  };
   return (
-    <TestBoundary key={attempt} onRetry={() => setAttempt((current) => current + 1)}>
+    <TestBoundary key={attempt} onRetry={retry}>
       <Suspense fallback={<span>Loading notes</span>}>
         <LazyNotes />
       </Suspense>
