@@ -56,6 +56,16 @@ fn selective_logic_value(value: Option<&Value>) -> &'static str {
     }
 }
 
+/// Card `extensions.position` uses SillyTavern numbering, where 4 is
+/// "at depth"; De-Koi stores at-depth entries as 2.
+fn card_extension_position(entry: &Value) -> Option<i64> {
+    let position = entry
+        .get("extensions")
+        .and_then(|extensions| extensions.get("position"))
+        .and_then(Value::as_i64)?;
+    Some(if position == 4 { 2 } else { position })
+}
+
 /// Reads the first non-null field from the entry, then from its
 /// SillyTavern/V3-style `extensions`, where cards keep placement details.
 fn entry_value<'a>(entry: &'a Value, keys: &[&str]) -> Option<&'a Value> {
@@ -75,10 +85,7 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         .map(|disabled| !disabled)
         .unwrap_or_else(|| bool_field(entry.get("enabled"), true));
     // A numeric extensions.position is more precise than the V2/V3 string.
-    let numeric_extension_position = entry
-        .get("extensions")
-        .and_then(|extensions| extensions.get("position"))
-        .and_then(Value::as_i64);
+    let numeric_extension_position = card_extension_position(entry);
     let position = match (numeric_extension_position, entry.get("position")) {
         (Some(position), _) => position,
         (None, Some(Value::String(raw))) if raw == "after_char" => 1,
@@ -105,7 +112,7 @@ pub(crate) fn normalize_lorebook_entry(lorebook_id: &str, entry: &Value, index: 
         "scanDepth": optional_number(entry_value(entry, &["scanDepth", "scan_depth"])),
         "matchWholeWords": bool_field(entry_value(entry, &["matchWholeWords", "match_whole_words"]), false),
         "caseSensitive": bool_field(entry_value(entry, &["caseSensitive", "case_sensitive"]), false),
-        "useRegex": bool_field(entry.get("useRegex").or_else(|| entry.get("regex")), false),
+        "useRegex": bool_field(entry_value(entry, &["useRegex", "use_regex", "regex"]), false),
         "characterFilterMode": "any",
         "characterFilterIds": [],
         "characterTagFilterMode": "any",
@@ -185,11 +192,7 @@ pub(super) fn normalize_imported_lorebook_entry(
     if let Some(disabled) = entry.get("disable").and_then(Value::as_bool) {
         object.insert("enabled".to_string(), Value::Bool(!disabled));
     }
-    let extension_position = entry
-        .get("extensions")
-        .and_then(|extensions| extensions.get("position"))
-        .and_then(Value::as_i64);
-    if let Some(position) = extension_position {
+    if let Some(position) = card_extension_position(entry) {
         object.insert("position".to_string(), json!(position));
     } else if let Some(position) = object.get("position").cloned() {
         let normalized_position = match position {
@@ -309,7 +312,7 @@ mod tests {
 
         let normalized = normalize_imported_lorebook_entry("book", &entry, 0);
 
-        assert_eq!(normalized["position"], 4);
+        assert_eq!(normalized["position"], 2);
         assert_eq!(normalized["depth"], 2);
         assert_eq!(normalized["role"], "assistant");
         assert_eq!(normalized["probability"], 30);

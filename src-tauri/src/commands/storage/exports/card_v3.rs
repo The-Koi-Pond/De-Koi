@@ -130,8 +130,17 @@ pub(super) fn build_portable_card(
     let mut extensions = portable_extensions(&source);
     let mut assets = Vec::new();
 
-    // Icon: the character avatar, or the spec's default-icon marker.
-    match avatar_data_url(state, character).and_then(|url| decode_image_data_url(&url)) {
+    // Icon: the character avatar, or the spec's default-icon marker. A stored
+    // avatar that cannot be read is reported rather than silently replaced.
+    let avatar = avatar_data_url(state, character).and_then(|url| decode_image_data_url(&url));
+    if avatar.is_none() && has_avatar_reference(character) {
+        report.skip(
+            &name,
+            "Avatar",
+            "The avatar image could not be read (missing file or unsupported format). The card uses the default icon.",
+        );
+    }
+    match avatar {
         Some((ext, bytes)) if target == CardTarget::Charx => {
             match packager.add("assets/icon/images/main", &ext, bytes, &name, "Avatar", &mut report) {
                 Some(uri) => assets.push(json!({ "type": "icon", "uri": uri, "name": "main", "ext": ext })),
@@ -320,6 +329,38 @@ fn banner_file_bytes(state: &AppState, banner: &str) -> Option<(String, Vec<u8>)
     data_url_from_current_file(state, banner).and_then(|url| decode_image_data_url(&url))
 }
 
+fn has_avatar_reference(character: &Value) -> bool {
+    ["avatar", "avatarPath", "avatarFilePath"].iter().any(|field| {
+        character
+            .get(*field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    })
+}
+
+/// De-Koi stores "@Depth" as 2; SillyTavern-style card extensions use 4.
+/// Other values (0 before, 1 after, and SillyTavern-origin 3+) pass through.
+const DE_KOI_DEPTH_POSITION: i64 = 2;
+const CARD_DEPTH_POSITION: i64 = 4;
+
+fn card_extension_position(position: i64) -> i64 {
+    if position == DE_KOI_DEPTH_POSITION {
+        CARD_DEPTH_POSITION
+    } else {
+        position
+    }
+}
+
+/// The V3 `position` field only defines before/after the character, so
+/// depth placement leaves it out and is carried by `extensions.position`.
+fn card_primary_position(position: i64) -> Option<&'static str> {
+    match position {
+        p if p <= 0 => Some("before_char"),
+        1 => Some("after_char"),
+        _ => None,
+    }
+}
+
 fn default_icon() -> Value {
     json!({ "type": "icon", "uri": "ccdefault:", "name": "main", "ext": "png" })
 }
@@ -361,7 +402,7 @@ fn character_book_entry(entry: &Value, index: usize) -> Value {
     let order = entry.get("order").and_then(Value::as_i64).unwrap_or(index as i64);
     let position = entry.get("position").and_then(Value::as_i64).unwrap_or(0);
     let probability = entry.get("probability").cloned().unwrap_or(Value::Null);
-    json!({
+    let mut card_entry = json!({
         "id": index,
         "keys": string_array_for_export(entry.get("keys")),
         "secondary_keys": string_array_for_export(entry.get("secondaryKeys")),
@@ -375,10 +416,9 @@ fn character_book_entry(entry: &Value, index: usize) -> Value {
         "priority": order,
         "case_sensitive": entry.get("caseSensitive").and_then(Value::as_bool).unwrap_or(false),
         "use_regex": entry.get("useRegex").and_then(Value::as_bool).unwrap_or(false),
-        "position": if position == 1 { "after_char" } else { "before_char" },
         // SillyTavern-compatible placement and activation details.
         "extensions": {
-            "position": position,
+            "position": card_extension_position(position),
             "depth": entry.get("depth").cloned().unwrap_or(json!(4)),
             "role": entry.get("role").cloned().unwrap_or(Value::Null),
             "probability": probability,
@@ -393,7 +433,11 @@ fn character_book_entry(entry: &Value, index: usize) -> Value {
             "cooldown": entry.get("cooldown").cloned().unwrap_or(Value::Null),
             "delay": entry.get("delay").cloned().unwrap_or(Value::Null),
         },
-    })
+    });
+    if let Some(primary) = card_primary_position(position) {
+        card_entry["position"] = json!(primary);
+    }
+    card_entry
 }
 
 /// Collects CHARX files within the package limits import enforces.
@@ -484,6 +528,17 @@ fn decode_image_data_url(url: &str) -> Option<(String, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positions_map_to_card_placement() {
+        assert_eq!(card_primary_position(0), Some("before_char"));
+        assert_eq!(card_primary_position(1), Some("after_char"));
+        assert_eq!(card_primary_position(2), None);
+        assert_eq!(card_extension_position(0), 0);
+        assert_eq!(card_extension_position(1), 1);
+        assert_eq!(card_extension_position(2), 4);
+        assert_eq!(card_extension_position(3), 3);
+    }
 
     #[test]
     fn unique_names_never_collide_case_insensitively() {

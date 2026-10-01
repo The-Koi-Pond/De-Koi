@@ -1568,7 +1568,10 @@ mod tests {
                 json!({ "id": "book-sol", "name": "Sol Lorebook", "characterId": "char-sol", "sourceCharacterId": "char-sol" }),
             )
             .expect("seed lorebook");
-        for (index, (name, position, role)) in [("Koi", 1, "assistant"), ("Lantern", 0, "system")].iter().enumerate() {
+        for (index, (name, position, role)) in [("Koi", 1, "assistant"), ("Lantern", 0, "system"), ("Shrine", 2, "user")]
+            .iter()
+            .enumerate()
+        {
             state
                 .storage
                 .create(
@@ -1584,6 +1587,7 @@ mod tests {
                         "depth": 7,
                         "role": role,
                         "probability": 60,
+                        "useRegex": *position == 2,
                         "enabled": true,
                     }),
                 )
@@ -1668,6 +1672,13 @@ mod tests {
         assert_eq!(asset_types, ["icon", "x-banner", "emotion", "emotion"]);
         assert!(archive.by_name("assets/icon/images/main.png").is_ok());
         assert!(archive.by_name("assets/emotion/images/happy.png").is_ok());
+        let shrine = &card["data"]["character_book"]["entries"][2];
+        assert_eq!(shrine["name"], "Shrine");
+        assert!(shrine.get("position").is_none(), "V3 position only defines before/after");
+        assert_eq!(shrine["extensions"]["position"], 4);
+        assert_eq!(shrine["use_regex"], true);
+        assert_eq!(card["data"]["character_book"]["entries"][0]["position"], "after_char");
+        assert_eq!(card["data"]["character_book"]["entries"][1]["position"], "before_char");
 
         let imported = super::super::imports::import_call(
             &state,
@@ -1694,7 +1705,7 @@ mod tests {
         let lorebook_id = imported["lorebook"]["lorebookId"].as_str().expect("lorebook imported");
         let mut entries = entries_for_lorebook(&state, lorebook_id);
         entries.sort_by_key(|entry| entry["order"].as_i64().unwrap_or_default());
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
         assert_eq!(entries[0]["name"], "Koi");
         assert_eq!(entries[0]["position"], 1);
         assert_eq!(entries[0]["depth"], 7);
@@ -1702,6 +1713,48 @@ mod tests {
         assert_eq!(entries[0]["probability"], 60);
         assert_eq!(entries[1]["position"], 0);
         assert_eq!(entries[1]["role"], "system");
+        assert_eq!(entries[1]["useRegex"], false);
+        assert_eq!(entries[2]["position"], 2, "at-depth entries keep De-Koi's @Depth value");
+        assert_eq!(entries[2]["useRegex"], true);
+    }
+
+    #[test]
+    fn card_exports_report_unreadable_avatars_but_not_missing_ones() {
+        let state = test_state("charx-avatar-report");
+        for (id, avatar) in [
+            ("char-svg", json!("data:image/svg+xml;base64,PHN2Zz4=")),
+            ("char-none", Value::Null),
+        ] {
+            state
+                .storage
+                .create("characters", json!({ "id": id, "avatar": avatar, "data": { "name": id } }))
+                .expect("seed character");
+        }
+
+        let unreadable =
+            export_record_with_options(&state, "marinara_character", "characters", "char-svg", Some("charx"), false)
+                .expect("export");
+        let missing =
+            export_record_with_options(&state, "marinara_character", "characters", "char-none", Some("charx"), false)
+                .expect("export");
+
+        assert!(unreadable["report"]["skipped"].to_string().contains("could not be read"));
+        assert_eq!(missing["report"]["skipped"], json!([]));
+        let card_bytes = |download: &Value| {
+            let bytes = general_purpose::STANDARD
+                .decode(download["base64"].as_str().expect("base64"))
+                .expect("decode");
+            let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("zip");
+            let mut text = String::new();
+            archive
+                .by_name("card.json")
+                .expect("card")
+                .read_to_string(&mut text)
+                .expect("read");
+            serde_json::from_str::<Value>(&text).expect("json")
+        };
+        assert_eq!(card_bytes(&unreadable)["data"]["assets"][0]["uri"], "ccdefault:");
+        assert_eq!(card_bytes(&missing)["data"]["assets"][0]["uri"], "ccdefault:");
     }
 
     #[test]
