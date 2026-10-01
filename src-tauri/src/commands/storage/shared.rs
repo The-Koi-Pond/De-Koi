@@ -38,6 +38,12 @@ impl ParsedPath {
     }
 }
 
+/// Serializes tests that set process env vars or depend on their defaults.
+/// `cargo test` runs tests as threads of one process, so an env var set by one
+/// test is visible to every test running beside it.
+#[cfg(test)]
+pub(crate) static PROCESS_ENV_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub(crate) fn provider_local_urls_enabled(flag: &str) -> bool {
     std::env::var(flag).is_ok_and(|value| {
         matches!(

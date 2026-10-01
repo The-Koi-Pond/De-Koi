@@ -83,7 +83,11 @@ struct BackgroundRemoverWorkDir {
 
 impl BackgroundRemoverWorkDir {
     fn create() -> std::io::Result<Self> {
-        let path = env::temp_dir().join(format!("marinara-bgrem-{}-{}", now_millis(), new_id()));
+        let path = backgroundremover_temp_root().join(format!(
+            "marinara-bgrem-{}-{}",
+            now_millis(),
+            new_id()
+        ));
         fs::create_dir_all(&path)?;
         Ok(Self { path })
     }
@@ -105,7 +109,7 @@ struct BackgroundRemoverCaptureDir {
 
 impl BackgroundRemoverCaptureDir {
     fn create() -> std::io::Result<Self> {
-        let path = env::temp_dir().join(format!(
+        let path = backgroundremover_temp_root().join(format!(
             "marinara-bgrem-output-{}-{}",
             now_millis(),
             new_id()
@@ -2544,8 +2548,29 @@ fn path_executable_names(name: &str) -> Vec<String> {
         .collect()
 }
 
+/// Where backgroundremover work and capture dirs go. Tests point this at a
+/// scratch folder instead of changing the process-wide TMP/TEMP, which every
+/// concurrently running test also reads.
+fn backgroundremover_temp_root() -> PathBuf {
+    #[cfg(test)]
+    if let Some(root) = env::var_os("BACKGROUNDREMOVER_TEST_TEMP_ROOT") {
+        return PathBuf::from(root);
+    }
+    env::temp_dir()
+}
+
+/// Tests override the search path here instead of clearing the process-wide
+/// PATH, which would break every concurrently running test that spawns a process.
+fn executable_search_path() -> Option<std::ffi::OsString> {
+    #[cfg(test)]
+    if let Some(path) = env::var_os("SPRITE_TEST_EXECUTABLE_PATH") {
+        return Some(path);
+    }
+    env::var_os("PATH")
+}
+
 fn find_executable_on_path(name: &str) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
+    let path = executable_search_path()?;
     for entry in env::split_paths(&path) {
         for executable in path_executable_names(name) {
             let candidate = entry.join(executable);
@@ -3249,11 +3274,34 @@ mod sprite_prompt_override_tests {
         (format!("http://{address}"), handle)
     }
 
-    fn restore_env_var(name: &str, old_value: Option<std::ffi::OsString>) {
-        if let Some(value) = old_value {
-            env::set_var(name, value);
-        } else {
-            env::remove_var(name);
+    /// Sets env vars for one test and restores them on drop, including when
+    /// the test panics. Hold `PROCESS_ENV_TEST_LOCK` for as long as it lives.
+    struct ScopedEnv {
+        saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    }
+
+    impl ScopedEnv {
+        fn set(vars: &[(&'static str, &str)]) -> Self {
+            let saved = vars
+                .iter()
+                .map(|(name, value)| {
+                    let old = env::var_os(name);
+                    env::set_var(name, value);
+                    (*name, old)
+                })
+                .collect();
+            Self { saved }
+        }
+    }
+
+    impl Drop for ScopedEnv {
+        fn drop(&mut self) {
+            for (name, old) in self.saved.drain(..).rev() {
+                match old {
+                    Some(value) => env::set_var(name, value),
+                    None => env::remove_var(name),
+                }
+            }
         }
     }
 
@@ -3433,10 +3481,11 @@ mod sprite_prompt_override_tests {
 
     #[tokio::test]
     async fn sprite_sheet_cleanup_obeys_generation_timeout() {
-        let old_local_urls = env::var_os("IMAGE_PROVIDER_LOCAL_URLS_ENABLED");
-        let old_delay = env::var_os("SPRITE_CLEANUP_TEST_DELAY_MS");
-        env::set_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", "1");
-        env::set_var("SPRITE_CLEANUP_TEST_DELAY_MS", "500");
+        let _env_lock = PROCESS_ENV_TEST_LOCK.lock().await;
+        let _env = ScopedEnv::set(&[
+            ("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", "1"),
+            ("SPRITE_CLEANUP_TEST_DELAY_MS", "500"),
+        ]);
 
         let (state, root) = test_state("sheet-cleanup-timeout");
         let (base_url, request_handle) = serve_openai_sprite_image_response().await;
@@ -3475,17 +3524,16 @@ mod sprite_prompt_override_tests {
             .expect("test server should return captured request")
             .starts_with("POST /v1/images/generations "));
 
-        restore_env_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", old_local_urls);
-        restore_env_var("SPRITE_CLEANUP_TEST_DELAY_MS", old_delay);
         let _ = fs::remove_dir_all(root);
     }
 
     #[tokio::test]
     async fn individual_expression_cleanup_obeys_generation_timeout() {
-        let old_local_urls = env::var_os("IMAGE_PROVIDER_LOCAL_URLS_ENABLED");
-        let old_delay = env::var_os("SPRITE_CLEANUP_TEST_DELAY_MS");
-        env::set_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", "1");
-        env::set_var("SPRITE_CLEANUP_TEST_DELAY_MS", "500");
+        let _env_lock = PROCESS_ENV_TEST_LOCK.lock().await;
+        let _env = ScopedEnv::set(&[
+            ("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", "1"),
+            ("SPRITE_CLEANUP_TEST_DELAY_MS", "500"),
+        ]);
 
         let (state, root) = test_state("individual-cleanup-timeout");
         let (base_url, request_handle) = serve_openai_sprite_image_response().await;
@@ -3524,8 +3572,6 @@ mod sprite_prompt_override_tests {
             .expect("test server should return captured request")
             .starts_with("POST /v1/images/generations "));
 
-        restore_env_var("IMAGE_PROVIDER_LOCAL_URLS_ENABLED", old_local_urls);
-        restore_env_var("SPRITE_CLEANUP_TEST_DELAY_MS", old_delay);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -4171,9 +4217,6 @@ mod sprite_upload_tests {
 mod background_remover_runtime_tests {
     use super::*;
     use std::fs;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn temp_path(label: &str) -> PathBuf {
         env::temp_dir().join(format!("marinara-bgrem-{label}-{}", now_millis()))
@@ -4225,7 +4268,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn bundled_backgroundremover_is_preferred_before_env_and_path() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
         env::set_var("BACKGROUNDREMOVER_COMMAND", "external-backgroundremover");
 
@@ -4265,7 +4308,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn builtin_fallback_reports_builtin_source() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
         env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", "builtin");
 
@@ -4293,15 +4336,15 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn forced_backgroundremover_unavailable_does_not_claim_builtin_source() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
         let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
         let old_python = env::var_os("BACKGROUNDREMOVER_PYTHON");
-        let old_path = env::var_os("PATH");
+        let old_path = env::var_os("SPRITE_TEST_EXECUTABLE_PATH");
         env::set_var("SPRITE_BACKGROUND_REMOVAL_ENGINE", "backgroundremover");
         env::remove_var("BACKGROUNDREMOVER_COMMAND");
         env::remove_var("BACKGROUNDREMOVER_PYTHON");
-        env::set_var("PATH", "");
+        env::set_var("SPRITE_TEST_EXECUTABLE_PATH", "");
 
         let root = temp_path("required-missing");
         let state = test_state(root.join("data"), Some(root.join("resources-root")));
@@ -4334,16 +4377,16 @@ mod background_remover_runtime_tests {
             env::remove_var("BACKGROUNDREMOVER_PYTHON");
         }
         if let Some(value) = old_path {
-            env::set_var("PATH", value);
+            env::set_var("SPRITE_TEST_EXECUTABLE_PATH", value);
         } else {
-            env::remove_var("PATH");
+            env::remove_var("SPRITE_TEST_EXECUTABLE_PATH");
         }
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn backgroundremover_timeout_uses_env_override_and_default() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
 
         env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "1234");
@@ -4364,7 +4407,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_process_is_killed_after_timeout() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
         env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
 
@@ -4393,7 +4436,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_timeout_returns_with_descendant_output_handle_open() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
         env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
 
@@ -4426,7 +4469,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_timeout_kills_descendant_processes() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
         env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "100");
 
@@ -4471,7 +4514,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_process_drains_large_output_while_waiting() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
         env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "5000");
 
@@ -4513,12 +4556,10 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_output_read_failure_cleans_capture_dir() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_delete_capture =
             env::var_os("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ");
-        let old_tmp = env::var_os("TMP");
-        let old_temp = env::var_os("TEMP");
-        let old_tmpdir = env::var_os("TMPDIR");
+        let old_temp_root = env::var_os("BACKGROUNDREMOVER_TEST_TEMP_ROOT");
 
         let root = temp_path("capture-read-failure-cleanup");
         let temp_root = root.join("tmp");
@@ -4527,9 +4568,7 @@ mod background_remover_runtime_tests {
             "BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ",
             "1",
         );
-        env::set_var("TMP", &temp_root);
-        env::set_var("TEMP", &temp_root);
-        env::set_var("TMPDIR", &temp_root);
+        env::set_var("BACKGROUNDREMOVER_TEST_TEMP_ROOT", &temp_root);
 
         let command = if cfg!(windows) {
             let mut command = Command::new("powershell");
@@ -4570,20 +4609,10 @@ mod background_remover_runtime_tests {
         } else {
             env::remove_var("BACKGROUNDREMOVER_TEST_DELETE_CAPTURE_STDOUT_BEFORE_READ");
         }
-        if let Some(value) = old_tmp {
-            env::set_var("TMP", value);
+        if let Some(value) = old_temp_root {
+            env::set_var("BACKGROUNDREMOVER_TEST_TEMP_ROOT", value);
         } else {
-            env::remove_var("TMP");
-        }
-        if let Some(value) = old_temp {
-            env::set_var("TEMP", value);
-        } else {
-            env::remove_var("TEMP");
-        }
-        if let Some(value) = old_tmpdir {
-            env::set_var("TMPDIR", value);
-        } else {
-            env::remove_var("TMPDIR");
+            env::remove_var("BACKGROUNDREMOVER_TEST_TEMP_ROOT");
         }
         let _ = fs::remove_dir_all(root);
     }
@@ -4603,6 +4632,8 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn clear_backgroundremover_managed_model_cache_removes_only_model_dir() {
+        // The cache-clear failure test forces this function to fail through env.
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let root = temp_path("clear-model-cache");
         let model_dir = root.join("models");
         let sibling_dir = root.join("other-cache");
@@ -4622,7 +4653,7 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_managed_cache_detection_respects_custom_model_paths() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_home = env::var_os("U2NET_HOME");
         let old_u2net = env::var_os("U2NET_PATH");
         let old_u2netp = env::var_os("U2NETP_PATH");
@@ -4660,16 +4691,14 @@ mod background_remover_runtime_tests {
 
     #[test]
     fn backgroundremover_cache_clear_failure_cleans_temp_work_dir() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
         let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
         let old_home = env::var_os("U2NET_HOME");
         let old_u2net = env::var_os("U2NET_PATH");
         let old_u2netp = env::var_os("U2NETP_PATH");
         let old_fail_clear = env::var_os("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
-        let old_tmp = env::var_os("TMP");
-        let old_temp = env::var_os("TEMP");
-        let old_tmpdir = env::var_os("TMPDIR");
+        let old_temp_root = env::var_os("BACKGROUNDREMOVER_TEST_TEMP_ROOT");
 
         let root = temp_path("cache-clear-failure-cleanup");
         let temp_root = root.join("tmp");
@@ -4683,9 +4712,7 @@ mod background_remover_runtime_tests {
         env::remove_var("U2NET_PATH");
         env::remove_var("U2NETP_PATH");
         env::set_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR", "1");
-        env::set_var("TMP", &temp_root);
-        env::set_var("TEMP", &temp_root);
-        env::set_var("TMPDIR", &temp_root);
+        env::set_var("BACKGROUNDREMOVER_TEST_TEMP_ROOT", &temp_root);
 
         let error =
             try_remove_background_with_backgroundremover(&state, &encode_test_png(), true, None)
@@ -4737,27 +4764,17 @@ mod background_remover_runtime_tests {
         } else {
             env::remove_var("BACKGROUNDREMOVER_TEST_FAIL_MANAGED_CACHE_CLEAR");
         }
-        if let Some(value) = old_tmp {
-            env::set_var("TMP", value);
+        if let Some(value) = old_temp_root {
+            env::set_var("BACKGROUNDREMOVER_TEST_TEMP_ROOT", value);
         } else {
-            env::remove_var("TMP");
-        }
-        if let Some(value) = old_temp {
-            env::set_var("TEMP", value);
-        } else {
-            env::remove_var("TEMP");
-        }
-        if let Some(value) = old_tmpdir {
-            env::set_var("TMPDIR", value);
-        } else {
-            env::remove_var("TMPDIR");
+            env::remove_var("BACKGROUNDREMOVER_TEST_TEMP_ROOT");
         }
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn optional_backgroundremover_cache_clear_failure_falls_back() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_engine = env::var_os("SPRITE_BACKGROUND_REMOVAL_ENGINE");
         let old_legacy_engine = env::var_os("BACKGROUND_REMOVAL_ENGINE");
         let old_command = env::var_os("BACKGROUNDREMOVER_COMMAND");
