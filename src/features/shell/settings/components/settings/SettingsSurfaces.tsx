@@ -56,6 +56,7 @@ import { saveTextFileToUserSelectedLocation } from "../../../../../shared/api/fi
 import { chatBackgroundMetadataToUrl, chatBackgroundUrlToMetadata } from "../../../../../shared/lib/backgrounds";
 import {
   backgroundFileUrlFromPath,
+  displayableAssetSrc,
   gameAssetFileUrlFromPath,
   resolveManagedAssetThumbnailFileUrl,
   resolveManagedLocalAssetUrl,
@@ -2397,7 +2398,7 @@ function BackgroundThumbnail({ item }: { item: BackgroundLibraryItem }) {
     };
   }, [filename, gameAssetPath, item.absolutePath, item.url]);
 
-  return <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />;
+  return <img src={displayableAssetSrc(src)} alt="" className="h-full w-full object-cover" loading="lazy" />;
 }
 
 function BackgroundPicker({ selected, onSelect }: { selected: string | null; onSelect: (url: string | null) => void }) {
