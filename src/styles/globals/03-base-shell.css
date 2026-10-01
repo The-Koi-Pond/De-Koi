@@ -256,13 +256,13 @@ body {
 [data-theme="light"] body {
   background:
     radial-gradient(ellipse at 50% -12%, rgba(95, 178, 168, 0.16) 0%, transparent 52%),
-    radial-gradient(ellipse at 14% 88%, rgba(199, 90, 38, 0.08), transparent 34%), var(--background);
+    radial-gradient(ellipse at 14% 88%, rgba(173, 75, 28, 0.08), transparent 34%), var(--background);
 }
 
 [data-theme="light"] .koi-pond-surface {
   background:
     radial-gradient(ellipse at 18% 18%, rgba(95, 178, 168, 0.14), transparent 34%),
-    radial-gradient(ellipse at 86% 68%, rgba(199, 90, 38, 0.08), transparent 38%),
+    radial-gradient(ellipse at 86% 68%, rgba(173, 75, 28, 0.08), transparent 38%),
     radial-gradient(ellipse at 50% 46%, #fbf8f1 0%, #f4f0e6 68%, #ece6d8 100%);
 }
 

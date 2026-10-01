@@ -164,9 +164,9 @@
   --sidebar: #edf4f1;
   --sidebar-foreground: #2f5f5a;
   --sidebar-border: #6aa8a033;
-  --sidebar-accent: #c75a2618;
+  --sidebar-accent: #ad4b1c18;
   --sidebar-accent-foreground: #ad4b1c;
-  --glow-primary: rgba(199, 90, 38, 0.1);
+  --glow-primary: rgba(173, 75, 28, 0.1);
   --glow-accent: rgba(95, 178, 168, 0.08);
   --tracker-card-neutral-surface-top: color-mix(in srgb, var(--card) 84%, var(--accent) 16%);
   --tracker-card-neutral-surface-bottom: color-mix(in srgb, var(--secondary) 86%, var(--primary) 14%);
@@ -189,10 +189,10 @@
   --glass-strong-border: rgba(0, 0, 0, 0.08);
   --glass-strong-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), inset 0 1px rgba(255, 255, 255, 0.5);
 
-  --glow-color-1: rgba(199, 90, 38, 0.2);
+  --glow-color-1: rgba(173, 75, 28, 0.2);
   --glow-color-2: rgba(95, 178, 168, 0.15);
   --glow-color-3: rgba(90, 117, 112, 0.08);
-  --glow-sm-1: rgba(199, 90, 38, 0.15);
+  --glow-sm-1: rgba(173, 75, 28, 0.15);
   --glow-sm-2: rgba(95, 178, 168, 0.08);
 
   --scrollbar-track: rgba(95, 178, 168, 0.12);
@@ -238,7 +238,7 @@
 
 [data-theme="light"] .retro-glow-text {
   text-shadow:
-    0 0 5px rgba(199, 90, 38, 0.25),
+    0 0 5px rgba(173, 75, 28, 0.25),
     0 0 10px rgba(95, 178, 168, 0.15);
 }
 
