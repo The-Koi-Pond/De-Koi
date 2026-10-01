@@ -8,6 +8,7 @@ import {
   readRemoteError,
   REMOTE_FINITE_REQUEST_TIMEOUT_MS,
   REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
+  remoteRuntimeGeneration,
   remoteRuntimeTarget,
   streamRemoteLlm,
 } from "./remote-runtime";
@@ -215,6 +216,24 @@ describe("readRemoteError", () => {
     expect(error.message).toBe(
       "This De-Koi server is older than the web app and cannot store Deki sessions. Update and restart the server, then refresh this page.",
     );
+  });
+});
+
+describe("remoteRuntimeGeneration", () => {
+  afterEach(() => {
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+  });
+
+  it("changes on every Remote Runtime URL change, including a switch back", () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://runtime-a.test" });
+    const start = remoteRuntimeGeneration();
+
+    useUIStore.setState({ remoteRuntimeUrl: "http://runtime-b.test" });
+    useUIStore.setState({ remoteRuntimeUrl: "http://runtime-a.test" });
+    expect(remoteRuntimeGeneration()).toBe(start + 2);
+
+    useUIStore.setState({ theme: useUIStore.getState().theme });
+    expect(remoteRuntimeGeneration()).toBe(start + 2);
   });
 });
 
