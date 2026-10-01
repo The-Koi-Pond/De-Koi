@@ -21,6 +21,19 @@ describe("presentDekiDiffRow", () => {
     expect(presentDekiDiffRow(row!)).toEqual({ kind: "list", added: ["koi"], removed: ["pond"], kept: ["fantasy"] });
   });
 
+  it("counts repeated list items instead of collapsing them", () => {
+    const [dropped] = editRows({ data: { tags: ["koi"] } }, { data: { tags: ["koi", "koi"] } });
+    const [repeated] = editRows({ data: { tags: ["koi", "koi", "pond"] } }, { data: { tags: ["koi"] } });
+
+    expect(presentDekiDiffRow(dropped!)).toEqual({ kind: "list", added: [], removed: ["koi"], kept: ["koi"] });
+    expect(presentDekiDiffRow(repeated!)).toEqual({
+      kind: "list",
+      added: ["koi", "pond"],
+      removed: [],
+      kept: ["koi"],
+    });
+  });
+
   it("shows booleans and enum-like fields as state pills", () => {
     const [toggle] = createDekiRowChangeDiffRows({
       entity: "lorebook-entries",

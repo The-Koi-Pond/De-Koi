@@ -121,19 +121,22 @@ function DekiListDiff({ added, removed, kept }: { added: string[]; removed: stri
   const chip = "inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[0.6875rem] font-medium";
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-md bg-[var(--card)]/70 px-2.5 py-2">
-      {added.map((item) => (
-        <span key={`added-${item}`} className={cn(chip, "bg-emerald-500/15 text-emerald-400")}>
+      {added.map((item, index) => (
+        <span key={`added-${index}-${item}`} className={cn(chip, "bg-emerald-500/15 text-emerald-400")}>
           <span className="sr-only">Added: </span>+ {item}
         </span>
       ))}
-      {removed.map((item) => (
-        <span key={`removed-${item}`} className={cn(chip, "bg-red-500/10 text-red-400 line-through")}>
+      {removed.map((item, index) => (
+        <span key={`removed-${index}-${item}`} className={cn(chip, "bg-red-500/10 text-red-400 line-through")}>
           <span className="sr-only">Removed: </span>
           {item}
         </span>
       ))}
-      {kept.map((item) => (
-        <span key={`kept-${item}`} className={cn(chip, "bg-[var(--secondary)] text-[var(--muted-foreground)]")}>
+      {kept.map((item, index) => (
+        <span
+          key={`kept-${index}-${item}`}
+          className={cn(chip, "bg-[var(--secondary)] text-[var(--muted-foreground)]")}
+        >
           {item}
         </span>
       ))}

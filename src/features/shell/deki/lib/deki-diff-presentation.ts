@@ -16,8 +16,7 @@ const SCALAR_MAX_CHARS = 80;
 const PROSE_COLLAPSE_CHARS = 420;
 const LIST_ITEM_MAX_CHARS = 60;
 const STATE_FIELDS = new Set(["role", "position", "mode", "type", "status", "selectiveLogic", "strategy"]);
-const COLOR_PATTERN =
-  /^(#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\([^()]{5,40}\)|hsla?\([^()]{5,40}\))$/i;
+const COLOR_PATTERN = /^(#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\([^()]{5,40}\)|hsla?\([^()]{5,40}\))$/i;
 
 const FIELD_LABELS: Record<string, string> = {
   first_mes: "First message",
@@ -86,6 +85,38 @@ function stateText(value: unknown): string | null {
   return scalarText(value);
 }
 
+/**
+ * Multiset list diff: each occurrence is matched once, so dropping one of two
+ * repeated tags shows as a removal and adding a repeat shows as an addition.
+ */
+function diffListItems(
+  beforeItems: string[],
+  afterItems: string[],
+): { added: string[]; removed: string[]; kept: string[] } {
+  const unmatched = new Map<string, number>();
+  for (const item of beforeItems) unmatched.set(item, (unmatched.get(item) ?? 0) + 1);
+  const added: string[] = [];
+  const kept: string[] = [];
+  for (const item of afterItems) {
+    const remaining = unmatched.get(item) ?? 0;
+    if (remaining > 0) {
+      unmatched.set(item, remaining - 1);
+      kept.push(item);
+    } else {
+      added.push(item);
+    }
+  }
+  const removed: string[] = [];
+  for (const item of beforeItems) {
+    const remaining = unmatched.get(item) ?? 0;
+    if (remaining > 0) {
+      unmatched.set(item, remaining - 1);
+      removed.push(item);
+    }
+  }
+  return { added, removed, kept };
+}
+
 export function presentDekiDiffRow(row: DekiActionDiffRow): DekiDiffPresentation {
   const before = row.beforeValue;
   const after = row.afterValue;
@@ -99,14 +130,7 @@ export function presentDekiDiffRow(row: DekiActionDiffRow): DekiDiffPresentation
     (Array.isArray(after) || Array.isArray(before)) &&
     [...beforeItems, ...afterItems].every((item) => item.length <= LIST_ITEM_MAX_CHARS)
   ) {
-    const beforeSet = new Set(beforeItems);
-    const afterSet = new Set(afterItems);
-    return {
-      kind: "list",
-      added: afterItems.filter((item) => !beforeSet.has(item)),
-      removed: beforeItems.filter((item) => !afterSet.has(item)),
-      kept: afterItems.filter((item) => beforeSet.has(item)),
-    };
+    return { kind: "list", ...diffListItems(beforeItems, afterItems) };
   }
 
   const bothOptional = (check: (value: unknown) => boolean) =>
