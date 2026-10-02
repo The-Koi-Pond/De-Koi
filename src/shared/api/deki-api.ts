@@ -735,6 +735,7 @@ function noop(): void {}
 async function saveSettingsTransform(
   transform: (settings: Record<string, unknown>) => Record<string, unknown>,
   beforeWrite: () => void = noop,
+  afterDuplicateCreate = false,
 ): Promise<Record<string, unknown>> {
   const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
   const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
@@ -746,7 +747,14 @@ async function saveSettingsTransform(
   if (existing) {
     await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
   } else {
-    await createOrUpdate("app-settings", DEKI_SETTINGS_ID, { id: DEKI_SETTINGS_ID, ...payload }, payload);
+    try {
+      await storageApi.create("app-settings", { id: DEKI_SETTINGS_ID, ...payload });
+    } catch (error) {
+      // Another client created the settings row after this one read it. Apply
+      // this change on top of that row instead of replacing its fields.
+      if (afterDuplicateCreate || !isDuplicateCreateError(error)) throw error;
+      return saveSettingsTransform(transform, beforeWrite, true);
+    }
   }
   if (!existing && legacy) {
     await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
@@ -842,25 +850,20 @@ async function writeStorageRecord(
   const existing = await storageApi.get(entity, id).catch(() => null);
   beforeWrite();
   if (existing) await storageApi.update(entity, id, value);
-  else await createOrUpdate(entity, id, value, value);
+  else await createUnlessExists(entity, value);
 }
 
 /**
- * Creates a row, or updates it when another client created the same id first.
- * Two clients first-running against one runtime both migrate the same history
- * to the same ids, so the later write updates the row instead of failing.
+ * Creates a migrated row unless another client created the same id first.
+ * Two clients first-running against one runtime migrate the same history to
+ * the same ids; the first writer's row stands, because by now it may hold
+ * newer state (a later message, compaction) that this snapshot would undo.
  */
-async function createOrUpdate(
-  entity: StorageEntity,
-  id: string,
-  value: Record<string, unknown>,
-  patch: Record<string, unknown>,
-): Promise<void> {
+async function createUnlessExists(entity: StorageEntity, value: Record<string, unknown>): Promise<void> {
   try {
     await storageApi.create(entity, value);
   } catch (error) {
     if (!isDuplicateCreateError(error)) throw error;
-    await storageApi.update(entity, id, patch);
   }
 }
 

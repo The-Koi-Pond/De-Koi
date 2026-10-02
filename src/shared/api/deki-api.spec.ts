@@ -1298,7 +1298,8 @@ describe("dekiApi.sessions first run", () => {
         .filter((rowKey) => rowKey.startsWith(`${entity}/`))
         .map((rowKey) => rowKey.slice(entity.length + 1));
     const settings = () => (rows.get("app-settings/deki")?.value ?? {}) as Record<string, unknown>;
-    return { writes, rowIds, settings };
+    const row = (entity: string, id: string) => rows.get(key(entity, id));
+    return { writes, rowIds, settings, row };
   }
 
   const legacyMessage = (id: string, content: string) => ({
@@ -1367,12 +1368,92 @@ describe("dekiApi.sessions first run", () => {
 
       expect(first.activeSessionId).toBe(second.activeSessionId);
       expect(first.sessions.map((session) => session.id)).toEqual(second.sessions.map((session) => session.id));
-      // Both clients raced to create the same rows; the later create became an update.
-      expect(storage.writes.some((write) => write.startsWith("update deki-sessions/"))).toBe(true);
+      // Both clients raced to create the same rows: each row was created once,
+      // and the client that lost the race did not overwrite it.
+      const sessionCreates = storage.writes.filter((write) => write.startsWith("create deki-sessions/"));
+      expect(sessionCreates).toEqual([...new Set(sessionCreates)]);
+      expect(storage.writes.some((write) => write.startsWith("update deki-sessions/"))).toBe(false);
       expect((await dekiApi.sessions.list()).sessions.map((session) => session.id)).toEqual(
         first.sessions.map((session) => session.id),
       );
     }
+  });
+
+  it("keeps a migrated row another client has already moved on from", async () => {
+    // The other client migrated first and has since renamed session-one. This
+    // client's reads happened before that, so it still sees no durable rows.
+    const seed: Record<string, Record<string, unknown>> = {
+      ...legacySettingsSeed(),
+      "deki-sessions/session-one": {
+        id: "session-one",
+        title: "Renamed by the other client",
+        messageCount: 2,
+        createdAt: "2026-06-24T00:00:00.000Z",
+        updatedAt: "2026-06-26T00:00:00.000Z",
+      },
+    };
+    const storage = installMemoryStorage({ seed });
+    const realList = storageApiMock.list.getMockImplementation()!;
+    const realGet = storageApiMock.get.getMockImplementation()!;
+    let staleList = true;
+    let staleGet = true;
+    storageApiMock.list.mockImplementation(async (entity: string, options?: unknown) => {
+      if (staleList && entity === "deki-sessions") {
+        staleList = false;
+        return [];
+      }
+      return realList(entity, options);
+    });
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (staleGet && entity === "deki-sessions" && id === "session-one") {
+        staleGet = false;
+        return null;
+      }
+      return realGet(entity, id);
+    });
+
+    await dekiApi.sessions.list();
+
+    expect(storage.row("deki-sessions", "session-one")).toMatchObject({
+      title: "Renamed by the other client",
+      updatedAt: "2026-06-26T00:00:00.000Z",
+    });
+  });
+
+  it("applies a settings change on top of a row another client just created", async () => {
+    // This client read no settings row; the other client created one with its
+    // own connection before this client's create landed.
+    const storage = installMemoryStorage({
+      seed: { "app-settings/deki": { id: "deki", value: { selectedConnectionId: "other-client-connection" } } },
+    });
+    // Until this client tries to create the settings row, its reads still see
+    // none; the other client's row is already there when the create lands.
+    const realGet = storageApiMock.get.getMockImplementation()!;
+    const realCreate = storageApiMock.create.getMockImplementation()!;
+    let createAttempted = false;
+    storageApiMock.get.mockImplementation(async (entity: string, id: string) => {
+      if (!createAttempted && entity === "app-settings" && id === "deki") return null;
+      return realGet(entity, id);
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+      if (entity === "app-settings") createAttempted = true;
+      return realCreate(entity, value);
+    });
+
+    await dekiApi.sessions.list();
+
+    expect(createAttempted).toBe(true);
+    expect(storage.settings()).toMatchObject({
+      selectedConnectionId: "other-client-connection",
+      activeSessionId: "deki-session-default",
+    });
+  });
+
+  it("still fails on a storage error that is not a duplicate create", async () => {
+    installMemoryStorage();
+    storageApiMock.create.mockRejectedValueOnce(new ApiError("deki-sessions value is invalid", 400));
+
+    await expect(dekiApi.sessions.list()).rejects.toThrow("deki-sessions value is invalid");
   });
 
   it("holds a session created mid-migration until the migration has finished writing", async () => {
