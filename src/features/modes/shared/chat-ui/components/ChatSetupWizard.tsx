@@ -873,7 +873,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                             className="h-5 w-5 rounded-full"
                           />
                         ) : (
-                          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5rem] font-bold">
+                          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
                             {name[0]}
                           </div>
                         )}
@@ -1842,7 +1842,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                                 className="h-5 w-5 rounded-full"
                               />
                             ) : (
-                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5rem] font-bold">
+                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
                                 {name[0]}
                               </div>
                             )}

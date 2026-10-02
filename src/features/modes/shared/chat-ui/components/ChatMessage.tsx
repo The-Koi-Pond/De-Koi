@@ -2530,7 +2530,7 @@ export const ChatMessage = memo(function ChatMessage({
               </div>
             )}
             {(showActions || showMessageNumbers) && messageIndex != null && (
-              <span className="mt-0.5 text-[0.5rem] font-medium text-[var(--muted-foreground)] select-none">
+              <span className="mt-0.5 text-[0.5625rem] font-medium text-[var(--muted-foreground)] select-none">
                 #{messageIndex}
               </span>
             )}

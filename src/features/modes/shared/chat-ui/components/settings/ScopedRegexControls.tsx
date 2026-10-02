@@ -95,7 +95,7 @@ function ScopedRegexCharacterGroup({
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/50 p-2">
       <div className="mb-1.5 flex items-center gap-2">
-        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--muted)] text-[0.5rem] font-bold">
+        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--muted)] text-[0.5625rem] font-bold">
           {characterName[0]}
         </div>
         <span className="text-[0.6875rem] font-medium">{characterName}</span>

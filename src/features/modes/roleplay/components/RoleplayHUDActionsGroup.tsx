@@ -214,12 +214,12 @@ export function ActionsGroup({
           />
         )}
         {generatedAgentCount > 0 && (
-          <span className="hidden md:flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
+          <span className="hidden md:flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5625rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
             {generatedAgentCount}
           </span>
         )}
         {failedAgentTypes.length > 0 && (
-          <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500/80 px-1 text-[0.5rem] font-bold text-foreground">
+          <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500/80 px-1 text-[0.5625rem] font-bold text-foreground">
             {failedAgentTypes.length}
           </span>
         )}

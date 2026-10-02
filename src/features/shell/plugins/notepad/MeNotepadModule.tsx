@@ -819,7 +819,7 @@ export function MeNotepadModule() {
                 <span className="flex shrink-0 items-center gap-1 text-[0.625rem] font-bold uppercase text-[var(--muted-foreground)]">
                   <span>{scopeLabel}</span>
                   {activeTab ? (
-                    <span className="rounded-full bg-[var(--secondary)] px-1.5 py-px text-[0.55rem] ring-1 ring-[var(--border)]">
+                    <span className="rounded-full bg-[var(--secondary)] px-1.5 py-px text-[0.5625rem] ring-1 ring-[var(--border)]">
                       {activeNoteEntryCount}
                     </span>
                   ) : null}

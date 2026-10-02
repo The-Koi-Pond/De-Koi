@@ -784,7 +784,7 @@ export function ConversationMessageAvatarColumn({ context }: { context: Conversa
             </div>
           )}
           {context.shouldShowMessageNumber && (
-            <span className="mt-0.5 block text-center text-[0.5rem] font-medium text-[var(--muted-foreground)] select-none">
+            <span className="mt-0.5 block text-center text-[0.5625rem] font-medium text-[var(--muted-foreground)] select-none">
               #{context.messageIndex}
             </span>
           )}

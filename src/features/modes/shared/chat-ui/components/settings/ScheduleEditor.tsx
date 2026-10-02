@@ -435,7 +435,7 @@ function LegacyScheduleEditor({
                       {AVAILABILITY_KEYS.map((key) => (
                         <span
                           key={key}
-                          className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]"
+                          className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]"
                           title={availabilityLabelForKey(key)}
                         >
                           {summary.counts[key]}
@@ -448,7 +448,7 @@ function LegacyScheduleEditor({
                       <div key={day.day} className="rounded-md bg-[var(--secondary)] px-2 py-1.5">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[0.5625rem] font-medium text-[var(--foreground)]">{day.day}</span>
-                          <span className="text-[0.5rem] text-[var(--muted-foreground)]">
+                          <span className="text-[0.5625rem] text-[var(--muted-foreground)]">
                             {day.blocks.length > 0
                               ? `${day.blocks.length} pattern${day.blocks.length === 1 ? "" : "s"}`
                               : "Open"}
@@ -465,7 +465,7 @@ function LegacyScheduleEditor({
                             ))
                           )}
                           {day.blocks.length > 4 && (
-                            <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]">
+                            <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
                               +{day.blocks.length - 4}
                             </span>
                           )}
@@ -484,7 +484,7 @@ function LegacyScheduleEditor({
                     <div className="rounded-md bg-[var(--secondary)] p-2 space-y-1.5">
                       <div className="grid gap-2 sm:grid-cols-3">
                         <label className="space-y-1">
-                          <span className="block text-[0.55rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                          <span className="block text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                             Inactivity
                           </span>
                           <input
@@ -497,12 +497,12 @@ function LegacyScheduleEditor({
                             className="w-full rounded bg-[var(--background)] px-1.5 py-1 text-[0.625rem] outline-none ring-1 ring-transparent focus:ring-[var(--primary)]/40"
                             placeholder="120"
                           />
-                          <span className="block text-[0.5rem] text-[var(--muted-foreground)]">
+                          <span className="block text-[0.5625rem] text-[var(--muted-foreground)]">
                             Minutes before they follow up.
                           </span>
                         </label>
                         <label className="space-y-1">
-                          <span className="block text-[0.55rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                          <span className="block text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                             Delayed Reply
                           </span>
                           <input
@@ -515,12 +515,12 @@ function LegacyScheduleEditor({
                             className="w-full rounded bg-[var(--background)] px-1.5 py-1 text-[0.625rem] outline-none ring-1 ring-transparent focus:ring-[var(--primary)]/40"
                             placeholder="Default"
                           />
-                          <span className="block text-[0.5rem] text-[var(--muted-foreground)]">
+                          <span className="block text-[0.5625rem] text-[var(--muted-foreground)]">
                             Blank keeps the built-in 1-3 minute range.
                           </span>
                         </label>
                         <label className="space-y-1">
-                          <span className="block text-[0.55rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                          <span className="block text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                             Busy Reply
                           </span>
                           <input
@@ -533,7 +533,7 @@ function LegacyScheduleEditor({
                             className="w-full rounded bg-[var(--background)] px-1.5 py-1 text-[0.625rem] outline-none ring-1 ring-transparent focus:ring-[var(--primary)]/40"
                             placeholder="Default"
                           />
-                          <span className="block text-[0.5rem] text-[var(--muted-foreground)]">
+                          <span className="block text-[0.5625rem] text-[var(--muted-foreground)]">
                             Blank keeps the built-in 2-5 minute range.
                           </span>
                         </label>
@@ -569,12 +569,12 @@ function LegacyScheduleEditor({
                                 />
                               ))}
                               {blocks.length > 8 && (
-                                <span className="text-[0.5rem] text-[var(--muted-foreground)]">
+                                <span className="text-[0.5625rem] text-[var(--muted-foreground)]">
                                   +{blocks.length - 8}
                                 </span>
                               )}
                             </span>
-                            <span className="text-[0.5rem] text-[var(--muted-foreground)]">{blocks.length}</span>
+                            <span className="text-[0.5625rem] text-[var(--muted-foreground)]">{blocks.length}</span>
                           </button>
 
                           {isDayExpanded && (
@@ -721,7 +721,7 @@ function AvailabilityBadge({ availabilityKey, children }: { availabilityKey: Ava
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[0.5rem] font-medium leading-none",
+        "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[0.5625rem] font-medium leading-none",
         availabilityBadgeClass(availabilityKey),
       )}
     >
