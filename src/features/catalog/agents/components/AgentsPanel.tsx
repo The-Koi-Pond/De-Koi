@@ -476,7 +476,7 @@ export function AgentsPanel() {
                   {tool.executionType}
                 </span>
               </button>
-              <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
+              <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
                 <button
                   className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)]"
                   title="Edit tool"
@@ -563,7 +563,7 @@ function renderAgentCard({
           </span>
         </div>
       </button>
-      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
+      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
         <button
           className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)] disabled:cursor-wait disabled:opacity-60"
           title={togglePending ? "Saving agent state…" : enabled ? "Disable agent" : "Enable agent"}
