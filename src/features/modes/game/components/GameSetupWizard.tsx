@@ -684,7 +684,14 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
             >
               {i + 1}
             </button>
-            <span className={cn("text-xs", i <= step ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]")}>
+            {/* On phones only the current step is labelled; the rest stay readable to screen readers. */}
+            <span
+              className={cn(
+                "text-xs",
+                i <= step ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+                i !== step && "max-sm:sr-only",
+              )}
+            >
               {s}
             </span>
             {i < steps.length - 1 && <div className="h-px w-4 bg-[var(--border)]" />}
