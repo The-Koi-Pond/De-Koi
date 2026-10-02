@@ -1448,7 +1448,9 @@ mod tests {
 
     #[test]
     fn directory_removal_does_not_retry_real_errors() {
-        let missing = std::env::temp_dir().join("marinara-profile-missing-dir-never-created");
+        // A unique folder that this test creates and removes, so it is absent.
+        let missing = temp_data_dir("missing-dir");
+        fs::remove_dir(&missing).unwrap();
         let error =
             remove_dir_all_retrying(&missing).expect_err("a missing folder is a real error");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
