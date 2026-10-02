@@ -140,6 +140,18 @@ pub fn storage_update(state: &AppState, args: &Map<String, Value>) -> AppResult<
     )
 }
 
+pub fn app_settings_update_if_unchanged(
+    state: &AppState,
+    args: &Map<String, Value>,
+) -> AppResult<Value> {
+    entity_commands::app_settings_update_if_unchanged_inner(
+        state,
+        required_string(args, "id")?.to_string(),
+        optional_value(args, "expectedValue"),
+        optional_value(args, "value"),
+    )
+}
+
 pub fn chat_update_if_unchanged(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::chat_update_if_unchanged_inner(
         state,

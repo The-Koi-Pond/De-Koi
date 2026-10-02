@@ -793,6 +793,14 @@ pub(crate) async fn dispatch_for_runtime_owner(
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_update)
                 .await
         }
+        "app_settings_update_if_unchanged" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::app_settings_update_if_unchanged,
+            )
+            .await
+        }
         "chat_update_if_unchanged" => {
             dispatch_blocking_http_storage(
                 state,
@@ -1998,6 +2006,7 @@ mod tests {
         "chat_message_set_active_swipe",
         "chat_message_swipes",
         "chat_message_update_content_if_unchanged",
+        "app_settings_update_if_unchanged",
         "chat_update_if_unchanged",
         "chat_messages_bulk_delete",
         "chat_note_delete",

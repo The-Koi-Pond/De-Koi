@@ -711,6 +711,53 @@ pub async fn chat_update_if_unchanged(
     .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn app_settings_update_if_unchanged(
+    state: State<'_, AppState>,
+    id: String,
+    expected_value: Value,
+    value: Value,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        app_settings_update_if_unchanged_inner(&state, id, expected_value, value)
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
+/// Replaces an app-settings row's `value` only if it still equals
+/// `expected_value`, the value the caller read. The comparison and the write
+/// happen under the storage write lock, so a concurrent settings write is never
+/// silently replaced: the caller gets `updated: false` with the current record
+/// and can re-apply its change on top of it.
+pub(crate) fn app_settings_update_if_unchanged_inner(
+    state: &AppState,
+    id: String,
+    expected_value: Value,
+    value: Value,
+) -> Result<Value, AppError> {
+    let patch = shared::normalize_update_patch("app-settings", json!({ "value": value }))?;
+    let next_value = patch.get("value").cloned().unwrap_or(Value::Null);
+    let updated = state.storage.patch_if("app-settings", &id, |row| {
+        if row.get("value").cloned().unwrap_or(Value::Null) != expected_value {
+            return Ok(false);
+        }
+        row.insert("value".to_string(), next_value.clone());
+        Ok(true)
+    })?;
+    let was_updated = updated.is_some();
+    let record = match updated {
+        Some(record) => record,
+        None => state
+            .storage
+            .get("app-settings", &id)?
+            .ok_or_else(|| AppError::not_found(format!("app-settings/{id} was not found")))?,
+    };
+    Ok(json!({ "updated": was_updated, "record": record }))
+}
+
 fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<(), AppError> {
     let fields = value.as_object().ok_or_else(|| {
         AppError::invalid_input(format!("Conditional chat {label} must be an object"))
@@ -1669,6 +1716,58 @@ mod tests {
 
         assert_eq!(partial["updated"], false);
         assert_eq!(partial["chat"]["metadata"]["enableMemoryRecall"], true);
+    }
+
+    #[test]
+    fn conditional_settings_update_applies_only_over_the_value_it_read() {
+        let state = test_state("conditional-settings-update");
+        state
+            .storage
+            .create(
+                "app-settings",
+                json!({ "id": "deki", "value": { "activeSessionId": "session-a" } }),
+            )
+            .expect("settings should seed");
+
+        let applied = app_settings_update_if_unchanged_inner(
+            &state,
+            "deki".to_string(),
+            json!({ "activeSessionId": "session-a" }),
+            json!({ "activeSessionId": "session-b" }),
+        )
+        .expect("matching settings should update");
+        assert_eq!(applied["updated"], true);
+        assert_eq!(applied["record"]["value"]["activeSessionId"], "session-b");
+
+        // A writer that read the old value must not replace the newer one.
+        let stale = app_settings_update_if_unchanged_inner(
+            &state,
+            "deki".to_string(),
+            json!({ "activeSessionId": "session-a" }),
+            json!({ "activeSessionId": "session-c" }),
+        )
+        .expect("a stale write reports the current record");
+        assert_eq!(stale["updated"], false);
+        assert_eq!(stale["record"]["value"]["activeSessionId"], "session-b");
+        assert_eq!(
+            state.storage.get("app-settings", "deki").unwrap().unwrap()["value"]["activeSessionId"],
+            "session-b"
+        );
+    }
+
+    #[test]
+    fn conditional_settings_update_reports_a_missing_row() {
+        let state = test_state("conditional-settings-missing");
+
+        let error = app_settings_update_if_unchanged_inner(
+            &state,
+            "deki".to_string(),
+            Value::Null,
+            json!({ "activeSessionId": "session-a" }),
+        )
+        .expect_err("a missing settings row is not a stale write");
+
+        assert_eq!(error.code, "not_found");
     }
 
     #[test]
