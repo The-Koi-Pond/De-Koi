@@ -229,13 +229,13 @@ export function CharacterListRow({
                   event.stopPropagation();
                   onToggleIncludedTag(tag);
                 }}
-                className="cursor-pointer rounded-full bg-[var(--primary)]/8 px-1.5 py-px text-[0.5rem] font-medium text-[var(--primary)]/70 transition-all hover:bg-[var(--primary)]/15 hover:text-[var(--primary)]"
+                className="cursor-pointer rounded-full bg-[var(--primary)]/8 px-1.5 py-px text-[0.5625rem] font-medium text-[var(--primary)]/70 transition-all hover:bg-[var(--primary)]/15 hover:text-[var(--primary)]"
               >
                 {tag}
               </span>
             ))}
             {charTags.length > 3 && (
-              <span className="rounded-full bg-[var(--secondary)] px-1.5 py-px text-[0.5rem] text-[var(--muted-foreground)]">
+              <span className="rounded-full bg-[var(--secondary)] px-1.5 py-px text-[0.5625rem] text-[var(--muted-foreground)]">
                 +{charTags.length - 3}
               </span>
             )}

@@ -3504,7 +3504,7 @@ function ChatSettingsDrawerInner({
                       </option>
                     ))}
                   </select>
-                  <p className="text-[0.55rem] text-[var(--muted-foreground)]">
+                  <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
                     Used for character selfies when Commands are enabled. The Illustrator agent uses its own connection
                     from the Agents tab.
                   </p>
@@ -4080,7 +4080,7 @@ function ChatSettingsDrawerInner({
                         Updates a game-scoped lorebook after End Session finishes and attaches it only to this game.
                       </p>
                       {gameLorebookKeeperLorebook && (
-                        <p className="mt-0.5 truncate text-[0.55rem] text-[var(--primary)]/70">
+                        <p className="mt-0.5 truncate text-[0.5625rem] text-[var(--primary)]/70">
                           Target: {gameLorebookKeeperLorebook.name}
                         </p>
                       )}

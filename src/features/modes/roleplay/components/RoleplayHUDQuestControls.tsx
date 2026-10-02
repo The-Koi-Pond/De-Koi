@@ -107,7 +107,7 @@ export function QuestCardEditable({
           <button
             type="button"
             onClick={addObjective}
-            className="flex items-center gap-0.5 text-[0.5rem] text-[var(--muted-foreground)]/40 hover:text-[var(--muted-foreground)] transition-colors mt-0.5"
+            className="flex items-center gap-0.5 text-[0.5625rem] text-[var(--muted-foreground)]/40 hover:text-[var(--muted-foreground)] transition-colors mt-0.5"
           >
             <Plus size="0.4375rem" /> objective
           </button>

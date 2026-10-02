@@ -553,7 +553,7 @@ export function GameMapPanel({
               >
                 <StateIcon size={13} />
                 {stateHovered && (
-                  <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-black/85 px-1.5 py-0.5 text-[0.55rem] text-white/90 shadow z-50">
+                  <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-black/85 px-1.5 py-0.5 text-[0.5625rem] text-white/90 shadow z-50">
                     {stateCfg!.label}
                   </span>
                 )}

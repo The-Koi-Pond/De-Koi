@@ -164,12 +164,15 @@ The palette is a pond nocturne: black-teal depth, warm koi-orange action, lotus-
 - **Title** (700, `1rem`, 1.35): Card titles, message author labels, compact panels.
 - **Body** (400, `0.875rem`, 1.5): Default app text, chat metadata, settings descriptions, and dense controls. Keep prose line length around 65 to 75 characters where possible.
 - **Label** (600, `0.8125rem`, 1.25): Buttons, chips, tabs, field labels, compact status text.
+- **Micro** (500 to 700, `0.5625rem`): Tag chips, counters, badges, and HUD readouts. This is the smallest size in the app.
 
 ### Named Rules
 
 **The No Tiny Mystery Rule.** Mobile controls must keep labels and icon buttons readable without hover help.
 
 **The Compact Is Not Cramped Rule.** Dense panels may use small type, but text must not clip, overlap, or rely on negative letter spacing.
+
+**The Nine-Pixel Floor Rule.** No text renders smaller than `0.5625rem` (9px at the default root size). When a badge or tile cannot fit its text at that size, change the layout, not the type.
 
 ## 4. Elevation
 
