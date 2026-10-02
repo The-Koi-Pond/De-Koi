@@ -233,7 +233,7 @@ function LearnedOptionChips({
             className={cn(
               "group/learned inline-flex items-center rounded-full text-[0.625rem] transition-colors",
               isSelected
-                ? "bg-[var(--primary)]/20 text-[var(--primary)] ring-1 ring-[var(--primary)]/35"
+                ? "bg-[var(--primary)] text-[var(--primary-foreground)] dark:bg-[var(--primary)]/20 dark:text-[var(--primary)] ring-1 ring-[var(--primary)]/35"
                 : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
             )}
           >
@@ -730,7 +730,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     className={cn(
                       "rounded-full px-3 py-1 text-xs transition-colors",
                       genres.includes(g)
-                        ? "bg-[var(--primary)]/20 text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
+                        ? "bg-[var(--primary)] text-[var(--primary-foreground)] dark:bg-[var(--primary)]/20 dark:text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
                         : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
                     )}
                   >
@@ -829,7 +829,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     className={cn(
                       "rounded-full px-3 py-1 text-xs transition-colors",
                       tones.includes(t)
-                        ? "bg-[var(--primary)]/20 text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
+                        ? "bg-[var(--primary)] text-[var(--primary-foreground)] dark:bg-[var(--primary)]/20 dark:text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
                         : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
                     )}
                   >
@@ -896,7 +896,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     className={cn(
                       "rounded-full px-3 py-1 text-xs transition-colors",
                       difficulty === d
-                        ? "bg-[var(--primary)]/20 text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
+                        ? "bg-[var(--primary)] text-[var(--primary-foreground)] dark:bg-[var(--primary)]/20 dark:text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
                         : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
                     )}
                   >
@@ -918,7 +918,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   className={cn(
                     "rounded-full px-3 py-1 text-xs transition-colors",
                     rating === "sfw"
-                      ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40"
+                      ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-400 ring-1 ring-emerald-500/40"
                       : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
                   )}
                 >
@@ -967,7 +967,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[0.625rem] transition-colors",
                       normalizedLanguage === option.value
-                        ? "bg-[var(--primary)]/20 text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
+                        ? "bg-[var(--primary)] text-[var(--primary-foreground)] dark:bg-[var(--primary)]/20 dark:text-[var(--primary)] ring-1 ring-[var(--primary)]/40"
                         : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--primary)]/10",
                     )}
                   >
