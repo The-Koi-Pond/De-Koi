@@ -83,7 +83,7 @@ export function CustomTrackerSection({
               className="flex-1 min-w-0"
               placeholder="Field name"
             />
-            <span className="text-[var(--muted-foreground)]/40 text-[0.5rem]">=</span>
+            <span className="text-[var(--muted-foreground)]/40 text-[0.5625rem]">=</span>
             <InlineEdit
               value={field.value}
               onSave={(value) => updateField(idx, { ...field, value })}

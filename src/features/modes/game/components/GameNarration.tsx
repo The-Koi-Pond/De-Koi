@@ -2867,7 +2867,7 @@ export function GameNarration({
       seg.partyType && seg.partyType !== "main" ? (
         <span
           className={cn(
-            "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.45rem] font-semibold uppercase tracking-wide",
+            "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide",
             seg.partyType === "side" && "bg-sky-500/15 text-sky-200/70",
             seg.partyType === "extra" && "bg-sky-500/15 text-sky-200/70",
             seg.partyType === "thought" && "bg-purple-500/15 text-purple-200/70",
@@ -2968,7 +2968,7 @@ export function GameNarration({
               className="h-7 w-7 shrink-0 rounded-lg border border-[var(--border)] dark:border-white/10"
             />
           ) : (
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--accent)] text-[0.5rem] font-bold dark:border-white/10">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--accent)] text-[0.5625rem] font-bold dark:border-white/10">
               {(seg.speaker || "?")[0]}
             </div>
           )}
@@ -3281,7 +3281,7 @@ export function GameNarration({
                           {active.partyType && active.partyType !== "main" && (
                             <span
                               className={cn(
-                                "rounded-full px-1.5 py-0.5 text-[0.5rem] font-semibold uppercase tracking-wide",
+                                "rounded-full px-1.5 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide",
                                 active.partyType === "thought" && "bg-purple-500/15 text-purple-200/70",
                                 active.partyType === "whisper" && "bg-rose-500/15 text-rose-200/70",
                               )}
@@ -3420,7 +3420,7 @@ export function GameNarration({
                       <Package size={12} />
                       <span className="hidden sm:inline">Inventory</span>
                       {(inventoryCount ?? 0) > 0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] font-bold text-black">
+                        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.5625rem] font-bold text-black">
                           {inventoryCount}
                         </span>
                       )}
@@ -3537,7 +3537,7 @@ export function GameNarration({
                       <Package size={12} />
                       <span className="hidden sm:inline">Inventory</span>
                       {(inventoryCount ?? 0) > 0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] font-bold text-black">
+                        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.5625rem] font-bold text-black">
                           {inventoryCount}
                         </span>
                       )}
@@ -3936,7 +3936,7 @@ export function GameNarration({
                         seg.partyType && seg.partyType !== "main" ? (
                           <span
                             className={cn(
-                              "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.45rem] font-semibold uppercase tracking-wide",
+                              "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide",
                               seg.partyType === "side" && "bg-sky-500/15 text-sky-200/70",
                               seg.partyType === "extra" && "bg-sky-500/15 text-sky-200/70",
                               seg.partyType === "thought" && "bg-purple-500/15 text-purple-200/70",
@@ -4182,7 +4182,7 @@ export function GameNarration({
                                       }
                                     />
                                   ) : (
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[var(--accent)] text-[0.5rem] font-bold transition-colors hover:border-white/25">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[var(--accent)] text-[0.5625rem] font-bold transition-colors hover:border-white/25">
                                       {(seg.speaker || "?")[0]}
                                     </div>
                                   )}
@@ -4223,7 +4223,7 @@ export function GameNarration({
                                 }
                               />
                             ) : (
-                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-[var(--accent)] text-[0.5rem] font-bold">
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-[var(--accent)] text-[0.5625rem] font-bold">
                                 {(seg.speaker || "?")[0]}
                               </div>
                             )}

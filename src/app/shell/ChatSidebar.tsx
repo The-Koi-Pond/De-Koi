@@ -1047,7 +1047,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                     <div
                       key={i}
                       className={cn(
-                        "absolute flex h-5 w-5 items-center justify-center rounded-full bg-[var(--secondary)] text-[0.5rem] font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--sidebar-background)]",
+                        "absolute flex h-5 w-5 items-center justify-center rounded-full bg-[var(--secondary)] text-[0.5625rem] font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--sidebar-background)]",
                         i === 0 ? "top-0 left-0 z-10" : "bottom-0 right-0",
                       )}
                     >
@@ -1222,7 +1222,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 {cfg.shortLabel}
               </span>
               {tabUnread > 0 && !isActive && (
-                <span className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[0.5rem] font-bold leading-none text-white">
+                <span className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[0.5625rem] font-bold leading-none text-white">
                   {tabUnread > 99 ? "99+" : tabUnread}
                 </span>
               )}

@@ -190,12 +190,12 @@ export function RegexScriptsSection({
                   {placements.map((placement: string) => (
                     <span
                       key={placement}
-                      className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]"
+                      className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]"
                     >
                       {placement === "ai_output" ? "AI" : "User"}
                     </span>
                   ))}
-                  <span className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]">
+                  <span className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
                     {targetCharacterIds.length === 0
                       ? "Global"
                       : targetCharacterIds.length === 1
