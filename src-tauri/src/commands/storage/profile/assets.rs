@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PROFILE_ASSET_DIRS: &[&str] = &[
     "avatars",
@@ -1220,11 +1220,39 @@ fn remove_path_if_exists(path: &Path) -> AppResult<()> {
         Err(error) => return Err(error.into()),
     };
     if metadata.is_dir() {
-        fs::remove_dir_all(path)?;
+        remove_dir_all_retrying(path)?;
     } else {
         fs::remove_file(path)?;
     }
     Ok(())
+}
+
+/// Removes a directory tree, retrying briefly when Windows reports a transient
+/// lock. Antivirus and indexers often hold a just-written file open for a
+/// moment; the file is then only marked for deletion, and removing its folder
+/// fails with "directory not empty" or a sharing violation until they let go.
+fn remove_dir_all_retrying(path: &Path) -> std::io::Result<()> {
+    let mut delay = Duration::from_millis(20);
+    for attempt in 0..6 {
+        match fs::remove_dir_all(path) {
+            Ok(()) => return Ok(()),
+            // An earlier attempt removed the rest of the tree.
+            Err(error) if attempt > 0 && error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(())
+            }
+            Err(error) if attempt < 5 && is_transient_windows_lock(&error) => {
+                std::thread::sleep(delay);
+                delay *= 2;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("the last attempt always returns")
+}
+
+/// ERROR_ACCESS_DENIED (5), ERROR_SHARING_VIOLATION (32), ERROR_DIR_NOT_EMPTY (145).
+fn is_transient_windows_lock(error: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 145))
 }
 
 pub(super) fn normalize_profile_path(value: &str) -> String {
@@ -1377,6 +1405,58 @@ mod tests {
     }
 
     #[test]
+    fn directory_removal_waits_out_a_briefly_held_file() {
+        // Like an antivirus scan of a just-written image: a handle stays open
+        // for a moment after the import wrote the file.
+        let data_dir = temp_data_dir("held-file");
+        let held_path = data_dir.join("avatars").join("scanned.png");
+        fs::create_dir_all(held_path.parent().unwrap()).unwrap();
+        fs::write(&held_path, b"png").unwrap();
+        // Scanners open files without delete sharing; that is what blocks removal.
+        #[cfg(windows)]
+        let handle = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x1;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ)
+                .open(&held_path)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        let handle = File::open(&held_path).unwrap();
+
+        if cfg!(windows) {
+            // While the handle is open, a plain removal leaves a delete-pending
+            // file behind and cannot remove its folder.
+            let error = fs::remove_dir_all(&data_dir).expect_err("held file should block removal");
+            assert!(
+                is_transient_windows_lock(&error),
+                "unexpected error: {error:?}"
+            );
+        }
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            drop(handle);
+        });
+
+        remove_dir_all_retrying(&data_dir)
+            .expect("removal should succeed once the file is released");
+        release.join().unwrap();
+        assert!(!data_dir.exists());
+    }
+
+    #[test]
+    fn directory_removal_does_not_retry_real_errors() {
+        // A unique folder that this test creates and removes, so it is absent.
+        let missing = temp_data_dir("missing-dir");
+        fs::remove_dir(&missing).unwrap();
+        let error =
+            remove_dir_all_retrying(&missing).expect_err("a missing folder is a real error");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
     fn profile_asset_restore_merges_managed_asset_dirs() {
         let data_dir = temp_data_dir("merge-assets");
         fs::create_dir_all(data_dir.join("avatars")).unwrap();
@@ -1443,7 +1523,7 @@ mod tests {
         );
 
         restored.commit();
-        fs::remove_dir_all(data_dir).unwrap();
+        remove_dir_all_retrying(&data_dir).unwrap();
     }
 
     #[test]
@@ -1511,7 +1591,7 @@ mod tests {
         ));
         assert_eq!(connection["imageFilename"], "connection.png");
 
-        fs::remove_dir_all(data_dir).unwrap();
+        remove_dir_all_retrying(&data_dir).unwrap();
     }
 
     #[test]
@@ -1534,7 +1614,7 @@ mod tests {
             b"stale"
         );
 
-        fs::remove_dir_all(data_dir).unwrap();
+        remove_dir_all_retrying(&data_dir).unwrap();
     }
 
     #[test]
@@ -1576,7 +1656,7 @@ mod tests {
         );
         assert!(!data_dir.join("avatars/new.png").exists());
 
-        fs::remove_dir_all(data_dir).unwrap();
+        remove_dir_all_retrying(&data_dir).unwrap();
     }
 
     #[test]
@@ -1596,7 +1676,7 @@ mod tests {
         assert!(!staging_root.exists());
         assert!(!backup_root.exists());
 
-        fs::remove_dir_all(data_dir).unwrap();
+        remove_dir_all_retrying(&data_dir).unwrap();
     }
 
     #[test]
