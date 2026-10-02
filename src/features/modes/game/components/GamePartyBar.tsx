@@ -146,7 +146,7 @@ export function GamePartyBar({
           >
             <PartyAvatar visual={memberVisuals[previewIndex]} />
             {memberVisuals.length > 1 && (
-              <span className="absolute -bottom-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[0.55rem] font-bold leading-none text-white shadow-md">
+              <span className="absolute -bottom-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-white/25 bg-black/85 px-1 text-[0.5625rem] font-bold leading-none text-white shadow-md">
                 {memberVisuals.length}
               </span>
             )}

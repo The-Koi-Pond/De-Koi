@@ -1577,7 +1577,7 @@ export function ConnectionEditor() {
                       </span>
                     </p>
                   )}
-                <p className="text-[0.55rem] text-[var(--muted-foreground)] mt-1">
+                <p className="text-[0.5625rem] text-[var(--muted-foreground)] mt-1">
                   Export your workflow from ComfyUI using <strong>Save (API Format)</strong> in the menu. Placeholders
                   like <code>%prompt%</code>, <code>%steps%</code>, <code>%sampler%</code>,{" "}
                   <code>%reference_image%</code>, <code>%reference_image_name%</code>, and indexed reference names like{" "}
@@ -2662,7 +2662,7 @@ function ImageGenerationDefaultsPanel({
                     onChange={(scheduler) => updateComfyUi({ scheduler })}
                   />
                 </div>
-                <p className="text-[0.55rem] text-[var(--muted-foreground)]">
+                <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
                   Custom ComfyUI workflows can use %steps%, %cfg%, %sampler%, %scheduler%, %denoise%, and %clip_skip%
                   placeholders, plus %reference_image%, %reference_image_name%, and indexed reference filenames such as
                   %reference_image_name_02%.
@@ -2705,7 +2705,7 @@ function ImageGenerationDefaultsPanel({
                     onChange={(noiseSchedule) => updateNovelAi({ noiseSchedule })}
                   />
                 </div>
-                <p className="text-[0.55rem] text-[var(--muted-foreground)]">
+                <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
                   These values are sent with native NovelAI requests and embedded in generated PNG metadata for
                   troubleshooting.
                 </p>

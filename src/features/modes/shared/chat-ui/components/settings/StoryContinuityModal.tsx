@@ -198,13 +198,13 @@ export function StoryContinuityModal({
                         </span>
                         <span
                           className={cn(
-                            "rounded-full px-1.5 py-0.5 text-[0.5rem] uppercase tracking-wide ring-1",
+                            "rounded-full px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide ring-1",
                             statusTone(memory.status),
                           )}
                         >
                           {memory.status}
                         </span>
-                        <span className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5rem] uppercase tracking-wide text-[var(--muted-foreground)]">
+                        <span className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-[var(--muted-foreground)]">
                           {story.level}
                         </span>
                       </span>

@@ -330,7 +330,7 @@ export function RoleplayHUDActionsMenu({
                 Echo Chamber {echoChamberOpen ? "On" : "Off"}
               </span>
               {echoMessageCount > 0 && (
-                <span className="ml-auto flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
+                <span className="ml-auto flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5625rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
                   {echoMessageCount}
                 </span>
               )}
@@ -675,10 +675,10 @@ function CustomAgentRunItem({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className="font-semibold text-[var(--primary)]">{run.agentName}</span>
-            <span className="rounded bg-[var(--secondary)]/55 px-1 py-0.5 text-[0.5rem] uppercase tracking-wide text-[var(--muted-foreground)]">
+            <span className="rounded bg-[var(--secondary)]/55 px-1 py-0.5 text-[0.5625rem] uppercase tracking-wide text-[var(--muted-foreground)]">
               {run.resultType.replace(/_/g, " ")}
             </span>
-            {timestamp && <span className="text-[0.5rem] text-[var(--muted-foreground)]/70">{timestamp}</span>}
+            {timestamp && <span className="text-[0.5625rem] text-[var(--muted-foreground)]/70">{timestamp}</span>}
           </div>
           {!editing && (
             <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--secondary)]/35 p-1.5 font-sans text-[var(--muted-foreground)] leading-relaxed">

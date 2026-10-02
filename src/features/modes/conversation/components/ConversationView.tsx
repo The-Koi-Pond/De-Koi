@@ -1373,7 +1373,7 @@ export function ConversationView({
                           <AvatarImage src={c.avatarUrl} alt={c.name} crop={c.avatarCrop} />
                         </span>
                       ) : (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5625rem] font-bold text-foreground">
                           {c.name[0]}
                         </div>
                       )}
@@ -1420,7 +1420,7 @@ export function ConversationView({
                               <AvatarImage src={c.avatarUrl} alt={c.name} crop={c.avatarCrop} />
                             </span>
                           ) : (
-                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5rem] font-bold text-foreground ring-1 ring-[var(--border)]">
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground/20 text-[0.5625rem] font-bold text-foreground ring-1 ring-[var(--border)]">
                               {c.name[0]}
                             </div>
                           )}

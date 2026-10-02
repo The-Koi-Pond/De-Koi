@@ -66,7 +66,7 @@ export function CharactersWidget({
               </span>
             ))}
             {characters.length > 3 && (
-              <span className="text-[0.4375rem] text-[var(--muted-foreground)]/60 ml-0.5">
+              <span className="text-[0.5625rem] text-[var(--muted-foreground)]/60 ml-0.5">
                 +{characters.length - 3}
               </span>
             )}
@@ -139,7 +139,7 @@ export function PersonaStatsWidget({
         ) : (
           <BarChart3 size="0.875rem" className="text-violet-400/40 max-md:h-3.5 max-md:w-3.5" />
         )}
-        <span className="max-w-full truncate text-[0.5625rem] max-md:text-[0.4375rem] font-semibold leading-tight shrink-0 md:hidden">
+        <span className="max-w-full truncate text-[0.5625rem] font-semibold leading-tight shrink-0 md:hidden">
           Persona
         </span>
       </button>
@@ -299,7 +299,7 @@ export function QuestsWidget({
     <div className="relative">
       <button ref={buttonRef} onClick={toggle} className={cn(WIDGET, "text-emerald-300")} title="Active Quests">
         {currentObjective ? (
-          <span className="widget-scroll-text w-full px-0.5 text-center text-[0.375rem] font-semibold leading-[1.15] max-md:text-[0.5rem]">
+          <span className="widget-scroll-text w-full px-0.5 text-center text-[0.5625rem] font-semibold leading-[1.15]">
             <span className="inline-flex animate-[widget-scroll_8s_linear_infinite] whitespace-nowrap">
               <span className="px-3">{currentObjective.text}</span>
               <span className="px-3" aria-hidden>

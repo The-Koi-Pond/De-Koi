@@ -585,7 +585,7 @@ function InventorySlot({
                 {item.name}
               </span>
               {item.quantity > 1 && (
-                <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[0.55rem] font-semibold tabular-nums text-white/80">
+                <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[0.5625rem] font-semibold tabular-nums text-white/80">
                   x{item.quantity}
                 </span>
               )}
