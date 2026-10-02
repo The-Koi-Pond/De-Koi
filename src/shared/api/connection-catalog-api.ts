@@ -103,7 +103,7 @@ async function listAvailable(): Promise<AvailableConnectionSummary[]> {
 }
 
 /** The fields default selection reads; stored rows may carry boolish flags. */
-export type DefaultTextConnectionCandidate = {
+type DefaultTextConnectionCandidate = {
   id?: unknown;
   provider?: string | null;
   isDefault?: unknown;
