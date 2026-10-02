@@ -234,7 +234,7 @@ export function CharacterGroupsSection({
                     </div>
                     {/* The synthetic Ungrouped folder has no actions without an active chat; skip the empty tray. */}
                     {(hasActiveChat || !isSynthetic) && (
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
                         {hasActiveChat && (
                           <button
                             onClick={(event) => {
