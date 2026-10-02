@@ -1490,6 +1490,26 @@ describe("dekiApi.sessions first run", () => {
     expect(storage.settings()).not.toHaveProperty("sessions");
   });
 
+  it("keeps an active session another client picked while migration was running", async () => {
+    // Migration read session-two as active; after it writes its first row the
+    // other client switches to session-one.
+    const storage = installMemoryStorage({
+      seed: legacySettingsSeed(),
+      onWrite: (write) => {
+        if (write === "create deki-sessions/session-one") {
+          // A new settings value, as storage would return after another client's write.
+          const row = storage.row("app-settings", "deki")!;
+          row.value = { ...(row.value as Record<string, unknown>), activeSessionId: "session-one" };
+        }
+      },
+    });
+
+    await dekiApi.sessions.list();
+
+    expect(storage.settings().activeSessionId).toBe("session-one");
+    expect(storage.settings()).not.toHaveProperty("sessions");
+  });
+
   it("does not delete a session another client created during this first run", async () => {
     // This client's first read saw no durable sessions; meanwhile the other
     // client finished its migration and created a new session.

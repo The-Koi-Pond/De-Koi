@@ -987,7 +987,17 @@ async function saveIncrementalSessionsState(
   return next;
 }
 
-async function clearLegacyDekiHistorySettings(activeSessionId: string, beforeWrite: () => void): Promise<void> {
+/**
+ * Removes the legacy history keys and sets the active session migration chose.
+ * `readActiveSessionId` is the active session migration read before writing
+ * rows; if settings now hold a different one, another client or caller chose
+ * it since, and that choice is kept.
+ */
+async function clearLegacyDekiHistorySettings(
+  activeSessionId: string,
+  readActiveSessionId: unknown,
+  beforeWrite: () => void,
+): Promise<void> {
   await saveSettingsTransform((settings) => {
     const {
       sessions: _sessions,
@@ -998,7 +1008,8 @@ async function clearLegacyDekiHistorySettings(activeSessionId: string, beforeWri
       compactedThroughMessageId: _compactedThroughMessageId,
       ...rest
     } = settings;
-    return { ...rest, activeSessionId };
+    const changedSinceRead = readTrimmedString(settings.activeSessionId) !== readTrimmedString(readActiveSessionId);
+    return changedSinceRead ? rest : { ...rest, activeSessionId };
   }, beforeWrite);
 }
 
@@ -1065,7 +1076,7 @@ async function migrateLegacyDekiHistory(
 ): Promise<DekiSessionsState> {
   const legacy = normalizeDekiSessionsState(settings);
   await saveDurableSessionsState(legacy, beforeWrite);
-  await clearLegacyDekiHistorySettings(legacy.activeSessionId, beforeWrite);
+  await clearLegacyDekiHistorySettings(legacy.activeSessionId, settings.activeSessionId, beforeWrite);
   return legacy;
 }
 
@@ -1089,7 +1100,7 @@ async function finishInterruptedDekiHistoryMigration(
   ]);
   const activeSessionId =
     requestedActiveId && knownSessionIds.has(requestedActiveId) ? requestedActiveId : legacy.activeSessionId;
-  await clearLegacyDekiHistorySettings(activeSessionId, beforeWrite);
+  await clearLegacyDekiHistorySettings(activeSessionId, settings.activeSessionId, beforeWrite);
 }
 
 /** Resolves to the migrated state when this preparation ran a first-run migration, else null. */
