@@ -36,9 +36,6 @@ const ITEMS_PER_PAGE = 20;
 const MOUSE_DRAG_DISTANCE_PX = 4;
 const TOUCH_HOLD_MS = 200;
 const TOUCH_HOLD_TOLERANCE_PX = 5;
-// The click a browser may send after a finished drag arrives right after
-// pointerup. Only a click inside this window, before any new press, is skipped.
-const DRAG_CLICK_SUPPRESS_MS = 400;
 
 type SlotDragState = { from: number; over: number | null };
 type PendingSlotDrag = {
@@ -62,8 +59,10 @@ function reorderableSlotIndexAt(x: number, y: number): number | null {
 function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => void) | undefined) {
   const [drag, setDrag] = useState<SlotDragState | null>(null);
   const pending = useRef<PendingSlotDrag | null>(null);
-  // The slot a just-finished drag started on, and until when its follow-up click is skipped.
-  const suppressClick = useRef<{ index: number; until: number } | null>(null);
+  // The slot a drag just finished on. Browsers dispatch a gesture's own click
+  // in the same task as its pointerup, so this is cleared on the next task and
+  // only that click can match it.
+  const suppressClickIndex = useRef<number | null>(null);
 
   const reset = useCallback(() => {
     if (pending.current?.holdTimer != null) window.clearTimeout(pending.current.holdTimer);
@@ -95,7 +94,7 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
         if (event.pointerType === "mouse" && event.button !== 0) return;
         // A sequence that never finished must not block this one, and a drag
         // that produced no follow-up click must not swallow this press's click.
-        suppressClick.current = null;
+        suppressClickIndex.current = null;
         if (pending.current) reset();
         // Capture from the start, so the release reaches this slot even when it
         // happens outside the slot or the inventory before a drag activates.
@@ -134,7 +133,10 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
         const current = pending.current;
         if (!current || current.pointerId !== event.pointerId) return;
         if (current.active) {
-          suppressClick.current = { index: current.index, until: performance.now() + DRAG_CLICK_SUPPRESS_MS };
+          suppressClickIndex.current = current.index;
+          window.setTimeout(() => {
+            if (suppressClickIndex.current === current.index) suppressClickIndex.current = null;
+          }, 0);
           const toIndex = reorderableSlotIndexAt(event.clientX, event.clientY);
           if (toIndex !== null && toIndex !== current.index) onSwap?.(current.index, toIndex);
         }
@@ -148,17 +150,8 @@ function useInventorySlotSwap(onSwap: ((fromIndex: number, toIndex: number) => v
       onClickCapture: (event: MouseEvent<HTMLButtonElement>) => {
         // A finished drag is not also a click that selects the slot. Keyboard
         // activation (Enter/Space) reports detail 0 and is never a drag's click.
-        // It only applies to the dragged slot, inside the window.
-        const pendingSuppression = suppressClick.current;
-        if (
-          !pendingSuppression ||
-          event.detail === 0 ||
-          pendingSuppression.index !== index ||
-          performance.now() >= pendingSuppression.until
-        ) {
-          return;
-        }
-        suppressClick.current = null;
+        if (event.detail === 0 || suppressClickIndex.current !== index) return;
+        suppressClickIndex.current = null;
         event.preventDefault();
         event.stopPropagation();
       },

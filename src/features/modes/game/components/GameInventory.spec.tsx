@@ -122,11 +122,13 @@ describe("GameInventory slot drag", () => {
     expect(slot("Lantern").getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("stops skipping clicks once the drag's window has passed", () => {
+  it("lets a later click on the dragged slot through", () => {
     dragRopeOntoLantern();
-    act(() => vi.advanceTimersByTime(1000));
-    click(slot("Lantern"));
+    // The drag's own click comes in the same task as pointerup. A pointer-style
+    // click on the same slot in any later task (assistive tech, scripts) selects.
+    act(() => vi.advanceTimersByTime(1));
+    click(slot("Rope"));
 
-    expect(slot("Lantern").getAttribute("aria-pressed")).toBe("true");
+    expect(slot("Rope").getAttribute("aria-pressed")).toBe("true");
   });
 });
