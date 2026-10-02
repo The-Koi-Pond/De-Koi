@@ -744,13 +744,34 @@ fn model_path_inside_models_dir(
     Ok(target)
 }
 
+/// Canonicalizes the deepest existing ancestor of `path` and re-appends the
+/// components that do not exist yet. A folder an archive entry is about to
+/// create has no canonical form of its own, and comparing its raw path with a
+/// canonical root fails whenever the root is reached through another spelling
+/// (an 8.3 short name such as `RUNNER~1`, or `/var` -> `/private/var`).
+fn canonicalize_existing_prefix(path: &Path) -> PathBuf {
+    let mut existing = path;
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(canonical) = existing.canonicalize() {
+            return missing
+                .iter()
+                .rev()
+                .fold(canonical, |joined, part| joined.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name.to_os_string());
+                existing = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
 fn ensure_inside_dir(root: &Path, target: &Path, message: &str) -> AppResult<()> {
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let target_parent = target
-        .parent()
-        .unwrap_or(target)
-        .canonicalize()
-        .unwrap_or_else(|_| target.parent().unwrap_or(target).to_path_buf());
+    let root = canonicalize_existing_prefix(root);
+    let target_parent = canonicalize_existing_prefix(target.parent().unwrap_or(target));
     if target_parent != root && !target_parent.starts_with(&root) {
         let lexical_root = root
             .to_string_lossy()
@@ -3870,6 +3891,54 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("unsafe link"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn extract_runtime_archive_accepts_nested_entries_under_an_aliased_extract_dir() {
+        // The extraction folder is reached through a second spelling of its
+        // path, as with an 8.3 short name on Windows or /var -> /private/var on
+        // macOS. Entries whose folders do not exist yet must still extract.
+        let root = temp_dir("tar-aliased");
+        let archive_path = root.join("runtime.tar.gz");
+        let extract_dir = root.join("alias").join("..").join("extract");
+        write_tar_gz_file(&archive_path, "bin/nested/llama-server", b"server");
+
+        extract_runtime_archive(&archive_path, &extract_dir)
+            .expect("nested tar entry should extract under an aliased extract dir");
+
+        assert_eq!(
+            fs::read_to_string(
+                root.join("extract")
+                    .join("bin")
+                    .join("nested")
+                    .join("llama-server")
+            )
+            .expect("extracted file should be readable"),
+            "server"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_inside_dir_rejects_an_existing_folder_that_links_outside() {
+        let root = temp_dir("link-escape");
+        let extract_dir = root.join("extract");
+        let outside = root.join("outside");
+        fs::create_dir_all(&extract_dir).expect("extract dir should be creatable");
+        fs::create_dir_all(&outside).expect("outside dir should be creatable");
+        std::os::unix::fs::symlink(&outside, extract_dir.join("bin"))
+            .expect("symlink should be creatable");
+
+        let error = ensure_inside_dir(
+            &extract_dir,
+            &extract_dir.join("bin").join("new").join("llama-server"),
+            "escaped",
+        )
+        .expect_err("a path through a link that leaves the root should be rejected");
+
+        assert_eq!(error.code, "invalid_input");
         let _ = fs::remove_dir_all(root);
     }
 
