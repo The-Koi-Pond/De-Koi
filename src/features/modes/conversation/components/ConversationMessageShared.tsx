@@ -831,7 +831,7 @@ export function ConversationMessageMeta({ context }: { context: ConversationMess
           </span>
         ))}
       {!context.hideTimestamp && (
-        <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
+        <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]">
           {formatTimestamp(context.message.createdAt)}
         </span>
       )}
