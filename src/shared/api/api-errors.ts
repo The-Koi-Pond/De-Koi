@@ -13,6 +13,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Storage rejected a create because a row with that id already exists. Checked
+ * by shape, not class identity, so it also matches an ApiError thrown by a
+ * separately loaded copy of this module.
+ */
+export function isDuplicateCreateError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "ApiError" &&
+    (error as ApiError).status === 400 &&
+    error.message.includes("already exists")
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeDekiEntryAction, type DekiEntryAction } from "../../engine/deki/deki-entry";
+import { ApiError } from "./api-errors";
 import { dekiApi } from "./deki-api";
 
 const { storageApiMock } = vi.hoisted(() => ({
@@ -1274,7 +1275,8 @@ describe("dekiApi.sessions first run", () => {
       await tick();
       const id = String(value.id);
       attempt(`create ${entity}/${id}`);
-      if (rows.has(key(entity, id))) throw new Error(`${entity}/${id} already exists`);
+      // Same shape as the storage owner's duplicate-create rejection.
+      if (rows.has(key(entity, id))) throw new ApiError(`${entity}/${id} already exists`, 400);
       rows.set(key(entity, id), value);
       record(`create ${entity}/${id}`);
       return value;
@@ -1350,6 +1352,27 @@ describe("dekiApi.sessions first run", () => {
       "deki-session-default",
     ]);
     expect(storageApiMock.create.mock.calls.filter(([entity]) => entity === "deki-sessions")).toHaveLength(1);
+  });
+
+  it("lets two clients first-run against the same runtime at once", async () => {
+    // A second client is a separate copy of the module: it shares the runtime's
+    // storage but not this page's in-memory migration gate.
+    vi.resetModules();
+    const { dekiApi: secondClient } = await import("./deki-api");
+    for (const seed of [undefined, legacySettingsSeed()]) {
+      storageApiMock.create.mockReset();
+      const storage = installMemoryStorage({ seed });
+
+      const [first, second] = await Promise.all([dekiApi.sessions.list(), secondClient.sessions.list()]);
+
+      expect(first.activeSessionId).toBe(second.activeSessionId);
+      expect(first.sessions.map((session) => session.id)).toEqual(second.sessions.map((session) => session.id));
+      // Both clients raced to create the same rows; the later create became an update.
+      expect(storage.writes.some((write) => write.startsWith("update deki-sessions/"))).toBe(true);
+      expect((await dekiApi.sessions.list()).sessions.map((session) => session.id)).toEqual(
+        first.sessions.map((session) => session.id),
+      );
+    }
   });
 
   it("holds a session created mid-migration until the migration has finished writing", async () => {

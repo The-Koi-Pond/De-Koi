@@ -1,4 +1,4 @@
-import { ApiError } from "./api-errors";
+import { isDuplicateCreateError } from "./api-errors";
 import { storageApi } from "./storage-api";
 
 const PLUGIN_MEMORY_ENTITY = "plugin-memory" as const;
@@ -51,10 +51,6 @@ function memoryPayload<T>(pluginId: string, key: string, value: T): Record<strin
     value,
     schemaVersion: 1,
   };
-}
-
-function isDuplicateCreateError(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 400 && error.message.includes("already exists");
 }
 
 export const pluginMemoryApi = {

@@ -42,7 +42,7 @@ import {
 } from "../../engine/contracts/schemas/prompt.schema";
 import type { StorageEntity } from "../../engine/capabilities/storage";
 import { Channel } from "@tauri-apps/api/core";
-import { ApiError } from "./api-errors";
+import { ApiError, isDuplicateCreateError } from "./api-errors";
 import { planDekiHistoryPersistence, type DekiHistoryPersistenceSnapshot } from "./deki-history-persistence";
 import { remoteRuntimeGeneration, remoteRuntimeTarget, streamRemoteJsonEvents } from "./remote-runtime";
 import { storageApi } from "./storage-api";
@@ -746,10 +746,7 @@ async function saveSettingsTransform(
   if (existing) {
     await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
   } else {
-    await storageApi.create("app-settings", {
-      id: DEKI_SETTINGS_ID,
-      ...payload,
-    });
+    await createOrUpdate("app-settings", DEKI_SETTINGS_ID, { id: DEKI_SETTINGS_ID, ...payload }, payload);
   }
   if (!existing && legacy) {
     await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
@@ -845,7 +842,26 @@ async function writeStorageRecord(
   const existing = await storageApi.get(entity, id).catch(() => null);
   beforeWrite();
   if (existing) await storageApi.update(entity, id, value);
-  else await storageApi.create(entity, value);
+  else await createOrUpdate(entity, id, value, value);
+}
+
+/**
+ * Creates a row, or updates it when another client created the same id first.
+ * Two clients first-running against one runtime both migrate the same history
+ * to the same ids, so the later write updates the row instead of failing.
+ */
+async function createOrUpdate(
+  entity: StorageEntity,
+  id: string,
+  value: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await storageApi.create(entity, value);
+  } catch (error) {
+    if (!isDuplicateCreateError(error)) throw error;
+    await storageApi.update(entity, id, patch);
+  }
 }
 
 async function readDekiSessionMessages(sessionId: string, measured: boolean): Promise<DekiMessage[]> {
