@@ -841,30 +841,21 @@ function dekiHistoryPersistenceSnapshot(state: DekiSessionsState): DekiHistoryPe
   };
 }
 
-/** Writes one row of a first-run (or interrupted) migration. Ordinary saves use saveIncrementalSessionsState. */
+/**
+ * Writes one row of a first-run (or interrupted) migration, only if that row
+ * does not exist yet. Storage rejects creating an existing id, so this is an
+ * atomic create-if-absent: a row that already exists was written by an earlier
+ * migration attempt or by another client, and it may hold newer state (a later
+ * message, compaction) that this legacy snapshot would undo, so it stands.
+ * Ordinary saves use saveIncrementalSessionsState and never skip a write.
+ */
 async function writeMigratedRecord(
   entity: "deki-sessions" | "deki-messages",
   id: string,
   value: Record<string, unknown>,
-  beforeWrite: () => void = noop,
+  beforeWrite: () => void,
 ): Promise<void> {
-  const existing = await storageApi.get(entity, id).catch(() => null);
   beforeWrite();
-  if (existing) await storageApi.update(entity, id, value);
-  else await createMigratedRecordUnlessExists(entity, id, value);
-}
-
-/**
- * Creates a migrated row unless another client created the same id first.
- * Two clients first-running against one runtime migrate the same history to
- * the same ids; the first writer's row stands, because by now it may hold
- * newer state (a later message, compaction) that this snapshot would undo.
- */
-async function createMigratedRecordUnlessExists(
-  entity: StorageEntity,
-  id: string,
-  value: Record<string, unknown>,
-): Promise<void> {
   try {
     await storageApi.create(entity, value);
   } catch (error) {
@@ -948,23 +939,16 @@ async function durableSessionsFromSnapshot(
 }
 
 /**
- * Writes every session and message in `state`. With `pruneUnlisted`, durable
- * rows that are not in `state` are deleted; finishing an interrupted migration
- * passes false so rows written since then survive. Settings are not touched.
+ * Writes every session and message in `state` that is not durable yet. Rows
+ * that already exist, including ones another client wrote since, are kept.
+ * Settings are not touched.
  */
-async function saveDurableSessionsState(
-  state: DekiSessionsState,
-  { pruneUnlisted, beforeWrite }: { pruneUnlisted: boolean; beforeWrite: () => void },
-): Promise<void> {
+async function saveDurableSessionsState(state: DekiSessionsState, beforeWrite: () => void): Promise<void> {
   const normalized = normalizeDekiSessionsState({ activeSessionId: state.activeSessionId, sessions: state.sessions });
-  const sessionIds = new Set(normalized.sessions.map((session) => session.id));
-  const messageIds = new Set<string>();
-
   for (const session of normalized.sessions) {
     await writeMigratedRecord("deki-sessions", session.id, dekiSessionRecord(session), beforeWrite);
     for (let index = 0; index < session.messages.length; index += 1) {
       const message = session.messages[index]!;
-      messageIds.add(message.id);
       await writeMigratedRecord(
         "deki-messages",
         message.id,
@@ -973,24 +957,6 @@ async function saveDurableSessionsState(
       );
     }
   }
-  if (!pruneUnlisted) return;
-
-  const existingSessions = await storageApi.list<DekiSessionRecord>("deki-sessions");
-  beforeWrite();
-  await Promise.all(
-    existingSessions
-      .filter((record) => typeof record.id === "string" && !sessionIds.has(record.id))
-      .map((record) => storageApi.delete("deki-sessions", record.id)),
-  );
-
-  const existingMessages = await storageApi.list<DekiMessageRecord>("deki-messages");
-  beforeWrite();
-  await Promise.all(
-    existingMessages.flatMap((record) => {
-      const id = typeof record.id === "string" ? record.id : "";
-      return id && !messageIds.has(id) ? [storageApi.delete("deki-messages", id)] : [];
-    }),
-  );
 }
 
 async function saveIncrementalSessionsState(
@@ -1098,15 +1064,16 @@ async function migrateLegacyDekiHistory(
   beforeWrite: () => void,
 ): Promise<DekiSessionsState> {
   const legacy = normalizeDekiSessionsState(settings);
-  await saveDurableSessionsState(legacy, { pruneUnlisted: true, beforeWrite });
+  await saveDurableSessionsState(legacy, beforeWrite);
   await clearLegacyDekiHistorySettings(legacy.activeSessionId, beforeWrite);
   return legacy;
 }
 
 /**
- * An earlier migration stopped after writing some durable rows. Rewrite every
- * legacy row (writes are upserts), keep durable rows created since, keep the
- * active session if it still exists, and clear the legacy keys last.
+ * An earlier migration stopped after writing some durable rows. Write the
+ * legacy rows that are still missing, keep every durable row (including ones
+ * changed since), keep the active session if it still exists, and clear the
+ * legacy keys last.
  */
 async function finishInterruptedDekiHistoryMigration(
   settings: Record<string, unknown>,
@@ -1114,7 +1081,7 @@ async function finishInterruptedDekiHistoryMigration(
   beforeWrite: () => void,
 ): Promise<void> {
   const legacy = normalizeDekiSessionsState(settings);
-  await saveDurableSessionsState(legacy, { pruneUnlisted: false, beforeWrite });
+  await saveDurableSessionsState(legacy, beforeWrite);
   const requestedActiveId = readTrimmedString(settings.activeSessionId);
   const knownSessionIds = new Set([
     ...durableSessions.map((record) => readTrimmedString(record.id)),

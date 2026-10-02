@@ -1172,9 +1172,9 @@ describe("dekiApi.sessions.deleteMany", () => {
 
     expect(state.activeSessionId).toBe("session-keep");
     expect(state.sessions.map((session) => session.id)).toEqual(["session-keep"]);
-    expect(storageApiMock.update).toHaveBeenCalledWith(
+    // Migration writes the surviving session as a new durable row.
+    expect(storageApiMock.create).toHaveBeenCalledWith(
       "deki-sessions",
-      "session-keep",
       expect.objectContaining({ id: "session-keep" }),
     );
     expect(storageApiMock.update).toHaveBeenCalledWith(
@@ -1457,6 +1457,73 @@ describe("dekiApi.sessions first run", () => {
     });
   });
 
+  it("finishes an interrupted migration without overwriting rows changed since", async () => {
+    // An earlier attempt wrote session-one and message-1; another client has
+    // since renamed the session and edited the message. Legacy keys remain.
+    const storage = installMemoryStorage({
+      seed: {
+        ...legacySettingsSeed(),
+        "deki-sessions/session-one": {
+          id: "session-one",
+          title: "Renamed since",
+          messageCount: 2,
+          createdAt: "2026-06-24T00:00:00.000Z",
+          updatedAt: "2026-06-27T00:00:00.000Z",
+        },
+        "deki-messages/message-1": {
+          id: "message-1",
+          sessionId: "session-one",
+          role: "user",
+          content: "Edited since",
+          createdAt: "2026-06-24T00:00:00.000Z",
+          sortOrder: 0,
+        },
+      },
+    });
+
+    await dekiApi.sessions.list();
+
+    expect(storage.row("deki-sessions", "session-one")).toMatchObject({ title: "Renamed since" });
+    expect(storage.row("deki-messages", "message-1")).toMatchObject({ content: "Edited since" });
+    // The rows that were still missing are written, and the legacy keys are cleared.
+    expect(storage.rowIds("deki-messages").sort()).toEqual(["message-1", "message-2", "message-3"]);
+    expect(storage.settings()).not.toHaveProperty("sessions");
+  });
+
+  it("does not delete a session another client created during this first run", async () => {
+    // This client's first read saw no durable sessions; meanwhile the other
+    // client finished its migration and created a new session.
+    const storage = installMemoryStorage({
+      seed: {
+        ...legacySettingsSeed(),
+        "deki-sessions/other-client-session": {
+          id: "other-client-session",
+          title: "Created on the other client",
+          messageCount: 0,
+          createdAt: "2026-06-28T00:00:00.000Z",
+          updatedAt: "2026-06-28T00:00:00.000Z",
+        },
+      },
+    });
+    // Until this client starts writing, its session listings still look empty.
+    const realList = storageApiMock.list.getMockImplementation()!;
+    const realCreate = storageApiMock.create.getMockImplementation()!;
+    let writing = false;
+    storageApiMock.list.mockImplementation(async (entity: string, options?: unknown) => {
+      if (!writing && entity === "deki-sessions") return [];
+      return realList(entity, options);
+    });
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) => {
+      writing = true;
+      return realCreate(entity, value);
+    });
+
+    await dekiApi.sessions.list();
+
+    expect(writing).toBe(true);
+    expect(storage.rowIds("deki-sessions")).toContain("other-client-session");
+  });
+
   it("applies a settings change on top of a row another client just created", async () => {
     // This client read no settings row; the other client created one with its
     // own connection before this client's create landed.
@@ -1623,7 +1690,7 @@ describe("dekiApi.sessions first run", () => {
       const rows = stores.get(runtime)!;
       await tick();
       const key = `${entity}/${String(value.id)}`;
-      if (rows.has(key)) throw new Error(`${key} already exists`);
+      if (rows.has(key)) throw new ApiError(`${key} already exists`, 400);
       rows.set(key, value);
       // Switch runtimes right after migration writes its first durable row on A.
       if (!switched && runtime === runtimeA && key === "deki-sessions/session-one") {
