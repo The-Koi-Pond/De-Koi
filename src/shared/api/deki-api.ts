@@ -779,14 +779,16 @@ async function updateSettingsIfUnchanged(expectedValue: unknown, value: unknown)
   try {
     return (await updateIfUnchanged.call(storageApi, DEKI_SETTINGS_ID, expectedValue, value)).updated;
   } catch (error) {
-    // A remote runtime older than this app has no conditional update. Write the
-    // way every earlier version did instead of breaking Deki settings there.
+    // A remote runtime older than this app has no conditional update. A plain
+    // write there could replace another client's change, so refuse without
+    // writing and say how to fix it.
     if (
       error instanceof Error &&
       error.message === `${CONDITIONAL_SETTINGS_COMMAND} is not exposed by the remote runtime`
     ) {
-      await storageApi.update("app-settings", DEKI_SETTINGS_ID, { value });
-      return true;
+      throw new Error(
+        "This De-Koi server is older than the app and cannot save Deki settings safely. Update and restart the server, then try again.",
+      );
     }
     throw error;
   }

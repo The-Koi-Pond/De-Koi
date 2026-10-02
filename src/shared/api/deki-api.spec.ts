@@ -1407,16 +1407,22 @@ describe("dekiApi.sessions first run", () => {
     );
   });
 
-  it("saves settings with a plain update on a runtime without conditional updates", async () => {
+  it("refuses to save settings without writing on a runtime without conditional updates", async () => {
     const storage = installMemoryStorage();
     await dekiApi.sessions.list();
+    const before = storage.settings();
+    const writesBefore = storage.writes.length;
     storageApiMock.updateAppSettingsIfUnchanged.mockRejectedValue(
       new ApiError("app_settings_update_if_unchanged is not exposed by the remote runtime", 400),
     );
 
-    await dekiApi.preferences.save({ selectedConnectionId: "mine", selectedPersonaId: null });
+    await expect(dekiApi.preferences.save({ selectedConnectionId: "mine", selectedPersonaId: null })).rejects.toThrow(
+      "This De-Koi server is older than the app and cannot save Deki settings safely. Update and restart the server, then try again.",
+    );
 
-    expect(storage.settings()).toMatchObject({ selectedConnectionId: "mine" });
+    expect(storage.settings()).toEqual(before);
+    expect(storage.writes).toHaveLength(writesBefore);
+    expect(storageApiMock.update).not.toHaveBeenCalledWith("app-settings", expect.anything(), expect.anything());
   });
 
   it.each([
