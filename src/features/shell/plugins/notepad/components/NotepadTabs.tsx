@@ -217,7 +217,7 @@ function TabButton({
       {branchSpecific && active ? (
         <span
           aria-hidden="true"
-          className="rounded-full bg-[var(--primary)]/15 px-1 text-[0.5rem] font-black uppercase text-[var(--primary)]"
+          className="rounded-full bg-[var(--primary)]/15 px-1 text-[0.5625rem] font-black uppercase text-[var(--primary)]"
         >
           br
         </span>

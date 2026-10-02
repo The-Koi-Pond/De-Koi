@@ -1530,11 +1530,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                         ))}
                       </select>
                       {imageConnections.length === 0 && (
-                        <p className="mt-1 text-[0.55rem] text-amber-700 dark:text-amber-400/80">
+                        <p className="mt-1 text-[0.5625rem] text-amber-700 dark:text-amber-400/80">
                           No image generation connections found. Add one in Settings → Connections.
                         </p>
                       )}
-                      <p className="mt-1 text-[0.55rem] text-[var(--muted-foreground)]">
+                      <p className="mt-1 text-[0.5625rem] text-[var(--muted-foreground)]">
                         Generates portraits for new NPCs and backgrounds for new locations using the scene analysis
                         pipeline.
                       </p>
@@ -1560,7 +1560,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   />
                   <div>
                     <p className="text-xs font-medium text-[var(--foreground)]">Custom HUD Widgets</p>
-                    <p className="text-[0.55rem] text-[var(--muted-foreground)]">
+                    <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
                       Model designs custom widgets (health bars, inventories, etc.) for the game HUD
                     </p>
                   </div>
@@ -1654,7 +1654,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                 <BookOpen size={12} className="mr-1 inline" />
                 Lorebooks
               </label>
-              <p className="mb-2 text-[0.55rem] text-[var(--muted-foreground)]">
+              <p className="mb-2 text-[0.5625rem] text-[var(--muted-foreground)]">
                 Attach lorebooks to inject world lore, character info, and other context into game generations.
               </p>
 
@@ -1735,7 +1735,9 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   )}
                   <div>
                     <p className="text-xs font-medium text-[var(--foreground)]">Start Muted</p>
-                    <p className="text-[0.55rem] text-[var(--muted-foreground)]">Begin the game with all audio muted</p>
+                    <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
+                      Begin the game with all audio muted
+                    </p>
                   </div>
                 </div>
                 <div

@@ -508,7 +508,7 @@ export function GameCharacterSheet({
             </div>
             {card.level != null && (
               <div className="mr-16 flex items-center gap-1 rounded border border-[var(--primary)]/20 bg-[var(--primary)]/10 px-1.5 py-0.5 sm:mr-0">
-                <span className="text-[0.4375rem] uppercase tracking-wider text-[var(--primary)]/60">LVL</span>
+                <span className="text-[0.5625rem] uppercase tracking-wider text-[var(--primary)]/60">LVL</span>
                 <span className="text-xs font-bold leading-none text-[var(--primary)]">{card.level}</span>
               </div>
             )}

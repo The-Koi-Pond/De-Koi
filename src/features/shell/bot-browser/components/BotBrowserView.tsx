@@ -1848,7 +1848,7 @@ export function BotBrowserView() {
                       <button
                         onClick={() => toggleIncludeTag(tag)}
                         className={cn(
-                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[0.5rem] transition-all",
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[0.5625rem] transition-all",
                           isIncluded
                             ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
                             : "border-[var(--border)] hover:border-emerald-500/50",
@@ -1860,7 +1860,7 @@ export function BotBrowserView() {
                       <button
                         onClick={() => toggleExcludeTag(tag)}
                         className={cn(
-                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[0.5rem] transition-all",
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[0.5625rem] transition-all",
                           isExcluded
                             ? "border-red-500 bg-red-500/20 text-red-400"
                             : "border-red-500/30 text-red-400/40 hover:border-red-500/60 hover:text-red-400 hover:bg-red-500/10",
@@ -2035,7 +2035,7 @@ export function BotBrowserView() {
                       />{" "}
                       NSFW
                       {nsfwGreyedOut && (
-                        <span className="ml-0.5 text-[0.55rem] text-[var(--muted-foreground)]">(account)</span>
+                        <span className="ml-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">(account)</span>
                       )}
                       {!nsfwGreyedOut && isLoginProvider && !effectiveNsfwAvailable && (
                         <LogIn size="0.625rem" className="ml-0.5 opacity-70" />
@@ -2577,7 +2577,7 @@ function CardTile({ card, onClick }: { card: BrowseCard; onClick: () => void }) 
           />
         )}
         {card.nsfw && (
-          <span className="absolute left-1.5 top-1.5 rounded bg-red-500/80 px-1.5 py-0.5 text-[0.55rem] font-bold text-white">
+          <span className="absolute left-1.5 top-1.5 rounded bg-red-500/80 px-1.5 py-0.5 text-[0.5625rem] font-bold text-white">
             NSFW
           </span>
         )}

@@ -177,7 +177,7 @@ export function ContextInjectionPanel({
             className="text-[var(--muted-foreground)]"
           />
           {injections.length > 0 && (
-            <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-px text-[0.5rem] font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/25">
+            <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-px text-[0.5625rem] font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/25">
               {injections.length}
             </span>
           )}

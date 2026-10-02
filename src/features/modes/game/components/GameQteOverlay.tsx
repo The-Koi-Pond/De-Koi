@@ -141,7 +141,7 @@ export function GameQteOverlay({ actions, timerSeconds, onSelect, onTimeout, onD
               {action.label}
 
               {/* Key hint */}
-              <span className="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[0.5rem] font-mono text-white/50">
+              <span className="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[0.5625rem] font-mono text-white/50">
                 {i + 1}
               </span>
             </button>

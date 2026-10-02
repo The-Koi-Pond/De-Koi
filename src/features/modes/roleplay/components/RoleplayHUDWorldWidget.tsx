@@ -204,7 +204,7 @@ export function CombinedWorldWidget({
           <circle cx="5" cy="17" r="2.5" fill={tempFillColor} opacity={temp !== null ? 1 : 0.25} />
         </svg>
         {tempNumeric !== null && (
-          <span className={cn("text-[0.5rem] md:text-[0.5625rem] font-bold leading-none shrink-0", tempColor)}>
+          <span className={cn("text-[0.5625rem] font-bold leading-none shrink-0", tempColor)}>
             {temperatureDisplay.label}
           </span>
         )}

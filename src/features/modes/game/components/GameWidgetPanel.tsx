@@ -521,7 +521,7 @@ function WidgetCard({
           <Pencil size={10} />
         </button>
         <PanelLockButton locked={locked} onToggle={toggleLocked} size={10} />
-        <span className="text-[0.5rem] text-white/30">{collapsed ? "+" : "-"}</span>
+        <span className="text-[0.5625rem] text-white/30">{collapsed ? "+" : "-"}</span>
       </div>
 
       {/* Body */}
@@ -1126,7 +1126,7 @@ function RelationshipMeterWidget({ widget }: { widget: HudWidget }) {
           />
         ))}
       </div>
-      <div className="mt-1 flex items-center justify-between text-[0.5rem] text-white/30">
+      <div className="mt-1 flex items-center justify-between text-[0.5625rem] text-white/30">
         <span>0</span>
         <span>{max}</span>
       </div>
@@ -1203,7 +1203,7 @@ function InventoryGridWidget({ widget }: { widget: HudWidget }) {
           <button
             onClick={() => setActiveCategory(null)}
             className={cn(
-              "shrink-0 rounded px-1.5 py-0.5 text-[0.5rem] transition-colors",
+              "shrink-0 rounded px-1.5 py-0.5 text-[0.5625rem] transition-colors",
               !activeCategory ? "bg-white/15 text-white/80" : "text-white/40 hover:text-white/60",
             )}
           >
@@ -1214,7 +1214,7 @@ function InventoryGridWidget({ widget }: { widget: HudWidget }) {
               key={cat}
               onClick={() => setActiveCategory(cat)}
               className={cn(
-                "shrink-0 rounded px-1.5 py-0.5 text-[0.5rem] capitalize transition-colors",
+                "shrink-0 rounded px-1.5 py-0.5 text-[0.5625rem] capitalize transition-colors",
                 activeCategory === cat ? "bg-white/15 text-white/80" : "text-white/40 hover:text-white/60",
               )}
             >
@@ -1232,7 +1232,7 @@ function InventoryGridWidget({ widget }: { widget: HudWidget }) {
             <div
               key={i}
               className={cn(
-                "flex aspect-square items-center justify-center rounded border text-[0.5rem]",
+                "flex aspect-square items-center justify-center rounded border text-[0.5625rem]",
                 item ? "border-white/15 bg-white/5" : "border-white/5 bg-white/[0.02]",
               )}
               title={item?.name}
@@ -1243,7 +1243,7 @@ function InventoryGridWidget({ widget }: { widget: HudWidget }) {
                     {item.name}
                   </span>
                   {item.quantity && item.quantity > 1 && (
-                    <span className="text-[0.4375rem]" style={{ color: accent }}>
+                    <span className="text-[0.5625rem]" style={{ color: accent }}>
                       x{item.quantity}
                     </span>
                   )}

@@ -32,27 +32,27 @@ export function WorldDateTile({
       >
         {isFreeformDate ? (
           <>
-            <span className="mb-0.5 max-w-full truncate text-[0.4375rem] font-bold uppercase leading-none text-[var(--primary)]/82">
+            <span className="mb-0.5 max-w-full truncate text-[0.5625rem] font-bold uppercase leading-none text-[var(--primary)]/82">
               Date
             </span>
             <span className="line-clamp-2 max-w-full break-words text-[0.5625rem] font-black leading-[0.625rem] text-[var(--foreground)] [overflow-wrap:anywhere]">
               {display.main}
             </span>
             {display.detail && (
-              <span className="mt-0.5 line-clamp-1 max-w-full break-words text-[0.4375rem] font-semibold leading-[0.55rem] text-[var(--muted-foreground)]/78 [overflow-wrap:anywhere]">
+              <span className="mt-0.5 line-clamp-1 max-w-full break-words text-[0.5625rem] font-semibold leading-[0.55rem] text-[var(--muted-foreground)]/78 [overflow-wrap:anywhere]">
                 {display.detail}
               </span>
             )}
           </>
         ) : (
           <>
-            <div className="bg-[var(--primary)]/24 text-[0.5rem] font-bold leading-[0.95rem] text-[var(--primary)]">
+            <div className="bg-[var(--primary)]/24 text-[0.5625rem] font-bold leading-[0.95rem] text-[var(--primary)]">
               {display.month}
             </div>
             <div className="flex min-h-0 flex-col items-center justify-center bg-[var(--background)]/22 text-[var(--foreground)]">
               <span className="text-base font-black leading-none">{display.day}</span>
               {display.year && (
-                <span className="mt-0.5 text-[0.5rem] font-semibold leading-none text-[var(--muted-foreground)]/70">
+                <span className="mt-0.5 text-[0.5625rem] font-semibold leading-none text-[var(--muted-foreground)]/70">
                   {display.year}
                 </span>
               )}
@@ -117,7 +117,7 @@ export function WorldTimeTile({
             {display.main}
           </span>
           {display.suffix && (
-            <span className="shrink-0 text-[0.4375rem] font-bold leading-none text-[var(--muted-foreground)]">
+            <span className="shrink-0 text-[0.5625rem] font-bold leading-none text-[var(--muted-foreground)]">
               {display.suffix}
             </span>
           )}

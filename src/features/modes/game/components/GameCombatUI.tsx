@@ -1643,7 +1643,7 @@ export function GameCombatUI({
         <div className="relative z-10 shrink-0 border-b border-white/10 bg-black/70 px-2 py-2 backdrop-blur-md">
           <div className="flex items-stretch gap-2">
             <div className="flex shrink-0 flex-col items-center justify-center rounded border border-white/10 bg-white/5 px-2">
-              <span className="text-[0.5rem] font-semibold uppercase tracking-wide text-white/40">Round</span>
+              <span className="text-[0.5625rem] font-semibold uppercase tracking-wide text-white/40">Round</span>
               <span className="text-base font-bold leading-none tabular-nums text-white">{round}</span>
             </div>
             <div className="flex flex-1 gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1789,7 +1789,7 @@ export function GameCombatUI({
               Log
             </button>
             {turnOrder.length > 0 && (
-              <span className="ml-auto shrink-0 truncate rounded bg-white/5 px-2 py-1 text-[0.55rem] font-semibold uppercase tracking-wide text-white/45">
+              <span className="ml-auto shrink-0 truncate rounded bg-white/5 px-2 py-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-white/45">
                 Next: {turnOrder[0]?.name ?? "—"}
               </span>
             )}
@@ -1813,12 +1813,12 @@ export function GameCombatUI({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-semibold text-white">{activePlayer.name}</div>
-                  <div className="text-[0.55rem] tabular-nums text-white/45">
+                  <div className="text-[0.5625rem] tabular-nums text-white/45">
                     HP {activePlayer.hp}/{activePlayer.maxHp}
                     {activePlayer.maxMp ? ` · MP ${activePlayer.mp ?? 0}/${activePlayer.maxMp}` : ""}
                   </div>
                 </div>
-                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[0.55rem] font-semibold uppercase tracking-wide text-amber-200">
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide text-amber-200">
                   Your turn
                 </span>
               </div>
@@ -1939,7 +1939,7 @@ export function GameCombatUI({
                               {item.name}
                             </span>
                             {item.quantity > 1 && (
-                              <span className="shrink-0 rounded-full bg-white/10 px-1.5 text-[0.55rem] tabular-nums text-white/60">
+                              <span className="shrink-0 rounded-full bg-white/10 px-1.5 text-[0.5625rem] tabular-nums text-white/60">
                                 x{item.quantity}
                               </span>
                             )}
@@ -2299,7 +2299,7 @@ export function GameCombatUI({
           <div className="flex min-w-0 flex-wrap items-center gap-2">{combatControlsSlot}</div>
           {phase !== "intro" && (
             <div className="shrink-0 rounded-lg border border-white/10 bg-black/65 px-2.5 py-1 text-center shadow-lg backdrop-blur-md">
-              <div className="text-[0.55rem] font-semibold uppercase tracking-widest text-white/40">Round</div>
+              <div className="text-[0.5625rem] font-semibold uppercase tracking-widest text-white/40">Round</div>
               <div className="text-lg font-bold leading-none tabular-nums text-white">{round}</div>
             </div>
           )}
@@ -2766,7 +2766,7 @@ function CombatDialoguePanel({
                   {line.character}
                 </span>
                 {line.expression && (
-                  <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[0.55rem] font-semibold uppercase tracking-wide text-white/50">
+                  <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide text-white/50">
                     {line.expression}
                   </span>
                 )}
@@ -2812,7 +2812,7 @@ function CombatMechanicsPanel({ mechanics, round }: { mechanics: CombatMechanic[
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate font-semibold">{mechanic.name}</span>
                 {interval > 0 && (
-                  <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[0.55rem] text-white/50">
+                  <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[0.5625rem] text-white/50">
                     every {interval}
                   </span>
                 )}
@@ -2941,7 +2941,7 @@ function CombatantCard({
                   {line.character}
                 </span>
                 {line.expression && (
-                  <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[0.5rem] font-semibold uppercase tracking-wide text-white/55">
+                  <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[0.5625rem] font-semibold uppercase tracking-wide text-white/55">
                     {line.expression}
                   </span>
                 )}
@@ -2972,7 +2972,7 @@ function CombatantCard({
               )}
             >
               <span aria-hidden="true">{getStatusEffectEmoji(effect)}</span>
-              <span className="absolute -bottom-1 -right-1 rounded-full bg-black/80 px-1 text-[0.45rem] font-bold leading-none text-white/80">
+              <span className="absolute -bottom-1 -right-1 rounded-full bg-black/80 px-1 text-[0.5625rem] font-bold leading-none text-white/80">
                 {effect.turnsLeft}
               </span>
             </div>
@@ -3041,7 +3041,7 @@ function CombatantCard({
         >
           {combatant.name}
         </span>
-        <span className="rounded-full bg-white/10 px-1.5 py-0 text-[0.55rem] tabular-nums text-white/40">
+        <span className="rounded-full bg-white/10 px-1.5 py-0 text-[0.5625rem] tabular-nums text-white/40">
           Lv.{combatant.level}
         </span>
       </div>
@@ -3059,7 +3059,7 @@ function CombatantCard({
               style={{ transform: `scaleX(${hpScale})` }}
             />
           </div>
-          <span className="min-w-[2.5rem] text-right text-[0.55rem] tabular-nums text-white/50">
+          <span className="min-w-[2.5rem] text-right text-[0.5625rem] tabular-nums text-white/50">
             {combatant.hp}/{combatant.maxHp}
           </span>
         </div>
@@ -3074,7 +3074,7 @@ function CombatantCard({
                 style={{ transform: `scaleX(${mpScale})` }}
               />
             </div>
-            <span className="min-w-[2.5rem] text-right text-[0.55rem] tabular-nums text-white/40">
+            <span className="min-w-[2.5rem] text-right text-[0.5625rem] tabular-nums text-white/40">
               {combatant.mp}/{combatant.maxMp}
             </span>
           </div>
@@ -3085,7 +3085,7 @@ function CombatantCard({
       <div className="mt-0.5 flex h-4 items-center justify-center">
         {combatant.elementAura && (
           <div
-            className="rounded-full px-1.5 py-0 text-[0.5rem] font-bold uppercase tracking-wider"
+            className="rounded-full px-1.5 py-0 text-[0.5625rem] font-bold uppercase tracking-wider"
             style={{
               backgroundColor: `${ELEMENT_AURA_COLORS[combatant.elementAura.element] ?? "#888"}20`,
               color: ELEMENT_AURA_COLORS[combatant.elementAura.element] ?? "#aaa",
@@ -3173,7 +3173,7 @@ function MobileCombatantChip({
           >
             {combatant.name}
           </span>
-          <span className="rounded bg-white/10 px-1 text-[0.5rem] tabular-nums text-white/45">
+          <span className="rounded bg-white/10 px-1 text-[0.5625rem] tabular-nums text-white/45">
             Lv.{combatant.level}
           </span>
         </div>
@@ -3188,7 +3188,7 @@ function MobileCombatantChip({
               style={{ transform: `scaleX(${hpScale})` }}
             />
           </div>
-          <span className="shrink-0 text-[0.5rem] tabular-nums text-white/55">{combatant.hp}</span>
+          <span className="shrink-0 text-[0.5625rem] tabular-nums text-white/55">{combatant.hp}</span>
         </div>
         {combatant.statusEffects && combatant.statusEffects.length > 0 && (
           <div className="mt-0.5 flex gap-0.5 overflow-hidden">
