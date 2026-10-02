@@ -107,6 +107,14 @@ describe("GameSetupWizard selection semantics", () => {
     expect(musicPlayer.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("names the icon-only buttons that add a custom genre or tone", () => {
+    for (const name of ["Add custom genre", "Add custom tone"]) {
+      const button = document.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+      expect(button).not.toBeNull();
+      expect(button!.type).toBe("button");
+    }
+  });
+
   it("blocks Character GM setup until a GM character is selected", () => {
     act(() => buttonByText(container, "Next").click());
     act(() => buttonByText(container, "Character GMUse an existing character as GM").click());
