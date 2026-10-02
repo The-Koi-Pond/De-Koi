@@ -732,34 +732,64 @@ async function saveSettingsPatch(
 
 function noop(): void {}
 
+const SETTINGS_WRITE_ATTEMPTS = 5;
+
+/**
+ * Reads the Deki settings row, applies `transform`, and writes the result only
+ * if the row has not changed since the read. A write that lost to another
+ * client or caller re-reads and re-applies `transform` on top of theirs, so no
+ * concurrent settings change is silently replaced.
+ */
 async function saveSettingsTransform(
   transform: (settings: Record<string, unknown>) => Record<string, unknown>,
   beforeWrite: () => void = noop,
-  afterDuplicateCreate = false,
 ): Promise<Record<string, unknown>> {
-  const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
-  const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
-  const source = existing ?? legacy;
-  const parsed = appSettingsResponseSchema.safeParse(source ?? { value: null });
-  const value = transform(asRecord(parsed.success ? parsed.data.value : null));
-  const payload = appSettingsUpdateSchema.parse({ value });
-  beforeWrite();
-  if (existing) {
-    await storageApi.update("app-settings", DEKI_SETTINGS_ID, payload);
-  } else {
+  for (let attempt = 0; attempt < SETTINGS_WRITE_ATTEMPTS; attempt += 1) {
+    const existing = await storageApi.get<DekiSettingsRecord>("app-settings", DEKI_SETTINGS_ID);
+    const legacy = existing ? null : await storageApi.get<DekiSettingsRecord>("app-settings", LEGACY_DEKI_SETTINGS_ID);
+    const source = existing ?? legacy;
+    const parsed = appSettingsResponseSchema.safeParse(source ?? { value: null });
+    const value = transform(asRecord(parsed.success ? parsed.data.value : null));
+    const payload = appSettingsUpdateSchema.parse({ value });
+    beforeWrite();
+    if (existing) {
+      if (await updateSettingsIfUnchanged(existing.value ?? null, payload.value)) return value;
+      continue;
+    }
     try {
       await storageApi.create("app-settings", { id: DEKI_SETTINGS_ID, ...payload });
     } catch (error) {
-      // Another client created the settings row after this one read it. Apply
-      // this change on top of that row instead of replacing its fields.
-      if (afterDuplicateCreate || !isDuplicateCreateError(error, "app-settings", DEKI_SETTINGS_ID)) throw error;
-      return saveSettingsTransform(transform, beforeWrite, true);
+      // Another client created the settings row after this one read it; apply
+      // this change on top of that row on the next attempt.
+      if (!isDuplicateCreateError(error, "app-settings", DEKI_SETTINGS_ID)) throw error;
+      continue;
     }
+    if (legacy) await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
+    return value;
   }
-  if (!existing && legacy) {
-    await storageApi.delete("app-settings", LEGACY_DEKI_SETTINGS_ID);
+  throw new Error("Deki settings kept changing while saving. Try again.");
+}
+
+const CONDITIONAL_SETTINGS_COMMAND = "app_settings_update_if_unchanged";
+
+/** True when the write landed; false when another write changed the row first. */
+async function updateSettingsIfUnchanged(expectedValue: unknown, value: unknown): Promise<boolean> {
+  const updateIfUnchanged = storageApi.updateAppSettingsIfUnchanged;
+  if (!updateIfUnchanged) throw new Error("This storage gateway cannot update settings conditionally.");
+  try {
+    return (await updateIfUnchanged.call(storageApi, DEKI_SETTINGS_ID, expectedValue, value)).updated;
+  } catch (error) {
+    // A remote runtime older than this app has no conditional update. Write the
+    // way every earlier version did instead of breaking Deki settings there.
+    if (
+      error instanceof Error &&
+      error.message === `${CONDITIONAL_SETTINGS_COMMAND} is not exposed by the remote runtime`
+    ) {
+      await storageApi.update("app-settings", DEKI_SETTINGS_ID, { value });
+      return true;
+    }
+    throw error;
   }
-  return value;
 }
 
 /**
