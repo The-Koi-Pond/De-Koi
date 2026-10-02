@@ -2760,11 +2760,12 @@ fn backgroundremover_process_output(
     configure_backgroundremover_process_tree(&mut process);
     let started = Instant::now();
     let mut child = process.spawn()?;
+    let process_tree = BackgroundRemoverProcessTree::track(&child);
     loop {
         let status = match child.try_wait() {
             Ok(status) => status,
             Err(error) => {
-                kill_backgroundremover_process_tree(&mut child);
+                process_tree.kill(&mut child);
                 let _ = child.wait();
                 return Err(error);
             }
@@ -2782,7 +2783,7 @@ fn backgroundremover_process_output(
             return Ok(BackgroundRemoverProcessOutput::Completed(output));
         }
         if started.elapsed() >= timeout {
-            kill_backgroundremover_process_tree(&mut child);
+            process_tree.kill(&mut child);
             let _ = child.wait();
             return Ok(BackgroundRemoverProcessOutput::TimedOut);
         }
@@ -2800,12 +2801,60 @@ fn configure_backgroundremover_process_tree(process: &mut Command) {
 #[cfg(not(unix))]
 fn configure_backgroundremover_process_tree(_process: &mut Command) {}
 
-#[cfg(unix)]
-fn kill_backgroundremover_process_tree(child: &mut Child) {
-    if let Ok(process_group_id) = i32::try_from(child.id()) {
-        unix_process_group::kill_group(process_group_id);
+/// The backgroundremover process and everything it starts. On Unix that is
+/// its process group. On Windows it is a Job Object the child joins right after
+/// spawning; processes it starts join the job too, so a timeout ends the whole
+/// tree at once without running taskkill.
+struct BackgroundRemoverProcessTree {
+    #[cfg(windows)]
+    job: Option<windows_job::Job>,
+}
+
+impl BackgroundRemoverProcessTree {
+    #[cfg(windows)]
+    fn track(child: &Child) -> Self {
+        Self {
+            job: windows_job::Job::assign(child),
+        }
     }
-    let _ = child.kill();
+
+    #[cfg(not(windows))]
+    fn track(_child: &Child) -> Self {
+        Self {}
+    }
+
+    #[cfg(unix)]
+    fn kill(&self, child: &mut Child) {
+        if let Ok(process_group_id) = i32::try_from(child.id()) {
+            unix_process_group::kill_group(process_group_id);
+        }
+        let _ = child.kill();
+    }
+
+    #[cfg(windows)]
+    fn kill(&self, child: &mut Child) {
+        match &self.job {
+            Some(job) => job.terminate(),
+            None => {
+                // The job could not be created or joined; fall back to
+                // taskkill, without letting it open a console window.
+                use std::os::windows::process::CommandExt;
+                let pid = child.id().to_string();
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .creation_flags(0x08000000)
+                    .status();
+            }
+        }
+        let _ = child.kill();
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn kill(&self, child: &mut Child) {
+        let _ = child.kill();
+    }
 }
 
 #[cfg(unix)]
@@ -2830,19 +2879,50 @@ mod unix_process_group {
 }
 
 #[cfg(windows)]
-fn kill_backgroundremover_process_tree(child: &mut Child) {
-    let pid = child.id().to_string();
-    let _ = Command::new("taskkill")
-        .args(["/PID", &pid, "/T", "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let _ = child.kill();
-}
+mod windows_job {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
 
-#[cfg(not(any(unix, windows)))]
-fn kill_backgroundremover_process_tree(child: &mut Child) {
-    let _ = child.kill();
+    type Handle = *mut c_void;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> Handle;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    /// An anonymous Job Object holding one child process and its descendants.
+    pub(super) struct Job(Handle);
+
+    impl Job {
+        pub(super) fn assign(child: &Child) -> Option<Self> {
+            let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            if handle.is_null() {
+                return None;
+            }
+            let job = Self(handle);
+            let assigned =
+                unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle() as Handle) };
+            (assigned != 0).then_some(job)
+        }
+
+        pub(super) fn terminate(&self) {
+            unsafe {
+                let _ = TerminateJobObject(self.0, 1);
+            }
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
 }
 
 fn backgroundremover_failure_detail(output: &Output) -> String {
@@ -4481,7 +4561,8 @@ mod background_remover_runtime_tests {
             command.args([
                 "-NoProfile",
                 "-Command",
-                "$p = [System.Diagnostics.Process]::Start('powershell', '-NoProfile -Command \"Start-Sleep -Seconds 2; Set-Content -LiteralPath $env:MARINARA_BGREM_MARKER -Value alive\"'); Start-Sleep -Seconds 5",
+                // A windowless descendant, like backgroundremover's own workers.
+                "$i = New-Object System.Diagnostics.ProcessStartInfo 'powershell', '-NoProfile -Command \"Start-Sleep -Seconds 2; Set-Content -LiteralPath $env:MARINARA_BGREM_MARKER -Value alive\"'; $i.UseShellExecute = $false; $i.CreateNoWindow = $true; [System.Diagnostics.Process]::Start($i) | Out-Null; Start-Sleep -Seconds 5",
             ]);
             command
         } else {
@@ -4509,6 +4590,40 @@ mod background_remover_runtime_tests {
         } else {
             env::remove_var("BACKGROUNDREMOVER_TIMEOUT_MS");
         }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn backgroundremover_windows_job_ends_the_whole_tree() {
+        let root = temp_path("windows-job-tree");
+        fs::create_dir_all(&root).expect("marker root");
+        let marker_path = root.join("descendant-survived.txt");
+        let mut command = Command::new("powershell");
+        command.args([
+            "-NoProfile",
+            "-Command",
+            "$i = New-Object System.Diagnostics.ProcessStartInfo 'powershell', '-NoProfile -Command \"Start-Sleep -Seconds 2; Set-Content -LiteralPath $env:MARINARA_BGREM_MARKER -Value alive\"'; $i.UseShellExecute = $false; $i.CreateNoWindow = $true; [System.Diagnostics.Process]::Start($i) | Out-Null; Start-Sleep -Seconds 10",
+        ]);
+        command.env("MARINARA_BGREM_MARKER", &marker_path);
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+
+        let mut child = command.spawn().expect("process should spawn");
+        let process_tree = BackgroundRemoverProcessTree::track(&child);
+        assert!(
+            process_tree.job.is_some(),
+            "the child should join a Job Object so its descendants can be ended with it"
+        );
+        // Let the descendant start, then end the tree through the job alone.
+        thread::sleep(Duration::from_millis(1500));
+        process_tree.job.as_ref().expect("job").terminate();
+        let _ = child.wait();
+
+        thread::sleep(Duration::from_secs(3));
+        assert!(
+            !marker_path.exists(),
+            "terminating the job should also end processes the child started"
+        );
         let _ = fs::remove_dir_all(root);
     }
 
