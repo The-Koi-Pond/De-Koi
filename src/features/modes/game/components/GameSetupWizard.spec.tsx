@@ -115,6 +115,38 @@ describe("GameSetupWizard selection semantics", () => {
     }
   });
 
+  it("starts the GM on the default text connection and keeps an explicit choice", () => {
+    const gmSelect = () =>
+      Array.from(container.querySelectorAll<HTMLSelectElement>("select")).find((select) =>
+        Array.from(select.options).some((option) => option.textContent === "Select a connection…"),
+      )!;
+    act(() => buttonByText(container, "Next").click());
+    act(() => buttonByText(container, "Next").click());
+
+    // No connection is marked default: the first text connection is used.
+    expect(gmSelect().value).toBe("gm-connection");
+
+    // A connection marked default wins over list order.
+    const original = setupFixtures.connections;
+    setupFixtures.connections = [
+      { id: "other-connection", name: "Other", provider: "openai", model: "other-model" },
+      { ...original[0]!, isDefault: true } as (typeof original)[number],
+      ...original.slice(1),
+    ];
+    try {
+      act(() => root.render(<GameSetupWizard onComplete={onComplete} onCancel={vi.fn()} isLoading={false} />));
+      expect(gmSelect().value).toBe("gm-connection");
+
+      // An explicit choice, including "none", is kept.
+      act(() => selectValue(gmSelect(), "other-connection"));
+      expect(gmSelect().value).toBe("other-connection");
+      act(() => selectValue(gmSelect(), ""));
+      expect(gmSelect().value).toBe("");
+    } finally {
+      setupFixtures.connections = original;
+    }
+  });
+
   it("blocks Character GM setup until a GM character is selected", () => {
     act(() => buttonByText(container, "Next").click());
     act(() => buttonByText(container, "Character GMUse an existing character as GM").click());
