@@ -2,8 +2,12 @@ name: Windows Rust Tests
 
 # Pull-request CI runs on Linux. This lane runs the Rust workspace tests on
 # Windows twice a week so Windows-only code paths (process trees, file locks,
-# console flags) keep a regression guard without slowing every PR.
+# console flags) keep a regression guard without slowing every PR. It also
+# runs on pull requests that change this workflow, so edits to it are proven.
 on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-rust.yml
   workflow_dispatch:
   schedule:
     - cron: "41 9 * * 1,4"
