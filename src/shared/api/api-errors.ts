@@ -13,6 +13,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Storage rejected creating `entity/id` because that exact row already exists.
+ * Matches the storage owner's message for that record only, so validation and
+ * other 400 errors still propagate. Checked by shape, not class identity, so it
+ * also matches an ApiError thrown by a separately loaded copy of this module.
+ */
+export function isDuplicateCreateError(error: unknown, entity: string, id: string): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "ApiError" &&
+    (error as ApiError).status === 400 &&
+    error.message.trim() === `${entity}/${id} already exists`
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
