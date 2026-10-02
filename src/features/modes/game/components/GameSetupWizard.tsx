@@ -771,7 +771,10 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-xs text-[var(--foreground)] outline-none ring-1 ring-transparent transition-all placeholder:text-[var(--muted-foreground)] focus:ring-[var(--primary)]/40"
                 />
                 <button
+                  type="button"
                   onClick={addCustomGenre}
+                  aria-label="Add custom genre"
+                  title="Add custom genre"
                   disabled={!customGenre.trim()}
                   className="rounded-lg bg-[var(--secondary)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)] disabled:opacity-40"
                 >
@@ -867,7 +870,10 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                   className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-xs text-[var(--foreground)] outline-none ring-1 ring-transparent transition-all placeholder:text-[var(--muted-foreground)] focus:ring-[var(--primary)]/40"
                 />
                 <button
+                  type="button"
                   onClick={addCustomTone}
+                  aria-label="Add custom tone"
+                  title="Add custom tone"
                   disabled={!customTone.trim()}
                   className="rounded-lg bg-[var(--secondary)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)] disabled:opacity-40"
                 >
