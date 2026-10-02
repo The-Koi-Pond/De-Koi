@@ -3,15 +3,32 @@ import { normalizeDekiEntryAction, type DekiEntryAction } from "../../engine/dek
 import { ApiError } from "./api-errors";
 import { dekiApi } from "./deki-api";
 
-const { storageApiMock } = vi.hoisted(() => ({
-  storageApiMock: {
+const { storageApiMock, defaultConditionalSettingsUpdate } = vi.hoisted(() => {
+  const storageApiMock = {
     create: vi.fn(),
     delete: vi.fn(),
     get: vi.fn(),
     list: vi.fn(),
     update: vi.fn(),
-  },
-}));
+    updateAppSettingsIfUnchanged: vi.fn(),
+  };
+  // Same contract as the runtime, built on each test's own get/update mocks:
+  // write only when the stored value still equals the one the caller read.
+  const defaultConditionalSettingsUpdate = async (id: string, expectedValue: unknown, value: unknown) => {
+    const current = (await storageApiMock.get("app-settings", id)) as Record<string, unknown> | null;
+    if (!current) throw new Error(`app-settings/${id} was not found`);
+    if (JSON.stringify(current.value ?? null) !== JSON.stringify(expectedValue ?? null)) {
+      return { updated: false, record: current };
+    }
+    const record = (await storageApiMock.update("app-settings", id, { value })) ?? { ...current, value };
+    return { updated: true, record };
+  };
+  return { storageApiMock, defaultConditionalSettingsUpdate };
+});
+
+beforeEach(() => {
+  storageApiMock.updateAppSettingsIfUnchanged.mockImplementation(defaultConditionalSettingsUpdate);
+});
 
 vi.mock("./storage-api", () => ({
   storageApi: storageApiMock,
@@ -1355,6 +1372,59 @@ describe("dekiApi.sessions first run", () => {
     expect(storageApiMock.create.mock.calls.filter(([entity]) => entity === "deki-sessions")).toHaveLength(1);
   });
 
+  it("re-applies a settings save on top of a write that landed after its read", async () => {
+    const storage = installMemoryStorage();
+    await dekiApi.sessions.list();
+    // Right before this save's conditional write, another client changes the row.
+    let calls = 0;
+    storageApiMock.updateAppSettingsIfUnchanged.mockImplementation(
+      async (id: string, expectedValue: unknown, value: unknown) => {
+        calls += 1;
+        if (calls === 1) {
+          const row = storage.row("app-settings", "deki")!;
+          row.value = { ...(row.value as Record<string, unknown>), otherClientField: "kept" };
+        }
+        return defaultConditionalSettingsUpdate(id, expectedValue, value);
+      },
+    );
+
+    await dekiApi.preferences.save({ selectedConnectionId: "mine", selectedPersonaId: null });
+
+    expect(calls).toBe(2);
+    expect(storage.settings()).toMatchObject({ selectedConnectionId: "mine", otherClientField: "kept" });
+  });
+
+  it("stops with a clear error when settings keep changing under a save", async () => {
+    installMemoryStorage();
+    await dekiApi.sessions.list();
+    storageApiMock.updateAppSettingsIfUnchanged.mockImplementation(async (id: string) => ({
+      updated: false,
+      record: { id, value: {} },
+    }));
+
+    await expect(dekiApi.preferences.save({ selectedConnectionId: "mine", selectedPersonaId: null })).rejects.toThrow(
+      "Deki settings kept changing while saving",
+    );
+  });
+
+  it("refuses to save settings without writing on a runtime without conditional updates", async () => {
+    const storage = installMemoryStorage();
+    await dekiApi.sessions.list();
+    const before = storage.settings();
+    const writesBefore = storage.writes.length;
+    storageApiMock.updateAppSettingsIfUnchanged.mockRejectedValue(
+      new ApiError("app_settings_update_if_unchanged is not exposed by the remote runtime", 400),
+    );
+
+    await expect(dekiApi.preferences.save({ selectedConnectionId: "mine", selectedPersonaId: null })).rejects.toThrow(
+      "This De-Koi server is older than the app and cannot save Deki settings safely. Update and restart the server, then try again.",
+    );
+
+    expect(storage.settings()).toEqual(before);
+    expect(storage.writes).toHaveLength(writesBefore);
+    expect(storageApiMock.update).not.toHaveBeenCalledWith("app-settings", expect.anything(), expect.anything());
+  });
+
   it.each([
     ["a fresh profile", () => undefined, ["deki-session-default"], [] as string[]],
     [
@@ -1959,6 +2029,19 @@ describe("dekiApi.sessions first run", () => {
       );
       storageApiMock.delete.mockImplementation((entity: string, id: string) =>
         record(`write delete ${entity}`, (rows) => rows.delete(`${entity}/${id}`)),
+      );
+      // One call, routed to the runtime current at dispatch, like the real command.
+      storageApiMock.updateAppSettingsIfUnchanged.mockImplementation(
+        (id: string, expectedValue: unknown, value: unknown) =>
+          record("write update app-settings", (rows) => {
+            const current = rows.get(`app-settings/${id}`);
+            if (JSON.stringify(current?.value ?? null) !== JSON.stringify(expectedValue ?? null)) {
+              return { updated: false, record: current };
+            }
+            const next = { ...current, value } as Row;
+            rows.set(`app-settings/${id}`, next);
+            return { updated: true, record: next };
+          }),
       );
       return { stores, calls };
     };

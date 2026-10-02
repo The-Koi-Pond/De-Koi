@@ -100,6 +100,20 @@ describe("dekiApi settings persistence", () => {
         return next;
       }
 
+      if (command === "app_settings_update_if_unchanged") {
+        // Same contract as the runtime: write only over the value the caller read.
+        const conditional = args as { id?: string; expectedValue?: unknown; value?: unknown };
+        const records = recordsFor("app-settings");
+        const current = conditional.id ? records.get(conditional.id) : undefined;
+        if (!conditional.id || !current) throw new Error(`Missing fixed id ${conditional.id}`);
+        if (JSON.stringify(current.value ?? null) !== JSON.stringify(conditional.expectedValue ?? null)) {
+          return { updated: false, record: current };
+        }
+        const next = { ...current, value: conditional.value };
+        records.set(conditional.id, next);
+        return { updated: true, record: next };
+      }
+
       if (command === "storage_delete") {
         const id = request.id;
         if (!request.entity) throw new Error("Missing delete entity");

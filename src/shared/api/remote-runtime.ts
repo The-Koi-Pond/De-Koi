@@ -128,6 +128,7 @@ const REMOTE_COMMANDS = new Set([
   "regex_script_reorder",
   "storage_create",
   "storage_update",
+  "app_settings_update_if_unchanged",
   "chat_update_if_unchanged",
   "storage_delete",
   "storage_duplicate",

@@ -54,6 +54,32 @@ describe("storageApi chat summary patches", () => {
     );
   });
 
+  it("sends conditional settings writes through the atomic runtime command", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      updated: false,
+      record: { id: "deki", value: { activeSessionId: "session-b" } },
+    });
+    const { storageApi } = await import("./storage-api");
+
+    await expect(
+      storageApi.updateAppSettingsIfUnchanged?.("deki", { activeSessionId: "session-a" }, { activeSessionId: "c" }),
+    ).resolves.toEqual({ updated: false, record: { id: "deki", value: { activeSessionId: "session-b" } } });
+    expect(invokeTauriMock).toHaveBeenCalledWith(
+      "app_settings_update_if_unchanged",
+      { id: "deki", expectedValue: { activeSessionId: "session-a" }, value: { activeSessionId: "c" } },
+      { timeoutMs: null },
+    );
+  });
+
+  it("rejects a conditional settings response for another record", async () => {
+    invokeTauriMock.mockResolvedValueOnce({ updated: true, record: { id: "other", value: {} } });
+    const { storageApi } = await import("./storage-api");
+
+    await expect(storageApi.updateAppSettingsIfUnchanged?.("deki", null, {})).rejects.toThrow(
+      "Invalid conditional settings update response",
+    );
+  });
+
   it("sends conditional chat patches through the atomic runtime command", async () => {
     invokeTauriMock.mockResolvedValueOnce({
       updated: false,

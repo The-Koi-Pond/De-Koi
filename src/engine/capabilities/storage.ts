@@ -194,6 +194,16 @@ export interface TrackerSnapshotSelectionQuery {
 }
 
 export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPort, ChatMetadataPort {
+  /**
+   * Replaces an app-settings row's `value` only if it still equals `expectedValue`
+   * (compared atomically by the runtime). When another write landed first,
+   * resolves `updated: false` with the current record so the caller can re-apply.
+   */
+  updateAppSettingsIfUnchanged?<T = Record<string, unknown>>(
+    id: string,
+    expectedValue: unknown,
+    value: unknown,
+  ): Promise<{ updated: boolean; record: T }>;
   acquireMemoryCaptureWorker?(workerId: string, leaseId?: string): Promise<string | null>;
   releaseMemoryCaptureWorker?(workerId: string, leaseId: string): Promise<void>;
   updateMemoryCaptureJob?(

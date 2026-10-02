@@ -524,6 +524,29 @@ export const storageApi: StorageGateway = {
       chat: chat as T,
     };
   },
+  updateAppSettingsIfUnchanged: async <T = Record<string, unknown>>(
+    id: string,
+    expectedValue: unknown,
+    value: unknown,
+  ) => {
+    const result = (await invokeTauri(
+      "app_settings_update_if_unchanged",
+      { id, expectedValue: expectedValue ?? null, value },
+      DURABLE_STORAGE_REQUEST_OPTIONS,
+    )) as { updated?: unknown; record?: unknown } | null;
+    if (
+      !result ||
+      typeof result !== "object" ||
+      typeof result.updated !== "boolean" ||
+      !result.record ||
+      typeof result.record !== "object" ||
+      Array.isArray(result.record) ||
+      (result.record as Record<string, unknown>).id !== id
+    ) {
+      throw new ApiError("Invalid conditional settings update response", 500);
+    }
+    return { updated: result.updated, record: result.record as T };
+  },
   patchChatSummaries: <T = unknown>(chatId: string, patch: ChatSummaryMapsPatch) =>
     invokeTauri<T>("chat_summary_maps_patch", { chatId, patch }, { timeoutMs: null }),
   listChatMemories: <T = unknown>(chatId: string, options?: ListChatMemoriesOptions) =>
