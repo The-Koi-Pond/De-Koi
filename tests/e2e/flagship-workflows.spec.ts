@@ -316,7 +316,12 @@ test("game setup blocks incomplete dependent selections", async ({ page }) => {
   await page.getByRole("button", { name: "Start Game chat" }).click();
   await expect(page.getByText("New Game Setup")).toBeVisible();
 
+  // The GM starts on the default text connection; clear it to leave the setup incomplete.
+  const gmConnection = page
+    .locator("select")
+    .filter({ has: page.locator("option", { hasText: "Select a connection…" }) });
   while (await page.getByRole("button", { name: "Next" }).isVisible()) {
+    if (await gmConnection.first().isVisible()) await gmConnection.first().selectOption("");
     await page.getByRole("button", { name: "Next" }).click();
   }
 
