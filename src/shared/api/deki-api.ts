@@ -752,7 +752,7 @@ async function saveSettingsTransform(
     } catch (error) {
       // Another client created the settings row after this one read it. Apply
       // this change on top of that row instead of replacing its fields.
-      if (afterDuplicateCreate || !isDuplicateCreateError(error)) throw error;
+      if (afterDuplicateCreate || !isDuplicateCreateError(error, "app-settings", DEKI_SETTINGS_ID)) throw error;
       return saveSettingsTransform(transform, beforeWrite, true);
     }
   }
@@ -841,7 +841,8 @@ function dekiHistoryPersistenceSnapshot(state: DekiSessionsState): DekiHistoryPe
   };
 }
 
-async function writeStorageRecord(
+/** Writes one row of a first-run (or interrupted) migration. Ordinary saves use saveIncrementalSessionsState. */
+async function writeMigratedRecord(
   entity: "deki-sessions" | "deki-messages",
   id: string,
   value: Record<string, unknown>,
@@ -850,7 +851,7 @@ async function writeStorageRecord(
   const existing = await storageApi.get(entity, id).catch(() => null);
   beforeWrite();
   if (existing) await storageApi.update(entity, id, value);
-  else await createUnlessExists(entity, value);
+  else await createMigratedRecordUnlessExists(entity, id, value);
 }
 
 /**
@@ -859,11 +860,15 @@ async function writeStorageRecord(
  * the same ids; the first writer's row stands, because by now it may hold
  * newer state (a later message, compaction) that this snapshot would undo.
  */
-async function createUnlessExists(entity: StorageEntity, value: Record<string, unknown>): Promise<void> {
+async function createMigratedRecordUnlessExists(
+  entity: StorageEntity,
+  id: string,
+  value: Record<string, unknown>,
+): Promise<void> {
   try {
     await storageApi.create(entity, value);
   } catch (error) {
-    if (!isDuplicateCreateError(error)) throw error;
+    if (!isDuplicateCreateError(error, entity, id)) throw error;
   }
 }
 
@@ -956,11 +961,16 @@ async function saveDurableSessionsState(
   const messageIds = new Set<string>();
 
   for (const session of normalized.sessions) {
-    await writeStorageRecord("deki-sessions", session.id, dekiSessionRecord(session), beforeWrite);
+    await writeMigratedRecord("deki-sessions", session.id, dekiSessionRecord(session), beforeWrite);
     for (let index = 0; index < session.messages.length; index += 1) {
       const message = session.messages[index]!;
       messageIds.add(message.id);
-      await writeStorageRecord("deki-messages", message.id, dekiMessageRecord(session.id, message, index), beforeWrite);
+      await writeMigratedRecord(
+        "deki-messages",
+        message.id,
+        dekiMessageRecord(session.id, message, index),
+        beforeWrite,
+      );
     }
   }
   if (!pruneUnlisted) return;

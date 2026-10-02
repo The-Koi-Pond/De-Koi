@@ -72,7 +72,7 @@ export const pluginMemoryApi = {
     try {
       return await storageApi.create<PluginMemoryRecord<T>>(PLUGIN_MEMORY_ENTITY, payload);
     } catch (error) {
-      if (!isDuplicateCreateError(error)) throw error;
+      if (!isDuplicateCreateError(error, PLUGIN_MEMORY_ENTITY, id)) throw error;
       return storageApi.update<PluginMemoryRecord<T>>(PLUGIN_MEMORY_ENTITY, id, payload);
     }
   },

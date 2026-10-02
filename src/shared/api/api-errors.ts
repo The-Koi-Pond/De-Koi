@@ -14,16 +14,17 @@ export class ApiError extends Error {
 }
 
 /**
- * Storage rejected a create because a row with that id already exists. Checked
- * by shape, not class identity, so it also matches an ApiError thrown by a
- * separately loaded copy of this module.
+ * Storage rejected creating `entity/id` because that exact row already exists.
+ * Matches the storage owner's message for that record only, so validation and
+ * other 400 errors still propagate. Checked by shape, not class identity, so it
+ * also matches an ApiError thrown by a separately loaded copy of this module.
  */
-export function isDuplicateCreateError(error: unknown): boolean {
+export function isDuplicateCreateError(error: unknown, entity: string, id: string): boolean {
   return (
     error instanceof Error &&
     error.name === "ApiError" &&
     (error as ApiError).status === 400 &&
-    error.message.includes("already exists")
+    error.message.trim() === `${entity}/${id} already exists`
   );
 }
 

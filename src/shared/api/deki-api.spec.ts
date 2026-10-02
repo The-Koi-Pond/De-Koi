@@ -1356,32 +1356,55 @@ describe("dekiApi.sessions first run", () => {
   });
 
   it.each([
-    ["a fresh profile", () => undefined],
-    ["legacy history", () => legacySettingsSeed()],
-  ])("lets two clients first-run against the same runtime at once (%s)", async (_label, seed) => {
-    // Each client is a separately loaded copy of the module: they share the
-    // runtime's storage but not the in-memory migration gate, and both start
-    // with no migration state of their own.
-    vi.resetModules();
-    const { dekiApi: firstClient } = await import("./deki-api");
-    vi.resetModules();
-    const { dekiApi: secondClient } = await import("./deki-api");
-    const storage = installMemoryStorage({ seed: seed() });
+    ["a fresh profile", () => undefined, ["deki-session-default"], [] as string[]],
+    [
+      "legacy history",
+      () => legacySettingsSeed(),
+      ["session-one", "session-two"],
+      ["message-1", "message-2", "message-3"],
+    ],
+  ])(
+    "lets two clients first-run against the same runtime at once (%s)",
+    async (_label, seed, sessionIds, messageIds) => {
+      // Each client is a separately loaded copy of the module: they share the
+      // runtime's storage but not the in-memory migration gate, and both start
+      // with no migration state of their own.
+      vi.resetModules();
+      const { dekiApi: firstClient } = await import("./deki-api");
+      vi.resetModules();
+      const { dekiApi: secondClient } = await import("./deki-api");
+      const storage = installMemoryStorage({ seed: seed() });
 
-    const [first, second] = await Promise.all([firstClient.sessions.list(), secondClient.sessions.list()]);
+      const [first, second] = await Promise.all([firstClient.sessions.list(), secondClient.sessions.list()]);
 
-    expect(first.activeSessionId).toBe(second.activeSessionId);
-    expect(first.sessions.map((session) => session.id)).toEqual(second.sessions.map((session) => session.id));
-    // The race really happened: more session creates were attempted than landed.
-    const attempted = storageApiMock.create.mock.calls.filter(([entity]) => entity === "deki-sessions").length;
-    const sessionCreates = storage.writes.filter((write) => write.startsWith("create deki-sessions/"));
-    expect(attempted).toBeGreaterThan(sessionCreates.length);
-    // Each row was created once, and the client that lost the race did not overwrite it.
-    expect(sessionCreates).toEqual([...new Set(sessionCreates)]);
-    expect(storage.writes.some((write) => write.startsWith("update deki-sessions/"))).toBe(false);
-    expect((await firstClient.sessions.list()).sessions.map((session) => session.id)).toEqual(
-      first.sessions.map((session) => session.id),
-    );
+      expect(first.activeSessionId).toBe(second.activeSessionId);
+      expect(first.sessions.map((session) => session.id)).toEqual(second.sessions.map((session) => session.id));
+      // The race really happened: more session creates were attempted than landed.
+      const attempted = storageApiMock.create.mock.calls.filter(([entity]) => entity === "deki-sessions").length;
+      const sessionCreates = storage.writes.filter((write) => write.startsWith("create deki-sessions/"));
+      expect(attempted).toBeGreaterThan(sessionCreates.length);
+      // Each row was created once, and the client that lost the race did not overwrite it.
+      expect(sessionCreates).toEqual([...new Set(sessionCreates)]);
+      expect(storage.writes.some((write) => write.startsWith("update deki-sessions/"))).toBe(false);
+      expect((await firstClient.sessions.list()).sessions.map((session) => session.id)).toEqual(
+        first.sessions.map((session) => session.id),
+      );
+      // The durable result is one complete migration: every session and message
+      // row, the active session in settings, and no legacy history left behind.
+      expect(storage.rowIds("deki-sessions").sort()).toEqual([...sessionIds].sort());
+      expect(storage.rowIds("deki-messages").sort()).toEqual([...messageIds].sort());
+      expect(storage.settings().activeSessionId).toBe(first.activeSessionId);
+      expect(storage.settings()).not.toHaveProperty("sessions");
+      expect(storage.settings()).not.toHaveProperty("messages");
+    },
+  );
+
+  it("still fails when storage reports a different record already exists", async () => {
+    // Only a conflict on the exact row being created counts as another client's write.
+    installMemoryStorage();
+    storageApiMock.create.mockRejectedValueOnce(new ApiError("deki-sessions/some-other-session already exists", 400));
+
+    await expect(dekiApi.sessions.list()).rejects.toThrow("some-other-session already exists");
   });
 
   it("still fails an ordinary save that hits a duplicate create", async () => {
