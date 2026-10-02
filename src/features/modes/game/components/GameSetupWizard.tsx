@@ -45,6 +45,7 @@ import { useLorebooks } from "../../../catalog/lorebooks/index";
 import { useGameAssetStore } from "../stores/game-asset.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
+import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 
 interface GameSetupWizardProps {
   error?: string | null;
@@ -359,7 +360,8 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
   const debouncedGmSearch = useDebouncedValue(gmSearch, 180);
   const debouncedPartySearch = useDebouncedValue(partySearch, 180);
   const [personaId, setPersonaId] = useState<string | null>(null);
-  const [gmConnectionId, setGmConnectionId] = useState<string | null>(null);
+  // undefined until the player picks; until then the GM uses the default text connection.
+  const [gmConnectionChoice, setGmConnectionChoice] = useState<string | null | undefined>(undefined);
   const [customizeParameters, setCustomizeParameters] = useState(false);
   const [generationParameters, setGenerationParameters] =
     useState<EditableGenerationParameters>(ROLEPLAY_PARAMETER_DEFAULTS);
@@ -422,6 +424,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     [connectionsList],
   );
   const connections = useMemo(() => filterLanguageGenerationConnections(allConnections), [allConnections]);
+  const defaultGmConnectionId = useMemo(
+    () => connectionCatalogApi.selectDefaultTextConnectionId(connectionsList ?? []),
+    [connectionsList],
+  );
+  const gmConnectionId = gmConnectionChoice === undefined ? defaultGmConnectionId : gmConnectionChoice;
   const selectedGmConnection = useMemo(
     () => connections.find((connection) => connection.id === gmConnectionId) ?? null,
     [connections, gmConnectionId],
@@ -1290,7 +1297,7 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
               </label>
               <select
                 value={gmConnectionId ?? ""}
-                onChange={(e) => setGmConnectionId(e.target.value || null)}
+                onChange={(e) => setGmConnectionChoice(e.target.value || null)}
                 className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--foreground)] outline-none ring-1 ring-transparent transition-all focus:ring-[var(--primary)]/40"
               >
                 <option value="">Select a connection…</option>
