@@ -1,0 +1,39 @@
+name: Windows Rust Tests
+
+# Pull-request CI runs on Linux. This lane runs the Rust workspace tests on
+# Windows twice a week so Windows-only code paths (process trees, file locks,
+# console flags) keep a regression guard without slowing every PR. It also
+# runs on pull requests that change this workflow, so edits to it are proven.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-rust.yml
+  workflow_dispatch:
+  schedule:
+    - cron: "41 9 * * 1,4"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-rust:
+    name: Windows Rust Tests
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: taiki-e/install-action@v2.85.2
+        with:
+          tool: nextest
+      - name: Rust workspace tests on Windows
+        run: cargo nextest run --manifest-path src-tauri/Cargo.toml --workspace --no-fail-fast
