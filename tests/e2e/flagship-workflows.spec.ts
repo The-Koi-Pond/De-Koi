@@ -251,8 +251,22 @@ async function createConversation(page: import("@playwright/test").Page) {
 test("conversation can be created, streamed, retried, and restored after reload", async ({ page }) => {
   await createConversation(page);
 
+  // The fixture connection has no embedding model, so the first reply warns
+  // that Memory Recall uses local matching. That toast lands over the top of the
+  // transcript, where the first reply appears, so hovering the reply can hit the
+  // toast instead. Hold the reply until the toast is up so this happens every
+  // run, then close the toast as a user would.
+  holdNextStream = true;
   await page.getByPlaceholder(/Message/).fill("Hello deterministic koi");
   await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => releaseHeldStream !== null).toBe(true);
+  const recallWarning = page
+    .locator("[data-sonner-toast]")
+    .filter({ hasText: "Memory Recall is using local matching" });
+  await recallWarning.getByRole("button", { name: "Close toast" }).click();
+  await expect(recallWarning).toHaveCount(0);
+  releaseHeldStream?.();
+
   const firstReply = page.getByText("Deterministic streamed reply 1");
   await expect(firstReply).toBeVisible();
   await firstReply.hover();
