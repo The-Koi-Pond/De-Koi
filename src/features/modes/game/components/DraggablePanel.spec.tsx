@@ -177,6 +177,41 @@ describe("useDraggablePanel", () => {
     expect(el("panel").style.transform).toBe("translate3d(30px, 20px, 0)");
   });
 
+  it("ends a cancelled drag where it stopped without swallowing the next click", () => {
+    render({ locked: false, x: 0, y: 0 });
+
+    pointer("pointerdown", el("header"), 10, 10);
+    pointer("pointermove", window, 30, 20);
+    expect(document.body.style.userSelect).toBe("none");
+    pointer("pointercancel", window, 30, 20);
+
+    expect(document.body.style.userSelect).toBe("");
+    expect(stored()).toMatchObject({ x: 20, y: 10 });
+    pointer("pointermove", window, 90, 90);
+    expect(el("panel").style.transform).toBe("translate3d(20px, 10px, 0)");
+    click(el("header"));
+    expect(onHeaderClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the page when the panel unmounts mid-drag", () => {
+    render({ locked: false, x: 0, y: 0 });
+    const removeListener = vi.spyOn(window, "removeEventListener");
+
+    pointer("pointerdown", el("header"), 10, 10);
+    pointer("pointermove", window, 40, 40);
+    expect(document.body.style.userSelect).toBe("none");
+    act(() => root.unmount());
+
+    expect(document.body.style.userSelect).toBe("");
+    expect(removeListener.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(["pointermove", "pointerup", "pointercancel"]),
+    );
+    const savedBefore = window.localStorage.getItem(STORAGE_KEY);
+    pointer("pointerup", window, 40, 40);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe(savedBefore);
+    root = createRoot(container);
+  });
+
   it("is the only drag engine the game HUD panels use", () => {
     for (const file of ["DraggablePanel.tsx", "GameMap.tsx", "GameWidgetPanel.tsx"]) {
       expect(readFileSync(join(currentDir, file), "utf8")).not.toMatch(/from "framer-motion"/);

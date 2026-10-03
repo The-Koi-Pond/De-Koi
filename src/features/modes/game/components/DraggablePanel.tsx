@@ -164,6 +164,8 @@ export function useDraggablePanel(scopeId: string, panelId: string, constraintsR
     });
   }, [currentState, key]);
 
+  const activeGestureRef = useRef<(() => void) | null>(null);
+
   const handlePointerDown = useCallback(
     (event: PointerEvent) => {
       const element = panelRef.current;
@@ -202,23 +204,32 @@ export function useDraggablePanel(scopeId: string, panelId: string, constraintsR
         const y = origin.y + dy;
         setOffset(bounds ? clamp(x, bounds.minX, bounds.maxX) : x, bounds ? clamp(y, bounds.minY, bounds.maxY) : y);
       };
-      const onEnd = (endEvent: PointerEvent) => {
-        if (endEvent.pointerId !== event.pointerId) return;
+      // Ends the gesture on release, cancel, or the panel unmounting mid-drag.
+      const release = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onEnd);
         window.removeEventListener("pointercancel", onEnd);
+        if (dragging) document.body.style.userSelect = restoreUserSelect;
+        activeGestureRef.current = null;
+      };
+      const onEnd = (endEvent: PointerEvent) => {
+        if (endEvent.pointerId !== event.pointerId) return;
+        release();
         if (!dragging) return;
-        document.body.style.userSelect = restoreUserSelect;
         if (endEvent.type === "pointerup") swallowNextClick();
         writePanelState(key, currentState());
       };
 
+      activeGestureRef.current?.();
+      activeGestureRef.current = release;
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onEnd);
       window.addEventListener("pointercancel", onEnd);
     },
     [constraintsRef, currentState, key, locked, setOffset],
   );
+
+  useEffect(() => () => activeGestureRef.current?.(), []);
 
   // Listen natively on the panel, as framer-motion's drag did: header controls
   // stop React pointerdown propagation for their own reasons, and a press on
