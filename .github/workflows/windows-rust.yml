@@ -3,11 +3,35 @@ name: Windows Rust Tests
 # Pull-request CI runs on Linux. This lane runs the Rust workspace tests on
 # Windows twice a week so Windows-only code paths (process trees, file locks,
 # console flags) keep a regression guard without slowing every PR. It also
-# runs on pull requests that change this workflow, so edits to it are proven.
+# runs on pull requests that change this workflow or Windows-sensitive Rust:
+# child processes and console flags, process trees, file locks and atomic
+# replaces, path canonicalization, cfg(windows) branches, and the toolchain and
+# dependencies they build with. It is not a required check.
+# scripts/check-windows-rust-paths.mjs fails when a Rust file with that kind of
+# code is not covered below.
 on:
   pull_request:
     paths:
       - .github/workflows/windows-rust.yml
+      - rust-toolchain.toml
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - src-tauri/build.rs
+      - src-tauri/crates/*/Cargo.toml
+      - src-tauri/crates/assets/src/**
+      - src-tauri/crates/security/src/**
+      - src-tauri/crates/sidecar/**
+      - src-tauri/crates/storage/src/**
+      - src-tauri/crates/llm/src/providers/claude_subscription.rs
+      - src-tauri/src/commands/storage/commands/profile.rs
+      - src-tauri/src/commands/storage/fonts.rs
+      - src-tauri/src/commands/storage/http.rs
+      - src-tauri/src/commands/storage/images/codex_subscription.rs
+      - src-tauri/src/commands/storage/imports/bulk_imports.rs
+      - src-tauri/src/commands/storage/integrations/music.rs
+      - src-tauri/src/commands/storage/profile/**
+      - src-tauri/src/commands/storage/sprites.rs
+      - src-tauri/src/commands/storage/updates.rs
   workflow_dispatch:
   schedule:
     - cron: "41 9 * * 1,4"
