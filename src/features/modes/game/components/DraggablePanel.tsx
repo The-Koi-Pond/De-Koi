@@ -6,8 +6,16 @@
 // by chatId so positions don't bleed across games.
 // `PanelLockButton` renders the lock toggle in headers.
 // ──────────────────────────────────────────────
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useMotionValue } from "framer-motion";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type RefObject,
+} from "react";
 import { Lock, Unlock } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 
@@ -52,13 +60,28 @@ function writePanelState(key: string, state: PanelState) {
   }
 }
 
+// Movement before a press becomes a drag, so taps on header buttons still click.
+const DRAG_THRESHOLD_PX = 3;
+
+function offsetTransform(offset: { x: number; y: number }): string {
+  return `translate3d(${offset.x}px, ${offset.y}px, 0)`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 /**
- * Returns motion values + lock state for a draggable HUD panel, persisted per
- * chat so positions don't bleed across games. Reads from localStorage
+ * Lock state, drag handling and offset for a draggable HUD panel, persisted
+ * per chat so positions don't bleed across games. Reads from localStorage
  * synchronously on first render to avoid a hydration-flicker where a moved
  * panel paints at origin before snapping back.
+ *
+ * While unlocked, a press that moves past a few pixels drags the panel, kept
+ * inside `constraintsRef` when given. The offset is written to the element's
+ * transform directly during a drag and saved when it ends.
  */
-export function useDraggablePanel(scopeId: string, panelId: string) {
+export function useDraggablePanel(scopeId: string, panelId: string, constraintsRef?: RefObject<HTMLElement | null>) {
   const key = storageKey(scopeId, panelId);
 
   // Synchronous first-render hydration via a ref-captured seed.
@@ -70,20 +93,24 @@ export function useDraggablePanel(scopeId: string, panelId: string) {
 
   const [locked, setLocked] = useState(seed.locked);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const x = useMotionValue(seed.x);
-  const y = useMotionValue(seed.y);
+  const offsetRef = useRef({ x: seed.x, y: seed.y });
+
+  const setOffset = useCallback((x: number, y: number) => {
+    offsetRef.current = { x, y };
+    if (panelRef.current) panelRef.current.style.transform = offsetTransform(offsetRef.current);
+  }, []);
 
   const currentState = useCallback(
     (nextLocked = locked): PanelState => {
       const rect = panelRef.current?.getBoundingClientRect();
       return {
         locked: nextLocked,
-        x: x.get(),
-        y: y.get(),
+        x: offsetRef.current.x,
+        y: offsetRef.current.y,
         ...(rect ? { left: rect.left, top: rect.top } : {}),
       };
     },
-    [locked, x, y],
+    [locked],
   );
 
   const restoreViewportAnchor = useCallback(() => {
@@ -94,9 +121,8 @@ export function useDraggablePanel(scopeId: string, panelId: string) {
     const dx = (stored.left as number) - rect.left;
     const dy = (stored.top as number) - rect.top;
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-    x.set(x.get() + dx);
-    y.set(y.get() + dy);
-  }, [key, x, y]);
+    setOffset(offsetRef.current.x + dx, offsetRef.current.y + dy);
+  }, [key, setOffset]);
 
   useLayoutEffect(() => {
     restoreViewportAnchor();
@@ -127,11 +153,119 @@ export function useDraggablePanel(scopeId: string, panelId: string) {
     });
   }, [currentState, key]);
 
-  const handleDragEnd = useCallback(() => {
-    writePanelState(key, currentState());
-  }, [currentState, key]);
+  const activeGestureRef = useRef<(() => void) | null>(null);
+  // The browser can still fire a click on the panel after a drag ends, at a
+  // time of its choosing. That one click is swallowed so dropping a panel never
+  // toggles its header; the next press clears the mark.
+  const swallowClickRef = useRef(false);
 
-  return { locked, toggleLocked, x, y, panelRef, handleDragEnd };
+  const handlePointerDown = useCallback(
+    (event: PointerEvent) => {
+      swallowClickRef.current = false;
+      const element = panelRef.current;
+      if (locked || !element || event.isPrimary === false || (event.pointerType === "mouse" && event.button !== 0))
+        return;
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const origin = { ...offsetRef.current };
+      let bounds: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
+      let dragging = false;
+      let restoreUserSelect = "";
+
+      const onMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== event.pointerId) return;
+        const dx = moveEvent.clientX - startX;
+        const dy = moveEvent.clientY - startY;
+        if (!dragging) {
+          if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+          dragging = true;
+          restoreUserSelect = document.body.style.userSelect;
+          document.body.style.userSelect = "none";
+          const rect = element.getBoundingClientRect();
+          const area = constraintsRef?.current?.getBoundingClientRect();
+          if (area) {
+            bounds = {
+              minX: origin.x + area.left - rect.left,
+              maxX: origin.x + area.right - rect.right,
+              minY: origin.y + area.top - rect.top,
+              maxY: origin.y + area.bottom - rect.bottom,
+            };
+          }
+        }
+        moveEvent.preventDefault();
+        const x = origin.x + dx;
+        const y = origin.y + dy;
+        setOffset(bounds ? clamp(x, bounds.minX, bounds.maxX) : x, bounds ? clamp(y, bounds.minY, bounds.maxY) : y);
+      };
+      // Ends the gesture on release, cancel, or the panel unmounting mid-drag.
+      const release = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        if (dragging) document.body.style.userSelect = restoreUserSelect;
+        activeGestureRef.current = null;
+      };
+      const onEnd = (endEvent: PointerEvent) => {
+        if (endEvent.pointerId !== event.pointerId) return;
+        release();
+        if (!dragging) return;
+        if (endEvent.type === "pointerup") swallowClickRef.current = true;
+        writePanelState(key, currentState());
+      };
+
+      activeGestureRef.current?.();
+      activeGestureRef.current = release;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onEnd);
+      window.addEventListener("pointercancel", onEnd);
+    },
+    [constraintsRef, currentState, key, locked, setOffset],
+  );
+
+  useEffect(() => () => activeGestureRef.current?.(), []);
+
+  // Listen natively on the panel, as framer-motion's drag did: header controls
+  // stop React pointerdown propagation for their own reasons, and a press on
+  // them must still be able to drag. A callback ref attaches the listener
+  // whenever the panel element mounts, including after an early-return render.
+  const [panelElement, setPanelElement] = useState<HTMLDivElement | null>(null);
+  const attachPanel = useCallback((node: HTMLDivElement | null) => {
+    panelRef.current = node;
+    setPanelElement(node);
+  }, []);
+
+  useEffect(() => {
+    if (!panelElement) return;
+    const swallowDragClick = (event: MouseEvent) => {
+      if (!swallowClickRef.current) return;
+      swallowClickRef.current = false;
+      event.stopPropagation();
+      event.preventDefault();
+    };
+    panelElement.addEventListener("pointerdown", handlePointerDown);
+    panelElement.addEventListener("click", swallowDragClick, { capture: true });
+    return () => {
+      panelElement.removeEventListener("pointerdown", handlePointerDown);
+      panelElement.removeEventListener("click", swallowDragClick, { capture: true });
+    };
+  }, [handlePointerDown, panelElement]);
+
+  // An unlocked panel owns its gestures: touch must not scroll the page, and
+  // text or images inside must not start the browser's own drag, which would
+  // cancel the pointer stream mid-move.
+  const dragProps = {
+    onDragStart: locked ? undefined : (event: ReactDragEvent<HTMLElement>) => event.preventDefault(),
+    draggable: locked ? undefined : false,
+    style: {
+      transform: offsetTransform(offsetRef.current),
+      ...(locked
+        ? {}
+        : { touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }),
+    } satisfies CSSProperties,
+  };
+
+  return { locked, toggleLocked, panelRef: attachPanel, dragProps };
 }
 
 interface PanelLockButtonProps {

@@ -2,7 +2,6 @@
 // Game: Map Wrapper (switches between grid and node)
 // ──────────────────────────────────────────────
 import { useState, useCallback, useEffect, useRef, type PointerEvent, type RefObject } from "react";
-import { motion } from "framer-motion";
 import type { GameMap, GameActiveState } from "../../../../engine/contracts/types/game";
 import { GameGridMap } from "./GameGridMap";
 import { GameNodeMap, type GameNodeEditPatch } from "./GameNodeMap";
@@ -473,7 +472,7 @@ export function GameMapPanel({
   const [collapsed, setCollapsed] = useState(false);
   const [stateHovered, setStateHovered] = useState(false);
   const [mapZoom, setMapZoom] = useState(1);
-  const { locked, toggleLocked, x, y, panelRef, handleDragEnd } = useDraggablePanel(chatId, "map");
+  const { locked, toggleLocked, panelRef, dragProps } = useDraggablePanel(chatId, "map", constraintsRef);
   const mapOptions = buildMapOptions(map, maps);
   const selectedMapId = viewedMapId ?? getMapId(map);
   const activeMap = activeMapId == null || selectedMapId === activeMapId;
@@ -515,16 +514,11 @@ export function GameMapPanel({
   const hasLeadingStatus = Boolean(StateIcon || timeOfDay || day);
 
   return (
-    <motion.div
+    <div
       ref={panelRef}
       data-tour="game-map"
       data-game-skip-bg-nav="true"
-      drag={!locked}
-      dragMomentum={false}
-      dragElastic={0}
-      dragConstraints={constraintsRef as RefObject<Element>}
-      onDragEnd={handleDragEnd}
-      style={{ x, y }}
+      {...dragProps}
       className={cn(
         "game-map-container flex w-52 flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)]/92 p-2 shadow-lg backdrop-blur-sm",
         !locked && "cursor-grab ring-1 ring-white/20 active:cursor-grabbing",
@@ -624,7 +618,7 @@ export function GameMapPanel({
             onEditNode={onMapChange ? (nodeId, patch) => onMapChange(updateNodeInMap(map, nodeId, patch)) : undefined}
           />
         ))}
-    </motion.div>
+    </div>
   );
 }
 
