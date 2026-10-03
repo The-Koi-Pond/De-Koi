@@ -50,6 +50,8 @@ export interface AutomaticMemoryMaintenanceProcessOptions {
 }
 
 export interface AutomaticMemoryMaintenanceResult {
+  /** Another worker holds the maintenance lease, so this pass did nothing. */
+  leaseDenied: boolean;
   processed: number;
   completed: number;
   retryable: number;
@@ -391,6 +393,7 @@ export async function processAutomaticMemoryMaintenanceQueue(
 ): Promise<AutomaticMemoryMaintenanceResult> {
   const now = options.now ?? nowIso();
   const result: AutomaticMemoryMaintenanceResult = {
+    leaseDenied: false,
     processed: 0,
     completed: 0,
     retryable: 0,
@@ -403,7 +406,10 @@ export async function processAutomaticMemoryMaintenanceQueue(
   }
   const workerId = options.workerId ?? automaticMaintenanceWorkerId;
   const leaseId = await dependencies.maintenance.acquireWorker(workerId);
-  if (!leaseId) return result;
+  if (!leaseId) {
+    result.leaseDenied = true;
+    return result;
+  }
   const operationAbort = new AbortController();
   const unregisterForegroundInterruption = interruptWhenForegroundGenerationStarts(
     dependencies.storage,
@@ -730,7 +736,10 @@ export function wakeAutomaticMemoryMaintenanceQueueProcessing(storage: StorageGa
   if (dependencies) scheduleAutomaticMemoryMaintenanceQueueProcessing(dependencies);
 }
 
-async function scheduleNextPass(dependencies: AutomaticMemoryMaintenanceDependencies): Promise<void> {
+async function scheduleNextPass(
+  dependencies: AutomaticMemoryMaintenanceDependencies,
+  minimumDelayMs = 0,
+): Promise<void> {
   if (cancelledWorkers.has(dependencies.storage)) return;
   if (foregroundGenerationActive(dependencies.storage)) {
     deferWorker(dependencies);
@@ -756,6 +765,7 @@ async function scheduleNextPass(dependencies: AutomaticMemoryMaintenanceDependen
       delay = Math.min(delay, Math.max(0, (Number.isFinite(parsed) ? parsed : now) - now));
     }
   }
+  delay = Math.max(delay, minimumDelayMs);
   clearScheduledWorker(dependencies.storage);
   const timer = setTimeout(() => {
     scheduledWorkerTimers.delete(dependencies.storage);
@@ -779,14 +789,30 @@ export function scheduleAutomaticMemoryMaintenanceQueueProcessing(
     return;
   }
   activeWorkers.add(dependencies.storage);
-  void processAutomaticMemoryMaintenanceQueue(dependencies).finally(() => {
-    activeWorkers.delete(dependencies.storage);
-    if (cancelledWorkers.has(dependencies.storage)) return;
-    if (pendingWorkerReruns.has(dependencies.storage)) {
-      pendingWorkerReruns.delete(dependencies.storage);
-      scheduleAutomaticMemoryMaintenanceQueueProcessing(dependencies);
-      return;
-    }
-    void scheduleNextPass(dependencies);
-  });
+  // Pending jobs schedule the next pass immediately. That is right after real
+  // work, but when the lease is held elsewhere or the pass fails before doing
+  // any (for example the runtime rejects the lease command), an immediate retry
+  // loops without pause. Wait a lease heartbeat, or the first retry backoff
+  // after an error.
+  let minimumDelayMs = 0;
+  void processAutomaticMemoryMaintenanceQueue(dependencies)
+    .then(
+      (result) => {
+        if (result.leaseDenied) minimumDelayMs = LEASE_HEARTBEAT_MS;
+      },
+      (error: unknown) => {
+        minimumDelayMs = RETRY_BACKOFF_MS[0];
+        console.warn(`[memory-maintenance] pass failed; retrying in ${RETRY_BACKOFF_MS[0] / 1000}s`, error);
+      },
+    )
+    .finally(() => {
+      activeWorkers.delete(dependencies.storage);
+      if (cancelledWorkers.has(dependencies.storage)) return;
+      if (pendingWorkerReruns.has(dependencies.storage)) {
+        pendingWorkerReruns.delete(dependencies.storage);
+        scheduleAutomaticMemoryMaintenanceQueueProcessing(dependencies);
+        return;
+      }
+      void scheduleNextPass(dependencies, minimumDelayMs);
+    });
 }

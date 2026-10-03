@@ -897,10 +897,18 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
   activeWorkers.add(storage);
   let minimumDelayMs = 0;
   void processAutomaticMemoryCaptureQueue(dependencies)
-    .then((result) => {
-      if (!result.leaseAcquired) minimumDelayMs = CAPTURE_LEASE_HEARTBEAT_MS;
-    })
-    .catch(() => undefined)
+    .then(
+      (result) => {
+        if (!result.leaseAcquired) minimumDelayMs = CAPTURE_LEASE_HEARTBEAT_MS;
+      },
+      (error: unknown) => {
+        // Without a pause, a pass that fails before doing any work (for example
+        // the runtime rejects the lease command) would retry at once while jobs
+        // are pending.
+        minimumDelayMs = RETRY_BACKOFF_MS[0];
+        console.warn(`[memory-capture] pass failed; retrying in ${RETRY_BACKOFF_MS[0] / 1000}s`, error);
+      },
+    )
     .finally(() => {
       activeWorkers.delete(storage);
       if (pendingWorkerReruns.has(storage)) {
