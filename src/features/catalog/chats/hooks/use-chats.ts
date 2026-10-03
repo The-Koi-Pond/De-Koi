@@ -17,9 +17,7 @@ import {
   summariesPatchSchema,
   type CreateMessageInput,
 } from "../../../../engine/contracts/schemas/chat.schema";
-import { getDefaultAgentPrompt } from "../../../../engine/contracts/constants/agent-prompts";
 import { boolish } from "../../../../engine/generation/runtime-records";
-import { backfillConversationSummaries } from "../../../../engine/modes/chat/core/summaries/auto-summary.service";
 import { appendChatSummaryEntryToMetadata } from "../../../../engine/shared/text/chat-summary-entries";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
@@ -564,8 +562,12 @@ export function useUpdateChatSummaries() {
 export function useBackfillConversationSummaries() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ chatId, maxMissingDays }: { chatId: string; maxMissingDays?: number }) =>
-      backfillConversationSummaries({ storage: storageApi, llm: llmApi }, { chatId, maxMissingDays }),
+    mutationFn: async ({ chatId, maxMissingDays }: { chatId: string; maxMissingDays?: number }) => {
+      // Loaded on use: the summary service and its prompts are not needed to boot the app shell.
+      const { backfillConversationSummaries } =
+        await import("../../../../engine/modes/chat/core/summaries/auto-summary.service");
+      return backfillConversationSummaries({ storage: storageApi, llm: llmApi }, { chatId, maxMissingDays });
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(vars.chatId) });
     },
@@ -1031,7 +1033,7 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
 
   const connectionId = await resolveSummaryConnectionId(chat);
   const metadata = parseRecord(chat.metadata);
-  const promptTemplate = resolveSummaryPromptTemplate(metadata, promptTemplateId);
+  const promptTemplate = await resolveSummaryPromptTemplate(metadata, promptTemplateId);
   const transcript = compactTranscript(selected);
   const rawSummary = await llmApi.complete({
     connectionId,
@@ -1109,18 +1111,18 @@ function summaryPromptTemplates(value: unknown): ChatSummaryPromptTemplate[] {
     }));
 }
 
-function resolveSummaryPromptTemplate(
+async function resolveSummaryPromptTemplate(
   metadata: Record<string, unknown>,
   requestedTemplateId?: string | null,
-): { id: string | null; prompt: string } {
+): Promise<{ id: string | null; prompt: string }> {
   const templates = summaryPromptTemplates(metadata.summaryPromptTemplates);
   const selectedId =
     readString(requestedTemplateId).trim() || readString(metadata.activeSummaryPromptTemplateId).trim();
   const selected = templates.find((template) => template.id === selectedId);
-  return {
-    id: selected?.id ?? null,
-    prompt: selected?.prompt ?? getDefaultAgentPrompt("chat-summary"),
-  };
+  if (selected) return { id: selected.id, prompt: selected.prompt };
+  // The default prompt table is large and only needed when a summary is generated.
+  const { getDefaultAgentPrompt } = await import("../../../../engine/contracts/constants/agent-prompts");
+  return { id: null, prompt: getDefaultAgentPrompt("chat-summary") };
 }
 
 /** Create a branch (copy) of an existing chat */

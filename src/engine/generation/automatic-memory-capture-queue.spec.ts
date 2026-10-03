@@ -14,9 +14,11 @@ import {
   enqueueAutomaticMemoryCaptureJob,
   processAutomaticMemoryCaptureQueue,
   scheduleAutomaticMemoryCaptureQueueProcessing,
+} from "./automatic-memory-capture-queue";
+import {
   subscribeAutomaticMemoryCaptureCompletions,
   subscribeAutomaticMemoryCaptureStatuses,
-} from "./automatic-memory-capture-queue";
+} from "./automatic-memory-capture-events";
 import type { CharacterMemoryScopeCharacter } from "./character-memory-scope";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import { legacyMemoryId } from "./deterministic-memory-id";
