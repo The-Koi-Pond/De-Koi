@@ -59,4 +59,42 @@ describe("GameTutorial", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the leaving card at its own target while the next one is measured", async () => {
+    vi.useFakeTimers();
+    const rects: Record<string, DOMRect> = {
+      "game-map": { top: 100, left: 100, width: 200, height: 120, right: 300, bottom: 220, x: 100, y: 100 } as DOMRect,
+      "game-party": { top: 500, left: 700, width: 160, height: 80, right: 860, bottom: 580, x: 700, y: 500 } as DOMRect,
+    };
+    const targets = Object.keys(rects).map((target) => {
+      const el = document.createElement("div");
+      el.dataset.tour = target;
+      el.getBoundingClientRect = () => rects[target];
+      document.body.appendChild(el);
+      return el;
+    });
+    try {
+      await act(async () => {
+        root.render(<GameTutorial open onClose={vi.fn()} />);
+      });
+      const card = () => document.body.querySelector<HTMLElement>(".motion-enter, .motion-exit")!;
+      const firstPlacement = { top: card().style.top, left: card().style.left };
+
+      await act(async () => {
+        findButton("Next")?.click();
+      });
+
+      expect(card().className).toContain("motion-exit");
+      expect({ top: card().style.top, left: card().style.left }).toEqual(firstPlacement);
+
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(card().className).toContain("motion-enter");
+      expect({ top: card().style.top, left: card().style.left }).not.toEqual(firstPlacement);
+    } finally {
+      for (const el of targets) el.remove();
+      vi.useRealTimers();
+    }
+  });
 });

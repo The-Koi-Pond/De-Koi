@@ -20,12 +20,12 @@ interface LeavingEntry<T> {
  * appear at once. In `"wait"` mode new items appear only after every leaving
  * item has finished, which suits step-by-step views that swap one panel for
  * another. Pair `exiting` with the `motion-exit` class and `exitMs` with its
- * duration.
+ * duration; pass a function when items leave with different durations.
  */
 export function usePresence<T>(
   items: readonly T[],
   keyOf: (item: T) => string,
-  exitMs: number,
+  exitMs: number | ((item: T) => number),
   mode: "sync" | "wait" = "sync",
 ): PresenceEntry<T>[] {
   const keys = items.map(keyOf);
@@ -37,8 +37,10 @@ export function usePresence<T>(
   // The items as last rendered, so a leaving item exits showing the data it
   // last had, even if that changed after its key first appeared.
   const committedItems = useRef(items);
+  const latestExitMs = useRef(exitMs);
   useLayoutEffect(() => {
     committedItems.current = items;
+    latestExitMs.current = exitMs;
   });
 
   // Adjusting state while rendering, so a swapped-in item never mounts before
@@ -59,14 +61,18 @@ export function usePresence<T>(
     // With reduced motion the exit animation is skipped by CSS, so do not hold
     // the leaving item (or, in "wait" mode, the next one) for its duration.
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const exitMsOf = latestExitMs.current;
+    const longestExit = Math.max(
+      ...tracked.leaving.map((entry) => (typeof exitMsOf === "function" ? exitMsOf(entry.item) : exitMsOf)),
+    );
     const timer = window.setTimeout(
       () => {
         setTracked((state) => ({ ...state, leaving: state.leaving.filter((entry) => !done.has(entry.key)) }));
       },
-      reducedMotion ? 0 : exitMs,
+      reducedMotion ? 0 : longestExit,
     );
     return () => window.clearTimeout(timer);
-  }, [exitMs, tracked.leaving]);
+  }, [tracked.leaving]);
 
   const leaving = tracked.leaving.map(({ key, item, index }) => ({ key, item, index, exiting: true }));
   if (mode === "wait" && leaving.length > 0) return leaving.map(({ index: _index, ...entry }) => entry);

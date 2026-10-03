@@ -489,14 +489,18 @@ function CharacterSprite({
     };
   }, [characterId, isDragging, onPlacementChange, stageRef]);
 
+  // Each frame keeps the transition it appeared with, so it also leaves with it.
   const spriteFrames = usePresence(
-    spriteUrl ? [{ key: `${characterId}-${expression}`, url: spriteUrl }] : [],
+    spriteUrl
+      ? [{ key: `${characterId}-${expression}`, url: spriteUrl, expression, transition: activeTransition }]
+      : [],
     (frame) => frame.key,
-    SPRITE_EXIT_MS[activeTransition],
+    (frame) => SPRITE_EXIT_MS[frame.transition],
     "wait",
   );
 
-  if (!spriteUrl) return null;
+  // A sprite whose image went away still plays its exit before unmounting.
+  if (spriteFrames.length === 0) return null;
 
   return (
     <div
@@ -532,9 +536,9 @@ function CharacterSprite({
           <img
             key={key}
             src={item.url}
-            alt={`${expression} sprite`}
-            className={`${sizeClass} w-auto object-contain drop-shadow-[0_0_20px_rgba(0,0,0,0.5)] ${editing ? "cursor-grab active:cursor-grabbing" : ""} ${exiting ? "motion-exit" : SPRITE_ENTER_CLASS[activeTransition]}`}
-            style={{ ...spriteScaleStyle, ...SPRITE_EXIT_STYLE[activeTransition] }}
+            alt={`${item.expression} sprite`}
+            className={`${sizeClass} w-auto object-contain drop-shadow-[0_0_20px_rgba(0,0,0,0.5)] ${editing ? "cursor-grab active:cursor-grabbing" : ""} ${exiting ? "motion-exit" : SPRITE_ENTER_CLASS[item.transition]}`}
+            style={{ ...spriteScaleStyle, ...SPRITE_EXIT_STYLE[item.transition] }}
             draggable={false}
           />
         ))}

@@ -123,4 +123,23 @@ describe("usePresence", () => {
 
     expect(container.textContent).toBe("5 new messages*");
   });
+
+  it("holds each leaving item for its own exit time", () => {
+    function Durations({ items }: { items: Array<{ id: string; ms: number }> }) {
+      const entries = usePresence(
+        items,
+        (item) => item.id,
+        (item) => item.ms,
+        "wait",
+      );
+      return <p>{entries.map(({ item }) => item.id).join(",")}</p>;
+    }
+    act(() => root.render(<Durations items={[{ id: "slow", ms: 300 }]} />));
+    act(() => root.render(<Durations items={[{ id: "next", ms: 0 }]} />));
+
+    act(() => vi.advanceTimersByTime(299));
+    expect(container.textContent).toBe("slow");
+    act(() => vi.advanceTimersByTime(1));
+    expect(container.textContent).toBe("next");
+  });
 });

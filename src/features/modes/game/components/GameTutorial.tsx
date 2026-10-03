@@ -372,7 +372,9 @@ export function GameTutorial({ open, onClose }: GameTutorialProps) {
   }, [isLast, onClose]);
 
   // Each step card leaves before the next one arrives.
-  const cards = usePresence([step], String, CARD_EXIT_MS, "wait");
+  // Each card keeps the target it was placed against, so a leaving card stays
+  // put while the next target is measured.
+  const cards = usePresence([{ step, rect: targetRect }], (card) => String(card.step), CARD_EXIT_MS, "wait");
 
   if (!open || !stepData) return null;
 
@@ -394,49 +396,44 @@ export function GameTutorial({ open, onClose }: GameTutorialProps) {
         />
       )}
 
-      {targetRect ? (
-        cards.map(({ key, item, exiting }) => (
+      {cards.map(({ key, item: card, exiting }) => {
+        const content = (
+          <TutorialCard
+            step={card.step}
+            stepData={STEPS[card.step]}
+            isLast={card.step === STEPS.length - 1}
+            onNext={next}
+            onSkip={onClose}
+          />
+        );
+        const motionClass = exiting ? "motion-exit" : "motion-enter";
+        return card.rect ? (
           <div
             key={key}
             className={cn(
-              exiting ? "motion-exit" : "motion-enter",
+              motionClass,
               "pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-4 shadow-2xl ring-1 ring-[var(--primary)]/20 sm:p-5",
             )}
-            style={{ ...CARD_MOTION, ...computeTooltipStyle(targetRect, STEPS[item].side) }}
+            style={{ ...CARD_MOTION, ...computeTooltipStyle(card.rect, STEPS[card.step].side) }}
           >
-            <TutorialCard
-              step={item}
-              stepData={STEPS[item]}
-              isLast={item === STEPS.length - 1}
-              onNext={next}
-              onSkip={onClose}
-            />
+            {content}
           </div>
-        ))
-      ) : (
-        // Fallback: target not yet measurable — show a centered card so the tour
-        // still works even if a region is momentarily hidden.
-        <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
-          {cards.map(({ key, item, exiting }) => (
+        ) : (
+          // Fallback: target not yet measurable — show a centered card so the tour
+          // still works even if a region is momentarily hidden.
+          <div key={key} className="pointer-events-none fixed inset-0 flex items-center justify-center">
             <div
-              key={key}
               className={cn(
-                exiting ? "motion-exit" : "motion-enter",
+                motionClass,
                 "pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-4 shadow-2xl ring-1 ring-[var(--primary)]/20 max-h-[90vh] overflow-x-hidden overflow-y-auto sm:p-5",
               )}
               style={{ ...CARD_MOTION, width: Math.min(380, window.innerWidth - 32) }}
             >
-              <TutorialCard
-                step={item}
-                stepData={STEPS[item]}
-                isLast={item === STEPS.length - 1}
-                onNext={next}
-                onSkip={onClose}
-              />
+              {content}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        );
+      })}
     </div>
   );
 
