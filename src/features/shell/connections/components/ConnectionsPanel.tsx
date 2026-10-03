@@ -398,6 +398,7 @@ export function ConnectionFolderRow({
   renderConnectionRow,
   isDropTarget,
   isDragging = false,
+  folderLandsAt = null,
   draggedConnectionId,
   onGripPointerDown,
   onToggleCollapse,
@@ -413,6 +414,8 @@ export function ConnectionFolderRow({
   isDropTarget: boolean;
   /** This folder is being dragged to a new position. */
   isDragging?: boolean;
+  /** A dragged folder will land on this side of this one when released. */
+  folderLandsAt?: "before" | "after" | null;
   draggedConnectionId: string | null;
   onGripPointerDown?: (event: ReactPointerEvent<HTMLDivElement>, folderId: string) => void;
   onToggleCollapse: (folder: ConnectionFolder) => void;
@@ -436,6 +439,8 @@ export function ConnectionFolderRow({
         draggedConnectionId && "ring-inset",
         isDragging && "opacity-60",
         isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+        folderLandsAt === "before" && "shadow-[inset_0_2px_0_var(--primary)]",
+        folderLandsAt === "after" && "shadow-[inset_0_-2px_0_var(--primary)]",
       )}
     >
       {/* Folder header */}
@@ -866,8 +871,9 @@ export function ConnectionsPanel() {
                 folder={folder}
                 entries={folderEntries}
                 renderConnectionRow={renderConnectionRow}
-                isDropTarget={connectionDropTarget?.folderId === folder.id || folderDrag?.overId === folder.id}
+                isDropTarget={connectionDropTarget?.folderId === folder.id}
                 isDragging={folderDrag?.folderId === folder.id}
+                folderLandsAt={folderDrag?.overId === folder.id ? folderDrag.landsAt : null}
                 draggedConnectionId={draggedConnectionId}
                 onGripPointerDown={startFolderDrag}
                 onToggleCollapse={handleToggleCollapse}

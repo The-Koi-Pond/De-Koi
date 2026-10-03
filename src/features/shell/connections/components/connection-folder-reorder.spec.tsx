@@ -9,6 +9,8 @@ import { moveFolder } from "./connection-folder-reorder";
 import { ConnectionsPanel } from "./ConnectionsPanel";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
+const LINE_ABOVE = "shadow-[inset_0_2px_0_var(--primary)]";
+const LINE_BELOW = "shadow-[inset_0_-2px_0_var(--primary)]";
 const reorderFolders = vi.fn();
 
 const folders = ["a", "b", "c"].map((id, index) => ({
@@ -43,10 +45,14 @@ vi.mock("./LocalSidecarCard", () => ({ LocalSidecarCard: () => null }));
 vi.mock("../../../shell/settings/index", () => ({ TTSConfigCard: () => null }));
 
 describe("moveFolder", () => {
-  it("moves a folder into the target's position in either direction", () => {
+  it("moves a folder into the target's slot, shifting the folders in between once", () => {
+    // Down the list: the dragged folder lands below the target.
     expect(moveFolder(["a", "b", "c"], "a", "c")).toEqual(["b", "c", "a"]);
-    expect(moveFolder(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
     expect(moveFolder(["a", "b", "c"], "b", "c")).toEqual(["a", "c", "b"]);
+    expect(moveFolder(["a", "b", "c", "d"], "a", "c")).toEqual(["b", "c", "a", "d"]);
+    // Up the list: it lands above the target.
+    expect(moveFolder(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
+    expect(moveFolder(["a", "b", "c", "d"], "d", "b")).toEqual(["a", "d", "b", "c"]);
   });
 
   it("leaves the order alone for unknown or identical folders", () => {
@@ -98,11 +104,13 @@ describe("ConnectionsPanel folder reordering", () => {
 
     pointerOver = "b";
     pointer("pointermove", window);
+    expect(row("b").className).toContain(LINE_BELOW);
     pointerOver = "c";
     pointer("pointermove", window);
     expect(row("a").className).toContain("opacity-60");
-    expect(row("c").className).toContain("ring-1");
-    expect(row("b").className).not.toContain("ring-1");
+    // The line under C shows A will land below it.
+    expect(row("c").className).toContain(LINE_BELOW);
+    expect(row("b").className).not.toContain(LINE_BELOW);
 
     pointer("pointerup", window);
 
@@ -114,13 +122,15 @@ describe("ConnectionsPanel folder reordering", () => {
       ),
     ).toEqual(["b", "c", "a"]);
     expect(row("a").className).not.toContain("opacity-60");
-    expect(row("c").className).not.toContain("ring-1");
+    expect(row("c").className).not.toContain(LINE_BELOW);
   });
 
-  it("works with touch", () => {
+  it("moves a folder up with touch, landing above the target", () => {
     pointer("pointerdown", grip("c"), "touch");
     pointerOver = "a";
     pointer("pointermove", window, "touch");
+    expect(row("a").className).toContain(LINE_ABOVE);
+    expect(row("a").className).not.toContain(LINE_BELOW);
     pointer("pointerup", window, "touch");
 
     expect(reorderFolders).toHaveBeenCalledWith(["c", "a", "b"]);
@@ -145,7 +155,7 @@ describe("ConnectionsPanel folder reordering", () => {
     pointer("pointercancel", window);
 
     expect(reorderFolders).not.toHaveBeenCalled();
-    expect(row("c").className).not.toContain("ring-1");
+    expect(row("c").className).not.toContain(LINE_BELOW);
   });
 
   it("no longer depends on framer-motion", () => {
