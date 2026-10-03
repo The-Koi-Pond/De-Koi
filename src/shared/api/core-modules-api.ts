@@ -1,7 +1,8 @@
 import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
-import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
+import { appSettingsResponseSchema } from "../../engine/contracts/schemas/app-settings.schema";
 import { coreModuleSettingsSchema } from "../../engine/contracts/schemas/core-module.schema";
 import type { CoreModuleSettings } from "../../engine/contracts/types/core-module";
+import { transformAppSettings } from "./app-settings-api";
 import { storageApi } from "./storage-api";
 
 const CORE_MODULE_SETTINGS_ID = "core-modules";
@@ -45,33 +46,24 @@ async function readSettingsRecord(): Promise<CoreModuleSettings> {
   return normalizeSettings(parsed.success ? parsed.data.value : null);
 }
 
-async function saveSettingsRecord(settings: CoreModuleSettings): Promise<CoreModuleSettings> {
-  const normalized = normalizeSettings(settings);
-  const payload = appSettingsUpdateSchema.parse({ value: normalized });
-  const existing = await storageApi.get<AppSettingsRecord>("app-settings", CORE_MODULE_SETTINGS_ID, { fields: ["id"] });
-  if (existing) {
-    await storageApi.update("app-settings", CORE_MODULE_SETTINGS_ID, payload);
-  } else {
-    await storageApi.create("app-settings", {
-      id: CORE_MODULE_SETTINGS_ID,
-      ...payload,
-    });
-  }
-  return normalized;
+/**
+ * Applies `change` to the stored core module settings with a compare-and-set
+ * write, so a module toggled on another client at the same time stays toggled.
+ */
+async function updateSettingsRecord(
+  change: (current: CoreModuleSettings) => CoreModuleSettings,
+): Promise<CoreModuleSettings> {
+  const value = await transformAppSettings(CORE_MODULE_SETTINGS_ID, "core module settings", (stored, exists) =>
+    normalizeSettings(change(exists ? normalizeSettings(stored) : legacyCoreModuleSettings())),
+  );
+  return normalizeSettings(value);
 }
 
 export const coreModulesApi = {
   settings: {
     get: readSettingsRecord,
-    save: saveSettingsRecord,
-    setEnabled: async (moduleId: string, enabled: boolean) => {
-      const current = await readSettingsRecord();
-      return saveSettingsRecord({
-        enabled: {
-          ...current.enabled,
-          [moduleId]: enabled,
-        },
-      });
-    },
+    save: (settings: CoreModuleSettings) => updateSettingsRecord(() => settings),
+    setEnabled: (moduleId: string, enabled: boolean) =>
+      updateSettingsRecord((current) => ({ enabled: { ...current.enabled, [moduleId]: enabled } })),
   },
 };

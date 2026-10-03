@@ -48,7 +48,11 @@ type UserMessageOptions = {
   fallback?: string;
 };
 
-export function toUserMessage(_error: unknown, context?: UserErrorContext | UserMessageOptions): string {
+export function toUserMessage(error: unknown, context?: UserErrorContext | UserMessageOptions): string {
+  // An outdated server is not fixed by trying again; its message (fixed app
+  // copy, never server text) says to update. Matched by name so this lower
+  // layer does not import the API that throws it.
+  if (error instanceof Error && error.name === "OutdatedServerError") return error.message;
   if (typeof context === "string") return USER_ERROR_MESSAGES[context];
   return context?.fallback ?? "Something didn't work. Try again.";
 }
