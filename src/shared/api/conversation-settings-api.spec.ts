@@ -7,6 +7,7 @@ const { storageApiMock } = vi.hoisted(() => ({
     create: vi.fn(),
     get: vi.fn(),
     update: vi.fn(),
+    updateAppSettingsIfUnchanged: vi.fn(),
   },
 }));
 
@@ -19,6 +20,7 @@ describe("conversationSettingsApi", () => {
     storageApiMock.create.mockReset();
     storageApiMock.get.mockReset();
     storageApiMock.update.mockReset();
+    storageApiMock.updateAppSettingsIfUnchanged.mockReset();
   });
 
   it("returns disabled defaults when no conversation settings record exists", async () => {
@@ -40,5 +42,33 @@ describe("conversationSettingsApi", () => {
       id: "conversation",
       value: { statusMessagesEnabledByDefault: true },
     });
+  });
+
+  it("changes an existing record with a compare-and-set write, never a plain update", async () => {
+    storageApiMock.get.mockResolvedValue({ id: "conversation", value: { statusMessagesEnabledByDefault: false } });
+    storageApiMock.updateAppSettingsIfUnchanged.mockResolvedValue({ updated: true });
+
+    await expect(conversationSettingsApi.settings.setStatusMessagesEnabledByDefault(true)).resolves.toEqual({
+      statusMessagesEnabledByDefault: true,
+    });
+
+    expect(storageApiMock.updateAppSettingsIfUnchanged).toHaveBeenCalledWith(
+      "conversation",
+      { statusMessagesEnabledByDefault: false },
+      { statusMessagesEnabledByDefault: true },
+    );
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses to save on a server without conditional settings updates", async () => {
+    storageApiMock.get.mockResolvedValue({ id: "conversation", value: { statusMessagesEnabledByDefault: false } });
+    storageApiMock.updateAppSettingsIfUnchanged.mockRejectedValue(
+      new Error("app_settings_update_if_unchanged is not exposed by the remote runtime"),
+    );
+
+    await expect(conversationSettingsApi.settings.setStatusMessagesEnabledByDefault(true)).rejects.toThrow(
+      "cannot save conversation settings safely",
+    );
+    expect(storageApiMock.update).not.toHaveBeenCalled();
   });
 });

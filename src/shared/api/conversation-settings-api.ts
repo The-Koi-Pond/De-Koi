@@ -1,10 +1,11 @@
-import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
+import { appSettingsResponseSchema } from "../../engine/contracts/schemas/app-settings.schema";
 import {
   CONVERSATION_SETTINGS_ID,
   DEFAULT_CONVERSATION_SETTINGS,
   normalizeConversationSettings,
   type ConversationSettings,
 } from "../../engine/modes/chat/status/conversation-status-settings";
+import { transformAppSettings } from "./app-settings-api";
 import { storageApi } from "./storage-api";
 
 type AppSettingsRecord = {
@@ -18,21 +19,19 @@ async function readSettingsRecord(): Promise<ConversationSettings> {
   return normalizeConversationSettings(parsed.success ? parsed.data.value : null);
 }
 
-async function saveSettingsRecord(settings: ConversationSettings): Promise<ConversationSettings> {
-  const normalized = normalizeConversationSettings(settings);
-  const payload = appSettingsUpdateSchema.parse({ value: normalized });
-  const existing = await storageApi.get<AppSettingsRecord>("app-settings", CONVERSATION_SETTINGS_ID, {
-    fields: ["id"],
-  });
-  if (existing) {
-    await storageApi.update("app-settings", CONVERSATION_SETTINGS_ID, payload);
-  } else {
-    await storageApi.create("app-settings", {
-      id: CONVERSATION_SETTINGS_ID,
-      ...payload,
-    });
-  }
-  return normalized;
+/**
+ * Applies `change` to the stored conversation settings with a compare-and-set
+ * write, so a concurrent change from another client is kept, not replaced.
+ */
+async function updateSettingsRecord(
+  change: (current: ConversationSettings) => ConversationSettings,
+): Promise<ConversationSettings> {
+  const value = await transformAppSettings(CONVERSATION_SETTINGS_ID, "conversation settings", (stored, exists) =>
+    normalizeConversationSettings(
+      change(exists ? normalizeConversationSettings(stored) : DEFAULT_CONVERSATION_SETTINGS),
+    ),
+  );
+  return normalizeConversationSettings(value);
 }
 
 export const conversationSettingsKeys = {
@@ -42,13 +41,8 @@ export const conversationSettingsKeys = {
 export const conversationSettingsApi = {
   settings: {
     get: readSettingsRecord,
-    save: saveSettingsRecord,
-    setStatusMessagesEnabledByDefault: async (enabled: boolean) => {
-      const current = await readSettingsRecord();
-      return saveSettingsRecord({
-        ...current,
-        statusMessagesEnabledByDefault: enabled,
-      });
-    },
+    save: (settings: ConversationSettings) => updateSettingsRecord(() => settings),
+    setStatusMessagesEnabledByDefault: (enabled: boolean) =>
+      updateSettingsRecord((current) => ({ ...current, statusMessagesEnabledByDefault: enabled })),
   },
 };
