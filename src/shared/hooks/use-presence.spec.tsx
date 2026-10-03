@@ -142,4 +142,29 @@ describe("usePresence", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(container.textContent).toBe("next");
   });
+
+  it("releases each leaving item at its own deadline when exits overlap", () => {
+    render(["a", "b", "c"]);
+    render(["b", "c"]);
+    act(() => vi.advanceTimersByTime(100));
+    render(["c"]);
+    expect(rendered()).toEqual(["a*", "b*", "c"]);
+
+    act(() => vi.advanceTimersByTime(100));
+    expect(rendered()).toEqual(["b*", "c"]);
+    act(() => vi.advanceTimersByTime(100));
+    expect(rendered()).toEqual(["c"]);
+  });
+
+  it("puts leaving items back where they were", () => {
+    render(["a", "b", "c", "d"]);
+    render(["b", "d"]);
+    expect(rendered()).toEqual(["a*", "b", "c*", "d"]);
+
+    act(() => vi.advanceTimersByTime(200));
+    render(["b", "c", "d"]);
+    render(["c", "d"]);
+    render(["d"]);
+    expect(rendered()).toEqual(["b*", "c*", "d"]);
+  });
 });

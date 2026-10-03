@@ -48,7 +48,8 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
   const bubbles = usePresence(thoughtBubbles, ({ bubble }) => `${bubble.agentId}-${bubble.timestamp}`, BUBBLE_EXIT_MS);
   const list = usePresence(!collapsed && thoughtBubbles.length > 0 ? ["list"] : [], (key) => key, 150);
 
-  if (thoughtBubbles.length === 0 && !showProcessing) return null;
+  // Stay mounted until the last dismissed bubble has finished leaving.
+  if (thoughtBubbles.length === 0 && !showProcessing && bubbles.length === 0 && list.length === 0) return null;
 
   return (
     <div className="motion-enter fixed bottom-20 right-4 z-50 w-72 max-w-[calc(100vw-2rem)]" style={PANEL_MOTION}>

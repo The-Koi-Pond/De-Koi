@@ -10,7 +10,18 @@ export interface PresenceEntry<T> {
 interface LeavingEntry<T> {
   key: string;
   item: T;
+  /** Where it was when it left, and the key that followed it (null if last). */
   index: number;
+  before: string | null;
+  /** When this item's own exit is over (Date.now() clock). */
+  until: number;
+}
+
+function exitDuration<T>(exitMs: number | ((item: T) => number), item: T): number {
+  // With reduced motion the exit animation is skipped by CSS, so do not hold
+  // the leaving item (or, in "wait" mode, the next one) for its duration.
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return 0;
+  return typeof exitMs === "function" ? exitMs(item) : exitMs;
 }
 
 /**
@@ -37,49 +48,60 @@ export function usePresence<T>(
   // The items as last rendered, so a leaving item exits showing the data it
   // last had, even if that changed after its key first appeared.
   const committedItems = useRef(items);
-  const latestExitMs = useRef(exitMs);
   useLayoutEffect(() => {
     committedItems.current = items;
-    latestExitMs.current = exitMs;
   });
 
   // Adjusting state while rendering, so a swapped-in item never mounts before
   // the leaving one is recorded.
   if (tracked.signature !== signature) {
     const current = new Set(keys);
-    const departed = committedItems.current.flatMap((item, index) => {
+    const now = Date.now();
+    const shown = committedItems.current;
+    const departed = shown.flatMap((item, index) => {
       const key = keyOf(item);
-      return current.has(key) ? [] : [{ key, item, index }];
+      const next = shown[index + 1];
+      return current.has(key)
+        ? []
+        : [
+            {
+              key,
+              item,
+              index,
+              before: next === undefined ? null : keyOf(next),
+              until: now + exitDuration(exitMs, item),
+            },
+          ];
     });
     const leaving = [...tracked.leaving.filter((entry) => !current.has(entry.key)), ...departed];
     setTracked({ signature, leaving });
   }
 
+  // Each leaving item is released at its own deadline; a later departure does
+  // not extend an earlier one.
   useEffect(() => {
     if (tracked.leaving.length === 0) return;
-    const done = new Set(tracked.leaving.map((entry) => entry.key));
-    // With reduced motion the exit animation is skipped by CSS, so do not hold
-    // the leaving item (or, in "wait" mode, the next one) for its duration.
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const exitMsOf = latestExitMs.current;
-    const longestExit = Math.max(
-      ...tracked.leaving.map((entry) => (typeof exitMsOf === "function" ? exitMsOf(entry.item) : exitMsOf)),
-    );
+    const nextDeadline = Math.min(...tracked.leaving.map((entry) => entry.until));
     const timer = window.setTimeout(
       () => {
-        setTracked((state) => ({ ...state, leaving: state.leaving.filter((entry) => !done.has(entry.key)) }));
+        const now = Date.now();
+        setTracked((state) => ({ ...state, leaving: state.leaving.filter((entry) => entry.until > now) }));
       },
-      reducedMotion ? 0 : longestExit,
+      Math.max(0, nextDeadline - Date.now()),
     );
     return () => window.clearTimeout(timer);
   }, [tracked.leaving]);
 
-  const leaving = tracked.leaving.map(({ key, item, index }) => ({ key, item, index, exiting: true }));
-  if (mode === "wait" && leaving.length > 0) return leaving.map(({ index: _index, ...entry }) => entry);
+  const leaving = tracked.leaving.map(({ key, item }) => ({ key, item, exiting: true }));
+  if (mode === "wait" && leaving.length > 0) return leaving;
 
+  // Each leaving item goes back in front of the item that followed it, or to
+  // its old position when that item is gone. Newest departures go in first, so
+  // an older one can find a neighbour that has itself started leaving since.
   const entries: PresenceEntry<T>[] = items.map((item, index) => ({ key: keys[index], item, exiting: false }));
-  for (const { index, ...entry } of [...leaving].sort((a, b) => a.index - b.index)) {
-    entries.splice(Math.min(index, entries.length), 0, entry);
+  for (const { key, item, index, before } of [...tracked.leaving].reverse()) {
+    const anchor = before === null ? -1 : entries.findIndex((entry) => entry.key === before);
+    entries.splice(anchor >= 0 ? anchor : Math.min(index, entries.length), 0, { key, item, exiting: true });
   }
   return entries;
 }

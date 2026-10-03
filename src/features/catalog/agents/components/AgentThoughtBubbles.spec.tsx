@@ -47,4 +47,15 @@ describe("AgentThoughtBubbles", () => {
     expect(bubble("Tracker")).toBeUndefined();
     expect(bubble("Director")).toBeDefined();
   });
+
+  it("lets the last bubble slide out before the panel closes", () => {
+    act(() => bubble("Tracker")!.querySelector("button")!.click());
+    act(() => vi.advanceTimersByTime(200));
+    act(() => bubble("Director")!.querySelector("button")!.click());
+
+    expect(bubble("Director")?.className).toContain("motion-exit");
+
+    act(() => vi.advanceTimersByTime(200));
+    expect(container.textContent).toBe("");
+  });
 });
