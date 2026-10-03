@@ -20,6 +20,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Stored settings as valid settings. A row that fails the schema keeps every
+ * module entry that is valid on its own and drops the rest, so one bad entry
+ * neither blocks the Modules screen nor resets the other modules.
+ */
+function storedSettings(value: unknown): CoreModuleSettings {
+  const parsed = coreModuleSettingsSchema.safeParse(value ?? undefined);
+  if (parsed.success) return parsed.data;
+  const enabled = isRecord(value) && isRecord(value.enabled) ? value.enabled : {};
+  return normalizeSettings({
+    enabled: Object.fromEntries(
+      Object.entries(enabled).filter(
+        ([id, on]) => coreModuleSettingsSchema.safeParse({ enabled: { [id]: on } }).success,
+      ),
+    ),
+  });
+}
+
 export function settingsFromLegacyUiStorageValue(value: string | null): CoreModuleSettings {
   if (!value) return normalizeSettings(null);
 
@@ -43,7 +61,7 @@ async function readSettingsRecord(): Promise<CoreModuleSettings> {
   const record = await storageApi.get<AppSettingsRecord>("app-settings", CORE_MODULE_SETTINGS_ID);
   if (!record) return legacyCoreModuleSettings();
   const parsed = appSettingsResponseSchema.safeParse(record ?? { value: null });
-  return normalizeSettings(parsed.success ? parsed.data.value : null);
+  return storedSettings(parsed.success ? parsed.data.value : null);
 }
 
 /**
@@ -54,7 +72,7 @@ async function updateSettingsRecord(
   change: (current: CoreModuleSettings) => CoreModuleSettings,
 ): Promise<CoreModuleSettings> {
   const value = await transformAppSettings(CORE_MODULE_SETTINGS_ID, "core module settings", (stored, exists) =>
-    normalizeSettings(change(exists ? normalizeSettings(stored) : legacyCoreModuleSettings())),
+    normalizeSettings(change(exists ? storedSettings(stored) : legacyCoreModuleSettings())),
   );
   return normalizeSettings(value);
 }

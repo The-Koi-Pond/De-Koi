@@ -99,4 +99,16 @@ describe("coreModulesApi settings writes", () => {
 
     expect(store.rows.get("core-modules")?.value).toEqual({ enabled: { "module-a": true, "module-b": true } });
   });
+
+  it("repairs a malformed row on the next toggle, keeping the valid modules", async () => {
+    store.rows.set("core-modules", {
+      id: "core-modules",
+      value: { enabled: { "me-notes": true, "Bad Id!": true, "music-dj-mini-player": "yes" } },
+    });
+
+    await expect(coreModulesApi.settings.get()).resolves.toEqual({ enabled: { "me-notes": true } });
+    await coreModulesApi.settings.setEnabled("discord-mirror", true);
+
+    expect(store.rows.get("core-modules")?.value).toEqual({ enabled: { "me-notes": true, "discord-mirror": true } });
+  });
 });
