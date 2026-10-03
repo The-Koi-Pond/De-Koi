@@ -46,16 +46,16 @@ const NARRATIVE_MODE_OPTIONS = ["omniscient", "limited"] as const satisfies read
 const OVERLAY_EXIT_MS = 200;
 const OVERLAY_FADE = motionStyle({ exitDurationMs: OVERLAY_EXIT_MS });
 const DIALOG_POP = motionStyle({
-  from: { scale: 0.9 },
-  to: { scale: 0.9 },
+  enterFrom: { scale: 0.9 },
+  exitTo: { scale: 0.9 },
   durationMs: 300,
   exitDurationMs: OVERLAY_EXIT_MS,
 });
-const COMBAT_DIALOG_POP = motionStyle({ from: { scale: 0.9 }, durationMs: 400, ease: SPRING_EASE });
-const ENEMY_CARD_ENTER = motionStyle({ from: { y: -20 }, durationMs: 400 });
-const PARTY_CARD_ENTER = motionStyle({ from: { y: 20 }, durationMs: 400 });
-const LOG_ENTRY_ENTER = motionStyle({ from: { x: -10 }, durationMs: 300 });
-const RESULT_ENTER = motionStyle({ from: { scale: 0.9 }, durationMs: 400 });
+const COMBAT_DIALOG_POP = motionStyle({ enterFrom: { scale: 0.9 }, durationMs: 400, ease: SPRING_EASE });
+const ENEMY_CARD_ENTER = motionStyle({ enterFrom: { y: -20 }, durationMs: 400 });
+const PARTY_CARD_ENTER = motionStyle({ enterFrom: { y: 20 }, durationMs: 400 });
+const LOG_ENTRY_ENTER = motionStyle({ enterFrom: { x: -10 }, durationMs: 300 });
+const RESULT_ENTER = motionStyle({ enterFrom: { scale: 0.9 }, durationMs: 400 });
 
 function selectNarrativeOption<T extends string>(nextValue: string, options: readonly T[], fallback: T): T {
   return (options as readonly string[]).includes(nextValue) ? (nextValue as T) : fallback;

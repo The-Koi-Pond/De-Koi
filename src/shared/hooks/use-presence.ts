@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export interface PresenceEntry<T> {
   key: string;
@@ -30,22 +30,27 @@ export function usePresence<T>(
 ): PresenceEntry<T>[] {
   const keys = items.map(keyOf);
   const signature = keys.join("\u0000");
-  const [tracked, setTracked] = useState<{ signature: string; items: readonly T[]; leaving: LeavingEntry<T>[] }>({
+  const [tracked, setTracked] = useState<{ signature: string; leaving: LeavingEntry<T>[] }>({
     signature,
-    items,
     leaving: [],
+  });
+  // The items as last rendered, so a leaving item exits showing the data it
+  // last had, even if that changed after its key first appeared.
+  const committedItems = useRef(items);
+  useLayoutEffect(() => {
+    committedItems.current = items;
   });
 
   // Adjusting state while rendering, so a swapped-in item never mounts before
   // the leaving one is recorded.
   if (tracked.signature !== signature) {
     const current = new Set(keys);
-    const departed = tracked.items.flatMap((item, index) => {
+    const departed = committedItems.current.flatMap((item, index) => {
       const key = keyOf(item);
       return current.has(key) ? [] : [{ key, item, index }];
     });
     const leaving = [...tracked.leaving.filter((entry) => !current.has(entry.key)), ...departed];
-    setTracked({ signature, items, leaving });
+    setTracked({ signature, leaving });
   }
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-/** Offsets in px, scale and opacity an element starts from on enter or ends on exit. */
+/** Offsets in px, scale and opacity for an element's enter start or exit end. */
 export interface MotionPose {
   x?: number;
   y?: number;
@@ -16,19 +16,21 @@ export const SPRING_EASE = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 
 /**
  * CSS custom properties for the `motion-enter`, `motion-enter-blur` and
- * `motion-exit` classes. Omitted values fall back to the class defaults:
- * no offset, scale 1, opacity 0, 200ms.
+ * `motion-exit` classes. `enterFrom` is where an entering element starts and
+ * `exitTo` where a leaving one ends; both settle on, or start from, the
+ * element's own resting styles. Omitted values fall back to the class
+ * defaults: no offset, scale 1, opacity 0, 200ms.
  */
 export function motionStyle({
-  from,
-  to,
+  enterFrom,
+  exitTo,
   durationMs,
   exitDurationMs,
   ease = EASE_OUT_EXPO,
   exitEase,
 }: {
-  from?: MotionPose;
-  to?: MotionPose;
+  enterFrom?: MotionPose;
+  exitTo?: MotionPose;
   durationMs?: number;
   exitDurationMs?: number;
   ease?: string;
@@ -43,8 +45,8 @@ export function motionStyle({
     if (value.opacity !== undefined) vars[`--motion-${prefix}-opacity`] = String(value.opacity);
     if (value.blur !== undefined) vars[`--motion-${prefix}-blur`] = `${value.blur}px`;
   };
-  pose("from", from);
-  pose("to", to);
+  pose("from", enterFrom);
+  pose("to", exitTo);
   if (durationMs !== undefined) vars["--motion-duration"] = `${durationMs}ms`;
   if (exitDurationMs !== undefined) vars["--motion-exit-duration"] = `${exitDurationMs}ms`;
   if (exitEase) vars["--motion-exit-ease"] = exitEase;

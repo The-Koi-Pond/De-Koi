@@ -167,8 +167,8 @@ type CharacterSetupOption = {
 };
 
 // Each wizard card rises in when it appears or the step changes.
-const CARD_ENTER = motionStyle({ from: { y: 12, scale: 0.97 }, durationMs: 200, ease: "ease-out" });
-const QUICK_SETUP_ENTER = motionStyle({ from: { y: 16, scale: 0.97 }, durationMs: 200, ease: "ease-out" });
+const CARD_ENTER = motionStyle({ enterFrom: { y: 12, scale: 0.97 }, durationMs: 200, ease: "ease-out" });
+const QUICK_SETUP_ENTER = motionStyle({ enterFrom: { y: 16, scale: 0.97 }, durationMs: 200, ease: "ease-out" });
 
 function useDebouncedValue(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);

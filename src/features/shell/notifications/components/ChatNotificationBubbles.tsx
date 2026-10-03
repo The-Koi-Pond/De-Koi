@@ -18,8 +18,8 @@ import { usePresence } from "../../../../shared/hooks/use-presence";
 // Bubbles slide in from the right edge with a small overshoot and slide back out.
 const BUBBLE_EXIT_MS = 200;
 const BUBBLE_MOTION = motionStyle({
-  from: { x: 60, scale: 0.8 },
-  to: { x: 60, scale: 0.8 },
+  enterFrom: { x: 60, scale: 0.8 },
+  exitTo: { x: 60, scale: 0.8 },
   durationMs: 350,
   ease: SPRING_EASE,
   exitDurationMs: BUBBLE_EXIT_MS,

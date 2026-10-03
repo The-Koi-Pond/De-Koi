@@ -111,4 +111,16 @@ describe("usePresence", () => {
 
     expect(container.textContent).toBe("first");
   });
+
+  it("exits with the data the item last showed, not the data it arrived with", () => {
+    function Labels({ items }: { items: Array<{ id: string; label: string }> }) {
+      const entries = usePresence(items, (item) => item.id, 200);
+      return <p>{entries.map(({ item, exiting }) => `${item.label}${exiting ? "*" : ""}`).join(",")}</p>;
+    }
+    act(() => root.render(<Labels items={[{ id: "1", label: "3 new messages" }]} />));
+    act(() => root.render(<Labels items={[{ id: "1", label: "5 new messages" }]} />));
+    act(() => root.render(<Labels items={[]} />));
+
+    expect(container.textContent).toBe("5 new messages*");
+  });
 });

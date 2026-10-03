@@ -12,8 +12,8 @@ import { cn } from "../../../../shared/lib/utils";
 import { motionStyle } from "../../../../shared/lib/motion";
 import { usePresence } from "../../../../shared/hooks/use-presence";
 
-const PANEL_MOTION = motionStyle({ from: { y: 20 }, durationMs: 300 });
-const CONTENT_MOTION = motionStyle({ from: { y: -6 }, to: { y: -6 }, exitDurationMs: 150 });
+const PANEL_MOTION = motionStyle({ enterFrom: { y: 20 }, durationMs: 300 });
+const CONTENT_MOTION = motionStyle({ enterFrom: { y: -6 }, exitTo: { y: -6 }, exitDurationMs: 150 });
 
 export function AgentDebugPanel() {
   const debugMode = useUIStore((s) => s.debugMode);

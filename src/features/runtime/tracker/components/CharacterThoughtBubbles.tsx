@@ -39,13 +39,16 @@ type ThoughtTextFit = {
 // Thought bubbles ease in from their tail side with a slight blur.
 function getInlineThoughtBubbleMotion({ tailOnLeft, featured }: { tailOnLeft: boolean; featured: boolean }) {
   return motionStyle({
-    from: { x: featured ? 0 : tailOnLeft ? -8 : 8, y: featured ? -5 : 3, scale: featured ? 0.985 : 0.97, blur: 2 },
+    enterFrom: { x: featured ? 0 : tailOnLeft ? -8 : 8, y: featured ? -5 : 3, scale: featured ? 0.985 : 0.97, blur: 2 },
     durationMs: 200,
   });
 }
 
 function getFloatingThoughtBubbleMotion({ outsideSide }: { outsideSide: "left" | "right" }) {
-  return motionStyle({ from: { x: outsideSide === "left" ? 10 : -10, y: -4, scale: 0.96, blur: 2 }, durationMs: 240 });
+  return motionStyle({
+    enterFrom: { x: outsideSide === "left" ? 10 : -10, y: -4, scale: 0.96, blur: 2 },
+    durationMs: 240,
+  });
 }
 
 function getThoughtPreviewClampClass(previewLineCount: ThoughtTextFit["previewLineCount"]) {

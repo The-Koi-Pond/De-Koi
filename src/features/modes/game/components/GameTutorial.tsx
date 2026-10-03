@@ -306,8 +306,8 @@ interface GameTutorialProps {
 
 const CARD_EXIT_MS = 250;
 const CARD_MOTION = motionStyle({
-  from: { y: 12, scale: 0.96 },
-  to: { y: -8, scale: 0.96 },
+  enterFrom: { y: 12, scale: 0.96 },
+  exitTo: { y: -8, scale: 0.96 },
   durationMs: 250,
   exitDurationMs: CARD_EXIT_MS,
   exitEase: "cubic-bezier(0.16, 1, 0.3, 1)",

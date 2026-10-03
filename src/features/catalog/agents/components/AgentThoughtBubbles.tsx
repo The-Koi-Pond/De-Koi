@@ -12,10 +12,15 @@ import { motionStyle } from "../../../../shared/lib/motion";
 import { usePresence } from "../../../../shared/hooks/use-presence";
 import { ContinuityIssueChecklist } from "./ContinuityIssueChecklist";
 
-const PANEL_MOTION = motionStyle({ from: { y: 20 }, durationMs: 300 });
-const LIST_MOTION = motionStyle({ from: { y: -6 }, to: { y: -6 }, exitDurationMs: 150 });
+const PANEL_MOTION = motionStyle({ enterFrom: { y: 20 }, durationMs: 300 });
+const LIST_MOTION = motionStyle({ enterFrom: { y: -6 }, exitTo: { y: -6 }, exitDurationMs: 150 });
 const BUBBLE_EXIT_MS = 200;
-const BUBBLE_MOTION = motionStyle({ from: { x: 20 }, to: { x: -20 }, durationMs: 300, exitDurationMs: BUBBLE_EXIT_MS });
+const BUBBLE_MOTION = motionStyle({
+  enterFrom: { x: 20 },
+  exitTo: { x: -20 },
+  durationMs: 300,
+  exitDurationMs: BUBBLE_EXIT_MS,
+});
 
 export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?: Set<string> }) {
   const allThoughtBubbles = useAgentStore((s) => s.thoughtBubbles);

@@ -307,7 +307,7 @@ const SPRITE_EXIT_MS: Record<Transition, number> = { crossfade: 300, bounce: 250
 
 const SPRITE_EXIT_STYLE: Record<Transition, CSSProperties> = {
   crossfade: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.crossfade }),
-  bounce: motionStyle({ to: { scale: 0.9 }, exitDurationMs: SPRITE_EXIT_MS.bounce }),
+  bounce: motionStyle({ exitTo: { scale: 0.9 }, exitDurationMs: SPRITE_EXIT_MS.bounce }),
   shake: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.shake }),
   hop: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.hop }),
   none: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.none }),
