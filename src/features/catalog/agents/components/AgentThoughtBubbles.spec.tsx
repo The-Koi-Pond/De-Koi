@@ -41,6 +41,8 @@ describe("AgentThoughtBubbles", () => {
 
     expect(bubble("Tracker")?.className).toContain("motion-exit");
     expect(bubble("Director")?.className).toContain("motion-enter");
+    // Its store index now belongs to the Director bubble, so it cannot be used.
+    expect(bubble("Tracker")!.querySelector("button")!.disabled).toBe(true);
 
     act(() => vi.advanceTimersByTime(200));
 

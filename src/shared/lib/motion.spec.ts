@@ -37,4 +37,10 @@ describe("motionStyle", () => {
     expect(block(".motion-enter")).toContain("backwards");
     expect(block(".motion-exit")).toContain("forwards");
   });
+
+  it("renders entering elements at rest when the user asks for reduced motion", () => {
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.motion-enter,\s*\.motion-enter-blur \{\s*animation: none;/,
+    );
+  });
 });

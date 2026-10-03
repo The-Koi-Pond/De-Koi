@@ -108,6 +108,8 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
                 style={BUBBLE_MOTION}
               >
                 <button
+                  // A leaving bubble's store index may already belong to another bubble.
+                  disabled={exiting}
                   onClick={() => dismissThoughtBubble(storeIndex)}
                   className="absolute right-1 top-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 >

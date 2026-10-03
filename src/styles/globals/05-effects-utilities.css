@@ -746,6 +746,15 @@
   pointer-events: none;
 }
 
+/* The global reduced-motion rule already makes these instant; turn the enter
+   animations off outright so entering elements render at rest. */
+@media (prefers-reduced-motion: reduce) {
+  .motion-enter,
+  .motion-enter-blur {
+    animation: none;
+  }
+}
+
 @keyframes motion-breathe {
   0%,
   100% {
