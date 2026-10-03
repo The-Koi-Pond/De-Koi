@@ -14,7 +14,8 @@ import { ContinuityIssueChecklist } from "./ContinuityIssueChecklist";
 
 const PANEL_MOTION = motionStyle({ from: { y: 20 }, durationMs: 300 });
 const LIST_MOTION = motionStyle({ from: { y: -6 }, to: { y: -6 }, exitDurationMs: 150 });
-const BUBBLE_MOTION = motionStyle({ from: { x: 20 }, durationMs: 300 });
+const BUBBLE_EXIT_MS = 200;
+const BUBBLE_MOTION = motionStyle({ from: { x: 20 }, to: { x: -20 }, durationMs: 300, exitDurationMs: BUBBLE_EXIT_MS });
 
 export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?: Set<string> }) {
   const allThoughtBubbles = useAgentStore((s) => s.thoughtBubbles);
@@ -38,6 +39,8 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
     }
   };
 
+  // A dismissed bubble slides out on its own before the list closes up.
+  const bubbles = usePresence(thoughtBubbles, ({ bubble }) => `${bubble.agentId}-${bubble.timestamp}`, BUBBLE_EXIT_MS);
   const list = usePresence(!collapsed && thoughtBubbles.length > 0 ? ["list"] : [], (key) => key, 150);
 
   if (thoughtBubbles.length === 0 && !showProcessing) return null;
@@ -89,10 +92,13 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
           style={LIST_MOTION}
         >
           <div className="max-h-48 overflow-y-auto p-2 flex flex-col gap-1.5">
-            {thoughtBubbles.map(({ bubble, storeIndex }) => (
+            {bubbles.map(({ key, item: { bubble, storeIndex }, exiting }) => (
               <div
-                key={`${bubble.agentId}-${bubble.timestamp}`}
-                className="motion-enter relative rounded-md bg-[var(--primary)]/8 p-2 text-xs"
+                key={key}
+                className={cn(
+                  exiting ? "motion-exit" : "motion-enter",
+                  "relative rounded-md bg-[var(--primary)]/8 p-2 text-xs",
+                )}
                 style={BUBBLE_MOTION}
               >
                 <button
