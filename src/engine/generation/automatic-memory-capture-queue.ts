@@ -157,6 +157,9 @@ function publishMemoryCaptureStatus(status: AutomaticMemoryCaptureStatus): void 
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
 const scheduledWorkerTimers = new WeakMap<StorageGateway, ReturnType<typeof setTimeout>>();
+// After a pass that could not take the lease or failed, no pass starts before
+// this time, whatever asks for one (pending reruns, wakeups, new jobs).
+const workerBackoffUntil = new WeakMap<StorageGateway, number>();
 const captureWorkerKey = {};
 
 function deferWorkerUntilForegroundCompletes(
@@ -861,12 +864,19 @@ async function scheduleNextAutomaticMemoryCaptureQueuePass(
   }
   if (nextRunAt === null) return;
 
+  scheduleWorkerAfter(dependencies, Math.max(0, nextRunAt - now));
+}
+
+function scheduleWorkerAfter(
+  dependencies: StorageGateway | AutomaticMemoryCaptureQueueDependencies,
+  delayMs: number,
+): void {
+  const { storage } = queueDependencies(dependencies);
   clearScheduledWorker(storage);
-  const delay = Math.max(0, nextRunAt - now);
   const timer = setTimeout(() => {
     scheduledWorkerTimers.delete(storage);
     scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
-  }, delay);
+  }, delayMs);
   scheduledWorkerTimers.set(storage, timer);
 }
 
@@ -894,6 +904,11 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
     pendingWorkerReruns.add(storage);
     return;
   }
+  const backoffMs = (workerBackoffUntil.get(storage) ?? 0) - Date.now();
+  if (backoffMs > 0) {
+    scheduleWorkerAfter(dependencies, backoffMs);
+    return;
+  }
   activeWorkers.add(storage);
   let minimumDelayMs = 0;
   void processAutomaticMemoryCaptureQueue(dependencies)
@@ -911,6 +926,8 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
     )
     .finally(() => {
       activeWorkers.delete(storage);
+      if (minimumDelayMs > 0) workerBackoffUntil.set(storage, Date.now() + minimumDelayMs);
+      else workerBackoffUntil.delete(storage);
       if (pendingWorkerReruns.has(storage)) {
         pendingWorkerReruns.delete(storage);
         scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);

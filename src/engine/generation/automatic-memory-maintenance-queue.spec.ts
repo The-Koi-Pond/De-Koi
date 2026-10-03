@@ -272,6 +272,43 @@ describe("automatic memory maintenance queue", () => {
     }
   });
 
+  it("does not let wakeups during a failed pass or its backoff start a pass early", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const test = harness();
+    try {
+      let rejectAcquire: (error: Error) => void = () => {};
+      vi.mocked(test.maintenance.acquireWorker)
+        .mockImplementationOnce(
+          () =>
+            new Promise<string | null>((_resolve, reject) => {
+              rejectAcquire = reject;
+            }),
+        )
+        .mockRejectedValue(new Error("Unhandled browser-harness command: memory_maintenance_worker_acquire"));
+
+      scheduleAutomaticMemoryMaintenanceQueueProcessing(test.dependencies);
+      await vi.advanceTimersByTimeAsync(0);
+      // A wakeup while the pass is still waiting on the lease queues a rerun.
+      scheduleAutomaticMemoryMaintenanceQueueProcessing(test.dependencies);
+      rejectAcquire(new Error("Unhandled browser-harness command: memory_maintenance_worker_acquire"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(test.maintenance.acquireWorker).toHaveBeenCalledTimes(1);
+
+      // More wakeups inside the backoff window wait for it too.
+      await vi.advanceTimersByTimeAsync(10_000);
+      scheduleAutomaticMemoryMaintenanceQueueProcessing(test.dependencies);
+      await vi.advanceTimersByTimeAsync(49_999);
+      expect(test.maintenance.acquireWorker).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(test.maintenance.acquireWorker).toHaveBeenCalledTimes(2);
+    } finally {
+      cancelAutomaticMemoryMaintenanceQueueProcessing(test.storage);
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("lets only one runtime process the durable maintenance queue", async () => {
     const repeatedSources = [source("one"), source("two")];
     const test = harness({ sources: [repeatedSources, repeatedSources, []] });
