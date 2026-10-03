@@ -7,7 +7,6 @@
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { motion } from "framer-motion";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { HudWidget } from "../../../../engine/contracts/types/game";
@@ -452,28 +451,18 @@ function WidgetCard({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const accent = widget.accent ?? "#a78bfa";
-  const { locked, toggleLocked, x, y, panelRef, handleDragEnd } = useDraggablePanel(chatId, `widget:${widget.id}`);
-
-  // Distinguishes a drag from a click on the header. framer-motion fires the
-  // header's onClick on pointer-up even after a drag, which would toggle
-  // collapse every time you reposition the panel. We flag drags via
-  // onDragStart (only fires past framer's movement threshold) and swallow the
-  // trailing click. The flag resets on the next pointer-down so a genuine
-  // click — or a click after framer already suppressed its own — still toggles.
-  const draggedRef = useRef(false);
+  // A drag never toggles the header: the hook swallows the click that ends it.
+  const { locked, toggleLocked, panelRef, dragProps } = useDraggablePanel(
+    chatId,
+    `widget:${widget.id}`,
+    constraintsRef,
+  );
 
   return (
-    <motion.div
+    <div
       ref={panelRef}
-      drag={!locked}
-      dragMomentum={false}
-      dragElastic={0}
-      dragConstraints={constraintsRef as RefObject<Element>}
-      onDragStart={() => {
-        draggedRef.current = true;
-      }}
-      onDragEnd={handleDragEnd}
-      style={{ x, y, borderColor: `${accent}30` }}
+      {...dragProps}
+      style={{ ...dragProps.style, borderColor: `${accent}30` }}
       data-game-skip-bg-nav="true"
       className={cn(
         "w-full overflow-hidden rounded-lg border bg-black/60 backdrop-blur-md transition-colors",
@@ -484,16 +473,7 @@ function WidgetCard({
       <div
         role="button"
         tabIndex={0}
-        onPointerDownCapture={() => {
-          draggedRef.current = false;
-        }}
-        onClick={() => {
-          if (draggedRef.current) {
-            draggedRef.current = false;
-            return;
-          }
-          setCollapsed((c) => !c);
-        }}
+        onClick={() => setCollapsed((c) => !c)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -530,7 +510,7 @@ function WidgetCard({
           <WidgetBody widget={widget} />
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }
 
