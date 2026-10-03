@@ -66,7 +66,7 @@ import { toast } from "sonner";
 import {
   subscribeAutomaticMemoryCaptureCompletions,
   subscribeAutomaticMemoryCaptureStatuses,
-} from "../../engine/generation/automatic-memory-capture-queue";
+} from "../../engine/generation/automatic-memory-capture-events";
 import { subscribeContinuityDirectorRefreshCacheInvalidation } from "./app-shell-continuity-director";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {

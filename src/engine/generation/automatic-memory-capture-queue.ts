@@ -20,6 +20,12 @@ import { isTerminalBackgroundGenerationError } from "./background-generation-err
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
 import { knowledgeEdgesForCapturedMemory } from "./automatic-memory-knowledge";
+import {
+  publishMemoryCaptureCompletion,
+  publishMemoryCaptureStatus,
+  type AutomaticMemoryCaptureCompletion,
+  type AutomaticMemoryCaptureStatus,
+} from "./automatic-memory-capture-events";
 
 export { beginForegroundGeneration } from "./background-generation-coordinator";
 
@@ -91,37 +97,6 @@ export interface AutomaticMemoryCaptureQueueDependencies {
   llm: LlmGateway;
 }
 
-interface AutomaticMemoryCaptureCompletion {
-  chatId: string;
-  assistantMessageId: string;
-  operation: "created" | "updated";
-  memory: { id: string; content: string };
-}
-
-interface AutomaticMemoryCaptureStatus {
-  chatId: string;
-  assistantMessageId: string;
-  status: "processing" | "retryable" | "failed" | "completed";
-}
-
-type AutomaticMemoryCaptureCompletionListener = (completion: AutomaticMemoryCaptureCompletion) => void;
-type AutomaticMemoryCaptureStatusListener = (status: AutomaticMemoryCaptureStatus) => void;
-
-const completionListeners = new Set<AutomaticMemoryCaptureCompletionListener>();
-const statusListeners = new Set<AutomaticMemoryCaptureStatusListener>();
-
-export function subscribeAutomaticMemoryCaptureCompletions(
-  listener: AutomaticMemoryCaptureCompletionListener,
-): () => void {
-  completionListeners.add(listener);
-  return () => completionListeners.delete(listener);
-}
-
-export function subscribeAutomaticMemoryCaptureStatuses(listener: AutomaticMemoryCaptureStatusListener): () => void {
-  statusListeners.add(listener);
-  return () => statusListeners.delete(listener);
-}
-
 function memoryCaptureFromCommit(
   value: unknown,
 ): Omit<AutomaticMemoryCaptureCompletion, "chatId" | "assistantMessageId"> | null {
@@ -132,26 +107,6 @@ function memoryCaptureFromCommit(
   const content = readString(memory.content).trim();
   if ((operation !== "created" && operation !== "updated") || !id || !content) return null;
   return { operation, memory: { id, content } };
-}
-
-function publishMemoryCaptureCompletion(completion: AutomaticMemoryCaptureCompletion): void {
-  for (const listener of completionListeners) {
-    try {
-      listener(completion);
-    } catch {
-      // UI observers cannot invalidate a capture that is already durable.
-    }
-  }
-}
-
-function publishMemoryCaptureStatus(status: AutomaticMemoryCaptureStatus): void {
-  for (const listener of statusListeners) {
-    try {
-      listener(status);
-    } catch {
-      // UI observers cannot invalidate a lifecycle state that is already durable.
-    }
-  }
 }
 
 const activeWorkers = new WeakSet<StorageGateway>();

@@ -125,4 +125,22 @@ describe("app boot shell boundary", () => {
     expect(startupSource).toContain('import("./automatic-memory-maintenance")');
     expect(startupSource).toContain("requestIdleCallback");
   });
+
+  it("keeps the memory capture engine out of the app shell", () => {
+    const shellSource = readAppShellSource();
+
+    // The shell only listens for capture events; the queue pulls in capture,
+    // maintenance and cleanup engines that generation loads on demand.
+    expect(shellSource).toContain('from "../../engine/generation/automatic-memory-capture-events"');
+    expect(shellSource).not.toContain("automatic-memory-capture-queue");
+  });
+
+  it("keeps summary generation engines out of the broad chat hook bundle", () => {
+    const chatHooksSource = readChatHooksSource();
+
+    expect(chatHooksSource).not.toMatch(/^import[^;]*constants\/agent-prompts/m);
+    expect(chatHooksSource).not.toMatch(/^import[^;]*summaries\/auto-summary\.service/m);
+    expect(chatHooksSource).toContain('import("../../../../engine/contracts/constants/agent-prompts")');
+    expect(chatHooksSource).toContain('import("../../../../engine/modes/chat/core/summaries/auto-summary.service")');
+  });
 });
