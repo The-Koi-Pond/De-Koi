@@ -177,6 +177,20 @@ describe("useDraggablePanel", () => {
     expect(el("panel").style.transform).toBe("translate3d(30px, 20px, 0)");
   });
 
+  it("swallows a drag's click even when the browser delivers it late", () => {
+    render({ locked: false, x: 0, y: 0 });
+
+    pointer("pointerdown", el("header"), 10, 10);
+    pointer("pointermove", window, 18, 10);
+    pointer("pointerup", window, 18, 10);
+    act(() => vi.advanceTimersByTime(300));
+    click(el("header"));
+    expect(onHeaderClick).not.toHaveBeenCalled();
+
+    click(el("header"));
+    expect(onHeaderClick).toHaveBeenCalledTimes(1);
+  });
+
   it("ends a cancelled drag where it stopped without swallowing the next click", () => {
     render({ locked: false, x: 0, y: 0 });
 

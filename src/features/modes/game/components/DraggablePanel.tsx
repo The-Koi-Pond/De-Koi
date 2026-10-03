@@ -71,17 +71,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
-// The browser still fires a click after a drag ends on the element it started
-// on. Swallow that one click so dropping a panel never toggles its header.
-function swallowNextClick() {
-  const swallow = (event: MouseEvent) => {
-    event.stopPropagation();
-    event.preventDefault();
-  };
-  window.addEventListener("click", swallow, { capture: true, once: true });
-  window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
-}
-
 /**
  * Lock state, drag handling and offset for a draggable HUD panel, persisted
  * per chat so positions don't bleed across games. Reads from localStorage
@@ -165,9 +154,14 @@ export function useDraggablePanel(scopeId: string, panelId: string, constraintsR
   }, [currentState, key]);
 
   const activeGestureRef = useRef<(() => void) | null>(null);
+  // The browser can still fire a click on the panel after a drag ends, at a
+  // time of its choosing. That one click is swallowed so dropping a panel never
+  // toggles its header; the next press clears the mark.
+  const swallowClickRef = useRef(false);
 
   const handlePointerDown = useCallback(
     (event: PointerEvent) => {
+      swallowClickRef.current = false;
       const element = panelRef.current;
       if (locked || !element || event.isPrimary === false || (event.pointerType === "mouse" && event.button !== 0))
         return;
@@ -216,7 +210,7 @@ export function useDraggablePanel(scopeId: string, panelId: string, constraintsR
         if (endEvent.pointerId !== event.pointerId) return;
         release();
         if (!dragging) return;
-        if (endEvent.type === "pointerup") swallowNextClick();
+        if (endEvent.type === "pointerup") swallowClickRef.current = true;
         writePanelState(key, currentState());
       };
 
@@ -243,8 +237,18 @@ export function useDraggablePanel(scopeId: string, panelId: string, constraintsR
 
   useEffect(() => {
     if (!panelElement) return;
+    const swallowDragClick = (event: MouseEvent) => {
+      if (!swallowClickRef.current) return;
+      swallowClickRef.current = false;
+      event.stopPropagation();
+      event.preventDefault();
+    };
     panelElement.addEventListener("pointerdown", handlePointerDown);
-    return () => panelElement.removeEventListener("pointerdown", handlePointerDown);
+    panelElement.addEventListener("click", swallowDragClick, { capture: true });
+    return () => {
+      panelElement.removeEventListener("pointerdown", handlePointerDown);
+      panelElement.removeEventListener("click", swallowDragClick, { capture: true });
+    };
   }, [handlePointerDown, panelElement]);
 
   // An unlocked panel owns its gestures: touch must not scroll the page, and
