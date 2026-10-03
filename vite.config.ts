@@ -7,7 +7,6 @@ const host = process.env.TAURI_DEV_HOST;
 const vendorChunkGroups: Record<string, string[]> = {
   "vendor-react": ["react", "react-dom"],
   "vendor-runtime": ["@tanstack/react-query", "zustand", "zod", "clsx", "tailwind-merge"],
-  "vendor-motion": ["framer-motion", "motion"],
   "vendor-sanitize": ["dompurify"],
   "vendor-notifications": ["sonner"],
   "vendor-tauri": [

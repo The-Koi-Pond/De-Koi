@@ -17,26 +17,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
-vi.mock("framer-motion", async () => {
-  const React = await import("react");
-  const motion = new Proxy(
-    {},
-    {
-      get: (_target, tag: string) =>
-        React.forwardRef<HTMLElement, Record<string, unknown>>(function MotionElement(
-          { animate: _animate, exit: _exit, initial: _initial, transition: _transition, ...props },
-          ref,
-        ) {
-          return React.createElement(tag, { ...props, ref });
-        }),
-    },
-  );
-  return {
-    AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
-    motion,
-  };
-});
-
 vi.mock("../../../../catalog/chats/index", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../../catalog/chats/index")>();
   return {

@@ -3,7 +3,8 @@
 // Supports persisted free placement to avoid group-chat overlap.
 // ──────────────────────────────────────────────
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
-import { motion, AnimatePresence, type TargetAndTransition } from "framer-motion";
+import { motionStyle } from "../../../../shared/lib/motion";
+import { usePresence } from "../../../../shared/hooks/use-presence";
 import type { SpritePlacement, SpriteSide } from "../../../../engine/contracts/types/chat";
 import { useSprites, type SpriteInfo } from "../../../catalog/sprites/index";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
@@ -293,48 +294,23 @@ export function SpriteOverlay({
 
 // ── Transition animation variants ──────────────────────────
 
-interface SpriteVariant {
-  initial: TargetAndTransition;
-  animate: TargetAndTransition;
-  exit: TargetAndTransition;
-}
-
-const CROSSFADE: SpriteVariant = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1, transition: { duration: 0.4, ease: "easeInOut" } },
-  exit: { opacity: 0, transition: { duration: 0.3 } },
+// The old sprite fades out before the new one plays its entrance.
+const SPRITE_ENTER_CLASS: Record<Transition, string> = {
+  crossfade: "sprite-enter-crossfade",
+  bounce: "sprite-enter-bounce",
+  shake: "sprite-enter-shake",
+  hop: "sprite-enter-hop",
+  none: "",
 };
 
-const BOUNCE: SpriteVariant = {
-  initial: { opacity: 0, scale: 0.85 },
-  animate: { opacity: 1, scale: [0.85, 1.08, 0.97, 1], transition: { duration: 0.5, times: [0, 0.4, 0.7, 1] } },
-  exit: { opacity: 0, scale: 0.9, transition: { duration: 0.25 } },
-};
+const SPRITE_EXIT_MS: Record<Transition, number> = { crossfade: 300, bounce: 250, shake: 200, hop: 200, none: 0 };
 
-const SHAKE: SpriteVariant = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1, x: [0, -6, 6, -4, 4, -2, 2, 0], transition: { duration: 0.45, ease: "easeOut" } },
-  exit: { opacity: 0, transition: { duration: 0.2 } },
-};
-
-const HOP: SpriteVariant = {
-  initial: { opacity: 0, y: 0 },
-  animate: { opacity: 1, y: [0, -18, 0, -8, 0], transition: { duration: 0.5, times: [0, 0.3, 0.55, 0.75, 1] } },
-  exit: { opacity: 0, transition: { duration: 0.2 } },
-};
-
-const NONE_VARIANT: SpriteVariant = {
-  initial: { opacity: 1 },
-  animate: { opacity: 1, transition: { duration: 0 } },
-  exit: { opacity: 0, transition: { duration: 0 } },
-};
-
-const TRANSITION_VARIANTS: Record<Transition, SpriteVariant> = {
-  crossfade: CROSSFADE,
-  bounce: BOUNCE,
-  shake: SHAKE,
-  hop: HOP,
-  none: NONE_VARIANT,
+const SPRITE_EXIT_STYLE: Record<Transition, CSSProperties> = {
+  crossfade: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.crossfade }),
+  bounce: motionStyle({ exitTo: { scale: 0.9 }, exitDurationMs: SPRITE_EXIT_MS.bounce }),
+  shake: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.shake }),
+  hop: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.hop }),
+  none: motionStyle({ exitDurationMs: SPRITE_EXIT_MS.none }),
 };
 
 // ── Character Sprite ───────────────────────────────────────
@@ -513,9 +489,18 @@ function CharacterSprite({
     };
   }, [characterId, isDragging, onPlacementChange, stageRef]);
 
-  if (!spriteUrl) return null;
+  // Each frame keeps the transition it appeared with, so it also leaves with it.
+  const spriteFrames = usePresence(
+    spriteUrl
+      ? [{ key: `${characterId}-${expression}`, url: spriteUrl, expression, transition: activeTransition }]
+      : [],
+    (frame) => frame.key,
+    (frame) => SPRITE_EXIT_MS[frame.transition],
+    "wait",
+  );
 
-  const variant = TRANSITION_VARIANTS[activeTransition];
+  // A sprite whose image went away still plays its exit before unmounting.
+  if (spriteFrames.length === 0) return null;
 
   return (
     <div
@@ -547,19 +532,16 @@ function CharacterSprite({
       )}
 
       <div style={{ opacity: resolvedSpriteOpacity }}>
-        <AnimatePresence mode="wait">
-          <motion.img
-            key={`${characterId}-${expression}`}
-            src={spriteUrl}
-            alt={`${expression} sprite`}
-            className={`${sizeClass} w-auto object-contain drop-shadow-[0_0_20px_rgba(0,0,0,0.5)] ${editing ? "cursor-grab active:cursor-grabbing" : ""}`}
-            style={spriteScaleStyle}
+        {spriteFrames.map(({ key, item, exiting }) => (
+          <img
+            key={key}
+            src={item.url}
+            alt={`${item.expression} sprite`}
+            className={`${sizeClass} w-auto object-contain drop-shadow-[0_0_20px_rgba(0,0,0,0.5)] ${editing ? "cursor-grab active:cursor-grabbing" : ""} ${exiting ? "motion-exit" : SPRITE_ENTER_CLASS[item.transition]}`}
+            style={{ ...spriteScaleStyle, ...SPRITE_EXIT_STYLE[item.transition] }}
             draggable={false}
-            initial={variant.initial}
-            animate={variant.animate}
-            exit={variant.exit}
           />
-        </AnimatePresence>
+        ))}
       </div>
     </div>
   );
