@@ -71,4 +71,10 @@ describe("conversationSettingsApi", () => {
     );
     expect(storageApiMock.update).not.toHaveBeenCalled();
   });
+
+  it("only changes settings through operations that are re-applied after a conflict", () => {
+    // A whole-object save would retry with a stale snapshot and undo a
+    // concurrent change, so there is none.
+    expect(Object.keys(conversationSettingsApi.settings).sort()).toEqual(["get", "setStatusMessagesEnabledByDefault"]);
+  });
 });

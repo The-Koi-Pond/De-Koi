@@ -41,7 +41,6 @@ export const conversationSettingsKeys = {
 export const conversationSettingsApi = {
   settings: {
     get: readSettingsRecord,
-    save: (settings: ConversationSettings) => updateSettingsRecord(() => settings),
     setStatusMessagesEnabledByDefault: (enabled: boolean) =>
       updateSettingsRecord((current) => ({ ...current, statusMessagesEnabledByDefault: enabled })),
   },

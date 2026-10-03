@@ -62,7 +62,6 @@ async function updateSettingsRecord(
 export const coreModulesApi = {
   settings: {
     get: readSettingsRecord,
-    save: (settings: CoreModuleSettings) => updateSettingsRecord(() => settings),
     setEnabled: (moduleId: string, enabled: boolean) =>
       updateSettingsRecord((current) => ({ enabled: { ...current.enabled, [moduleId]: enabled } })),
   },

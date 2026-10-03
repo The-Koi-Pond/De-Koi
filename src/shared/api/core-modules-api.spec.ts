@@ -83,6 +83,12 @@ describe("coreModulesApi settings writes", () => {
     store.rows.set("core-modules", { id: "core-modules", value: { enabled: {} } });
   });
 
+  it("only changes settings through operations that are re-applied after a conflict", () => {
+    // A whole-object save would retry with a stale snapshot and undo a
+    // concurrent toggle, so there is none.
+    expect(Object.keys(coreModulesApi.settings).sort()).toEqual(["get", "setEnabled"]);
+  });
+
   it("keeps both toggles when two clients change different modules at the same time", async () => {
     store.holdReads();
     const first = coreModulesApi.settings.setEnabled("module-a", true);
