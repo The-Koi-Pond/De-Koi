@@ -361,6 +361,8 @@ describe("automatic memory maintenance queue", () => {
     expect(test.maintenance.apply).not.toHaveBeenCalled();
     expect(result.retryable).toBe(0);
     expect(test.jobs.get("job-1")?.status).toBe("processing");
+    // Reported like a denied lease, so a queued rerun waits a lease heartbeat.
+    expect(result.leaseDenied).toBe(true);
   });
 
   it("analyzes manual pinned edited imported corrected and command sources", async () => {

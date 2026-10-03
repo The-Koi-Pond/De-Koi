@@ -50,7 +50,7 @@ export interface AutomaticMemoryMaintenanceProcessOptions {
 }
 
 export interface AutomaticMemoryMaintenanceResult {
-  /** Another worker holds the maintenance lease, so this pass did nothing. */
+  /** Another worker holds the maintenance lease, or took it during this pass. */
   leaseDenied: boolean;
   processed: number;
   completed: number;
@@ -706,6 +706,8 @@ export async function processAutomaticMemoryMaintenanceQueue(
         if (providerFailure) break;
       }
     }
+    // Another runtime took the lease mid-pass; wait for it like a denied lease.
+    if (leaseLost) result.leaseDenied = true;
     return result;
   } finally {
     unregisterForegroundInterruption();
