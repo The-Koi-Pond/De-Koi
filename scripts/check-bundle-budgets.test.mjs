@@ -53,3 +53,43 @@ test("reports the exact budget category that is exceeded", () => {
     ["startupJs"],
   );
 });
+
+test("counts the home screen's lazy chunks and their static imports in homeJs", () => {
+  const files = new Map([
+    ["index.html", '<script type="module" src="/assets/entry.js"></script>'],
+    [
+      ".vite/manifest.json",
+      JSON.stringify({
+        "src/main.ts": { file: "assets/entry.js", isEntry: true, dynamicImports: ["_Shell.js"] },
+        "_Shell.js": { file: "assets/Shell.js", name: "Shell", isDynamicEntry: true, imports: ["_chat-ui.js"] },
+        "_chat-ui.js": { file: "assets/chat-ui.js", name: "chat-ui" },
+        "src/game.ts": { file: "assets/game.js", name: "game", isDynamicEntry: true },
+      }),
+    ],
+    ["assets/entry.js", "entry".repeat(100)],
+    ["assets/Shell.js", "shell".repeat(100)],
+    ["assets/chat-ui.js", "chat".repeat(100)],
+    ["assets/game.js", "game".repeat(100)],
+  ]);
+
+  const result = evaluateBundleBudgets(files, { homeJs: 1 }, ["Shell"]);
+
+  assert.deepEqual(result.homeFiles.sort(), ["assets/Shell.js", "assets/chat-ui.js", "assets/entry.js"]);
+  assert.ok(result.homeJs > result.startupJs);
+  assert.deepEqual(
+    result.violations.map((violation) => violation.category),
+    ["homeJs"],
+  );
+});
+
+test("fails homeJs when a named home chunk is missing from the manifest", () => {
+  const files = new Map([
+    ["index.html", '<script type="module" src="/assets/entry.js"></script>'],
+    [".vite/manifest.json", JSON.stringify({ "src/main.ts": { file: "assets/entry.js", isEntry: true } })],
+    ["assets/entry.js", "entry".repeat(100)],
+  ]);
+
+  const result = evaluateBundleBudgets(files, { homeJs: Number.MAX_SAFE_INTEGER }, ["AppExperience"]);
+
+  assert.deepEqual(result.violations, [{ category: "homeJs", missingChunks: ["AppExperience"] }]);
+});

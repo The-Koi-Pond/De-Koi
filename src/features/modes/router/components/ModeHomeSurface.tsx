@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { BookOpen, Compass, HelpCircle, Import, List, MessageSquare, Server, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
-import { NewChatConnectionGate } from "../../shared/chat-ui/index";
+import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";

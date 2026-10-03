@@ -31,7 +31,7 @@ vi.mock("../../../catalog/chat-presets/index", () => ({
   useApplyUserStarredChatPreset: () => vi.fn(),
 }));
 
-vi.mock("../../shared/chat-ui/index", () => ({
+vi.mock("../../shared/chat-ui/new-chat-gate", () => ({
   NewChatConnectionGate: () => null,
 }));
 
