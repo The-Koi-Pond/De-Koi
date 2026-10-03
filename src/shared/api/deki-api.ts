@@ -43,6 +43,7 @@ import {
 import type { StorageEntity } from "../../engine/capabilities/storage";
 import { Channel } from "@tauri-apps/api/core";
 import { ApiError, isDuplicateCreateError } from "./api-errors";
+import { updateAppSettingsIfUnchanged } from "./app-settings-api";
 import { planDekiHistoryPersistence, type DekiHistoryPersistenceSnapshot } from "./deki-history-persistence";
 import { remoteRuntimeGeneration, remoteRuntimeTarget, streamRemoteJsonEvents } from "./remote-runtime";
 import { storageApi } from "./storage-api";
@@ -753,7 +754,11 @@ async function saveSettingsTransform(
     const payload = appSettingsUpdateSchema.parse({ value });
     beforeWrite();
     if (existing) {
-      if (await updateSettingsIfUnchanged(existing.value ?? null, payload.value)) return value;
+      if (
+        await updateAppSettingsIfUnchanged(DEKI_SETTINGS_ID, existing.value ?? null, payload.value, "Deki settings")
+      ) {
+        return value;
+      }
       continue;
     }
     try {
@@ -768,30 +773,6 @@ async function saveSettingsTransform(
     return value;
   }
   throw new Error("Deki settings kept changing while saving. Try again.");
-}
-
-const CONDITIONAL_SETTINGS_COMMAND = "app_settings_update_if_unchanged";
-
-/** True when the write landed; false when another write changed the row first. */
-async function updateSettingsIfUnchanged(expectedValue: unknown, value: unknown): Promise<boolean> {
-  const updateIfUnchanged = storageApi.updateAppSettingsIfUnchanged;
-  if (!updateIfUnchanged) throw new Error("This storage gateway cannot update settings conditionally.");
-  try {
-    return (await updateIfUnchanged.call(storageApi, DEKI_SETTINGS_ID, expectedValue, value)).updated;
-  } catch (error) {
-    // A remote runtime older than this app has no conditional update. A plain
-    // write there could replace another client's change, so refuse without
-    // writing and say how to fix it.
-    if (
-      error instanceof Error &&
-      error.message === `${CONDITIONAL_SETTINGS_COMMAND} is not exposed by the remote runtime`
-    ) {
-      throw new Error(
-        "This De-Koi server is older than the app and cannot save Deki settings safely. Update and restart the server, then try again.",
-      );
-    }
-    throw error;
-  }
 }
 
 /**

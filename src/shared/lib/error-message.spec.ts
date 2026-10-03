@@ -14,4 +14,14 @@ describe("user-facing error messages", () => {
 
     expect(message).toBe("Couldn't save.");
   });
+
+  it("shows an outdated-server error as is, since retrying cannot fix it", () => {
+    const outdated = new Error("This De-Koi server is older than the app and cannot save Deki settings safely.");
+    outdated.name = "OutdatedServerError";
+
+    expect(toUserMessage(outdated, "coreModuleToggle")).toBe(outdated.message);
+    expect(toUserMessage(new Error("This De-Koi server is older than the app"), "coreModuleToggle")).toBe(
+      "Couldn't update that module. Try again.",
+    );
+  });
 });
