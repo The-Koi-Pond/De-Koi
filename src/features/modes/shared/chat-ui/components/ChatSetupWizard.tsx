@@ -2,7 +2,6 @@
 // Chat Setup Wizard — step-by-step new chat configuration
 // ──────────────────────────────────────────────
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
   ChevronRight,
@@ -23,6 +22,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { cn, type AvatarCrop } from "../../../../../shared/lib/utils";
+import { motionStyle } from "../../../../../shared/lib/motion";
 import { useConnections } from "../../../../catalog/connections/index";
 import { usePresets, usePresetFull, useDefaultPresetSummary } from "../../../../catalog/presets/index";
 import {
@@ -165,6 +165,10 @@ type CharacterSetupOption = {
   avatarFilePath?: string | null;
   avatarFilename?: string | null;
 };
+
+// Each wizard card rises in when it appears or the step changes.
+const CARD_ENTER = motionStyle({ from: { y: 12, scale: 0.97 }, durationMs: 200, ease: "ease-out" });
+const QUICK_SETUP_ENTER = motionStyle({ from: { y: 16, scale: 0.97 }, durationMs: 200, ease: "ease-out" });
 
 function useDebouncedValue(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -748,11 +752,9 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
       <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onCancel ?? onFinish} />
 
       <div className="absolute inset-0 z-50 flex items-center justify-center p-3 pointer-events-none max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 16, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
+        <div
+          style={QUICK_SETUP_ENTER}
+          className="motion-enter pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
         >
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
@@ -1072,7 +1074,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
               </div>
             )}
           </div>
-        </motion.div>
+        </div>
       </div>
     </>
   );
@@ -1743,313 +1745,305 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
           showChoiceModal && "hidden",
         )}
       >
-        <AnimatePresence mode="wait">
-          {shortcutMode ? (
-            <motion.div
-              key="shortcut"
-              initial={{ opacity: 0, y: 12, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.97 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
-            >
-              {/* Header */}
-              <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
-                <button
-                  onClick={leaveShortcutMode}
-                  className="flex items-center gap-1.5 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                  aria-label="Back"
+        {shortcutMode ? (
+          <div
+            key="shortcut"
+            style={CARD_ENTER}
+            className="motion-enter pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]"
+          >
+            {/* Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
+              <button
+                onClick={leaveShortcutMode}
+                className="flex items-center gap-1.5 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                aria-label="Back"
+              >
+                <ArrowLeft size="0.875rem" />
+              </button>
+              <div className="flex items-center gap-1.5">
+                <Wand2 size="0.875rem" className="text-[var(--primary)]" />
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">Quick Setup</h3>
+              </div>
+              <button
+                onClick={cancel}
+                className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                aria-label="Close"
+              >
+                <X size="0.875rem" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
+              <p className="text-center text-xs leading-relaxed text-[var(--muted-foreground)]">
+                Pick a preset, your persona, and any characters to instantly configure this roleplay.
+              </p>
+
+              {/* Chat Preset */}
+              <div className="space-y-1.5">
+                <label className="text-[0.6875rem] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  Chat Preset
+                </label>
+                <select
+                  value={shortcutPresetId}
+                  onChange={(e) => setShortcutPresetId(e.target.value)}
+                  className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40"
                 >
-                  <ArrowLeft size="0.875rem" />
-                </button>
-                <div className="flex items-center gap-1.5">
-                  <Wand2 size="0.875rem" className="text-[var(--primary)]" />
-                  <h3 className="text-sm font-semibold text-[var(--foreground)]">Quick Setup</h3>
-                </div>
-                <button
-                  onClick={cancel}
-                  className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                  aria-label="Close"
-                >
-                  <X size="0.875rem" />
-                </button>
+                  {chatPresetList.length === 0 && <option value="">Loading…</option>}
+                  {chatPresetList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {boolish(p.isDefault ?? p.default, false) ? "Default" : p.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
-                <p className="text-center text-xs leading-relaxed text-[var(--muted-foreground)]">
-                  Pick a preset, your persona, and any characters to instantly configure this roleplay.
-                </p>
+              {/* Persona */}
+              <div className="space-y-1.5">
+                <label className="text-[0.6875rem] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  Persona
+                </label>
+                <PersonaPicker personas={personas} value={chat.personaId ?? null} onChange={setPersona} />
+              </div>
 
-                {/* Chat Preset */}
-                <div className="space-y-1.5">
-                  <label className="text-[0.6875rem] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Chat Preset
-                  </label>
-                  <select
-                    value={shortcutPresetId}
-                    onChange={(e) => setShortcutPresetId(e.target.value)}
-                    className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40"
-                  >
-                    {chatPresetList.length === 0 && <option value="">Loading…</option>}
-                    {chatPresetList.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {boolish(p.isDefault ?? p.default, false) ? "Default" : p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Characters */}
+              <div className="space-y-1.5">
+                <label className="text-[0.6875rem] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  {chatCharIds.length > 1 ? (
+                    <span className="flex items-center gap-1.5">
+                      <Users size="0.6875rem" />
+                      Characters · {chatCharIds.length}
+                    </span>
+                  ) : (
+                    "Characters"
+                  )}
+                </label>
 
-                {/* Persona */}
-                <div className="space-y-1.5">
-                  <label className="text-[0.6875rem] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Persona
-                  </label>
-                  <PersonaPicker personas={personas} value={chat.personaId ?? null} onChange={setPersona} />
-                </div>
+                {chatCharIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {chatCharIds.map((cid) => {
+                      const c = characters.find((ch) => ch.id === cid);
+                      if (!c) return null;
+                      const name = charName(c);
+                      const title = charTitle(c);
+                      return (
+                        <button
+                          key={cid}
+                          onClick={() => toggleCharacter(cid)}
+                          className="flex items-center gap-1.5 rounded-full bg-[var(--primary)]/15 pl-1 pr-2.5 py-1 text-xs ring-1 ring-[var(--primary)]/30 transition-all hover:bg-[var(--destructive)]/15 hover:ring-[var(--destructive)]/30 group"
+                          title={title ? `${name} - ${title}` : name}
+                        >
+                          {c.avatarPath ? (
+                            <CharacterAvatarImage
+                              character={c}
+                              src={c.avatarPath}
+                              alt={name}
+                              className="h-5 w-5 rounded-full"
+                            />
+                          ) : (
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
+                              {name[0]}
+                            </div>
+                          )}
+                          <span className="truncate max-w-[6rem]">{name}</span>
+                          <CharacterTokenWarning character={c} />
+                          <X
+                            size="0.625rem"
+                            className="text-[var(--muted-foreground)] group-hover:text-[var(--destructive)]"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
-                {/* Characters */}
-                <div className="space-y-1.5">
-                  <label className="text-[0.6875rem] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
-                    {chatCharIds.length > 1 ? (
-                      <span className="flex items-center gap-1.5">
-                        <Users size="0.6875rem" />
-                        Characters · {chatCharIds.length}
-                      </span>
-                    ) : (
-                      "Characters"
-                    )}
-                  </label>
-
-                  {chatCharIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-1.5">
-                      {chatCharIds.map((cid) => {
-                        const c = characters.find((ch) => ch.id === cid);
-                        if (!c) return null;
+                <div className="rounded-lg ring-1 ring-[var(--border)] bg-[var(--card)] overflow-hidden">
+                  <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
+                    <Search size="0.75rem" className="text-[var(--muted-foreground)]" />
+                    <input
+                      value={charSearch}
+                      onChange={(e) => setCharSearch(e.target.value)}
+                      placeholder="Search characters…"
+                      className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
+                    />
+                  </div>
+                  <div className="max-h-[min(42dvh,22rem)] min-h-48 overflow-y-auto">
+                    {characters
+                      .filter((c) => {
+                        if (chatCharIds.includes(c.id)) return false;
+                        return characterMatchesSearch(c, charSearch);
+                      })
+                      .map((c) => {
                         const name = charName(c);
                         const title = charTitle(c);
                         return (
                           <button
-                            key={cid}
-                            onClick={() => toggleCharacter(cid)}
-                            className="flex items-center gap-1.5 rounded-full bg-[var(--primary)]/15 pl-1 pr-2.5 py-1 text-xs ring-1 ring-[var(--primary)]/30 transition-all hover:bg-[var(--destructive)]/15 hover:ring-[var(--destructive)]/30 group"
-                            title={title ? `${name} - ${title}` : name}
+                            key={c.id}
+                            onClick={() => toggleCharacter(c.id)}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]"
                           >
                             {c.avatarPath ? (
                               <CharacterAvatarImage
                                 character={c}
                                 src={c.avatarPath}
                                 alt={name}
-                                className="h-5 w-5 rounded-full"
+                                className="h-6 w-6 rounded-full"
                               />
                             ) : (
-                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
                                 {name[0]}
                               </div>
                             )}
-                            <span className="truncate max-w-[6rem]">{name}</span>
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate text-xs">{name}</span>
+                              {title && (
+                                <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
+                                  {title}
+                                </span>
+                              )}
+                            </div>
                             <CharacterTokenWarning character={c} />
-                            <X
-                              size="0.625rem"
-                              className="text-[var(--muted-foreground)] group-hover:text-[var(--destructive)]"
-                            />
+                            <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
                           </button>
                         );
                       })}
-                    </div>
-                  )}
-
-                  <div className="rounded-lg ring-1 ring-[var(--border)] bg-[var(--card)] overflow-hidden">
-                    <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
-                      <Search size="0.75rem" className="text-[var(--muted-foreground)]" />
-                      <input
-                        value={charSearch}
-                        onChange={(e) => setCharSearch(e.target.value)}
-                        placeholder="Search characters…"
-                        className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
+                    {characters.filter((c) => {
+                      if (chatCharIds.includes(c.id)) return false;
+                      return characterMatchesSearch(c, charSearch);
+                    }).length === 0 && (
+                      <CharacterPickerEmptyState
+                        status={characterEmptyState}
+                        noCharactersText="No characters yet. Create or import one before applying setup."
+                        allAddedText="All characters added."
+                        onOpenCharacters={() => {
+                          openRightPanel("characters");
+                          cancel();
+                        }}
                       />
-                    </div>
-                    <div className="max-h-[min(42dvh,22rem)] min-h-48 overflow-y-auto">
-                      {characters
-                        .filter((c) => {
-                          if (chatCharIds.includes(c.id)) return false;
-                          return characterMatchesSearch(c, charSearch);
-                        })
-                        .map((c) => {
-                          const name = charName(c);
-                          const title = charTitle(c);
-                          return (
-                            <button
-                              key={c.id}
-                              onClick={() => toggleCharacter(c.id)}
-                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]"
-                            >
-                              {c.avatarPath ? (
-                                <CharacterAvatarImage
-                                  character={c}
-                                  src={c.avatarPath}
-                                  alt={name}
-                                  className="h-6 w-6 rounded-full"
-                                />
-                              ) : (
-                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-[0.5625rem] font-bold">
-                                  {name[0]}
-                                </div>
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <span className="block truncate text-xs">{name}</span>
-                                {title && (
-                                  <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
-                                    {title}
-                                  </span>
-                                )}
-                              </div>
-                              <CharacterTokenWarning character={c} />
-                              <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
-                            </button>
-                          );
-                        })}
-                      {characters.filter((c) => {
-                        if (chatCharIds.includes(c.id)) return false;
-                        return characterMatchesSearch(c, charSearch);
-                      }).length === 0 && (
-                        <CharacterPickerEmptyState
-                          status={characterEmptyState}
-                          noCharactersText="No characters yet. Create or import one before applying setup."
-                          allAddedText="All characters added."
-                          onOpenCharacters={() => {
-                            openRightPanel("characters");
-                            cancel();
-                          }}
-                        />
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Footer */}
-              <div className="flex shrink-0 items-center justify-between border-t border-[var(--border)] px-4 py-3">
+            {/* Footer */}
+            <div className="flex shrink-0 items-center justify-between border-t border-[var(--border)] px-4 py-3">
+              <button
+                onClick={leaveShortcutMode}
+                className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleShortcutApply}
+                disabled={shortcutApplying || !shortcutPresetId}
+                className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+              >
+                {shortcutApplying ? (
+                  <>
+                    <Loader2 size="0.75rem" className="animate-spin" />
+                    Applying…
+                  </>
+                ) : (
+                  <>
+                    <Wand2 size="0.75rem" />
+                    Apply &amp; Start
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            key={step}
+            style={CARD_ENTER}
+            className={cn(
+              "motion-enter pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]",
+              currentStep.key === "workflow-profile" ? "max-w-lg sm:max-w-4xl" : "max-w-lg",
+            )}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 pt-5">
+              {/* Sprite */}
+              <div className="mb-3 flex justify-center">
+                <img
+                  src={currentStep.sprite}
+                  alt="Assistant"
+                  className="h-24 w-auto object-contain drop-shadow-lg sm:h-28"
+                  style={currentStep.spriteFlip ? { transform: "scaleX(-1)" } : undefined}
+                  draggable={false}
+                />
+              </div>
+
+              {/* Title */}
+              <h3 className="mb-1 text-center text-sm font-semibold text-[var(--foreground)]">{currentStep.title}</h3>
+
+              {/* Body */}
+              <p className="mb-4 text-center text-xs leading-relaxed text-[var(--muted-foreground)]">
+                {currentStep.body}
+              </p>
+
+              {/* Step content */}
+              <div>{stepRenderers[currentStep.key]?.()}</div>
+            </div>
+
+            <div className="shrink-0 border-t border-[var(--border)]/70 px-5 py-3">
+              {/* Progress dots */}
+              <div className="mb-3 flex items-center justify-center gap-1.5">
+                {STEPS.map((_, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "h-1.5 rounded-full transition-all duration-300",
+                      i === step
+                        ? "w-4 bg-[var(--primary)]"
+                        : i < step
+                          ? "w-1.5 bg-[var(--primary)]/40"
+                          : "w-1.5 bg-[var(--muted-foreground)]/20",
+                    )}
+                  />
+                ))}
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  {canGoBack && (
+                    <button
+                      onClick={previous}
+                      aria-label="Back"
+                      title="Back"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                    >
+                      <ArrowLeft size="0.875rem" />
+                    </button>
+                  )}
+                  <button
+                    onClick={onFinish}
+                    className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                  >
+                    Skip
+                  </button>
+                </div>
                 <button
-                  onClick={leaveShortcutMode}
-                  className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                  onClick={() => setShortcutMode(true)}
+                  title="Apply a saved chat-settings preset and pick a persona + characters in one step"
+                  className="flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-1.5 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/20"
                 >
-                  Back
+                  <Wand2 size="0.75rem" />
+                  <span className="hidden xs:inline sm:inline">Use Settings Presets</span>
+                  <span className="inline xs:hidden sm:hidden">Presets</span>
                 </button>
                 <button
-                  onClick={handleShortcutApply}
-                  disabled={shortcutApplying || !shortcutPresetId}
+                  onClick={next}
+                  disabled={nextDisabled}
                   className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
                 >
-                  {shortcutApplying ? (
-                    <>
-                      <Loader2 size="0.75rem" className="animate-spin" />
-                      Applying…
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 size="0.75rem" />
-                      Apply &amp; Start
-                    </>
-                  )}
+                  {isLast ? "Done" : "Next"}
+                  {isLast ? <Check size="0.75rem" /> : <ChevronRight size="0.75rem" />}
                 </button>
               </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key={step}
-              initial={{ opacity: 0, y: 12, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.97 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className={cn(
-                "pointer-events-auto flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[min(90dvh,44rem)]",
-                currentStep.key === "workflow-profile" ? "max-w-lg sm:max-w-4xl" : "max-w-lg",
-              )}
-            >
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 pt-5">
-                {/* Sprite */}
-                <div className="mb-3 flex justify-center">
-                  <img
-                    src={currentStep.sprite}
-                    alt="Assistant"
-                    className="h-24 w-auto object-contain drop-shadow-lg sm:h-28"
-                    style={currentStep.spriteFlip ? { transform: "scaleX(-1)" } : undefined}
-                    draggable={false}
-                  />
-                </div>
-
-                {/* Title */}
-                <h3 className="mb-1 text-center text-sm font-semibold text-[var(--foreground)]">{currentStep.title}</h3>
-
-                {/* Body */}
-                <p className="mb-4 text-center text-xs leading-relaxed text-[var(--muted-foreground)]">
-                  {currentStep.body}
-                </p>
-
-                {/* Step content */}
-                <div>{stepRenderers[currentStep.key]?.()}</div>
-              </div>
-
-              <div className="shrink-0 border-t border-[var(--border)]/70 px-5 py-3">
-                {/* Progress dots */}
-                <div className="mb-3 flex items-center justify-center gap-1.5">
-                  {STEPS.map((_, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "h-1.5 rounded-full transition-all duration-300",
-                        i === step
-                          ? "w-4 bg-[var(--primary)]"
-                          : i < step
-                            ? "w-1.5 bg-[var(--primary)]/40"
-                            : "w-1.5 bg-[var(--muted-foreground)]/20",
-                      )}
-                    />
-                  ))}
-                </div>
-
-                {/* Buttons */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    {canGoBack && (
-                      <button
-                        onClick={previous}
-                        aria-label="Back"
-                        title="Back"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                      >
-                        <ArrowLeft size="0.875rem" />
-                      </button>
-                    )}
-                    <button
-                      onClick={onFinish}
-                      className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                    >
-                      Skip
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => setShortcutMode(true)}
-                    title="Apply a saved chat-settings preset and pick a persona + characters in one step"
-                    className="flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-1.5 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/20"
-                  >
-                    <Wand2 size="0.75rem" />
-                    <span className="hidden xs:inline sm:inline">Use Settings Presets</span>
-                    <span className="inline xs:hidden sm:hidden">Presets</span>
-                  </button>
-                  <button
-                    onClick={next}
-                    disabled={nextDisabled}
-                    className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-                  >
-                    {isLast ? "Done" : "Next"}
-                    {isLast ? <Check size="0.75rem" /> : <ChevronRight size="0.75rem" />}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

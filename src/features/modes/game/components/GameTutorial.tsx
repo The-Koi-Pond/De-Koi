@@ -5,8 +5,10 @@
 // ──────────────────────────────────────────────
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, X } from "lucide-react";
+import { cn } from "../../../../shared/lib/utils";
+import { motionStyle } from "../../../../shared/lib/motion";
+import { usePresence } from "../../../../shared/hooks/use-presence";
 
 const ASSISTANT_MARK_URL = "/koi-mark.svg";
 
@@ -302,6 +304,15 @@ interface GameTutorialProps {
   onClose: () => void;
 }
 
+const CARD_EXIT_MS = 250;
+const CARD_MOTION = motionStyle({
+  from: { y: 12, scale: 0.96 },
+  to: { y: -8, scale: 0.96 },
+  durationMs: 250,
+  exitDurationMs: CARD_EXIT_MS,
+  exitEase: "cubic-bezier(0.16, 1, 0.3, 1)",
+});
+
 export function GameTutorial({ open, onClose }: GameTutorialProps) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
@@ -360,6 +371,9 @@ export function GameTutorial({ open, onClose }: GameTutorialProps) {
     }
   }, [isLast, onClose]);
 
+  // Each step card leaves before the next one arrives.
+  const cards = usePresence([step], String, CARD_EXIT_MS, "wait");
+
   if (!open || !stepData) return null;
 
   if (typeof document === "undefined") return null;
@@ -381,36 +395,46 @@ export function GameTutorial({ open, onClose }: GameTutorialProps) {
       )}
 
       {targetRect ? (
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, y: 12, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.96 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-4 shadow-2xl ring-1 ring-[var(--primary)]/20 sm:p-5"
-            style={computeTooltipStyle(targetRect, stepData.side)}
+        cards.map(({ key, item, exiting }) => (
+          <div
+            key={key}
+            className={cn(
+              exiting ? "motion-exit" : "motion-enter",
+              "pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-4 shadow-2xl ring-1 ring-[var(--primary)]/20 sm:p-5",
+            )}
+            style={{ ...CARD_MOTION, ...computeTooltipStyle(targetRect, STEPS[item].side) }}
           >
-            <TutorialCard step={step} stepData={stepData} isLast={isLast} onNext={next} onSkip={onClose} />
-          </motion.div>
-        </AnimatePresence>
+            <TutorialCard
+              step={item}
+              stepData={STEPS[item]}
+              isLast={item === STEPS.length - 1}
+              onNext={next}
+              onSkip={onClose}
+            />
+          </div>
+        ))
       ) : (
         // Fallback: target not yet measurable — show a centered card so the tour
         // still works even if a region is momentarily hidden.
         <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={step}
-              initial={{ opacity: 0, y: 12, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.96 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-4 shadow-2xl ring-1 ring-[var(--primary)]/20 max-h-[90vh] overflow-x-hidden overflow-y-auto sm:p-5"
-              style={{ width: Math.min(380, window.innerWidth - 32) }}
+          {cards.map(({ key, item, exiting }) => (
+            <div
+              key={key}
+              className={cn(
+                exiting ? "motion-exit" : "motion-enter",
+                "pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-4 shadow-2xl ring-1 ring-[var(--primary)]/20 max-h-[90vh] overflow-x-hidden overflow-y-auto sm:p-5",
+              )}
+              style={{ ...CARD_MOTION, width: Math.min(380, window.innerWidth - 32) }}
             >
-              <TutorialCard step={step} stepData={stepData} isLast={isLast} onNext={next} onSkip={onClose} />
-            </motion.div>
-          </AnimatePresence>
+              <TutorialCard
+                step={item}
+                stepData={STEPS[item]}
+                isLast={item === STEPS.length - 1}
+                onNext={next}
+                onSkip={onClose}
+              />
+            </div>
+          ))}
         </div>
       )}
     </div>

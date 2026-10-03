@@ -2,7 +2,6 @@
 // Combat Encounter Modal — Full turn-based combat UI
 // ──────────────────────────────────────────────
 import { useState, useEffect, useRef, useCallback, useMemo, Component, type ReactNode } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Swords,
   Shield,
@@ -26,6 +25,8 @@ import { useEncounter } from "../encounter/hooks/use-encounter";
 import { useLorebooks } from "../../../catalog/lorebooks/index";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
+import { motionStyle, SPRING_EASE } from "../../../../shared/lib/motion";
+import { usePresence } from "../../../../shared/hooks/use-presence";
 import type {
   CombatPartyMember,
   CombatEnemy,
@@ -42,6 +43,20 @@ const NARRATIVE_TENSE_OPTIONS = ["present", "past"] as const satisfies readonly 
 const NARRATIVE_PERSON_OPTIONS = ["first", "second", "third"] as const satisfies readonly NarrativeStyle["person"][];
 const NARRATIVE_MODE_OPTIONS = ["omniscient", "limited"] as const satisfies readonly NarrativeStyle["narration"][];
 
+const OVERLAY_EXIT_MS = 200;
+const OVERLAY_FADE = motionStyle({ exitDurationMs: OVERLAY_EXIT_MS });
+const DIALOG_POP = motionStyle({
+  from: { scale: 0.9 },
+  to: { scale: 0.9 },
+  durationMs: 300,
+  exitDurationMs: OVERLAY_EXIT_MS,
+});
+const COMBAT_DIALOG_POP = motionStyle({ from: { scale: 0.9 }, durationMs: 400, ease: SPRING_EASE });
+const ENEMY_CARD_ENTER = motionStyle({ from: { y: -20 }, durationMs: 400 });
+const PARTY_CARD_ENTER = motionStyle({ from: { y: 20 }, durationMs: 400 });
+const LOG_ENTRY_ENTER = motionStyle({ from: { x: -10 }, durationMs: 300 });
+const RESULT_ENTER = motionStyle({ from: { scale: 0.9 }, durationMs: 400 });
+
 function selectNarrativeOption<T extends string>(nextValue: string, options: readonly T[], fallback: T): T {
   return (options as readonly string[]).includes(nextValue) ? (nextValue as T) : fallback;
 }
@@ -51,9 +66,9 @@ function HPBar({ current, max, isParty }: { current: number; max: number; isPart
   const isDead = current <= 0;
   return (
     <div className="relative h-3 w-full overflow-hidden rounded-full bg-foreground/10">
-      <motion.div
+      <div
         className={cn(
-          "absolute inset-y-0 left-0 rounded-full",
+          "absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out",
           isDead
             ? "bg-gray-600"
             : isParty
@@ -68,9 +83,7 @@ function HPBar({ current, max, isParty }: { current: number; max: number; isPart
                   ? "bg-orange-500"
                   : "bg-red-300",
         )}
-        initial={false}
-        animate={{ width: `${pct}%` }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
+        style={{ width: `${pct}%` }}
       />
       <span className="absolute inset-0 flex items-center justify-center text-[0.625rem] font-bold text-foreground drop-shadow-sm">
         {current}/{max}
@@ -98,16 +111,14 @@ function StatusBadges({ statuses }: { statuses: Array<{ name: string; emoji: str
 
 function EnemyCard({ enemy, index: _index, isDead }: { enemy: CombatEnemy; index: number; isDead: boolean }) {
   return (
-    <motion.div
-      layout
+    <div
       className={cn(
-        "relative flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-all",
+        "motion-enter relative flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-all",
         isDead
           ? "border-foreground/5 bg-foreground/5 opacity-40 grayscale"
           : "border-red-500/20 bg-red-500/5 hover:border-red-500/40",
       )}
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: isDead ? 0.4 : 1, y: 0 }}
+      style={ENEMY_CARD_ENTER}
     >
       <div className="text-2xl">{enemy.sprite || "👹"}</div>
       <h4 className="text-xs font-bold text-foreground/90">{enemy.name}</h4>
@@ -123,25 +134,23 @@ function EnemyCard({ enemy, index: _index, isDead }: { enemy: CombatEnemy; index
           <Skull size="1.25rem" className="text-red-400/60" />
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }
 
 function PartyCard({ member }: { member: CombatPartyMember }) {
   const isDead = member.hp <= 0;
   return (
-    <motion.div
-      layout
+    <div
       className={cn(
-        "relative flex items-center gap-3 rounded-xl border p-3 transition-all",
+        "motion-enter relative flex items-center gap-3 rounded-xl border p-3 transition-all",
         isDead
           ? "border-foreground/5 bg-foreground/5 opacity-40 grayscale"
           : member.isPlayer
             ? "border-blue-500/20 bg-blue-500/5"
             : "border-emerald-500/20 bg-emerald-500/5",
       )}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: isDead ? 0.4 : 1, y: 0 }}
+      style={PARTY_CARD_ENTER}
     >
       <div
         className={cn(
@@ -163,7 +172,7 @@ function PartyCard({ member }: { member: CombatPartyMember }) {
           <Skull size="1rem" className="text-red-400/60" />
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -172,6 +181,7 @@ function PartyCard({ member }: { member: CombatPartyMember }) {
 // ──────────────────────────────────────────────
 
 interface TargetSelectionProps {
+  exiting: boolean;
   attackType: string;
   enemies: CombatEnemy[];
   party: CombatPartyMember[];
@@ -179,20 +189,23 @@ interface TargetSelectionProps {
   onCancel: () => void;
 }
 
-function TargetSelection({ attackType, enemies, party, onSelect, onCancel }: TargetSelectionProps) {
+function TargetSelection({ exiting, attackType, enemies, party, onSelect, onCancel }: TargetSelectionProps) {
+  const motionClass = exiting ? "motion-exit" : "motion-enter";
   return (
-    <motion.div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+    <div
+      className={cn(
+        motionClass,
+        "fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]",
+      )}
+      style={OVERLAY_FADE}
       onClick={onCancel}
     >
-      <motion.div
-        className="w-80 max-w-[90vw] rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-2xl"
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
+      <div
+        className={cn(
+          motionClass,
+          "w-80 max-w-[90vw] rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-2xl",
+        )}
+        style={DIALOG_POP}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 flex items-center gap-2 text-sm font-bold text-[var(--foreground)]">
@@ -270,8 +283,8 @@ function TargetSelection({ attackType, enemies, party, onSelect, onCancel }: Tar
         >
           Cancel
         </button>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
@@ -343,7 +356,7 @@ function NarrativeSelect({
   );
 }
 
-function EncounterConfig() {
+function EncounterConfig({ exiting }: { exiting: boolean }) {
   const settings = useEncounterStore((s) => s.settings);
   const updateSettings = useEncounterStore((s) => s.updateSettings);
   const closeConfigModal = useEncounterStore((s) => s.closeConfigModal);
@@ -355,18 +368,20 @@ function EncounterConfig() {
   const spellbooks = (lorebooks ?? []) as Lorebook[];
 
   return (
-    <motion.div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+    <div
+      className={cn(
+        exiting ? "motion-exit" : "motion-enter",
+        "fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]",
+      )}
+      style={OVERLAY_FADE}
       onClick={closeConfigModal}
     >
-      <motion.div
-        className="w-[26.25rem] max-w-[95vw] rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6 shadow-2xl"
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
+      <div
+        className={cn(
+          exiting ? "motion-exit" : "motion-enter",
+          "w-[26.25rem] max-w-[95vw] rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6 shadow-2xl",
+        )}
+        style={DIALOG_POP}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="mb-5 flex items-center gap-2 text-base font-bold text-[var(--foreground)]">
@@ -426,8 +441,8 @@ function EncounterConfig() {
             Begin Combat
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
@@ -472,28 +487,25 @@ function CombatLog() {
       ref={logRef}
       className="scrollbar-thin max-h-40 overflow-y-auto rounded-xl border border-foreground/5 bg-black/30 p-3"
     >
-      <AnimatePresence>
-        {entries.map(
-          (e, i) =>
-            e && (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className={cn(
-                  "mb-1 whitespace-pre-wrap text-xs leading-relaxed",
-                  e.type === "system" && "italic text-foreground/30",
-                  e.type === "player-action" && "font-semibold text-blue-300",
-                  e.type === "enemy-action" && "text-red-300",
-                  e.type === "party-action" && "text-emerald-300",
-                  e.type === "narrative" && "text-foreground/70",
-                )}
-              >
-                {e.message}
-              </motion.div>
-            ),
-        )}
-      </AnimatePresence>
+      {entries.map(
+        (e, i) =>
+          e && (
+            <div
+              key={i}
+              style={LOG_ENTRY_ENTER}
+              className={cn(
+                "motion-enter mb-1 whitespace-pre-wrap text-xs leading-relaxed",
+                e.type === "system" && "italic text-foreground/30",
+                e.type === "player-action" && "font-semibold text-blue-300",
+                e.type === "enemy-action" && "text-red-300",
+                e.type === "party-action" && "text-emerald-300",
+                e.type === "narrative" && "text-foreground/70",
+              )}
+            >
+              {e.message}
+            </div>
+          ),
+      )}
     </div>
   );
 }
@@ -512,6 +524,7 @@ function PlayerControls({ onAction }: { onAction: (text: string) => void }) {
     attackName: string;
     attackType: string;
   } | null>(null);
+  const targetPicker = usePresence(targetSelection ? [targetSelection] : [], () => "target", OVERLAY_EXIT_MS);
 
   if (!Array.isArray(party) || party.length === 0) {
     return (
@@ -647,17 +660,17 @@ function PlayerControls({ onAction }: { onAction: (text: string) => void }) {
       </div>
 
       {/* Target selection overlay */}
-      <AnimatePresence>
-        {targetSelection && (
-          <TargetSelection
-            attackType={targetSelection.attackType}
-            enemies={enemies}
-            party={party}
-            onSelect={handleTargetSelected}
-            onCancel={() => setTargetSelection(null)}
-          />
-        )}
-      </AnimatePresence>
+      {targetPicker.map(({ key, item, exiting }) => (
+        <TargetSelection
+          key={key}
+          exiting={exiting}
+          attackType={item.attackType}
+          enemies={enemies}
+          party={party}
+          onSelect={handleTargetSelected}
+          onCancel={() => setTargetSelection(null)}
+        />
+      ))}
     </>
   );
 }
@@ -682,11 +695,7 @@ function CombatEndScreen() {
   const Icon = c.icon;
 
   return (
-    <motion.div
-      className="flex flex-col items-center justify-center py-12"
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-    >
+    <div className="motion-enter flex flex-col items-center justify-center py-12" style={RESULT_ENTER}>
       <Icon size="4rem" className={cn(c.color, "mb-4")} />
       <h2 className={cn("mb-2 text-3xl font-black uppercase tracking-wider", c.color)}>{c.label}</h2>
 
@@ -720,7 +729,7 @@ function CombatEndScreen() {
           </button>
         </>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -731,6 +740,7 @@ function CombatEndScreen() {
 function EncounterModalInner() {
   const active = useEncounterStore((s) => s.active);
   const showConfigModal = useEncounterStore((s) => s.showConfigModal);
+  const configDialog = usePresence(showConfigModal ? ["config"] : [], (key) => key, OVERLAY_EXIT_MS);
   const initialized = useEncounterStore((s) => s.initialized);
   const isLoading = useEncounterStore((s) => s.isLoading);
   const isProcessing = useEncounterStore((s) => s.isProcessing);
@@ -779,31 +789,25 @@ function EncounterModalInner() {
   }, [styleNotes]);
 
   return (
-    <AnimatePresence>
+    <>
       {/* Config Modal */}
-      {showConfigModal && <EncounterConfig />}
+      {configDialog.map(({ key, exiting }) => (
+        <EncounterConfig key={key} exiting={exiting} />
+      ))}
 
       {/* Main Combat Modal */}
       {active && (
-        <motion.div
-          className="fixed inset-0 z-[100] flex items-center justify-center max-md:pt-[env(safe-area-inset-top)]"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
+        <div className="motion-enter fixed inset-0 z-[100] flex items-center justify-center max-md:pt-[env(safe-area-inset-top)]">
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
           {/* Modal */}
-          <motion.div
+          <div
             className={cn(
-              "relative flex h-[85dvh] w-[37.5rem] max-w-[95vw] flex-col overflow-hidden rounded-2xl border border-foreground/10 bg-gradient-to-b shadow-2xl",
+              "motion-enter relative flex h-[85dvh] w-[37.5rem] max-w-[95vw] flex-col overflow-hidden rounded-2xl border border-foreground/10 bg-gradient-to-b shadow-2xl",
               envGradient,
             )}
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            transition={{ type: "spring", bounce: 0.2 }}
+            style={COMBAT_DIALOG_POP}
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-foreground/5 bg-black/30 px-5 py-3">
@@ -948,10 +952,10 @@ function EncounterModalInner() {
                 </div>
               )}
             </div>
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
       )}
-    </AnimatePresence>
+    </>
   );
 }
 

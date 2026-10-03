@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -50,12 +50,24 @@ function readMemoryMaintenanceStartupSource() {
 }
 
 describe("app boot shell boundary", () => {
-  it("keeps motion in its own vendor chunk without a drag-and-drop library", () => {
-    const source = readViteConfigSource();
+  it("ships no JavaScript animation or drag-and-drop library", () => {
+    // Animations are CSS classes (motion-enter / motion-exit with usePresence),
+    // and dragging uses local pointer handling. framer-motion cost 41.7 KiB gzip
+    // at boot; @dnd-kit cost 12.1 KiB.
+    const manifest = JSON.parse(readFileSync(join(currentDir, "../../package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    for (const name of ["framer-motion", "motion", "@dnd-kit/core"]) {
+      expect(manifest.dependencies ?? {}).not.toHaveProperty(name);
+    }
+    expect(readViteConfigSource()).not.toMatch(/framer-motion|@dnd-kit/);
 
-    expect(source).toContain('"vendor-motion": ["framer-motion", "motion"]');
-    // Game inventory reordering uses local pointer handling, not @dnd-kit.
-    expect(source).not.toContain("@dnd-kit");
+    const importers = readdirSync(join(currentDir, ".."), { recursive: true, encoding: "utf8" })
+      .filter((file) => /\.tsx?$/.test(file) && !/\.(spec|test)\.tsx?$/.test(file))
+      .filter((file) =>
+        /from "(framer-motion|motion\/react)"/.test(readFileSync(join(currentDir, "..", file), "utf8")),
+      );
+    expect(importers).toEqual([]);
   });
 
   it("keeps the root App module free of deferred shell and feature imports", () => {

@@ -629,6 +629,220 @@
   animation: scale-in 0.15s ease-out;
 }
 
+/* Enter and exit animations tuned per element through --motion-* properties
+   (see motionStyle in shared/lib/motion.ts): where an element starts from on
+   enter or ends on exit, plus duration and easing. Exits pair with
+   usePresence, which keeps the element mounted until the animation ends.
+   Reduced motion is handled by the global prefers-reduced-motion rule.
+   The properties do not inherit, so nested animated elements stay independent. */
+@property --motion-from-x {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --motion-from-y {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --motion-from-scale {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+@property --motion-from-opacity {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --motion-from-blur {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 2px;
+}
+
+@property --motion-to-x {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --motion-to-y {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --motion-to-scale {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+@property --motion-to-opacity {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --motion-duration {
+  syntax: "<time>";
+  inherits: false;
+  initial-value: 200ms;
+}
+
+@property --motion-exit-duration {
+  syntax: "<time>";
+  inherits: false;
+  initial-value: 200ms;
+}
+
+@property --motion-ease {
+  syntax: "*";
+  inherits: false;
+}
+
+@property --motion-exit-ease {
+  syntax: "*";
+  inherits: false;
+}
+
+@keyframes motion-enter {
+  from {
+    opacity: var(--motion-from-opacity, 0);
+    transform: translate3d(var(--motion-from-x, 0px), var(--motion-from-y, 0px), 0) scale(var(--motion-from-scale, 1));
+  }
+}
+
+@keyframes motion-enter-blur {
+  from {
+    opacity: var(--motion-from-opacity, 0);
+    transform: translate3d(var(--motion-from-x, 0px), var(--motion-from-y, 0px), 0) scale(var(--motion-from-scale, 1));
+    filter: blur(var(--motion-from-blur, 2px));
+  }
+}
+
+@keyframes motion-exit {
+  to {
+    opacity: var(--motion-to-opacity, 0);
+    transform: translate3d(var(--motion-to-x, 0px), var(--motion-to-y, 0px), 0) scale(var(--motion-to-scale, 1));
+  }
+}
+
+.motion-enter {
+  animation: motion-enter var(--motion-duration, 200ms) var(--motion-ease, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+.motion-enter-blur {
+  animation: motion-enter-blur var(--motion-duration, 200ms) var(--motion-ease, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+.motion-exit {
+  animation: motion-exit var(--motion-exit-duration, 200ms) var(--motion-exit-ease, ease-in) forwards;
+  pointer-events: none;
+}
+
+@keyframes motion-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.motion-breathe {
+  animation: motion-breathe 1.5s ease-in-out infinite;
+}
+
+/* Sprite expression changes. */
+@keyframes sprite-bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  70% {
+    transform: scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes sprite-shake-in {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  14% {
+    transform: translateX(-6px);
+  }
+  28% {
+    transform: translateX(6px);
+  }
+  43% {
+    transform: translateX(-4px);
+  }
+  57% {
+    transform: translateX(4px);
+  }
+  71% {
+    transform: translateX(-2px);
+  }
+  86% {
+    transform: translateX(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sprite-hop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-18px);
+  }
+  55% {
+    transform: translateY(0);
+  }
+  75% {
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sprite-enter-crossfade {
+  animation: motion-enter 0.4s ease-in-out backwards;
+}
+
+.sprite-enter-bounce {
+  animation: sprite-bounce-in 0.5s ease-out backwards;
+}
+
+.sprite-enter-shake {
+  animation: sprite-shake-in 0.45s ease-out backwards;
+}
+
+.sprite-enter-hop {
+  animation: sprite-hop-in 0.5s ease-out backwards;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;

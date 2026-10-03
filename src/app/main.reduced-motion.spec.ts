@@ -5,21 +5,25 @@ import { describe, expect, it } from "vitest";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
-function readMainSource() {
-  return readFileSync(join(currentDir, "main.tsx"), "utf8");
-}
-
-function readAppExperienceSource() {
-  return readFileSync(join(currentDir, "AppExperience.tsx"), "utf8");
+function readStyles(file: string) {
+  return readFileSync(join(currentDir, "../styles/globals", file), "utf8");
 }
 
 describe("app reduced-motion policy", () => {
-  it("keeps Framer Motion behind the lazy app experience while respecting the user preference", () => {
-    const mainSource = readMainSource();
-    const appExperienceSource = readAppExperienceSource();
+  it("turns every CSS animation and transition off when the user asks for reduced motion", () => {
+    const css = readStyles("07-responsive-accessibility.css");
+    const rule = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
 
-    expect(mainSource).not.toContain('from "framer-motion"');
-    expect(appExperienceSource).toContain('import { MotionConfig } from "framer-motion"');
-    expect(appExperienceSource).toMatch(/<MotionConfig\s+reducedMotion="user">/);
+    expect(rule).toMatch(/\*,\s*\*::before,\s*\*::after\s*\{/);
+    expect(rule).toContain("animation-duration: 0.01ms !important;");
+    expect(rule).toContain("transition-duration: 0.01ms !important;");
+  });
+
+  it("animates with CSS classes, which that rule covers, rather than a JavaScript motion library", () => {
+    const motionCss = readStyles("05-effects-utilities.css");
+
+    expect(motionCss).toContain(".motion-enter {");
+    expect(motionCss).toContain(".motion-exit {");
+    expect(readFileSync(join(currentDir, "AppExperience.tsx"), "utf8")).not.toContain("framer-motion");
   });
 });
