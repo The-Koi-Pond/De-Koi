@@ -1,9 +1,17 @@
 // ──────────────────────────────────────────────
 // Panel: API Connections (polished, with folders)
 // ──────────────────────────────────────────────
-import { useCallback, useState, useEffect, useMemo, useRef, type ChangeEvent, type DragEvent } from "react";
+import {
+  useCallback,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type ChangeEvent,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { toast } from "sonner";
-import { Reorder, useDragControls } from "framer-motion";
 import {
   isSyntheticConnection,
   useConnections,
@@ -27,6 +35,7 @@ import type { ConnectionFolder } from "../../../../engine/contracts/types/connec
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { LocalSidecarCard } from "./LocalSidecarCard";
+import { useConnectionFolderReorder } from "./connection-folder-reorder";
 import { SetupJourneyContextBanner } from "../../onboarding/shell";
 import {
   Plus,
@@ -388,7 +397,9 @@ export function ConnectionFolderRow({
   entries,
   renderConnectionRow,
   isDropTarget,
+  isDragging = false,
   draggedConnectionId,
+  onGripPointerDown,
   onToggleCollapse,
   onRename,
   onDelete,
@@ -400,7 +411,10 @@ export function ConnectionFolderRow({
   entries: ConnectionRowData[];
   renderConnectionRow: (conn: ConnectionRowData) => React.ReactNode;
   isDropTarget: boolean;
+  /** This folder is being dragged to a new position. */
+  isDragging?: boolean;
   draggedConnectionId: string | null;
+  onGripPointerDown?: (event: ReactPointerEvent<HTMLDivElement>, folderId: string) => void;
   onToggleCollapse: (folder: ConnectionFolder) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (folder: ConnectionFolder) => void;
@@ -408,34 +422,21 @@ export function ConnectionFolderRow({
   onConnectionDragLeave: (event: DragEvent<HTMLDivElement>) => void;
   onConnectionDrop: (event: DragEvent<HTMLDivElement>, folderId: string | null) => void;
 }) {
-  const dragControls = useDragControls();
-  const isResizing = useUIStore((s) => s.rightPanelResizing);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(folder.name);
 
-  // While the right panel is being drag-resized, suppress framer-motion's
-  // per-item layout projection (which measures+animates on every width frame
-  // and causes the squish). `layout` is omitted from ReorderItemProps's public
-  // type even though the runtime forwards it, so it must go through a
-  // loosely-typed spread. Empty when not resizing -> default layout=true and
-  // drag-to-reorder are fully preserved.
-  const reorderLayoutProps = isResizing ? ({ layout: false } as Record<string, unknown>) : {};
-
   return (
-    <Reorder.Item
-      value={folder.id}
-      dragListener={false}
-      dragControls={dragControls}
-      as="div"
+    <div
+      data-connection-folder-id={folder.id}
       onDragOver={(event) => onConnectionDragOver(event, folder.id)}
       onDragLeave={onConnectionDragLeave}
       onDrop={(event) => onConnectionDrop(event, folder.id)}
       className={cn(
         "flex flex-col rounded-lg transition-colors",
         draggedConnectionId && "ring-inset",
+        isDragging && "opacity-60",
         isDropTarget && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
       )}
-      {...reorderLayoutProps}
     >
       {/* Folder header */}
       <div
@@ -443,7 +444,7 @@ export function ConnectionFolderRow({
         className="group relative flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-[var(--sidebar-accent)]/40"
       >
         <div
-          onPointerDown={(e) => dragControls.start(e)}
+          onPointerDown={(event) => onGripPointerDown?.(event, folder.id)}
           className="flex shrink-0 cursor-grab touch-none items-center justify-center opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100"
         >
           <GripVertical size="0.625rem" className="text-[var(--muted-foreground)]" />
@@ -522,7 +523,7 @@ export function ConnectionFolderRow({
           ))}
         </div>
       )}
-    </Reorder.Item>
+    </div>
   );
 }
 
@@ -595,6 +596,10 @@ export function ConnectionsPanel() {
     setLocalFolderOrder(newOrder);
     reorderFoldersMut.mutate(newOrder);
   };
+  const { drag: folderDrag, startDrag: startFolderDrag } = useConnectionFolderReorder(
+    localFolderOrder,
+    handleFolderReorder,
+  );
 
   const handleToggleCollapse = (folder: ConnectionFolder) => {
     updateFolderMut.mutate({ id: folder.id, collapsed: !folder.collapsed });
@@ -850,13 +855,7 @@ export function ConnectionsPanel() {
 
       {/* Folders (drag-to-reorder) */}
       {localFolderOrder.length > 0 && (
-        <Reorder.Group
-          axis="y"
-          values={localFolderOrder}
-          onReorder={handleFolderReorder}
-          as="div"
-          className="flex flex-col gap-0.5 mt-1"
-        >
+        <div className="flex flex-col gap-0.5 mt-1">
           {localFolderOrder.map((folderId) => {
             const folder = sortedFolders.find((f) => f.id === folderId);
             if (!folder) return null;
@@ -867,8 +866,10 @@ export function ConnectionsPanel() {
                 folder={folder}
                 entries={folderEntries}
                 renderConnectionRow={renderConnectionRow}
-                isDropTarget={connectionDropTarget?.folderId === folder.id}
+                isDropTarget={connectionDropTarget?.folderId === folder.id || folderDrag?.overId === folder.id}
+                isDragging={folderDrag?.folderId === folder.id}
                 draggedConnectionId={draggedConnectionId}
+                onGripPointerDown={startFolderDrag}
                 onToggleCollapse={handleToggleCollapse}
                 onRename={handleRenameFolder}
                 onDelete={handleDeleteFolder}
@@ -878,7 +879,7 @@ export function ConnectionsPanel() {
               />
             );
           })}
-        </Reorder.Group>
+        </div>
       )}
 
       {/* Unfiled connections */}

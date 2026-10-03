@@ -26,13 +26,6 @@ vi.mock("../../../catalog/connections", () => {
 });
 vi.mock("./LocalSidecarCard", () => ({ LocalSidecarCard: () => null }));
 vi.mock("../../../shell/settings/index", () => ({ TTSConfigCard: () => null }));
-vi.mock("framer-motion", () => ({
-  Reorder: {
-    Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Item: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  },
-  useDragControls: () => ({ start: vi.fn() }),
-}));
 
 describe("ConnectionsPanel setup routing", () => {
   let host: HTMLDivElement;

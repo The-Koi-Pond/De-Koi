@@ -245,7 +245,6 @@ export const useUIStore = create<UIState>()(
       userStatus: "active" as UserStatus,
       userActivity: "",
       centerCompact: false,
-      rightPanelResizing: false,
       mobileChatToolsOpen: false,
 
       // Impersonate settings defaults
@@ -524,7 +523,6 @@ export const useUIStore = create<UIState>()(
       setTextStrokeWidth: (v) => set({ textStrokeWidth: Math.max(0, Math.min(5, v)) }),
       setTextStrokeColor: (v) => set({ textStrokeColor: v }),
       setCenterCompact: (v) => set({ centerCompact: v }),
-      setRightPanelResizing: (v) => set({ rightPanelResizing: v }),
       setMobileChatToolsOpen: (v) => set({ mobileChatToolsOpen: v }),
       setVisualTheme: (v) => set({ visualTheme: v }),
       setConvoGradientField: (scheme, field, value) =>
