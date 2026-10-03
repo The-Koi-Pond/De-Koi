@@ -29,9 +29,11 @@ on:
       - src-tauri/src/commands/storage/images/codex_subscription.rs
       - src-tauri/src/commands/storage/imports/bulk_imports.rs
       - src-tauri/src/commands/storage/integrations/music.rs
+      - src-tauri/src/commands/storage/media_uploads.rs
       - src-tauri/src/commands/storage/profile/**
       - src-tauri/src/commands/storage/sprites.rs
       - src-tauri/src/commands/storage/updates.rs
+      - src-tauri/src/state.rs
   workflow_dispatch:
   schedule:
     - cron: "41 9 * * 1,4"

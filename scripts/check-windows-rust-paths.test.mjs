@@ -46,6 +46,14 @@ test("flags Windows-sensitive code only", () => {
   assert.ok(isWindowsSensitive('#[cfg(target_os = "windows")]'));
   assert.ok(isWindowsSensitive("let child = Command::new(path).spawn()?;"));
   assert.ok(isWindowsSensitive("creation_flags(CREATE_NO_WINDOW)"));
+  assert.ok(isWindowsSensitive("#[cfg(any(unix, windows))]"));
+  assert.ok(isWindowsSensitive("#[cfg(all(not(unix), windows))]"));
+  assert.ok(isWindowsSensitive('#[cfg_attr(target_family = "windows", path = "win.rs")]'));
+  assert.ok(isWindowsSensitive("if cfg!(windows) { return; }"));
+  assert.ok(!isWindowsSensitive('#[cfg(all(unix, not(target_os = "macos")))]'));
+  assert.ok(!isWindowsSensitive("// windows are nice\nlet window_count = 2;"));
+  // Only cfg_attr's predicate counts; the attribute it applies can mention Windows.
+  assert.ok(!isWindowsSensitive('#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]'));
   assert.ok(!isWindowsSensitive("fn read_json(path: &Path) -> Result<Value> { todo!() }"));
 });
 

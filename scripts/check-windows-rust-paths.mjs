@@ -7,10 +7,9 @@ import { pathToFileURL } from "node:url";
 
 export const WORKFLOW = ".github/workflows/windows-rust.yml";
 
-// Code whose behavior differs on Windows: platform branches, child processes
-// and their console flags, process trees, and file locks.
+// Code whose behavior differs on Windows: child processes and their console
+// flags, process trees, file locks, and (below) any cfg predicate naming Windows.
 const WINDOWS_SENSITIVE_PATTERNS = [
-  /cfg\((?:not\()?windows\)?\)/,
   /target_os\s*=\s*"windows"/,
   /\bwindows_sys\b|\bwinapi\b/,
   /\bCREATE_NO_WINDOW\b|\bJobObject\w*/,
@@ -18,8 +17,37 @@ const WINDOWS_SENSITIVE_PATTERNS = [
   /\bfs2::|\bfd_lock\b|\block_exclusive\(/,
 ];
 
+/**
+ * The predicates of every `cfg(...)`, `cfg!(...)` and `cfg_attr(...)` in the
+ * source, read with balanced parentheses so nested forms such as
+ * `cfg(all(not(unix), windows))` are seen whole. For `cfg_attr` only the first
+ * argument is the predicate; the attributes after it are not.
+ */
+function cfgPredicates(source) {
+  const predicates = [];
+  for (const match of source.matchAll(/\bcfg(_attr)?!?\s*\(/g)) {
+    const isAttr = Boolean(match[1]);
+    let depth = 1;
+    let index = match.index + match[0].length;
+    const start = index;
+    let end = -1;
+    while (index < source.length && depth > 0) {
+      const char = source[index];
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      else if (char === "," && depth === 1 && isAttr && end < 0) end = index;
+      index += 1;
+    }
+    predicates.push(source.slice(start, end >= 0 ? end : index - 1));
+  }
+  return predicates;
+}
+
 export function isWindowsSensitive(source) {
-  return WINDOWS_SENSITIVE_PATTERNS.some((pattern) => pattern.test(source));
+  return (
+    WINDOWS_SENSITIVE_PATTERNS.some((pattern) => pattern.test(source)) ||
+    cfgPredicates(source).some((predicate) => /\bwindows\b/.test(predicate))
+  );
 }
 
 /** The `on.pull_request.paths` entries of a workflow file. */
