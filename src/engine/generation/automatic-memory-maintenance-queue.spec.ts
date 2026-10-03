@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { StorageGateway } from "../capabilities/storage";
+import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { MemoryMaintenanceGateway } from "../capabilities/memory-maintenance";
 import type {
   MemoryCleanupProposal,
@@ -362,6 +362,41 @@ describe("automatic memory maintenance queue", () => {
     expect(result.retryable).toBe(0);
     expect(test.jobs.get("job-1")?.status).toBe("processing");
     // Reported like a denied lease, so a queued rerun waits a lease heartbeat.
+    expect(result.leaseDenied).toBe(true);
+  });
+
+  it("reports a lease lost before an early return as denied", async () => {
+    const test = harness();
+    // A provider cooldown makes the pass return right after its job scan.
+    test.jobs.set("job-1", {
+      ...test.jobs.get("job-1"),
+      status: "retryable",
+      lastErrorCode: "provider_unavailable",
+      nextAttemptAt: "2026-07-30T11:00:00.000Z",
+    });
+    let releaseScan = () => {};
+    const scanHeld = new Promise<void>((resolve) => {
+      releaseScan = resolve;
+    });
+    const list = vi.mocked(test.storage.list);
+    const listJobs = list.getMockImplementation()!;
+    list.mockImplementation(async (entity: StorageEntity) => {
+      await scanHeld;
+      return listJobs(entity);
+    });
+
+    const processing = processAutomaticMemoryMaintenanceQueue(test.dependencies, {
+      now: "2026-07-30T10:01:00.000Z",
+      workerId: "browser-a",
+      leaseHeartbeatMs: 5,
+    } as never);
+    await vi.waitFor(() => expect(test.maintenance.acquireWorker).toHaveBeenCalledTimes(1));
+    test.forceMaintenanceLeaseOwner("browser-b");
+    await vi.waitFor(() => expect(vi.mocked(test.maintenance.acquireWorker).mock.calls.length).toBeGreaterThan(1));
+    releaseScan();
+
+    const result = await processing;
+    expect(result.processed).toBe(0);
     expect(result.leaseDenied).toBe(true);
   });
 

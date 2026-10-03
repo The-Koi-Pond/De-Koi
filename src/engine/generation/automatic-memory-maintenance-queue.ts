@@ -706,13 +706,15 @@ export async function processAutomaticMemoryMaintenanceQueue(
         if (providerFailure) break;
       }
     }
-    // Another runtime took the lease mid-pass; wait for it like a denied lease.
-    if (leaseLost) result.leaseDenied = true;
     return result;
   } finally {
     unregisterForegroundInterruption();
     clearInterval(leaseHeartbeat);
     await leaseRenewal;
+    // Another runtime took the lease during the pass, on any path out of it
+    // (including an early return); wait for it like a denied lease. Every
+    // return hands back this same result object.
+    if (leaseLost) result.leaseDenied = true;
     await releaseWorkerLease(
       dependencies.maintenance,
       workerId,

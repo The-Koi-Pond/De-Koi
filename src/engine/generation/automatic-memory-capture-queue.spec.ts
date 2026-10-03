@@ -510,6 +510,31 @@ describe("automatic memory capture queue", () => {
     }
   });
 
+  it("holds a rerun queued during a denied pass for the lease heartbeat", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = queueStorage();
+      await harness.enqueue();
+      let acquisitionCalls = 0;
+      harness.storage.acquireMemoryCaptureWorker = async () => {
+        acquisitionCalls += 1;
+        return null;
+      };
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(acquisitionCalls).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(acquisitionCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(acquisitionCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows only one runtime to process the durable capture queue", async () => {
     const harness = queueStorage();
     await harness.enqueue();
