@@ -12,7 +12,19 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useNavigateToChatFromShell } from "../../actions";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
-import { AnimatePresence, motion } from "framer-motion";
+import { motionStyle, SPRING_EASE } from "../../../../shared/lib/motion";
+import { usePresence } from "../../../../shared/hooks/use-presence";
+
+// Bubbles slide in from the right edge with a small overshoot and slide back out.
+const BUBBLE_EXIT_MS = 200;
+const BUBBLE_MOTION = motionStyle({
+  enterFrom: { x: 60, scale: 0.8 },
+  exitTo: { x: 60, scale: 0.8 },
+  durationMs: 350,
+  ease: SPRING_EASE,
+  exitDurationMs: BUBBLE_EXIT_MS,
+});
+const COLLAPSED_GROUP = "collapsed-group";
 
 export function ChatNotificationBubbles() {
   const chatNotifications = useChatStore((s) => s.chatNotifications);
@@ -22,51 +34,54 @@ export function ChatNotificationBubbles() {
 
   const notifications = Array.from(chatNotifications.values());
   const totalCount = notifications.reduce((sum, n) => sum + n.count, 0);
+  const desktopBubbles = usePresence(notifications, (notif) => notif.chatId, BUBBLE_EXIT_MS);
+  const mobileItems: Array<(typeof notifications)[number] | typeof COLLAPSED_GROUP> =
+    notifications.length === 0 ? [] : notifications.length === 1 || mobileExpanded ? notifications : [COLLAPSED_GROUP];
+  const mobileBubbles = usePresence(
+    mobileItems,
+    (item) => (item === COLLAPSED_GROUP ? COLLAPSED_GROUP : item.chatId),
+    BUBBLE_EXIT_MS,
+  );
 
   return (
     <div className="pointer-events-none absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-end gap-3">
       {/* ── Desktop: always show all bubbles ── */}
       <div className="hidden md:flex md:flex-col md:gap-3">
-        <AnimatePresence mode="popLayout">
-          {notifications.map((notif) => (
-            <NotificationBubble
-              key={notif.chatId}
-              notif={notif}
-              onNavigate={() => navigateToChat(notif.chatId)}
-              onDismiss={() => dismissNotification(notif.chatId)}
-            />
-          ))}
-        </AnimatePresence>
+        {desktopBubbles.map(({ key, item: notif, exiting }) => (
+          <NotificationBubble
+            key={key}
+            notif={notif}
+            exiting={exiting}
+            onNavigate={() => navigateToChat(notif.chatId)}
+            onDismiss={() => dismissNotification(notif.chatId)}
+          />
+        ))}
       </div>
 
       {/* ── Mobile: collapsed or expanded ── */}
       <div className="flex flex-col items-end gap-2 md:hidden">
-        <AnimatePresence mode="popLayout">
-          {notifications.length === 0 ? null : notifications.length === 1 || mobileExpanded ? (
-            /* Show all individual bubbles */
-            notifications.map((notif) => (
-              <NotificationBubble
-                key={notif.chatId}
-                notif={notif}
-                onNavigate={() => {
-                  navigateToChat(notif.chatId);
-                  setMobileExpanded(false);
-                }}
-                onDismiss={() => {
-                  dismissNotification(notif.chatId);
-                  if (notifications.length <= 2) setMobileExpanded(false);
-                }}
-              />
-            ))
+        {mobileBubbles.map(({ key, item, exiting }) =>
+          item !== COLLAPSED_GROUP ? (
+            /* Individual bubbles */
+            <NotificationBubble
+              key={key}
+              notif={item}
+              exiting={exiting}
+              onNavigate={() => {
+                navigateToChat(item.chatId);
+                setMobileExpanded(false);
+              }}
+              onDismiss={() => {
+                dismissNotification(item.chatId);
+                if (notifications.length <= 2) setMobileExpanded(false);
+              }}
+            />
           ) : (
             /* Collapsed: stacked avatar preview → tap to expand */
-            <motion.button
-              key="collapsed-group"
-              initial={{ x: 60, opacity: 0, scale: 0.8 }}
-              animate={{ x: 0, opacity: 1, scale: 1 }}
-              exit={{ x: 60, opacity: 0, scale: 0.8 }}
-              transition={{ type: "spring", damping: 20, stiffness: 300 }}
-              className="pointer-events-auto relative h-12 w-12"
+            <button
+              key={key}
+              className={cn(exiting ? "motion-exit" : "motion-enter", "pointer-events-auto relative h-12 w-12")}
+              style={BUBBLE_MOTION}
               onClick={() => setMobileExpanded(true)}
               title={`${notifications.length} conversations`}
             >
@@ -100,9 +115,9 @@ export function ChatNotificationBubbles() {
               >
                 {totalCount > 99 ? "99+" : totalCount}
               </span>
-            </motion.button>
-          )}
-        </AnimatePresence>
+            </button>
+          ),
+        )}
       </div>
     </div>
   );
@@ -112,9 +127,11 @@ export function ChatNotificationBubbles() {
 
 function NotificationBubble({
   notif,
+  exiting,
   onNavigate,
   onDismiss,
 }: {
+  exiting: boolean;
   notif: {
     chatId: string;
     characterName: string;
@@ -126,13 +143,9 @@ function NotificationBubble({
   onDismiss: () => void;
 }) {
   return (
-    <motion.div
-      key={notif.chatId}
-      initial={{ x: 60, opacity: 0, scale: 0.8 }}
-      animate={{ x: 0, opacity: 1, scale: 1 }}
-      exit={{ x: 60, opacity: 0, scale: 0.8 }}
-      transition={{ type: "spring", damping: 20, stiffness: 300 }}
-      className="pointer-events-auto group relative"
+    <div
+      className={cn(exiting ? "motion-exit" : "motion-enter", "pointer-events-auto group relative")}
+      style={BUBBLE_MOTION}
     >
       {/* Dismiss button */}
       <button
@@ -176,6 +189,6 @@ function NotificationBubble({
       >
         {notif.count > 99 ? "99+" : notif.count}
       </span>
-    </motion.div>
+    </div>
   );
 }
