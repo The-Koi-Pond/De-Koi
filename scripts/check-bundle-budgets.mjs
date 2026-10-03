@@ -7,10 +7,13 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   startupJs: 700 * 1024,
   // Everything the home screen statically needs: the entry plus the lazy app
   // shell and mode surface. Measured 704.7 KiB when the home screen pulled the
-  // whole chat UI and generation engine through a barrel import; 367.4 KiB after.
-  homeJs: 400 * 1024,
-  // Measured 1718.7 KiB after the game inventory dropped @dnd-kit/core
-  // (down from 1730.4 KiB). Spend this margin on features before raising it.
+  // whole chat UI and generation engine through a barrel import, 367.4 KiB
+  // after (#1339), and 275.2 KiB once framer-motion was gone and the memory
+  // and summary engines left the boot shell.
+  homeJs: 300 * 1024,
+  // Measured 1695.2 KiB after dropping framer-motion (#1343) and @dnd-kit
+  // before it (down from 1730.4 KiB). Spend this margin on features before
+  // raising it.
   totalJs: 1731 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
