@@ -453,6 +453,63 @@ describe("automatic memory capture queue", () => {
     }
   });
 
+  it("backs off when acquiring the capture lease fails", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const harness = queueStorage();
+      await harness.enqueue();
+      let acquisitionCalls = 0;
+      harness.storage.acquireMemoryCaptureWorker = async () => {
+        acquisitionCalls += 1;
+        throw new Error("Unhandled browser-harness command: memory_capture_worker_acquire");
+      };
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(acquisitionCalls).toBe(1);
+      expect(warn).toHaveBeenCalledWith("[memory-capture] pass failed; retrying in 60s", expect.any(Error));
+
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(acquisitionCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(acquisitionCalls).toBe(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let new capture work start a pass during its backoff", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const harness = queueStorage();
+      await harness.enqueue();
+      let acquisitionCalls = 0;
+      harness.storage.acquireMemoryCaptureWorker = async () => {
+        acquisitionCalls += 1;
+        throw new Error("Unhandled browser-harness command: memory_capture_worker_acquire");
+      };
+
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      // A second request while the first pass runs queues a rerun.
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(acquisitionCalls).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
+      await vi.advanceTimersByTimeAsync(49_999);
+      expect(acquisitionCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(acquisitionCalls).toBe(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("allows only one runtime to process the durable capture queue", async () => {
     const harness = queueStorage();
     await harness.enqueue();
