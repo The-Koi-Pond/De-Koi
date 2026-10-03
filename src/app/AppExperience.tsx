@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { MotionConfig } from "framer-motion";
 import { Toaster } from "sonner";
 import { AppShell } from "./shell/AppShell";
 import { ModalRenderer } from "./shell/ModalRenderer";
@@ -120,7 +119,7 @@ export function AppExperience() {
   }, []);
 
   return (
-    <MotionConfig reducedMotion="user">
+    <>
       <CoreModuleRuntimeProvider />
       <CustomThemeInjector />
       <AppShell />
@@ -140,6 +139,6 @@ export function AppExperience() {
           },
         }}
       />
-    </MotionConfig>
+    </>
   );
 }

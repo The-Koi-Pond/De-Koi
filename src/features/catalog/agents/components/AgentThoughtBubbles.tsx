@@ -5,11 +5,16 @@
 // to show agent activity without requiring the Agents panel open.
 // ──────────────────────────────────────────────
 import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Sparkles, ChevronDown, ChevronUp, X } from "lucide-react";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { cn } from "../../../../shared/lib/utils";
+import { motionStyle } from "../../../../shared/lib/motion";
+import { usePresence } from "../../../../shared/hooks/use-presence";
 import { ContinuityIssueChecklist } from "./ContinuityIssueChecklist";
+
+const PANEL_MOTION = motionStyle({ from: { y: 20 }, durationMs: 300 });
+const LIST_MOTION = motionStyle({ from: { y: -6 }, to: { y: -6 }, exitDurationMs: 150 });
+const BUBBLE_MOTION = motionStyle({ from: { x: 20 }, durationMs: 300 });
 
 export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?: Set<string> }) {
   const allThoughtBubbles = useAgentStore((s) => s.thoughtBubbles);
@@ -33,15 +38,12 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
     }
   };
 
+  const list = usePresence(!collapsed && thoughtBubbles.length > 0 ? ["list"] : [], (key) => key, 150);
+
   if (thoughtBubbles.length === 0 && !showProcessing) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="fixed bottom-20 right-4 z-50 w-72 max-w-[calc(100vw-2rem)]"
-    >
+    <div className="motion-enter fixed bottom-20 right-4 z-50 w-72 max-w-[calc(100vw-2rem)]" style={PANEL_MOTION}>
       {/* Header bar */}
       <div
         className={cn(
@@ -55,9 +57,7 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
           Agents
           {isProcessing && (
             <span className="ml-1.5 text-[var(--muted-foreground)]">
-              <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                thinking…
-              </motion.span>
+              <span className="motion-breathe">thinking…</span>
             </span>
           )}
         </span>
@@ -79,45 +79,43 @@ export function AgentThoughtBubbles({ enabledAgentTypes }: { enabledAgentTypes?:
       </div>
 
       {/* Bubble list */}
-      <AnimatePresence>
-        {!collapsed && thoughtBubbles.length > 0 && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden rounded-b-lg border border-t-0 border-[var(--border)] bg-[var(--card)] shadow-lg shadow-black/20"
-          >
-            <div className="max-h-48 overflow-y-auto p-2 flex flex-col gap-1.5">
-              {thoughtBubbles.map(({ bubble, storeIndex }) => (
-                <motion.div
-                  key={`${bubble.agentId}-${bubble.timestamp}`}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="relative rounded-md bg-[var(--primary)]/8 p-2 text-xs"
+      {list.map(({ key, exiting }) => (
+        <div
+          key={key}
+          className={cn(
+            exiting ? "motion-exit" : "motion-enter",
+            "overflow-hidden rounded-b-lg border border-t-0 border-[var(--border)] bg-[var(--card)] shadow-lg shadow-black/20",
+          )}
+          style={LIST_MOTION}
+        >
+          <div className="max-h-48 overflow-y-auto p-2 flex flex-col gap-1.5">
+            {thoughtBubbles.map(({ bubble, storeIndex }) => (
+              <div
+                key={`${bubble.agentId}-${bubble.timestamp}`}
+                className="motion-enter relative rounded-md bg-[var(--primary)]/8 p-2 text-xs"
+                style={BUBBLE_MOTION}
+              >
+                <button
+                  onClick={() => dismissThoughtBubble(storeIndex)}
+                  className="absolute right-1 top-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 >
-                  <button
-                    onClick={() => dismissThoughtBubble(storeIndex)}
-                    className="absolute right-1 top-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                  >
-                    <X size="0.75rem" />
-                  </button>
-                  <div className="pr-4">
-                    <span className="font-semibold text-[var(--primary)]">{bubble.agentName}</span>
-                    {bubble.agentId === "continuity" ? (
-                      <ContinuityIssueChecklist content={bubble.content} />
-                    ) : (
-                      <p className="mt-0.5 whitespace-pre-wrap text-[var(--muted-foreground)] leading-relaxed">
-                        {bubble.content}
-                      </p>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+                  <X size="0.75rem" />
+                </button>
+                <div className="pr-4">
+                  <span className="font-semibold text-[var(--primary)]">{bubble.agentName}</span>
+                  {bubble.agentId === "continuity" ? (
+                    <ContinuityIssueChecklist content={bubble.content} />
+                  ) : (
+                    <p className="mt-0.5 whitespace-pre-wrap text-[var(--muted-foreground)] leading-relaxed">
+                      {bubble.content}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
