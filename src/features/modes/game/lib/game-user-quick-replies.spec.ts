@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
 import type { UserQuickReplyActionConfig } from "../../../../shared/stores/ui.store";
