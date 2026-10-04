@@ -5,6 +5,8 @@ type DeleteSelectedChatsInput = {
   deleteChat: (input: { id: string; deleteMemories: boolean }) => Promise<unknown>;
   setActiveChatId: (chatId: string | null) => void;
   exitMultiSelect: () => void;
+  /** Called after each chat is deleted, so the sidebar can show "Deleting 2 of 5". */
+  onProgress?: (deletedCount: number, totalCount: number) => void;
 };
 
 type DeleteSingleChatWithConfirmationInput = {
@@ -67,6 +69,7 @@ export async function deleteSelectedChatsSequentially({
   deleteChat,
   setActiveChatId,
   exitMultiSelect,
+  onProgress,
 }: DeleteSelectedChatsInput) {
   let deletedCount = 0;
   try {
@@ -74,7 +77,9 @@ export async function deleteSelectedChatsSequentially({
       await deleteChat({ id: chatId, deleteMemories });
       deletedCount += 1;
       if (activeChatId === chatId) setActiveChatId(null);
+      onProgress?.(deletedCount, chatIds.length);
     }
+    return deletedCount;
   } catch (cause) {
     throw new DeleteSelectedChatsError({
       cause,

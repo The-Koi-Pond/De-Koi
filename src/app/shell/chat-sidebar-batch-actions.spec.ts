@@ -16,6 +16,27 @@ function deferred() {
 }
 
 describe("deleteSelectedChatsSequentially", () => {
+  it("reports progress after each delete and returns the deleted count", async () => {
+    const onProgress = vi.fn();
+
+    const deletedCount = await deleteSelectedChatsSequentially({
+      chatIds: ["chat-a", "chat-b", "chat-c"],
+      activeChatId: null,
+      deleteMemories: false,
+      deleteChat: vi.fn(() => Promise.resolve()),
+      setActiveChatId: vi.fn(),
+      exitMultiSelect: vi.fn(),
+      onProgress,
+    });
+
+    expect(deletedCount).toBe(3);
+    expect(onProgress.mock.calls).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+
   it("deletes selected chats one at a time before leaving multi-select", async () => {
     const first = deferred();
     const second = deferred();

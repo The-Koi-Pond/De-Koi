@@ -318,6 +318,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
   const [lastActiveChatIdsByGroup, setLastActiveChatIdsByGroup] = useState<Map<string, string>>(() => new Map());
   const [batchExportMenuOpen, setBatchExportMenuOpen] = useState(false);
+  const [batchDeleteProgress, setBatchDeleteProgress] = useState<{ done: number; total: number } | null>(null);
+  const batchDeleteRunningRef = useRef(false);
 
   const toggleSelectChat = useCallback((chatId: string) => {
     setSelectedChatIds((prev) => {
@@ -830,23 +832,35 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     [activeChatId, deleteChat, setActiveChatId],
   );
 
+  const selectAllDisplayedChats = useCallback(() => {
+    setSelectedChatIds(new Set(displayChats.map((row) => row.chat.id)));
+  }, [displayChats]);
+
   const handleBatchDelete = useCallback(async () => {
-    if (selectedChatIds.size === 0) return;
-    const deletableIds = Array.from(selectedChatIds);
-    if (deletableIds.length === 0) return;
-    const confirmation = await confirmChatDeletion(deletableIds.length);
-    if (!confirmation.confirmed) return;
+    // Deletes run one chat at a time and can take seconds each on a remote runtime;
+    // a second click must not start a second pass over the same chats.
+    if (batchDeleteRunningRef.current || selectedChatIds.size === 0) return;
+    batchDeleteRunningRef.current = true;
     try {
-      await deleteSelectedChatsSequentially({
+      const deletableIds = Array.from(selectedChatIds);
+      const confirmation = await confirmChatDeletion(deletableIds.length);
+      if (!confirmation.confirmed) return;
+      setBatchDeleteProgress({ done: 0, total: deletableIds.length });
+      const deletedCount = await deleteSelectedChatsSequentially({
         chatIds: deletableIds,
         activeChatId,
         deleteMemories: confirmation.deleteMemories,
         deleteChat: deleteChat.mutateAsync,
         setActiveChatId,
         exitMultiSelect,
+        onProgress: (done, total) => setBatchDeleteProgress({ done, total }),
       });
+      toast.success(`Deleted ${deletedCount} chat${deletedCount === 1 ? "" : "s"}`);
     } catch (error) {
       toast.error(formatDeleteSelectedChatsError(error));
+    } finally {
+      batchDeleteRunningRef.current = false;
+      setBatchDeleteProgress(null);
     }
   }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
 
@@ -1288,8 +1302,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           {displayChats.length > 0 && (
             <button
               onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
+              disabled={batchDeleteProgress !== null}
               className={cn(
-                "flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[0.6875rem] font-medium transition-all",
+                "flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[0.6875rem] font-medium transition-all disabled:opacity-40",
                 multiSelectMode
                   ? "bg-[var(--primary)]/15 text-[var(--primary)]"
                   : "bg-[var(--secondary)]/65 text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
@@ -1472,14 +1487,40 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       {/* ── Multi-select action bar ── */}
       {multiSelectMode && (
         <div className="mari-sidebar-footer border-t border-[var(--border)]/30 bg-[var(--card)]/95 px-3 py-2.5 backdrop-blur-sm">
-          <div className="mb-2 text-center text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedChatIds.size} selected
+          <div className="mb-2 flex items-center justify-center gap-2 text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+            {batchDeleteProgress ? (
+              <span role="status" className="inline-flex items-center gap-1.5">
+                <Loader2 size="0.75rem" className="animate-spin" />
+                Deleting {Math.min(batchDeleteProgress.done + 1, batchDeleteProgress.total)} of{" "}
+                {batchDeleteProgress.total}…
+              </span>
+            ) : (
+              <>
+                <span>{selectedChatIds.size} selected</span>
+                <button
+                  type="button"
+                  onClick={selectAllDisplayedChats}
+                  disabled={displayChats.length === 0 || selectedChatIds.size === displayChats.length}
+                  className="rounded-md px-2 py-0.5 text-[var(--primary)] transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedChatIds(new Set())}
+                  disabled={selectedChatIds.size === 0}
+                  className="rounded-md px-2 py-0.5 transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
+                >
+                  Clear
+                </button>
+              </>
+            )}
           </div>
           <div className="flex gap-2">
             {modeFolders.length > 0 && (
               <button
                 onClick={() => setBatchMovingFolder(true)}
-                disabled={selectedChatIds.size === 0}
+                disabled={selectedChatIds.size === 0 || batchDeleteProgress !== null}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)] disabled:opacity-40"
               >
                 <FolderOpen size="0.75rem" />
@@ -1489,7 +1530,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             <div className="relative flex flex-1">
               <button
                 onClick={() => setBatchExportMenuOpen((open) => !open)}
-                disabled={selectedChatIds.size === 0 || bulkExportChats.isPending}
+                disabled={selectedChatIds.size === 0 || bulkExportChats.isPending || batchDeleteProgress !== null}
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)] disabled:opacity-40"
               >
                 <Upload size="0.75rem" />
@@ -1515,12 +1556,12 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
               )}
             </div>
             <button
-              onClick={handleBatchDelete}
-              disabled={selectedChatIds.size === 0}
+              onClick={() => void handleBatchDelete()}
+              disabled={selectedChatIds.size === 0 || batchDeleteProgress !== null}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
             >
-              <Trash2 size="0.75rem" />
-              Delete
+              {batchDeleteProgress ? <Loader2 size="0.75rem" className="animate-spin" /> : <Trash2 size="0.75rem" />}
+              {batchDeleteProgress ? "Deleting…" : "Delete"}
             </button>
           </div>
         </div>
