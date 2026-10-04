@@ -24,6 +24,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../../shared/components/ui/ContextMenu";
 import { QueryErrorState } from "../../../../shared/components/ui/QueryErrorState";
 import { cn } from "../../../../shared/lib/utils";
+import { gameAssetsApi } from "../../../../shared/api/assets-api";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { toast } from "sonner";
 
@@ -85,6 +86,7 @@ export function GameAssetsBrowserView() {
   const copyAsset = useCopyGameAsset();
   const deleteAsset = useDeleteGameAsset();
   const openFolder = useOpenGameAssetsFolder();
+  const canOpenFolder = gameAssetsApi.canOpenFolder();
   const rescan = useRescanGameAssets();
   const upload = useUploadGameAsset();
   const moveBulk = useMoveGameAssetsBulk();
@@ -457,10 +459,8 @@ export function GameAssetsBrowserView() {
       const items: ContextMenuItem[] = [];
 
       if (node.type === "folder") {
-        items.push(
-          { label: "Create subfolder", onSelect: () => setModal({ type: "create-folder" }) },
-          { label: "Open in system folder", onSelect: () => openFolder.mutate(node.path) },
-        );
+        items.push({ label: "Create subfolder", onSelect: () => setModal({ type: "create-folder" }) });
+        if (canOpenFolder) items.push({ label: "Open in system folder", onSelect: () => openFolder.mutate(node.path) });
         if (node.path !== "" && !PROTECTED_PATHS.has(node.path) && !node.native) {
           items.push({
             label: "Delete folder",
@@ -499,7 +499,7 @@ export function GameAssetsBrowserView() {
       }
       return items;
     },
-    [openFolder, handleDownload, handleCopy],
+    [canOpenFolder, openFolder, handleDownload, handleCopy],
   );
 
   const contextMenuItems = useMemo((): ContextMenuItem[] => {
@@ -671,7 +671,7 @@ export function GameAssetsBrowserView() {
           setModalValue("");
         }}
         onRescan={() => rescan.mutate()}
-        onOpenFolder={() => openFolder.mutate(selectedPath || undefined)}
+        onOpenFolder={canOpenFolder ? () => openFolder.mutate(selectedPath || undefined) : undefined}
         onBreadcrumbClick={(path) => setSelectedPath(path)}
         listColumns={listColumns}
         onToggleColumn={(col) => setListColumns((prev) => ({ ...prev, [col]: !prev[col] }))}

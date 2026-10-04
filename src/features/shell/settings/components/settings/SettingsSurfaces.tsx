@@ -1365,18 +1365,31 @@ export function GeneralSettings() {
             Rescan
           </button>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {GAME_ASSET_CATEGORIES.map((folder) => (
-            <button
-              key={folder.id}
-              onClick={() => gameAssetsApi.openFolder(folder.id).catch(() => {})}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium capitalize text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-            >
-              <FolderOpen size="0.75rem" />
-              {folder.id}
-            </button>
-          ))}
-        </div>
+        {gameAssetsApi.canOpenFolder() ? (
+          <div className="flex flex-wrap gap-2">
+            {GAME_ASSET_CATEGORIES.map((folder) => (
+              <button
+                key={folder.id}
+                onClick={() =>
+                  gameAssetsApi
+                    .openFolder(folder.id)
+                    .catch((error) =>
+                      toast.error(toUserMessage(error, { fallback: `Couldn't open the ${folder.id} folder.` })),
+                    )
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium capitalize text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+              >
+                <FolderOpen size="0.75rem" />
+                {folder.id}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+            Game asset folders live with the De-Koi server, so they can't be opened from here. Use Upload below to add
+            files.
+          </p>
+        )}
 
         <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <label className="flex min-w-0 flex-col gap-1">
