@@ -21,23 +21,6 @@ const WINDOWED_STATE: DesktopWindowVisualState = {
   fullscreen: false,
   maximized: false,
 };
-let allowNextClose = false;
-let allowNextCloseResetTimer: number | null = null;
-
-function resetAllowNextClose() {
-  allowNextClose = false;
-  if (allowNextCloseResetTimer !== null) {
-    window.clearTimeout(allowNextCloseResetTimer);
-    allowNextCloseResetTimer = null;
-  }
-}
-
-function armAllowNextClose() {
-  allowNextClose = true;
-  if (allowNextCloseResetTimer !== null) window.clearTimeout(allowNextCloseResetTimer);
-  allowNextCloseResetTimer = window.setTimeout(resetAllowNextClose, 1000);
-}
-
 function hasEmbeddedTauriWindowShell() {
   if (typeof window === "undefined") return false;
   const runtimeWindow = window as TauriRuntimeWindow;
@@ -79,13 +62,15 @@ export async function minimizeDesktopWindow() {
   await requireCurrentWindow().minimize();
 }
 
+// `force` is used after the close guard already confirmed with the user, so it
+// destroys the window directly instead of emitting another close request.
 export async function closeDesktopWindow(options: { force?: boolean } = {}) {
-  if (options.force) armAllowNextClose();
-  try {
-    await requireCurrentWindow().close();
-  } finally {
-    if (options.force) resetAllowNextClose();
+  const appWindow = requireCurrentWindow();
+  if (options.force) {
+    await appWindow.destroy();
+    return;
   }
+  await appWindow.close();
 }
 
 export async function startDesktopWindowDrag() {
@@ -125,11 +110,8 @@ export async function onDesktopWindowCloseRequested(
   const appWindow = currentWindow();
   if (!appWindow) return () => {};
 
+  // Tauri destroys the window after this handler unless it calls preventDefault.
   return appWindow.onCloseRequested((event: DesktopCloseRequestedEvent) => {
-    if (allowNextClose) {
-      resetAllowNextClose();
-      return;
-    }
     if (!shouldPreventClose()) return;
     event.preventDefault();
     void handler();
