@@ -65,6 +65,22 @@ describe("deleteSelectedChatsSequentially", () => {
     ]);
   });
 
+  it("treats a batch size below one as one instead of looping forever", async () => {
+    const deleteChats = vi.fn(() => Promise.resolve());
+
+    await deleteSelectedChatsSequentially({
+      chatIds: ["a", "b"],
+      activeChatId: null,
+      deleteMemories: false,
+      deleteChats,
+      setActiveChatId: vi.fn(),
+      exitMultiSelect: vi.fn(),
+      batchSize: 0,
+    });
+
+    expect(deleteChats).toHaveBeenCalledTimes(2);
+  });
+
   it("deletes chunks in order before leaving multi-select", async () => {
     const first = deferred();
     const second = deferred();

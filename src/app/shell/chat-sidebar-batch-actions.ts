@@ -76,10 +76,11 @@ export async function deleteSelectedChatsSequentially({
   onProgress,
   batchSize = CHAT_DELETE_BATCH_SIZE,
 }: DeleteSelectedChatsInput) {
+  const chunkSize = Math.max(1, Math.floor(batchSize));
   let deletedCount = 0;
   try {
-    for (let start = 0; start < chatIds.length; start += batchSize) {
-      const chunk = chatIds.slice(start, start + batchSize);
+    for (let start = 0; start < chatIds.length; start += chunkSize) {
+      const chunk = chatIds.slice(start, start + chunkSize);
       await deleteChats({ ids: chunk, deleteMemories });
       deletedCount += chunk.length;
       if (activeChatId && chunk.includes(activeChatId)) setActiveChatId(null);
