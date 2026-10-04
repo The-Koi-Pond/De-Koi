@@ -1293,7 +1293,7 @@ export function GameSurface({
     canRequestGameSceneIllustration(chatMeta as Record<string, unknown>, sessionNumber, sceneTurnNumber);
   const isNoModelShowcase = chatMeta.showcaseKey === "no-model-game-v1";
   const queryClient = useQueryClient();
-  const { patchVisibleGameState, persistMetadata, publishSessionChat, syncHudWidgetsToChatCache } =
+  const { patchVisibleGameState, persistMetadata, publishSessionChat, recordJournalEntry, syncHudWidgetsToChatCache } =
     useGameSurfacePersistenceController({
       activeChatId,
       currentLocation: gameSnapshot?.location,
@@ -1525,7 +1525,7 @@ export function GameSurface({
     sceneRuntimeScopeKey,
     patchVisibleGameState,
     persistMetadata,
-    publishSessionChat,
+    recordJournalEntry,
   });
   const [removingPartyMemberId, setRemovingPartyMemberId] = useState<string | null>(null);
   const [pendingMapMove, setPendingMapMove] = useState<{
@@ -4448,14 +4448,11 @@ export function GameSurface({
 
         setInventoryItems(updatedInventory);
 
-        void gameApi
-          .addJournalEntry({
-            chatId: activeChatId,
-            type: "item",
-            data: { item: itemName, action: "removed", quantity: 1 },
-          })
-          .then((res) => publishSessionChat(res.sessionChat))
-          .catch(() => {});
+        void recordJournalEntry({
+          chatId: activeChatId,
+          type: "item",
+          data: { item: itemName, action: "removed", quantity: 1 },
+        });
 
         showInventoryNotifications([
           {
@@ -4477,7 +4474,7 @@ export function GameSurface({
       activeChatId,
       inventoryItems,
       patchVisibleGameState,
-      publishSessionChat,
+      recordJournalEntry,
       setInventoryItems,
       showInventoryNotifications,
       updateChatMetadata,
@@ -4525,14 +4522,11 @@ export function GameSurface({
 
         setInventoryItems(updatedInventory);
 
-        void gameApi
-          .addJournalEntry({
-            chatId: activeChatId,
-            type: "item",
-            data: { item: itemName, action: "removed", quantity: removedQuantity },
-          })
-          .then((res) => publishSessionChat(res.sessionChat))
-          .catch(() => {});
+        void recordJournalEntry({
+          chatId: activeChatId,
+          type: "item",
+          data: { item: itemName, action: "removed", quantity: removedQuantity },
+        });
 
         showInventoryNotifications([
           {
@@ -4554,7 +4548,7 @@ export function GameSurface({
       activeChatId,
       inventoryItems,
       patchVisibleGameState,
-      publishSessionChat,
+      recordJournalEntry,
       setInventoryItems,
       showInventoryNotifications,
       updateChatMetadata,
@@ -4601,14 +4595,11 @@ export function GameSurface({
 
         setInventoryItems(updatedInventory);
 
-        void gameApi
-          .addJournalEntry({
-            chatId: activeChatId,
-            type: "item",
-            data: { item: normalizedItemName, action: "used", quantity: 1 },
-          })
-          .then((res) => publishSessionChat(res.sessionChat))
-          .catch(() => {});
+        void recordJournalEntry({
+          chatId: activeChatId,
+          type: "item",
+          data: { item: normalizedItemName, action: "used", quantity: 1 },
+        });
 
         showInventoryNotifications([
           {
@@ -4630,7 +4621,7 @@ export function GameSurface({
       activeChatId,
       inventoryItems,
       patchVisibleGameState,
-      publishSessionChat,
+      recordJournalEntry,
       setInventoryItems,
       showInventoryNotifications,
       updateChatMetadata,
@@ -6779,19 +6770,16 @@ export function GameSurface({
       journalDescLines.push(`Party status: ${partyStatus.join("; ")}`);
       if (lootText) journalDescLines.push(`Loot: ${lootText}`);
 
-      void gameApi
-        .addJournalEntry({
-          chatId: activeChatId,
-          type: "combat",
-          data: {
-            description: journalDescLines.join(" â€” "),
-            outcome: outcome === "flee" ? "fled" : outcome,
-          },
-        })
-        .then((res) => publishSessionChat(res.sessionChat))
-        .catch(() => {});
+      void recordJournalEntry({
+        chatId: activeChatId,
+        type: "combat",
+        data: {
+          description: journalDescLines.join(" â€” "),
+          outcome: outcome === "flee" ? "fled" : outcome,
+        },
+      });
     },
-    [sendMessage, activeChatId, clearCombatSnapshot, publishSessionChat, transitionGameState],
+    [sendMessage, activeChatId, clearCombatSnapshot, recordJournalEntry, transitionGameState],
   );
 
   // Toggle audio mute

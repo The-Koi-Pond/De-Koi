@@ -50,7 +50,9 @@ function InventoryControllerProbe({
     sceneRuntimeScopeKey: "chat-1:game-1",
     patchVisibleGameState,
     persistMetadata,
-    publishSessionChat: vi.fn(),
+    recordJournalEntry: async (entry) => {
+      await gameApi.addJournalEntry(entry);
+    },
   });
 
   useEffect(() => {
