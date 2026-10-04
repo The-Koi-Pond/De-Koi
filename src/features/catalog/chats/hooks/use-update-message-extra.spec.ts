@@ -6,6 +6,11 @@ import { lorebookKeys } from "../../lorebooks/query-keys";
 import { chatKeys } from "../query-keys";
 import { useUpdateMessageExtra } from "./use-chats";
 
+// Hooks import useMutation through the app wrapper; route it to the mocked TanStack hook.
+vi.mock("../../../../shared/hooks/use-mutation", async () => ({
+  useMutation: (await import("@tanstack/react-query")).useMutation,
+}));
+
 const mocks = vi.hoisted(() => ({
   currentQueryClient: null as QueryClient | null,
   toastError: vi.fn(),

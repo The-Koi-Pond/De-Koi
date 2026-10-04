@@ -1,4 +1,5 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { adminApi, getExpungeFailureReceipt } from "../../../../shared/api/admin-api";
 import { resetClientDataState, resetClientSessionState } from "../../actions";
 

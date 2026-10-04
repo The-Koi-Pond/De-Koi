@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { personaKeys } from "../query-keys";
 import { personaApi } from "../../../../shared/api/persona-api";
 import { galleryApi } from "../../../../shared/api/image-generation-api";

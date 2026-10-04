@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // React Query: Chat Folder hooks
 // ──────────────────────────────────────────────
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { chatFolderApi } from "../../../../shared/api/chat-folder-api";
 import type { ChatFolder, ChatMode } from "../../../../engine/contracts/types/chat";
@@ -36,6 +37,7 @@ export function useUpdateFolder() {
   const queryKey = folderKeys.list();
   const mutationKey = [...queryKey, "update"] as const;
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationKey,
     mutationFn: ({
       id,

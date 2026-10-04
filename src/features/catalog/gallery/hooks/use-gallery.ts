@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { galleryKeys } from "../query-keys";
 import { galleryApi, imageGenerationApi } from "../../../../shared/api/image-generation-api";
 import { resolveGalleryFileUrl } from "../../../../shared/api/local-file-api";

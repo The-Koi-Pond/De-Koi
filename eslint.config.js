@@ -199,4 +199,23 @@ export default tseslint.config(
       "no-undef": "off",
     },
   },
+  {
+    name: "marinara/app-mutation-wrapper",
+    files: tsSourceFiles,
+    ignores: ["src/shared/hooks/use-mutation.ts", "src/**/*.{spec,test}.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@tanstack/react-query",
+              importNames: ["useMutation"],
+              message: "Use useMutation from src/shared/hooks/use-mutation so failed mutate() calls reach the user.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

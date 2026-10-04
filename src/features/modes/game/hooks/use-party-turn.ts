@@ -4,7 +4,8 @@
 // Generates party member reactions to the GM narration.
 // ──────────────────────────────────────────────
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { parsePartyDialogue } from "../lib/party-dialogue-parser";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { gameApi } from "../api/game-api";

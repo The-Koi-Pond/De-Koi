@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // React Query: Lorebook hooks
 // ──────────────────────────────────────────────
-import { useQuery, useQueries, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { lorebookKeys } from "../query-keys";
 import { scanActiveLorebookEntries } from "../../../../engine/generation/active-lorebooks";
 import type { LorebookSemanticScanStatus } from "../../../../engine/generation/active-lorebook-scanner";

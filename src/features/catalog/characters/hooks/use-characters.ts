@@ -2,7 +2,8 @@
 // React Query: Character & Group hooks
 // ──────────────────────────────────────────────
 import { useMemo } from "react";
-import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { characterKeys } from "../query-keys";
 import {
   createCharacterSchema,

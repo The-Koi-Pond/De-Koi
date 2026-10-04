@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // Hooks: Installed Extensions
 // ──────────────────────────────────────────────
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { storageApi } from "../../../../shared/api/storage-api";
 import {
   createExtensionSchema,

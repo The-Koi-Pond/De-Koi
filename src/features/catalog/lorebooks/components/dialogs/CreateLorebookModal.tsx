@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 import { useEffect, useState } from "react";
 import { Modal } from "../../../../../shared/components/ui/Modal";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../../shared/hooks/use-mutation";
 import { createLorebookSchema } from "../../../../../engine/contracts/schemas/lorebook.schema";
 import type { LorebookCategory, LorebookScope } from "../../../../../engine/contracts/types/lorebook";
 import { storageApi } from "../../../../../shared/api/storage-api";

@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // React Query: Connection Folder hooks
 // ──────────────────────────────────────────────
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { updateConnectionSchema } from "../../../../engine/contracts/schemas/connection.schema";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -37,6 +38,7 @@ export function useUpdateConnectionFolder() {
   const queryKey = connectionFolderKeys.list();
   const mutationKey = [...queryKey, "update"] as const;
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationKey,
     mutationFn: ({
       id,

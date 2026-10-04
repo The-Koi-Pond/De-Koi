@@ -12,6 +12,11 @@ import {
   useUpdateCharacter,
 } from "./use-characters";
 
+// Hooks import useMutation through the app wrapper; route it to the mocked TanStack hook.
+vi.mock("../../../../shared/hooks/use-mutation", async () => ({
+  useMutation: (await import("@tanstack/react-query")).useMutation,
+}));
+
 const queryClientMock = vi.hoisted(() => ({
   getQueryData: vi.fn(),
   invalidateQueries: vi.fn(),

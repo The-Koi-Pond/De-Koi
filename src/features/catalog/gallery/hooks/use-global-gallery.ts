@@ -6,7 +6,8 @@
 // filed into folders purely for organization (folderId = null means root).
 // Management only; emoji/sticker tagging arrives in a later change.
 // ──────────────────────────────────────────────
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { globalGalleryKeys } from "../query-keys";
 import { galleryApi } from "../../../../shared/api/image-generation-api";
 import { storageApi } from "../../../../shared/api/storage-api";

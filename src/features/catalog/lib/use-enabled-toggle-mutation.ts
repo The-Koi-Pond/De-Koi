@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef } from "react";
-import { useMutation, useMutationState, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { useMutationState, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { useMutation } from "../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 
 export interface EnabledToggleVariables {
@@ -21,6 +22,7 @@ export function useEnabledToggleMutation({
   const qc = useQueryClient();
   const submittedIdsRef = useRef(new Set<string>());
   const mutation = useMutation({
+    meta: { handlesOwnErrors: true },
     mutationKey,
     mutationFn: ({ id, enabled }: EnabledToggleVariables) => update(id, enabled),
     onError: () => toast.error(errorMessage),

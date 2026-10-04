@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import type { SceneAnalysis } from "../../../../engine/contracts/types/scene";
 import {
   analyzeGameScene,

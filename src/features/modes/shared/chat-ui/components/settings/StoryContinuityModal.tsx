@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../../../shared/hooks/use-mutation";
 import {
   AlertTriangle,
   BookMarked,
@@ -68,6 +69,7 @@ export function StoryContinuityModal({
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: storyContinuityQueryKey(chatId) });
   const action = useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: async (
       input:
         | { type: "close" | "build" }

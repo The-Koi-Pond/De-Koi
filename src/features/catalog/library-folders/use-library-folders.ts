@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../shared/hooks/use-mutation";
 
 import { updateLorebookSchema } from "../../../engine/contracts/schemas/lorebook.schema";
 import {
@@ -81,6 +82,7 @@ export function useUpdateLibraryFolder(scope: LibraryFolderScope) {
   const queryKey = libraryFolderKeys.list(scope);
   const mutationKey = [...queryKey, "update"] as const;
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationKey,
     mutationFn: ({
       id,

@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // React Query: Knowledge Source file hooks
 // ──────────────────────────────────────────────
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { knowledgeSourceKeys } from "../query-keys";
 import { knowledgeSourcesApi } from "../../../../shared/api/integration-utility-api";
 

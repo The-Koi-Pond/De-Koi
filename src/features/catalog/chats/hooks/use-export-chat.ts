@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 
 import type { Chat, Message } from "../../../../engine/contracts/types/chat";
@@ -14,6 +14,7 @@ import { downloadTextFile } from "../lib/download";
 
 export function useExportChat() {
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: async ({ chatId, format = "jsonl" }: { chatId: string; format?: ChatTranscriptExportFormat }) => {
       const [chat, messages] = await Promise.all([
         storageApi.get<Chat>("chats", chatId).then((record) => {
