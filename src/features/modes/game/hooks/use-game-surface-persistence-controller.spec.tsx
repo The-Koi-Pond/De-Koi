@@ -204,6 +204,29 @@ describe("useGameSurfacePersistenceController", () => {
     });
   });
 
+  it("keeps recording later journal entries after an earlier one fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(gameApi.addJournalEntry)
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValueOnce({ sessionChat: null } as never)
+      .mockResolvedValueOnce({ sessionChat: null } as never);
+    await renderProbe();
+
+    await act(async () => {
+      for (const item of ["Rope", "Lamp", "Map"]) {
+        await controller?.recordJournalEntry({ chatId: "chat-1", type: "item", data: { item } });
+      }
+    });
+
+    expect(gameApi.addJournalEntry).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(gameApi.addJournalEntry).mock.calls.map(([entry]) => entry.data.item)).toEqual([
+      "Rope",
+      "Lamp",
+      "Map",
+    ]);
+    expect(toastMocks.error).toHaveBeenCalledTimes(1);
+  });
+
   it("wraps visible game-state patches with the game surface patcher", async () => {
     await renderProbe();
 

@@ -57,9 +57,17 @@ export function useGameSurfacePersistenceController({
     [queryClient],
   );
 
+  // Never rejects, including when publishing the saved chat throws, so callers that
+  // record several entries in a row keep going after one failure.
   const recordJournalEntry = useCallback<RecordGameJournalEntry>(
-    (entry) =>
-      gameApi.addJournalEntry(entry).then((res) => publishSessionChat(res.sessionChat), reportJournalWriteFailure),
+    async (entry) => {
+      try {
+        const res = await gameApi.addJournalEntry(entry);
+        publishSessionChat(res.sessionChat);
+      } catch (error) {
+        reportJournalWriteFailure(error);
+      }
+    },
     [publishSessionChat],
   );
 
