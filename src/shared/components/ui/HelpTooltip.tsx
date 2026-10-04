@@ -28,6 +28,9 @@ function getAccessibleHelpName(text: string): string {
 
 export function HelpTooltip({ text, size = "0.75rem", side = "top", className, wide }: HelpTooltipProps) {
   const [show, setShow] = useState(false);
+  // Hover and focus open the tip before a click lands; the click must keep it open
+  // instead of toggling it shut.
+  const openedPassivelyRef = useRef(false);
   const tooltipId = useId();
   const wrapRef = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -67,7 +70,10 @@ export function HelpTooltip({ text, size = "0.75rem", side = "top", className, w
   }, [show, side]);
 
   useEffect(() => {
-    if (!show) return;
+    if (!show) {
+      openedPassivelyRef.current = false;
+      return;
+    }
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!wrapRef.current?.contains(event.target as Node)) {
@@ -98,8 +104,14 @@ export function HelpTooltip({ text, size = "0.75rem", side = "top", className, w
         aria-controls={show ? tooltipId : undefined}
         aria-describedby={show ? tooltipId : undefined}
         className="inline-flex h-5 w-5 shrink-0 cursor-help items-center justify-center rounded-full text-[var(--muted-foreground)] opacity-50 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]/40 max-md:h-11 max-md:w-11"
-        onMouseEnter={() => setShow(true)}
-        onFocus={() => setShow(true)}
+        onMouseEnter={() => {
+          if (!show) openedPassivelyRef.current = true;
+          setShow(true);
+        }}
+        onFocus={() => {
+          if (!show) openedPassivelyRef.current = true;
+          setShow(true);
+        }}
         onBlur={() => setShow(false)}
         onPointerDown={(event) => {
           event.preventDefault();
@@ -108,6 +120,11 @@ export function HelpTooltip({ text, size = "0.75rem", side = "top", className, w
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (openedPassivelyRef.current) {
+            openedPassivelyRef.current = false;
+            setShow(true);
+            return;
+          }
           setShow((current) => !current);
         }}
       >

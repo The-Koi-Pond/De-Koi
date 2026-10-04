@@ -41,6 +41,17 @@ describe("HelpTooltip", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("keeps a hover-opened tip open when the icon is clicked, then closes on a second click", () => {
+    act(() => trigger().dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+    expect(tooltip()).toBeTruthy();
+
+    act(() => trigger().click());
+    expect(tooltip()).toBeTruthy();
+
+    act(() => trigger().click());
+    expect(tooltip()).toBeNull();
+  });
+
   it("supports keyboard focus, Escape, activation, and outside dismissal", () => {
     act(() => trigger().focus());
     expect(tooltip()).toBeTruthy();
