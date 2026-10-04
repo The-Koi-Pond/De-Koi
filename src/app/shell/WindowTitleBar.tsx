@@ -1,5 +1,6 @@
 import { Home, Maximize2, Minus, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { toast } from "sonner";
 import {
   getDesktopWindowVisualState,
   hasDesktopWindowControls,
@@ -11,6 +12,7 @@ import {
   type DesktopWindowVisualState,
 } from "../../shared/api/window-controls-api";
 import { requestGuardedAppClose } from "../../shared/lib/app-close-guard";
+import { toUserMessage } from "../../shared/lib/error-message";
 import { cn } from "../../shared/lib/utils";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
@@ -115,7 +117,10 @@ export function WindowTitleBar({
             : action === "fullscreen"
               ? toggleDesktopWindowFullscreen().then(setWindowVisualState)
               : requestGuardedAppClose();
-      void next.catch(() => refreshWindowVisualState());
+      void next.catch((error) => {
+        refreshWindowVisualState();
+        toast.error(toUserMessage(error, { fallback: "That window action didn't work." }));
+      });
     },
     [hasWindowControls, refreshWindowVisualState],
   );
