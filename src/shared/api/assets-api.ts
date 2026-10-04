@@ -1,6 +1,7 @@
 import { fileToUploadPayload, GAME_ASSET_SIZE_ERROR } from "./file-payload";
 import { MAX_FILE_SIZES } from "../../engine/contracts/constants/defaults";
-import { invokeTauri } from "./tauri-client";
+import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
+import { remoteRuntimeTarget } from "./remote-runtime";
 import { invalidateRemoteManagedAssetObjectUrlsAfter } from "./local-file-api";
 
 interface GameAssetFileInfo {
@@ -65,6 +66,11 @@ const gameAssetCommands = {
   copy: (path: string, targetFolder: string) => invokeTauri("game_assets_copy", { path, targetFolder }),
   deleteFile: (path: string) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(invokeTauri<void>("game_assets_delete_file", { path }), "game"),
+  /**
+   * Opening an asset folder only works in the desktop app on its own data. With a
+   * remote runtime the assets live on that server, and a browser has no file manager.
+   */
+  canOpenFolder: () => hasEmbeddedTauriIpc() && remoteRuntimeTarget() === null,
   openFolder: (subfolder?: string) => invokeTauri<void>("game_assets_open_folder", { subfolder: subfolder ?? null }),
   rescan: () => invalidateRemoteManagedAssetObjectUrlsAfter(invokeTauri("game_assets_rescan"), "game"),
   upload: uploadGameAsset,
