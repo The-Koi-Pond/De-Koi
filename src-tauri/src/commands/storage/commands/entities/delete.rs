@@ -9,6 +9,20 @@ pub(crate) fn delete_entity(
     delete_entity_with_options(state, entity, id, force, false)
 }
 
+/// Deletes several chats in one storage pass; see `chats::delete_chats_with_messages`.
+pub(crate) fn delete_chats_with_options(
+    state: &AppState,
+    ids: &[String],
+    delete_memories: bool,
+) -> Result<Value, AppError> {
+    let deleted_chat_ids = chats::delete_chats_with_messages(state, ids)?;
+    let mut result = json!({ "deletedChatIds": deleted_chat_ids });
+    if delete_memories {
+        result["memoryCleanup"] = chats::cleanup_deleted_chat_memories(state, &deleted_chat_ids);
+    }
+    Ok(result)
+}
+
 pub(crate) fn delete_entity_with_options(
     state: &AppState,
     entity: &str,

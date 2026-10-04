@@ -172,6 +172,14 @@ pub fn storage_delete(state: &AppState, args: &Map<String, Value>) -> AppResult<
     }
 }
 
+pub fn storage_delete_chats(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
+    entity_commands::delete_chats_with_options(
+        state,
+        &required_non_empty_string_vec(args, "ids")?,
+        args.get("deleteMemories").and_then(Value::as_bool) == Some(true),
+    )
+}
+
 pub fn regex_script_reorder(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::regex_script_reorder_inner(
         state,

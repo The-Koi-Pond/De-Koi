@@ -1,12 +1,16 @@
+/** Chats per server request: each request is one storage pass, and chunks keep progress moving. */
+export const CHAT_DELETE_BATCH_SIZE = 25;
+
 type DeleteSelectedChatsInput = {
   chatIds: string[];
   activeChatId: string | null;
   deleteMemories: boolean;
-  deleteChat: (input: { id: string; deleteMemories: boolean }) => Promise<unknown>;
+  deleteChats: (input: { ids: string[]; deleteMemories: boolean }) => Promise<unknown>;
   setActiveChatId: (chatId: string | null) => void;
   exitMultiSelect: () => void;
-  /** Called after each chat is deleted, so the sidebar can show "Deleting 2 of 5". */
+  /** Called after each chunk is deleted, so the sidebar can show "2 of 5 done". */
   onProgress?: (deletedCount: number, totalCount: number) => void;
+  batchSize?: number;
 };
 
 type DeleteSingleChatWithConfirmationInput = {
@@ -66,17 +70,19 @@ export async function deleteSelectedChatsSequentially({
   chatIds,
   activeChatId,
   deleteMemories,
-  deleteChat,
+  deleteChats,
   setActiveChatId,
   exitMultiSelect,
   onProgress,
+  batchSize = CHAT_DELETE_BATCH_SIZE,
 }: DeleteSelectedChatsInput) {
   let deletedCount = 0;
   try {
-    for (const chatId of chatIds) {
-      await deleteChat({ id: chatId, deleteMemories });
-      deletedCount += 1;
-      if (activeChatId === chatId) setActiveChatId(null);
+    for (let start = 0; start < chatIds.length; start += batchSize) {
+      const chunk = chatIds.slice(start, start + batchSize);
+      await deleteChats({ ids: chunk, deleteMemories });
+      deletedCount += chunk.length;
+      if (activeChatId && chunk.includes(activeChatId)) setActiveChatId(null);
       onProgress?.(deletedCount, chatIds.length);
     }
     return deletedCount;

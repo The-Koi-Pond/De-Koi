@@ -1890,20 +1890,17 @@ pub(crate) fn delete_chat_group_with_options(
         Value::Array(rows) => rows,
         _ => Vec::new(),
     };
-    let mut deleted = 0;
-    let mut deleted_chat_ids = Vec::new();
-    for chat in chats {
-        if let Some(id) = chat.get("id").and_then(Value::as_str) {
-            if is_protected_record("chats", id) {
-                continue;
-            }
-            let chat_delete_ids = delete_chat_with_messages(state, id)?;
-            if chat_delete_ids.iter().any(|deleted_id| deleted_id == id) {
-                deleted += 1;
-            }
-            deleted_chat_ids.extend(chat_delete_ids);
-        }
-    }
+    let root_ids = chats
+        .iter()
+        .filter_map(|chat| chat.get("id").and_then(Value::as_str))
+        .filter(|id| !is_protected_record("chats", id))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    let mut deleted_chat_ids = delete_chats_with_messages(state, &root_ids)?;
+    let deleted = root_ids
+        .iter()
+        .filter(|id| deleted_chat_ids.contains(id))
+        .count();
     deleted_chat_ids.sort_unstable();
     deleted_chat_ids.dedup();
     let mut result = json!({ "deleted": deleted, "deletedChatIds": deleted_chat_ids });
@@ -2043,24 +2040,41 @@ pub(crate) fn branch_chat(state: &AppState, chat_id: &str, body: Value) -> AppRe
 }
 
 pub(crate) fn delete_chat_with_messages(state: &AppState, chat_id: &str) -> AppResult<Vec<String>> {
-    if is_protected_record("chats", chat_id) {
+    delete_chats_with_messages(state, &[chat_id.to_string()])
+}
+
+/// Deletes chats, their owned scene chats, and the records they own. Steps that rewrite
+/// a whole collection (messages and swipes above all) run once for the batch, not once
+/// per chat, which is what made deleting many chats slow on large data sets.
+pub(crate) fn delete_chats_with_messages(
+    state: &AppState,
+    chat_ids: &[String],
+) -> AppResult<Vec<String>> {
+    if chat_ids
+        .iter()
+        .any(|chat_id| is_protected_record("chats", chat_id))
+    {
         return Err(AppError::invalid_input(
             "Protected records cannot be deleted",
         ));
     }
-    let Some(root_chat) = state.storage.get("chats", chat_id)? else {
+    let mut delete_ids = std::collections::BTreeSet::new();
+    for chat_id in chat_ids {
+        let Some(root_chat) = state.storage.get("chats", chat_id)? else {
+            continue;
+        };
+        let owned_scene_chat_ids = scene_delete_scope(state, chat_id, &root_chat)?;
+        clear_character_scene_memories(state, &owned_scene_chat_ids)?;
+        clear_deleted_scene_references(state, chat_id, &owned_scene_chat_ids)?;
+        delete_ids.extend(owned_scene_chat_ids);
+        delete_ids.insert(chat_id.clone());
+    }
+    if delete_ids.is_empty() {
         return Ok(Vec::new());
-    };
-    let owned_scene_chat_ids = scene_delete_scope(state, chat_id, &root_chat)?;
-    clear_character_scene_memories(state, &owned_scene_chat_ids)?;
-    clear_deleted_scene_references(state, chat_id, &owned_scene_chat_ids)?;
-
-    let mut delete_ids = owned_scene_chat_ids.clone();
-    delete_ids.push(chat_id.to_string());
-    delete_ids.sort_unstable();
-    delete_ids.dedup();
-
+    }
+    let delete_ids = delete_ids.into_iter().collect::<Vec<_>>();
     let delete_id_set = delete_ids.iter().cloned().collect::<HashSet<_>>();
+
     for delete_id in &delete_ids {
         disconnect_connected_chat(state, delete_id)?;
     }
@@ -2075,9 +2089,11 @@ pub(crate) fn delete_chat_with_messages(state: &AppState, chat_id: &str) -> AppR
         agents::delete_agent_bookkeeping_for_chat(state, delete_id)?;
     }
 
-    for delete_id in &delete_ids {
-        state.storage.delete("chats", delete_id)?;
-    }
+    state.storage.delete_where_matching("chats", |row| {
+        row.get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| delete_id_set.contains(id))
+    })?;
     Ok(delete_ids)
 }
 
@@ -3324,6 +3340,64 @@ mod tests {
         assert_eq!(
             note_ids(roleplay.get("notes").unwrap()),
             vec!["unrelated-note", "runtime-memory"]
+        );
+    }
+
+    #[test]
+    fn delete_chats_with_messages_removes_each_chat_and_its_messages_in_one_call() {
+        let state = test_state("batch-chat-delete");
+        for chat_id in ["chat-a", "chat-b", "chat-keep"] {
+            state
+                .storage
+                .create("chats", json!({ "id": chat_id, "name": chat_id }))
+                .expect("chat should be created");
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({ "id": format!("{chat_id}-m1"), "chatId": chat_id, "role": "user", "content": "hi" }),
+                )
+                .expect("message should be created");
+            state
+                .storage
+                .create(
+                    message_swipe_storage::COLLECTION,
+                    json!({
+                        "id": format!("{chat_id}-s1"),
+                        "chatId": chat_id,
+                        "messageId": format!("{chat_id}-m1"),
+                        "index": 1,
+                        "content": "alt"
+                    }),
+                )
+                .expect("swipe should be created");
+        }
+
+        let deleted = delete_chats_with_messages(
+            &state,
+            &[
+                "chat-a".to_string(),
+                "chat-b".to_string(),
+                "missing".to_string(),
+            ],
+        )
+        .expect("batch delete should succeed");
+
+        assert_eq!(deleted, vec!["chat-a".to_string(), "chat-b".to_string()]);
+        let ids = |collection: &str| {
+            state
+                .storage
+                .list(collection)
+                .expect("collection should list")
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("chats"), vec!["chat-keep".to_string()]);
+        assert_eq!(ids("messages"), vec!["chat-keep-m1".to_string()]);
+        assert_eq!(
+            ids(message_swipe_storage::COLLECTION),
+            vec!["chat-keep-s1".to_string()]
         );
     }
 

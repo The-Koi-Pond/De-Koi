@@ -36,6 +36,11 @@ export interface ChatGroupDeleteResult {
   };
 }
 
+export interface ChatsDeleteResult {
+  deletedChatIds: string[];
+  memoryCleanup?: ChatGroupDeleteResult["memoryCleanup"];
+}
+
 export interface ChatGroupDeleteOptions {
   deleteMemories?: boolean;
 }
@@ -79,6 +84,16 @@ export const chatCommandApi = {
       groupId,
       ...(options?.deleteMemories === undefined ? {} : { deleteMemories: options.deleteMemories }),
     }),
+  /** Deletes several chats in one storage pass on the server. */
+  deleteMany: (chatIds: string[], options?: ChatGroupDeleteOptions) =>
+    invokeTauri<ChatsDeleteResult>(
+      "storage_delete_chats",
+      {
+        ids: chatIds,
+        ...(options?.deleteMemories === undefined ? {} : { deleteMemories: options.deleteMemories }),
+      },
+      { timeoutMs: null },
+    ),
   markAutonomousUnread: <T = unknown>(chatId: string, body: { characterId?: string | null; count?: number | null }) =>
     invokeTauri<T>("chat_autonomous_unread_mark", { chatId, body }),
   clearAutonomousUnread: <T = unknown>(chatId: string) => invokeTauri<T>("chat_autonomous_unread_clear", { chatId }),

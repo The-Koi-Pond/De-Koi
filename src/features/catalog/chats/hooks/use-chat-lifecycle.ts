@@ -178,6 +178,54 @@ export function useDeleteChat() {
   });
 }
 
+/** Deletes several chats in one server pass; the sidebar's bulk delete sends chunks of these. */
+export function useDeleteChats() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, deleteMemories }: { ids: string[]; deleteMemories: boolean }) =>
+      chatCommandApi.deleteMany(ids, { deleteMemories }),
+    onMutate: async ({ ids }) => {
+      const idSet = new Set(ids);
+      await qc.cancelQueries({ queryKey: chatKeys.list() });
+      await qc.cancelQueries({ queryKey: chatKeys.summaries() });
+      const previous = qc.getQueryData<Chat[]>(chatKeys.list());
+      const previousSummaries = qc.getQueriesData<ChatListItem[]>({ queryKey: chatKeys.summaries() });
+      const groupIds = uniqueIds(
+        [...(previous ?? []), ...previousSummaries.flatMap(([, rows]) => rows ?? [])]
+          .filter((chat) => idSet.has(chat.id))
+          .map((chat) => chat.groupId),
+      );
+
+      qc.setQueryData<Chat[]>(chatKeys.list(), (old) => old?.filter((c) => !idSet.has(c.id)));
+      qc.setQueriesData<ChatListItem[]>({ queryKey: chatKeys.summaries() }, (old) =>
+        old?.filter((c) => !idSet.has(c.id)),
+      );
+      return { previous, previousSummaries, groupIds };
+    },
+    onSuccess: (data, { ids }) => {
+      handleMemoryCleanupResult(qc, data.memoryCleanup);
+      for (const chatId of uniqueIds([...ids, ...(data.deletedChatIds ?? [])])) {
+        clearChatActivity(chatId);
+      }
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        qc.setQueryData(chatKeys.list(), context.previous);
+      }
+      for (const [queryKey, data] of context?.previousSummaries ?? []) {
+        qc.setQueryData(queryKey, data);
+      }
+    },
+    onSettled: (_data, _error, _input, context) => {
+      qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: chatKeys.summaries() });
+      for (const groupId of context?.groupIds ?? []) {
+        qc.invalidateQueries({ queryKey: chatKeys.group(groupId) });
+      }
+    },
+  });
+}
+
 export function useDeleteChatGroup() {
   const qc = useQueryClient();
   return useMutation({

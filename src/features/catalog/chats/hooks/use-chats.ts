@@ -60,7 +60,13 @@ import { activeCharacterIds } from "../../../../engine/generation/active-charact
 import { effectiveCharacterMemoryPersistence } from "../../../../engine/generation/character-memory-scope";
 
 export { chatKeys } from "../query-keys";
-export { useCreateChat, useDeleteChat, useDeleteChatGroup, useUpdateChatMetadata } from "./use-chat-lifecycle";
+export {
+  useCreateChat,
+  useDeleteChat,
+  useDeleteChatGroup,
+  useDeleteChats,
+  useUpdateChatMetadata,
+} from "./use-chat-lifecycle";
 export { useChatSummaries, useRecentChatSummaries } from "./use-chat-summaries";
 export type { ChatListItem } from "./use-chat-summaries";
 

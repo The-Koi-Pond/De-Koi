@@ -397,6 +397,7 @@ pub fn run() {
             storage_commands::entity_commands::app_settings_update_if_unchanged,
             storage_commands::entity_commands::chat_update_if_unchanged,
             storage_commands::entity_commands::storage_delete,
+            storage_commands::entity_commands::storage_delete_chats,
             storage_commands::entity_commands::storage_duplicate,
             storage_commands::entity_commands::connection_folder_reorder,
             storage_commands::entity_commands::lorebook_entry_reorder,
