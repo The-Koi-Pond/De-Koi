@@ -157,6 +157,7 @@ describe("useDeleteChats", () => {
     expect(options.onError).toBeUndefined();
     options.onSettled();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.list() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.summaries() });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: [...chatKeys.all, "group"] });
   });
 });

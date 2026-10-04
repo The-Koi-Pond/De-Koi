@@ -81,6 +81,23 @@ describe("deleteSelectedChatsSequentially", () => {
     expect(deleteChats).toHaveBeenCalledTimes(2);
   });
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])("falls back to the default chunk size for %s", async (batchSize) => {
+    const deleteChats = vi.fn(() => Promise.resolve());
+
+    const deletedCount = await deleteSelectedChatsSequentially({
+      chatIds: ["a", "b"],
+      activeChatId: null,
+      deleteMemories: false,
+      deleteChats,
+      setActiveChatId: vi.fn(),
+      exitMultiSelect: vi.fn(),
+      batchSize,
+    });
+
+    expect(deletedCount).toBe(2);
+    expect(deleteChats).toHaveBeenCalledWith({ ids: ["a", "b"], deleteMemories: false });
+  });
+
   it("deletes chunks in order before leaving multi-select", async () => {
     const first = deferred();
     const second = deferred();
