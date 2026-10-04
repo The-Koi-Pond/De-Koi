@@ -44,8 +44,8 @@ export interface ToolbarProps {
   onNewMarkdownFile: () => void;
   /** Rescan assets and rebuild manifest */
   onRescan: () => void;
-  /** Open current folder in OS file manager */
-  onOpenFolder: () => void;
+  /** Open current folder in OS file manager; omitted where that is not possible */
+  onOpenFolder?: () => void;
   /** Navigate to a breadcrumb path */
   onBreadcrumbClick: (path: string) => void;
   /** Which list columns are visible */
@@ -354,13 +354,15 @@ export function Toolbar({
         >
           <RefreshCw size="0.875rem" />
         </button>
-        <button
-          onClick={onOpenFolder}
-          className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
-          title="Open in system folder"
-        >
-          <ExternalLink size="0.875rem" />
-        </button>
+        {onOpenFolder && (
+          <button
+            onClick={onOpenFolder}
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
+            title="Open in system folder"
+          >
+            <ExternalLink size="0.875rem" />
+          </button>
+        )}
 
         {/* Search (right-aligned via ml-auto) */}
         <SearchInput search={search} onSearch={onSearch} />

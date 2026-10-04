@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useGameStatePatcher } from "../../../runtime/world-state/index";
 import type { GameStatePatchField, GameStatePatchValue } from "../../../runtime/world-state/types";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -9,6 +10,17 @@ import { chatKeys } from "../../../catalog/chats/index";
 import { gameApi } from "../api/game-api";
 import { flushPendingGameMetadataPatches, persistGameMetadataPatch } from "../lib/game-metadata-persistence";
 import { patchChatMetadata } from "./use-game";
+
+export type GameJournalEntryInput = Parameters<typeof gameApi.addJournalEntry>[0];
+
+/** Records a journal entry in the background; never rejects. */
+export type RecordGameJournalEntry = (entry: GameJournalEntryInput) => Promise<void>;
+
+function reportJournalWriteFailure(error: unknown) {
+  console.warn("[game-journal] Failed to record a journal entry.", error);
+  // One toast for a burst of failed writes (an offline runtime fails every entry).
+  toast.error("Couldn't add that to the game journal.", { id: "game-journal-write-failure" });
+}
 
 type UseGameSurfacePersistenceControllerParams = {
   activeChatId: string;
@@ -45,6 +57,20 @@ export function useGameSurfacePersistenceController({
     [queryClient],
   );
 
+  // Never rejects, including when publishing the saved chat throws, so callers that
+  // record several entries in a row keep going after one failure.
+  const recordJournalEntry = useCallback<RecordGameJournalEntry>(
+    async (entry) => {
+      try {
+        const res = await gameApi.addJournalEntry(entry);
+        publishSessionChat(res.sessionChat);
+      } catch (error) {
+        reportJournalWriteFailure(error);
+      }
+    },
+    [publishSessionChat],
+  );
+
   const persistMetadata = useCallback(
     (chatId: string, patch: Record<string, unknown>) =>
       persistGameMetadataPatch(chatId, patch, { onPersisted: publishSessionChat }),
@@ -60,15 +86,12 @@ export function useGameSurfacePersistenceController({
   useEffect(() => {
     if (!currentLocation || currentLocation === lastJournaledLocationRef.current) return;
     lastJournaledLocationRef.current = currentLocation;
-    void gameApi
-      .addJournalEntry({
-        chatId: activeChatId,
-        type: "location",
-        data: { location: currentLocation, description: `The party is at ${currentLocation}.` },
-      })
-      .then((res) => publishSessionChat(res.sessionChat))
-      .catch(() => {});
-  }, [activeChatId, currentLocation, publishSessionChat]);
+    void recordJournalEntry({
+      chatId: activeChatId,
+      type: "location",
+      data: { location: currentLocation, description: `The party is at ${currentLocation}.` },
+    });
+  }, [activeChatId, currentLocation, recordJournalEntry]);
 
   const syncHudWidgetsToChatCache = useCallback(
     (widgets: HudWidget[]) => {
@@ -93,6 +116,7 @@ export function useGameSurfacePersistenceController({
     patchVisibleGameState,
     persistMetadata,
     publishSessionChat,
+    recordJournalEntry,
     syncHudWidgetsToChatCache,
   };
 }

@@ -11,6 +11,9 @@ import { gameApi } from "../api/game-api";
 import { flushPendingGameMetadataPatches, persistGameMetadataPatch } from "../lib/game-metadata-persistence";
 import { useGameSurfacePersistenceController } from "./use-game-surface-persistence-controller";
 
+const toastMocks = vi.hoisted(() => ({ error: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMocks }));
+
 const patchFieldMock = vi.hoisted(() => vi.fn());
 const flushPatchMock = vi.hoisted(() => vi.fn(async () => null));
 
@@ -184,6 +187,44 @@ describe("useGameSurfacePersistenceController", () => {
     });
 
     expect(gameApi.addJournalEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed journal write once instead of dropping it silently", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(gameApi.addJournalEntry).mockRejectedValue(new Error("disk full"));
+    await renderProbe();
+
+    await act(async () => {
+      await controller?.recordJournalEntry({ chatId: "chat-1", type: "item", data: { item: "Rope" } });
+      await controller?.recordJournalEntry({ chatId: "chat-1", type: "item", data: { item: "Lamp" } });
+    });
+
+    expect(toastMocks.error).toHaveBeenCalledWith("Couldn't add that to the game journal.", {
+      id: "game-journal-write-failure",
+    });
+  });
+
+  it("keeps recording later journal entries after an earlier one fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(gameApi.addJournalEntry)
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValueOnce({ sessionChat: null } as never)
+      .mockResolvedValueOnce({ sessionChat: null } as never);
+    await renderProbe();
+
+    await act(async () => {
+      for (const item of ["Rope", "Lamp", "Map"]) {
+        await controller?.recordJournalEntry({ chatId: "chat-1", type: "item", data: { item } });
+      }
+    });
+
+    expect(gameApi.addJournalEntry).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(gameApi.addJournalEntry).mock.calls.map(([entry]) => entry.data.item)).toEqual([
+      "Rope",
+      "Lamp",
+      "Map",
+    ]);
+    expect(toastMocks.error).toHaveBeenCalledTimes(1);
   });
 
   it("wraps visible game-state patches with the game surface patcher", async () => {
