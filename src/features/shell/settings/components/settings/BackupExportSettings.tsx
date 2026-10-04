@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../../shared/hooks/use-mutation";
 import { AlertTriangle, Download, Loader2, Save, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "../../../../../shared/api/api-errors";
@@ -76,6 +77,7 @@ export function BackupExportSettings() {
   });
 
   const createBackupMutation = useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: backupApi.createBackup,
     onSuccess: (result) => {
       toast.success(`Managed backup created: ${result.backupName}`);
@@ -85,6 +87,7 @@ export function BackupExportSettings() {
   });
 
   const deleteBackupMutation = useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: backupApi.deleteBackup,
     onSuccess: () => {
       toast.success("Managed backup deleted");

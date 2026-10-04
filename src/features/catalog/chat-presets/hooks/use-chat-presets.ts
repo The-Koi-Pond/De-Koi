@@ -2,7 +2,8 @@
 // React Query: Chat Preset hooks
 // ──────────────────────────────────────────────
 import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { chatPresetKeys } from "../query-keys";
 import {
   chatPresetSettingsSchema,

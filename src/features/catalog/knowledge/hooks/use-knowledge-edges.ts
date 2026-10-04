@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 
 import type { KnowledgeEdgeInput } from "../../../../engine/contracts/types/memory";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";

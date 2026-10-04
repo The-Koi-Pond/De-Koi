@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // Hook: Game Assets Browser
 // ──────────────────────────────────────────────
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { gameAssetsApi } from "../../../../shared/api/assets-api";
 
 /**

@@ -5,6 +5,11 @@ import { toast } from "sonner";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useUpdateConnectionFolder } from "./use-connection-folders";
 
+// Hooks import useMutation through the app wrapper; route it to the mocked TanStack hook.
+vi.mock("../../../../shared/hooks/use-mutation", async () => ({
+  useMutation: (await import("@tanstack/react-query")).useMutation,
+}));
+
 const reactQueryMocks = vi.hoisted(() => ({
   currentQueryClient: null as QueryClient | null,
   useMutation: vi.fn((options) => options),

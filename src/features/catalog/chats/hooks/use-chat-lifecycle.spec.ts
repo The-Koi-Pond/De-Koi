@@ -6,6 +6,11 @@ import { ApiError } from "../../../../shared/api/api-errors";
 import { chatKeys } from "../query-keys";
 import { useDeleteChat } from "./use-chat-lifecycle";
 
+// Hooks import useMutation through the app wrapper; route it to the mocked TanStack hook.
+vi.mock("../../../../shared/hooks/use-mutation", async () => ({
+  useMutation: (await import("@tanstack/react-query")).useMutation,
+}));
+
 const reactQueryMocks = vi.hoisted(() => ({
   currentQueryClient: null as QueryClient | null,
   useMutation: vi.fn((options) => options),

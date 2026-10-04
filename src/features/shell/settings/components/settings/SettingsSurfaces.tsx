@@ -38,7 +38,8 @@ import {
   useReconnectExtensionData,
   useUpdateExtension,
 } from "../../hooks/use-extensions";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../../shared/hooks/use-mutation";
 import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
@@ -1554,6 +1555,7 @@ export function AppearanceSettings() {
   const fontUploadRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const googleFontMutation = useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (family: string) =>
       fontsApi.downloadGoogle<{ filename: string; family: string; url: string; files?: CustomFontFace[] }>(family),
     onSuccess: (data) => {
@@ -1567,6 +1569,7 @@ export function AppearanceSettings() {
     },
   });
   const fontUploadMutation = useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (file: File) => fontsApi.upload<{ filename: string; family: string; files?: CustomFontFace[] }>(file),
     onSuccess: (data) => {
       toast.success(`Installed "${data.family}"`);

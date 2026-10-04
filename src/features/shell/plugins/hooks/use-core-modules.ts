@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { coreModulesApi } from "../../../../shared/api/core-modules-api";
 import { coreModuleViews, enabledCoreModuleStyles, isCoreModuleEnabled } from "../lib/core-module-registry";
 

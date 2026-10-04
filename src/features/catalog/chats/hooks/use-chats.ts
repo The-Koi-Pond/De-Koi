@@ -2,14 +2,8 @@
 // React Query: neutral chat data hooks used by conversation, roleplay, and game.
 // ──────────────────────────────────────────────
 import { useEffect } from "react";
-import {
-  useQuery,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-  type InfiniteData,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 import { chatKeys } from "../query-keys";
 import {
@@ -757,6 +751,7 @@ export function useUpdateMessage(chatId: string | null) {
 export function useUpdateMessageExtra(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: ({ messageId, extra }: { messageId: string; extra: Record<string, unknown> }) =>
       storageApi.patchChatMessageExtra<Message>(messageId, extra),
     onMutate: async ({ messageId, extra }) => {

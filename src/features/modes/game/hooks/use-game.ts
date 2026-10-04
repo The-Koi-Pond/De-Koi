@@ -2,7 +2,8 @@
 // Hook: Game Mode API
 // ──────────────────────────────────────────────
 import { useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { isJsonRepairApiError } from "../../../../shared/api/api-errors";
@@ -110,6 +111,7 @@ export function useGameSetup() {
   const store = useGameModeStore;
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; connectionId?: string; preferences: string; setupConfig?: GameSetupConfig }) =>
       gameApi.setupGame(data),
     onSuccess: (res) => {
@@ -154,6 +156,7 @@ export function useStartSession() {
   const store = useGameModeStore;
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { gameId: string; connectionId?: string }) => gameApi.startSession(data),
     onMutate: (variables) => {
       toast.loading("Starting the next session and generating recap...", {
@@ -187,6 +190,7 @@ export function useConcludeSession() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; connectionId?: string; nextSessionRequest?: string }) =>
       gameApi.concludeSession(data),
     onMutate: (variables) => {
@@ -224,6 +228,7 @@ export function useRegenerateSessionConclusion() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; sessionNumber: number; connectionId?: string }) =>
       gameApi.regenerateSessionConclusion(data),
     onMutate: (variables) => {
@@ -259,6 +264,7 @@ export function useRegenerateSessionLorebook() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; sessionNumber: number; connectionId?: string }) =>
       gameApi.regenerateSessionLorebook(data),
     onMutate: (variables) => {
@@ -298,6 +304,7 @@ export function useUpdateCampaignProgression() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; sessionNumber: number; connectionId?: string }) =>
       gameApi.updateCampaignProgression(data),
     onMutate: (variables) => {
@@ -340,6 +347,7 @@ export function useRecruitPartyMember() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; characterName: string; connectionId?: string }) =>
       gameApi.upsertPartyCard({ ...data, added: true }),
     onSuccess: (res, variables) => {
@@ -363,6 +371,7 @@ export function useRegeneratePartyCard() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; characterName: string; connectionId?: string }) =>
       gameApi.upsertPartyCard({ ...data, added: false }),
     onSuccess: (res, variables) => {
@@ -386,6 +395,7 @@ export function useRemovePartyMember() {
   const qc = useQueryClient();
 
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: (data: { chatId: string; characterName: string }) => gameApi.removePartyMember(data),
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);

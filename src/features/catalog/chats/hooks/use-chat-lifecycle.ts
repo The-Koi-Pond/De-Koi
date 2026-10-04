@@ -1,4 +1,5 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 
 import { createChatSchema } from "../../../../engine/contracts/schemas/chat.schema";

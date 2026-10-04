@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 import { useState } from "react";
 import { Modal } from "../../../../shared/components/ui/Modal";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { createPromptPresetSchema } from "../../../../engine/contracts/schemas/prompt.schema";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";

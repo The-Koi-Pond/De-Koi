@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // Hooks: Agent Configs (React Query)
 // ──────────────────────────────────────────────
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { createAgentConfigSchema, updateAgentConfigSchema } from "../../../../engine/contracts/schemas/agent.schema";
 import { BUILT_IN_AGENTS, type AgentResultType } from "../../../../engine/contracts/types/agent";
 import { agentApi } from "../../../../shared/api/agent-api";

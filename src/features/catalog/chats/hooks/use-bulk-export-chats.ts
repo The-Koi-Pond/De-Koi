@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -10,6 +10,7 @@ import { listChatIdsForExport, loadChatsForExport } from "../lib/chat-export-loa
 /** Export selected chats as native JSON or a ZIP of JSONL/text transcripts. */
 export function useBulkExportChats() {
   return useMutation({
+    meta: { handlesOwnErrors: true },
     mutationFn: async ({
       chatIds,
       format = "native",
