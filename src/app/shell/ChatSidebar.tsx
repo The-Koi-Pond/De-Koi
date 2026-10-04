@@ -1491,8 +1491,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             {batchDeleteProgress ? (
               <span role="status" className="inline-flex items-center gap-1.5">
                 <Loader2 size="0.75rem" className="animate-spin" />
-                Deleting {Math.min(batchDeleteProgress.done + 1, batchDeleteProgress.total)} of{" "}
-                {batchDeleteProgress.total}…
+                Deleting… {batchDeleteProgress.done} of {batchDeleteProgress.total} done
               </span>
             ) : (
               <>
