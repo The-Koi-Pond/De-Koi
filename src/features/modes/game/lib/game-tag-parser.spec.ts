@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { formatNarration } from "./game-narration-format";
 import { parseGmTags, stripGmTags, stripGmTagsKeepReadables } from "./game-tag-parser";

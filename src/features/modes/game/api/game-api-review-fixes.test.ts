@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameMap, GameSetupConfig, SessionSummary } from "../../../../engine/contracts/types/game";
 import { createDefaultImageStyleProfileSettings } from "../../../../engine/generation/image-style-profiles";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
