@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { InstalledExtension } from "../../engine/contracts/types/extension";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeCustomExtensionJavaScript, type ExtensionRuntimeDeps } from "./extension-runtime";

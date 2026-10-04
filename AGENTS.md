@@ -56,6 +56,7 @@ Run checks that match the change:
 - Docs/skills/agent guidance: `pnpm check:docs`
 - Architecture/import rules: `pnpm check:architecture`
 - PR boundary/ready-for-review: `pnpm check` (includes a warning-only unused-code report)
+- Unit test environments: `.ts` specs run in Node and `.tsx` specs run in jsdom. A `.ts` spec that needs `window`, `document`, or browser storage starts with `// @vitest-environment jsdom`.
 - Formatting (CI-blocking): `pnpm format:check` and `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`. Keep format-only changes in their own PR.
 
 Ordinary local bugfixes should run the focused proof and matching lane check.

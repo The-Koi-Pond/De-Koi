@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
 import type { MemoryCleanupProposal, MemoryCleanupSource } from "../contracts/types/memory-maintenance";

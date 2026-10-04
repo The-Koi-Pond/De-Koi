@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import type { LlmMessage } from "../capabilities/llm";
 import { estimateLlmMessageTokens } from "./context-window";
