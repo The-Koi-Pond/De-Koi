@@ -111,36 +111,41 @@ describe("CustomThemeInjector", () => {
     });
   });
 
-  it.each([null, undefined, "", { nested: "css" }, "x".repeat(256 * 1024 + 1)])(
-    "does not inject malformed or oversized extension CSS: %s",
-    async (css) => {
-      const extension = {
-        id: "invalid-css",
-        name: "Invalid CSS",
-        description: "",
-        css,
-        enabled: true,
-        installedAt: "2026-01-01T00:00:00Z",
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z",
-      };
-      settingsData.extensions = [extension];
-      extensionDeviceConsentStore.grant(
-        currentRuntimeConsentScope(),
-        extension.id,
-        await extensionConsentFingerprint(extension as never),
-        { css: true, javascript: false },
-      );
+  // Label each case: a %s name would print the 256 KiB string into every log line for this
+  // test, and GitHub's runner spends minutes ingesting each one.
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty string", ""],
+    ["object", { nested: "css" }],
+    ["oversized string", "x".repeat(256 * 1024 + 1)],
+  ])("does not inject malformed or oversized extension CSS: %s", async (_label, css) => {
+    const extension = {
+      id: "invalid-css",
+      name: "Invalid CSS",
+      description: "",
+      css,
+      enabled: true,
+      installedAt: "2026-01-01T00:00:00Z",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    settingsData.extensions = [extension];
+    extensionDeviceConsentStore.grant(
+      currentRuntimeConsentScope(),
+      extension.id,
+      await extensionConsentFingerprint(extension as never),
+      { css: true, javascript: false },
+    );
 
-      await act(async () => {
-        root.render(<CustomThemeInjector />);
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+    await act(async () => {
+      root.render(<CustomThemeInjector />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
-      expect(document.getElementById("marinara-ext-invalid-css")).toBeNull();
-    },
-  );
+    expect(document.getElementById("marinara-ext-invalid-css")).toBeNull();
+  });
 
   it("stops executing JavaScript when an activated extension becomes incompatible", async () => {
     const extension = {
