@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { gameApi } from "../api/game-api";
+import type { RecordGameJournalEntry } from "./use-game-surface-persistence-controller";
 import { useGameStateStore } from "../../../runtime/world-state/index";
 import type { GameStatePatchField, GameStatePatchValue } from "../../../runtime/world-state/types";
-import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { InventoryTag, ReadableTag } from "../lib/game-tag-parser";
 import {
   addDetailedInventoryUnit,
@@ -50,7 +49,7 @@ type UseGameInventoryJournalControllerParams = {
   sceneRuntimeScopeKey: string;
   patchVisibleGameState: <K extends GameStatePatchField>(field: K, value: GameStatePatchValue[K]) => Promise<unknown>;
   persistMetadata: (chatId: string, patch: Record<string, unknown>) => Promise<unknown>;
-  publishSessionChat: (sessionChat: Chat | null | undefined) => void;
+  recordJournalEntry: RecordGameJournalEntry;
 };
 
 export function useGameInventoryJournalController({
@@ -59,7 +58,7 @@ export function useGameInventoryJournalController({
   sceneRuntimeScopeKey,
   patchVisibleGameState,
   persistMetadata,
-  publishSessionChat,
+  recordJournalEntry,
 }: UseGameInventoryJournalControllerParams) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemSummary[]>(() => {
@@ -136,22 +135,19 @@ export function useGameInventoryJournalController({
 
   const upsertReadableJournalEntry = useCallback(
     (readable: JournalReadable) => {
-      void gameApi
-        .addJournalEntry({
-          chatId: activeChatId,
-          type: "note",
-          data: {
-            title: readable.type === "book" ? "Book" : "Note",
-            content: readable.content,
-            readableType: readable.type,
-            sourceMessageId: readable.sourceMessageId,
-            sourceSegmentIndex: readable.sourceSegmentIndex,
-          },
-        })
-        .then((res) => publishSessionChat(res.sessionChat))
-        .catch(() => {});
+      void recordJournalEntry({
+        chatId: activeChatId,
+        type: "note",
+        data: {
+          title: readable.type === "book" ? "Book" : "Note",
+          content: readable.content,
+          readableType: readable.type,
+          sourceMessageId: readable.sourceMessageId,
+          sourceSegmentIndex: readable.sourceSegmentIndex,
+        },
+      });
     },
-    [activeChatId, publishSessionChat],
+    [activeChatId, recordJournalEntry],
   );
 
   const handleReadable = useCallback(
@@ -300,21 +296,17 @@ export function useGameInventoryJournalController({
 
       if (journalEntries.length > 0) {
         void (async () => {
+          // Sequential so each entry builds on the journal the previous one saved.
           for (const entry of journalEntries) {
-            try {
-              const res = await gameApi.addJournalEntry({
-                chatId: activeChatId,
-                type: "item",
-                data: {
-                  item: entry.item,
-                  action: entry.action,
-                  quantity: entry.quantity,
-                },
-              });
-              publishSessionChat(res.sessionChat);
-            } catch {
-              // Best-effort journal write; keep inventory updates responsive.
-            }
+            await recordJournalEntry({
+              chatId: activeChatId,
+              type: "item",
+              data: {
+                item: entry.item,
+                action: entry.action,
+                quantity: entry.quantity,
+              },
+            });
           }
         })();
       }
@@ -327,7 +319,7 @@ export function useGameInventoryJournalController({
       }
       return true;
     },
-    [activeChatId, patchVisibleGameState, persistMetadata, publishSessionChat, showInventoryNotifications],
+    [activeChatId, patchVisibleGameState, persistMetadata, recordJournalEntry, showInventoryNotifications],
   );
 
   return {
