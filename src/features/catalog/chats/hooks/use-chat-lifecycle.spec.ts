@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { chatKeys } from "../query-keys";
-import { useDeleteChat } from "./use-chat-lifecycle";
+import { useDeleteChat, useDeleteChats } from "./use-chat-lifecycle";
 
 // Hooks import useMutation through the app wrapper; route it to the mocked TanStack hook.
 vi.mock("../../../../shared/hooks/use-mutation", async () => ({
@@ -126,5 +126,38 @@ describe("useDeleteChat", () => {
 
     expect(ids(qc.getQueryData<Chat[]>(chatKeys.list()))).toEqual(["deleted-chat", "keep-chat"]);
     expect(ids(qc.getQueryData<Chat[]>(chatKeys.summaries()))).toEqual(["deleted-chat", "keep-chat"]);
+  });
+});
+
+type BulkDeleteMutationOptions = {
+  onMutate: (input: { ids: string[]; deleteMemories: boolean }) => Promise<void>;
+  onSettled: () => void;
+  onError?: unknown;
+};
+
+describe("useDeleteChats", () => {
+  it("removes the chats from list, summary, and group caches, then refetches instead of restoring", async () => {
+    const qc = new QueryClient();
+    const grouped = { ...chat("grouped-chat"), groupId: "group-1" };
+    qc.setQueryData(chatKeys.list(), [chat("deleted-chat"), chat("keep-chat")]);
+    qc.setQueryData(chatKeys.summaries(), [chat("deleted-chat"), chat("keep-chat")]);
+    // A group view can hold a selected chat that the list caches do not.
+    qc.setQueryData(chatKeys.group("group-1"), [grouped, chat("keep-chat")]);
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    reactQueryMocks.currentQueryClient = qc;
+    const options = useDeleteChats() as unknown as BulkDeleteMutationOptions;
+
+    await options.onMutate({ ids: ["deleted-chat", "grouped-chat"], deleteMemories: false });
+
+    expect(ids(qc.getQueryData<Chat[]>(chatKeys.list()))).toEqual(["keep-chat"]);
+    expect(ids(qc.getQueryData<Chat[]>(chatKeys.summaries()))).toEqual(["keep-chat"]);
+    expect(ids(qc.getQueryData<Chat[]>(chatKeys.group("group-1")))).toEqual(["keep-chat"]);
+
+    // A failed batch can still have deleted some chats, so there is no snapshot rollback.
+    expect(options.onError).toBeUndefined();
+    options.onSettled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.list() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.summaries() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: [...chatKeys.all, "group"] });
   });
 });

@@ -131,6 +131,7 @@ const REMOTE_COMMANDS = new Set([
   "app_settings_update_if_unchanged",
   "chat_update_if_unchanged",
   "storage_delete",
+  "storage_delete_chats",
   "storage_duplicate",
   "connection_folder_reorder",
   "lorebook_entry_reorder",

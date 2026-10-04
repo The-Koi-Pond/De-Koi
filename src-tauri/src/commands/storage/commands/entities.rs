@@ -53,8 +53,9 @@ mod support;
 #[cfg(test)]
 use delete::chat_folder_delete_atomic_rows;
 pub(crate) use delete::{
-    connection_folder_reorder_inner, connection_move_inner, delete_entity,
-    delete_entity_with_options, lorebook_entry_reorder_inner, lorebook_folder_reorder_inner,
+    connection_folder_reorder_inner, connection_move_inner, delete_chats_with_options,
+    delete_entity, delete_entity_with_options, lorebook_entry_reorder_inner,
+    lorebook_folder_reorder_inner,
 };
 pub(crate) use duplicate::duplicate_entity;
 
@@ -1080,6 +1081,21 @@ fn log_storage_operation(
             log_span("storage", "storage.operation", started_at, "error", fields);
         }
     }
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn storage_delete_chats(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    delete_memories: Option<bool>,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        delete_chats_with_options(&state, &ids, delete_memories.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 #[cfg(feature = "desktop")]

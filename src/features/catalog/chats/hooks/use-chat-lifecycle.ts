@@ -178,6 +178,41 @@ export function useDeleteChat() {
   });
 }
 
+const chatGroupQueryFamily = [...chatKeys.all, "group"] as const;
+
+/** Deletes several chats in one server pass; the sidebar's bulk delete sends chunks of these. */
+export function useDeleteChats() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, deleteMemories }: { ids: string[]; deleteMemories: boolean }) =>
+      chatCommandApi.deleteMany(ids, { deleteMemories }),
+    onMutate: async ({ ids }) => {
+      const idSet = new Set(ids);
+      await qc.cancelQueries({ queryKey: chatKeys.list() });
+      await qc.cancelQueries({ queryKey: chatKeys.summaries() });
+      await qc.cancelQueries({ queryKey: chatGroupQueryFamily });
+      qc.setQueryData<Chat[]>(chatKeys.list(), (old) => old?.filter((c) => !idSet.has(c.id)));
+      qc.setQueriesData<ChatListItem[]>({ queryKey: chatKeys.summaries() }, (old) =>
+        old?.filter((c) => !idSet.has(c.id)),
+      );
+      qc.setQueriesData<Chat[]>({ queryKey: chatGroupQueryFamily }, (old) => old?.filter((c) => !idSet.has(c.id)));
+    },
+    onSuccess: (data, { ids }) => {
+      handleMemoryCleanupResult(qc, data.memoryCleanup);
+      for (const chatId of uniqueIds([...ids, ...(data.deletedChatIds ?? [])])) {
+        clearChatActivity(chatId);
+      }
+    },
+    // A failed batch may still have deleted some chats (each storage step commits on its
+    // own), so settle on the server's list instead of restoring the optimistic snapshot.
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: chatKeys.summaries() });
+      qc.invalidateQueries({ queryKey: chatGroupQueryFamily });
+    },
+  });
+}
+
 export function useDeleteChatGroup() {
   const qc = useQueryClient();
   return useMutation({

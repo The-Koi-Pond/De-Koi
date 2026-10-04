@@ -34,6 +34,7 @@ import {
   useChatSummaries,
   useDeleteChat,
   useDeleteChatGroup,
+  useDeleteChats,
   useUpdateChatMetadata,
   confirmChatDeletion,
   type BulkChatExportFormat,
@@ -250,6 +251,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     refetch: refetchChats,
   } = useChatSummaries();
   const deleteChat = useDeleteChat();
+  const deleteChats = useDeleteChats();
   const deleteChatGroup = useDeleteChatGroup();
   const updateChatMetadata = useUpdateChatMetadata();
   const bulkExportChats = useBulkExportChats();
@@ -850,7 +852,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         chatIds: deletableIds,
         activeChatId,
         deleteMemories: confirmation.deleteMemories,
-        deleteChat: deleteChat.mutateAsync,
+        deleteChats: deleteChats.mutateAsync,
         setActiveChatId,
         exitMultiSelect,
         onProgress: (done, total) => setBatchDeleteProgress({ done, total }),
@@ -862,7 +864,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       batchDeleteRunningRef.current = false;
       setBatchDeleteProgress(null);
     }
-  }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
+  }, [selectedChatIds, deleteChats, activeChatId, setActiveChatId, exitMultiSelect]);
 
   const handleBatchExport = useCallback(
     async (format: BulkChatExportFormat) => {

@@ -16,6 +16,33 @@ function deferred() {
 }
 
 describe("deleteSelectedChatsSequentially", () => {
+  it("sends chats in chunks and reports progress after each chunk", async () => {
+    const deleteChats = vi.fn(() => Promise.resolve());
+    const onProgress = vi.fn();
+
+    await deleteSelectedChatsSequentially({
+      chatIds: ["a", "b", "c", "d", "e"],
+      activeChatId: null,
+      deleteMemories: false,
+      deleteChats,
+      setActiveChatId: vi.fn(),
+      exitMultiSelect: vi.fn(),
+      onProgress,
+      batchSize: 2,
+    });
+
+    expect(deleteChats.mock.calls).toEqual([
+      [{ ids: ["a", "b"], deleteMemories: false }],
+      [{ ids: ["c", "d"], deleteMemories: false }],
+      [{ ids: ["e"], deleteMemories: false }],
+    ]);
+    expect(onProgress.mock.calls).toEqual([
+      [2, 5],
+      [4, 5],
+      [5, 5],
+    ]);
+  });
+
   it("reports progress after each delete and returns the deleted count", async () => {
     const onProgress = vi.fn();
 
@@ -23,7 +50,8 @@ describe("deleteSelectedChatsSequentially", () => {
       chatIds: ["chat-a", "chat-b", "chat-c"],
       activeChatId: null,
       deleteMemories: false,
-      deleteChat: vi.fn(() => Promise.resolve()),
+      deleteChats: vi.fn(() => Promise.resolve()),
+      batchSize: 1,
       setActiveChatId: vi.fn(),
       exitMultiSelect: vi.fn(),
       onProgress,
@@ -37,10 +65,45 @@ describe("deleteSelectedChatsSequentially", () => {
     ]);
   });
 
-  it("deletes selected chats one at a time before leaving multi-select", async () => {
+  it("treats a batch size below one as one instead of looping forever", async () => {
+    const deleteChats = vi.fn(() => Promise.resolve());
+
+    await deleteSelectedChatsSequentially({
+      chatIds: ["a", "b"],
+      activeChatId: null,
+      deleteMemories: false,
+      deleteChats,
+      setActiveChatId: vi.fn(),
+      exitMultiSelect: vi.fn(),
+      batchSize: 0,
+    });
+
+    expect(deleteChats).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])("falls back to the default chunk size for %s", async (batchSize) => {
+    const deleteChats = vi.fn(() => Promise.resolve());
+
+    const deletedCount = await deleteSelectedChatsSequentially({
+      chatIds: ["a", "b"],
+      activeChatId: null,
+      deleteMemories: false,
+      deleteChats,
+      setActiveChatId: vi.fn(),
+      exitMultiSelect: vi.fn(),
+      batchSize,
+    });
+
+    expect(deletedCount).toBe(2);
+    expect(deleteChats).toHaveBeenCalledWith({ ids: ["a", "b"], deleteMemories: false });
+  });
+
+  it("deletes chunks in order before leaving multi-select", async () => {
     const first = deferred();
     const second = deferred();
-    const deleteChat = vi.fn((input: { id: string }) => (input.id === "chat-a" ? first.promise : second.promise));
+    const deleteChats = vi.fn((input: { ids: string[] }) =>
+      input.ids[0] === "chat-a" ? first.promise : second.promise,
+    );
     const setActiveChatId = vi.fn();
     const exitMultiSelect = vi.fn();
 
@@ -48,20 +111,21 @@ describe("deleteSelectedChatsSequentially", () => {
       chatIds: ["chat-a", "chat-b"],
       activeChatId: "chat-b",
       deleteMemories: true,
-      deleteChat,
+      deleteChats,
+      batchSize: 1,
       setActiveChatId,
       exitMultiSelect,
     });
 
-    expect(deleteChat).toHaveBeenCalledTimes(1);
-    expect(deleteChat).toHaveBeenNthCalledWith(1, { id: "chat-a", deleteMemories: true });
+    expect(deleteChats).toHaveBeenCalledTimes(1);
+    expect(deleteChats).toHaveBeenNthCalledWith(1, { ids: ["chat-a"], deleteMemories: true });
     expect(exitMultiSelect).not.toHaveBeenCalled();
 
     first.resolve();
     await Promise.resolve();
 
-    expect(deleteChat).toHaveBeenCalledTimes(2);
-    expect(deleteChat).toHaveBeenNthCalledWith(2, { id: "chat-b", deleteMemories: true });
+    expect(deleteChats).toHaveBeenCalledTimes(2);
+    expect(deleteChats).toHaveBeenNthCalledWith(2, { ids: ["chat-b"], deleteMemories: true });
     expect(setActiveChatId).not.toHaveBeenCalled();
 
     second.resolve();
@@ -72,8 +136,8 @@ describe("deleteSelectedChatsSequentially", () => {
   });
 
   it("resets selection mode when the first delete fails", async () => {
-    const deleteChat = vi.fn(async (input: { id: string }) => {
-      if (input.id === "chat-a") throw new Error("storage delete failed");
+    const deleteChats = vi.fn(async (input: { ids: string[] }) => {
+      if (input.ids.includes("chat-a")) throw new Error("storage delete failed");
     });
     const setActiveChatId = vi.fn();
     const exitMultiSelect = vi.fn();
@@ -83,7 +147,8 @@ describe("deleteSelectedChatsSequentially", () => {
         chatIds: ["chat-a", "chat-b"],
         activeChatId: "chat-b",
         deleteMemories: false,
-        deleteChat,
+        deleteChats,
+        batchSize: 1,
         setActiveChatId,
         exitMultiSelect,
       }),
@@ -93,14 +158,14 @@ describe("deleteSelectedChatsSequentially", () => {
       failedChatId: "chat-a",
     });
 
-    expect(deleteChat).toHaveBeenCalledTimes(1);
+    expect(deleteChats).toHaveBeenCalledTimes(1);
     expect(setActiveChatId).not.toHaveBeenCalled();
     expect(exitMultiSelect).toHaveBeenCalledTimes(1);
   });
 
   it("reports partial deletion after clearing deleted active chat state", async () => {
-    const deleteChat = vi.fn(async (input: { id: string }) => {
-      if (input.id === "chat-b") throw new Error("storage delete failed");
+    const deleteChats = vi.fn(async (input: { ids: string[] }) => {
+      if (input.ids.includes("chat-b")) throw new Error("storage delete failed");
     });
     const setActiveChatId = vi.fn();
     const exitMultiSelect = vi.fn();
@@ -111,7 +176,8 @@ describe("deleteSelectedChatsSequentially", () => {
         chatIds: ["chat-a", "chat-b"],
         activeChatId: "chat-a",
         deleteMemories: false,
-        deleteChat,
+        deleteChats,
+        batchSize: 1,
         setActiveChatId,
         exitMultiSelect,
       });
@@ -126,7 +192,7 @@ describe("deleteSelectedChatsSequentially", () => {
       failedChatId: "chat-b",
     });
     expect(formatDeleteSelectedChatsError(captured)).toBe("Deleted 1 of 2 chats. storage delete failed");
-    expect(deleteChat).toHaveBeenCalledTimes(2);
+    expect(deleteChats).toHaveBeenCalledTimes(2);
     expect(setActiveChatId).toHaveBeenCalledWith(null);
     expect(exitMultiSelect).toHaveBeenCalledTimes(1);
   });

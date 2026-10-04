@@ -813,6 +813,14 @@ pub(crate) async fn dispatch_for_runtime_owner(
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_delete)
                 .await
         }
+        "storage_delete_chats" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::storage_delete_chats,
+            )
+            .await
+        }
         "storage_duplicate" => {
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_duplicate)
                 .await
@@ -2060,6 +2068,7 @@ mod tests {
         "lorebook_folder_reorder",
         "storage_create",
         "storage_delete",
+        "storage_delete_chats",
         "storage_duplicate",
         "storage_get",
         "storage_list",
