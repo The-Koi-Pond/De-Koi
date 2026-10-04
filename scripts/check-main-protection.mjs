@@ -16,7 +16,7 @@ requireText(
   "CI Full must run the repository's deterministic gate source of truth.",
 );
 requireText(
-  /required:\s*\n\s+name: Required Validation[\s\S]*?\n\s+needs:\s*\n\s+- classify\s*\n\s+- frontend\s*\n\s+- rust\s*\n\s+- smoke/.test(
+  /required:\s*\n\s+name: Required Validation[\s\S]*?\n\s+needs:\s*\n\s+- classify\s*\n\s+- frontend\s*\n\s+- rust\s*\n\s+- smoke\s*\n\s+- build/.test(
     workflow,
   ),
   "CI Full must publish Required Validation after every applicable lane.",
