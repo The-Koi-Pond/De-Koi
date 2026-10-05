@@ -80,6 +80,32 @@ so future image updates recreate the container with the Codex auth mount.
 In De-Koi, use the ChatGPT connection's **Test Connection** to verify the local
 login, **Fetch ChatGPT Models** to confirm live model access, and **Send Test Message** to prove generation for the selected model. For image generation, create an Image Generation connection with Service set to **Codex Subscription**, leave API Key and Base URL blank, then use **Test Image** to verify the Codex CLI image path.
 
+### Claude Through Local Claude Code Login
+
+The Claude Subscription connection runs the Claude Code CLI instead of using an
+API key. The prebuilt Pi server image includes the Claude Code CLI; mount a host
+directory as its config home so the login survives container recreation. Add
+this to the same local override:
+
+```yaml
+services:
+  de-koi-server:
+    environment:
+      CLAUDE_CONFIG_DIR: /root/.claude
+    volumes:
+      - /home/chai/.claude:/root/.claude
+```
+
+After the update recreates the container, log in once inside it:
+
+```sh
+docker exec -it de-koi-server claude
+```
+
+Type `/login`, finish the browser sign-in, then `/exit`. In De-Koi, use the
+Claude Subscription connection's **Test Connection** and **Send Test Message**
+to prove the login and generation.
+
 For timer-driven updates, put the same override setting in the optional systemd
 environment file:
 

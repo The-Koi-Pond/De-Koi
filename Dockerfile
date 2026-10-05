@@ -34,6 +34,7 @@ FROM node:22-bookworm-slim AS runtime
 ARG DE_KOI_IMAGE_VERSION=prealpha
 ARG DE_KOI_SOURCE_COMMIT=unknown
 ARG CODEX_CLI_VERSION=0.130.0
+ARG CLAUDE_CODE_VERSION=2.1.289
 
 LABEL org.opencontainers.image.title="De-Koi Server"
 LABEL org.opencontainers.image.source="https://github.com/The-Koi-Pond/De-Koi"
@@ -48,6 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" --omit=dev --no-audit --no-fund \
   && codex --version
+
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" --omit=dev --no-audit --no-fund   && claude --version
 
 WORKDIR /app
 
