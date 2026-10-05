@@ -17,6 +17,7 @@ import {
   readStatusMessageVarietyState,
   type ConversationStatusAngle,
 } from "./status-message-variety";
+import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
 
 export interface ConversationStatusMessageMeta {
   generatedAt: string;
@@ -511,45 +512,41 @@ export async function maybeRefreshConversationStatusMessages(
       message = await generateForAngle(acceptedAngle, retryRecentMessages);
       if (!message || isRepeatedStatusMessage(message, retryRecentMessages)) {
         const previousMeta = readRecord(extensions.conversationStatusMessageMeta);
-        await capabilities.storage.update("characters", characterId, {
-          data: {
-            ...data,
-            extensions: {
-              ...extensions,
-              conversationStatusMessageMeta: {
-                ...previousMeta,
-                generatedAt: readString(previousMeta.generatedAt) || now.toISOString(),
-                nextRefreshAt: nextRefreshIso(now, characterId),
-                sourceStatus: currentStatus,
-                sourceActivity: currentActivity,
-                recentMessages,
-                angle: acceptedAngle.id,
-              },
+        await capabilities.storage.update(
+          "characters",
+          characterId,
+          characterExtensionsPatch({
+            conversationStatusMessageMeta: {
+              ...previousMeta,
+              generatedAt: readString(previousMeta.generatedAt) || now.toISOString(),
+              nextRefreshAt: nextRefreshIso(now, characterId),
+              sourceStatus: currentStatus,
+              sourceActivity: currentActivity,
+              recentMessages,
+              angle: acceptedAngle.id,
             },
-          },
-        });
+          }),
+        );
         skipped.push(characterId);
         continue;
       }
     }
 
-    await capabilities.storage.update("characters", characterId, {
-      data: {
-        ...data,
-        extensions: {
-          ...extensions,
-          conversationStatusMessage: message,
-          conversationStatusMessageMeta: {
-            generatedAt: now.toISOString(),
-            nextRefreshAt: nextRefreshIso(now, characterId),
-            sourceStatus: currentStatus,
-            sourceActivity: currentActivity,
-            recentMessages: appendAcceptedStatusMessage(recentMessages, message),
-            angle: acceptedAngle.id,
-          },
+    await capabilities.storage.update(
+      "characters",
+      characterId,
+      characterExtensionsPatch({
+        conversationStatusMessage: message,
+        conversationStatusMessageMeta: {
+          generatedAt: now.toISOString(),
+          nextRefreshAt: nextRefreshIso(now, characterId),
+          sourceStatus: currentStatus,
+          sourceActivity: currentActivity,
+          recentMessages: appendAcceptedStatusMessage(recentMessages, message),
+          angle: acceptedAngle.id,
         },
-      },
-    });
+      }),
+    );
     refreshed.push(characterId);
   }
 

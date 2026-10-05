@@ -39,6 +39,7 @@ import {
   stringArray,
   type JsonRecord,
 } from "./runtime-records";
+import { characterExtensionsPatch } from "../entities/character-extensions-patch";
 
 type ConnectedCommandEvent =
   | { type: "cross_post"; data: JsonRecord }
@@ -450,15 +451,11 @@ async function persistTargetCharacterMemory(
       ? entryMemoryId !== readString(memory.id).trim()
       : readString(entry.commandMemoryKey).trim() !== key;
   });
-  await storage.update("characters", targetCharacterId, {
-    data: {
-      ...data,
-      extensions: {
-        ...extensions,
-        characterMemories: [...deduped, characterMemory].slice(-100),
-      },
-    },
-  });
+  await storage.update(
+    "characters",
+    targetCharacterId,
+    characterExtensionsPatch({ characterMemories: [...deduped, characterMemory].slice(-100) }),
+  );
 }
 
 async function persistCommandMemory(
@@ -1008,17 +1005,15 @@ async function applyScheduleUpdate(
     const activity =
       updated?.activity ??
       (command.activity !== undefined ? command.activity : readString(extensions.conversationActivity));
-    await storage.update("characters", characterId, {
-      data: {
-        ...data,
-        extensions: {
-          ...extensions,
-          conversationStatus: status,
-          conversationActivity: activity,
-          conversationStatusSource: "schedule",
-        },
-      },
-    });
+    await storage.update(
+      "characters",
+      characterId,
+      characterExtensionsPatch({
+        conversationStatus: status,
+        conversationActivity: activity,
+        conversationStatusSource: "schedule",
+      }),
+    );
     characterUpdated = true;
   }
   return !!updated || characterUpdated;

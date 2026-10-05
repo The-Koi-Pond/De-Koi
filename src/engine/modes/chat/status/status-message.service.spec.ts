@@ -13,6 +13,14 @@ import {
 const now = new Date("2026-06-26T12:00:00.000Z");
 type Row = Record<string, unknown>;
 
+function deepMerge(target: unknown, patch: unknown): unknown {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
+  const base = target && typeof target === "object" && !Array.isArray(target) ? (target as Row) : {};
+  const merged: Row = { ...base };
+  for (const [key, value] of Object.entries(patch as Row)) merged[key] = deepMerge(base[key], value);
+  return merged;
+}
+
 function memoryStorage(seed: Record<string, Record<string, Row>>): StorageGateway {
   return {
     async get(collection: string, id: string) {
@@ -38,7 +46,10 @@ function memoryStorage(seed: Record<string, Record<string, Row>>): StorageGatewa
     },
     async update(collection: string, id: string, patch: Record<string, unknown>) {
       seed[collection] ??= {};
-      seed[collection]![id] = { ...(seed[collection]![id] ?? {}), ...(patch as Row) };
+      const current = seed[collection]![id] ?? {};
+      // Storage deep-merges character `data` patches.
+      seed[collection]![id] =
+        collection === "characters" ? (deepMerge(current, patch) as Row) : { ...current, ...(patch as Row) };
       return seed[collection]![id] as never;
     },
     async patchChatMetadata(id: string, patch: Record<string, unknown>) {
@@ -324,6 +335,53 @@ describe("maybeRefreshConversationStatusMessages", () => {
       "quietly reading",
     );
   });
+
+  it("keeps card edits saved while the status blurb was generating", async () => {
+    const seed = {
+      "app-settings": {
+        conversation: { id: "conversation", value: { statusMessagesEnabledByDefault: true } },
+      },
+      chats: {
+        chat1: { id: "chat1", mode: "conversation", connectionId: "conn1", characterIds: ["char1"], metadata: {} },
+      },
+      connections: { conn1: { id: "conn1", model: "test-model" } },
+      characters: {
+        char1: {
+          id: "char1",
+          data: {
+            name: "Ari",
+            description: "Old description.",
+            extensions: { conversationStatus: "online", conversationActivity: "free time", appearance: "Old look." },
+          },
+        },
+      },
+    };
+    const storage = memoryStorage(seed);
+
+    const result = await maybeRefreshConversationStatusMessages(
+      {
+        storage,
+        llm: {
+          async complete() {
+            // The user saves a card edit while the blurb request is in flight.
+            await storage.update("characters", "char1", {
+              data: { description: "Edited description.", extensions: { appearance: "Edited look." } },
+            });
+            return JSON.stringify({ message: "quietly reading" });
+          },
+        } as unknown as LlmGateway,
+      },
+      { chatId: "chat1", now },
+    );
+
+    expect(result).toEqual({ refreshed: ["char1"], skipped: [] });
+    const data = seed.characters.char1.data as Record<string, unknown>;
+    const extensions = data.extensions as Record<string, unknown>;
+    expect(data.description).toBe("Edited description.");
+    expect(extensions.appearance).toBe("Edited look.");
+    expect(extensions.conversationStatusMessage).toBe("quietly reading");
+  });
+
   it("stores a sanitized generated blurb and metadata when enabled", async () => {
     const seed = {
       chats: {

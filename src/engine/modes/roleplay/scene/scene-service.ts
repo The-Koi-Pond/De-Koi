@@ -23,6 +23,7 @@ import {
 import { resolveSceneUniversalPreset } from "./universal-preset";
 import { getEffectiveStoryConsolidationEnabled } from "../../../generation/story-projections";
 import { persistCompletedSceneStoryEpisode } from "../../../generation/story-consolidation-queue";
+import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1291,7 +1292,11 @@ async function writeCharacterSceneMemories(
         createdAt,
       },
     ].slice(-100);
-    await storage.update("characters", characterId, { data: { ...data, extensions } });
+    await storage.update(
+      "characters",
+      characterId,
+      characterExtensionsPatch({ characterMemories: extensions.characterMemories }),
+    );
   }
 }
 
