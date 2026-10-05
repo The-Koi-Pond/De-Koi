@@ -5631,24 +5631,18 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
     }
 
     #[test]
+    #[cfg(unix)]
     fn claude_subscription_child_output_is_collected() {
-        let mut command = if cfg!(windows) {
-            let mut command = Command::new("cmd");
-            command.args(["/C", "more"]);
-            command
-        } else {
-            Command::new("cat")
-        };
-        let child = command
+        let child = Command::new("cat")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("echo command should spawn");
+            .expect("cat should spawn");
         let output =
             claude_subscription_run_child(child, b"hello").expect("output should be collected");
         assert!(output.status.success());
-        assert!(String::from_utf8_lossy(&output.stdout).contains("hello"));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "hello");
     }
 
     #[test]
