@@ -3178,6 +3178,83 @@ mod tests {
     }
 
     #[test]
+    fn projected_message_list_reflects_a_just_added_swipe() {
+        let state = test_state("projected-list-after-add-swipe");
+        storage_create_inner(
+            &state,
+            "chats".to_string(),
+            json!({ "id": "chat-1", "name": "Swipe chat" }),
+        )
+        .expect("chat should seed");
+        storage_create_inner(
+            &state,
+            "messages".to_string(),
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first",
+                "createdAt": "2026-06-01T10:00:00.000Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{ "content": "first" }]
+            }),
+        )
+        .expect("message should seed");
+        // Warm every read path the client uses before the regeneration lands.
+        let timeline_options = json!({
+            "filters": { "chatId": "chat-1" },
+            "limit": 20,
+            "fields": ["id", "chatId", "role", "content", "activeSwipeIndex", "swipeCount", "extra", "createdAt"]
+        });
+        storage_list_inner(
+            &state,
+            "messages".to_string(),
+            Some(timeline_options.clone()),
+        )
+        .expect("timeline list should read");
+
+        let added = chats::message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second" }),
+        )
+        .expect("swipe should be added");
+        assert_eq!(added["activeSwipeIndex"], json!(1));
+
+        for options in [
+            timeline_options,
+            json!({ "filters": { "chatId": "chat-1" } }),
+            json!({
+                "filters": { "chatId": "chat-1" },
+                "orderBy": "createdAt",
+                "descending": true,
+                "limit": 24,
+                "fields": ["id", "chatId", "role", "content", "activeSwipeIndex", "swipeCount", "createdAt"]
+            }),
+        ] {
+            let listed = storage_list_inner(&state, "messages".to_string(), Some(options.clone()))
+                .expect("messages should list");
+            let row = listed
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == json!("message-1")))
+                .cloned()
+                .unwrap_or_else(|| panic!("message-1 missing for {options}"));
+            assert_eq!(
+                row["activeSwipeIndex"],
+                json!(1),
+                "stale active swipe for {options}"
+            );
+            assert_eq!(
+                row["content"],
+                json!("second"),
+                "stale content for {options}"
+            );
+        }
+    }
+
+    #[test]
     fn generic_message_metadata_update_stays_journal_backed_without_rewriting_swipes() {
         let state = test_state("generic-message-metadata-journal");
         storage_create_inner(
