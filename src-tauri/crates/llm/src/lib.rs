@@ -5506,6 +5506,181 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
         );
     }
 
+    fn command_args(command: &Command) -> Vec<String> {
+        command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn claude_subscription_command_replaces_claude_code_prompt_and_runs_in_isolated_dir() {
+        let base = env::temp_dir().join(format!("claude-subscription-base-{}", Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let workspace =
+            claude_subscription_workspace_in(&base).expect("workspace should be created");
+        let isolated = workspace.path().to_path_buf();
+        assert!(isolated.is_dir());
+        assert_eq!(
+            fs::read_dir(&isolated).unwrap().count(),
+            0,
+            "workspace must start empty"
+        );
+        let selection = claude_subscription_model_selection("claude-opus-4-8");
+        let command = claude_subscription_command_for(
+            "claude",
+            &isolated,
+            false,
+            &selection,
+            Some("You are Simon."),
+        );
+        let args = command_args(&command);
+        assert_eq!(command.get_current_dir(), Some(isolated.as_path()));
+        let prompt_flag = args
+            .iter()
+            .position(|arg| arg == "--system-prompt")
+            .expect("system prompt flag");
+        assert_eq!(args[prompt_flag + 1], "You are Simon.");
+        assert!(!args.iter().any(|arg| arg == "--append-system-prompt"));
+        for flag in [
+            "--safe-mode",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+        ] {
+            assert!(args.iter().any(|arg| arg == flag), "missing {flag}");
+        }
+        let tools_flag = args
+            .iter()
+            .position(|arg| arg == "--tools")
+            .expect("tools flag");
+        assert_eq!(args[tools_flag + 1], "");
+        drop(workspace);
+        assert!(
+            !isolated.exists(),
+            "workspace must be removed once the request is done"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn claude_subscription_workspaces_are_private_and_never_reuse_an_existing_path() {
+        let base = env::temp_dir().join(format!("claude-subscription-base-{}", Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let first = claude_subscription_workspace_in(&base).unwrap();
+        let second = claude_subscription_workspace_in(&base).unwrap();
+        assert_ne!(
+            first.path(),
+            second.path(),
+            "each request gets its own directory"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(first.path()).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
+        drop(first);
+        drop(second);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn claude_subscription_command_without_system_text_still_drops_claude_code_prompt() {
+        let selection = claude_subscription_model_selection("claude-opus-4-8");
+        let command = claude_subscription_command_for(
+            "claude",
+            Path::new("."),
+            false,
+            &selection,
+            Some("  "),
+        );
+        let args = command_args(&command);
+        let prompt_flag = args
+            .iter()
+            .position(|arg| arg == "--system-prompt")
+            .expect("system prompt flag");
+        assert_eq!(
+            args[prompt_flag + 1],
+            CLAUDE_SUBSCRIPTION_NEUTRAL_SYSTEM_PROMPT
+        );
+        assert!(args.iter().any(|arg| arg == "--safe-mode"));
+    }
+
+    #[test]
+    fn claude_subscription_child_failure_reaps_the_process() {
+        // `true` exits at once without reading stdin, so a large prompt write hits a broken pipe.
+        #[cfg(unix)]
+        {
+            let child = Command::new("true")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("true should spawn");
+            let pid = child.id();
+            let prompt = vec![b'x'; 8 * 1024 * 1024];
+            let result = claude_subscription_run_child(child, &prompt);
+            if let Err(error) = result {
+                assert_eq!(error.code, "claude_subscription_io_error");
+            }
+            assert!(
+                !Path::new(&format!("/proc/{pid}")).exists(),
+                "the child must be reaped, not left running or as a zombie"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn claude_subscription_child_that_writes_before_reading_does_not_deadlock() {
+        // Fills the stdout pipe before it reads any of a prompt larger than the stdin pipe buffer.
+        let child = Command::new("sh")
+            .args(["-c", "head -c 1048576 /dev/zero; cat > /dev/null"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("sh should spawn");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(claude_subscription_run_child(
+                child,
+                &vec![b'x'; 1024 * 1024],
+            ));
+        });
+        let output = receiver
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the runner must not deadlock")
+            .expect("output should be collected");
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 1024 * 1024);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn claude_subscription_child_output_is_collected() {
+        let child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("cat should spawn");
+        let output =
+            claude_subscription_run_child(child, b"hello").expect("output should be collected");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "hello");
+    }
+
+    #[test]
+    fn claude_subscription_safe_mode_detection_reads_help_text() {
+        assert!(claude_subscription_help_supports_safe_mode(
+            "  --safe-mode   Start with all customizations disabled"
+        ));
+        assert!(!claude_subscription_help_supports_safe_mode(
+            "  --restricted  Restricted mode"
+        ));
+    }
+
     #[test]
     fn claude_subscription_without_runtime_chat_uses_transcript_fold() {
         let request = LlmRequest {

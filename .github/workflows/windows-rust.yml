@@ -22,6 +22,7 @@ on:
       - src-tauri/crates/security/src/**
       - src-tauri/crates/sidecar/**
       - src-tauri/crates/storage/src/**
+      - src-tauri/crates/llm/src/lib.rs
       - src-tauri/crates/llm/src/providers/claude_subscription.rs
       - src-tauri/src/commands/storage/commands/profile.rs
       - src-tauri/src/commands/storage/fonts.rs
