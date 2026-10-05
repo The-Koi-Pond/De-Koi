@@ -12,6 +12,14 @@ type StorageCallLog = {
 };
 type TestStorageGateway = StorageGateway & { calls: StorageCallLog };
 
+function deepMerge(target: unknown, patch: unknown): unknown {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
+  const base = target && typeof target === "object" && !Array.isArray(target) ? (target as JsonRecord) : {};
+  const merged: JsonRecord = { ...base };
+  for (const [key, value] of Object.entries(patch as JsonRecord)) merged[key] = deepMerge(base[key], value);
+  return merged;
+}
+
 function storageGateway(records: { chats: JsonRecord[]; characters: JsonRecord[] }): TestStorageGateway {
   const rows: Partial<Record<StorageEntity, JsonRecord[]>> = {
     chats: records.chats,
@@ -40,7 +48,8 @@ function storageGateway(records: { chats: JsonRecord[]; characters: JsonRecord[]
     async update<T = unknown>(entity: StorageEntity, id: string, patch: Record<string, unknown>): Promise<T> {
       calls.updates.push({ entity, id, patch });
       const record = (rows[entity] ?? []).find((item) => item.id === id);
-      if (record) Object.assign(record, patch);
+      // Storage deep-merges character `data` patches.
+      if (record) Object.assign(record, entity === "characters" ? deepMerge(record, patch) : patch);
       return { id, ...record, ...patch } as T;
     },
     async delete() {
@@ -239,10 +248,11 @@ describe("getConversationStatus", () => {
     });
     const character = await storage.get<JsonRecord>("characters", "char-1");
     const extensions = ((character?.data as JsonRecord | undefined)?.extensions ?? {}) as JsonRecord;
-    expect(extensions.conversationStatus).toBeUndefined();
-    expect(extensions.conversationActivity).toBeUndefined();
-    expect(extensions.conversationStatusSource).toBeUndefined();
-    expect(extensions.conversationAvailabilityExplanation).toBeUndefined();
+    // Cleared keys are stored as null, which readers treat as unset.
+    expect(extensions.conversationStatus ?? undefined).toBeUndefined();
+    expect(extensions.conversationActivity ?? undefined).toBeUndefined();
+    expect(extensions.conversationStatusSource ?? undefined).toBeUndefined();
+    expect(extensions.conversationAvailabilityExplanation ?? undefined).toBeUndefined();
 
     const schedule = allDaySchedule("commuting", "idle");
     await storage.update("chats", "chat-1", {
