@@ -1418,6 +1418,24 @@ describe("automatic memory capture queue", () => {
     );
   });
 
+  it("marks a deleted chat's job stale without touching its missing messages", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    await harness.storage.deleteChatMessage("user-1");
+    await harness.storage.deleteChatMessage("assistant-1");
+    const patchExtra = vi.spyOn(harness.storage, "patchMemoryCaptureMessageExtra");
+
+    const result = await processAutomaticMemoryCaptureQueue(harness.dependencies, {
+      now: "2026-01-01T00:04:00.000Z",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ stale: 1, retryable: 0, failed: 0 }));
+    expect(patchExtra).not.toHaveBeenCalled();
+    expect(harness.jobs.get(String(job?.id))).toEqual(
+      expect.objectContaining({ status: "stale", staleReason: "source_message_deleted" }),
+    );
+  });
+
   it("uses a deterministic job id so enqueueing the same source evidence does not duplicate work", async () => {
     const harness = queueStorage();
     const first = await harness.enqueue();

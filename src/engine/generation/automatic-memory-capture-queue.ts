@@ -276,6 +276,12 @@ function boundedLeaseRequest<T>(request: Promise<T>, timeoutMs: number): Promise
   });
 }
 
+async function assistantMessageExists(storage: StorageGateway, job: JsonRecord): Promise<boolean> {
+  const assistantMessageId = readString(job.assistantMessageId).trim();
+  if (!assistantMessageId) return false;
+  return !!(await storage.getChatMessage<JsonRecord>(assistantMessageId, { fields: ["id"] }));
+}
+
 async function validateSourceMessages(storage: StorageGateway, job: JsonRecord): Promise<string | null> {
   const snapshots = [...sourceSnapshotsFromJob(job), ...referenceSnapshotsFromJob(job)];
   if (snapshots.length === 0) return "missing_source_snapshot";
@@ -540,19 +546,7 @@ export async function processAutomaticMemoryCaptureQueue(
       );
 
       try {
-        await patchMemoryCaptureStatus(
-          storage,
-          job,
-          "processing",
-          {
-            status: "processing",
-            jobId: id,
-            sourceMessageIds: jobSourceIds(job),
-            attempts,
-            updatedAt: now,
-          },
-          leaseId,
-        );
+        // Check the sources first: a job whose chat or messages were deleted has nothing to mark.
         const staleReason = await validateSourceMessages(storage, job);
         if (staleReason) {
           await updateJob(
@@ -566,23 +560,38 @@ export async function processAutomaticMemoryCaptureQueue(
             },
             leaseId,
           );
-          await patchMemoryCaptureStatus(
-            storage,
-            job,
-            "failed",
-            {
-              status: "failed",
-              jobId: id,
-              sourceMessageIds: jobSourceIds(job),
-              attempts,
-              failureCategory: "capture_unavailable",
-              updatedAt: now,
-            },
-            leaseId,
-          ).catch(() => {});
+          if (await assistantMessageExists(storage, job)) {
+            await patchMemoryCaptureStatus(
+              storage,
+              job,
+              "failed",
+              {
+                status: "failed",
+                jobId: id,
+                sourceMessageIds: jobSourceIds(job),
+                attempts,
+                failureCategory: "capture_unavailable",
+                updatedAt: now,
+              },
+              leaseId,
+            );
+          }
           result.stale += 1;
           continue;
         }
+        await patchMemoryCaptureStatus(
+          storage,
+          job,
+          "processing",
+          {
+            status: "processing",
+            jobId: id,
+            sourceMessageIds: jobSourceIds(job),
+            attempts,
+            updatedAt: now,
+          },
+          leaseId,
+        );
 
         const sourceMessageIds = jobSourceIds(job);
         const chatId = readString(job.chatId).trim();

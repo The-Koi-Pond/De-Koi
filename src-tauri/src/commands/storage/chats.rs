@@ -2088,6 +2088,7 @@ pub(crate) fn delete_chats_with_messages(
     for delete_id in &delete_ids {
         agents::delete_agent_bookkeeping_for_chat(state, delete_id)?;
     }
+    delete_memory_jobs_for_chats(&state.storage, &delete_id_set)?;
 
     state.storage.delete_where_matching("chats", |row| {
         row.get("id")
@@ -2095,6 +2096,54 @@ pub(crate) fn delete_chats_with_messages(
             .is_some_and(|id| delete_id_set.contains(id))
     })?;
     Ok(delete_ids)
+}
+
+/// Background memory work queued per chat. Once the chat is gone these jobs can only fail against its
+/// missing messages, and every worker pass re-reads the whole collection.
+const CHAT_SCOPED_MEMORY_JOB_COLLECTIONS: [&str; 2] =
+    ["memory-capture-jobs", "memory-maintenance-jobs"];
+
+fn memory_job_chat_id(job: &Value) -> Option<&str> {
+    job.get("chatId").and_then(Value::as_str).or_else(|| {
+        let scope = job.get("target")?.get("scope")?;
+        (scope.get("kind").and_then(Value::as_str) == Some("chat"))
+            .then(|| scope.get("id").and_then(Value::as_str))
+            .flatten()
+    })
+}
+
+fn delete_memory_jobs_for_chats(
+    storage: &marinara_storage::FileStorage,
+    chat_ids: &HashSet<String>,
+) -> AppResult<usize> {
+    if chat_ids.is_empty() {
+        return Ok(0);
+    }
+    let mut deleted = 0;
+    for collection in CHAT_SCOPED_MEMORY_JOB_COLLECTIONS {
+        deleted += storage.delete_where_matching(collection, |job| {
+            memory_job_chat_id(job).is_some_and(|chat_id| chat_ids.contains(chat_id))
+        })?;
+    }
+    Ok(deleted)
+}
+
+/// One-time sweep for jobs left behind by chats deleted before deletion removed them.
+pub(crate) fn prune_orphaned_memory_jobs(
+    storage: &marinara_storage::FileStorage,
+) -> AppResult<usize> {
+    let chat_ids = storage
+        .list("chats")?
+        .iter()
+        .filter_map(|chat| chat.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect::<HashSet<_>>();
+    let mut deleted = 0;
+    for collection in CHAT_SCOPED_MEMORY_JOB_COLLECTIONS {
+        deleted += storage.delete_where_matching(collection, |job| {
+            memory_job_chat_id(job).is_some_and(|chat_id| !chat_ids.contains(chat_id))
+        })?;
+    }
+    Ok(deleted)
 }
 
 fn delete_gallery_for_chats(state: &AppState, chat_ids: &HashSet<String>) -> AppResult<usize> {
@@ -3340,6 +3389,87 @@ mod tests {
         assert_eq!(
             note_ids(roleplay.get("notes").unwrap()),
             vec!["unrelated-note", "runtime-memory"]
+        );
+    }
+
+    fn seed_memory_jobs(state: &AppState) {
+        for (collection, job) in [
+            (
+                "memory-capture-jobs",
+                json!({ "id": "capture-gone", "chatId": "chat-gone", "status": "pending" }),
+            ),
+            (
+                "memory-capture-jobs",
+                json!({ "id": "capture-keep", "chatId": "chat-keep", "status": "completed" }),
+            ),
+            (
+                "memory-maintenance-jobs",
+                json!({ "id": "maintenance-gone", "target": { "scope": { "kind": "chat", "id": "chat-gone" } } }),
+            ),
+            (
+                "memory-maintenance-jobs",
+                json!({ "id": "maintenance-keep", "target": { "scope": { "kind": "chat", "id": "chat-keep" } } }),
+            ),
+            (
+                "memory-maintenance-jobs",
+                json!({ "id": "maintenance-character", "target": { "scope": { "kind": "character", "id": "char-1" } } }),
+            ),
+        ] {
+            state
+                .storage
+                .create(collection, job)
+                .expect("job should seed");
+        }
+    }
+
+    fn job_ids(state: &AppState, collection: &str) -> Vec<String> {
+        let mut ids = state
+            .storage
+            .list(collection)
+            .expect("jobs should list")
+            .iter()
+            .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn deleting_a_chat_removes_its_queued_memory_jobs() {
+        let state = test_state("chat-delete-memory-jobs");
+        for chat_id in ["chat-gone", "chat-keep"] {
+            state
+                .storage
+                .create("chats", json!({ "id": chat_id, "name": chat_id }))
+                .expect("chat should be created");
+        }
+        seed_memory_jobs(&state);
+
+        delete_chats_with_messages(&state, &["chat-gone".to_string()]).expect("chat should delete");
+
+        assert_eq!(job_ids(&state, "memory-capture-jobs"), vec!["capture-keep"]);
+        assert_eq!(
+            job_ids(&state, "memory-maintenance-jobs"),
+            vec!["maintenance-character", "maintenance-keep"]
+        );
+    }
+
+    #[test]
+    fn orphaned_memory_job_sweep_keeps_live_and_unscoped_jobs() {
+        let state = test_state("orphaned-memory-jobs");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-keep", "name": "Kept" }))
+            .expect("chat should be created");
+        seed_memory_jobs(&state);
+
+        let pruned = prune_orphaned_memory_jobs(&state.storage).expect("sweep should succeed");
+
+        assert_eq!(pruned, 2);
+        assert_eq!(job_ids(&state, "memory-capture-jobs"), vec!["capture-keep"]);
+        assert_eq!(
+            job_ids(&state, "memory-maintenance-jobs"),
+            vec!["maintenance-character", "maintenance-keep"]
         );
     }
 
