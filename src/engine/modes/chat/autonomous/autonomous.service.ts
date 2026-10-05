@@ -17,6 +17,7 @@ import {
   setChatActivityState,
   type AutonomousClientPresenceStatus,
 } from "./activity-state.js";
+import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬
 
@@ -129,38 +130,18 @@ async function syncStoredConversationStatus(
   } | null,
 ): Promise<boolean> {
   if (!character) return false;
-  const data = metadataRecord(character.data);
-  const extensions = metadataRecord(data.extensions);
-  const nextExtensions = { ...extensions };
-  if (status) {
-    nextExtensions.conversationStatus = status.status;
-    nextExtensions.conversationActivity = status.activity;
-    nextExtensions.conversationStatusSource = status.source ?? "schedule";
-    if (status.availabilityExplanation) {
-      nextExtensions.conversationAvailabilityExplanation = status.availabilityExplanation;
-    } else {
-      delete nextExtensions.conversationAvailabilityExplanation;
-    }
-  } else {
-    delete nextExtensions.conversationStatus;
-    delete nextExtensions.conversationActivity;
-    delete nextExtensions.conversationStatusSource;
-    delete nextExtensions.conversationAvailabilityExplanation;
-  }
-  if (
-    nextExtensions.conversationStatus === extensions.conversationStatus &&
-    nextExtensions.conversationActivity === extensions.conversationActivity &&
-    nextExtensions.conversationStatusSource === extensions.conversationStatusSource &&
-    nextExtensions.conversationAvailabilityExplanation === extensions.conversationAvailabilityExplanation
-  ) {
+  const extensions = metadataRecord(metadataRecord(character.data).extensions);
+  const changes: Record<string, string | undefined> = {
+    conversationStatus: status?.status,
+    conversationActivity: status?.activity,
+    conversationStatusSource: status ? (status.source ?? "schedule") : undefined,
+    conversationAvailabilityExplanation: status?.availabilityExplanation || undefined,
+  };
+  // A cleared key is stored as null, so compare it the same way as an absent one.
+  if (Object.entries(changes).every(([key, value]) => (extensions[key] ?? undefined) === value)) {
     return false;
   }
-  await storage.update("characters", characterId, {
-    data: {
-      ...data,
-      extensions: nextExtensions,
-    },
-  });
+  await storage.update("characters", characterId, characterExtensionsPatch(changes));
   return true;
 }
 function clampPercent(value: number): number {

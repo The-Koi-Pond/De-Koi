@@ -9,6 +9,7 @@ import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inlin
 import { resolveActiveLorebookScopeReason } from "../../../generation-core/lorebooks/active-lorebook-scope";
 import { lorebookEntryPassesContextFilters } from "../../../generation-core/lorebooks/keyword-scanner";
 import { readString as stringValue } from "../../../shared/value-readers";
+import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
 
 // Types
 
@@ -260,24 +261,12 @@ export async function generateConversationSchedules(
         );
         newRoutines[characterId] = fullRoutine;
         delete newSchedules[characterId];
-        await updateCharacterConversationStatus(
-          capabilities.storage,
-          characterId,
-          fullRoutine,
-          character,
-          characterData,
-        );
+        await updateCharacterConversationStatus(capabilities.storage, characterId, fullRoutine, character);
         results[characterId] = { status: "generated", routine: fullRoutine };
       } else if (generated.schedule) {
         const fullSchedule = preserveTimingSettings({ ...generated.schedule, weekStart: mondayStr }, existingSchedule);
         newSchedules[characterId] = fullSchedule;
-        await updateCharacterConversationStatus(
-          capabilities.storage,
-          characterId,
-          fullSchedule,
-          character,
-          characterData,
-        );
+        await updateCharacterConversationStatus(capabilities.storage, characterId, fullSchedule, character);
         results[characterId] = { status: "generated_legacy", schedule: fullSchedule };
       } else {
         throw new Error("Routine generation returned no usable routine");
@@ -1372,24 +1361,19 @@ async function updateCharacterConversationStatus(
   characterId: string,
   profile: ConversationAvailabilityProfile,
   loadedCharacter?: JsonRecord,
-  loadedCharacterData?: JsonRecord,
 ): Promise<void> {
   const character = loadedCharacter ?? (await storage.get<JsonRecord>("characters", characterId));
   if (!character) return;
-  const characterData = loadedCharacterData ?? parseJsonObject(character.data);
   const current = isConversationRoutine(profile) ? getRoutineCurrentStatus(profile) : getCurrentStatus(profile);
-  const extensions = {
-    ...parseJsonObject(characterData.extensions),
-    conversationStatus: current.status,
-    conversationActivity: current.activity,
-    conversationStatusSource: isConversationRoutine(profile) ? "routine" : "schedule",
-  };
-  await storage.update("characters", characterId, {
-    data: {
-      ...characterData,
-      extensions,
-    },
-  });
+  await storage.update(
+    "characters",
+    characterId,
+    characterExtensionsPatch({
+      conversationStatus: current.status,
+      conversationActivity: current.activity,
+      conversationStatusSource: isConversationRoutine(profile) ? "routine" : "schedule",
+    }),
+  );
 }
 
 async function syncGeneratedAvailabilityToOtherChats(
