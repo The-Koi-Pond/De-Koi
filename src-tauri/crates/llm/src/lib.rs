@@ -5515,10 +5515,17 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
 
     #[test]
     fn claude_subscription_command_replaces_claude_code_prompt_and_runs_in_isolated_dir() {
-        let cwd = env::temp_dir().join(format!("claude-subscription-cwd-{}", Uuid::new_v4()));
-        let isolated =
-            claude_subscription_isolated_cwd_in(&cwd).expect("isolated dir should be created");
+        let base = env::temp_dir().join(format!("claude-subscription-base-{}", Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let workspace =
+            claude_subscription_workspace_in(&base).expect("workspace should be created");
+        let isolated = workspace.path().to_path_buf();
         assert!(isolated.is_dir());
+        assert_eq!(
+            fs::read_dir(&isolated).unwrap().count(),
+            0,
+            "workspace must start empty"
+        );
         let selection = claude_subscription_model_selection("claude-opus-4-8");
         let command = claude_subscription_command_for(
             "claude",
@@ -5548,7 +5555,34 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             .position(|arg| arg == "--tools")
             .expect("tools flag");
         assert_eq!(args[tools_flag + 1], "");
-        let _ = fs::remove_dir_all(&cwd);
+        drop(workspace);
+        assert!(
+            !isolated.exists(),
+            "workspace must be removed once the request is done"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn claude_subscription_workspaces_are_private_and_never_reuse_an_existing_path() {
+        let base = env::temp_dir().join(format!("claude-subscription-base-{}", Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let first = claude_subscription_workspace_in(&base).unwrap();
+        let second = claude_subscription_workspace_in(&base).unwrap();
+        assert_ne!(
+            first.path(),
+            second.path(),
+            "each request gets its own directory"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(first.path()).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
+        drop(first);
+        drop(second);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

@@ -296,24 +296,50 @@ pub(crate) fn claude_subscription_model_args(
 pub(crate) const CLAUDE_SUBSCRIPTION_NEUTRAL_SYSTEM_PROMPT: &str =
     "Continue the conversation below.";
 
-/// Claude Code discovers CLAUDE.md/AGENTS.md from its working directory upward, so chat requests run in
-/// an empty directory instead of the server's (which is the De-Koi checkout in the container image).
-pub(crate) fn claude_subscription_isolated_cwd_in(base: &Path) -> AppResult<PathBuf> {
-    let dir = base.join("de-koi-claude-subscription");
-    fs::create_dir_all(&dir).map_err(|error| {
+/// Private, empty working directory for one Claude Code request, removed when dropped. Claude Code
+/// discovers CLAUDE.md/AGENTS.md from its working directory upward, and the server's own directory is
+/// the De-Koi checkout in the container image.
+pub(crate) struct ClaudeSubscriptionWorkspace {
+    path: PathBuf,
+}
+
+impl ClaudeSubscriptionWorkspace {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for ClaudeSubscriptionWorkspace {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Creates a fresh directory with a random name; creation fails rather than reusing anything (file,
+/// directory, or symlink) already at that path, and on Unix only the runtime user can enter it.
+pub(crate) fn claude_subscription_workspace_in(
+    base: &Path,
+) -> AppResult<ClaudeSubscriptionWorkspace> {
+    let path = base.join(format!("de-koi-claude-{}", Uuid::new_v4()));
+    #[cfg(unix)]
+    let builder = {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = fs::DirBuilder::new();
+    builder.create(&path).map_err(|error| {
         AppError::new(
             "claude_subscription_workspace_error",
             format!(
-                "Claude Code's isolated working directory could not be created: {}",
+                "Claude Code's private working directory could not be created: {}",
                 redact_sensitive_text(&error.to_string())
             ),
         )
     })?;
-    Ok(dir)
-}
-
-pub(crate) fn claude_subscription_isolated_cwd() -> AppResult<PathBuf> {
-    claude_subscription_isolated_cwd_in(&env::temp_dir())
+    Ok(ClaudeSubscriptionWorkspace { path })
 }
 
 pub(crate) fn claude_subscription_help_supports_safe_mode(help: &str) -> bool {
@@ -344,7 +370,13 @@ fn claude_subscription_supports_safe_mode(command_name: &str) -> bool {
     }
     let supported = command.output().is_ok_and(|output| {
         claude_subscription_help_supports_safe_mode(&String::from_utf8_lossy(&output.stdout))
+            || claude_subscription_help_supports_safe_mode(&String::from_utf8_lossy(&output.stderr))
     });
+    if !supported {
+        eprintln!(
+            "[claude-subscription] `{command_name} --help` does not list --safe-mode; requests still run in a private empty directory with De-Koi's system prompt, but user-level CLAUDE.md, skills, and hooks may load. Update Claude Code to close that gap."
+        );
+    }
     if let Ok(mut cache) = cache.lock() {
         cache.insert(command_name.to_string(), supported);
     }
@@ -397,21 +429,24 @@ pub(crate) fn claude_subscription_command_for(
     command
 }
 
+/// The returned workspace must outlive the child process; dropping it deletes the directory.
 fn claude_subscription_isolated_command(
     fast_mode: bool,
     selection: &ClaudeSubscriptionModelSelection,
     system_prompt: Option<&str>,
-) -> AppResult<Command> {
+) -> AppResult<(Command, ClaudeSubscriptionWorkspace)> {
     let command_name = claude_subscription_command();
     let safe_mode = claude_subscription_supports_safe_mode(&command_name);
-    Ok(claude_subscription_command_for(
+    let workspace = claude_subscription_workspace_in(&env::temp_dir())?;
+    let command = claude_subscription_command_for(
         &command_name,
-        &claude_subscription_isolated_cwd()?,
+        workspace.path(),
         safe_mode,
         fast_mode,
         selection,
         system_prompt,
-    ))
+    );
+    Ok((command, workspace))
 }
 
 pub fn check_claude_subscription_available() -> AppResult<String> {
@@ -682,7 +717,8 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
         ));
     }
     let started = std::time::Instant::now();
-    let mut command = claude_subscription_isolated_command(fast_mode, &selection, None)?;
+    let (mut command, _workspace) =
+        claude_subscription_isolated_command(fast_mode, &selection, None)?;
     let mut child = command.spawn().map_err(|error| {
         AppError::new(
             "claude_subscription_unavailable",
@@ -764,7 +800,7 @@ pub(crate) async fn complete_claude_subscription_rich(
     let model_selection = claude_subscription_model_selection(&request.connection.model);
     // Every prompt already carries the chat history, so the command never persists a session:
     // reusing a fixed --session-id fails with "Session ID ... is already in use" from the second turn on.
-    let mut command = claude_subscription_isolated_command(
+    let (mut command, _workspace) = claude_subscription_isolated_command(
         request.connection.claude_fast_mode,
         &model_selection,
         prompt_selection.system_prompt.as_deref(),
