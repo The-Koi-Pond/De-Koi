@@ -5506,6 +5506,84 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
         );
     }
 
+    fn command_args(command: &Command) -> Vec<String> {
+        command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn claude_subscription_command_replaces_claude_code_prompt_and_runs_in_isolated_dir() {
+        let cwd = env::temp_dir().join(format!("claude-subscription-cwd-{}", Uuid::new_v4()));
+        let isolated =
+            claude_subscription_isolated_cwd_in(&cwd).expect("isolated dir should be created");
+        assert!(isolated.is_dir());
+        let selection = claude_subscription_model_selection("claude-opus-4-8");
+        let command = claude_subscription_command_for(
+            "claude",
+            &isolated,
+            true,
+            false,
+            &selection,
+            Some("You are Simon."),
+        );
+        let args = command_args(&command);
+        assert_eq!(command.get_current_dir(), Some(isolated.as_path()));
+        let prompt_flag = args
+            .iter()
+            .position(|arg| arg == "--system-prompt")
+            .expect("system prompt flag");
+        assert_eq!(args[prompt_flag + 1], "You are Simon.");
+        assert!(!args.iter().any(|arg| arg == "--append-system-prompt"));
+        for flag in [
+            "--safe-mode",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+        ] {
+            assert!(args.iter().any(|arg| arg == flag), "missing {flag}");
+        }
+        let tools_flag = args
+            .iter()
+            .position(|arg| arg == "--tools")
+            .expect("tools flag");
+        assert_eq!(args[tools_flag + 1], "");
+        let _ = fs::remove_dir_all(&cwd);
+    }
+
+    #[test]
+    fn claude_subscription_command_without_system_text_still_drops_claude_code_prompt() {
+        let selection = claude_subscription_model_selection("claude-opus-4-8");
+        let command = claude_subscription_command_for(
+            "claude",
+            Path::new("."),
+            false,
+            false,
+            &selection,
+            Some("  "),
+        );
+        let args = command_args(&command);
+        let prompt_flag = args
+            .iter()
+            .position(|arg| arg == "--system-prompt")
+            .expect("system prompt flag");
+        assert_eq!(
+            args[prompt_flag + 1],
+            CLAUDE_SUBSCRIPTION_NEUTRAL_SYSTEM_PROMPT
+        );
+        assert!(!args.iter().any(|arg| arg == "--safe-mode"));
+    }
+
+    #[test]
+    fn claude_subscription_safe_mode_detection_reads_help_text() {
+        assert!(claude_subscription_help_supports_safe_mode(
+            "  --safe-mode   Start with all customizations disabled"
+        ));
+        assert!(!claude_subscription_help_supports_safe_mode(
+            "  --restricted  Restricted mode"
+        ));
+    }
+
     #[test]
     fn claude_subscription_without_runtime_chat_uses_transcript_fold() {
         let request = LlmRequest {
