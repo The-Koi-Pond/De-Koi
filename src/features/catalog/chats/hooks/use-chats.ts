@@ -456,26 +456,34 @@ export function useChatGroup(groupId: string | null) {
   });
 }
 
+type UpdateChatVariables = {
+  id: string;
+  name?: string;
+  mode?: string;
+  connectionId?: string | null;
+  promptPresetId?: string | null;
+  personaId?: string | null;
+  characterIds?: string[];
+};
+
+// onMutate patches the cache before mutationFn runs. Automatic retitling compares the name
+// with the characters the chat had before this update, so keep that snapshot per call.
+const chatBeforeUpdate = new WeakMap<UpdateChatVariables, ChatCacheRecord | null>();
+
+function cachedChat(qc: ReturnType<typeof useQueryClient>, id: string): ChatCacheRecord | null {
+  return (
+    qc.getQueryData<ChatCacheRecord>(chatKeys.detail(id)) ??
+    (useChatStore.getState().activeChat?.id === id ? useChatStore.getState().activeChat : null)
+  );
+}
+
 export function useUpdateChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      id,
-      ...data
-    }: {
-      id: string;
-      name?: string;
-      mode?: string;
-      connectionId?: string | null;
-      promptPresetId?: string | null;
-      personaId?: string | null;
-      characterIds?: string[];
-    }) => {
-      const currentChat =
-        qc.getQueryData<ChatCacheRecord>(chatKeys.detail(id)) ??
-        (useChatStore.getState().activeChat?.id === id ? useChatStore.getState().activeChat : null);
-      const currentMode = currentChat && typeof currentChat.mode === "string" ? currentChat.mode : null;
-      const completedData = await completeCharacterTitleUpdate(data, { mode: currentMode }, async (characterId) => {
+    mutationFn: async (vars: UpdateChatVariables) => {
+      const { id, ...data } = vars;
+      const currentChat = chatBeforeUpdate.has(vars) ? chatBeforeUpdate.get(vars)! : cachedChat(qc, id);
+      const completedData = await completeCharacterTitleUpdate(data, currentChat, async (characterId) => {
         try {
           const character = await storageApi.get<{ data?: unknown }>("characters", characterId, {
             fields: ["id", "data"],
@@ -501,7 +509,9 @@ export function useUpdateChat() {
       });
       return storageApi.update<Chat>("chats", id, completedData);
     },
-    onMutate: ({ id, ...data }) => {
+    onMutate: (vars) => {
+      const { id, ...data } = vars;
+      chatBeforeUpdate.set(vars, cachedChat(qc, id));
       cancelChatCacheQueries(qc, id);
       const previousDetail = qc.getQueryData<ChatCacheRecord>(chatKeys.detail(id));
       const previousListQueries = qc.getQueriesData<ChatCacheRecord[]>({ queryKey: chatKeys.list() });
