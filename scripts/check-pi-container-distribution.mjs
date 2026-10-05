@@ -99,6 +99,11 @@ assertContains("Dockerfile", serverDockerfile, 'npm install -g "@openai/codex@${
 assertContains("Dockerfile", serverDockerfile, "codex --version");
 assertContains("Dockerfile", serverDockerfile, 'npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"');
 assertContains("Dockerfile", serverDockerfile, "claude --version");
+// The Pi server runs as root, and Claude Code refuses bypassPermissions as root. The provider passes
+// `--tools ""`, so there is nothing for a permission mode to bypass.
+const claudeSubscriptionProvider = read("src-tauri/crates/llm/src/providers/claude_subscription.rs");
+assertContains("claude_subscription.rs", claudeSubscriptionProvider, '.arg("--tools")');
+assertNotContains("claude_subscription.rs", claudeSubscriptionProvider, "bypassPermissions");
 assertNotContains("Dockerfile", serverDockerfile, "libwebkit2gtk");
 assertNotContains("Dockerfile", serverDockerfile, "libgtk-3");
 assertNotContains("Dockerfile", serverDockerfile, "libayatana-appindicator");
