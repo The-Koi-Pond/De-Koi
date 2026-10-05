@@ -95,24 +95,6 @@ pub(crate) fn claude_subscription_session_id(chat_id: &str) -> String {
     .to_string()
 }
 
-pub(crate) fn claude_subscription_scratch_cwd_in(base: &Path) -> AppResult<PathBuf> {
-    let dir = base.join("marinara-claude-subscription-scratch");
-    fs::create_dir_all(&dir).map_err(|error| {
-        AppError::new(
-            "claude_subscription_session_error",
-            format!(
-                "Claude subscription session scratch directory could not be created: {}",
-                redact_sensitive_text(&error.to_string())
-            ),
-        )
-    })?;
-    Ok(dir)
-}
-
-pub(crate) fn claude_subscription_scratch_cwd() -> AppResult<PathBuf> {
-    claude_subscription_scratch_cwd_in(&env::temp_dir())
-}
-
 pub(crate) fn claude_subscription_visible_message_text(message: &LlmMessage) -> Option<String> {
     let content = message.content.trim();
     if !content.is_empty() {
@@ -701,9 +683,6 @@ pub(crate) async fn complete_claude_subscription_rich(
     }
     // Every prompt already carries the chat history, so never ask Claude Code to persist a session:
     // reusing a fixed --session-id fails with "Session ID ... is already in use" from the second turn on.
-    if prompt_selection.session_id.is_some() {
-        command.current_dir(claude_subscription_scratch_cwd()?);
-    }
     command.arg("--no-session-persistence");
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
