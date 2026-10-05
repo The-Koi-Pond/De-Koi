@@ -97,6 +97,8 @@ assertContains("Dockerfile", serverDockerfile, "FROM node:22-bookworm-slim AS ru
 assertContains("Dockerfile", serverDockerfile, "yt-dlp");
 assertContains("Dockerfile", serverDockerfile, 'npm install -g "@openai/codex@${CODEX_CLI_VERSION}"');
 assertContains("Dockerfile", serverDockerfile, "codex --version");
+assertContains("Dockerfile", serverDockerfile, 'npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"');
+assertContains("Dockerfile", serverDockerfile, "claude --version");
 assertNotContains("Dockerfile", serverDockerfile, "libwebkit2gtk");
 assertNotContains("Dockerfile", serverDockerfile, "libgtk-3");
 assertNotContains("Dockerfile", serverDockerfile, "libayatana-appindicator");
@@ -243,6 +245,8 @@ assertContains("docs/pi.md", piDocs, "Codex Subscription");
 assertContains("docs/pi.md", piDocs, "codex login");
 assertContains("docs/pi.md", piDocs, "CODEX_HOME: /root/.codex");
 assertContains("docs/pi.md", piDocs, "/home/chai/.codex:/root/.codex");
+assertContains("docs/pi.md", piDocs, "CLAUDE_CONFIG_DIR: /root/.claude");
+assertContains("docs/pi.md", piDocs, "/home/chai/.claude:/root/.claude");
 assertContains("docs/pi.md", piDocs, "Test Connection");
 assertContains("docs/pi.md", piDocs, "Fetch ChatGPT Models");
 assertContains("docs/pi.md", piDocs, "Send Test Message");
