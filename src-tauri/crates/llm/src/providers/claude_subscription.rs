@@ -445,47 +445,65 @@ fn claude_subscription_isolated_command(
     Ok((command, workspace))
 }
 
-/// Sends the prompt and collects the child's output. Every failure kills and reaps the child before
-/// returning, so the caller's private workspace is only removed once the process is gone.
+/// Sends the prompt and collects the child's output. Both output pipes are drained on their own threads
+/// while the prompt is written, so a child that writes before it finishes reading cannot deadlock. Every
+/// failure kills and reaps the child before returning, so the caller's private workspace is only
+/// removed once the process is gone.
 pub(crate) fn claude_subscription_run_child(
     mut child: std::process::Child,
     prompt: &[u8],
 ) -> AppResult<std::process::Output> {
     use std::io::Read;
-    fn fail(child: &mut std::process::Child, error: std::io::Error) -> AppError {
+    type Reader = std::thread::JoinHandle<std::io::Result<Vec<u8>>>;
+    fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> Option<Reader> {
+        pipe.map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut buffer = Vec::new();
+                pipe.read_to_end(&mut buffer).map(|_| buffer)
+            })
+        })
+    }
+    fn collect(reader: Option<Reader>) -> std::io::Result<Vec<u8>> {
+        match reader.map(|reader| reader.join()) {
+            None => Ok(Vec::new()),
+            Some(Ok(result)) => result,
+            Some(Err(_)) => Err(std::io::Error::other("Claude Code output reader panicked")),
+        }
+    }
+    fn fail(
+        child: &mut std::process::Child,
+        readers: [Option<Reader>; 2],
+        error: std::io::Error,
+    ) -> AppError {
         let _ = child.kill();
         let _ = child.wait();
+        // The pipes close with the process, so the readers finish.
+        for reader in readers {
+            let _ = collect(reader);
+        }
         AppError::new("claude_subscription_io_error", error.to_string())
     }
+
+    let stdout_reader = drain(child.stdout.take());
+    let stderr_reader = drain(child.stderr.take());
     if let Some(mut stdin) = child.stdin.take() {
-        if let Err(error) = stdin.write_all(prompt) {
-            return Err(fail(&mut child, error));
+        let written = stdin.write_all(prompt);
+        drop(stdin);
+        if let Err(error) = written {
+            return Err(fail(&mut child, [stdout_reader, stderr_reader], error));
         }
     }
-    let stderr_reader = child.stderr.take().map(|mut stderr| {
-        std::thread::spawn(move || {
-            let mut buffer = Vec::new();
-            stderr.read_to_end(&mut buffer).map(|_| buffer)
-        })
-    });
-    let mut stdout = Vec::new();
-    if let Some(mut pipe) = child.stdout.take() {
-        if let Err(error) = pipe.read_to_end(&mut stdout) {
-            return Err(fail(&mut child, error));
-        }
-    }
-    let stderr = match stderr_reader.map(|reader| reader.join()) {
-        None => Vec::new(),
-        Some(Ok(Ok(buffer))) => buffer,
-        Some(Ok(Err(error))) => return Err(fail(&mut child, error)),
-        Some(Err(_)) => {
-            return Err(fail(
-                &mut child,
-                std::io::Error::other("Claude Code stderr reader panicked"),
-            ))
-        }
+    let stdout = match collect(stdout_reader) {
+        Ok(stdout) => stdout,
+        Err(error) => return Err(fail(&mut child, [None, stderr_reader], error)),
     };
-    let status = child.wait().map_err(|error| fail(&mut child, error))?;
+    let stderr = match collect(stderr_reader) {
+        Ok(stderr) => stderr,
+        Err(error) => return Err(fail(&mut child, [None, None], error)),
+    };
+    let status = child
+        .wait()
+        .map_err(|error| fail(&mut child, [None, None], error))?;
     Ok(std::process::Output {
         status,
         stdout,

@@ -5632,6 +5632,32 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
 
     #[test]
     #[cfg(unix)]
+    fn claude_subscription_child_that_writes_before_reading_does_not_deadlock() {
+        // Fills the stdout pipe before it reads any of a prompt larger than the stdin pipe buffer.
+        let child = Command::new("sh")
+            .args(["-c", "head -c 1048576 /dev/zero; cat > /dev/null"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("sh should spawn");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(claude_subscription_run_child(
+                child,
+                &vec![b'x'; 1024 * 1024],
+            ));
+        });
+        let output = receiver
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the runner must not deadlock")
+            .expect("output should be collected");
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 1024 * 1024);
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn claude_subscription_child_output_is_collected() {
         let child = Command::new("cat")
             .stdin(Stdio::piped())
