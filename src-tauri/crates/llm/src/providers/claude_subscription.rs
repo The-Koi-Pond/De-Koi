@@ -455,13 +455,16 @@ pub(crate) fn claude_subscription_run_child(
 ) -> AppResult<std::process::Output> {
     use std::io::Read;
     type Reader = std::thread::JoinHandle<std::io::Result<Vec<u8>>>;
-    fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> Option<Reader> {
+    fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::io::Result<Option<Reader>> {
         pipe.map(|mut pipe| {
-            std::thread::spawn(move || {
-                let mut buffer = Vec::new();
-                pipe.read_to_end(&mut buffer).map(|_| buffer)
-            })
+            std::thread::Builder::new()
+                .name("claude-subscription-output".to_string())
+                .spawn(move || {
+                    let mut buffer = Vec::new();
+                    pipe.read_to_end(&mut buffer).map(|_| buffer)
+                })
         })
+        .transpose()
     }
     fn collect(reader: Option<Reader>) -> std::io::Result<Vec<u8>> {
         match reader.map(|reader| reader.join()) {
@@ -484,8 +487,14 @@ pub(crate) fn claude_subscription_run_child(
         AppError::new("claude_subscription_io_error", error.to_string())
     }
 
-    let stdout_reader = drain(child.stdout.take());
-    let stderr_reader = drain(child.stderr.take());
+    let stdout_reader = match drain(child.stdout.take()) {
+        Ok(reader) => reader,
+        Err(error) => return Err(fail(&mut child, [None, None], error)),
+    };
+    let stderr_reader = match drain(child.stderr.take()) {
+        Ok(reader) => reader,
+        Err(error) => return Err(fail(&mut child, [stdout_reader, None], error)),
+    };
     if let Some(mut stdin) = child.stdin.take() {
         let written = stdin.write_all(prompt);
         drop(stdin);
