@@ -106,6 +106,12 @@ Type `/login`, finish the browser sign-in, then `/exit`. In De-Koi, use the
 Claude Subscription connection's **Test Connection** and **Send Test Message**
 to prove the login and generation.
 
+Each request runs `claude -p` in a fresh private temp directory with
+`--safe-mode` and De-Koi's own system prompt, so Claude Code's instruction files
+(CLAUDE.md, AGENTS.md), skills, and hooks never reach your chats. A Claude Code
+install too old to list `--safe-mode` is refused with an error asking you to run
+`claude update`.
+
 For timer-driven updates, put the same override setting in the optional systemd
 environment file:
 

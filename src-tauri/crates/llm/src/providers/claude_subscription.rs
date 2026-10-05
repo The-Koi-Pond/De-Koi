@@ -346,17 +346,17 @@ pub(crate) fn claude_subscription_help_supports_safe_mode(help: &str) -> bool {
     help.contains("--safe-mode")
 }
 
-/// `--safe-mode` also turns off user-level CLAUDE.md, skills, plugins, and hooks, but older Claude Code
-/// releases reject unknown flags, so it is only passed when `--help` lists it.
-fn claude_subscription_supports_safe_mode(command_name: &str) -> bool {
-    static SUPPORT: OnceLock<Mutex<BTreeMap<String, bool>>> = OnceLock::new();
-    let cache = SUPPORT.get_or_init(|| Mutex::new(BTreeMap::new()));
-    if let Some(known) = cache
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(command_name).copied())
-    {
-        return known;
+pub(crate) const CLAUDE_SUBSCRIPTION_SAFE_MODE_REQUIRED: &str = "This Claude Code install does not support --safe-mode, which De-Koi needs to keep Claude Code's own instruction files (CLAUDE.md, AGENTS.md), skills, and hooks out of your chats. Run `claude update` (or reinstall @anthropic-ai/claude-code), then try again.";
+
+/// `--safe-mode` is what keeps CLAUDE.md/AGENTS.md discovery (including parent directories of the
+/// working directory, which De-Koi cannot control on desktop installs), skills, plugins, and hooks out
+/// of the request, so a CLI without it is refused. Only a positive probe is cached: after the user
+/// updates Claude Code, the next request re-probes.
+fn claude_subscription_require_safe_mode(command_name: &str) -> AppResult<()> {
+    static SUPPORTED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    let cache = SUPPORTED.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    if cache.lock().is_ok_and(|cache| cache.contains(command_name)) {
+        return Ok(());
     }
     let mut command = Command::new(command_name);
     command
@@ -373,14 +373,15 @@ fn claude_subscription_supports_safe_mode(command_name: &str) -> bool {
             || claude_subscription_help_supports_safe_mode(&String::from_utf8_lossy(&output.stderr))
     });
     if !supported {
-        eprintln!(
-            "[claude-subscription] `{command_name} --help` does not list --safe-mode; requests still run in a private empty directory with De-Koi's system prompt, but user-level CLAUDE.md, skills, and hooks may load. Update Claude Code to close that gap."
-        );
+        return Err(AppError::new(
+            "claude_subscription_unsupported_cli",
+            CLAUDE_SUBSCRIPTION_SAFE_MODE_REQUIRED,
+        ));
     }
     if let Ok(mut cache) = cache.lock() {
-        cache.insert(command_name.to_string(), supported);
+        cache.insert(command_name.to_string());
     }
-    supported
+    Ok(())
 }
 
 /// One-shot `claude -p` invocation that sees only the prompt De-Koi assembled: no tools, slash commands,
@@ -388,7 +389,6 @@ fn claude_subscription_supports_safe_mode(command_name: &str) -> bool {
 pub(crate) fn claude_subscription_command_for(
     command_name: &str,
     cwd: &Path,
-    safe_mode: bool,
     fast_mode: bool,
     selection: &ClaudeSubscriptionModelSelection,
     system_prompt: Option<&str>,
@@ -404,11 +404,8 @@ pub(crate) fn claude_subscription_command_for(
         .arg("--tools")
         .arg("")
         .arg("--disable-slash-commands")
-        .arg("--no-session-persistence");
-    if safe_mode {
-        command.arg("--safe-mode");
-    }
-    command
+        .arg("--no-session-persistence")
+        .arg("--safe-mode")
         .arg("--system-prompt")
         .arg(
             system_prompt
@@ -436,17 +433,64 @@ fn claude_subscription_isolated_command(
     system_prompt: Option<&str>,
 ) -> AppResult<(Command, ClaudeSubscriptionWorkspace)> {
     let command_name = claude_subscription_command();
-    let safe_mode = claude_subscription_supports_safe_mode(&command_name);
+    claude_subscription_require_safe_mode(&command_name)?;
     let workspace = claude_subscription_workspace_in(&env::temp_dir())?;
     let command = claude_subscription_command_for(
         &command_name,
         workspace.path(),
-        safe_mode,
         fast_mode,
         selection,
         system_prompt,
     );
     Ok((command, workspace))
+}
+
+/// Sends the prompt and collects the child's output. Every failure kills and reaps the child before
+/// returning, so the caller's private workspace is only removed once the process is gone.
+pub(crate) fn claude_subscription_run_child(
+    mut child: std::process::Child,
+    prompt: &[u8],
+) -> AppResult<std::process::Output> {
+    use std::io::Read;
+    fn fail(child: &mut std::process::Child, error: std::io::Error) -> AppError {
+        let _ = child.kill();
+        let _ = child.wait();
+        AppError::new("claude_subscription_io_error", error.to_string())
+    }
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(error) = stdin.write_all(prompt) {
+            return Err(fail(&mut child, error));
+        }
+    }
+    let stderr_reader = child.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            stderr.read_to_end(&mut buffer).map(|_| buffer)
+        })
+    });
+    let mut stdout = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        if let Err(error) = pipe.read_to_end(&mut stdout) {
+            return Err(fail(&mut child, error));
+        }
+    }
+    let stderr = match stderr_reader.map(|reader| reader.join()) {
+        None => Vec::new(),
+        Some(Ok(Ok(buffer))) => buffer,
+        Some(Ok(Err(error))) => return Err(fail(&mut child, error)),
+        Some(Err(_)) => {
+            return Err(fail(
+                &mut child,
+                std::io::Error::other("Claude Code stderr reader panicked"),
+            ))
+        }
+    };
+    let status = child.wait().map_err(|error| fail(&mut child, error))?;
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 pub fn check_claude_subscription_available() -> AppResult<String> {
@@ -480,6 +524,7 @@ pub fn check_claude_subscription_available() -> AppResult<String> {
             },
         ));
     }
+    claude_subscription_require_safe_mode(&command_name)?;
     Ok(
         "Claude Code command is available. The first chat will fail if `claude login` has not been run on this host."
             .to_string(),
@@ -719,7 +764,7 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
     let started = std::time::Instant::now();
     let (mut command, _workspace) =
         claude_subscription_isolated_command(fast_mode, &selection, None)?;
-    let mut child = command.spawn().map_err(|error| {
+    let child = command.spawn().map_err(|error| {
         AppError::new(
             "claude_subscription_unavailable",
             format!(
@@ -727,14 +772,7 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
             ),
         )
     })?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(b"Reply with exactly: OK")
-            .map_err(|error| AppError::new("claude_subscription_io_error", error.to_string()))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| AppError::new("claude_subscription_io_error", error.to_string()))?;
+    let output = claude_subscription_run_child(child, b"Reply with exactly: OK")?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     if !output.status.success() {
@@ -822,7 +860,7 @@ pub(crate) async fn complete_claude_subscription_rich(
             "promptShape": prompt_selection.prompt_shape
         }),
     );
-    let mut child = command
+    let child = command
         .spawn()
         .map_err(|error| {
             AppError::new(
@@ -832,14 +870,7 @@ pub(crate) async fn complete_claude_subscription_rich(
                 ),
             )
         })?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt_selection.prompt.as_bytes())
-            .map_err(|error| AppError::new("claude_subscription_io_error", error.to_string()))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| AppError::new("claude_subscription_io_error", error.to_string()))?;
+    let output = claude_subscription_run_child(child, prompt_selection.prompt.as_bytes())?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     if !output.status.success() {

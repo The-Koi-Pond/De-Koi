@@ -5530,7 +5530,6 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
         let command = claude_subscription_command_for(
             "claude",
             &isolated,
-            true,
             false,
             &selection,
             Some("You are Simon."),
@@ -5592,7 +5591,6 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             "claude",
             Path::new("."),
             false,
-            false,
             &selection,
             Some("  "),
         );
@@ -5605,7 +5603,52 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             args[prompt_flag + 1],
             CLAUDE_SUBSCRIPTION_NEUTRAL_SYSTEM_PROMPT
         );
-        assert!(!args.iter().any(|arg| arg == "--safe-mode"));
+        assert!(args.iter().any(|arg| arg == "--safe-mode"));
+    }
+
+    #[test]
+    fn claude_subscription_child_failure_reaps_the_process() {
+        // `true` exits at once without reading stdin, so a large prompt write hits a broken pipe.
+        #[cfg(unix)]
+        {
+            let child = Command::new("true")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("true should spawn");
+            let pid = child.id();
+            let prompt = vec![b'x'; 8 * 1024 * 1024];
+            let result = claude_subscription_run_child(child, &prompt);
+            if let Err(error) = result {
+                assert_eq!(error.code, "claude_subscription_io_error");
+            }
+            assert!(
+                !Path::new(&format!("/proc/{pid}")).exists(),
+                "the child must be reaped, not left running or as a zombie"
+            );
+        }
+    }
+
+    #[test]
+    fn claude_subscription_child_output_is_collected() {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "more"]);
+            command
+        } else {
+            Command::new("cat")
+        };
+        let child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("echo command should spawn");
+        let output =
+            claude_subscription_run_child(child, b"hello").expect("output should be collected");
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("hello"));
     }
 
     #[test]
