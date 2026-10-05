@@ -19,7 +19,8 @@ type CharacterTitleChatSnapshot = {
 /**
  * Membership changes retitle a chat only while its name is still automatic: blank, or the
  * title derived from its current characters (including fallbacks like "New Conversation").
- * A name the user typed survives adding or removing characters.
+ * A name the user typed survives adding or removing characters, and a title is never derived
+ * from a partial roster: if any character name fails to load, the current name stays.
  */
 export async function completeCharacterTitleUpdate<T extends CharacterMembershipChatUpdate>(
   update: T,
@@ -32,14 +33,9 @@ export async function completeCharacterTitleUpdate<T extends CharacterMembership
   const mode = update.mode ?? (typeof currentChat?.mode === "string" ? currentChat.mode : null);
   if (!(await hasAutomaticTitle(currentChat, mode, loadCharacterName))) return update;
 
-  const names = await Promise.all(update.characterIds.map((id) => loadCharacterName(id)));
-  return {
-    ...update,
-    name: deriveChatTitle(
-      mode,
-      names.filter((name): name is string => !!name),
-    ),
-  };
+  const names = await loadAllCharacterNames(update.characterIds, loadCharacterName);
+  if (!names) return update;
+  return { ...update, name: deriveChatTitle(mode, names) };
 }
 
 async function hasAutomaticTitle(
@@ -53,12 +49,15 @@ async function hasAutomaticTitle(
   if (!currentName) return true;
 
   const previousIds = normalizeChatCharacterIds(currentChat.characterIds);
-  const previousNames = await Promise.all(previousIds.map((id) => loadCharacterName(id)));
-  return (
-    currentName ===
-    deriveChatTitle(
-      mode,
-      previousNames.filter((name): name is string => !!name),
-    )
-  );
+  const previousNames = await loadAllCharacterNames(previousIds, loadCharacterName);
+  return !!previousNames && currentName === deriveChatTitle(mode, previousNames);
+}
+
+/** Every name, or null when any lookup comes back empty. */
+async function loadAllCharacterNames(
+  ids: readonly string[],
+  loadCharacterName: (id: string) => Promise<string | null>,
+): Promise<string[] | null> {
+  const names = await Promise.all(ids.map((id) => loadCharacterName(id)));
+  return names.every((name): name is string => !!name) ? names : null;
 }

@@ -50,6 +50,26 @@ describe("completeCharacterTitleUpdate", () => {
     ).resolves.toEqual({ characterIds: ["mira", "rook"] });
   });
 
+  it("keeps the name instead of deriving from a partial roster", async () => {
+    // "ghost" fails to load: never mint "Mira" for a Mira + ghost chat.
+    await expect(
+      completeCharacterTitleUpdate(
+        { characterIds: ["mira", "ghost"] },
+        { mode: "conversation", name: "New Conversation", characterIds: [] },
+        loadName(),
+      ),
+    ).resolves.toEqual({ characterIds: ["mira", "ghost"] });
+
+    // A failed lookup on the previous roster cannot prove the current name is automatic.
+    await expect(
+      completeCharacterTitleUpdate(
+        { characterIds: ["mira", "rook"] },
+        { mode: "conversation", name: "Mira", characterIds: ["mira", "ghost"] },
+        loadName(),
+      ),
+    ).resolves.toEqual({ characterIds: ["mira", "rook"] });
+  });
+
   it("keeps the name when the current chat is unknown", async () => {
     const load = loadName();
 
