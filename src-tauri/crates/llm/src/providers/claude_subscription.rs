@@ -311,7 +311,17 @@ impl ClaudeSubscriptionWorkspace {
 
 impl Drop for ClaudeSubscriptionWorkspace {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+        // The directory only ever exists so Claude Code starts somewhere empty; the prompt goes over
+        // stdin and sessions are not persisted. A leftover is harmless but should not go unnoticed.
+        if let Err(error) = fs::remove_dir_all(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!(
+                    "[claude-subscription] could not remove workspace {}: {}",
+                    self.path.display(),
+                    redact_sensitive_text(&error.to_string())
+                );
+            }
+        }
     }
 }
 
