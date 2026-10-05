@@ -2050,6 +2050,19 @@ impl FileStorage {
         Ok(rows)
     }
 
+    /// Per-chat message readers stream `messages.json` for speed, but a record-local journal holds
+    /// acknowledged writes (a regenerated swipe, a metadata patch) that the file does not have yet.
+    /// While one exists, those readers must use the journal-applied rows instead.
+    fn cached_or_pending_message_rows(
+        &self,
+        recover_on_fallback: bool,
+    ) -> AppResult<Option<Vec<Value>>> {
+        if let Some(rows) = self.cached_rows("messages")? {
+            return Ok(Some(rows));
+        }
+        self.pending_collection_rows("messages", recover_on_fallback)
+    }
+
     fn pending_collection_rows(
         &self,
         collection: &str,
@@ -2760,7 +2773,12 @@ impl FileStorage {
         }
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
-        if let Some(rows) = self.cached_dirty_rows("messages")? {
+        let dirty_rows = self.cached_dirty_rows("messages")?;
+        let pending_rows = match dirty_rows {
+            Some(rows) => Some(rows),
+            None => self.pending_collection_rows("messages", recover_on_fallback)?,
+        };
+        if let Some(rows) = pending_rows {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
@@ -2801,7 +2819,7 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        if let Some(rows) = self.cached_rows("messages")? {
+        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
@@ -2843,7 +2861,12 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        if let Some(rows) = self.cached_dirty_rows("messages")? {
+        let dirty_rows = self.cached_dirty_rows("messages")?;
+        let pending_rows = match dirty_rows {
+            Some(rows) => Some(rows),
+            None => self.pending_collection_rows("messages", recover_on_fallback)?,
+        };
+        if let Some(rows) = pending_rows {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
@@ -2897,7 +2920,7 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<usize> {
-        if let Some(rows) = self.cached_rows("messages")? {
+        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
             return Ok(rows
                 .iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
@@ -2956,7 +2979,7 @@ impl FileStorage {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        if let Some(rows) = self.cached_rows("messages")? {
+        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
             let mut rows = rows
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
@@ -3042,7 +3065,7 @@ impl FileStorage {
 
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
-        if let Some(rows) = self.cached_rows("messages")? {
+        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
             let mut rows = rows
                 .into_iter()
                 .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
@@ -4199,6 +4222,78 @@ mod tests {
                     .to_string_lossy()
                     .starts_with(".collection-transaction-")
             }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn per_chat_message_reads_include_record_local_journal_writes() {
+        let root = temp_storage_root("per-chat-message-journal-reads");
+        let collections = root.join("collections");
+        write_test_collection(
+            &collections.join("messages.json"),
+            vec![
+                json!({ "id": "m1", "chatId": "chat-a", "content": "first", "activeSwipeIndex": 0, "createdAt": "2026-06-01T10:00:00.000Z" }),
+                json!({ "id": "other", "chatId": "chat-b", "content": "elsewhere", "createdAt": "2026-06-01T10:00:01.000Z" }),
+            ],
+        );
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .upsert_many_journaled_with_collections(
+                vec![(
+                    "messages",
+                    vec![
+                        json!({ "id": "m1", "chatId": "chat-a", "content": "second", "activeSwipeIndex": 1, "createdAt": "2026-06-01T10:00:00.000Z" }),
+                        json!({ "id": "m2", "chatId": "chat-a", "content": "new reply", "createdAt": "2026-06-01T10:00:02.000Z" }),
+                    ],
+                )],
+                Vec::new(),
+                |_| Ok(()),
+            )
+            .unwrap();
+        assert!(
+            collections.join("messages.pending.jsonl").exists(),
+            "the write under test must still be journal-only"
+        );
+        let fields = vec![
+            "id".to_string(),
+            "content".to_string(),
+            "activeSwipeIndex".to_string(),
+        ];
+        let by_id = |rows: Vec<Value>| -> std::collections::BTreeMap<String, Value> {
+            rows.into_iter()
+                .map(|row| (row["id"].as_str().unwrap().to_string(), row))
+                .collect()
+        };
+
+        let full = by_id(storage.list_messages_for_chat("chat-a").unwrap());
+        assert_eq!(full["m1"]["activeSwipeIndex"], json!(1));
+        assert_eq!(full.len(), 2);
+        let projected = by_id(
+            storage
+                .list_messages_for_chat_projected("chat-a", &fields, &Map::new())
+                .unwrap(),
+        );
+        assert_eq!(projected["m1"]["content"], json!("second"));
+        assert_eq!(projected.len(), 2);
+        let page = by_id(
+            storage
+                .list_messages_for_chat_page("chat-a", 20, None, 0)
+                .unwrap(),
+        );
+        assert_eq!(page["m1"]["activeSwipeIndex"], json!(1));
+        assert!(page.contains_key("m2"));
+        let page_projected = by_id(
+            storage
+                .list_messages_for_chat_page_projected("chat-a", 20, None, 0, &fields, &Map::new())
+                .unwrap(),
+        );
+        assert_eq!(page_projected["m1"]["content"], json!("second"));
+        assert!(page_projected.contains_key("m2"));
+        assert_eq!(
+            storage.list_message_ids_for_chat("chat-a").unwrap().len(),
+            2
+        );
+        assert_eq!(storage.count_messages_for_chat("chat-a").unwrap(), 2);
         fs::remove_dir_all(root).unwrap();
     }
 
