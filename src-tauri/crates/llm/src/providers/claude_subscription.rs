@@ -587,8 +587,6 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
         .arg("-p")
         .arg("--output-format")
         .arg("json")
-        .arg("--permission-mode")
-        .arg("bypassPermissions")
         .arg("--settings")
         .arg(json!({ "fastMode": fast_mode }).to_string())
         .arg("--tools")
@@ -689,8 +687,6 @@ pub(crate) async fn complete_claude_subscription_rich(
         .arg("-p")
         .arg("--output-format")
         .arg("json")
-        .arg("--permission-mode")
-        .arg("bypassPermissions")
         .arg("--settings")
         .arg(json!({ "fastMode": request.connection.claude_fast_mode }).to_string())
         .arg("--tools")
@@ -723,7 +719,6 @@ pub(crate) async fn complete_claude_subscription_rich(
             "configuredModel": model_selection.configured_model.clone(),
             "longContextBeta": model_selection.long_context_beta,
             "outputFormat": "json",
-            "permissionMode": "bypassPermissions",
             "fastMode": request.connection.claude_fast_mode,
             "sessionId": prompt_selection.session_id.as_deref(),
             "promptShape": prompt_selection.prompt_shape
