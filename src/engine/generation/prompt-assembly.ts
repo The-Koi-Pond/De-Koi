@@ -491,8 +491,9 @@ function loadCharacterContext(record: JsonRecord, chat?: JsonRecord): Generation
     creatorNotes: field(data, "creator_notes") || field(data, "creatorNotes") || undefined,
     publicProfile: characterPublicProfile(extensions),
     systemPrompt: field(data, "system_prompt") || field(data, "systemPrompt") || undefined,
-    backstory: field(data, "backstory") || field(extensions, "backstory") || undefined,
-    appearance: field(data, "appearance") || field(extensions, "appearance") || undefined,
+    // The editor and Deki write character backstory/appearance to extensions; top-level copies are legacy fallbacks.
+    backstory: field(extensions, "backstory") || field(data, "backstory") || undefined,
+    appearance: field(extensions, "appearance") || field(data, "appearance") || undefined,
     mesExample: field(data, "mes_example") || field(data, "mesExample") || undefined,
     firstMes: field(data, "first_mes") || field(data, "firstMes") || undefined,
     alternateGreetings: stringArray(data.alternate_greetings ?? data.alternateGreetings),
