@@ -53,11 +53,11 @@ async function hasAutomaticTitle(
   return !!previousNames && currentName === deriveChatTitle(mode, previousNames);
 }
 
-/** Every name, or null when any lookup comes back empty. */
+/** Every name, or null when any lookup comes back empty or fails. */
 async function loadAllCharacterNames(
   ids: readonly string[],
   loadCharacterName: (id: string) => Promise<string | null>,
 ): Promise<string[] | null> {
-  const names = await Promise.all(ids.map((id) => loadCharacterName(id)));
+  const names = await Promise.all(ids.map((id) => loadCharacterName(id).catch(() => null)));
   return names.every((name): name is string => !!name) ? names : null;
 }

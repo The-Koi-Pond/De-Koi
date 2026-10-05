@@ -70,6 +70,21 @@ describe("completeCharacterTitleUpdate", () => {
     ).resolves.toEqual({ characterIds: ["mira", "rook"] });
   });
 
+  it("keeps the name and still saves membership when a lookup throws", async () => {
+    const load = vi.fn(async (id: string) => {
+      if (id === "rook") throw new Error("character read failed");
+      return names[id] ?? null;
+    });
+
+    await expect(
+      completeCharacterTitleUpdate(
+        { characterIds: ["mira", "rook"] },
+        { mode: "conversation", name: "Mira", characterIds: ["mira"] },
+        load,
+      ),
+    ).resolves.toEqual({ characterIds: ["mira", "rook"] });
+  });
+
   it("keeps the name when the current chat is unknown", async () => {
     const load = loadName();
 
