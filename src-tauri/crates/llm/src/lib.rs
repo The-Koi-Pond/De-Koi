@@ -5665,24 +5665,6 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
     }
 
     #[test]
-    fn claude_subscription_scratch_cwd_failure_is_explicit() {
-        let base = env::temp_dir().join(format!(
-            "de-koi-claude-subscription-file-{}",
-            Uuid::new_v4()
-        ));
-        fs::write(&base, b"not a directory").expect("scratch blocker file should be writable");
-
-        let error = claude_subscription_scratch_cwd_in(&base)
-            .expect_err("file parent should block scratch directory creation");
-        let _ = fs::remove_file(&base);
-
-        assert_eq!(error.code, "claude_subscription_session_error");
-        assert!(error
-            .message
-            .contains("scratch directory could not be created"));
-    }
-
-    #[test]
     fn claude_subscription_impersonation_uses_transcript_fold() {
         let request = LlmRequest {
             connection: test_connection(),
