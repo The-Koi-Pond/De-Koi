@@ -95,24 +95,6 @@ pub(crate) fn claude_subscription_session_id(chat_id: &str) -> String {
     .to_string()
 }
 
-pub(crate) fn claude_subscription_scratch_cwd_in(base: &Path) -> AppResult<PathBuf> {
-    let dir = base.join("marinara-claude-subscription-scratch");
-    fs::create_dir_all(&dir).map_err(|error| {
-        AppError::new(
-            "claude_subscription_session_error",
-            format!(
-                "Claude subscription session scratch directory could not be created: {}",
-                redact_sensitive_text(&error.to_string())
-            ),
-        )
-    })?;
-    Ok(dir)
-}
-
-pub(crate) fn claude_subscription_scratch_cwd() -> AppResult<PathBuf> {
-    claude_subscription_scratch_cwd_in(&env::temp_dir())
-}
-
 pub(crate) fn claude_subscription_visible_message_text(message: &LlmMessage) -> Option<String> {
     let content = message.content.trim();
     if !content.is_empty() {
@@ -341,14 +323,10 @@ pub fn check_claude_subscription_available() -> AppResult<String> {
             },
         ));
     }
-    let session_state = if claude_subscription_resume_enabled() {
-        "chat-scoped Claude Code sessions are enabled"
-    } else {
-        "chat-scoped Claude Code sessions are disabled by CLAUDE_SUBSCRIPTION_USE_RESUME"
-    };
-    Ok(format!(
-        "Claude Code command is available; {session_state}. The first chat will fail if `claude login` has not been run on this host."
-    ))
+    Ok(
+        "Claude Code command is available. The first chat will fail if `claude login` has not been run on this host."
+            .to_string(),
+    )
 }
 
 pub(crate) fn claude_subscription_text_from_json(value: &Value) -> Option<String> {
@@ -699,13 +677,9 @@ pub(crate) async fn complete_claude_subscription_rich(
     if let Some(system_prompt) = prompt_selection.system_prompt.as_ref() {
         command.arg("--append-system-prompt").arg(system_prompt);
     }
-    if let Some(session_id) = prompt_selection.session_id.as_ref() {
-        let cwd = claude_subscription_scratch_cwd()?;
-        command.arg("--session-id").arg(session_id);
-        command.current_dir(cwd);
-    } else {
-        command.arg("--no-session-persistence");
-    }
+    // Every prompt already carries the chat history, so never ask Claude Code to persist a session:
+    // reusing a fixed --session-id fails with "Session ID ... is already in use" from the second turn on.
+    command.arg("--no-session-persistence");
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
     }
