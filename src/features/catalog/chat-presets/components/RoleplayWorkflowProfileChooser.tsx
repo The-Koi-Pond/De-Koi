@@ -81,10 +81,18 @@ const ITEM_LABELS: Record<string, string> = {
 
 type EntryPoint = "wizard" | "drawer";
 
+/** Applies the reviewed ledger; resolves true only when the profile was written. */
+export type ApplyPendingRoleplayWorkflow = () => Promise<boolean>;
+
 export interface RoleplayWorkflowProfileChooserProps {
   chat: Chat;
   entryPoint: EntryPoint;
   onNavigateAway?: () => void;
+  /**
+   * Reports an unapplied profile choice so a host (the setup wizard) can apply it from its own
+   * finish button instead of silently dropping it. Receives null when nothing is pending.
+   */
+  onPendingApplyChange?: (applyPending: ApplyPendingRoleplayWorkflow | null) => void;
 }
 
 function itemLabel(id: string): string {
@@ -225,6 +233,7 @@ export function RoleplayWorkflowProfileChooser({
   chat,
   entryPoint,
   onNavigateAway,
+  onPendingApplyChange,
 }: RoleplayWorkflowProfileChooserProps) {
   const [profileId, setProfileId] = useState<RoleplayWorkflowProfileId>(() => appliedProfileId(chat));
   const [preview, setPreview] = useState<RoleplayWorkflowProfileResolution | null>(null);
@@ -235,6 +244,8 @@ export function RoleplayWorkflowProfileChooser({
   const [confirming, setConfirming] = useState(false);
   const [status, setStatus] = useState<{ tone: "info" | "success" | "error"; message: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // True once the user picks a profile or toggles a ledger row, until that choice is applied.
+  const [choiceUnapplied, setChoiceUnapplied] = useState(false);
   const displayedChatRef = useRef(chat);
   const capabilityRequestRef = useRef(0);
   const plannerOperationRef = useRef(0);
@@ -257,6 +268,7 @@ export function RoleplayWorkflowProfileChooser({
       message: "Chat settings changed. Review the refreshed ledger before applying.",
     });
     setProfileId(appliedProfileId(chat));
+    setChoiceUnapplied(false);
     setDisplayedChat(chat);
   }, [chat]);
 
@@ -295,6 +307,7 @@ export function RoleplayWorkflowProfileChooser({
     async (nextProfileId: RoleplayWorkflowProfileId) => {
       const requestId = ++capabilityRequestRef.current;
       setProfileId(nextProfileId);
+      setChoiceUnapplied(true);
       setConfirming(false);
       setStatus(null);
       setLoadingCapabilities(true);
@@ -319,6 +332,7 @@ export function RoleplayWorkflowProfileChooser({
   const toggleItem = useCallback(
     (row: RoleplayWorkflowChangeRow) => {
       if (row.kind !== "change" || !row.selectable) return;
+      setChoiceUnapplied(true);
       setConfirming(false);
       setStatus(null);
       setSelectedItemIds((current) => {
@@ -368,8 +382,8 @@ export function RoleplayWorkflowProfileChooser({
     [onNavigateAway],
   );
 
-  const apply = useCallback(async () => {
-    if (!preview) return;
+  const apply = useCallback(async (): Promise<boolean> => {
+    if (!preview) return false;
     setStatus(null);
     try {
       const result = await applyMutation.mutateAsync({
@@ -386,11 +400,12 @@ export function RoleplayWorkflowProfileChooser({
           tone: "info",
           message: "Settings changed since this preview. Review the refreshed ledger and confirm again.",
         });
-        return;
+        return false;
       }
       displayedChatRef.current = result.chat;
       setDisplayedChat(result.chat);
       setConfirming(false);
+      setChoiceUnapplied(false);
       if (result.shouldCreateContinuityPlan) {
         const plannerOperation = ++plannerOperationRef.current;
         setStatus({ tone: "info", message: "Workflow applied. Creating the first story plan in the background." });
@@ -424,7 +439,7 @@ export function RoleplayWorkflowProfileChooser({
             },
           },
         );
-        return;
+        return true;
       }
       const skippedRoutingMessage =
         result.skippedLocalRoutingAgentIds.length > 0
@@ -445,9 +460,11 @@ export function RoleplayWorkflowProfileChooser({
           message: `${PROFILES.find((profile) => profile.id === profileId)?.label} applied.`,
         });
       }
+      return true;
     } catch (error) {
       setConfirming(false);
       setStatus({ tone: "error", message: completeError(error) });
+      return false;
     }
   }, [applyMutation, displayedChat.id, initialPlan, preview, profileId, selectedItemIds]);
 
@@ -471,6 +488,7 @@ export function RoleplayWorkflowProfileChooser({
       }
       displayedChatRef.current = result.chat;
       setDisplayedChat(result.chat);
+      setChoiceUnapplied(false);
       setReloadKey((key) => key + 1);
       setStatus({
         tone: result.skippedConflicts.length > 0 ? "info" : "success",
@@ -497,6 +515,15 @@ export function RoleplayWorkflowProfileChooser({
   const formPending = applyMutation.isPending || revertMutation.isPending;
   const applyActionPending = formPending || initialPlan.isPending;
   const revertPending = applyMutation.isPending || revertMutation.isPending;
+
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+  const hasPendingApply = choiceUnapplied && !!preview && selectedItemIds.size > 0 && !applyActionPending;
+  useEffect(() => {
+    if (!onPendingApplyChange) return;
+    onPendingApplyChange(hasPendingApply ? () => applyRef.current() : null);
+  }, [hasPendingApply, onPendingApplyChange]);
+  useEffect(() => () => onPendingApplyChange?.(null), [onPendingApplyChange]);
 
   return (
     <section
