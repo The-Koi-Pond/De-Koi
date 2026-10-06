@@ -13,6 +13,7 @@ import type {
 } from "../../../../engine/contracts/types/game";
 import { sanitizeGameNpcAvatarUrls } from "../../../../engine/modes/game/assets/npc-avatar-utils";
 import { persistGameMetadataPatch } from "../lib/game-metadata-persistence";
+import { findWidgetStatIndex } from "../lib/hud-widget-normalization";
 
 interface GameModeStore {
   /** The active game ID (groupId that links all sessions). */
@@ -370,10 +371,10 @@ export const useGameModeStore = create<GameModeStore>((set) => ({
 
         // Handle stat_block: update a specific stat by name
         if (changes.statName && w.type === "stat_block" && newConfig.stats) {
-          const targetName = changes.statName;
+          const targetIndex = findWidgetStatIndex(newConfig.stats, changes.statName);
           const newValue = changes.value;
-          newConfig.stats = newConfig.stats.map((stat) =>
-            stat.name === targetName && newValue !== undefined ? { ...stat, value: newValue } : stat,
+          newConfig.stats = newConfig.stats.map((stat, index) =>
+            index === targetIndex && newValue !== undefined ? { ...stat, value: newValue } : stat,
           );
         } else {
           // Merge simple numeric/config fields
