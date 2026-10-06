@@ -58,4 +58,5 @@ export const gameApi = {
   previewGeneratedAssets: assetsApi.previewGeneratedAssets,
   generateAssets: (payload: GameAssetGenerationPayload, signal?: AbortSignal) =>
     assetsApi.generateAssets(payload, signal),
+  npcNamesWithPortraits: assetsApi.npcNamesWithPortraits,
 };

@@ -1132,6 +1132,46 @@ describe("game API review guards", () => {
     ]);
   });
 
+  it("keeps finished NPC portraits when a later image in the batch fails", async () => {
+    let chat = {
+      id: "chat-1",
+      metadata: {
+        enableSpriteGeneration: true,
+        gameImageConnectionId: "image-conn",
+        gameSessionNumber: 1,
+        gameNpcs: [
+          { id: "npc-1", name: "Bob", notes: [] },
+          { id: "npc-2", name: "Ann", notes: [] },
+        ],
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? chat : null));
+    storageApiMock.create.mockImplementation(async (entity: string, value: Record<string, unknown>) =>
+      entity === "gallery" ? { id: `gallery-${String(value.filename)}`, url: value.url } : { id: `${entity}-1` },
+    );
+    storageApiMock.update.mockImplementation(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+      chat = { ...chat, ...patch, metadata: { ...chat.metadata, ...gRecord(patch.metadata) } };
+      return chat;
+    });
+    imageGenerationApiMock.generate
+      .mockResolvedValueOnce({ base64: "AQID", mimeType: "image/png" })
+      .mockRejectedValueOnce(new Error("Image provider timed out"));
+
+    await expect(
+      generateAssets({
+        chatId: "chat-1",
+        npcsNeedingAvatars: [
+          { name: "Bob", description: "merchant" },
+          { name: "Ann", description: "guard" },
+        ],
+      } as never),
+    ).rejects.toThrow("Image provider timed out");
+
+    const npcs = chat.metadata.gameNpcs as Array<Record<string, unknown>>;
+    expect(npcs.find((npc) => npc.name === "Bob")).toMatchObject({ avatarGalleryId: "gallery-bob.png" });
+    expect(npcs.find((npc) => npc.name === "Ann")?.avatarGalleryId).toBeUndefined();
+  });
+
   it("rejects movement outside the active map and unknown map ids", () => {
     const gridMap: GameMap = {
       id: "grid",

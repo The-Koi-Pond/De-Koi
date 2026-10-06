@@ -2180,6 +2180,7 @@ export function GameSurface({
   const {
     applyGeneratedAssets,
     assetGenerationBlocksScene,
+    assetGenerationError,
     assetGenerationFailed,
     clearFailedNpcAvatars,
     failedNpcAvatarNames,
@@ -8253,7 +8254,12 @@ export function GameSurface({
                   <div className="pointer-events-auto absolute bottom-32 left-1/2 z-30 -translate-x-1/2">
                     <div className="flex items-center gap-3 rounded-xl bg-black/80 px-4 py-2.5 shadow-lg backdrop-blur-sm">
                       <AlertTriangle size={14} className="shrink-0 text-amber-400" />
-                      <span className="text-xs text-white/70">Image generation failed</span>
+                      <span
+                        className="max-w-[16rem] truncate text-xs text-white/70"
+                        title={assetGenerationError ?? undefined}
+                      >
+                        {assetGenerationError ?? "Image generation failed"}
+                      </span>
                       <button
                         onClick={() => retryAssetGeneration(retryableAssetGeneration)}
                         className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white/80 transition-colors hover:bg-white/20 hover:text-white"

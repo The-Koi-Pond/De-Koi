@@ -148,6 +148,40 @@ export async function previewGeneratedAssets(
   return { items };
 }
 
+/** Names of NPCs whose portrait is already saved on the chat, read fresh from storage. */
+export async function npcNamesWithPortraits(chatId: string): Promise<string[]> {
+  const npcs = g.chatMeta(await g.getChat(chatId)).gameNpcs;
+  return Array.isArray(npcs)
+    ? (npcs as g.GameNpc[]).filter((npc) => !!g.readTrimmed(npc.avatarUrl)).map((npc) => g.readTrimmed(npc.name))
+    : [];
+}
+
+async function attachNpcAvatar(
+  chatId: string,
+  avatar: { name: string; avatarUrl: string; avatarGalleryId: string | null },
+): Promise<g.Chat> {
+  const freshMeta = g.chatMeta(await g.getChat(chatId));
+  const npcs = Array.isArray(freshMeta.gameNpcs) ? [...(freshMeta.gameNpcs as g.GameNpc[])] : [];
+  const index = npcs.findIndex((npc) => g.readTrimmed(npc.name).toLowerCase() === avatar.name.toLowerCase());
+  if (index >= 0) {
+    npcs[index] = { ...npcs[index]!, avatarUrl: avatar.avatarUrl, avatarGalleryId: avatar.avatarGalleryId };
+  } else {
+    npcs.push({
+      id: g.newId("npc"),
+      emoji: "👤",
+      name: avatar.name,
+      description: "",
+      location: "",
+      reputation: 0,
+      met: true,
+      notes: [],
+      avatarUrl: avatar.avatarUrl,
+      avatarGalleryId: avatar.avatarGalleryId,
+    } as g.GameNpc);
+  }
+  return g.patchChatMetadata(chatId, { gameNpcs: npcs });
+}
+
 export async function generateAssets(
   payload: g.GameAssetGenerationPayload,
   signal?: AbortSignal,
@@ -264,40 +298,17 @@ export async function generateAssets(
         kind: "portrait",
         characters: [npcName],
       });
-      const storedImageUrl = g.readTrimmed(gallery?.url) || imageUrl;
-      const avatarGalleryId = g.readTrimmed(gallery?.id) || null;
-      generatedNpcAvatars.push({
+      const avatar = {
         name: npcName,
-        avatarUrl: storedImageUrl,
-        avatarGalleryId,
-      });
+        avatarUrl: g.readTrimmed(gallery?.url) || imageUrl,
+        avatarGalleryId: g.readTrimmed(gallery?.id) || null,
+      };
+      generatedNpcAvatars.push(avatar);
+      // Attach each portrait as soon as it exists. Batches run one image at a
+      // time and can outlast the caller's timeout; saving only at the end lost
+      // every finished portrait and the next turn generated them all again.
+      sessionChat = await attachNpcAvatar(chatId, avatar);
     }
-  }
-
-  if (generatedNpcAvatars.length > 0) {
-    const freshMeta = g.chatMeta(await g.getChat(chatId));
-    const npcs = Array.isArray(freshMeta.gameNpcs) ? [...(freshMeta.gameNpcs as g.GameNpc[])] : [];
-    for (const avatar of generatedNpcAvatars) {
-      const existing = npcs.find((npc) => g.readTrimmed(npc.name).toLowerCase() === avatar.name.toLowerCase());
-      if (existing) {
-        existing.avatarUrl = avatar.avatarUrl;
-        existing.avatarGalleryId = avatar.avatarGalleryId ?? null;
-      } else {
-        npcs.push({
-          id: g.newId("npc"),
-          emoji: "👤",
-          name: avatar.name,
-          description: "",
-          location: "",
-          reputation: 0,
-          met: true,
-          notes: [],
-          avatarUrl: avatar.avatarUrl,
-          avatarGalleryId: avatar.avatarGalleryId ?? null,
-        } as g.GameNpc);
-      }
-    }
-    sessionChat = await g.patchChatMetadata(chatId, { gameNpcs: npcs });
   }
 
   return { generatedBackground, fallbackBackground, generatedIllustration, generatedNpcAvatars, sessionChat };

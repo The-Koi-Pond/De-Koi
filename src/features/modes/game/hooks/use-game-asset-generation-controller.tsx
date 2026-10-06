@@ -6,6 +6,7 @@ import {
   type ImagePromptOverride as GameImagePromptOverride,
   type ImagePromptReviewItem as GameImagePromptReviewItem,
 } from "../../../../shared/components/ui/ImagePromptReviewModal";
+import { chatKeys } from "../../../catalog/chats/index";
 import { galleryKeys } from "../../../catalog/gallery/index";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { SceneSegmentEffect } from "../../../../engine/contracts/types/scene";
@@ -38,13 +39,31 @@ const GAME_ASSET_PREVIEW_TIMEOUT_MS = 180_000;
 const GAME_ASSET_PROMPT_REVIEW_TIMEOUT_MS = 180_000;
 const IMAGE_PROMPT_REVIEW_TIMED_OUT = Symbol("IMAGE_PROMPT_REVIEW_TIMED_OUT");
 
+// Waits for the chat's previous batch, but never longer than one more timeout
+// window, so a request that never settles can't block that chat's images forever.
+function waitForPreviousGeneration(previous: Promise<void> | undefined): Promise<void> {
+  if (!previous) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, GAME_ASSET_GENERATION_TIMEOUT_MS);
+    void previous.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 type TimeoutError = Error & { name: "AbortError"; code?: "ETIMEDOUT" };
 
 function isTimeoutError(error: unknown): error is TimeoutError {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
+function withTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  onTimeout?: () => void,
+  onSettledAfterTimeout?: () => void,
+): Promise<T> {
   const controller = new AbortController();
   let settled = false;
   return new Promise<T>((resolve, reject) => {
@@ -60,13 +79,19 @@ function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, on
     }, ms);
     run(controller.signal)
       .then((value) => {
-        if (settled) return;
+        if (settled) {
+          onSettledAfterTimeout?.();
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         resolve(value);
       })
       .catch((error) => {
-        if (settled) return;
+        if (settled) {
+          onSettledAfterTimeout?.();
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         reject(error);
@@ -94,11 +119,16 @@ export function useGameAssetGenerationController({
 }: UseGameAssetGenerationControllerParams) {
   const [pendingAssetGeneration, setPendingAssetGeneration] = useState<GameAssetGenerationPayload | null>(null);
   const [assetGenerationBlocksScene, setAssetGenerationBlocksScene] = useState(false);
-  const [assetGenerationFailed, setAssetGenerationFailed] = useState(false);
+  const [assetGenerationError, setAssetGenerationError] = useState<string | null>(null);
+  const assetGenerationFailed = assetGenerationError !== null;
   const [failedNpcAvatarNames, setFailedNpcAvatarNames] = useState<Set<string>>(() => new Set());
   const [imagePromptReviewItems, setImagePromptReviewItems] = useState<GameImagePromptReviewItem[]>([]);
   const [imagePromptReviewSubmitting, setImagePromptReviewSubmitting] = useState(false);
   const imagePromptReviewResolveRef = useRef<((overrides: GameImagePromptOverride[] | null) => void) | null>(null);
+  // A timed-out batch keeps generating and saving in the background. New batches
+  // wait for it so two runs never generate or patch the same NPC at once.
+  const inFlightGenerationsRef = useRef(new Map<string, Promise<void>>());
+  const retryingRef = useRef(false);
   const clearFailedNpcAvatars = useCallback(
     (names: Iterable<string>) => {
       const normalizedNames = new Set([...names].map(normalizeNpcName).filter(Boolean));
@@ -172,6 +202,14 @@ export function useGameAssetGenerationController({
     };
   }, []);
 
+  // Generated images are saved one at a time as they finish, so after a failure or
+  // timeout the chat, gallery and asset manifest can hold more than the caller saw.
+  const refreshSavedAssets = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: chatKeys.detail(activeChatId) });
+    void queryClient.invalidateQueries({ queryKey: galleryKeys.images(activeChatId) });
+    void fetchManifest();
+  }, [activeChatId, fetchManifest, queryClient]);
+
   const runGameAssetGeneration = useCallback(
     async (
       assetPayload: GameAssetGenerationPayload,
@@ -237,14 +275,29 @@ export function useGameAssetGenerationController({
       }
 
       return await withTimeout(
-        (signal) => gameApi.generateAssets(payload, signal),
+        (signal) => {
+          const chatId = String(payload.chatId);
+          const run = gameApi.generateAssets(payload, signal);
+          const settled = run.then(
+            () => undefined,
+            () => undefined,
+          );
+          const inFlight = inFlightGenerationsRef.current;
+          inFlight.set(chatId, settled);
+          void settled.then(() => {
+            if (inFlight.get(chatId) === settled) inFlight.delete(chatId);
+          });
+          return run;
+        },
         GAME_ASSET_GENERATION_TIMEOUT_MS,
         () => {
           toast.error("Image generation timed out. The scene will continue without generated assets.");
         },
+        // The image in flight at the timeout still finishes and is saved.
+        refreshSavedAssets,
       );
     },
-    [closeImagePromptReview, openImagePromptReview],
+    [closeImagePromptReview, openImagePromptReview, refreshSavedAssets],
   );
 
   const applyGeneratedAssets = useCallback(
@@ -267,7 +320,7 @@ export function useGameAssetGenerationController({
   );
 
   const resetAssetGenerationState = useCallback(() => {
-    setAssetGenerationFailed(false);
+    setAssetGenerationError(null);
     setPendingAssetGeneration(null);
     setAssetGenerationBlocksScene(false);
   }, []);
@@ -281,9 +334,10 @@ export function useGameAssetGenerationController({
 
       setPendingAssetGeneration(assetPayload);
       setAssetGenerationBlocksScene(options?.blocksScene === true);
-      setAssetGenerationFailed(false);
+      setAssetGenerationError(null);
 
       try {
+        await waitForPreviousGeneration(inFlightGenerationsRef.current.get(String(assetPayload.chatId)));
         const res = await runGameAssetGeneration(assetPayload, { allowPromptReview: options?.allowPromptReview });
 
         setPendingAssetGeneration(null);
@@ -298,22 +352,65 @@ export function useGameAssetGenerationController({
         }
 
         return res;
-      } catch {
-        setAssetGenerationFailed(true);
+      } catch (error) {
+        console.warn("[game-assets] Image generation failed:", error);
+        setAssetGenerationError(
+          isTimeoutError(error)
+            ? "Image generation timed out."
+            : error instanceof Error && error.message
+              ? error.message
+              : "Image generation failed.",
+        );
         setAssetGenerationBlocksScene(false);
+        // Images finished before the failure are already saved; show them instead of
+        // generating them again on the next turn.
+        refreshSavedAssets();
         return null;
       }
     },
-    [applyGeneratedAssets, gameImageGenerationEnabled, resetAssetGenerationState, runGameAssetGeneration],
+    [
+      applyGeneratedAssets,
+      gameImageGenerationEnabled,
+      refreshSavedAssets,
+      resetAssetGenerationState,
+      runGameAssetGeneration,
+    ],
   );
 
   const retryAssetGeneration = useCallback(
     (assetPayload: GameAssetGenerationPayload | null | undefined, options?: { showSuccessToast?: boolean }) => {
-      const retryPayload = pendingAssetGeneration ?? assetPayload;
-      if (!retryPayload) return;
-      void requestAssetGeneration(retryPayload, options);
+      const payload = pendingAssetGeneration ?? assetPayload;
+      if (!payload || retryingRef.current) return;
+      retryingRef.current = true;
+      void (async () => {
+        try {
+          // Let a timed-out batch finish first, then skip portraits it (or an earlier
+          // run) already saved on the chat.
+          const chatId = String(payload.chatId);
+          await waitForPreviousGeneration(inFlightGenerationsRef.current.get(chatId));
+          let retryPayload = payload;
+          if (payload.npcsNeedingAvatars?.length) {
+            let savedNames: string[];
+            try {
+              savedNames = await gameApi.npcNamesWithPortraits(chatId);
+            } catch (error) {
+              console.warn("[game-assets] Could not read saved NPC portraits before retry:", error);
+              setAssetGenerationError("Could not check which portraits are already saved. Try again.");
+              return;
+            }
+            const saved = new Set(savedNames.map(normalizeNpcName));
+            retryPayload = {
+              ...payload,
+              npcsNeedingAvatars: payload.npcsNeedingAvatars.filter((npc) => !saved.has(normalizeNpcName(npc.name))),
+            };
+          }
+          await requestAssetGeneration(retryPayload, options);
+        } finally {
+          retryingRef.current = false;
+        }
+      })();
     },
-    [pendingAssetGeneration, requestAssetGeneration],
+    [normalizeNpcName, pendingAssetGeneration, requestAssetGeneration],
   );
 
   useEffect(() => {
@@ -335,6 +432,7 @@ export function useGameAssetGenerationController({
   return {
     applyGeneratedAssets,
     assetGenerationBlocksScene,
+    assetGenerationError,
     assetGenerationFailed,
     clearFailedNpcAvatars,
     failedNpcAvatarNames,
