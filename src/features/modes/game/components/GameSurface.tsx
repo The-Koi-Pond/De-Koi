@@ -2004,7 +2004,15 @@ export function GameSurface({
   void _journalEntry;
   const transitionGameState = useTransitionGameState();
   const sceneAnalysis = useGameSceneAnalysis();
-  const sceneAnalysisEnabled = enabledChatAgentIds(chatMeta, "game").length > 0;
+  // The Scene Effects Model picked in setup (or Chat Settings) runs scene analysis on its own;
+  // a model that points at a deleted connection falls back to the GM's inline scene tags.
+  const sceneConnectionId = useMemo(() => {
+    const setupCfg = chatMeta.gameSetupConfig as Record<string, unknown> | null;
+    const id = (chatMeta.gameSceneConnectionId as string) || (setupCfg?.sceneConnectionId as string) || null;
+    if (!id || !Array.isArray(connectionsList)) return null;
+    return connectionsList.some((connection) => connection.id === id) ? id : null;
+  }, [chatMeta.gameSceneConnectionId, chatMeta.gameSetupConfig, connectionsList]);
+  const sceneAnalysisEnabled = !!sceneConnectionId || enabledChatAgentIds(chatMeta, "game").length > 0;
   const gameWorldTickEnabled = chatMeta.gameWorldTickEnabled === true;
 
   // Process GM tags from the latest assistant message
@@ -2127,12 +2135,7 @@ export function GameSurface({
     return npcsNeedingAvatars;
   }, [npcAvatarLookup, sceneAssetNpcs]);
 
-  const hasAsyncScenePrep = useMemo(() => {
-    if (!sceneAnalysisEnabled) return false;
-    const setupCfg = chatMeta.gameSetupConfig as Record<string, unknown> | null;
-    const sceneConnId = (chatMeta.gameSceneConnectionId as string) || (setupCfg?.sceneConnectionId as string) || null;
-    return !!sceneConnId;
-  }, [sceneAnalysisEnabled, chatMeta.gameSetupConfig, chatMeta.gameSceneConnectionId]);
+  const hasAsyncScenePrep = !!sceneConnectionId;
 
   const {
     appliedSegmentsRef,
@@ -2249,8 +2252,7 @@ export function GameSurface({
             ? tags.stateChange
             : gameState;
       const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | null;
-      const sceneConnId =
-        (chatMeta.gameSceneConnectionId as string) || (setupConfig?.sceneConnectionId as string) || null;
+      const sceneConnId = sceneConnectionId;
       const assetKeys = Object.keys(assets ?? {});
       return {
         narration: tags.cleanContent,
@@ -2295,13 +2297,13 @@ export function GameSurface({
       chatMeta.enableSpriteGeneration,
       chatMeta.gameImageConnectionId,
       chatMeta.gameImagePromptInstructions,
-      chatMeta.gameSceneConnectionId,
       chatMeta.gameSetupConfig,
       chatMeta.gameWorldOverview,
       currentBackground,
       gameSceneIllustrationAllowed,
       gameSnapshot?.location,
       gameSnapshot?.time,
+      sceneConnectionId,
       gameSnapshot?.weather,
       gameState,
       getScopedAssetMap,
@@ -2987,9 +2989,7 @@ export function GameSurface({
           ? tags.stateChange
           : gameState;
     const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | null;
-    const sceneConnId = sceneAnalysisEnabled
-      ? (chatMeta.gameSceneConnectionId as string) || (setupConfig?.sceneConnectionId as string) || null
-      : null;
+    const sceneConnId = sceneConnectionId;
 
     // Inline directions can come from the GM model; scene analysis can
     // also return cinematic directions for the fully generated turn.
@@ -6894,8 +6894,7 @@ export function GameSurface({
       50,
     );
     const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | null;
-    const sceneConnId =
-      (chatMeta.gameSceneConnectionId as string) || (setupConfig?.sceneConnectionId as string) || null;
+    const sceneConnId = sceneConnectionId;
 
     const context = {
       currentState: gameState,
@@ -6958,6 +6957,7 @@ export function GameSurface({
       );
     }
   }, [
+    sceneConnectionId,
     appliedInventorySegmentsRef,
     appliedSegmentsRef,
     applySceneResultRef,
@@ -7081,12 +7081,14 @@ export function GameSurface({
   }, [combatUiActive, hudSurfaceElement, normalizedWidgets.length]);
 
   // Resolve background image URL â€” supports exact tag match, partial/fuzzy match, and "black" override
+  // Backgrounds set by the GM's inline tags or by scene analysis both land in
+  // currentBackground; the chat background only fills in before the game sets one.
   const resolvedBackground = useMemo(() => {
-    if (!sceneAnalysisEnabled) {
+    if (!currentBackground) {
       return chatBackground ?? undefined;
     }
 
-    if (currentBackground && scopedAssetMap) {
+    if (scopedAssetMap) {
       // Special value: "black" means no background (e.g. character waking up)
       if (currentBackground === "black" || currentBackground === "none") {
         return "black";
@@ -7121,8 +7123,8 @@ export function GameSurface({
         console.debug("[bg-resolve] background asset tag did not resolve");
       }
     }
-    return undefined;
-  }, [sceneAnalysisEnabled, chatBackground, currentBackground, scopedAssetMap]);
+    return chatBackground ?? undefined;
+  }, [chatBackground, currentBackground, scopedAssetMap]);
 
   const lastResolvedBackgroundRef = useRef<{ scopeKey: string; url?: string }>({ scopeKey: sceneRuntimeScopeKey });
   useEffect(() => {
