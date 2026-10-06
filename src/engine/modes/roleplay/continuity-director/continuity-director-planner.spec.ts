@@ -155,8 +155,23 @@ describe("continuity director planner", () => {
       { chatId: "chat-1", now: () => NOW },
     );
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(1);
+    // The claim, then the claim settling as failed; the plan itself is never written.
+    expect(test.patches).toHaveLength(2);
+    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
     expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
+  });
+
+  it("clears the pending attempt marker once a plan is saved", async () => {
+    const test = harness(JSON.stringify({ currentArc: "The seal draws attention.", openThreads: [], beats: [] }));
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(test.getState()).not.toHaveProperty("lastPlanningAttemptStatus");
+    expect(test.getState()).not.toHaveProperty("lastPlanningAttemptStartedAt");
   });
 
   it("persists a failed initial planning attempt without fabricating a successful snapshot", async () => {
@@ -268,7 +283,9 @@ describe("continuity director planner", () => {
     );
 
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(1);
+    // The claim, then the claim settling as failed; the plan itself is never written.
+    expect(test.patches).toHaveLength(2);
+    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
     expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
@@ -287,7 +304,9 @@ describe("continuity director planner", () => {
     );
 
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(1);
+    // The claim, then the claim settling as failed; the plan itself is never written.
+    expect(test.patches).toHaveLength(2);
+    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
     expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
@@ -471,7 +490,9 @@ describe("continuity director planner", () => {
       { chatId: "chat-1", now: () => NOW, timeoutMs: 1 },
     );
     expect(result).toMatchObject({ ok: false, code: "timeout" });
-    expect(test.patches).toHaveLength(1);
+    // The claim, then the claim settling as failed; the plan itself is never written.
+    expect(test.patches).toHaveLength(2);
+    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
     expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
@@ -522,7 +543,9 @@ describe("continuity director planner", () => {
     );
 
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    expect(test.patches).toHaveLength(1);
+    // The claim, then the claim settling as failed; the plan itself is never written.
+    expect(test.patches).toHaveLength(2);
+    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
     expect(test.getState().beats).toEqual(current.beats);
   });
 

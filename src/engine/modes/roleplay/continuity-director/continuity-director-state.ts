@@ -208,8 +208,19 @@ export function normalizeContinuityDirectorState(
     beats: reindex(beats),
     sourceSnapshot: normalizeSourceSnapshot(value.sourceSnapshot),
     lastPlanningAttemptAssistantTurnCount: optionalInteger(value.lastPlanningAttemptAssistantTurnCount),
+    ...planningAttemptOutcome(value),
     updatedAt: boundedText(value.updatedAt, 80) || now,
   };
+}
+
+/** Only present once a planning attempt recorded them, so older stored states normalize unchanged. */
+function planningAttemptOutcome(
+  value: Record<string, unknown>,
+): Pick<RoleplayContinuityDirectorState, "lastPlanningAttemptStartedAt" | "lastPlanningAttemptStatus"> {
+  const status = value.lastPlanningAttemptStatus;
+  const startedAt = boundedText(value.lastPlanningAttemptStartedAt, 80);
+  if ((status !== "pending" && status !== "failed") || !startedAt) return {};
+  return { lastPlanningAttemptStartedAt: startedAt, lastPlanningAttemptStatus: status };
 }
 
 export function recordContinuityDirectorPlanningAttempt(
@@ -219,12 +230,30 @@ export function recordContinuityDirectorPlanningAttempt(
 ): RoleplayContinuityDirectorState {
   const now = options.now?.() ?? new Date().toISOString();
   const state = normalizeContinuityDirectorState(input, now);
-  return {
-    ...state,
-    lastPlanningAttemptAssistantTurnCount: integer(visibleAssistantTurnCount),
-    revision: state.revision + 1,
-    updatedAt: now,
-  };
+  // Normalized so the key order matches what storage reads back (planner compares JSON strings).
+  return normalizeContinuityDirectorState(
+    {
+      ...state,
+      lastPlanningAttemptAssistantTurnCount: integer(visibleAssistantTurnCount),
+      lastPlanningAttemptStartedAt: now,
+      lastPlanningAttemptStatus: "pending",
+      revision: state.revision + 1,
+      updatedAt: now,
+    },
+    now,
+  );
+}
+
+/** Marks a claimed planning attempt as given up, so it keeps delaying retries by the normal cadence. */
+export function recordContinuityDirectorPlanningFailure(
+  attempted: RoleplayContinuityDirectorState,
+  options: ContinuityDirectorCommandOptions = {},
+): RoleplayContinuityDirectorState {
+  const now = options.now?.() ?? new Date().toISOString();
+  return normalizeContinuityDirectorState(
+    { ...attempted, lastPlanningAttemptStatus: "failed", revision: attempted.revision + 1, updatedAt: now },
+    now,
+  );
 }
 
 export function readContinuityDirectorConfiguration(value: unknown): ContinuityDirectorConfiguration {
