@@ -528,10 +528,10 @@ function sanitizeAttacks(values: unknown[] | null, fallback: CombatAttack[]): Co
       const record = recordValue(value);
       const name = stringValue(record?.name);
       if (!name) return null;
-      const type = stringValue(record?.type);
+      const type = stringValue(record?.type).toLowerCase();
       const attack: CombatAttack = {
         name,
-        type: type === "AoE" || type === "both" || type === "single-target" ? type : "single-target",
+        type: type === "aoe" ? "AoE" : type === "both" ? "both" : "single-target",
       };
       const description = stringValue(record?.description);
       const power = optionalNumber(record?.power);
