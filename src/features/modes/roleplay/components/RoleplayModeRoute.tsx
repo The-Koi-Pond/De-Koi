@@ -24,6 +24,7 @@ import {
   useChatTranscriptShortcuts,
   useChatTtsAutoplay,
   useSpriteMetadataState,
+  isAbandonedChatDraft,
   isEmptyNewChatSetup,
 } from "../../shared/chat-ui/index";
 import { useEncounter } from "../encounter/hooks/use-encounter";
@@ -506,6 +507,18 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onCloseGallery={overlays.closeGallery}
         onIllustrate={timeline.handleIllustrate}
         onWizardFinish={handleFinishNewRoleplaySetup}
+        onResumeSetup={
+          isAbandonedChatDraft({
+            activeChatId,
+            setupChatId: overlays.newChatSetupChatId,
+            chatCharIds: data.chatCharIds,
+            totalMessageCount: data.totalMessageCount,
+            messagesLoaded: data.messages !== undefined,
+            wizardOpen: overlays.wizardOpen,
+          })
+            ? overlays.resumeSetup
+            : undefined
+        }
         onWizardCancel={overlays.finishWizard}
         onClosePeekPrompt={timeline.closePeekPrompt}
         onResetSpritePlacements={spriteState.handleResetSpritePlacements}

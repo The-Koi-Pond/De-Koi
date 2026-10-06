@@ -20,6 +20,7 @@ import {
   useChatTranscriptShortcuts,
   useChatTtsAutoplay,
   useSpriteMetadataState,
+  isAbandonedChatDraft,
   isEmptyNewChatSetup,
 } from "../../shared/chat-ui/index";
 import { useDeleteChat } from "../../../catalog/chats/index";
@@ -302,6 +303,18 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
         onCloseGallery={overlays.closeGallery}
         onIllustrate={timeline.handleIllustrate}
         onWizardFinish={handleFinishNewConversationSetup}
+        onResumeSetup={
+          isAbandonedChatDraft({
+            activeChatId,
+            setupChatId: overlays.newChatSetupChatId,
+            chatCharIds: data.chatCharIds,
+            totalMessageCount: data.totalMessageCount,
+            messagesLoaded: data.messages !== undefined,
+            wizardOpen: overlays.wizardOpen,
+          })
+            ? overlays.resumeSetup
+            : undefined
+        }
         onWizardCancel={handleCancelNewConversationSetup}
         onClosePeekPrompt={timeline.closePeekPrompt}
         onResetSpritePlacements={spriteState.handleResetSpritePlacements}

@@ -7,6 +7,7 @@ import type { PeekPromptData } from "../types";
 import type { SaveMomentSource } from "../lib/save-moment";
 import type { SaveMomentSummaryDraft } from "../lib/save-moment";
 import { PeekPromptModal } from "./PeekPromptModal";
+import { ChatSetupResumeCard } from "./ChatSetupResumeCard";
 
 const ChatSettingsDrawer = lazy(async () => {
   const module = await import("./ChatSettingsDrawer");
@@ -296,6 +297,8 @@ type ChatCommonOverlaysProps = {
   onIllustrate?: (source?: SaveMomentSource) => void | Promise<void>;
   onWizardFinish: () => void;
   onWizardCancel?: () => void;
+  /** Set only while the active chat is a draft left before setup finished; shows a resume card. */
+  onResumeSetup?: () => void;
   onClosePeekPrompt: () => void;
   onCloseSummaryDraft?: () => void;
   onDeleteConfirm: () => void;
@@ -333,6 +336,7 @@ export function ChatCommonOverlays({
   onIllustrate,
   onWizardFinish,
   onWizardCancel,
+  onResumeSetup,
   onClosePeekPrompt,
   onCloseSummaryDraft,
   onDeleteConfirm,
@@ -390,6 +394,7 @@ export function ChatCommonOverlays({
           </Suspense>
         </LazyOverlayBoundary>
       )}
+      {chat && !wizardOpen && onResumeSetup && <ChatSetupResumeCard onResume={onResumeSetup} />}
       {chat && wizardOpen && (
         <LazyOverlayBoundary label="setup" onClose={onWizardCancel ?? onWizardFinish}>
           <Suspense fallback={null}>

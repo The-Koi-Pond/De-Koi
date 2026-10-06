@@ -15,6 +15,9 @@ function OverlayHarness() {
       <button data-testid="open-settings" type="button" onClick={overlays.openSettings}>
         Open settings
       </button>
+      <button data-testid="resume-setup" type="button" onClick={overlays.resumeSetup}>
+        Resume setup
+      </button>
       <button data-testid="close-settings" type="button" onClick={overlays.closeSettings}>
         {overlays.settingsOpen ? "Close settings" : "Settings closed"}
       </button>
@@ -87,6 +90,15 @@ describe("useChatOverlays discovery reveal lifecycle", () => {
     expect(container.querySelector('[data-testid="wizard-state"]')?.textContent).toBe("Wizard closed");
     expect(container.querySelector('[data-testid="setup-chat-id"]')?.textContent).toBe("");
     expect(useChatStore.getState().newChatSetupIntent).toBeNull();
+  });
+
+  it("resumes setup on an abandoned draft as a fresh setup flow", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[data-testid="open-settings"]')?.click());
+    act(() => container.querySelector<HTMLButtonElement>('[data-testid="resume-setup"]')?.click());
+
+    expect(container.querySelector('[data-testid="wizard-state"]')?.textContent).toBe("Wizard open");
+    expect(container.querySelector('[data-testid="setup-chat-id"]')?.textContent).toBe("chat-1");
+    expect(container.textContent).toContain("Settings closed");
   });
 
   it("disconnects a pending reveal immediately when settings close", () => {

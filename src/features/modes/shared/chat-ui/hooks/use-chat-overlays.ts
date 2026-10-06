@@ -246,6 +246,17 @@ export function useChatOverlays(activeChatId: string) {
     setSettingsOpen(true);
   }, [activeChatId, setSettingsOpen]);
 
+  /** Reopens the setup wizard for a draft chat that was left before setup finished. */
+  const resumeSetup = useCallback(() => {
+    if (!activeChatId) return;
+    pendingSetupOverlayOpenRef.current?.cancel();
+    pendingSetupOverlayOpenRef.current = null;
+    // Tag the chat as being set up again so Skip/Done on a still-empty draft delete it, as on first run.
+    setNewChatSetupChatId(activeChatId);
+    setSettingsOpen(false);
+    setWizardOpen(true);
+  }, [activeChatId, setSettingsOpen]);
+
   return {
     settingsOpen,
     filesOpen,
@@ -260,6 +271,7 @@ export function useChatOverlays(activeChatId: string) {
     setWizardOpen,
     setSpriteArrangeMode,
     clearNewChatSetup: () => setNewChatSetupChatId(null),
+    resumeSetup,
     openSettings,
     openFiles: () => setFilesOpen(true),
     openGallery: () => setGalleryOpen(true),
