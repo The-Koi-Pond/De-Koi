@@ -87,6 +87,17 @@ type RoleplayProfileCharacter = {
   avatarFilename?: string | null;
 };
 
+/**
+ * The HUD/toolbar row floats over the full-height transcript, so scrolled messages would pass
+ * underneath its buttons. Fade the transcript out beneath that row instead; the scene
+ * background stays visible because the mask only hides the scroller's own content.
+ */
+function topChromeFadeMask(topChromeHeight: number): CSSProperties {
+  if (topChromeHeight <= 0) return {};
+  const mask = `linear-gradient(to bottom, transparent ${topChromeHeight}px, black ${topChromeHeight + 10}px)`;
+  return { maskImage: mask, WebkitMaskImage: mask };
+}
+
 const RoleplayHUD = lazy(async () => {
   const module = await import("./RoleplayHUD");
   return { default: module.RoleplayHUD };
@@ -1295,6 +1306,7 @@ export function ChatRoleplaySurface({
                   paddingBottom: Math.max(16, chromeHeights.bottom + 12),
                   scrollPaddingTop: Math.max(16, chromeHeights.top + 8),
                   scrollPaddingBottom: Math.max(16, chromeHeights.bottom + 12),
+                  ...topChromeFadeMask(chromeHeights.top),
                 }}
               >
                 {(hasNextPage || transcriptWindow.hiddenBeforeCount > 0) && (
