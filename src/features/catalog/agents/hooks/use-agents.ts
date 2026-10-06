@@ -123,9 +123,10 @@ function rawTypeLooksLikeAgentType(rawType: string, resultType: string): boolean
   return !!rawType && rawType !== resultType && !agentResultTypes.has(rawType);
 }
 
-function normalizeAgentRunRow(
+/** Normalizes a persisted run row, including legacy snake_case fields and booleanish success flags. */
+export function normalizeAgentRunRow(
   raw: Record<string, unknown>,
-  configsById: Map<string, AgentConfigRow>,
+  configsById: Map<string, AgentConfigRow> = new Map(),
 ): AgentRunRow | null {
   const id = readString(raw.id);
   const agentConfigId = readString(raw.agentConfigId) || readString(raw.agent_config_id);

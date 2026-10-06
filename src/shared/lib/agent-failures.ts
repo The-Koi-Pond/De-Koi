@@ -83,3 +83,38 @@ export function formatAgentFailuresToast(failures: AgentFailure[]): string {
   const remaining = failures.length > 3 ? `, +${failures.length - 3} more` : "";
   return `${failures.length} agents failed: ${visible}${remaining}. Use the retry controls to try again.`;
 }
+
+/** A run row already normalized by the agents catalog (see normalizeAgentRunRow). */
+export interface PersistedAgentRun {
+  agentType: string;
+  agentName: string;
+  messageId: string;
+  success: boolean;
+  error: string | null;
+  createdAt: string;
+}
+
+function runTime(run: PersistedAgentRun): number {
+  const time = Date.parse(run.createdAt);
+  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * Failures still standing for the chat's latest agent turn, rebuilt from persisted runs.
+ * Only runs for the newest run's message count, and per agent only its newest run there,
+ * so a later successful retry clears an earlier failure.
+ */
+export function latestTurnAgentFailures(runs: readonly PersistedAgentRun[]): AgentFailure[] {
+  const valid = runs.filter((run) => run.agentType.trim() && run.messageId.trim());
+  if (valid.length === 0) return [];
+  const newest = valid.reduce((latest, run) => (runTime(run) > runTime(latest) ? run : latest));
+  const latestByType = new Map<string, PersistedAgentRun>();
+  for (const run of valid) {
+    if (run.messageId !== newest.messageId) continue;
+    const current = latestByType.get(run.agentType);
+    if (!current || runTime(run) >= runTime(current)) latestByType.set(run.agentType, run);
+  }
+  return [...latestByType.values()]
+    .filter((run) => !run.success)
+    .map((run) => toAgentFailure({ agentType: run.agentType, agentName: run.agentName, error: run.error }));
+}
