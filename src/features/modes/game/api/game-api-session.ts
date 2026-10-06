@@ -245,8 +245,10 @@ export async function createGame(data: {
     ? { ...data.setupConfig, partyCharacterIds: data.partyCharacterIds }
     : data.setupConfig;
   if (data.chatId) {
+    const name = data.name?.trim();
     await g.patchChat(data.chatId, {
       ...gameSetupChatPatch(setupConfig, data.connectionId ?? null),
+      ...(name ? { name } : {}),
       groupId: gameId,
     });
     const sessionChat = await g.patchChatMetadata(data.chatId, {
