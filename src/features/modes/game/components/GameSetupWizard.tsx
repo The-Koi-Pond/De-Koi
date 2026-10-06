@@ -33,6 +33,7 @@ import {
   type EditableGenerationParameters,
 } from "../../../../shared/components/ui/GenerationParametersEditor";
 import { useConnections } from "../../../catalog/connections/index";
+import { useChatSummaries } from "../../../catalog/chats/index";
 import {
   characterAvatarUrl,
   CharacterAvatarImage,
@@ -424,9 +425,18 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     [connectionsList],
   );
   const connections = useMemo(() => filterLanguageGenerationConnections(allConnections), [allConnections]);
+  const { data: chatSummaries, isPending: chatHistoryPending } = useChatSummaries();
+  // Resolved once chat history settles (loaded or failed), so the GM default does not start on the
+  // first connection and then shift when history arrives.
   const defaultGmConnectionId = useMemo(
-    () => connectionCatalogApi.selectDefaultTextConnectionId(connectionsList ?? []),
-    [connectionsList],
+    () =>
+      chatHistoryPending
+        ? null
+        : connectionCatalogApi.selectDefaultTextConnectionId(
+            connectionsList ?? [],
+            connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
+          ),
+    [chatHistoryPending, chatSummaries, connectionsList],
   );
   const gmConnectionId = gmConnectionChoice === undefined ? defaultGmConnectionId : gmConnectionChoice;
   const selectedGmConnection = useMemo(

@@ -10,12 +10,20 @@ const setupFixtures = vi.hoisted(() => ({
     { id: "image-connection", name: "Image Connection", provider: "image_generation", model: "test-image" },
   ],
   characters: [{ id: "gm-character", data: { name: "Guide" } }],
+  chatSummaries: [] as Array<{ connectionId: string; updatedAt: string; characterIds: string[] }>,
+  chatHistoryPending: false,
 }));
 
 vi.mock("../../../catalog/connections/index", () => ({
   useConnections: () => ({ data: setupFixtures.connections }),
 }));
 
+vi.mock("../../../catalog/chats/index", () => ({
+  useChatSummaries: () => ({
+    data: setupFixtures.chatHistoryPending ? undefined : setupFixtures.chatSummaries,
+    isPending: setupFixtures.chatHistoryPending,
+  }),
+}));
 vi.mock("../../../catalog/characters/index", () => ({
   characterAvatarUrl: () => null,
   CharacterAvatarImage: () => null,
@@ -112,6 +120,36 @@ describe("GameSetupWizard selection semantics", () => {
       const button = document.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
       expect(button).not.toBeNull();
       expect(button!.type).toBe("button");
+    }
+  });
+
+  it("picks the GM default only after chat history settles, preferring the recent connection", () => {
+    const gmSelect = () =>
+      Array.from(container.querySelectorAll<HTMLSelectElement>("select")).find((select) =>
+        Array.from(select.options).some((option) => option.textContent === "Select a connection…"),
+      )!;
+    const original = setupFixtures.connections;
+    setupFixtures.connections = [
+      ...original,
+      { id: "recent-connection", name: "Recent", provider: "openai", model: "recent-model" },
+    ];
+    setupFixtures.chatSummaries = [
+      { connectionId: "recent-connection", updatedAt: "2026-10-06T00:00:00.000Z", characterIds: ["c1"] },
+    ];
+    setupFixtures.chatHistoryPending = true;
+    try {
+      act(() => root.render(<GameSetupWizard onComplete={onComplete} onCancel={vi.fn()} isLoading={false} />));
+      act(() => buttonByText(container, "Next").click());
+      act(() => buttonByText(container, "Next").click());
+      expect(gmSelect().value).toBe("");
+
+      setupFixtures.chatHistoryPending = false;
+      act(() => root.render(<GameSetupWizard onComplete={onComplete} onCancel={vi.fn()} isLoading={false} />));
+      expect(gmSelect().value).toBe("recent-connection");
+    } finally {
+      setupFixtures.connections = original;
+      setupFixtures.chatSummaries = [];
+      setupFixtures.chatHistoryPending = false;
     }
   });
 
