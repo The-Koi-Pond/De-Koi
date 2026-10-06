@@ -213,6 +213,45 @@ describe("initGameCombatEncounter structured generation", () => {
     expect(llm.requests[1]?.messages.at(-1)?.content).toContain("game.combatInit");
   });
 
+  it("keeps the encounter when optional decorations use off-list values", async () => {
+    // Shape of a real model reply that used to reject the whole encounter.
+    const llm = llmWithResponses([
+      validCombatJson({
+        party: [
+          {
+            name: "Mira",
+            hp: 24,
+            maxHp: 24,
+            attacks: [
+              { name: "Shard Thrust", type: "single-target", power: 5 },
+              { name: "Name the Smile", type: "debuff", power: 3 },
+              { name: "Tide Sweep", type: "aoe", power: 4 },
+            ],
+            statuses: [{ name: "Bleeding Hand", stat: "threat" }],
+            isPlayer: true,
+          },
+        ],
+        itemEffects: ["Soaked Lighter (ruined)"],
+        dialogueCues: [
+          { speaker: "Pierrot", content: "Point.", type: "main", trigger: "pierrot_rule_frays" },
+          { speaker: "Pierrot", content: "There.", type: "main", trigger: "intro" },
+        ],
+      }),
+    ]);
+
+    const result = await initGameCombatEncounter(
+      { storage: storageGateway(), llm },
+      { chatId: "chat-1", connectionId: null, settings },
+    );
+
+    const mira = result.combatState.party[0];
+    expect(mira?.attacks.map((attack) => attack.type)).toEqual(["single-target", "single-target", "AoE"]);
+    expect(mira?.statuses).toEqual([{ name: "Bleeding Hand", emoji: "", duration: 1 }]);
+    expect(result.combatState.itemEffects).toEqual([]);
+    expect(result.combatState.dialogueCues?.map((cue) => cue.trigger)).toEqual(["intro"]);
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects malformed combat output instead of returning fallback combat state", async () => {
     const llm = llmWithResponses(["not json", JSON.stringify({ party: [], enemies: [] })]);
 
