@@ -8,8 +8,8 @@ const positiveFiniteNumber = finiteNumber.positive();
 
 // Only the encounter core (who fights, with what HP) is validated strictly.
 // Attacks, statuses, item effects, dialogue cues, mechanics and visuals are
-// optional decoration: the service sanitizer coerces or drops entries that
-// don't fit, so one off-list enum value can't reject a whole encounter.
+// optional per-entry extras: the service sanitizer coerces or drops entries
+// that don't fit, so one off-list enum value can't reject a whole encounter.
 const optionalEntries = z.array(z.unknown()).optional();
 
 const combatPartyMemberSchema = z
