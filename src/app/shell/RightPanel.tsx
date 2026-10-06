@@ -50,6 +50,7 @@ function PanelFallback() {
 export function RightPanel() {
   const panel = useUIStore((s) => s.rightPanel);
   const close = useUIStore((s) => s.closeRightPanel);
+  const open = useUIStore((s) => s.rightPanelOpen);
   const panelRef = useRef<HTMLElement>(null);
 
   // Escape closes the panel. Typing elsewhere is left alone, and while a field inside the panel is
@@ -64,7 +65,7 @@ export function RightPanel() {
     }
     close();
     return true;
-  });
+  }, open);
 
   const config = SHELL_PANEL_BY_DESTINATION[panel as ShellPanelDestination];
   const ActivePanel = PANELS[panel];

@@ -64,6 +64,18 @@ describe("RightPanel", () => {
     expect(useUIStore.getState().rightPanelOpen).toBe(false);
   });
 
+  it("leaves Escape to other overlays while the panel is marked closed", () => {
+    act(() => useUIStore.setState({ rightPanelOpen: false }));
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+
+    act(() => {
+      document.dispatchEvent(event);
+    });
+
+    // A handled Escape is consumed (preventDefault); a closed panel must not consume it.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("ignores Escape while typing in a field outside the panel", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);
