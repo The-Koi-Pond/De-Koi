@@ -259,7 +259,7 @@ const MODE_INTROS: Record<ChatMode, string> = {
     "Plain chat — no roleplay or game systems built in; autonomous messaging and other tools are optional below.",
   roleplay:
     "Plain roleplay surface — no built-in dice, combat, or GM pipeline; sprites, world-state tracking, and other helpers are available as optional agents below.",
-  game: "Full Game Master with built-in dice, combat, encounters, world state, and session/map tracking — the Scene Analysis toggle below adds optional cinematic visuals (backgrounds, music, weather).",
+  game: "Full Game Master with built-in dice, combat, encounters, world state, and session/map tracking — an optional Scene Effects Model (under Agents) adds scene analysis for backgrounds, music, and weather.",
 };
 
 type AvailableAgent = {
@@ -4048,8 +4048,11 @@ function ChatSettingsDrawerInner({
                 <p className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-[0.625rem] text-[var(--muted-foreground)]">
                   Agents run only when they are added to this chat. Add or remove individual agents below.
                 </p>
-                {isGame && agentsEnabled && (
+                {isGame && (
                   <div className="mt-1.5 px-3">
+                    <p className="mb-1 text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+                      Scene Effects Model
+                    </p>
                     <select
                       value={(metadata.gameSceneConnectionId as string) ?? ""}
                       onChange={(e) =>
@@ -4057,7 +4060,7 @@ function ChatSettingsDrawerInner({
                       }
                       className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--foreground)]"
                     >
-                      <option value="">Chat/default connection</option>
+                      <option value="">None — use inline tags from the GM</option>
                       {((connections ?? []) as Array<{ id: string; name: string; model?: string }>)
                         .filter((c) => (c as { provider?: string }).provider !== "image_generation")
                         .map((c) => (
