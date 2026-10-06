@@ -35,6 +35,7 @@ import {
 } from "../../shared/chat-ui";
 import { ensureGameInputDraftCloseGuard } from "../lib/game-input-draft-close-guard";
 import { gameInputDrafts, type GameInputAddressMode, type GameInputAttachment } from "../lib/game-input-drafts";
+import { parseSlashRoll } from "../lib/game-slash-roll";
 import { buildGameUserQuickReplyMenuEntries } from "../lib/game-user-quick-replies";
 
 interface GameInputProps {
@@ -269,7 +270,8 @@ export function GameInput({
       trimmed.length > 0 || submission.attachments.length > 0 || commitPendingMove || !!submission.queuedDice;
     if (!hasTurnContent || disabled || rollingQueuedDice) return;
 
-    let body = trimmed;
+    const slashRoll = parseSlashRoll(trimmed);
+    let body = slashRoll ? slashRoll.rest : trimmed;
     if (commitPendingMove && pendingMoveLabel) {
       body = body ? `*moves to ${pendingMoveLabel}*\n${body}` : `*moves to ${pendingMoveLabel}*`;
     }
@@ -279,11 +281,18 @@ export function GameInput({
         ? submission.attachments.map((a) => ({ type: a.type, data: a.data, filename: a.name, name: a.name }))
         : undefined;
 
-    if (submission.queuedDice) {
+    const diceToRoll = [slashRoll?.notation, submission.queuedDice].filter(
+      (notation): notation is string => !!notation,
+    );
+    if (diceToRoll.length > 0) {
       setRollingDraftKeys((keys) => new Set(keys).add(submission.draftKey));
-      let diceResult: DiceRollResult | null = null;
+      const diceTags: string[] = [];
       try {
-        diceResult = await onRollDice(submission.queuedDice);
+        for (const notation of diceToRoll) {
+          const diceResult = await onRollDice(notation);
+          if (!diceResult) return;
+          diceTags.push(formatDiceResultTag(diceResult));
+        }
       } finally {
         setRollingDraftKeys((keys) => {
           const next = new Set(keys);
@@ -291,8 +300,7 @@ export function GameInput({
           return next;
         });
       }
-      if (!diceResult) return;
-      const diceTag = formatDiceResultTag(diceResult);
+      const diceTag = diceTags.join("\n");
       body = body ? `${body}\n${diceTag}` : diceTag;
     }
 
