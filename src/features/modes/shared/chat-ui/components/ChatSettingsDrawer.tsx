@@ -209,6 +209,7 @@ import {
   type CustomToolRow,
 } from "../../../../catalog/agents/index";
 import { normalizeSpritePlacements } from "../../../../runtime/visuals/sprite-placement";
+import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import {
   getCharacterIdFromSpriteOwnerKey,
   getSpriteOwnerKeysForCharacterId,
@@ -426,6 +427,14 @@ const isLiteBuild = import.meta.env.VITE_DE_KOI_LITE === "true" || import.meta.e
 
 export function ChatSettingsDrawer(props: ChatSettingsDrawerProps) {
   const contentReady = useDeferredDrawerContent(props.open, props.chat.id);
+  const { onClose } = props;
+  // Registered here so Escape also closes the loading shell; inner modals stack above it.
+  useEscapeOverlay(() => {
+    // Several fields save on blur; unmounting a focused field would drop its draft, so blur first.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    onClose();
+    return true;
+  }, props.open);
 
   if (!props.open) return null;
   if (!contentReady) return <ChatSettingsDrawerLoadingShell onClose={props.onClose} />;

@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { X, Trash2, FileText, MessageSquare, Download, Pencil, Upload, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import { showPromptDialog } from "../../../../../shared/lib/app-dialogs";
 import { getChatDisplayName } from "../../../../../shared/lib/chat-display";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -48,6 +49,10 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
     if (isGroupDeletePending) return;
     onClose();
   };
+  useEscapeOverlay(() => {
+    handleClose();
+    return true;
+  }, open);
 
   const handleImportChat = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

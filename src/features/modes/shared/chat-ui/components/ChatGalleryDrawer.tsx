@@ -2,6 +2,7 @@
 // Chat: Gallery Drawer — per-chat image gallery
 // ──────────────────────────────────────────────
 import { X } from "lucide-react";
+import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import { ChatGallery } from "./ChatGallery";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
 import type { SaveMomentSource } from "../lib/save-moment";
@@ -15,6 +16,11 @@ interface ChatGalleryDrawerProps {
 }
 
 export function ChatGalleryDrawer({ chat, open, onClose, onIllustrate }: ChatGalleryDrawerProps) {
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  }, open);
+
   if (!open) return null;
 
   return (
