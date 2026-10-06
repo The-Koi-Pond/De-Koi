@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { latestTurnAgentFailures } from "./agent-failures";
+import { latestTurnAgentFailures, type PersistedAgentRun } from "./agent-failures";
 
-const run = (overrides: Record<string, unknown>) => ({
+const run = (overrides: Partial<PersistedAgentRun>): PersistedAgentRun => ({
   agentType: "world-state",
   agentName: "World State",
   messageId: "m2",
   success: true,
-  error: null,
+  error: null as string | null,
   createdAt: "2026-10-05T21:37:00.000Z",
   ...overrides,
 });
@@ -47,7 +47,9 @@ describe("latestTurnAgentFailures", () => {
     ).toEqual([]);
   });
 
-  it("skips malformed rows instead of inventing failures", () => {
-    expect(latestTurnAgentFailures([{ success: false }, run({ agentType: " ", success: false })])).toEqual([]);
+  it("skips rows without an agent type or message instead of inventing failures", () => {
+    expect(
+      latestTurnAgentFailures([run({ agentType: " ", success: false }), run({ messageId: "", success: false })]),
+    ).toEqual([]);
   });
 });

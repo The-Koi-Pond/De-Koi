@@ -84,17 +84,18 @@ export function formatAgentFailuresToast(failures: AgentFailure[]): string {
   return `${failures.length} agents failed: ${visible}${remaining}. Use the retry controls to try again.`;
 }
 
+/** A run row already normalized by the agents catalog (see normalizeAgentRunRow). */
 export interface PersistedAgentRun {
-  agentType?: unknown;
-  agentName?: unknown;
-  messageId?: unknown;
-  success?: unknown;
-  error?: unknown;
-  createdAt?: unknown;
+  agentType: string;
+  agentName: string;
+  messageId: string;
+  success: boolean;
+  error: string | null;
+  createdAt: string;
 }
 
 function runTime(run: PersistedAgentRun): number {
-  const time = typeof run.createdAt === "string" ? Date.parse(run.createdAt) : Number.NaN;
+  const time = Date.parse(run.createdAt);
   return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
 }
 
@@ -104,25 +105,16 @@ function runTime(run: PersistedAgentRun): number {
  * so a later successful retry clears an earlier failure.
  */
 export function latestTurnAgentFailures(runs: readonly PersistedAgentRun[]): AgentFailure[] {
-  const valid = runs.filter(
-    (run) => typeof run.agentType === "string" && run.agentType.trim() && typeof run.messageId === "string",
-  );
+  const valid = runs.filter((run) => run.agentType.trim() && run.messageId.trim());
   if (valid.length === 0) return [];
   const newest = valid.reduce((latest, run) => (runTime(run) > runTime(latest) ? run : latest));
   const latestByType = new Map<string, PersistedAgentRun>();
   for (const run of valid) {
     if (run.messageId !== newest.messageId) continue;
-    const agentType = run.agentType as string;
-    const current = latestByType.get(agentType);
-    if (!current || runTime(run) >= runTime(current)) latestByType.set(agentType, run);
+    const current = latestByType.get(run.agentType);
+    if (!current || runTime(run) >= runTime(current)) latestByType.set(run.agentType, run);
   }
   return [...latestByType.values()]
-    .filter((run) => run.success === false)
-    .map((run) =>
-      toAgentFailure({
-        agentType: run.agentType as string,
-        agentName: typeof run.agentName === "string" ? run.agentName : null,
-        error: typeof run.error === "string" ? run.error : null,
-      }),
-    );
+    .filter((run) => !run.success)
+    .map((run) => toAgentFailure({ agentType: run.agentType, agentName: run.agentName, error: run.error }));
 }

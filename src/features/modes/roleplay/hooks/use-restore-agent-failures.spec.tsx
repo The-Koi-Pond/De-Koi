@@ -9,11 +9,14 @@ vi.mock("../../../../shared/api/agent-api", () => ({
 }));
 
 import { useAgentStore } from "../../../../shared/stores/agent.store";
+import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useRestoreAgentFailures } from "./use-restore-agent-failures";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const failedRun = {
+  id: "run-1",
+  chatId: "chat-1",
   agentType: "world-state",
   agentName: "World State",
   messageId: "m1",
@@ -41,6 +44,7 @@ describe("useRestoreAgentFailures", () => {
   beforeEach(() => {
     container = document.createElement("div");
     useAgentStore.getState().reset();
+    useChatStore.setState({ activeChatId: "chat-1" });
   });
 
   afterEach(() => {
@@ -70,6 +74,44 @@ describe("useRestoreAgentFailures", () => {
 
   it("does not restore while a generation is running", async () => {
     useAgentStore.getState().setProcessing(true);
+    mocks.listRunsForChat.mockResolvedValueOnce([failedRun]);
+
+    await render();
+
+    expect(useAgentStore.getState().failedAgentFailures).toEqual([]);
+  });
+
+  it("restores legacy snake_case rows with numeric success flags", async () => {
+    mocks.listRunsForChat.mockResolvedValueOnce([
+      {
+        id: "run-legacy",
+        chat_id: "chat-1",
+        agent_type: "world-state",
+        message_id: "m1",
+        success: 0,
+        error: "timeout",
+        created_at: "2026-10-05T21:37:00.000Z",
+      },
+    ]);
+
+    await render();
+
+    expect(useAgentStore.getState().failedAgentTypes).toEqual(["world-state"]);
+  });
+
+  it("drops a restore that lands after the store was reset", async () => {
+    let resolve!: (runs: unknown[]) => void;
+    mocks.listRunsForChat.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    await render();
+
+    act(() => useAgentStore.getState().reset());
+    await act(async () => resolve([failedRun]));
+
+    expect(useAgentStore.getState().failedAgentFailures).toEqual([]);
+  });
+
+  it("ignores runs for a chat that is no longer active", async () => {
+    useChatStore.setState({ activeChatId: "chat-2" });
     mocks.listRunsForChat.mockResolvedValueOnce([failedRun]);
 
     await render();
