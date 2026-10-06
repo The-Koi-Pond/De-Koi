@@ -90,3 +90,28 @@ export function normalizeHudWidgets(widgets: readonly LegacyHudWidget[]): HudWid
     return normalized;
   });
 }
+
+function comparableStatName(name: string): string {
+  return name
+    .normalize("NFKC")
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Finds the stat a `[widget: id, stat: "Name"]` update means. Widget stats often
+ * carry a decorative emoji ("👻 Columbina") that the GM leaves out of its tag, so
+ * an exact match wins and otherwise emoji, case and spacing are ignored, as long
+ * as that identifies exactly one stat.
+ */
+export function findWidgetStatIndex(stats: readonly { name: string }[], statName: string): number {
+  const exact = stats.findIndex((stat) => stat.name === statName);
+  if (exact >= 0) return exact;
+  const wanted = comparableStatName(statName);
+  if (!wanted) return -1;
+  const matches = stats.flatMap((stat, index) => (comparableStatName(stat.name) === wanted ? [index] : []));
+  // Two stats that only differ by emoji or case are ambiguous; change neither.
+  return matches.length === 1 ? matches[0]! : -1;
+}
