@@ -47,6 +47,8 @@ import { useGameAssetStore } from "../stores/game-asset.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
+import { coreModulesApi } from "../../../../shared/api/core-modules-api";
+import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../../../engine/contracts/constants/core-modules";
 
 interface GameSetupWizardProps {
   error?: string | null;
@@ -370,6 +372,23 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
   const [rating, setRating] = useState<"sfw" | "nsfw">("sfw");
   const [enableSpriteGeneration, setEnableSpriteGeneration] = useState(false);
   const [enableSpotifyDj, setEnableSpotifyDj] = useState(false);
+  // Game music plays through the Music Player module; without it, picks have nowhere to play.
+  const [musicPlayerModuleEnabled, setMusicPlayerModuleEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!enableSpotifyDj) return;
+    let cancelled = false;
+    coreModulesApi.settings
+      .get()
+      .then((settings) => {
+        if (!cancelled) setMusicPlayerModuleEnabled(settings.enabled?.[MUSIC_DJ_MINI_PLAYER_MODULE_ID] === true);
+      })
+      .catch((error) => {
+        console.warn("[game-setup] Could not read the Music Player module setting:", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enableSpotifyDj]);
   const [enableLorebookKeeper, setEnableLorebookKeeper] = useState(false);
   const [imageConnectionId, setImageConnectionId] = useState<string | null>(null);
   const [sceneConnectionId, setSceneConnectionId] = useState<string | null>(null);
@@ -1446,6 +1465,11 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
                     <div className="mt-2 space-y-1 rounded-lg bg-[var(--background)]/55 p-3 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
                       <div className="font-medium text-[var(--foreground)]">Provider: YouTube</div>
                       <div>No account, OAuth, API key, or Spotify Premium required.</div>
+                      {musicPlayerModuleEnabled === false && (
+                        <div role="alert" className="pt-1 font-medium text-amber-400">
+                          The Music Player module is off, so no music will play. Turn it on in Settings &gt; Modules.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
