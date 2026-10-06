@@ -60,6 +60,22 @@ export function GameQteOverlay({ actions, timerSeconds, onSelect, onTimeout, onD
     [timerSeconds, onSelect],
   );
 
+  // The buttons show 1/2/3 key hints; make those keys pick the matching action.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      const index = Number(event.key) - 1;
+      const action = Number.isInteger(index) ? actions[index] : undefined;
+      if (!action) return;
+      event.preventDefault();
+      handleSelect(action.label, index);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [actions, handleSelect]);
+
   const handleDismiss = useCallback(() => {
     if (resolved.current) return;
     resolved.current = true;
