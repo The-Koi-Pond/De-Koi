@@ -40,6 +40,7 @@ import { useLorebooks } from "../../../../catalog/lorebooks/index";
 import { useUpdateChat, useUpdateChatMetadata, useCreateMessage, chatKeys } from "../../../../catalog/chats/index";
 import {
   RoleplayWorkflowProfileChooser,
+  type ApplyPendingRoleplayWorkflow,
   useChatPresets,
   useApplyChatPreset,
 } from "../../../../catalog/chat-presets/index";
@@ -119,7 +120,7 @@ const ALL_STEPS: WizardStep[] = [
   {
     key: "workflow-profile",
     title: "Choose a Workflow Profile",
-    body: "Optional: review a ready-made set of Roleplay helpers before starting. Nothing changes until you confirm the ledger.",
+    body: "Optional: pick a ready-made set of Roleplay helpers. Only the checked ledger rows are written, when you press Apply & finish.",
     sprite: ASSISTANT_MARK_URL,
   },
 ];
@@ -1402,6 +1403,13 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
     if (pick) setShortcutPresetId(pick.id);
   }, [chatPresetList, shortcutPresetId, metadata.appliedChatPresetId]);
 
+  const [pendingProfileApply, setPendingProfileApply] = useState<ApplyPendingRoleplayWorkflow | null>(null);
+  const [applyingProfile, setApplyingProfile] = useState(false);
+  const reportPendingProfileApply = useCallback((applyPending: ApplyPendingRoleplayWorkflow | null) => {
+    setPendingProfileApply(() => applyPending);
+  }, []);
+  const finishesWithProfileApply = isLast && currentStep.key === "workflow-profile" && pendingProfileApply !== null;
+
   const finishWizard = useCallback(async () => {
     await updateMeta.mutateAsync({
       id: chat.id,
@@ -1435,10 +1443,19 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
 
   // On the preset step, wait for full preset data before allowing advance
   const isPresetStep = currentStep.key === "preset";
-  const nextDisabled = isPresetStep && !!chat.promptPresetId && presetFullLoading;
+  const nextDisabled = (isPresetStep && !!chat.promptPresetId && presetFullLoading) || applyingProfile;
 
-  const next = useCallback(() => {
+  const next = useCallback(async () => {
     if (isLast) {
+      // A profile picked on the last step is only a preview until applied; Done must not drop it.
+      if (finishesWithProfileApply && pendingProfileApply) {
+        setApplyingProfile(true);
+        try {
+          if (!(await pendingProfileApply())) return;
+        } finally {
+          setApplyingProfile(false);
+        }
+      }
       void finishWizard();
     } else {
       // When leaving the preset step (index 1), show the choice modal if the preset has variables
@@ -1450,7 +1467,15 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
       setCharSearch("");
       setLbSearch("");
     }
-  }, [isLast, finishWizard, currentStep.key, chat.promptPresetId, presetFull?.choiceBlocks?.length]);
+  }, [
+    isLast,
+    finishesWithProfileApply,
+    pendingProfileApply,
+    finishWizard,
+    currentStep.key,
+    chat.promptPresetId,
+    presetFull?.choiceBlocks?.length,
+  ]);
 
   const previous = useCallback(() => {
     setStep((s) => Math.max(0, s - 1));
@@ -1708,7 +1733,14 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
   }
 
   function renderWorkflowProfile() {
-    return <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onNavigateAway={cancel} />;
+    return (
+      <RoleplayWorkflowProfileChooser
+        chat={chat}
+        entryPoint="wizard"
+        onNavigateAway={cancel}
+        onPendingApplyChange={reportPendingProfileApply}
+      />
+    );
   }
 
   const stepRenderers: Record<string, () => React.ReactNode> = {
@@ -2033,11 +2065,12 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                   <span className="inline xs:hidden sm:hidden">Presets</span>
                 </button>
                 <button
-                  onClick={next}
+                  onClick={() => void next()}
                   disabled={nextDisabled}
                   className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-1.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
                 >
-                  {isLast ? "Done" : "Next"}
+                  {applyingProfile && <Loader2 size="0.75rem" className="animate-spin" />}
+                  {finishesWithProfileApply ? "Apply & finish" : isLast ? "Done" : "Next"}
                   {isLast ? <Check size="0.75rem" /> : <ChevronRight size="0.75rem" />}
                 </button>
               </div>
