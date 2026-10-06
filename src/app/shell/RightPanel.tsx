@@ -1,6 +1,7 @@
 // Layout: Right Panel (polished with panel transitions)
-import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "react";
+import { lazy, Suspense, useRef, type ComponentType, type LazyExoticComponent } from "react";
 import { X } from "lucide-react";
+import { useEscapeOverlay } from "../../shared/hooks/use-escape-overlay";
 import { useUIStore } from "../../shared/stores/ui.store";
 import {
   SHELL_ACCENT_STYLES,
@@ -34,6 +35,12 @@ const PANELS: Record<string, LazyExoticComponent<ComponentType>> = {
   help: HelpPanel,
 };
 
+function isEditableElement(element: Element | null): element is HTMLElement {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  return element.matches("input:not([type=checkbox]):not([type=radio]):not([type=button]), textarea, select");
+}
+
 function PanelFallback() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>
@@ -43,6 +50,21 @@ function PanelFallback() {
 export function RightPanel() {
   const panel = useUIStore((s) => s.rightPanel);
   const close = useUIStore((s) => s.closeRightPanel);
+  const panelRef = useRef<HTMLElement>(null);
+
+  // Escape closes the panel. Typing elsewhere is left alone, and while a field inside the panel is
+  // focused the first Escape only leaves the field (blur-saved fields save, drafts stay visible);
+  // the next Escape closes the panel. Modals opened from the panel register later and win.
+  useEscapeOverlay(() => {
+    const active = document.activeElement;
+    if (isEditableElement(active)) {
+      if (!panelRef.current?.contains(active)) return false;
+      active.blur();
+      return true;
+    }
+    close();
+    return true;
+  });
 
   const config = SHELL_PANEL_BY_DESTINATION[panel as ShellPanelDestination];
   const ActivePanel = PANELS[panel];
@@ -51,7 +73,12 @@ export function RightPanel() {
   const accent = SHELL_ACCENT_STYLES[config?.accentRole ?? "muted"];
 
   return (
-    <section data-component="RightPanel" aria-label={title} className="mari-right-panel-content flex h-full flex-col">
+    <section
+      ref={panelRef}
+      data-component="RightPanel"
+      aria-label={title}
+      className="mari-right-panel-content flex h-full flex-col"
+    >
       {/* Header - OS window style */}
       <div className="mari-right-panel-header relative flex h-12 flex-shrink-0 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
