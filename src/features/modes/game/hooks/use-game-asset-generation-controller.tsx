@@ -6,6 +6,7 @@ import {
   type ImagePromptOverride as GameImagePromptOverride,
   type ImagePromptReviewItem as GameImagePromptReviewItem,
 } from "../../../../shared/components/ui/ImagePromptReviewModal";
+import { chatKeys } from "../../../catalog/chats/index";
 import { galleryKeys } from "../../../catalog/gallery/index";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import type { SceneSegmentEffect } from "../../../../engine/contracts/types/scene";
@@ -44,7 +45,12 @@ function isTimeoutError(error: unknown): error is TimeoutError {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
+function withTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  onTimeout?: () => void,
+  onSettledAfterTimeout?: () => void,
+): Promise<T> {
   const controller = new AbortController();
   let settled = false;
   return new Promise<T>((resolve, reject) => {
@@ -60,13 +66,19 @@ function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, on
     }, ms);
     run(controller.signal)
       .then((value) => {
-        if (settled) return;
+        if (settled) {
+          onSettledAfterTimeout?.();
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         resolve(value);
       })
       .catch((error) => {
-        if (settled) return;
+        if (settled) {
+          onSettledAfterTimeout?.();
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         reject(error);
@@ -94,7 +106,8 @@ export function useGameAssetGenerationController({
 }: UseGameAssetGenerationControllerParams) {
   const [pendingAssetGeneration, setPendingAssetGeneration] = useState<GameAssetGenerationPayload | null>(null);
   const [assetGenerationBlocksScene, setAssetGenerationBlocksScene] = useState(false);
-  const [assetGenerationFailed, setAssetGenerationFailed] = useState(false);
+  const [assetGenerationError, setAssetGenerationError] = useState<string | null>(null);
+  const assetGenerationFailed = assetGenerationError !== null;
   const [failedNpcAvatarNames, setFailedNpcAvatarNames] = useState<Set<string>>(() => new Set());
   const [imagePromptReviewItems, setImagePromptReviewItems] = useState<GameImagePromptReviewItem[]>([]);
   const [imagePromptReviewSubmitting, setImagePromptReviewSubmitting] = useState(false);
@@ -172,6 +185,14 @@ export function useGameAssetGenerationController({
     };
   }, []);
 
+  // Generated images are saved one at a time as they finish, so after a failure or
+  // timeout the chat, gallery and asset manifest can hold more than the caller saw.
+  const refreshSavedAssets = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: chatKeys.detail(activeChatId) });
+    void queryClient.invalidateQueries({ queryKey: galleryKeys.images(activeChatId) });
+    void fetchManifest();
+  }, [activeChatId, fetchManifest, queryClient]);
+
   const runGameAssetGeneration = useCallback(
     async (
       assetPayload: GameAssetGenerationPayload,
@@ -242,9 +263,11 @@ export function useGameAssetGenerationController({
         () => {
           toast.error("Image generation timed out. The scene will continue without generated assets.");
         },
+        // The image in flight at the timeout still finishes and is saved.
+        refreshSavedAssets,
       );
     },
-    [closeImagePromptReview, openImagePromptReview],
+    [closeImagePromptReview, openImagePromptReview, refreshSavedAssets],
   );
 
   const applyGeneratedAssets = useCallback(
@@ -267,7 +290,7 @@ export function useGameAssetGenerationController({
   );
 
   const resetAssetGenerationState = useCallback(() => {
-    setAssetGenerationFailed(false);
+    setAssetGenerationError(null);
     setPendingAssetGeneration(null);
     setAssetGenerationBlocksScene(false);
   }, []);
@@ -281,7 +304,7 @@ export function useGameAssetGenerationController({
 
       setPendingAssetGeneration(assetPayload);
       setAssetGenerationBlocksScene(options?.blocksScene === true);
-      setAssetGenerationFailed(false);
+      setAssetGenerationError(null);
 
       try {
         const res = await runGameAssetGeneration(assetPayload, { allowPromptReview: options?.allowPromptReview });
@@ -298,22 +321,53 @@ export function useGameAssetGenerationController({
         }
 
         return res;
-      } catch {
-        setAssetGenerationFailed(true);
+      } catch (error) {
+        console.warn("[game-assets] Image generation failed:", error);
+        setAssetGenerationError(
+          isTimeoutError(error)
+            ? "Image generation timed out."
+            : error instanceof Error && error.message
+              ? error.message
+              : "Image generation failed.",
+        );
         setAssetGenerationBlocksScene(false);
+        // Images finished before the failure are already saved; show them instead of
+        // generating them again on the next turn.
+        refreshSavedAssets();
         return null;
       }
     },
-    [applyGeneratedAssets, gameImageGenerationEnabled, resetAssetGenerationState, runGameAssetGeneration],
+    [
+      applyGeneratedAssets,
+      gameImageGenerationEnabled,
+      refreshSavedAssets,
+      resetAssetGenerationState,
+      runGameAssetGeneration,
+    ],
   );
 
   const retryAssetGeneration = useCallback(
     (assetPayload: GameAssetGenerationPayload | null | undefined, options?: { showSuccessToast?: boolean }) => {
-      const retryPayload = pendingAssetGeneration ?? assetPayload;
-      if (!retryPayload) return;
+      const payload = pendingAssetGeneration ?? assetPayload;
+      if (!payload) return;
+      // Portraits that finished before a timeout are already attached; retry only the rest.
+      const portraitNames = new Set(
+        useGameModeStore
+          .getState()
+          .npcs.filter((npc) => !!npc.avatarUrl)
+          .map((npc) => normalizeNpcName(npc.name)),
+      );
+      const retryPayload = payload.npcsNeedingAvatars
+        ? {
+            ...payload,
+            npcsNeedingAvatars: payload.npcsNeedingAvatars.filter(
+              (npc) => !portraitNames.has(normalizeNpcName(npc.name)),
+            ),
+          }
+        : payload;
       void requestAssetGeneration(retryPayload, options);
     },
-    [pendingAssetGeneration, requestAssetGeneration],
+    [normalizeNpcName, pendingAssetGeneration, requestAssetGeneration],
   );
 
   useEffect(() => {
@@ -335,6 +389,7 @@ export function useGameAssetGenerationController({
   return {
     applyGeneratedAssets,
     assetGenerationBlocksScene,
+    assetGenerationError,
     assetGenerationFailed,
     clearFailedNpcAvatars,
     failedNpcAvatarNames,
