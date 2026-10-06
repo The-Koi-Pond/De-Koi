@@ -120,6 +120,7 @@ import {
 } from "../lib/game-tag-parser";
 import { resolveAssetTag } from "../lib/asset-fuzzy-match";
 import { filterGameAssetMap, parseGameAssetExcludedFolders } from "../lib/game-asset-selection";
+import { speakerTagsToProse } from "../lib/combat-log-text";
 import { getSceneBackgroundTags, pickFallbackBackgroundTag } from "../lib/game-background-selection";
 import { resolveCombatFullBodyPose, resolveDialogueFullBodyPose } from "../lib/game-full-body-pose";
 import { characterNamesMatch, findNamedEntry } from "../lib/game-character-name-match";
@@ -1148,7 +1149,7 @@ function formatCombatLogContent(message: Message): string {
   if (!content) return "";
   if (message.role === "user" && SYNTHETIC_GAME_START_MESSAGE_RE.test(content)) return "";
   if (message.role === "assistant" || message.role === "narrator") {
-    return parseGmTags(content).cleanContent || content;
+    return speakerTagsToProse(parseGmTags(content).cleanContent || content);
   }
   return stripGameDirectAddressPrefix(content);
 }
