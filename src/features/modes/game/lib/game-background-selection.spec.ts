@@ -25,9 +25,14 @@ describe("game background selection", () => {
     expect(pickFallbackBackgroundTag("moonlit forest", manifest)).toBe("backgrounds:fantasy:forest-night");
   });
 
-  it("falls back to the first hinted tag when the request is empty or unmatched", () => {
-    expect(pickFallbackBackgroundTag("volcano", manifest)).toBe("backgrounds:fantasy:forest-night");
+  it("falls back to the first hinted tag only when no scene was named", () => {
     expect(pickFallbackBackgroundTag(null, manifest)).toBe("backgrounds:fantasy:forest-night");
+    expect(pickFallbackBackgroundTag("", manifest)).toBe("backgrounds:fantasy:forest-night");
+  });
+
+  it("returns no stand-in when a named scene matches nothing", () => {
+    expect(pickFallbackBackgroundTag("volcano", manifest)).toBeNull();
+    expect(pickFallbackBackgroundTag("backgrounds:generated:purple-tent-interior", manifest)).toBeNull();
     expect(pickFallbackBackgroundTag("forest", null)).toBeNull();
   });
 
