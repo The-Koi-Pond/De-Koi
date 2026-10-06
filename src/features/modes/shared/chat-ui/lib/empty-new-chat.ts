@@ -27,8 +27,8 @@ type AbandonedDraftCandidate = Omit<EmptyNewChatCandidate, "activeChatId"> & {
 };
 
 /**
- * A draft chat left before setup finished (cancelled, reloaded, or opened later): no characters and
- * no messages, and not currently in a setup flow. These get a "Continue setup" card.
+ * An empty chat outside any setup flow: no characters and no messages. Usually a draft whose setup
+ * was left early (cancelled or reloaded). These get a "Continue setup" card; resuming never deletes.
  */
 export function isAbandonedChatDraft({
   activeChatId,

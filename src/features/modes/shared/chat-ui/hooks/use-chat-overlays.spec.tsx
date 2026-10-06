@@ -92,12 +92,13 @@ describe("useChatOverlays discovery reveal lifecycle", () => {
     expect(useChatStore.getState().newChatSetupIntent).toBeNull();
   });
 
-  it("resumes setup on an abandoned draft as a fresh setup flow", () => {
+  it("resumes setup without arming first-run draft cleanup", () => {
     act(() => container.querySelector<HTMLButtonElement>('[data-testid="open-settings"]')?.click());
     act(() => container.querySelector<HTMLButtonElement>('[data-testid="resume-setup"]')?.click());
 
     expect(container.querySelector('[data-testid="wizard-state"]')?.textContent).toBe("Wizard open");
-    expect(container.querySelector('[data-testid="setup-chat-id"]')?.textContent).toBe("chat-1");
+    // Not tagged as first-run setup, so Skip/Done cannot delete an ordinary empty chat.
+    expect(container.querySelector('[data-testid="setup-chat-id"]')?.textContent).toBe("");
     expect(container.textContent).toContain("Settings closed");
   });
 

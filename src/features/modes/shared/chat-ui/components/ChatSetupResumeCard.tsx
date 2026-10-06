@@ -4,7 +4,7 @@ interface ChatSetupResumeCardProps {
   onResume: () => void;
 }
 
-/** Shown on a draft chat whose setup wizard was closed before a character or message existed. */
+/** Shown on an empty chat (no characters, no messages), e.g. one whose setup wizard was left early. */
 export function ChatSetupResumeCard({ onResume }: ChatSetupResumeCardProps) {
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
@@ -15,7 +15,7 @@ export function ChatSetupResumeCard({ onResume }: ChatSetupResumeCardProps) {
       >
         <h3 className="text-sm font-semibold text-[var(--foreground)]">This chat isn't set up yet</h3>
         <p className="mt-1.5 text-xs leading-relaxed text-[var(--muted-foreground)]">
-          Pick a connection and characters to start, or skip setup to remove the empty chat.
+          Pick a connection and characters to start.
         </p>
         <button
           type="button"
