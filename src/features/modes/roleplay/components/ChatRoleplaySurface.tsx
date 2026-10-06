@@ -762,6 +762,7 @@ type RoleplaySurfaceProps = {
   onIllustrate?: ComponentProps<typeof ChatCommonOverlays>["onIllustrate"];
   onWizardFinish: () => void;
   onWizardCancel: () => void;
+  onResumeSetup?: () => void;
   onClosePeekPrompt: () => void;
   onResetSpritePlacements: () => void;
   onSpriteSideChange: (side: SpriteSide) => void;
@@ -867,6 +868,7 @@ export function ChatRoleplaySurface({
   onIllustrate,
   onWizardFinish,
   onWizardCancel,
+  onResumeSetup,
   onClosePeekPrompt,
   onResetSpritePlacements,
   onSpriteSideChange,
@@ -1795,6 +1797,7 @@ export function ChatRoleplaySurface({
         onIllustrate={onIllustrate}
         onWizardFinish={onWizardFinish}
         onWizardCancel={onWizardCancel}
+        onResumeSetup={onResumeSetup}
         onClosePeekPrompt={onClosePeekPrompt}
         onCloseSummaryDraft={() => setSummaryDraft(null)}
         onDeleteConfirm={onDeleteConfirm}

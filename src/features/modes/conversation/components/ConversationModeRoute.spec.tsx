@@ -60,6 +60,7 @@ vi.mock("../hooks/use-conversation-avatar-overrides", () => ({
 vi.mock("../../shared/chat-ui/index", () => ({
   CreatorNotesCssInjector: () => null,
   NewChatConnectionGate: () => null,
+  isAbandonedChatDraft: () => false,
   isEmptyNewChatSetup: () => false,
   useChatMetadataSync: () => ({ chatBackground: null }),
   useChatOverlays: () => ({

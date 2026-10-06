@@ -246,6 +246,18 @@ export function useChatOverlays(activeChatId: string) {
     setSettingsOpen(true);
   }, [activeChatId, setSettingsOpen]);
 
+  /**
+   * Reopens the setup wizard for an empty chat. Deliberately not tagged as a first-run setup, so
+   * Skip/Done never delete it: an empty chat is not proof that it was an unfinished draft.
+   */
+  const resumeSetup = useCallback(() => {
+    if (!activeChatId) return;
+    pendingSetupOverlayOpenRef.current?.cancel();
+    pendingSetupOverlayOpenRef.current = null;
+    setSettingsOpen(false);
+    setWizardOpen(true);
+  }, [activeChatId, setSettingsOpen]);
+
   return {
     settingsOpen,
     filesOpen,
@@ -260,6 +272,7 @@ export function useChatOverlays(activeChatId: string) {
     setWizardOpen,
     setSpriteArrangeMode,
     clearNewChatSetup: () => setNewChatSetupChatId(null),
+    resumeSetup,
     openSettings,
     openFiles: () => setFilesOpen(true),
     openGallery: () => setGalleryOpen(true),
