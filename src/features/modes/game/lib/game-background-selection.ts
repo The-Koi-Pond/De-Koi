@@ -43,7 +43,9 @@ export function pickFallbackBackgroundTag(
         bestTag = tag;
       }
     }
-    if (bestTag && bestScore > 0) return bestTag;
+    // A named scene with no related asset gets no stand-in: an unrelated stock
+    // image (a city skyline for a circus tent) misleads more than no background.
+    return bestTag && bestScore > 0 ? bestTag : null;
   }
 
   return tags.find((tag) => BACKGROUND_FALLBACK_HINT.test(tag)) ?? tags[0]!;
