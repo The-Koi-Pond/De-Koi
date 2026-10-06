@@ -94,5 +94,51 @@ describe("useGameAssetGenerationController retry", () => {
     expect(vi.mocked(gameApi.generateAssets).mock.calls[1]?.[0]).toMatchObject({
       npcsNeedingAvatars: [{ name: "Ann", description: "guard" }],
     });
+    expect(gameApi.npcNamesWithPortraits).toHaveBeenCalledWith("chat-1");
+  });
+
+  it("does not hold another chat's batch behind a timed-out one", async () => {
+    vi.mocked(gameApi.generateAssets)
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue({ generatedNpcAvatars: [] } as never);
+
+    let first!: Promise<unknown>;
+    await act(async () => {
+      first = controller.requestAssetGeneration({ chatId: "chat-1", npcsNeedingAvatars: [{ name: "Bob" }] } as never);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(240_000);
+      await first;
+    });
+    await act(async () => {
+      void controller.requestAssetGeneration({ chatId: "chat-2", npcsNeedingAvatars: [{ name: "Cy" }] } as never);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(gameApi.generateAssets).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops waiting for a batch that never settles after one more timeout window", async () => {
+    vi.mocked(gameApi.generateAssets)
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue({ generatedNpcAvatars: [] } as never);
+    const payload = { chatId: "chat-1", npcsNeedingAvatars: [{ name: "Bob" }] } as never;
+
+    let first!: Promise<unknown>;
+    await act(async () => {
+      first = controller.requestAssetGeneration(payload);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(240_000);
+      await first;
+    });
+    await act(async () => {
+      void controller.requestAssetGeneration(payload);
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(gameApi.generateAssets).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(240_000);
+    });
+    expect(gameApi.generateAssets).toHaveBeenCalledTimes(2);
   });
 });

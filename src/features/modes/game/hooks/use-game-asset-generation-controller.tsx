@@ -39,6 +39,19 @@ const GAME_ASSET_PREVIEW_TIMEOUT_MS = 180_000;
 const GAME_ASSET_PROMPT_REVIEW_TIMEOUT_MS = 180_000;
 const IMAGE_PROMPT_REVIEW_TIMED_OUT = Symbol("IMAGE_PROMPT_REVIEW_TIMED_OUT");
 
+// Waits for the chat's previous batch, but never longer than one more timeout
+// window, so a request that never settles can't block that chat's images forever.
+function waitForPreviousGeneration(previous: Promise<void> | undefined): Promise<void> {
+  if (!previous) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, GAME_ASSET_GENERATION_TIMEOUT_MS);
+    void previous.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 type TimeoutError = Error & { name: "AbortError"; code?: "ETIMEDOUT" };
 
 function isTimeoutError(error: unknown): error is TimeoutError {
@@ -114,7 +127,7 @@ export function useGameAssetGenerationController({
   const imagePromptReviewResolveRef = useRef<((overrides: GameImagePromptOverride[] | null) => void) | null>(null);
   // A timed-out batch keeps generating and saving in the background. New batches
   // wait for it so two runs never generate or patch the same NPC at once.
-  const inFlightGenerationRef = useRef<Promise<void> | null>(null);
+  const inFlightGenerationsRef = useRef(new Map<string, Promise<void>>());
   const retryingRef = useRef(false);
   const clearFailedNpcAvatars = useCallback(
     (names: Iterable<string>) => {
@@ -263,14 +276,16 @@ export function useGameAssetGenerationController({
 
       return await withTimeout(
         (signal) => {
+          const chatId = String(payload.chatId);
           const run = gameApi.generateAssets(payload, signal);
           const settled = run.then(
             () => undefined,
             () => undefined,
           );
-          inFlightGenerationRef.current = settled;
+          const inFlight = inFlightGenerationsRef.current;
+          inFlight.set(chatId, settled);
           void settled.then(() => {
-            if (inFlightGenerationRef.current === settled) inFlightGenerationRef.current = null;
+            if (inFlight.get(chatId) === settled) inFlight.delete(chatId);
           });
           return run;
         },
@@ -322,7 +337,7 @@ export function useGameAssetGenerationController({
       setAssetGenerationError(null);
 
       try {
-        await inFlightGenerationRef.current;
+        await waitForPreviousGeneration(inFlightGenerationsRef.current.get(String(assetPayload.chatId)));
         const res = await runGameAssetGeneration(assetPayload, { allowPromptReview: options?.allowPromptReview });
 
         setPendingAssetGeneration(null);
@@ -371,12 +386,13 @@ export function useGameAssetGenerationController({
         try {
           // Let a timed-out batch finish first, then skip portraits it (or an earlier
           // run) already saved on the chat.
-          await inFlightGenerationRef.current;
+          const chatId = String(payload.chatId);
+          await waitForPreviousGeneration(inFlightGenerationsRef.current.get(chatId));
           let retryPayload = payload;
           if (payload.npcsNeedingAvatars?.length) {
             let savedNames: string[];
             try {
-              savedNames = await gameApi.npcNamesWithPortraits(activeChatId);
+              savedNames = await gameApi.npcNamesWithPortraits(chatId);
             } catch (error) {
               console.warn("[game-assets] Could not read saved NPC portraits before retry:", error);
               setAssetGenerationError("Could not check which portraits are already saved. Try again.");
@@ -394,7 +410,7 @@ export function useGameAssetGenerationController({
         }
       })();
     },
-    [activeChatId, normalizeNpcName, pendingAssetGeneration, requestAssetGeneration],
+    [normalizeNpcName, pendingAssetGeneration, requestAssetGeneration],
   );
 
   useEffect(() => {
