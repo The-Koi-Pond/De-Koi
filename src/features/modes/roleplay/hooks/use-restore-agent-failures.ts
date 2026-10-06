@@ -8,7 +8,7 @@ import { normalizeAgentRunRow, type AgentRunRow } from "../../../catalog/agents/
 /**
  * Agent failures live in memory and vanish on reload, while the runs that produced them are
  * persisted. Rebuild the latest turn's failures when a chat opens so the HUD badge and
- * "Retry Failed Agents" survive a reload. Live state always wins over the restored copy.
+ * "Retry Failed Agents" survive a reload. Anything that happens while the runs load wins.
  */
 export function useRestoreAgentFailures(chatId: string, enabled: boolean): void {
   useEffect(() => {
@@ -26,10 +26,11 @@ export function useRestoreAgentFailures(chatId: string, enabled: boolean): void 
       .then((rawRuns) => {
         if (stale || useChatStore.getState().activeChatId !== chatId) return;
         const store = useAgentStore.getState();
-        if (store.isProcessing || store.failedAgentFailures.length > 0) return;
+        if (store.isProcessing) return;
         const runs = rawRuns.map((raw) => normalizeAgentRunRow(raw)).filter((run): run is AgentRunRow => run !== null);
-        const failures = latestTurnAgentFailures(runs);
-        if (failures.length > 0) store.setFailedAgentFailures(failures);
+        // Persisted runs are the record for this chat: replace whatever the store held before the
+        // HUD mounted (including leftovers from another chat or a disabled workflow).
+        store.setFailedAgentFailures(latestTurnAgentFailures(runs));
       })
       .catch((error: unknown) => {
         // The HUD still works without the restored badge; the live path reports new failures.

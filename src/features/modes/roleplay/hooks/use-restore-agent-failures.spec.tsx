@@ -62,12 +62,34 @@ describe("useRestoreAgentFailures", () => {
     expect(useAgentStore.getState().failedAgentFailures[0]?.reasonLabel).toBe("Authentication");
   });
 
-  it("keeps live failures instead of overwriting them", async () => {
-    const live = { agentType: "continuity", agentName: "Continuity", error: "live", reasonLabel: null };
-    useAgentStore.getState().setFailedAgentFailures([live]);
+  it("replaces leftover failures from before the HUD mounted", async () => {
+    const leftover = { agentType: "continuity", agentName: "Continuity", error: "old chat", reasonLabel: null };
+    useAgentStore.getState().setFailedAgentFailures([leftover]);
     mocks.listRunsForChat.mockResolvedValueOnce([failedRun]);
 
     await render();
+
+    expect(useAgentStore.getState().failedAgentTypes).toEqual(["world-state"]);
+  });
+
+  it("clears leftover failures when the chat's latest turn has none", async () => {
+    const leftover = { agentType: "continuity", agentName: "Continuity", error: "old chat", reasonLabel: null };
+    useAgentStore.getState().setFailedAgentFailures([leftover]);
+    mocks.listRunsForChat.mockResolvedValueOnce([{ ...failedRun, success: true, error: null }]);
+
+    await render();
+
+    expect(useAgentStore.getState().failedAgentFailures).toEqual([]);
+  });
+
+  it("keeps a failure written while the runs were loading", async () => {
+    let resolve!: (runs: unknown[]) => void;
+    mocks.listRunsForChat.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    await render();
+    const live = { agentType: "continuity", agentName: "Continuity", error: "live", reasonLabel: null };
+
+    act(() => useAgentStore.getState().addFailedAgentFailure(live));
+    await act(async () => resolve([failedRun]));
 
     expect(useAgentStore.getState().failedAgentFailures).toEqual([live]);
   });
