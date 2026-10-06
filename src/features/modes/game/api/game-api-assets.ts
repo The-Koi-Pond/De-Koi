@@ -148,6 +148,14 @@ export async function previewGeneratedAssets(
   return { items };
 }
 
+/** Names of NPCs whose portrait is already saved on the chat, read fresh from storage. */
+export async function npcNamesWithPortraits(chatId: string): Promise<string[]> {
+  const npcs = g.chatMeta(await g.getChat(chatId)).gameNpcs;
+  return Array.isArray(npcs)
+    ? (npcs as g.GameNpc[]).filter((npc) => !!g.readTrimmed(npc.avatarUrl)).map((npc) => g.readTrimmed(npc.name))
+    : [];
+}
+
 async function attachNpcAvatar(
   chatId: string,
   avatar: { name: string; avatarUrl: string; avatarGalleryId: string | null },

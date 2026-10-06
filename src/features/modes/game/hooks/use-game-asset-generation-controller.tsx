@@ -112,6 +112,10 @@ export function useGameAssetGenerationController({
   const [imagePromptReviewItems, setImagePromptReviewItems] = useState<GameImagePromptReviewItem[]>([]);
   const [imagePromptReviewSubmitting, setImagePromptReviewSubmitting] = useState(false);
   const imagePromptReviewResolveRef = useRef<((overrides: GameImagePromptOverride[] | null) => void) | null>(null);
+  // A timed-out batch keeps generating and saving in the background. New batches
+  // wait for it so two runs never generate or patch the same NPC at once.
+  const inFlightGenerationRef = useRef<Promise<void> | null>(null);
+  const retryingRef = useRef(false);
   const clearFailedNpcAvatars = useCallback(
     (names: Iterable<string>) => {
       const normalizedNames = new Set([...names].map(normalizeNpcName).filter(Boolean));
@@ -258,7 +262,18 @@ export function useGameAssetGenerationController({
       }
 
       return await withTimeout(
-        (signal) => gameApi.generateAssets(payload, signal),
+        (signal) => {
+          const run = gameApi.generateAssets(payload, signal);
+          const settled = run.then(
+            () => undefined,
+            () => undefined,
+          );
+          inFlightGenerationRef.current = settled;
+          void settled.then(() => {
+            if (inFlightGenerationRef.current === settled) inFlightGenerationRef.current = null;
+          });
+          return run;
+        },
         GAME_ASSET_GENERATION_TIMEOUT_MS,
         () => {
           toast.error("Image generation timed out. The scene will continue without generated assets.");
@@ -307,6 +322,7 @@ export function useGameAssetGenerationController({
       setAssetGenerationError(null);
 
       try {
+        await inFlightGenerationRef.current;
         const res = await runGameAssetGeneration(assetPayload, { allowPromptReview: options?.allowPromptReview });
 
         setPendingAssetGeneration(null);
@@ -349,25 +365,36 @@ export function useGameAssetGenerationController({
   const retryAssetGeneration = useCallback(
     (assetPayload: GameAssetGenerationPayload | null | undefined, options?: { showSuccessToast?: boolean }) => {
       const payload = pendingAssetGeneration ?? assetPayload;
-      if (!payload) return;
-      // Portraits that finished before a timeout are already attached; retry only the rest.
-      const portraitNames = new Set(
-        useGameModeStore
-          .getState()
-          .npcs.filter((npc) => !!npc.avatarUrl)
-          .map((npc) => normalizeNpcName(npc.name)),
-      );
-      const retryPayload = payload.npcsNeedingAvatars
-        ? {
-            ...payload,
-            npcsNeedingAvatars: payload.npcsNeedingAvatars.filter(
-              (npc) => !portraitNames.has(normalizeNpcName(npc.name)),
-            ),
+      if (!payload || retryingRef.current) return;
+      retryingRef.current = true;
+      void (async () => {
+        try {
+          // Let a timed-out batch finish first, then skip portraits it (or an earlier
+          // run) already saved on the chat.
+          await inFlightGenerationRef.current;
+          let retryPayload = payload;
+          if (payload.npcsNeedingAvatars?.length) {
+            let savedNames: string[];
+            try {
+              savedNames = await gameApi.npcNamesWithPortraits(activeChatId);
+            } catch (error) {
+              console.warn("[game-assets] Could not read saved NPC portraits before retry:", error);
+              setAssetGenerationError("Could not check which portraits are already saved. Try again.");
+              return;
+            }
+            const saved = new Set(savedNames.map(normalizeNpcName));
+            retryPayload = {
+              ...payload,
+              npcsNeedingAvatars: payload.npcsNeedingAvatars.filter((npc) => !saved.has(normalizeNpcName(npc.name))),
+            };
           }
-        : payload;
-      void requestAssetGeneration(retryPayload, options);
+          await requestAssetGeneration(retryPayload, options);
+        } finally {
+          retryingRef.current = false;
+        }
+      })();
     },
-    [normalizeNpcName, pendingAssetGeneration, requestAssetGeneration],
+    [activeChatId, normalizeNpcName, pendingAssetGeneration, requestAssetGeneration],
   );
 
   useEffect(() => {
