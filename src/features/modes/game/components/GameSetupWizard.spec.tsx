@@ -16,6 +16,9 @@ vi.mock("../../../catalog/connections/index", () => ({
   useConnections: () => ({ data: setupFixtures.connections }),
 }));
 
+vi.mock("../../../catalog/chats/index", () => ({
+  useChatSummaries: () => ({ data: [] }),
+}));
 vi.mock("../../../catalog/characters/index", () => ({
   characterAvatarUrl: () => null,
   CharacterAvatarImage: () => null,

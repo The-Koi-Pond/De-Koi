@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { chatKeys, useCreateChat, useUpdateChat } from "../../../catalog/chats";
+import { chatKeys, useChatSummaries, useCreateChat, useUpdateChat } from "../../../catalog/chats";
 import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
 import {
@@ -152,6 +152,11 @@ export function SetupReadinessJourney() {
       ),
     [connections],
   );
+  const { data: chatSummaries } = useChatSummaries();
+  const recentConnectionIds = useMemo(
+    () => connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
+    [chatSummaries],
+  );
   const facts = useMemo(
     () =>
       buildSetupReadinessFacts({
@@ -182,7 +187,7 @@ export function SetupReadinessJourney() {
       if (!setupReady) return;
       const connectionId =
         languageConnections.find((row) => row.id === intent.selectedConnectionId)?.id ??
-        connectionCatalogApi.selectDefaultTextConnectionId(languageConnections);
+        connectionCatalogApi.selectDefaultTextConnectionId(languageConnections, recentConnectionIds);
       const connection = languageConnections.find((row) => row.id === connectionId);
       if (!connection) return;
       useSetupJourneyStore.getState().markConnection(connection.id);
@@ -204,7 +209,7 @@ export function SetupReadinessJourney() {
           });
         });
     },
-    [intent, languageConnections, setupReady],
+    [intent, languageConnections, recentConnectionIds, setupReady],
   );
   const continueChat = () => launchChat();
 

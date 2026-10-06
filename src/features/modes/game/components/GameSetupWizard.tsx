@@ -33,6 +33,7 @@ import {
   type EditableGenerationParameters,
 } from "../../../../shared/components/ui/GenerationParametersEditor";
 import { useConnections } from "../../../catalog/connections/index";
+import { useChatSummaries } from "../../../catalog/chats/index";
 import {
   characterAvatarUrl,
   CharacterAvatarImage,
@@ -424,9 +425,14 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     [connectionsList],
   );
   const connections = useMemo(() => filterLanguageGenerationConnections(allConnections), [allConnections]);
+  const { data: chatSummaries } = useChatSummaries();
   const defaultGmConnectionId = useMemo(
-    () => connectionCatalogApi.selectDefaultTextConnectionId(connectionsList ?? []),
-    [connectionsList],
+    () =>
+      connectionCatalogApi.selectDefaultTextConnectionId(
+        connectionsList ?? [],
+        connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
+      ),
+    [chatSummaries, connectionsList],
   );
   const gmConnectionId = gmConnectionChoice === undefined ? defaultGmConnectionId : gmConnectionChoice;
   const selectedGmConnection = useMemo(

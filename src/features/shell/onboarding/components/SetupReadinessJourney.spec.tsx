@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     }>,
   },
   connectionsPending: { current: false },
+  chatSummaries: { current: [] as Array<{ connectionId: string; updatedAt: string; characterIds: string[] }> },
   mutateAsync: vi.fn(),
   updateAsync: vi.fn(),
   markConnection: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock("../../../catalog/chats", () => ({
   chatKeys: { messages: (chatId: string) => ["chats", chatId, "messages"] },
   useCreateChat: () => ({ mutateAsync: mocks.mutateAsync }),
   useUpdateChat: () => ({ mutateAsync: mocks.updateAsync }),
+  useChatSummaries: () => ({ data: mocks.chatSummaries.current }),
 }));
 vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => mocks.applyPreset }));
 vi.mock("../../../../shared/api/remote-runtime", () => ({
@@ -65,11 +67,15 @@ vi.mock("../../../../shared/api/storage-api", () => ({
     addChatMessageSwipe: vi.fn(),
   },
 }));
-vi.mock("../../../../shared/api/connection-catalog-api", () => ({
-  connectionCatalogApi: {
-    selectDefaultTextConnectionId: (...args: unknown[]) => mocks.selectDefaultTextConnectionId(...args),
-  },
-}));
+vi.mock("../../../../shared/api/connection-catalog-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../shared/api/connection-catalog-api")>();
+  return {
+    connectionCatalogApi: {
+      recentChatConnectionIds: actual.connectionCatalogApi.recentChatConnectionIds,
+      selectDefaultTextConnectionId: (...args: unknown[]) => mocks.selectDefaultTextConnectionId(...args),
+    },
+  };
+});
 vi.mock("../../../../shared/stores/setup-journey.store", () => {
   const state = {
     get intent() {
@@ -145,6 +151,7 @@ describe("SetupReadinessJourney", () => {
     mocks.sameOriginRuntimeUrl.current = "https://de-koi.test";
     mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt" }];
     mocks.connectionsPending.current = false;
+    mocks.chatSummaries.current = [];
     mocks.selectDefaultTextConnectionId
       .mockReset()
       .mockImplementation((connections: Array<{ id: string; isDefault?: boolean }>) => {
@@ -303,6 +310,22 @@ describe("SetupReadinessJourney", () => {
 
     expect(mocks.selectDefaultTextConnectionId).toHaveBeenCalled();
     expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "saved-default" }));
+  });
+
+  it("passes the most recently used connections to the default selection", async () => {
+    mocks.embedded.current = true;
+    mocks.chatSummaries.current = [
+      { connectionId: "older", updatedAt: "2026-10-01T00:00:00.000Z", characterIds: ["c1"] },
+      { connectionId: "recent", updatedAt: "2026-10-06T00:00:00.000Z", characterIds: ["c2"] },
+    ];
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.selectDefaultTextConnectionId).toHaveBeenCalledWith(expect.anything(), ["recent", "older"]);
   });
 
   it("keeps an explicit setup selection ahead of the stored default", async () => {

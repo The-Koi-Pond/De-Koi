@@ -111,23 +111,68 @@ type DefaultTextConnectionCandidate = {
   [field: string]: unknown;
 };
 
-function selectDefaultTextConnectionId(connections: readonly DefaultTextConnectionCandidate[]): string | null {
+/** The chat fields recency reads; summaries and full chat rows both carry them. */
+type RecentChatConnectionCandidate = {
+  connectionId?: unknown;
+  updatedAt?: unknown;
+  characterIds?: unknown;
+};
+
+const RECENT_CHAT_CONNECTION_OPTIONS = { fields: ["connectionId", "updatedAt", "characterIds"] };
+
+/**
+ * Connection ids from set-up chats (at least one character), most recently updated first. Empty
+ * drafts are skipped so a chat stranded on a broken connection cannot make it the default.
+ */
+function recentChatConnectionIds(chats: readonly RecentChatConnectionCandidate[]): string[] {
+  const used = chats
+    .filter((chat) => Array.isArray(chat.characterIds) && chat.characterIds.length > 0)
+    .map((chat) => ({
+      id: typeof chat.connectionId === "string" ? chat.connectionId.trim() : "",
+      at: typeof chat.updatedAt === "string" ? Date.parse(chat.updatedAt) : Number.NaN,
+    }))
+    .filter((chat) => chat.id && Number.isFinite(chat.at))
+    .sort((left, right) => right.at - left.at);
+  return [...new Set(used.map((chat) => chat.id))];
+}
+
+/**
+ * The connection new work should use: the one marked default, else the most recently used one
+ * that still exists, else the first text connection.
+ */
+function selectDefaultTextConnectionId(
+  connections: readonly DefaultTextConnectionCandidate[],
+  recentConnectionIds: readonly string[] = [],
+): string | null {
   const textConnections = filterLanguageGenerationConnections(connections);
+  const recentlyUsed = recentConnectionIds
+    .map((id) => textConnections.find((connection) => connection.id === id))
+    .find((connection) => connection !== undefined);
   const selected =
     textConnections.find((connection) => boolish(connection.isDefault) || boolish(connection.default)) ??
+    recentlyUsed ??
     textConnections[0];
   const connectionId = typeof selected?.id === "string" ? selected.id.trim() : "";
   return connectionId || null;
 }
 
 async function resolveDefaultTextConnectionId(): Promise<string> {
-  const connectionId = selectDefaultTextConnectionId(await listAvailable());
+  const [connections, recentChats] = await Promise.all([
+    listAvailable(),
+    // Recency only refines the fallback; without it the first connection is still a valid answer.
+    storageApi.list<RecentChatConnectionCandidate>("chats", RECENT_CHAT_CONNECTION_OPTIONS).catch((error: unknown) => {
+      console.warn("[connections] Could not read recent chats; using the first text connection as fallback", error);
+      return [];
+    }),
+  ]);
+  const connectionId = selectDefaultTextConnectionId(connections, recentChatConnectionIds(recentChats));
   if (!connectionId) throw new Error("No text connection configured");
   return connectionId;
 }
 
 export const connectionCatalogApi = {
   listAvailable,
+  recentChatConnectionIds,
   resolveDefaultTextConnectionId,
   selectDefaultTextConnectionId,
 };
