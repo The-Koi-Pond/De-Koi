@@ -10,6 +10,8 @@ describe("continuity director beat safety", () => {
     "Celia decides to betray Mara.",
     "Celia believes the captain is lying.",
     "Celia plans to poison the well.",
+    "Mara asks what Celia wants. Celia decides to betray Mara.",
+    "What Celia wants is revenge against the captain.",
   ])("rejects user-authored agency: %s", (text) => {
     expect(validateContinuityDirectorBeat(text, { personaNames: ["Celia"] })).toMatchObject({ safe: false });
   });
@@ -19,6 +21,9 @@ describe("continuity director beat safety", () => {
     "Mara reveals the forged seal.",
     "Celia feels a chill as the door opens.",
     "The watch captain demands an answer from Celia.",
+    "Harlequin stages a test of what Celia genuinely wants.",
+    "The open question is whether Celia agrees to the truce.",
+    "If Celia refuses, the captain will call the guard.",
   ])("allows pressure, involuntary response, and non-user action: %s", (text) => {
     expect(validateContinuityDirectorBeat(text, { personaNames: ["Celia"] })).toEqual({ safe: true, reasons: [] });
   });

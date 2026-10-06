@@ -37,13 +37,21 @@ export function validateContinuityDirectorText(
     if (!name) continue;
     const escaped = escapeRegex(name);
     const speakerLabel = new RegExp(`(?:^|[.!?]\\s+)${escaped}\\s*:`, "i");
-    const personaAction = new RegExp(`\\b${escaped}(?:'s)?\\b[^.!?]{0,45}\\b(${DELIBERATE_ACTIONS})\\b`, "i");
-    const actionMatch = personaAction.exec(text);
-    const leavesChoiceOpen =
-      actionMatch &&
-      /^(?:choose|chooses|decide|decides)$/i.test(actionMatch[1] ?? "") &&
-      /^\s+(?:how|whether|what)\b/i.test(text.slice(actionMatch.index + actionMatch[0].length));
-    if (speakerLabel.test(text) || (actionMatch && !leavesChoiceOpen)) {
+    const personaAction = new RegExp(`\\b${escaped}(?:'s)?\\b[^.!?]{0,45}\\b(${DELIBERATE_ACTIONS})\\b`, "gi");
+    // Every mention is checked, so one exempt phrasing cannot hide a later violation.
+    const decidesForPersona = [...text.matchAll(personaAction)].some((actionMatch) => {
+      const leavesChoiceOpen =
+        /^(?:choose|chooses|decide|decides)$/i.test(actionMatch[1] ?? "") &&
+        /^\s+(?:how|whether|what)\b/i.test(text.slice(actionMatch.index + actionMatch[0].length));
+      // "what Chai wants", "whether Chai agrees", "if Chai refuses": an open question or condition
+      // about the persona, not a statement that decides for them. "What Chai wants is revenge"
+      // answers the question, so it does not count.
+      const asksAboutPersona =
+        /\b(?:what|whether|how|if|which|why)\s+$/i.test(text.slice(0, actionMatch.index)) &&
+        !/^\s+(?:is|was|are|were)\b/i.test(text.slice(actionMatch.index + actionMatch[0].length));
+      return !leavesChoiceOpen && !asksAboutPersona;
+    });
+    if (speakerLabel.test(text) || decidesForPersona) {
       reasons.push("persona_agency");
       break;
     }

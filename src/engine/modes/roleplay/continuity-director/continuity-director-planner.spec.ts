@@ -257,39 +257,72 @@ describe("continuity director planner", () => {
     expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
-  it.each([
-    {
-      field: "current arc",
-      response: {
+  it("drops an unsafe current arc but keeps the safe threads and beats", async () => {
+    const test = harness(
+      JSON.stringify({
         currentArc: "Celia decides to betray Mara.",
         openThreads: ["Who forged the seal?"],
         beats: ["Mara confronts the watch captain."],
-      },
-    },
-    {
-      field: "open thread",
-      response: {
-        currentArc: "The forged seal threatens Mara's standing.",
-        openThreads: ["Will Celia confess to stealing the map?"],
-        beats: ["Mara confronts the watch captain."],
-      },
-    },
-  ])("rejects an unsafe $field without patching state", async ({ response }) => {
-    const test = harness(JSON.stringify(response));
+      }),
+    );
 
     const result = await refreshContinuityDirectorPlan(
       { storage: test.storage, llm: test.llm },
       { chatId: "chat-1", now: () => NOW },
     );
 
-    expect(result).toMatchObject({ ok: false, code: "invalid_output" });
-    // The claim, then the claim settling as failed; the plan itself is never written.
-    expect(test.patches).toHaveLength(2);
-    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
-    expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
+    expect(result).toMatchObject({ ok: true });
+    const state = test.getState();
+    expect(state.currentArc).toBeNull();
+    expect(state.openThreads.map((thread) => thread.text)).toEqual(["Who forged the seal?"]);
+    expect(state.beats.map((beat) => beat.text)).toEqual(["Mara confronts the watch captain."]);
   });
 
-  it("rejects a refresh when every proposed beat is unsafe", async () => {
+  it("keeps the existing arc when a refresh proposes an unsafe one", async () => {
+    const test = harness(
+      JSON.stringify({ currentArc: "Celia decides to betray Mara.", openThreads: [], beats: ["Mara hesitates."] }),
+    );
+    test.setState(
+      applyContinuityDirectorCommand(
+        test.getState(),
+        {
+          type: "replace_director_proposals",
+          arc: "The forged seal threatens Mara's standing.",
+          threads: [],
+          beats: [],
+        },
+        { now: () => NOW },
+      ),
+    );
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(test.getState().currentArc?.text).toBe("The forged seal threatens Mara's standing.");
+  });
+
+  it("drops an unsafe open thread but keeps the rest of the plan", async () => {
+    const test = harness(
+      JSON.stringify({
+        currentArc: "The forged seal threatens Mara's standing.",
+        openThreads: ["Will Celia confess to stealing the map?", "Who forged the seal?"],
+        beats: ["Mara confronts the watch captain."],
+      }),
+    );
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(test.getState().openThreads.map((thread) => thread.text)).toEqual(["Who forged the seal?"]);
+  });
+
+  it("stores the safe arc and threads when every proposed beat is unsafe", async () => {
     const test = harness(
       JSON.stringify({
         currentArc: "The forged seal threatens Mara's standing.",
@@ -303,10 +336,28 @@ describe("continuity director planner", () => {
       { chatId: "chat-1", now: () => NOW },
     );
 
+    expect(result).toMatchObject({ ok: true, rejectedUnsafeBeats: 2 });
+    expect(test.getState()).toMatchObject({ beats: [] });
+    expect(test.getState().currentArc?.text).toBe("The forged seal threatens Mara's standing.");
+  });
+
+  it("rejects a refresh when nothing in the plan is safe to store", async () => {
+    const test = harness(
+      JSON.stringify({
+        currentArc: "Celia decides to betray Mara.",
+        openThreads: ["Will Celia confess to stealing the map?"],
+        beats: ["Celia attacks the captain."],
+      }),
+    );
+
+    const result = await refreshContinuityDirectorPlan(
+      { storage: test.storage, llm: test.llm },
+      { chatId: "chat-1", now: () => NOW },
+    );
+
     expect(result).toMatchObject({ ok: false, code: "invalid_output" });
     // The claim, then the claim settling as failed; the plan itself is never written.
     expect(test.patches).toHaveLength(2);
-    expect(test.getState()).toMatchObject({ lastPlanningAttemptStatus: "failed" });
     expect(test.getState()).toMatchObject({ currentArc: null, openThreads: [], beats: [], sourceSnapshot: null });
   });
 
