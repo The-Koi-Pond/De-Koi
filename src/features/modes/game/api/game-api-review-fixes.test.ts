@@ -1317,6 +1317,23 @@ describe("game API review guards", () => {
     );
   });
 
+  it("names the draft game chat with the name chosen in setup", async () => {
+    const chat = { id: "draft-1", name: "New Game", metadata: {} };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? chat : null));
+    storageApiMock.update.mockImplementation(async (_entity: string, _id: string, patch: Record<string, unknown>) => ({
+      ...chat,
+      ...patch,
+    }));
+
+    await createGame({ name: "  Lantern Tide  ", setupConfig, chatId: "draft-1" });
+
+    expect(storageApiMock.update).toHaveBeenCalledWith(
+      "chats",
+      "draft-1",
+      expect.objectContaining({ name: "Lantern Tide" }),
+    );
+  });
+
   it("preserves current party metadata when setup reruns with stale setup config", async () => {
     const staleConfig = { ...setupConfig, partyCharacterIds: ["stale-char"] };
     const currentParty = ["char-1", "npc:guide"];
