@@ -47,6 +47,7 @@ import {
 } from "./RoleplayHUDTrackerWidgets";
 import { MOBILE_HUD_BTN, TrackerPanelToggleButton, WIDGET } from "./RoleplayHUDWidgetShell";
 import { CombinedWorldWidget } from "./RoleplayHUDWorldWidget";
+import { useRestoreAgentFailures } from "../hooks/use-restore-agent-failures";
 
 interface RoleplayHUDProps {
   chatId: string;
@@ -145,6 +146,7 @@ export function RoleplayHUD({
     return m;
   }, [chatForAgentsMenu?.metadata]);
   const showInjectionsTab = agentsMenuMetadata.showInjectionsPanel === true;
+  useRestoreAgentFailures(chatId, agentsMenuMetadata.enableAgents === true);
 
   const thoughtBubbles = useAgentStore((s) => s.thoughtBubbles);
   const isAgentProcessing = useAgentStore((s) => s.isProcessing);
