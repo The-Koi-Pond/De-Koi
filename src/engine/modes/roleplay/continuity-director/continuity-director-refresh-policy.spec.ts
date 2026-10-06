@@ -5,7 +5,7 @@ import type {
   RoleplayContinuityDirectorState,
 } from "../../../contracts/types/roleplay-continuity-director";
 import { createDefaultContinuityDirectorState } from "./continuity-director-state";
-import { decideContinuityDirectorRefresh } from "./continuity-director-refresh-policy";
+import { ABANDONED_PLANNING_ATTEMPT_MS, decideContinuityDirectorRefresh } from "./continuity-director-refresh-policy";
 
 const NOW = "2026-09-02T12:00:00.000Z";
 
@@ -163,6 +163,58 @@ describe("continuity director refresh policy", () => {
         refreshPending: false,
       }),
     ).toEqual({ eligible: true, reason: "cadence_due", assistantTurnsElapsed: 10 });
+  });
+
+  it("retries on the next reply when the last attempt was abandoned mid-plan", () => {
+    const startedAt = Date.parse(NOW);
+    const abandoned = state({
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 7,
+      lastPlanningAttemptStartedAt: NOW,
+      lastPlanningAttemptStatus: "pending",
+    });
+    const nextReply = {
+      trigger: "assistant_saved" as const,
+      currentSourceSnapshot: snapshot("reply-1", 8),
+      refreshPending: false,
+    };
+
+    expect(
+      decideContinuityDirectorRefresh({
+        ...nextReply,
+        state: abandoned,
+        now: startedAt + ABANDONED_PLANNING_ATTEMPT_MS + 1,
+      }),
+    ).toEqual({ eligible: true, reason: "cadence_due", assistantTurnsElapsed: 8 });
+    // Still inside the planner's window: another client may be planning right now.
+    expect(decideContinuityDirectorRefresh({ ...nextReply, state: abandoned, now: startedAt + 30_000 })).toEqual({
+      eligible: false,
+      reason: "cadence_not_due",
+      assistantTurnsElapsed: 1,
+    });
+  });
+
+  it("keeps the full cadence after an attempt that settled as failed", () => {
+    const failed = state({
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 10,
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 7,
+      lastPlanningAttemptStartedAt: NOW,
+      lastPlanningAttemptStatus: "failed",
+    });
+
+    expect(
+      decideContinuityDirectorRefresh({
+        state: failed,
+        trigger: "assistant_saved",
+        currentSourceSnapshot: snapshot("reply-1", 8),
+        refreshPending: false,
+        now: Date.parse(NOW) + 24 * 60 * 60_000,
+      }),
+    ).toEqual({ eligible: false, reason: "cadence_not_due", assistantTurnsElapsed: 1 });
   });
 
   it("uses the newest real snapshot or failed-attempt count as the cadence baseline", () => {
