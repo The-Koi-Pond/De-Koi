@@ -327,6 +327,8 @@ async function runRefresh(
     (beat) => validateContinuityDirectorBeat(beat, { personaNames: source.personaNames }).safe,
   );
   const rejectedUnsafeBeats = candidate.beats.length - safeBeats.length;
+  // Unsafe parts are dropped, like unsafe beats, instead of discarding the whole plan; an unsafe
+  // arc is left out so any existing arc stays in place.
   const unsafeArc =
     !rerollTarget &&
     candidate.currentArc !== null &&
@@ -334,13 +336,12 @@ async function runRefresh(
       personaNames: source.personaNames,
       maxCharacters: CONTINUITY_DIRECTOR_LIMITS.arcCharacters,
     }).safe;
-  const unsafeThread =
-    !rerollTarget &&
-    candidate.openThreads.some(
-      (thread) => !validateContinuityDirectorText(thread, { personaNames: source.personaNames }).safe,
-    );
-  const allCandidateBeatsUnsafe = candidate.beats.length > 0 && safeBeats.length === 0;
-  if (unsafeArc || unsafeThread || allCandidateBeatsUnsafe) {
+  const safeThreads = candidate.openThreads.filter(
+    (thread) => validateContinuityDirectorText(thread, { personaNames: source.personaNames }).safe,
+  );
+  const hasSafeArc = candidate.currentArc !== null && !unsafeArc;
+  const nothingSafeToStore = !hasSafeArc && safeThreads.length === 0 && safeBeats.length === 0;
+  if (!rerollTarget && nothingSafeToStore) {
     return {
       ok: false,
       code: "invalid_output",
@@ -382,8 +383,8 @@ async function runRefresh(
           currentState,
           {
             type: "replace_director_proposals",
-            arc: candidate.currentArc,
-            threads: candidate.openThreads,
+            arc: unsafeArc ? undefined : candidate.currentArc,
+            threads: safeThreads,
             beats: safeBeats,
             sourceSnapshot: source.sourceSnapshot,
           },
