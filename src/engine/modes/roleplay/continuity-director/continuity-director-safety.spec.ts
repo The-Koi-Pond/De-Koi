@@ -24,6 +24,9 @@ describe("continuity director beat safety", () => {
     "Harlequin stages a test of what Celia genuinely wants.",
     "The open question is whether Celia agrees to the truce.",
     "If Celia refuses, the captain will call the guard.",
+    "What does Celia want from the captain?",
+    "Why does Celia refuse the bargain?",
+    "Whether Celia will agree stays open.",
   ])("allows pressure, involuntary response, and non-user action: %s", (text) => {
     expect(validateContinuityDirectorBeat(text, { personaNames: ["Celia"] })).toEqual({ safe: true, reasons: [] });
   });

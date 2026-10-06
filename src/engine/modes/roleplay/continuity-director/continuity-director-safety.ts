@@ -43,12 +43,13 @@ export function validateContinuityDirectorText(
       const leavesChoiceOpen =
         /^(?:choose|chooses|decide|decides)$/i.test(actionMatch[1] ?? "") &&
         /^\s+(?:how|whether|what)\b/i.test(text.slice(actionMatch.index + actionMatch[0].length));
-      // "what Chai wants", "whether Chai agrees", "if Chai refuses": an open question or condition
-      // about the persona, not a statement that decides for them. "What Chai wants is revenge"
-      // answers the question, so it does not count.
+      // "what Chai wants", "whether Chai agrees", "if Chai refuses", "what does Chai want": an open
+      // question or condition about the persona, not a statement that decides for them.
+      // "What Chai wants is revenge" answers the question, so it does not count.
       const asksAboutPersona =
-        /\b(?:what|whether|how|if|which|why)\s+$/i.test(text.slice(0, actionMatch.index)) &&
-        !/^\s+(?:is|was|are|were)\b/i.test(text.slice(actionMatch.index + actionMatch[0].length));
+        /\b(?:what|whether|how|if|which|why)\s+(?:(?:does|do|did|will|would|could|should|might|can|may)\s+)?$/i.test(
+          text.slice(0, actionMatch.index),
+        ) && !/^\s+(?:is|was|are|were)\b/i.test(text.slice(actionMatch.index + actionMatch[0].length));
       return !leavesChoiceOpen && !asksAboutPersona;
     });
     if (speakerLabel.test(text) || decidesForPersona) {
