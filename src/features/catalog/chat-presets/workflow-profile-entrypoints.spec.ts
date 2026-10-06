@@ -19,7 +19,8 @@ describe("Roleplay workflow profile entry points", () => {
     expect(publicIndex).toContain('export * from "./components/RoleplayWorkflowProfileDrawerControl"');
     expect(wizard).toContain('key: "workflow-profile"');
     expect(stepList.lastIndexOf("key:")).toBe(stepList.indexOf('key: "workflow-profile"'));
-    expect(roleplayWizard).toContain('<RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard"');
+    expect(roleplayWizard).toMatch(/<RoleplayWorkflowProfileChooser\s+chat=\{chat\}\s+entryPoint="wizard"/);
+    expect(roleplayWizard).toContain("onPendingApplyChange={reportPendingProfileApply}");
 
     const workflowMount = drawer.slice(
       drawer.indexOf("{isRoleplayMode && (", drawer.indexOf("<ChatPresetBar")),
