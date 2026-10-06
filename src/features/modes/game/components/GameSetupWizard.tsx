@@ -425,14 +425,18 @@ export function GameSetupWizard({ error, onComplete, onCancel, isLoading }: Game
     [connectionsList],
   );
   const connections = useMemo(() => filterLanguageGenerationConnections(allConnections), [allConnections]);
-  const { data: chatSummaries } = useChatSummaries();
+  const { data: chatSummaries, isPending: chatHistoryPending } = useChatSummaries();
+  // Resolved once chat history settles (loaded or failed), so the GM default does not start on the
+  // first connection and then shift when history arrives.
   const defaultGmConnectionId = useMemo(
     () =>
-      connectionCatalogApi.selectDefaultTextConnectionId(
-        connectionsList ?? [],
-        connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
-      ),
-    [chatSummaries, connectionsList],
+      chatHistoryPending
+        ? null
+        : connectionCatalogApi.selectDefaultTextConnectionId(
+            connectionsList ?? [],
+            connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
+          ),
+    [chatHistoryPending, chatSummaries, connectionsList],
   );
   const gmConnectionId = gmConnectionChoice === undefined ? defaultGmConnectionId : gmConnectionChoice;
   const selectedGmConnection = useMemo(

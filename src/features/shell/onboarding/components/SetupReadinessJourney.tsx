@@ -152,7 +152,7 @@ export function SetupReadinessJourney() {
       ),
     [connections],
   );
-  const { data: chatSummaries } = useChatSummaries();
+  const { data: chatSummaries, isPending: chatHistoryPending } = useChatSummaries();
   const recentConnectionIds = useMemo(
     () => connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
     [chatSummaries],
@@ -185,6 +185,9 @@ export function SetupReadinessJourney() {
     (skipStarredPreset = false) => {
       if (!intent) return;
       if (!setupReady) return;
+      // The default falls back to the most recently used connection, so wait until chat history
+      // has loaded (or failed) rather than launching on an empty history.
+      if (chatHistoryPending) return;
       const connectionId =
         languageConnections.find((row) => row.id === intent.selectedConnectionId)?.id ??
         connectionCatalogApi.selectDefaultTextConnectionId(languageConnections, recentConnectionIds);
@@ -209,7 +212,7 @@ export function SetupReadinessJourney() {
           });
         });
     },
-    [intent, languageConnections, recentConnectionIds, setupReady],
+    [chatHistoryPending, intent, languageConnections, recentConnectionIds, setupReady],
   );
   const continueChat = () => launchChat();
 
