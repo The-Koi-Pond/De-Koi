@@ -14,4 +14,11 @@ describe("findWidgetStatIndex", () => {
     expect(findWidgetStatIndex(stats, "Pierrot")).toBe(-1);
     expect(findWidgetStatIndex(stats, "👻")).toBe(-1);
   });
+
+  it("changes nothing when the loose match is ambiguous", () => {
+    const colliding = [{ name: "🔥 Rage" }, { name: "💢 Rage" }, { name: "HP" }, { name: "❤️ HP" }];
+    expect(findWidgetStatIndex(colliding, "Rage")).toBe(-1);
+    expect(findWidgetStatIndex(colliding, "HP")).toBe(2);
+    expect(findWidgetStatIndex(colliding, "hp")).toBe(-1);
+  });
 });
