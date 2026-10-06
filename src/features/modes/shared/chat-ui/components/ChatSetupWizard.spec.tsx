@@ -7,6 +7,7 @@ import { ChatSetupWizard } from "./ChatSetupWizard";
 
 const mocks = vi.hoisted(() => ({
   applyChatPreset: vi.fn(async () => undefined),
+  applyPendingProfile: vi.fn(async () => true),
   chatPresets: [] as Array<Record<string, unknown>>,
   createMessage: vi.fn(async () => ({ id: "message-1" })),
   toastError: vi.fn(),
@@ -40,8 +41,17 @@ vi.mock("../../../../catalog/chat-presets/index", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../../catalog/chat-presets/index")>();
   return {
     ...actual,
-    RoleplayWorkflowProfileChooser: ({ onNavigateAway }: { onNavigateAway?: () => void }) => (
-      <button onClick={onNavigateAway}>Open workflow destination</button>
+    RoleplayWorkflowProfileChooser: ({
+      onNavigateAway,
+      onPendingApplyChange,
+    }: {
+      onNavigateAway?: () => void;
+      onPendingApplyChange?: (applyPending: (() => Promise<boolean>) | null) => void;
+    }) => (
+      <>
+        <button onClick={onNavigateAway}>Open workflow destination</button>
+        <button onClick={() => onPendingApplyChange?.(mocks.applyPendingProfile)}>Pick workflow profile</button>
+      </>
     ),
     useApplyChatPreset: () => ({ mutateAsync: mocks.applyChatPreset }),
     useChatPresets: () => ({ data: mocks.chatPresets }),
@@ -177,6 +187,41 @@ describe("ChatSetupWizard Roleplay exits", () => {
     click(container, "Open workflow destination");
 
     expect(cancel).toHaveBeenCalledOnce();
+    expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("applies a picked workflow profile before finishing instead of dropping it", async () => {
+    mocks.applyPendingProfile.mockResolvedValueOnce(true);
+    const { container, finish } = renderRoleplayWizard();
+    advance(container, 5);
+
+    click(container, "Pick workflow profile");
+    const done = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Apply & finish"),
+    );
+    expect(done).toBeTruthy();
+
+    await act(async () => {
+      done!.click();
+    });
+
+    expect(mocks.applyPendingProfile).toHaveBeenCalledOnce();
+    expect(finish).toHaveBeenCalledOnce();
+  });
+
+  it("stays open when the picked workflow profile could not be applied", async () => {
+    mocks.applyPendingProfile.mockResolvedValueOnce(false);
+    const { container, finish } = renderRoleplayWizard();
+    advance(container, 5);
+
+    click(container, "Pick workflow profile");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Apply & finish"))!
+        .click();
+    });
+
+    expect(mocks.applyPendingProfile).toHaveBeenCalledOnce();
     expect(finish).not.toHaveBeenCalled();
   });
 

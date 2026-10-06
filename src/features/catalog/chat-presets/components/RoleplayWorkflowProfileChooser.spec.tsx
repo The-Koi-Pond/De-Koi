@@ -180,6 +180,80 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain("No added writer latency");
   });
 
+  it("reports no pending apply until the user picks a profile", async () => {
+    const onPendingApplyChange = vi.fn();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onPendingApplyChange={onPendingApplyChange} />,
+      );
+    });
+
+    expect(onPendingApplyChange.mock.calls.every(([value]) => value === null)).toBe(true);
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();
+    });
+
+    expect(typeof onPendingApplyChange.mock.calls.at(-1)?.[0]).toBe("function");
+  });
+
+  it("lets the host apply a picked profile and clears the pending choice afterwards", async () => {
+    mocks.apply.mockResolvedValueOnce({
+      outcome: "applied" as const,
+      chat,
+      resolution: null,
+      selectedItemIds: [],
+      omittedLocalAgentIds: [],
+      skippedLocalRoutingAgentIds: [],
+      shouldCreateContinuityPlan: false,
+    });
+    const onPendingApplyChange = vi.fn();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onPendingApplyChange={onPendingApplyChange} />,
+      );
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();
+    });
+    const applyPending = onPendingApplyChange.mock.calls.at(-1)?.[0] as () => Promise<boolean>;
+
+    let applied = false;
+    await act(async () => {
+      applied = await applyPending();
+    });
+
+    expect(applied).toBe(true);
+    expect(mocks.apply).toHaveBeenCalledWith(expect.objectContaining({ profileId: "longform-continuity" }));
+    expect(onPendingApplyChange.mock.calls.at(-1)?.[0]).toBeNull();
+  });
+
+  it("tells the host when a pending apply did not write the profile", async () => {
+    mocks.apply.mockRejectedValueOnce(new Error("disk full"));
+    const onPendingApplyChange = vi.fn();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <RoleplayWorkflowProfileChooser chat={chat} entryPoint="wizard" onPendingApplyChange={onPendingApplyChange} />,
+      );
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();
+    });
+    const applyPending = onPendingApplyChange.mock.calls.at(-1)?.[0] as () => Promise<boolean>;
+
+    let applied = true;
+    await act(async () => {
+      applied = await applyPending();
+    });
+
+    expect(applied).toBe(false);
+    expect(container.textContent).toContain("disk full");
+    expect(typeof onPendingApplyChange.mock.calls.at(-1)?.[0]).toBe("function");
+  });
+
   it("starts the first Director plan after the workflow write without awaiting it", async () => {
     const exactPostApplyState = { ...createDefaultContinuityDirectorState(), enabled: true, revision: 2 };
     const workflowResult = {
