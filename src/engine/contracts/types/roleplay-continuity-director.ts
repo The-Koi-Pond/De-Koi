@@ -60,6 +60,14 @@ export interface RoleplayContinuityDirectorState {
   sourceSnapshot: ContinuityDirectorSourceSnapshot | null;
   /** Durable cadence baseline for model attempts that did not produce a successful source snapshot. */
   lastPlanningAttemptAssistantTurnCount?: number | null;
+  /** When the last planning attempt claimed the plan; pairs with lastPlanningAttemptStatus. */
+  lastPlanningAttemptStartedAt?: string | null;
+  /**
+   * "pending" while the claiming client is still planning, "failed" once it gave up. A pending claim
+   * that outlives the planner timeout was abandoned (e.g. the tab closed) and does not delay a retry.
+   * Absent on records written before this field existed.
+   */
+  lastPlanningAttemptStatus?: "pending" | "failed" | null;
   updatedAt: string;
 }
 

@@ -12,6 +12,7 @@ import {
   CONTINUITY_DIRECTOR_LIMITS,
   normalizeContinuityDirectorState,
   recordContinuityDirectorPlanningAttempt,
+  recordContinuityDirectorPlanningFailure,
 } from "./continuity-director-state";
 
 const DIRECTOR_METADATA_KEY = "roleplayContinuityDirector";
@@ -146,9 +147,34 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+interface PlanningClaim {
+  attemptedState: RoleplayContinuityDirectorState | null;
+}
+
+/**
+ * Runs a refresh and, when a claimed attempt fails, records that it settled as failed. An attempt
+ * that never settles (the tab closed mid-plan) stays "pending" and stops delaying retries once stale.
+ */
+async function runRefreshSettlingFailures(
+  capabilities: ContinuityDirectorPlannerCapabilities,
+  input: ContinuityDirectorPlannerInput,
+): Promise<ContinuityDirectorPlannerResult> {
+  const claim: PlanningClaim = { attemptedState: null };
+  const result = await runRefresh(capabilities, input, claim);
+  if (!result.ok && claim.attemptedState) {
+    const failedState = recordContinuityDirectorPlanningFailure(claim.attemptedState, { now: input.now });
+    // Best effort: if the director changed meanwhile, the newer state already supersedes this attempt.
+    await persistDirectorIfUnchanged(capabilities.storage, input.chatId, claim.attemptedState, failedState).catch(
+      () => undefined,
+    );
+  }
+  return result;
+}
+
 async function runRefresh(
   capabilities: ContinuityDirectorPlannerCapabilities,
   input: ContinuityDirectorPlannerInput,
+  claim: PlanningClaim,
 ): Promise<ContinuityDirectorPlannerResult> {
   const now = input.now?.() ?? new Date().toISOString();
   let source: ContinuityDirectorSource;
@@ -228,6 +254,7 @@ async function runRefresh(
   } catch (error) {
     return { ok: false, code: "persistence_failed", message: errorMessage(error) };
   }
+  claim.attemptedState = attemptedState;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Math.max(1, input.timeoutMs ?? 30_000));
@@ -362,7 +389,13 @@ async function runRefresh(
           },
           { now: input.now, createId: input.createId },
         );
-    const nextState = targetBeatId ? { ...updatedState, sourceSnapshot: source.sourceSnapshot } : updatedState;
+    const plannedState = targetBeatId ? { ...updatedState, sourceSnapshot: source.sourceSnapshot } : updatedState;
+    // The claim settled successfully; the new snapshot is now the cadence baseline.
+    const {
+      lastPlanningAttemptStartedAt: _settledStartedAt,
+      lastPlanningAttemptStatus: _settledStatus,
+      ...nextState
+    } = plannedState;
     const persisted = await persistDirectorIfUnchanged(
       capabilities.storage,
       input.chatId,
@@ -403,7 +436,7 @@ export function refreshContinuityDirectorPlan(
     if (existing.operationKey === operationKey) return existing.promise;
     return existing.promise.then(() => refreshContinuityDirectorPlan(capabilities, input));
   }
-  const refresh = runRefresh(capabilities, { ...input, chatId }).finally(() => {
+  const refresh = runRefreshSettlingFailures(capabilities, { ...input, chatId }).finally(() => {
     if (pendingByChat.get(chatId)?.promise === refresh) pendingByChat.delete(chatId);
     if (pendingByChat.size === 0) pendingRefreshes.delete(capabilities.storage);
   });
