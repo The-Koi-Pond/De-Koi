@@ -4424,65 +4424,75 @@ function scheduleLorebookKeeperBackfillInThisTab(
   });
 }
 
-/**
- * How long a Keeper backfill stored at save time stays closed while this tab finishes its own
- * post-save work (including its own Keeper pass). If the tab closes first, the gate opens on its
- * own after this, and any open client runs the backfill.
- */
-const LOREBOOK_KEEPER_BACKFILL_GATE_MS = 2 * 60_000;
+/** How often a turn renews its hold on the Keeper backfill; the runtime drops a hold left unrenewed for 30s. */
+const LOREBOOK_KEEPER_HOLD_RENEW_MS = 10_000;
 
-type LorebookKeeperBackfillHandle = { stored: boolean } | null;
-
-// Step 1, right after the reply is saved: store the backfill behind a gate, so it survives this tab
-// closing during post-save work but no other client runs it while that work is still going.
-async function storeLorebookKeeperBackfillAfterSavedAssistant(
-  deps: GenerationEngineDeps,
-  input: StartGenerationInput,
-  chat: JsonRecord,
-  connection: JsonRecord,
-): Promise<LorebookKeeperBackfillHandle> {
-  const chatId = readString(chat.id).trim();
-  if (!chatId) return null;
-  if (!deps.storage.backgroundJobs) return { stored: false };
-  try {
-    await lorebookKeeperBackfillQueue.enqueue(deps, {
-      key: chatId,
-      chatId,
-      payload: { connectionId: readString(connection.id) || input.connectionId || null },
-      delayMs: LOREBOOK_KEEPER_BACKFILL_GATE_MS,
-    });
-    return { stored: true };
-  } catch (error) {
-    console.warn("[lorebook-keeper] could not store the backfill; running it in this tab instead", error);
-    return { stored: false };
-  }
+interface LorebookKeeperBackfillHold {
+  /**
+   * Ends this turn's hold (only the first call counts). When the turn finished with its reply saved
+   * and the job could not be stored, it runs the backfill in this tab instead; otherwise the stored
+   * job just becomes claimable.
+   */
+  release(replySaved: boolean): Promise<void>;
 }
 
-// Step 2, once post-save work is done: open the gate (or, when the job could not be stored, run the
-// backfill in this tab as before). The worker still waits for this tab's generation to finish.
-async function releaseLorebookKeeperBackfill(
-  handle: LorebookKeeperBackfillHandle,
+// Placed before the reply is saved and released once this turn has written everything it will
+// write (agent results, tracker snapshot, attachments, its own Keeper pass). While the turn runs it
+// renews the hold, so no client can run the backfill on a half-written turn however long the
+// post-save work takes; a closed tab stops renewing, its hold lapses and any client runs the
+// backfill. Each turn holds under its own id, so overlapping turns on one chat never release each other.
+async function holdLorebookKeeperBackfill(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   chat: JsonRecord,
   connection: JsonRecord,
-): Promise<void> {
-  if (!handle) return;
-  if (!handle.stored) {
-    scheduleLorebookKeeperBackfillInThisTab(deps, input, chat, connection);
-    return;
-  }
+): Promise<LorebookKeeperBackfillHold | null> {
   const chatId = readString(chat.id).trim();
-  try {
-    await lorebookKeeperBackfillQueue.enqueue(deps, {
-      key: chatId,
-      chatId,
-      payload: { connectionId: readString(connection.id) || input.connectionId || null },
-    });
-  } catch (error) {
-    // The gated job is already stored and opens on its own; nothing is lost, it just runs later.
-    console.warn("[lorebook-keeper] could not release the stored backfill; it will run when its gate opens", error);
+  if (!chatId) return null;
+  let stored = false;
+  let renewal: ReturnType<typeof setInterval> | null = null;
+  // Renewals and the release go out one at a time, so a late renewal can never re-hold a released job.
+  let lastWrite: Promise<void> = Promise.resolve();
+  let released = false;
+  const holdId = `turn-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  const job = {
+    key: chatId,
+    chatId,
+    payload: { connectionId: readString(connection.id) || input.connectionId || null },
+  };
+  if (deps.storage.backgroundJobs) {
+    try {
+      await lorebookKeeperBackfillQueue.enqueue(deps, { ...job, holdId });
+      stored = true;
+      renewal = setInterval(() => {
+        lastWrite = lastWrite
+          .then(() => lorebookKeeperBackfillQueue.enqueue(deps, { ...job, holdId }))
+          .catch((error: unknown) => {
+            console.warn("[lorebook-keeper] could not renew this turn's hold on the backfill", error);
+          });
+      }, LOREBOOK_KEEPER_HOLD_RENEW_MS);
+    } catch (error) {
+      console.warn("[lorebook-keeper] could not store the backfill; running it in this tab instead", error);
+    }
   }
+  return {
+    async release(replySaved) {
+      if (released) return;
+      released = true;
+      if (renewal) clearInterval(renewal);
+      if (!stored) {
+        if (replySaved) scheduleLorebookKeeperBackfillInThisTab(deps, input, chat, connection);
+        return;
+      }
+      try {
+        await lastWrite;
+        await lorebookKeeperBackfillQueue.enqueue(deps, { ...job, releaseHoldId: holdId });
+      } catch (error) {
+        // The job is stored; with no renewals the hold lapses within 30s and the backfill runs then.
+        console.warn("[lorebook-keeper] could not release this turn's hold; the backfill runs once it lapses", error);
+      }
+    },
+  };
 }
 
 // Awaited right after the reply is saved: the refresh is stored on the runtime before any
@@ -5380,6 +5390,11 @@ async function* startGenerationImpl(
       yield { type: "content_replace", data: displayContent };
     }
     content = displayContent;
+    // Held from before the save, so no client starts a backfill that would read this turn half-written.
+    const keeperBackfill =
+      !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration
+        ? await holdLorebookKeeperBackfill(deps, input, chat, connection)
+        : null;
     const saved = connected.suppressAssistantMessage
       ? null
       : await saveAssistantMessage({
@@ -5406,14 +5421,14 @@ async function* startGenerationImpl(
           clearWebResearchRequest: mainTools?.characterWebResearchGrant != null,
           webResearchSources,
           roleplayQualityCorrection: roleplayQuality.correction,
+        }).catch(async (error: unknown) => {
+          await keeperBackfill?.release(false);
+          throw error;
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
     // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
     // and a tab closed during them must not take the refresh with it.
     if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
-    const keeperBackfill = savedAssistantGeneration
-      ? await storeLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection)
-      : null;
     const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
     try {
@@ -5530,7 +5545,7 @@ async function* startGenerationImpl(
       if (postSaveStartedAt) {
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
       }
-      await releaseLorebookKeeperBackfill(keeperBackfill, deps, input, chat, connection);
+      await keeperBackfill?.release(savedAssistantGeneration);
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();
@@ -5571,6 +5586,9 @@ async function* startGenerationImpl(
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "error");
       }
       throw error;
+    } finally {
+      // A failed or abandoned turn writes nothing more; let the backfill repair it.
+      await keeperBackfill?.release(false);
     }
   }
 
@@ -5769,6 +5787,11 @@ async function* startGenerationImpl(
     yield { type: "content_replace", data: displayContentDirect };
   }
   content = displayContentDirect;
+  // Held from before the save, so no client starts a backfill that would read this turn half-written.
+  const keeperBackfill =
+    !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration
+      ? await holdLorebookKeeperBackfill(deps, input, chat, connection)
+      : null;
   const saved = connected.suppressAssistantMessage
     ? null
     : await saveAssistantMessage({
@@ -5794,14 +5817,14 @@ async function* startGenerationImpl(
         webResearchSources: webResearchSourcesDirect,
         roleplayQualityCorrection: roleplayQualityDirect.correction,
         contextInjections: isUserMessageRegeneration ? null : agentInjectionOverrides,
+      }).catch(async (error: unknown) => {
+        await keeperBackfill?.release(false);
+        throw error;
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
   // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
   // and a tab closed during them must not take the refresh with it.
   if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
-  const keeperBackfill = savedAssistantGeneration
-    ? await storeLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection)
-    : null;
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
   try {
     if (saved) {
@@ -5832,7 +5855,7 @@ async function* startGenerationImpl(
     if (directPostSaveStartedAt) {
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
     }
-    await releaseLorebookKeeperBackfill(keeperBackfill, deps, input, chat, connection);
+    await keeperBackfill?.release(savedAssistantGeneration);
     yield { type: "done" };
     if (savedAssistantGeneration) {
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();
@@ -5872,6 +5895,9 @@ async function* startGenerationImpl(
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "error");
     }
     throw error;
+  } finally {
+    // A failed or abandoned turn writes nothing more; let the backfill repair it.
+    await keeperBackfill?.release(false);
   }
 }
 

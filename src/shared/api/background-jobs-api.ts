@@ -20,9 +20,16 @@ function readClaimedJob(value: unknown): ClaimedBackgroundJob | null {
 }
 
 export const backgroundJobsApi: BackgroundJobsGateway = {
-  enqueue: async ({ queue, key, chatId, payload, delayMs }) => {
+  enqueue: async ({ queue, key, chatId, payload, holdId, releaseHoldId }) => {
     await invokeTauri("background_job_enqueue", {
-      body: { queue, key, chatId: chatId ?? null, payload, ...(delayMs ? { delayMs } : {}) },
+      body: {
+        queue,
+        key,
+        chatId: chatId ?? null,
+        payload,
+        ...(holdId ? { holdId } : {}),
+        ...(releaseHoldId ? { releaseHoldId } : {}),
+      },
     });
   },
   acquireWorker: async (queue, workerId, leaseId) => {

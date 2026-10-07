@@ -262,13 +262,20 @@ describe("startGeneration Lorebook Keeper backfill", () => {
       listModels: vi.fn(async () => []),
     };
 
-    it("stores the Keeper backfill with the reply, then runs it once generation is done", async () => {
-      const fake = createFakeBackgroundJobs();
-      const enqueue = vi.spyOn(fake.gateway, "enqueue");
-      const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
-      const durableStorage = { ...storage, backgroundJobs: fake.gateway } as StorageGateway;
-      const generation = startGeneration(
-        { storage: durableStorage, llm, integrations: {} as IntegrationGateway },
+    const keeperJobId = "lorebook-keeper:chat-1";
+
+    function liveHolds(fake: ReturnType<typeof createFakeBackgroundJobs>): string[] {
+      const job = fake.jobs.get(keeperJobId);
+      return job ? [...job.holds].filter(([, lapsesAt]) => lapsesAt > Date.now()).map(([id]) => id) : [];
+    }
+
+    function durableGeneration(fake: ReturnType<typeof createFakeBackgroundJobs>, storage: StorageGateway) {
+      return startGeneration(
+        {
+          storage: { ...storage, backgroundJobs: fake.gateway } as StorageGateway,
+          llm,
+          integrations: {} as IntegrationGateway,
+        },
         {
           chatId: "chat-1",
           connectionId: "conn-1",
@@ -276,28 +283,99 @@ describe("startGeneration Lorebook Keeper backfill", () => {
           impersonateBlockAgents: true,
         },
       );
+    }
+
+    it("holds the Keeper backfill from before the reply is saved until the turn is done, then runs it", async () => {
+      const fake = createFakeBackgroundJobs();
+      const order: string[] = [];
+      const fakeEnqueue = fake.gateway.enqueue.bind(fake.gateway);
+      const keeperEnqueue = vi.spyOn(fake.gateway, "enqueue").mockImplementation(async (input) => {
+        if (input.queue === "lorebook-keeper") order.push(input.releaseHoldId ? "release" : "hold");
+        return fakeEnqueue(input);
+      });
+      const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
+      const createChatMessage = storage.createChatMessage.bind(storage);
+      storage.createChatMessage = async (chatId, value) => {
+        if (value.role === "assistant") order.push("save");
+        return createChatMessage(chatId, value);
+      };
+      const generation = durableGeneration(fake, storage);
 
       try {
         await advanceToDone(generation);
-        // Stored behind a gate at save (so no other client runs it during post-save work), then
-        // released once this tab's post-save work is done, all before done.
-        const keeperCalls = enqueue.mock.calls.map(([call]) => call).filter((call) => call.queue === "lorebook-keeper");
+        const keeperCalls = keeperEnqueue.mock.calls
+          .map(([call]) => call)
+          .filter((call) => call.queue === "lorebook-keeper");
         expect(keeperCalls).toEqual([
-          expect.objectContaining({ key: "chat-1", delayMs: 120_000 }),
-          expect.not.objectContaining({ delayMs: expect.anything() }),
+          expect.objectContaining({ key: "chat-1", payload: { connectionId: "conn-1" }, holdId: expect.any(String) }),
+          expect.objectContaining({ key: "chat-1", releaseHoldId: keeperCalls[0]?.holdId }),
         ]);
-        expect(fake.jobs.get("lorebook-keeper:chat-1")).toMatchObject({
-          chatId: "chat-1",
-          payload: { connectionId: "conn-1" },
-        });
+        expect(order).toEqual(["hold", "save", "release"]);
+        expect(liveHolds(fake)).toEqual([]);
+        // This tab still waits for its own generation to finish before running it.
         expect(backfillStarted()).toBe(false);
 
         await generation.return(undefined);
         await vi.waitFor(() => expect(backfillStarted()).toBe(true));
         releaseBackfill();
         await vi.waitFor(() =>
-          expect(fake.finished).toContainEqual({ jobId: "lorebook-keeper:chat-1", outcome: "done", error: null }),
+          expect(fake.finished).toContainEqual({ jobId: keeperJobId, outcome: "done", error: null }),
         );
+      } finally {
+        releaseBackfill();
+      }
+    });
+
+    it("keeps the hold for as long as the turn is still writing, however long that takes", async () => {
+      vi.useFakeTimers();
+      const fake = createFakeBackgroundJobs();
+      const { storage, releaseBackfill } = lorebookKeeperBackgroundStorage();
+      const save = deferred<void>();
+      const createChatMessage = storage.createChatMessage.bind(storage);
+      storage.createChatMessage = async (chatId, value) => {
+        if (value.role === "assistant") await save.promise;
+        return createChatMessage(chatId, value);
+      };
+      const generation = durableGeneration(fake, storage);
+      const reachedDone = advanceToDone(generation);
+
+      try {
+        await vi.waitFor(() => expect(liveHolds(fake)).toHaveLength(1));
+        // Far past the runtime's 30s hold lifetime: renewals keep it live.
+        await vi.advanceTimersByTimeAsync(3 * 60_000);
+        expect(liveHolds(fake)).toHaveLength(1);
+        save.resolve();
+        await reachedDone;
+        expect(liveHolds(fake)).toEqual([]);
+        await generation.return(undefined);
+      } finally {
+        save.resolve();
+        releaseBackfill();
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases the hold when the turn fails, so the backfill can repair it", async () => {
+      const fake = createFakeBackgroundJobs();
+      const keeperEnqueue = vi.spyOn(fake.gateway, "enqueue");
+      const { storage, releaseBackfill } = lorebookKeeperBackgroundStorage();
+      const createChatMessage = storage.createChatMessage.bind(storage);
+      storage.createChatMessage = async (chatId, value) => {
+        if (value.role === "assistant") throw new Error("disk full");
+        return createChatMessage(chatId, value);
+      };
+      const generation = durableGeneration(fake, storage);
+
+      try {
+        await expect(advanceToDone(generation)).rejects.toThrow("disk full");
+        const keeperCalls = keeperEnqueue.mock.calls
+          .map(([call]) => call)
+          .filter((call) => call.queue === "lorebook-keeper");
+        expect(keeperCalls).toEqual([
+          expect.objectContaining({ holdId: expect.any(String) }),
+          expect.objectContaining({ releaseHoldId: keeperCalls[0]?.holdId }),
+        ]);
+        expect(liveHolds(fake)).toEqual([]);
       } finally {
         releaseBackfill();
       }

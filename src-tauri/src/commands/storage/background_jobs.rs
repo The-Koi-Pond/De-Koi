@@ -13,8 +13,9 @@ pub(crate) const JOBS_COLLECTION: &str = "background-jobs";
 const MAX_ATTEMPTS: u64 = 3;
 const RETRY_BACKOFF_MS: [u64; 3] = [60_000, 5 * 60_000, 30 * 60_000];
 const MAX_KEY_LEN: usize = 200;
-/// Longest "not before" a caller may set; a gate that outlives its tab must still open soon.
-const MAX_ENQUEUE_DELAY_MS: u64 = 10 * 60_000;
+/// How long a hold keeps its job unclaimable unless the client that placed it renews it. A hold
+/// from a closed tab lapses within this, so its job still runs.
+const HOLD_TTL_MS: u64 = 30_000;
 
 pub(crate) const QUEUES: &[&str] = &["continuity-director", "lorebook-keeper"];
 
@@ -52,6 +53,35 @@ fn job_number(job: &Value, field: &str) -> u64 {
     job.get(field).and_then(Value::as_u64).unwrap_or(0)
 }
 
+fn optional_text<'a>(body: &'a Value, field: &str, label: &str) -> AppResult<Option<&'a str>> {
+    if matches!(body.get(field), None | Some(Value::Null)) {
+        return Ok(None);
+    }
+    read_text(body, field, label).map(Some)
+}
+
+/// Holds that have not lapsed yet: hold id -> epoch ms it lapses at.
+fn live_holds(job: Option<&Value>, now: u64) -> Map<String, Value> {
+    job.and_then(|job| job.get("holds"))
+        .and_then(Value::as_object)
+        .map(|holds| {
+            holds
+                .iter()
+                .filter(|(_, lapses_at)| lapses_at.as_u64().is_some_and(|at| at > now))
+                .map(|(id, lapses_at)| (id.clone(), lapses_at.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// When the last live hold on `job` lapses, or `None` when nothing holds it.
+fn held_until(job: &Value, now: u64) -> Option<u64> {
+    live_holds(Some(job), now)
+        .values()
+        .filter_map(Value::as_u64)
+        .max()
+}
+
 fn optional_chat_id(body: &Value) -> Option<String> {
     body.get("chatId")
         .and_then(Value::as_str)
@@ -61,27 +91,31 @@ fn optional_chat_id(body: &Value) -> Option<String> {
 }
 
 /// Queue (or re-queue) the job for `queue` + `key`. A job that is already waiting just takes the
-/// newer payload and delay; one that is running is asked to run again with it once the current run
-/// ends. `delayMs` keeps a waiting job unclaimable until then: a client that still has work to finish
-/// first queues with a delay (so the job survives if it closes), then re-queues with none when ready.
+/// newer payload; one that is running is asked to run again with it once the current run ends.
+///
+/// `holdId` places (or renews) a hold: while any hold on a job is live, no worker can claim it.
+/// A client holds the job while it is still writing what the job reads, renews the hold while that
+/// work goes on, then enqueues again with `releaseHoldId` once it is done. Each piece of work holds
+/// under its own id, so one finishing never releases another; a hold nobody renews lapses after
+/// `HOLD_TTL_MS`, so the job of a closed tab still runs.
 pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
     let queue = queue_name(&body)?;
     let key = read_text(&body, "key", "key")?;
     let payload = body.get("payload").cloned().unwrap_or(Value::Null);
     let chat_id = optional_chat_id(&body);
-    let delay_ms = body
-        .get("delayMs")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-        .min(MAX_ENQUEUE_DELAY_MS);
-    let not_before = if delay_ms == 0 {
-        0
-    } else {
-        now_ms() + delay_ms
-    };
+    let hold_id = optional_text(&body, "holdId", "hold id")?;
+    let release_hold_id = optional_text(&body, "releaseHoldId", "hold id")?;
     let id = job_id(queue, key);
     state.with_background_jobs_lock(|| {
         let existing = state.storage.get(JOBS_COLLECTION, &id)?;
+        let now = now_ms();
+        let mut holds = live_holds(existing.as_ref(), now);
+        if let Some(release_hold_id) = release_hold_id {
+            holds.remove(release_hold_id);
+        }
+        if let Some(hold_id) = hold_id {
+            holds.insert(hold_id.to_string(), json!(now + HOLD_TTL_MS));
+        }
         if existing
             .as_ref()
             .is_some_and(|job| job_text(job, "status") == "running")
@@ -89,6 +123,7 @@ pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
             let mut patch = Map::new();
             patch.insert("rerunRequested".to_string(), Value::Bool(true));
             patch.insert("rerunPayload".to_string(), payload);
+            patch.insert("holds".to_string(), Value::Object(holds));
             patch.insert("updatedAt".to_string(), Value::String(now_iso()));
             return state
                 .storage
@@ -109,10 +144,11 @@ pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
                 "payload": payload,
                 "status": "queued",
                 "attempts": 0,
-                "nextAttemptAt": not_before,
+                "nextAttemptAt": 0,
                 "claimLeaseId": null,
                 "rerunRequested": false,
                 "rerunPayload": null,
+                "holds": holds,
                 "lastError": null,
                 "createdAt": created_at,
                 "updatedAt": now_iso(),
@@ -121,17 +157,21 @@ pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
     })
 }
 
-fn job_is_due(job: &Value, lease_id: &str, now: u64) -> bool {
-    match job_text(job, "status") {
-        "queued" | "retryable" => job_number(job, "nextAttemptAt") <= now,
+/// When the worker holding `lease_id` may claim `job` (epoch ms), or `None` if it never can.
+fn claimable_at(job: &Value, lease_id: &str, now: u64) -> Option<u64> {
+    let ready_at = match job_text(job, "status") {
+        "queued" => 0,
+        "retryable" => job_number(job, "nextAttemptAt"),
         // A run claimed under an older lease belongs to a worker that is gone.
-        "running" => job_text(job, "claimLeaseId") != lease_id,
-        _ => false,
-    }
+        "running" if job_text(job, "claimLeaseId") != lease_id => 0,
+        _ => return None,
+    };
+    Some(ready_at.max(held_until(job, now).unwrap_or(0)))
 }
 
 /// Claim the oldest due job of `queue` for the worker holding `leaseId`. With nothing due,
-/// returns when the next retry is due (epoch ms) so the worker can sleep until then.
+/// returns when the next job is due (a retry's backoff or a hold lapsing, epoch ms) so the worker
+/// can sleep until then.
 pub(crate) fn claim(state: &AppState, body: Value) -> AppResult<Value> {
     let queue = queue_name(&body)?;
     let lease_id = read_text(&body, "leaseId", "lease id")?;
@@ -144,11 +184,13 @@ pub(crate) fn claim(state: &AppState, body: Value) -> AppResult<Value> {
                 .filter(|job| job_text(job, "queue") == queue)
                 .collect();
             queued.sort_by(|a, b| job_text(a, "createdAt").cmp(job_text(b, "createdAt")));
-            let Some(job) = queued.iter().find(|job| job_is_due(job, lease_id, now)) else {
+            let Some(job) = queued
+                .iter()
+                .find(|job| claimable_at(job, lease_id, now).is_some_and(|at| at <= now))
+            else {
                 let next_due_at = queued
                     .iter()
-                    .filter(|job| matches!(job_text(job, "status"), "queued" | "retryable"))
-                    .map(|job| job_number(job, "nextAttemptAt"))
+                    .filter_map(|job| claimable_at(job, lease_id, now))
                     .min();
                 return Ok(json!({ "job": null, "nextDueAt": next_due_at }));
             };
@@ -413,40 +455,72 @@ mod tests {
         assert_eq!(job["attempts"], json!(3));
     }
 
+    fn enqueue_hold(state: &AppState, key: &str, field: &str, hold_id: &str) {
+        enqueue(
+            state,
+            json!({ "queue": QUEUE, "key": key, "chatId": key, "payload": {}, field: hold_id }),
+        )
+        .unwrap();
+    }
+
     #[test]
-    fn a_delayed_job_waits_until_its_owner_releases_it_or_the_delay_runs_out() {
-        let state = test_state("delayed");
+    fn a_held_job_waits_until_every_hold_on_it_is_released() {
+        let state = test_state("holds");
+        let lease_id = lease(&state, "tab-a");
+        // Two overlapping turns hold the same chat's job.
+        enqueue_hold(&state, "chat-1", "holdId", "turn-a");
+        enqueue_hold(&state, "chat-1", "holdId", "turn-b");
+        let waiting = claim_job(&state, &lease_id);
+        assert!(waiting["job"].is_null(), "no worker may run a held job");
+        let lapses_at = waiting["nextDueAt"].as_u64().unwrap();
+        assert!(lapses_at > now_ms() && lapses_at <= now_ms() + HOLD_TTL_MS);
+        // Turn A finishing must not release turn B's hold.
+        enqueue_hold(&state, "chat-1", "releaseHoldId", "turn-a");
+        assert!(claim_job(&state, &lease_id)["job"].is_null());
+        enqueue_hold(&state, "chat-1", "releaseHoldId", "turn-b");
+        assert_eq!(
+            claim_job(&state, &lease_id)["job"]["id"],
+            json!("continuity-director:chat-1")
+        );
+    }
+
+    #[test]
+    fn a_hold_nobody_renews_lapses_so_a_closed_tab_still_gets_its_job_run() {
+        let state = test_state("lapsed-hold");
         let lease_id = lease(&state, "tab-a");
         let id = "continuity-director:chat-1";
-        enqueue(
-            &state,
-            json!({ "queue": QUEUE, "key": "chat-1", "payload": { "trigger": "assistant_saved" }, "delayMs": 120_000 }),
-        )
-        .unwrap();
-        let waiting = claim_job(&state, &lease_id);
-        assert!(
-            waiting["job"].is_null(),
-            "another client must not run it early"
-        );
-        assert!(waiting["nextDueAt"].as_u64().unwrap() > now_ms() + 100_000);
-        // The owner finished its own work and releases it.
-        enqueue_trigger(&state, "chat-1", "assistant_saved");
-        assert_eq!(claim_job(&state, &lease_id)["job"]["id"], json!(id));
-        finish_job(&state, &lease_id, id, "done");
-        // If the owner never releases it, it still becomes due once the delay runs out.
-        enqueue(
-            &state,
-            json!({ "queue": QUEUE, "key": "chat-1", "payload": {}, "delayMs": 120_000 }),
-        )
-        .unwrap();
+        enqueue_hold(&state, "chat-1", "holdId", "turn-a");
+        assert!(claim_job(&state, &lease_id)["job"].is_null());
+        // The tab that placed it closed: its last renewal runs out.
         state
             .storage
             .patch(
                 JOBS_COLLECTION,
                 id,
-                json!({ "nextAttemptAt": now_ms() - 1 }),
+                json!({ "holds": { "turn-a": now_ms() - 1 } }),
             )
             .unwrap();
+        assert_eq!(claim_job(&state, &lease_id)["job"]["id"], json!(id));
+    }
+
+    #[test]
+    fn a_hold_placed_during_a_run_holds_the_rerun() {
+        let state = test_state("hold-during-run");
+        let lease_id = lease(&state, "tab-a");
+        let id = "continuity-director:chat-1";
+        enqueue_trigger(&state, "chat-1", "assistant_saved");
+        assert!(!claim_job(&state, &lease_id)["job"].is_null());
+        // A new turn starts writing while the earlier run is still going.
+        enqueue_hold(&state, "chat-1", "holdId", "turn-b");
+        assert_eq!(
+            finish_job(&state, &lease_id, id, "done")["status"],
+            json!("queued")
+        );
+        assert!(
+            claim_job(&state, &lease_id)["job"].is_null(),
+            "the rerun waits for turn B"
+        );
+        enqueue_hold(&state, "chat-1", "releaseHoldId", "turn-b");
         assert_eq!(claim_job(&state, &lease_id)["job"]["id"], json!(id));
     }
 

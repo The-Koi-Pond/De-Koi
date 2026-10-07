@@ -7,17 +7,26 @@ import type {
 
 interface FakeJob extends ClaimedBackgroundJob {
   status: "queued" | "running" | "retryable" | "failed";
-  notBefore: number;
   claimLeaseId: string | null;
   rerunPayload: unknown;
   rerunRequested: boolean;
+  /** Hold id -> epoch ms it lapses at. */
+  holds: Map<string, number>;
   createdAt: number;
+}
+
+const HOLD_TTL_MS = 30_000;
+
+function heldUntil(job: FakeJob): number | null {
+  const live = [...job.holds.values()].filter((lapsesAt) => lapsesAt > Date.now());
+  return live.length ? Math.max(...live) : null;
 }
 
 /**
  * In-memory stand-in for the runtime's `background-jobs` commands, following the same rules as
  * `src-tauri/src/commands/storage/background_jobs.rs`: one lease per queue, reruns requested
- * while a job runs, and runs claimed under a lease that is gone being claimable again.
+ * while a job runs, runs claimed under a lease that is gone being claimable again, and holds that
+ * keep a job unclaimable until released or lapsed.
  */
 export function createFakeBackgroundJobs() {
   const jobs = new Map<string, FakeJob>();
@@ -31,10 +40,14 @@ export function createFakeBackgroundJobs() {
   };
 
   const gateway: BackgroundJobsGateway = {
-    async enqueue({ queue, key, chatId, payload, delayMs }) {
+    async enqueue({ queue, key, chatId, payload, holdId, releaseHoldId }) {
       const id = `${queue}:${key}`;
       const existing = jobs.get(id);
+      const holds = new Map(existing?.holds ?? []);
+      if (releaseHoldId) holds.delete(releaseHoldId);
+      if (holdId) holds.set(holdId, Date.now() + HOLD_TTL_MS);
       if (existing?.status === "running") {
+        existing.holds = holds;
         existing.rerunRequested = true;
         existing.rerunPayload = payload;
         return;
@@ -47,10 +60,10 @@ export function createFakeBackgroundJobs() {
         payload,
         attempts: 0,
         status: "queued",
-        notBefore: delayMs ? Date.now() + delayMs : 0,
         claimLeaseId: null,
         rerunPayload: null,
         rerunRequested: false,
+        holds,
         createdAt: existing?.createdAt ?? clock++,
       });
     },
@@ -68,17 +81,15 @@ export function createFakeBackgroundJobs() {
     },
     async claim(queue, leaseId) {
       requireLease(queue, leaseId);
-      const due = [...jobs.values()]
-        .filter(
-          (job) =>
-            job.queue === queue &&
-            ((job.status === "queued" && job.notBefore <= Date.now()) ||
-              (job.status === "running" && job.claimLeaseId !== leaseId)),
-        )
-        .sort((a, b) => a.createdAt - b.createdAt)[0];
+      const claimable = [...jobs.values()].filter(
+        (job) =>
+          job.queue === queue &&
+          (job.status === "queued" || (job.status === "running" && job.claimLeaseId !== leaseId)),
+      );
+      const due = claimable.filter((job) => heldUntil(job) === null).sort((a, b) => a.createdAt - b.createdAt)[0];
       if (!due) {
-        const gated = [...jobs.values()].filter((job) => job.queue === queue && job.status === "queued");
-        return { job: null, nextDueAt: gated.length ? Math.min(...gated.map((job) => job.notBefore)) : null };
+        const lapses = claimable.map(heldUntil).filter((at): at is number => at !== null);
+        return { job: null, nextDueAt: lapses.length ? Math.min(...lapses) : null };
       }
       due.status = "running";
       due.claimLeaseId = leaseId;
