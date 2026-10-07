@@ -50,6 +50,7 @@ import type {
   PartyDialogueLine,
 } from "../../../../engine/contracts/types/game";
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
+import { speakerTagsToProse } from "../lib/combat-log-text";
 import {
   Heart,
   Droplets,
@@ -679,7 +680,7 @@ export function GameCombatUI({
   const [customInstructionPending, setCustomInstructionPending] = useState(false);
   const [customInstructionSawStreaming, setCustomInstructionSawStreaming] = useState(false);
   const [combatLogEntries, setCombatLogEntries] = useState<CombatLogEntry[]>(() =>
-    narration ? [{ id: "combat-start", text: narration, tone: "system" }] : [],
+    narration ? [{ id: "combat-start", text: speakerTagsToProse(narration), tone: "system" }] : [],
   );
   const [combatVoiceVersion, setCombatVoiceVersion] = useState(0);
   const [combatVoicePlaying, setCombatVoicePlaying] = useState(false);
@@ -708,7 +709,7 @@ export function GameCombatUI({
   }
 
   const appendCombatLog = useCallback((text: string, tone: CombatLogEntry["tone"] = "action") => {
-    const trimmed = text.trim();
+    const trimmed = speakerTagsToProse(text).trim();
     if (!trimmed) return;
     setCombatLogEntries((prev) =>
       [...prev, { id: `combat-log-${++combatLogCounter.current}`, text: trimmed, tone }].slice(-80),
@@ -717,7 +718,7 @@ export function GameCombatUI({
 
   useEffect(() => {
     if (combatLogEntries.length === 0 && narration) {
-      setCombatLogEntries([{ id: "combat-start", text: narration, tone: "system" }]);
+      setCombatLogEntries([{ id: "combat-start", text: speakerTagsToProse(narration), tone: "system" }]);
     }
   }, [combatLogEntries.length, narration]);
 
