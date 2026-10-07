@@ -2,6 +2,7 @@ import { elapsedMinutesFromInput } from "../../../../engine/modes/game/world/wor
 import * as g from "./game-api-support";
 import { worldStateApi } from "../../../runtime/world-state/index";
 import { createAutomaticGameCheckpoint } from "./game-api-checkpoint-helpers";
+import { clockBaselinePatch } from "./game-api-clock-baseline";
 import {
   gameTimeFromMeta,
   moraleFromMeta,
@@ -247,8 +248,11 @@ export async function advanceTime(data: {
   action: string;
   /** Exact minutes to advance (from a scene's elapsed-time estimate); overrides `action`. */
   minutes?: number;
+  /** The GM reply that moved the clock; its first change saves the pre-turn state for Retry Turn. */
+  turnMessageId?: string;
 }): Promise<{ time: g.GameTime; formatted: string; sessionChat: g.Chat }> {
-  const meta = g.chatMeta(await g.getChat(data.chatId));
+  const chat = await g.getChat(data.chatId);
+  const meta = g.chatMeta(chat);
   const currentTime = gameTimeFromMeta(meta);
   const elapsedMinutes = elapsedMinutesFromInput(data.minutes);
   const time =
@@ -258,7 +262,11 @@ export async function advanceTime(data: {
         ? g.setTimeOfDay(currentTime, data.action)
         : g.advanceGameTime(currentTime, data.action);
   const formatted = g.formatGameTime(time);
-  const sessionChat = await g.patchChatMetadata(data.chatId, { gameTime: time, gameTimeFormatted: formatted });
+  const sessionChat = await g.patchChatMetadata(data.chatId, {
+    ...clockBaselinePatch(chat, data.turnMessageId),
+    gameTime: time,
+    gameTimeFormatted: formatted,
+  });
   await worldStateApi.patch(data.chatId, { time: formatted });
   return { time, formatted, sessionChat };
 }
@@ -269,6 +277,8 @@ export async function updateWeather(data: {
   location?: string;
   season?: string;
   type?: string;
+  /** The GM reply that changed the weather; its first change saves the pre-turn state for Retry Turn. */
+  turnMessageId?: string;
 }): Promise<{ changed: boolean; weather: g.WeatherState; sessionChat: g.Chat }> {
   const chat = await g.getChat(data.chatId);
   const biome = g.inferBiome(data.location ?? "");
@@ -294,7 +304,7 @@ export async function updateWeather(data: {
       (data.action === "travel" ? 0.35 : data.action === "rest_long" ? 0.6 : data.action === "explore" ? 0.2 : 0.08);
   const weatherUpdate = resolveWeatherUpdate(g.chatMeta(chat).gameWeather, forced, rolledChange);
   const sessionChat = weatherUpdate.shouldPersist
-    ? await g.patchChatMetadata(data.chatId, { gameWeather: forced })
+    ? await g.patchChatMetadata(data.chatId, { ...clockBaselinePatch(chat, data.turnMessageId), gameWeather: forced })
     : chat;
   await worldStateApi.patch(data.chatId, {
     weather: weatherUpdate.weather.type,

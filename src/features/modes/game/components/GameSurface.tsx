@@ -3472,17 +3472,23 @@ export function GameSurface({
         action: "set",
         type: update.weather,
         location: gameSnapshot?.location ?? "",
+        turnMessageId: msg.id,
       });
     }
     if (sceneClock.shouldAdvanceTimeOfDay && sceneClock.timeOfDay) {
-      _advanceTime.mutate({ chatId: activeChatId, action: sceneClock.timeOfDay });
+      _advanceTime.mutate({ chatId: activeChatId, action: sceneClock.timeOfDay, turnMessageId: msg.id });
     }
     if (sceneClock.elapsedMinutes != null) {
       if (gameWorldTickEnabled) {
         runAutomaticWorldTick("scene_end", msg.id, activeChatId, sceneClock.elapsedMinutes);
       } else if (sceneClock.elapsedMinutes > 0) {
         // Without the world tick, still move the clock by the scene's elapsed time.
-        _advanceTime.mutate({ chatId: activeChatId, action: "elapsed", minutes: sceneClock.elapsedMinutes });
+        _advanceTime.mutate({
+          chatId: activeChatId,
+          action: "elapsed",
+          minutes: sceneClock.elapsedMinutes,
+          turnMessageId: msg.id,
+        });
       }
     }
   }
@@ -3891,6 +3897,24 @@ export function GameSurface({
       });
     }
 
+    // Undo the discarded reply's clock, weather and scene-end world tick, and wait for it,
+    // so the new reply's time skip starts from the pre-turn clock instead of stacking.
+    try {
+      const clock = await gameApi.restoreClockBaseline({ chatId: activeChatId, messageId: msg.id });
+      if (clock.restored) {
+        publishSessionChat(clock.sessionChat);
+        queryClient.invalidateQueries({ queryKey: [...gameKeys.all, "journal", activeChatId] });
+        const current = useGameStateStore.getState().current;
+        if (current?.chatId === activeChatId && clock.visible) {
+          useGameStateStore.getState().setGameState({ ...current, ...clock.visible });
+        }
+      }
+    } catch (error) {
+      toast.error(
+        toUserMessage(error, { fallback: "Couldn't rewind the game clock; the retried turn may add time on top." }),
+      );
+    }
+
     try {
       const receivedContent = await generateGameTurn({
         chatId: activeChatId,
@@ -3913,6 +3937,8 @@ export function GameSurface({
     isStreaming,
     markSceneReady,
     persistMetadata,
+    publishSessionChat,
+    queryClient,
     syncHudWidgetsToChatCache,
     readableQueueRef,
     resetAssetGenerationState,
@@ -6658,7 +6684,14 @@ export function GameSurface({
       elapsedMinutes?: number,
     ) => {
       if (!gameWorldTickEnabled || worldTick.isPending) return;
-      worldTick.mutate({ chatId, trigger, discriminator, elapsedMinutes });
+      worldTick.mutate({
+        chatId,
+        trigger,
+        discriminator,
+        elapsedMinutes,
+        // A scene-end tick belongs to the GM reply it closes, so Retry Turn can undo it.
+        ...(trigger === "scene_end" ? { turnMessageId: discriminator } : {}),
+      });
     },
     [activeChatId, gameWorldTickEnabled, worldTick],
   );

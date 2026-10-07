@@ -1,5 +1,6 @@
 import * as assetsApi from "./game-api-assets";
 import * as checkpointsApi from "./game-api-checkpoints";
+import * as clockBaselineApi from "./game-api-clock-baseline";
 import * as journalApi from "./game-api-journal";
 import * as lorebookKeeperApi from "./game-api-lorebook-keeper";
 import * as mapApi from "./game-api-map";
@@ -41,6 +42,7 @@ export const gameApi = {
   advanceTime: mechanicsApi.advanceTime,
   updateWeather: mechanicsApi.updateWeather,
   runWorldTick: worldTickApi.runWorldTick,
+  restoreClockBaseline: clockBaselineApi.restoreClockBaseline,
   rollEncounter: mechanicsApi.rollEncounter,
   updateReputation: mechanicsApi.updateReputation,
   addJournalEntry: journalApi.addJournalEntry,
