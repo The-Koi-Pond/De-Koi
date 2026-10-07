@@ -3409,7 +3409,12 @@ export function GameSurface({
       _advanceTime.mutate({ chatId: activeChatId, action: sceneClock.timeOfDay });
     }
     if (sceneClock.elapsedMinutes != null) {
-      runAutomaticWorldTick("scene_end", msg.id, activeChatId, sceneClock.elapsedMinutes);
+      if (gameWorldTickEnabled) {
+        runAutomaticWorldTick("scene_end", msg.id, activeChatId, sceneClock.elapsedMinutes);
+      } else {
+        // Without the world tick, still move the clock by the scene's elapsed time.
+        _advanceTime.mutate({ chatId: activeChatId, action: "elapsed", minutes: sceneClock.elapsedMinutes });
+      }
     }
     if (result.reputationChanges?.length) {
       const repActions = result.reputationChanges.map((rc) => ({

@@ -99,6 +99,7 @@ import { withActiveGameMapMeta } from "../../../../engine/modes/game/world/map-p
 import {
   createInitialTime,
   formatGameTime,
+  addMinutes as addGameMinutes,
   advanceTime as advanceGameTime,
   isTimeOfDayLabel,
   setTimeOfDay,
@@ -525,6 +526,7 @@ export {
   withActiveGameMapMeta,
   createInitialTime,
   formatGameTime,
+  addGameMinutes,
   advanceGameTime,
   isTimeOfDayLabel,
   setTimeOfDay,

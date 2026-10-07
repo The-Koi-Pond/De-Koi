@@ -244,12 +244,17 @@ export async function lootGenerate(data: {
 export async function advanceTime(data: {
   chatId: string;
   action: string;
+  /** Exact minutes to advance (from a scene's elapsed-time estimate); overrides `action`. */
+  minutes?: number;
 }): Promise<{ time: g.GameTime; formatted: string; sessionChat: g.Chat }> {
   const meta = g.chatMeta(await g.getChat(data.chatId));
   const currentTime = gameTimeFromMeta(meta);
-  const time = g.isTimeOfDayLabel(data.action)
-    ? g.setTimeOfDay(currentTime, data.action)
-    : g.advanceGameTime(currentTime, data.action);
+  const time =
+    typeof data.minutes === "number" && Number.isFinite(data.minutes) && data.minutes > 0
+      ? g.addGameMinutes(currentTime, Math.round(data.minutes))
+      : g.isTimeOfDayLabel(data.action)
+        ? g.setTimeOfDay(currentTime, data.action)
+        : g.advanceGameTime(currentTime, data.action);
   const formatted = g.formatGameTime(time);
   const sessionChat = await g.patchChatMetadata(data.chatId, { gameTime: time, gameTimeFormatted: formatted });
   await worldStateApi.patch(data.chatId, { time: formatted });
