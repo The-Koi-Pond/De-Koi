@@ -2092,6 +2092,33 @@ describe("game API review guards", () => {
     );
   });
 
+  it("keeps both a weather change and a clock advance that land together after a turn", async () => {
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: { gameTime: { day: 1, hour: 8, minute: 0 }, gameWeather: { type: "clear" } },
+    };
+    // Both updates read the chat before either writes, as they do when fired together.
+    storageApiMock.get.mockImplementation(async (entity: string) => {
+      if (entity !== "chats") return null;
+      const snapshot = structuredClone(chat);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return snapshot;
+    });
+    storageApiMock.list.mockImplementation(async () => []);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = { ...chat, ...patch, id, metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) } };
+      return chat;
+    });
+
+    await Promise.all([
+      updateWeather({ chatId: "chat-1", action: "set", type: "stormy", location: "" }),
+      advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 40 }),
+    ]);
+
+    expect(gRecord(chat.metadata).gameWeather).toEqual(expect.objectContaining({ type: "stormy" }));
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 40 });
+  });
+
   it("persists weather updates to the visible world state", async () => {
     let chat: Record<string, unknown> = {
       id: "chat-1",
@@ -2293,10 +2320,11 @@ describe("game API review guards", () => {
         characterCards: [{ name: "Ren" }],
       }),
     );
-    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => ({
-      id,
-      ...patch,
-    }));
+    // Storage merges a metadata patch into the stored metadata and returns the merged chat.
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      const stored = sessions.find((session) => session.id === id);
+      return { ...stored, ...patch, id, metadata: { ...stored?.metadata, ...gRecord(patch.metadata) } };
+    });
 
     const result = await regenerateSessionConclusion({ chatId: "chat-current", sessionNumber: 2 });
 
