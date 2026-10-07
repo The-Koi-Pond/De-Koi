@@ -48,7 +48,7 @@ describe("GameQteOverlay keyboard", () => {
           <select aria-label="pick">
             <option>1</option>
           </select>
-          <div contentEditable="" suppressContentEditableWarning />
+          <div contentEditable suppressContentEditableWarning />
           <GameQteOverlay actions={[{ label: "Duck" }]} timerSeconds={6} onSelect={onSelect} onTimeout={vi.fn()} />
         </>,
       ),
