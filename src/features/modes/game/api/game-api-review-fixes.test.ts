@@ -92,6 +92,7 @@ import {
   loadCheckpoint,
 } from "./game-api-checkpoints";
 import { CHECKPOINT_SNAPSHOT_KIND, RESTORED_CHECKPOINT_ANCHOR_META_KEY } from "./game-api-checkpoint-helpers";
+import { restoreClockBaseline } from "./game-api-clock-baseline";
 import { regenerateSessionLorebook, runGameLorebookKeeperAfterConclusion } from "./game-api-lorebook-keeper";
 import { moveOnMap } from "./game-api-map";
 import { mapForMovement, moveMapPartyPosition, setupMapFromResponse } from "./game-api-map-helpers";
@@ -111,6 +112,7 @@ import { normalizedName, partyCardNameMatches } from "./game-api-party-helpers";
 import { applyGameJsonRepair } from "./game-api-repair";
 import { createGame, regenerateSessionConclusion, setupGame, updateCampaignProgression } from "./game-api-session";
 import { spotifyCandidates } from "./game-api-spotify";
+import { runWorldTick } from "./game-api-world-tick";
 import {
   gameCarryoverPatch,
   nextGameSessionNumber,
@@ -2117,6 +2119,147 @@ describe("game API review guards", () => {
 
     expect(gRecord(chat.metadata).gameWeather).toEqual(expect.objectContaining({ type: "stormy" }));
     expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 40 });
+  });
+
+  it("rewinds a discarded reply's clock and weather so the retried reply does not stack on top", async () => {
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: {
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameTimeFormatted: "Day 1, 08:00 (morning)",
+        gameWeather: { type: "clear", temperature: 20 },
+      },
+      gameState: { id: "state-1", chatId: "chat-1", time: "Day 1, 08:00 (morning)", weather: "clear", temperature: "20C" },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? structuredClone(chat) : null));
+    storageApiMock.list.mockImplementation(async () => []);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = { ...chat, ...patch, id, metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) } };
+      return chat;
+    });
+
+    // The discarded reply skips 90 minutes in two steps and turns the weather stormy.
+    await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 60, turnMessageId: "gm-1" });
+    await updateWeather({ chatId: "chat-1", action: "set", type: "stormy", location: "", turnMessageId: "gm-1" });
+    await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 30, turnMessageId: "gm-1" });
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 9, minute: 30 });
+
+    const restored = await restoreClockBaseline({ chatId: "chat-1", messageId: "gm-1" });
+
+    expect(restored.restored).toBe(true);
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 0 });
+    expect(gRecord(chat.metadata).gameTimeFormatted).toBe("Day 1, 08:00 (morning)");
+    expect(gRecord(chat.metadata).gameWeather).toEqual({ type: "clear", temperature: 20 });
+    expect(chat.gameState).toEqual(
+      expect.objectContaining({ time: "Day 1, 08:00 (morning)", weather: "clear", temperature: "20C" }),
+    );
+
+    // The retried reply moves the clock from the pre-turn time, and a second retry still rewinds to it.
+    await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 40, turnMessageId: "gm-1" });
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 40 });
+    await restoreClockBaseline({ chatId: "chat-1", messageId: "gm-1" });
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 0 });
+
+    // A retry of some other reply leaves the clock alone.
+    await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 15, turnMessageId: "gm-2" });
+    expect((await restoreClockBaseline({ chatId: "chat-1", messageId: "gm-1" })).restored).toBe(false);
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 15 });
+  });
+
+  it("lets a retried reply's scene-end world tick run again without doubling its journal recap", async () => {
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: {
+        gameWorldTickEnabled: true,
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameJournal: { entries: [], quests: [], locations: [], npcLog: [], inventoryLog: [] },
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? structuredClone(chat) : null));
+    storageApiMock.list.mockImplementation(async () => []);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = { ...chat, ...patch, id, metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) } };
+      return chat;
+    });
+    const tick = () =>
+      runWorldTick({
+        chatId: "chat-1",
+        trigger: "scene_end",
+        discriminator: "gm-1",
+        elapsedMinutes: 120,
+        turnMessageId: "gm-1",
+      });
+    const journalEntries = () => gRecord(gRecord(chat.metadata).gameJournal).entries as Array<Record<string, unknown>>;
+
+    expect((await tick()).changed).toBe(true);
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 10, minute: 0 });
+    expect(journalEntries().filter((entry) => entry.sourceMessageId === "gm-1")).toHaveLength(1);
+    // A note the player saves while reading the reply is theirs, not the tick's.
+    const note = { timestamp: "2026-10-07T00:00:00.000Z", type: "note", title: "Saved moment", content: "Keep me", sourceMessageId: "gm-1" };
+    chat = { ...chat, metadata: { ...gRecord(chat.metadata), gameJournal: { ...gRecord(gRecord(chat.metadata).gameJournal), entries: [...journalEntries(), note] } } };
+
+    await restoreClockBaseline({ chatId: "chat-1", messageId: "gm-1" });
+
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 0 });
+    expect(journalEntries().filter((entry) => String(entry.title).startsWith("World advanced:"))).toHaveLength(0);
+    expect(journalEntries()).toContainEqual(note);
+
+    const retried = await tick();
+    expect(retried.changed).toBe(true);
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 10, minute: 0 });
+    expect(journalEntries().filter((entry) => String(entry.title).startsWith("World advanced:"))).toHaveLength(1);
+  });
+
+  it("takes back only the NPC notes a retried reply's world tick added", async () => {
+    const brannoc = { id: "npc-1", name: "Brannoc", notes: ["Owes the party a favor"] };
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: {
+        gameWorldTickEnabled: true,
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameNpcs: [brannoc],
+        gameJournal: { entries: [], quests: [], locations: [], npcLog: [], inventoryLog: [] },
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? structuredClone(chat) : null));
+    storageApiMock.list.mockImplementation(async () => []);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = { ...chat, ...patch, id, metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) } };
+      return chat;
+    });
+    const tick = () =>
+      runWorldTick({
+        chatId: "chat-1",
+        trigger: "scene_end",
+        discriminator: "gm-1",
+        elapsedMinutes: 60,
+        turnMessageId: "gm-1",
+        npcRules: [{ npcId: "Brannoc", note: "moves to the Hollow Market" }],
+      });
+    const brannocNotes = () => (gRecord(chat.metadata).gameNpcs as Array<{ notes: string[] }>)[0]!.notes;
+
+    // The reply's clock moved first, so the tick adds its NPC note to an existing baseline.
+    await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 5, turnMessageId: "gm-1" });
+    await tick();
+    expect(brannocNotes()).toEqual(["Owes the party a favor", "[world_tick] moves to the Hollow Market"]);
+    // Something else in the discarded turn adds its own note; the rewind leaves it alone.
+    const npcs = gRecord(chat.metadata).gameNpcs as Array<{ notes: string[] }>;
+    chat = {
+      ...chat,
+      metadata: {
+        ...gRecord(chat.metadata),
+        gameNpcs: [{ ...npcs[0], notes: [...npcs[0]!.notes, "Met the party at dusk"] }],
+      },
+    };
+
+    await restoreClockBaseline({ chatId: "chat-1", messageId: "gm-1" });
+
+    expect(brannocNotes()).toEqual(["Owes the party a favor", "Met the party at dusk"]);
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 0 });
+
+    // The retried reply's tick runs once and adds the note once.
+    await tick();
+    expect(brannocNotes().filter((note) => note.startsWith("[world_tick]"))).toHaveLength(1);
   });
 
   it("persists weather updates to the visible world state", async () => {
