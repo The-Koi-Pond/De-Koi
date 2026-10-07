@@ -65,7 +65,13 @@ export function GameQteOverlay({ actions, timerSeconds, onSelect, onTimeout, onD
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      // Leave number keys to any focused form control or editable region.
+      if (
+        target instanceof Element &&
+        target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")
+      ) {
+        return;
+      }
       const index = Number(event.key) - 1;
       const action = Number.isInteger(index) ? actions[index] : undefined;
       if (!action) return;
