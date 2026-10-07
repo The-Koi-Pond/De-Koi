@@ -4,6 +4,12 @@ import type {
   SkillCheckResult,
   WidgetUpdate,
 } from "../../../../engine/contracts/types/game";
+import {
+  SCENE_TIME_OF_DAY_VALUES,
+  SCENE_WEATHER_VALUES,
+  type SceneTimeOfDay,
+  type SceneWeather,
+} from "../../../../engine/contracts/types/scene";
 
 export interface CombatEncounterTag {
   enemies: Array<{
@@ -107,6 +113,42 @@ export interface ParsedGmTags {
   partyChanges: PartyChangeTag[];
   /** Note or book content for reading display */
   readables: ReadableTag[];
+  /** Inline clock update for games without a scene model: elapsed minutes or a time-of-day jump */
+  time: InlineTimeTag | null;
+  /** Inline weather change for games without a scene model */
+  weather: SceneWeather | null;
+}
+
+export interface InlineTimeTag {
+  elapsedMinutes: number | null;
+  timeOfDay: SceneTimeOfDay | null;
+}
+
+function sceneTimeOfDay(value: string | undefined): SceneTimeOfDay | null {
+  const normalized = value?.trim().toLowerCase();
+  return (SCENE_TIME_OF_DAY_VALUES as readonly string[]).includes(normalized ?? "")
+    ? (normalized as SceneTimeOfDay)
+    : null;
+}
+
+function sceneWeather(value: string | undefined): SceneWeather | null {
+  const normalized = value?.trim().toLowerCase();
+  return (SCENE_WEATHER_VALUES as readonly string[]).includes(normalized ?? "") ? (normalized as SceneWeather) : null;
+}
+
+/** [time: elapsed="45"] or [time: of_day="night"]; minutes follow the scene-analysis range (0-1440). */
+function parseTimeTagBody(body: string): InlineTimeTag | null {
+  const attrs = parseTagAttributes(body);
+  const rawMinutes = attrs.get("elapsed") ?? attrs.get("minutes");
+  const minutes = rawMinutes == null ? NaN : Number(rawMinutes);
+  const elapsedMinutes = Number.isFinite(minutes) ? Math.max(0, Math.min(24 * 60, Math.trunc(minutes))) : null;
+  const timeOfDay = sceneTimeOfDay(attrs.get("of_day") ?? attrs.get("time_of_day"));
+  return elapsedMinutes === null && timeOfDay === null ? null : { elapsedMinutes, timeOfDay };
+}
+
+function parseWeatherTagBody(body: string): SceneWeather | null {
+  const attrs = parseTagAttributes(body);
+  return sceneWeather(attrs.get("type") ?? (attrs.size === 0 ? body.replace(/^["']|["']$/g, "") : undefined));
 }
 
 function reputationTagRegex(): RegExp {
@@ -597,6 +639,8 @@ export function parseSegmentInventoryUpdates(content: string): SegmentInventoryU
     .replace(/\[sfx:\s*[^\]]+\]/gi, "")
     .replace(/\[bg:\s*[^\]]+\]/gi, "")
     .replace(/\[ambient:\s*[^\]]+\]/gi, "")
+    .replace(/\[time:\s*[^\]]+\]/gi, "")
+    .replace(/\[weather:\s*[^\]]+\]/gi, "")
     .replace(/\[qte:\s*[^\]]+\]/gi, "")
     .replace(/\[state:\s*[^\]]+\]/gi, "")
     .replace(/\[reputation:\s*[^\]]+\]/gi, "")
@@ -763,6 +807,8 @@ export function parseGmTags(content: string): ParsedGmTags {
     inventoryUpdates: [],
     partyChanges: [],
     readables: [],
+    time: null,
+    weather: null,
   };
 
   // [music: tag]
@@ -793,6 +839,22 @@ export function parseGmTags(content: string): ParsedGmTags {
     result.ambient = ambientMatch[1]!.trim();
     text = text.replace(ambientMatch[0], "");
   }
+
+  // [time: elapsed="N"] / [time: of_day="label"] and [weather: type]: only requested when no scene model runs
+  // A reply may tag several beats: elapsed minutes add up (capped at a day), the last time-of-day jump wins.
+  for (const timeMatch of text.matchAll(/\[time:\s*([^\]]+)\]/gi)) {
+    const tag = parseTimeTagBody(timeMatch[1]!);
+    if (!tag) continue;
+    const elapsedMinutes =
+      tag.elapsedMinutes === null
+        ? (result.time?.elapsedMinutes ?? null)
+        : Math.min(24 * 60, (result.time?.elapsedMinutes ?? 0) + tag.elapsedMinutes);
+    result.time = { elapsedMinutes, timeOfDay: tag.timeOfDay ?? result.time?.timeOfDay ?? null };
+  }
+  text = text.replace(/\[time:\s*[^\]]+\]/gi, "");
+  const weatherMatch = text.match(/\[weather:\s*([^\]]+)\]/i);
+  if (weatherMatch) result.weather = parseWeatherTagBody(weatherMatch[1]!);
+  text = text.replace(/\[weather:\s*[^\]]+\]/gi, "");
 
   const qteRegex = /\[qte:\s*(.+?),\s*timer:\s*(\d+)s?\]/i;
   const combatRegex = /\[combat:\s*([^\]]+)\]/i;
@@ -1045,6 +1107,8 @@ export function stripGmTags(content: string): string {
     .replace(/\[sfx:\s*[^\]]+\]/gi, "")
     .replace(/\[bg:\s*[^\]]+\]/gi, "")
     .replace(/\[ambient:\s*[^\]]+\]/gi, "")
+    .replace(/\[time:\s*[^\]]+\]/gi, "")
+    .replace(/\[weather:\s*[^\]]+\]/gi, "")
     .replace(/\[qte:\s*[^\]]+\]/gi, "")
     .replace(/\[state:\s*[^\]]+\]/gi, "")
     .replace(/\[reputation:\s*[^\]]+\]/gi, "")
@@ -1087,6 +1151,8 @@ export function stripGmTagsKeepReadables(content: string): string {
     .replace(/\[sfx:\s*[^\]]+\]/gi, "")
     .replace(/\[bg:\s*[^\]]+\]/gi, "")
     .replace(/\[ambient:\s*[^\]]+\]/gi, "")
+    .replace(/\[time:\s*[^\]]+\]/gi, "")
+    .replace(/\[weather:\s*[^\]]+\]/gi, "")
     .replace(/\[qte:\s*[^\]]+\]/gi, "")
     .replace(/\[state:\s*[^\]]+\]/gi, "")
     .replace(/\[reputation:\s*[^\]]+\]/gi, "")

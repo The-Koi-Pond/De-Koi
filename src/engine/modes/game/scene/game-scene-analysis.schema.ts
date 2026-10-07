@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SCENE_TIME_OF_DAY_VALUES, SCENE_WEATHER_VALUES } from "../../../contracts/types/scene";
 import { LOCATION_KINDS, MUSIC_GENRES, MUSIC_INTENSITIES } from "../../../shared/scoring/music-score";
 
 export type GameSceneAnalysisJsonRecord = Record<string, unknown>;
@@ -6,8 +7,8 @@ export type GameSceneAnalysisJsonRecord = Record<string, unknown>;
 const nullableString = z.string().nullable();
 const finiteNumber = z.number().finite();
 
-const weatherSchema = z.enum(["clear", "cloudy", "foggy", "rainy", "stormy", "snowy", "windy", "frost"]).nullable();
-const timeOfDaySchema = z.enum(["dawn", "morning", "noon", "afternoon", "evening", "night", "midnight"]).nullable();
+const weatherSchema = z.enum(SCENE_WEATHER_VALUES).nullable();
+const timeOfDaySchema = z.enum(SCENE_TIME_OF_DAY_VALUES).nullable();
 
 const directionSchema = z
   .object({

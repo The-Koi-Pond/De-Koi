@@ -3373,6 +3373,16 @@ export function GameSurface({
             gmTags.stateChange === "travel_rest"
           ? gmTags.stateChange
           : gameState;
+    if (gmTags.time || gmTags.weather) {
+      applySceneClockAndWeather(
+        {
+          weather: gmTags.weather,
+          timeOfDay: gmTags.time?.timeOfDay ?? null,
+          elapsedMinutes: gmTags.time?.elapsedMinutes ?? null,
+        },
+        msg,
+      );
+    }
     // Music is handled by the rule engine, not the GM's inline [music:] tag
     const musicTags = Object.keys(assetMap ?? {}).filter((k) => k.startsWith("music:"));
     const scoredMusic = scoreMusic({
@@ -3421,18 +3431,18 @@ export function GameSurface({
     markSceneReady(msg.id);
   }
 
-  async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
-    const sceneClock = resolveSceneClockUpdate(result);
-
-    setSceneAnalysisFailed(false);
-    // NOTE: Game state transitions are owned exclusively by the GM model via [state: ...] tags.
-    // The scene model no longer emits stateChange to avoid conflicting state flips.
+  // Shared by scene analysis and the GM's inline [time:]/[weather:] tags so both move the clock the same way.
+  function applySceneClockAndWeather(
+    update: Pick<SceneAnalysis, "weather" | "timeOfDay" | "elapsedMinutes">,
+    msg: { id: string },
+  ) {
+    const sceneClock = resolveSceneClockUpdate(update);
 
     // Eagerly patch the game state snapshot so WeatherEffects renders immediately.
     // The mutations below also persist to DB, but may race with snapshot creation.
     // If no snapshot exists yet (first turn), create a minimal one.
     const currentGS = useGameStateStore.getState().current;
-    if (result.weather || sceneClock.shouldAdvanceTimeOfDay) {
+    if (update.weather || sceneClock.shouldAdvanceTimeOfDay) {
       const base = currentGS ?? {
         id: "",
         chatId: activeChatId,
@@ -3451,16 +3461,16 @@ export function GameSurface({
       };
       useGameStateStore.getState().setGameState({
         ...base,
-        ...(result.weather ? { weather: result.weather } : {}),
+        ...(update.weather ? { weather: update.weather } : {}),
         ...(sceneClock.shouldAdvanceTimeOfDay ? { time: sceneClock.timeOfDay } : {}),
       });
     }
 
-    if (result.weather) {
+    if (update.weather) {
       updateWeather.mutate({
         chatId: activeChatId,
         action: "set",
-        type: result.weather,
+        type: update.weather,
         location: gameSnapshot?.location ?? "",
       });
     }
@@ -3475,6 +3485,14 @@ export function GameSurface({
         _advanceTime.mutate({ chatId: activeChatId, action: "elapsed", minutes: sceneClock.elapsedMinutes });
       }
     }
+  }
+
+  async function applySceneResult(result: SceneAnalysis, msg: { id: string }) {
+    setSceneAnalysisFailed(false);
+    // NOTE: Game state transitions are owned exclusively by the GM model via [state: ...] tags.
+    // The scene model no longer emits stateChange to avoid conflicting state flips.
+
+    applySceneClockAndWeather(result, msg);
     if (result.reputationChanges?.length) {
       const repActions = result.reputationChanges.map((rc) => ({
         npcId: rc.npcName,

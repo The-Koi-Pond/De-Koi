@@ -234,6 +234,22 @@ export interface SceneSpotifyTrackSelection {
   album?: string | null;
 }
 
+/** Weather values scene analysis and the GM's inline [weather:] tag may set. */
+export const SCENE_WEATHER_VALUES = ["clear", "cloudy", "foggy", "rainy", "stormy", "snowy", "windy", "frost"] as const;
+export type SceneWeather = (typeof SCENE_WEATHER_VALUES)[number];
+
+/** Time-of-day labels scene analysis and the GM's inline [time:] tag may jump to. */
+export const SCENE_TIME_OF_DAY_VALUES = [
+  "dawn",
+  "morning",
+  "noon",
+  "afternoon",
+  "evening",
+  "night",
+  "midnight",
+] as const;
+export type SceneTimeOfDay = (typeof SCENE_TIME_OF_DAY_VALUES)[number];
+
 /** Scene analysis result generated after the main model's narration is complete. */
 export interface SceneAnalysis {
   /** Background tag from the asset manifest to display. */
