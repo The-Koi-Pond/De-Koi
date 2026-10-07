@@ -353,9 +353,13 @@ export async function getChat(chatId: string): Promise<Chat> {
   return chat;
 }
 
+/**
+ * Send only the changed keys; storage merges them into the stored metadata in one write.
+ * Re-sending a full copy read earlier would let two concurrent patches (weather and clock
+ * after a turn) overwrite each other with stale values.
+ */
 export async function patchChatMetadata(chatId: string, patch: Record<string, unknown>): Promise<Chat> {
-  const chat = await getChat(chatId);
-  return storageApi.update<Chat>("chats", chatId, { metadata: { ...chatMeta(chat), ...patch } });
+  return storageApi.update<Chat>("chats", chatId, { metadata: patch });
 }
 
 export async function patchChat(chatId: string, patch: Record<string, unknown>): Promise<Chat> {
