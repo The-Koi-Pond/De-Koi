@@ -2928,6 +2928,8 @@ export function GameSurface({
     }
     setNarrationDoneMsgId(null);
     setSceneAnalysisFailed(false);
+    // A skill-check card belongs to the reply that rolled it; a new reply sets its own.
+    setPendingSkillCheck(null);
     setPartyDialogue([]);
     setPartyChatMessageId(null);
     setPartyChatInput(null);
@@ -3773,6 +3775,7 @@ export function GameSurface({
     setRetryMenuOpen(false);
     setGenerationFailed(false);
     setSceneAnalysisFailed(false);
+    setPendingSkillCheck(null);
     resetAssetGenerationState();
     setActiveChoices(null);
     setActiveQte(null);
