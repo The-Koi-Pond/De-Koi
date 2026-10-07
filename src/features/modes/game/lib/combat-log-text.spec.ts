@@ -11,5 +11,6 @@ describe("speakerTagsToProse", () => {
   it("leaves bracketed words inside prose alone", () => {
     expect(speakerTagsToProse("He reads the sign [faded] and nods.")).toBe("He reads the sign [faded] and nods.");
     expect(speakerTagsToProse("[Quest]: Find the hidden key")).toBe("[Quest]: Find the hidden key");
+    expect(speakerTagsToProse("[Quest] [faded]: Find the hidden key")).toBe("[Quest] [faded]: Find the hidden key");
   });
 });
