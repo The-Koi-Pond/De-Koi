@@ -9,6 +9,7 @@ import type {
 import { createDefaultContinuityDirectorState } from "./continuity-director-state";
 import { subscribeContinuityDirectorRefreshCompletions } from "./continuity-director-refresh-events";
 import { createContinuityDirectorRefreshScheduler } from "./continuity-director-scheduler";
+import { createFakeBackgroundJobs } from "../../../generation/background-job-queue.fake";
 
 const NOW = "2026-09-02T12:00:00.000Z";
 
@@ -237,5 +238,106 @@ describe("continuity director refresh scheduler", () => {
     await vi.waitFor(() => expect(refreshPlan).toHaveBeenCalledTimes(2));
 
     expect(refreshPlan.mock.calls.map((call) => call[1].chatId).sort()).toEqual(["chat-a", "chat-b"]);
+  });
+
+  describe("with a runtime that stores background jobs", () => {
+    function durableStorage(fake: ReturnType<typeof createFakeBackgroundJobs>) {
+      return { ...storageFor(state()), backgroundJobs: fake.gateway } as unknown as StorageGateway;
+    }
+
+    it("stores the refresh on the runtime and clears it once the plan is written", async () => {
+      const fake = createFakeBackgroundJobs();
+      const enqueue = vi.spyOn(fake.gateway, "enqueue");
+      const refreshPlan = vi.fn(async () => ({ ok: true as const, state: state(), rejectedUnsafeBeats: 0 }));
+      const scheduler = createContinuityDirectorRefreshScheduler({
+        loadSource: vi.fn(async (_storage, chatId) => source(chatId, state(), snapshot("new", 9))),
+        refreshPlan,
+      });
+
+      scheduler.schedule({
+        storage: durableStorage(fake),
+        llm: {} as LlmGateway,
+        chatId: "chat-1",
+        trigger: "assistant_saved",
+      });
+
+      await vi.waitFor(() => expect(refreshPlan).toHaveBeenCalledTimes(1));
+      expect(enqueue).toHaveBeenCalledWith({
+        queue: "continuity-director",
+        key: "chat-1",
+        chatId: "chat-1",
+        payload: { trigger: "assistant_saved" },
+      });
+      await vi.waitFor(() => expect(fake.jobs.size).toBe(0));
+    });
+
+    it("runs a refresh a closed tab left queued when the next client starts", async () => {
+      const fake = createFakeBackgroundJobs();
+      // The tab that saved the reply queued the refresh, then closed before running it.
+      await fake.gateway.enqueue({
+        queue: "continuity-director",
+        key: "chat-1",
+        chatId: "chat-1",
+        payload: { trigger: "assistant_saved" },
+      });
+      const refreshPlan = vi.fn(async () => ({ ok: true as const, state: state(), rejectedUnsafeBeats: 0 }));
+      const nextClient = createContinuityDirectorRefreshScheduler({
+        loadSource: vi.fn(async (_storage, chatId) => source(chatId, state(), snapshot("new", 9))),
+        refreshPlan,
+      });
+
+      nextClient.resumeQueued({ storage: durableStorage(fake), llm: {} as LlmGateway });
+
+      await vi.waitFor(() => expect(refreshPlan).toHaveBeenCalledWith(expect.anything(), { chatId: "chat-1" }));
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([{ jobId: "continuity-director:chat-1", outcome: "done", error: null }]),
+      );
+    });
+
+    it("marks a refresh for retry when the source cannot be loaded", async () => {
+      const fake = createFakeBackgroundJobs();
+      const refreshPlan = vi.fn();
+      const scheduler = createContinuityDirectorRefreshScheduler({
+        loadSource: vi.fn(async () => {
+          throw new Error("runtime unreachable");
+        }),
+        refreshPlan,
+      });
+
+      scheduler.schedule({
+        storage: durableStorage(fake),
+        llm: {} as LlmGateway,
+        chatId: "chat-1",
+        trigger: "assistant_saved",
+      });
+
+      await vi.waitFor(() => expect(fake.finished).toEqual([expect.objectContaining({ outcome: "retry" })]));
+      expect(refreshPlan).not.toHaveBeenCalled();
+    });
+
+    it("still refreshes in this tab when the runtime cannot store the job", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fake = createFakeBackgroundJobs();
+      vi.spyOn(fake.gateway, "enqueue").mockRejectedValue(new Error("offline"));
+      const runner = deferredRunner();
+      const refreshPlan = vi.fn(async () => ({ ok: true as const, state: state(), rejectedUnsafeBeats: 0 }));
+      const scheduler = createContinuityDirectorRefreshScheduler({
+        defer: runner.defer,
+        loadSource: vi.fn(async (_storage, chatId) => source(chatId, state(), snapshot("new", 9))),
+        refreshPlan,
+      });
+
+      scheduler.schedule({
+        storage: durableStorage(fake),
+        llm: {} as LlmGateway,
+        chatId: "chat-1",
+        trigger: "assistant_saved",
+      });
+      await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+      await runner.flush();
+
+      await vi.waitFor(() => expect(refreshPlan).toHaveBeenCalledTimes(1));
+      warn.mockRestore();
+    });
   });
 });

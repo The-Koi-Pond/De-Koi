@@ -2098,10 +2098,13 @@ pub(crate) fn delete_chats_with_messages(
     Ok(delete_ids)
 }
 
-/// Background memory work queued per chat. Once the chat is gone these jobs can only fail against its
+/// Background work queued per chat (memory jobs, Director refreshes). Once the chat is gone these jobs can only fail against its
 /// missing messages, and every worker pass re-reads the whole collection.
-const CHAT_SCOPED_MEMORY_JOB_COLLECTIONS: [&str; 2] =
-    ["memory-capture-jobs", "memory-maintenance-jobs"];
+const CHAT_SCOPED_MEMORY_JOB_COLLECTIONS: [&str; 3] = [
+    "memory-capture-jobs",
+    "memory-maintenance-jobs",
+    "background-jobs",
+];
 
 fn memory_job_chat_id(job: &Value) -> Option<&str> {
     job.get("chatId").and_then(Value::as_str).or_else(|| {
@@ -3414,6 +3417,14 @@ mod tests {
                 "memory-maintenance-jobs",
                 json!({ "id": "maintenance-character", "target": { "scope": { "kind": "character", "id": "char-1" } } }),
             ),
+            (
+                "background-jobs",
+                json!({ "id": "continuity-director:chat-gone", "chatId": "chat-gone", "status": "queued" }),
+            ),
+            (
+                "background-jobs",
+                json!({ "id": "continuity-director:chat-keep", "chatId": "chat-keep", "status": "queued" }),
+            ),
         ] {
             state
                 .storage
@@ -3452,6 +3463,10 @@ mod tests {
             job_ids(&state, "memory-maintenance-jobs"),
             vec!["maintenance-character", "maintenance-keep"]
         );
+        assert_eq!(
+            job_ids(&state, "background-jobs"),
+            vec!["continuity-director:chat-keep"]
+        );
     }
 
     #[test]
@@ -3465,11 +3480,15 @@ mod tests {
 
         let pruned = prune_orphaned_memory_jobs(&state.storage).expect("sweep should succeed");
 
-        assert_eq!(pruned, 2);
+        assert_eq!(pruned, 3);
         assert_eq!(job_ids(&state, "memory-capture-jobs"), vec!["capture-keep"]);
         assert_eq!(
             job_ids(&state, "memory-maintenance-jobs"),
             vec!["maintenance-character", "maintenance-keep"]
+        );
+        assert_eq!(
+            job_ids(&state, "background-jobs"),
+            vec!["continuity-director:chat-keep"]
         );
     }
 

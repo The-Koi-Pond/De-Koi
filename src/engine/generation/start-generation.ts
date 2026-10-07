@@ -27,7 +27,7 @@ import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
-import { scheduleContinuityDirectorRefresh } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
+import { scheduleContinuityDirectorRefreshDurably } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
 import {
   cancelConversationSummaryBackfill,
   scheduleConversationSummaryBackfill,
@@ -4367,13 +4367,15 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
   });
 }
 
-function scheduleContinuityDirectorAfterSavedAssistant(
+// Awaited right after the reply is saved: the refresh is stored on the runtime before any
+// post-save work, so a tab closed while the reply finishes still gets its Director plan.
+async function scheduleContinuityDirectorAfterSavedAssistant(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   chat: JsonRecord,
-): boolean {
+): Promise<boolean> {
   if (readString(chat.mode || chat.chatMode).trim() !== "roleplay") return false;
-  return scheduleContinuityDirectorRefresh({
+  return scheduleContinuityDirectorRefreshDurably({
     storage: deps.storage,
     llm: deps.llm,
     chatId: input.chatId,
@@ -5288,6 +5290,9 @@ async function* startGenerationImpl(
           roleplayQualityCorrection: roleplayQuality.correction,
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
+    // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
+    // and a tab closed during them must not take the refresh with it.
+    if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
     const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
     try {
@@ -5406,7 +5411,6 @@ async function* startGenerationImpl(
       }
       if (savedAssistantGeneration) {
         scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
-        scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
       }
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
@@ -5673,6 +5677,9 @@ async function* startGenerationImpl(
         contextInjections: isUserMessageRegeneration ? null : agentInjectionOverrides,
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
+  // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
+  // and a tab closed during them must not take the refresh with it.
+  if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
   try {
     if (saved) {
@@ -5705,7 +5712,6 @@ async function* startGenerationImpl(
     }
     if (savedAssistantGeneration) {
       scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
-      scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
     }
     yield { type: "done" };
     if (savedAssistantGeneration) {

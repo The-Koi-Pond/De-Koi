@@ -9,7 +9,7 @@ import { startGeneration } from "./start-generation";
 const continuityScheduler = vi.hoisted(() => vi.fn());
 
 vi.mock("../modes/roleplay/continuity-director/continuity-director-scheduler", () => ({
-  scheduleContinuityDirectorRefresh: continuityScheduler,
+  scheduleContinuityDirectorRefreshDurably: continuityScheduler,
 }));
 
 function deferred<T>() {
@@ -141,7 +141,40 @@ async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Lorebook Keeper backfill", () => {
-  beforeEach(() => continuityScheduler.mockReset());
+  beforeEach(() => continuityScheduler.mockReset().mockResolvedValue(true));
+
+  it("reports done only after the Director refresh is stored, so closing the tab then cannot drop it", async () => {
+    const stored = deferred<boolean>();
+    continuityScheduler.mockReturnValue(stored.promise);
+    const { storage, releaseBackfill } = lorebookKeeperBackgroundStorage();
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream() {
+        yield { type: "token", text: "The lantern stays lit." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+    const generation = startGeneration(
+      { storage, llm, integrations: {} as IntegrationGateway },
+      { chatId: "chat-1", connectionId: "conn-1", userMessage: "Keep the lantern lit.", impersonateBlockAgents: true },
+    );
+    let done = false;
+    const reachedDone = advanceToDone(generation).then(() => {
+      done = true;
+    });
+
+    try {
+      await vi.waitFor(() => expect(continuityScheduler).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(done).toBe(false);
+      stored.resolve(true);
+      await reachedDone;
+      expect(done).toBe(true);
+      await generation.return(undefined);
+    } finally {
+      releaseBackfill();
+    }
+  });
 
   it("starts the normal-path Keeper backfill after done even when the consumer stops iteration", async () => {
     vi.useFakeTimers();

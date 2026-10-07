@@ -26,6 +26,11 @@ export interface ContinuityDirectorRefreshPolicyInput {
   trigger: ContinuityDirectorRefreshTrigger;
   currentSourceSnapshot: ContinuityDirectorSourceSnapshot;
   refreshPending: boolean;
+  /**
+   * The caller is re-running a queued refresh whose earlier run was cut off (its tab closed), so a
+   * "pending" attempt it finds is that run's and is already abandoned, however recent.
+   */
+  resumingInterruptedRun?: boolean;
   /** Epoch milliseconds; defaults to Date.now(). */
   now?: number;
 }
@@ -36,8 +41,13 @@ export interface ContinuityDirectorRefreshPolicyInput {
  */
 export const ABANDONED_PLANNING_ATTEMPT_MS = 2 * 60_000;
 
-function attemptWasAbandoned(state: RoleplayContinuityDirectorState, now: number): boolean {
+function attemptWasAbandoned(
+  state: RoleplayContinuityDirectorState,
+  now: number,
+  resumingInterruptedRun: boolean,
+): boolean {
   if (state.lastPlanningAttemptStatus !== "pending") return false;
+  if (resumingInterruptedRun) return true;
   const startedAt = Date.parse(state.lastPlanningAttemptStartedAt ?? "");
   return Number.isFinite(startedAt) && now - startedAt > ABANDONED_PLANNING_ATTEMPT_MS;
 }
@@ -70,7 +80,11 @@ export function decideContinuityDirectorRefresh(
 
   if (input.trigger !== "assistant_saved") return { eligible: false, reason: "trigger_mismatch" };
   const successfulBaseline = input.state.sourceSnapshot?.visibleAssistantTurnCount ?? null;
-  const failedAttemptBaseline = attemptWasAbandoned(input.state, input.now ?? Date.now())
+  const failedAttemptBaseline = attemptWasAbandoned(
+    input.state,
+    input.now ?? Date.now(),
+    input.resumingInterruptedRun === true,
+  )
     ? null
     : (input.state.lastPlanningAttemptAssistantTurnCount ?? null);
   const hasBaseline = successfulBaseline !== null || failedAttemptBaseline !== null;

@@ -9,6 +9,7 @@ import {
   type AutomaticMemoryMaintenanceDependencies,
 } from "../../engine/generation/automatic-memory-maintenance-queue";
 import { selectBackgroundTextConnection } from "../../engine/generation/background-llm-connection";
+import { resumeQueuedContinuityDirectorRefreshes } from "../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
 import { parseRecord, readString, type JsonRecord } from "../../engine/generation/runtime-records";
 import { connectionCatalogApi } from "../../shared/api/connection-catalog-api";
 import { llmApi } from "../../shared/api/llm-api";
@@ -192,7 +193,16 @@ export function useAutomaticMemoryMaintenance(): void {
   }, []);
 }
 
+/** Runs post-reply work (Director refreshes) that a closed or reloaded tab left queued. */
+export function useResumeQueuedBackgroundJobs(): void {
+  useEffect(() => {
+    resumeQueuedContinuityDirectorRefreshes({ storage: storageApi, llm: llmApi });
+  }, []);
+}
+
+// The idle-mounted startup host for background work: memory upkeep and queued post-reply jobs.
 export function AutomaticMemoryMaintenanceHost() {
   useAutomaticMemoryMaintenance();
+  useResumeQueuedBackgroundJobs();
   return null;
 }

@@ -1,5 +1,7 @@
+import type { BackgroundJobOutcome, ClaimedBackgroundJob } from "../../../capabilities/background-jobs";
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
+import { createBackgroundJobQueue, type BackgroundJobQueue } from "../../../generation/background-job-queue";
 import { parseRecord, type JsonRecord } from "../../../generation/runtime-records";
 import { refreshContinuityDirectorPlan } from "./continuity-director-planner";
 import {
@@ -29,7 +31,20 @@ export interface ScheduleContinuityDirectorRefreshInput {
 
 export interface ContinuityDirectorRefreshScheduler {
   schedule(input: ScheduleContinuityDirectorRefreshInput): boolean;
+  /**
+   * Like `schedule`, but resolves once the refresh is stored on the runtime (or, when it cannot
+   * be, handed to this tab). A reply only reports done after this, so closing the tab the moment
+   * the reply finishes can no longer drop the refresh before it was queued.
+   */
+  scheduleDurably(input: ScheduleContinuityDirectorRefreshInput): Promise<boolean>;
+  /** Run refreshes a closed tab left queued; call once a client starts. */
+  resumeQueued(deps: DirectorQueueDependencies): void;
   isPending(storage: StorageGateway, chatId: string): boolean;
+}
+
+interface DirectorQueueDependencies {
+  storage: StorageGateway;
+  llm: LlmGateway;
 }
 
 interface SchedulerOverrides {
@@ -41,6 +56,24 @@ interface SchedulerOverrides {
 interface QueuedRefresh {
   input: ScheduleContinuityDirectorRefreshInput;
   nextTrigger: ContinuityDirectorRefreshTrigger | null;
+  /** A durable job claimed again after an earlier claim never finished (its tab closed). */
+  resumingInterruptedRun?: boolean;
+}
+
+const REFRESH_TRIGGERS: readonly ContinuityDirectorRefreshTrigger[] = [
+  "scene_created",
+  "scene_concluded",
+  "assistant_saved",
+];
+
+function triggerFromPayload(payload: unknown): ContinuityDirectorRefreshTrigger | null {
+  const trigger = parseRecord(payload).trigger;
+  return REFRESH_TRIGGERS.find((candidate) => candidate === trigger) ?? null;
+}
+
+/** A missing chat is final; anything else thrown (runtime or model unreachable) is worth a retry. */
+function isMissingChat(error: unknown): boolean {
+  return error instanceof Error && error.message === "Chat not found";
 }
 
 function defaultDefer(run: () => void): void {
@@ -66,7 +99,7 @@ export function createContinuityDirectorRefreshScheduler(
   const refreshPlan = overrides.refreshPlan ?? refreshContinuityDirectorPlan;
   const scheduledByStorage = new WeakMap<StorageGateway, Map<string, QueuedRefresh>>();
 
-  async function runOne(job: QueuedRefresh, trigger: ContinuityDirectorRefreshTrigger): Promise<void> {
+  async function runOne(job: QueuedRefresh, trigger: ContinuityDirectorRefreshTrigger): Promise<BackgroundJobOutcome> {
     const { storage, llm, chatId } = job.input;
     try {
       const chat = await storage.get<JsonRecord>("chats", chatId);
@@ -89,7 +122,7 @@ export function createContinuityDirectorRefreshScheduler(
           status: "skipped",
           reason: preflightReason,
         });
-        return;
+        return "done";
       }
     } catch (error) {
       report(job.input, {
@@ -99,7 +132,7 @@ export function createContinuityDirectorRefreshScheduler(
         status: "error",
         reason: error instanceof Error ? error.message : "source_unavailable",
       });
-      return;
+      return isMissingChat(error) ? "done" : "retry";
     }
 
     let source;
@@ -113,7 +146,7 @@ export function createContinuityDirectorRefreshScheduler(
         status: "error",
         reason: error instanceof Error ? error.message : "source_unavailable",
       });
-      return;
+      return "retry";
     }
 
     const director = normalizeContinuityDirectorState(parseRecord(source.chat.metadata).roleplayContinuityDirector);
@@ -122,6 +155,7 @@ export function createContinuityDirectorRefreshScheduler(
       trigger,
       currentSourceSnapshot: source.sourceSnapshot,
       refreshPending: false,
+      resumingInterruptedRun: job.resumingInterruptedRun === true,
     });
     if (!decision.eligible) {
       report(job.input, {
@@ -131,13 +165,15 @@ export function createContinuityDirectorRefreshScheduler(
         status: "skipped",
         reason: decision.reason,
       });
-      return;
+      return "done";
     }
 
     const result = await refreshPlan({ storage, llm }, { chatId }).finally(() => {
       publishContinuityDirectorRefreshCompletion({ chatId });
     });
     if (!result.ok) {
+      // The planner records the failure in the Director state, and its refresh policy decides
+      // when to try again, so the queue does not retry it a second way.
       report(job.input, {
         stage: "continuity_director_refresh",
         chatId,
@@ -145,7 +181,7 @@ export function createContinuityDirectorRefreshScheduler(
         status: "error",
         reason: result.code,
       });
-      return;
+      return "done";
     }
     report(job.input, {
       stage: "continuity_director_refresh",
@@ -155,6 +191,60 @@ export function createContinuityDirectorRefreshScheduler(
       reason: decision.reason,
       rejectedUnsafeBeats: result.rejectedUnsafeBeats,
     });
+    return "done";
+  }
+
+  // Refreshes queued here are stored by the runtime, so a tab closed right after a reply no
+  // longer drops the plan: the next open client (or this one, after a reload) runs it.
+  const durableQueue: BackgroundJobQueue<DirectorQueueDependencies> = createBackgroundJobQueue({
+    queue: "continuity-director",
+    async run(claimed: ClaimedBackgroundJob, deps) {
+      const trigger = triggerFromPayload(claimed.payload);
+      const chatId = claimed.chatId ?? claimed.key;
+      if (!trigger || !chatId) return "failed";
+      const job: QueuedRefresh = {
+        input: { ...deps, chatId, trigger },
+        nextTrigger: null,
+        // A later claim of the same job means an earlier run started and never reported back.
+        resumingInterruptedRun: claimed.attempts > 1,
+      };
+      return runOne(job, trigger);
+    },
+  });
+
+  async function scheduleDurably(input: ScheduleContinuityDirectorRefreshInput): Promise<boolean> {
+    const chatId = input.chatId.trim();
+    if (!chatId) return false;
+    const normalizedInput = { ...input, chatId };
+    if (!input.storage.backgroundJobs) {
+      runInThisTab(normalizedInput);
+      return true;
+    }
+    try {
+      await durableQueue.enqueue(
+        { storage: input.storage, llm: input.llm },
+        { key: chatId, chatId, payload: { trigger: input.trigger } },
+      );
+    } catch (error) {
+      // The runtime could not store it; still refresh now, just not durably.
+      console.warn("[continuity-director] could not queue the refresh; running it in this tab", error);
+      runInThisTab(normalizedInput);
+    }
+    return true;
+  }
+
+  function runInThisTab(input: ScheduleContinuityDirectorRefreshInput): void {
+    const scheduled = scheduledByStorage.get(input.storage) ?? new Map<string, QueuedRefresh>();
+    scheduledByStorage.set(input.storage, scheduled);
+    const active = scheduled.get(input.chatId);
+    if (active) {
+      active.input = input;
+      active.nextTrigger = input.trigger;
+      return;
+    }
+    const job: QueuedRefresh = { input, nextTrigger: input.trigger };
+    scheduled.set(input.chatId, job);
+    defer(() => void drain(input.storage, input.chatId, job));
   }
 
   async function drain(storage: StorageGateway, chatId: string, job: QueuedRefresh): Promise<void> {
@@ -164,7 +254,13 @@ export function createContinuityDirectorRefreshScheduler(
         const trigger = job.nextTrigger;
         job.nextTrigger = null;
         try {
-          await runOne(job, trigger);
+          if ((await runOne(job, trigger)) === "retry") {
+            // Without a durable queue there is no later run to hand this to; say so.
+            console.warn("[continuity-director] refresh failed and will not be retried in this tab", {
+              chatId,
+              trigger,
+            });
+          }
         } catch (error) {
           report(job.input, {
             stage: "continuity_director_refresh",
@@ -183,22 +279,13 @@ export function createContinuityDirectorRefreshScheduler(
 
   return {
     schedule(input) {
-      const chatId = input.chatId.trim();
-      if (!chatId) return false;
-      const normalizedInput = { ...input, chatId };
-      const scheduled = scheduledByStorage.get(input.storage) ?? new Map<string, QueuedRefresh>();
-      scheduledByStorage.set(input.storage, scheduled);
-      const active = scheduled.get(chatId);
-      if (active) {
-        active.input = normalizedInput;
-        active.nextTrigger = input.trigger;
-        return true;
-      }
-
-      const job: QueuedRefresh = { input: normalizedInput, nextTrigger: input.trigger };
-      scheduled.set(chatId, job);
-      defer(() => void drain(input.storage, chatId, job));
+      if (!input.chatId.trim()) return false;
+      void scheduleDurably(input);
       return true;
+    },
+    scheduleDurably,
+    resumeQueued(deps) {
+      durableQueue.schedule(deps);
     },
     isPending(storage, chatId) {
       return scheduledByStorage.get(storage)?.has(chatId.trim()) ?? false;
@@ -210,4 +297,14 @@ const defaultScheduler = createContinuityDirectorRefreshScheduler();
 
 export function scheduleContinuityDirectorRefresh(input: ScheduleContinuityDirectorRefreshInput): boolean {
   return defaultScheduler.schedule(input);
+}
+
+export function scheduleContinuityDirectorRefreshDurably(
+  input: ScheduleContinuityDirectorRefreshInput,
+): Promise<boolean> {
+  return defaultScheduler.scheduleDurably(input);
+}
+
+export function resumeQueuedContinuityDirectorRefreshes(deps: DirectorQueueDependencies): void {
+  defaultScheduler.resumeQueued(deps);
 }

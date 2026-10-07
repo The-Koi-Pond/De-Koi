@@ -53,6 +53,7 @@ fn execute_expunge_scope(
                 "memory-capture-jobs",
                 "story-consolidation-jobs",
                 "memory-maintenance-jobs",
+                "background-jobs",
                 "game-checkpoints",
                 "game-state-snapshots",
             ],
@@ -619,6 +620,7 @@ mod tests {
             json!([
                 "agent-memory",
                 "agent-runs",
+                "background-jobs",
                 "chat-folders",
                 "chats",
                 "gallery",
@@ -716,6 +718,7 @@ mod tests {
             json!([
                 "agent-memory",
                 "agent-runs",
+                "background-jobs",
                 "chat-folders",
                 "chats",
                 "connection-folders",

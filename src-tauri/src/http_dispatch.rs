@@ -1,11 +1,12 @@
 use crate::http_storage_dispatch;
 use crate::state::AppState;
 use crate::storage_commands::{
-    admin, agents, avatars, backgrounds, backup, bot_browser, canonical_memory, characters,
-    chat_memory, chats, connection_secrets, custom_tools, customization, deki, entity_images,
-    exports, fonts, game_assets, generation, http, images, imports, integrations, knowledge,
-    knowledge_edges, llm, lorebook_images, managed_thumbnails, memory_capture, memory_maintenance,
-    personas, profile, prompts, shared, sidecar, sprites, translation, updates, web_research,
+    admin, agents, avatars, background_jobs, backgrounds, backup, bot_browser, canonical_memory,
+    characters, chat_memory, chats, connection_secrets, custom_tools, customization, deki,
+    entity_images, exports, fonts, game_assets, generation, http, images, imports, integrations,
+    knowledge, knowledge_edges, llm, lorebook_images, managed_thumbnails, memory_capture,
+    memory_maintenance, personas, profile, prompts, shared, sidecar, sprites, translation, updates,
+    web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1187,6 +1188,36 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "background_job_enqueue" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                background_jobs::enqueue(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "background_job_claim" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                background_jobs::claim(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "background_job_finish" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                background_jobs::finish(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "background_worker_acquire" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                background_jobs::acquire_worker(state, optional_value(args, "body"))
+            })
+            .await
+        }
+        "background_worker_release" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                background_jobs::release_worker(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "memory_capture_worker_acquire" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 memory_capture::acquire_worker(state, optional_value(args, "body"))
@@ -2040,6 +2071,11 @@ mod tests {
         "lorebook_entry_reorder",
         "memory_create",
         "memory_cleanup_undo",
+        "background_job_enqueue",
+        "background_job_claim",
+        "background_job_finish",
+        "background_worker_acquire",
+        "background_worker_release",
         "memory_capture_worker_acquire",
         "memory_capture_memory_create",
         "memory_capture_memory_update",

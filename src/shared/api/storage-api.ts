@@ -27,6 +27,7 @@ import {
   type RemoteManagedAssetKind,
 } from "./local-file-api";
 import { blobToDataUrl } from "../lib/url-blob";
+import { backgroundJobsApi } from "./background-jobs-api";
 import { chatCommandApi } from "./chat-command-api";
 import { canonicalMemoryApi } from "./canonical-memory-api";
 import { memoryCaptureApi } from "./memory-capture-api";
@@ -347,6 +348,7 @@ async function resolveImageAttachmentDataUrl(attachment: StorageImageAttachmentR
 const DURABLE_STORAGE_REQUEST_OPTIONS = { timeoutMs: null } as const;
 
 export const storageApi: StorageGateway = {
+  backgroundJobs: backgroundJobsApi,
   acquireMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.acquireWorker(workerId, leaseId),
   releaseMemoryCaptureWorker: (workerId, leaseId) => memoryCaptureApi.releaseWorker(workerId, leaseId),
   // Story consolidation owns a distinct durable queue while sharing the existing
