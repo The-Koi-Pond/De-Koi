@@ -14,7 +14,7 @@ const MAX_ATTEMPTS: u64 = 3;
 const RETRY_BACKOFF_MS: [u64; 3] = [60_000, 5 * 60_000, 30 * 60_000];
 const MAX_KEY_LEN: usize = 200;
 
-pub(crate) const QUEUES: &[&str] = &["continuity-director"];
+pub(crate) const QUEUES: &[&str] = &["continuity-director", "lorebook-keeper"];
 
 fn read_text<'a>(body: &'a Value, field: &str, label: &str) -> AppResult<&'a str> {
     body.get(field)

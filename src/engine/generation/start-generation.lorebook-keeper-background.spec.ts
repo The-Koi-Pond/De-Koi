@@ -4,7 +4,8 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
-import { startGeneration } from "./start-generation";
+import { createFakeBackgroundJobs } from "./background-job-queue.fake";
+import { resumeQueuedLorebookKeeperBackfills, startGeneration } from "./start-generation";
 
 const continuityScheduler = vi.hoisted(() => vi.fn());
 
@@ -250,5 +251,72 @@ describe("startGeneration Lorebook Keeper backfill", () => {
       releaseBackfill();
       vi.useRealTimers();
     }
+  });
+
+  describe("on a runtime that stores background jobs", () => {
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      async *stream() {
+        yield { type: "token", text: "The lantern stays lit." };
+      },
+      listModels: vi.fn(async () => []),
+    };
+
+    it("stores the Keeper backfill with the reply, then runs it once generation is done", async () => {
+      const fake = createFakeBackgroundJobs();
+      const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
+      const durableStorage = { ...storage, backgroundJobs: fake.gateway } as StorageGateway;
+      const generation = startGeneration(
+        { storage: durableStorage, llm, integrations: {} as IntegrationGateway },
+        {
+          chatId: "chat-1",
+          connectionId: "conn-1",
+          userMessage: "Keep the lantern lit.",
+          impersonateBlockAgents: true,
+        },
+      );
+
+      try {
+        await advanceToDone(generation);
+        // Stored before done, and held back while the reply is still generating.
+        expect(fake.jobs.get("lorebook-keeper:chat-1")).toMatchObject({
+          chatId: "chat-1",
+          payload: { connectionId: "conn-1" },
+        });
+        expect(backfillStarted()).toBe(false);
+
+        await generation.return(undefined);
+        await vi.waitFor(() => expect(backfillStarted()).toBe(true));
+        releaseBackfill();
+        await vi.waitFor(() =>
+          expect(fake.finished).toContainEqual({ jobId: "lorebook-keeper:chat-1", outcome: "done", error: null }),
+        );
+      } finally {
+        releaseBackfill();
+      }
+    });
+
+    it("finishes a queued backfill for a deleted chat and fails one for a chat that cannot generate", async () => {
+      const fake = createFakeBackgroundJobs();
+      await fake.gateway.enqueue({ queue: "lorebook-keeper", key: "gone", chatId: "gone", payload: {} });
+      await fake.gateway.enqueue({ queue: "lorebook-keeper", key: "concluded", chatId: "concluded", payload: {} });
+      const storage = {
+        backgroundJobs: fake.gateway,
+        get: vi.fn(async (entity: string, id: string) =>
+          entity === "chats" && id === "concluded"
+            ? { id, mode: "roleplay", characterIds: ["char-1"], metadata: { sceneStatus: "concluded" } }
+            : null,
+        ),
+      } as unknown as StorageGateway;
+
+      resumeQueuedLorebookKeeperBackfills({ storage, llm, integrations: {} as IntegrationGateway });
+
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([
+          { jobId: "lorebook-keeper:gone", outcome: "done", error: null },
+          { jobId: "lorebook-keeper:concluded", outcome: "failed", error: null },
+        ]),
+      );
+    });
   });
 });

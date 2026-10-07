@@ -111,6 +111,7 @@ import { getEffectiveStoryConsolidationEnabled } from "./story-projections";
 import { beginForegroundGeneration } from "./background-generation-coordinator";
 import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
+import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
   applyGenerationReplayToRegenerateInput,
@@ -4331,13 +4332,71 @@ async function runLorebookKeeperBackfill(
   return { results: allResults, events: allEvents };
 }
 
-function scheduleLorebookKeeperBackfillAfterSavedAssistant(
+function lorebookKeeperBackfillInput(chatId: string, connectionId: string | null): RetryAgentsInput {
+  return {
+    chatId,
+    connectionId,
+    agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
+    options: { lorebookKeeperBackfill: true },
+  };
+}
+
+function reportLorebookKeeperBackfillTiming(
+  deps: GenerationEngineDeps,
+  status: "ok" | "error",
+  startedAt: number,
+): void {
+  try {
+    deps.onPerformanceTiming?.({
+      name: "generation.lorebook_keeper_backfill",
+      elapsedMs: Math.max(0, Date.now() - startedAt),
+      status,
+      metadata: { runCount: 1 },
+    });
+  } catch {
+    // Optional diagnostics must never affect background work or queue progress.
+  }
+}
+
+// Keeper backfills are stored on the runtime, so a tab closed after a reply no longer drops the
+// Keeper pass for it. Backfill skips messages it already processed, so a rerun is harmless.
+const lorebookKeeperBackfillQueue = createBackgroundJobQueue<GenerationEngineDeps>({
+  queue: "lorebook-keeper",
+  async run(job, deps) {
+    const chatId = job.chatId ?? job.key;
+    const chat = await deps.storage.get<JsonRecord>("chats", chatId);
+    if (!chat) return "done";
+    try {
+      assertChatCanGenerate(chat);
+    } catch {
+      // A concluded scene or a chat without active characters cannot run the Keeper; retrying won't change that.
+      return "failed";
+    }
+    const connectionId = readString(parseRecord(job.payload).connectionId).trim() || null;
+    const startedAt = Date.now();
+    try {
+      await retryGenerationAgents(deps, lorebookKeeperBackfillInput(chatId, connectionId));
+      reportLorebookKeeperBackfillTiming(deps, "ok", startedAt);
+      return "done";
+    } catch (error) {
+      reportLorebookKeeperBackfillTiming(deps, "error", startedAt);
+      throw error;
+    }
+  },
+});
+
+/** Run Keeper backfills a closed or reloaded tab left queued; call once a client starts. */
+export function resumeQueuedLorebookKeeperBackfills(deps: GenerationEngineDeps): void {
+  lorebookKeeperBackfillQueue.schedule(deps);
+}
+
+function scheduleLorebookKeeperBackfillInThisTab(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   chat: JsonRecord,
   connection: JsonRecord,
-): boolean {
-  return scheduleLorebookKeeperBackfill({
+): void {
+  scheduleLorebookKeeperBackfill({
     storage: deps.storage,
     chatId: readString(chat.id).trim(),
     onDiagnostic: deps.onPerformanceTiming
@@ -4352,12 +4411,10 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
     run: async () => {
       await runLorebookKeeperBackfill(
         deps,
-        {
-          chatId: readString(chat.id).trim(),
-          connectionId: readString(connection.id) || input.connectionId || null,
-          agentTypes: [LOREBOOK_KEEPER_AGENT_TYPE],
-          options: { lorebookKeeperBackfill: true },
-        },
+        lorebookKeeperBackfillInput(
+          readString(chat.id).trim(),
+          readString(connection.id) || input.connectionId || null,
+        ),
         // Once visible completion is emitted, this repair work intentionally detaches from the
         // foreground request signal. Explicit cancellation before done still stops generation;
         // cancellation after done must not discard persisted-message maintenance.
@@ -4365,6 +4422,33 @@ function scheduleLorebookKeeperBackfillAfterSavedAssistant(
       );
     },
   });
+}
+
+// Awaited right after the reply is saved, like the Director: the backfill is stored on the
+// runtime before any post-save work, and only runs once this tab's generation is done.
+async function scheduleLorebookKeeperBackfillAfterSavedAssistant(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+  connection: JsonRecord,
+): Promise<void> {
+  const chatId = readString(chat.id).trim();
+  if (!chatId) return;
+  if (!deps.storage.backgroundJobs) {
+    scheduleLorebookKeeperBackfillInThisTab(deps, input, chat, connection);
+    return;
+  }
+  try {
+    await lorebookKeeperBackfillQueue.enqueue(deps, {
+      key: chatId,
+      chatId,
+      payload: { connectionId: readString(connection.id) || input.connectionId || null },
+    });
+  } catch (error) {
+    // The runtime could not store it; still backfill now, just not durably.
+    console.warn("[lorebook-keeper] could not queue the backfill; running it in this tab", error);
+    scheduleLorebookKeeperBackfillInThisTab(deps, input, chat, connection);
+  }
 }
 
 // Awaited right after the reply is saved: the refresh is stored on the runtime before any
@@ -5293,6 +5377,8 @@ async function* startGenerationImpl(
     // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
     // and a tab closed during them must not take the refresh with it.
     if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
+    if (savedAssistantGeneration)
+      await scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
     const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
     try {
@@ -5410,7 +5496,6 @@ async function* startGenerationImpl(
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
       }
       if (savedAssistantGeneration) {
-        scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
       }
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
@@ -5680,6 +5765,7 @@ async function* startGenerationImpl(
   // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
   // and a tab closed during them must not take the refresh with it.
   if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
+  if (savedAssistantGeneration) await scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
   try {
     if (saved) {
@@ -5711,7 +5797,6 @@ async function* startGenerationImpl(
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
     }
     if (savedAssistantGeneration) {
-      scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
     }
     yield { type: "done" };
     if (savedAssistantGeneration) {
