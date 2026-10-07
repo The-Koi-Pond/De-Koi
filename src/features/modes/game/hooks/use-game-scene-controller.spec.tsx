@@ -6,6 +6,7 @@ import type { InventoryTag } from "../lib/game-tag-parser";
 import { useGameSceneController } from "./use-game-scene-controller";
 
 type SegmentEnter = (segmentIndex: number) => void;
+type SceneController = ReturnType<typeof useGameSceneController>;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -20,11 +21,15 @@ function deferred<T>() {
 function SceneControllerProbe({
   applyInventoryUpdates,
   inventoryUpdate,
+  segment = 2,
   onReady,
+  onController,
 }: {
   applyInventoryUpdates: (updates: InventoryTag[]) => Promise<boolean>;
   inventoryUpdate: InventoryTag;
+  segment?: number;
   onReady: (handleSegmentEnter: SegmentEnter) => void;
+  onController?: (controller: SceneController) => void;
 }) {
   const appliedInventorySegmentsRef = useRef<Set<number>>(new Set());
   const controller = useGameSceneController({
@@ -34,7 +39,7 @@ function SceneControllerProbe({
     latestAssistantMsg: null,
     latestAssistantDirectAddressMode: null,
     hasAsyncScenePrep: false,
-    pendingInventorySegmentUpdates: [{ segment: 2, update: inventoryUpdate }],
+    pendingInventorySegmentUpdates: [{ segment, update: inventoryUpdate }],
     appliedInventorySegmentsRef,
     scopedAssetMap: null,
     useSpotifyGameMusic: false,
@@ -44,7 +49,8 @@ function SceneControllerProbe({
 
   useEffect(() => {
     onReady(controller.handleSegmentEnter);
-  }, [controller.handleSegmentEnter, onReady]);
+    onController?.(controller);
+  }, [controller, onController, onReady]);
 
   return null;
 }
@@ -98,6 +104,50 @@ describe("useGameSceneController inventory segment application", () => {
       pendingApply.resolve(true);
       await pendingApply.promise;
     });
+  });
+
+  it("applies a later reply's inventory tag at a segment index an earlier reply already used", async () => {
+    const coinGain: InventoryTag = { action: "add", items: ["Green Coin"], count: 5 };
+    const coinToll: InventoryTag = { action: "remove", items: ["Green Coin"], count: 1 };
+    const applyInventoryUpdates = vi.fn().mockResolvedValue(true);
+    let handleSegmentEnter: SegmentEnter | null = null;
+    let controller: SceneController | null = null;
+    const render = (inventoryUpdate: InventoryTag) =>
+      root!.render(
+        <SceneControllerProbe
+          applyInventoryUpdates={applyInventoryUpdates}
+          inventoryUpdate={inventoryUpdate}
+          segment={0}
+          onReady={(handle) => {
+            handleSegmentEnter = handle;
+          }}
+          onController={(next) => {
+            controller = next;
+          }}
+        />,
+      );
+
+    await act(async () => {
+      root = createRoot(container!);
+      render(coinGain);
+    });
+    await act(async () => {
+      handleSegmentEnter?.(0);
+      await Promise.resolve();
+    });
+
+    // The next reply arrives: segment state resets and its first segment carries a new tag.
+    await act(async () => {
+      controller!.resetSegmentEffects();
+      render(coinToll);
+    });
+    await act(async () => {
+      handleSegmentEnter?.(0);
+      await Promise.resolve();
+    });
+
+    expect(applyInventoryUpdates).toHaveBeenCalledTimes(2);
+    expect(applyInventoryUpdates).toHaveBeenLastCalledWith([coinToll]);
   });
 
   it("rolls back the segment claim when inventory application fails so a later enter retries", async () => {
