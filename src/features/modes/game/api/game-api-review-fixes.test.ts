@@ -2210,6 +2210,20 @@ describe("game API review guards", () => {
     expect(journalEntries().filter((entry) => String(entry.title).startsWith("World advanced:"))).toHaveLength(1);
   });
 
+  it("refuses NPC rules on a world tick that Retry Turn could rewind", async () => {
+    storageApiMock.update.mockClear();
+    await expect(
+      runWorldTick({
+        chatId: "chat-1",
+        trigger: "scene_end",
+        discriminator: "gm-1",
+        turnMessageId: "gm-1",
+        npcRules: [{ npcId: "Brannoc", note: "moves to the Hollow Market" }],
+      }),
+    ).rejects.toThrow(/cannot apply NPC rules/);
+    expect(storageApiMock.update).not.toHaveBeenCalled();
+  });
+
   it("persists weather updates to the visible world state", async () => {
     let chat: Record<string, unknown> = {
       id: "chat-1",
