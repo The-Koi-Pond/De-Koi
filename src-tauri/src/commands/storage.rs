@@ -13,6 +13,8 @@ pub(crate) mod admin;
 pub(crate) mod agents;
 #[path = "storage/avatars.rs"]
 pub(crate) mod avatars;
+#[path = "storage/background_jobs.rs"]
+pub(crate) mod background_jobs;
 #[path = "storage/backgrounds.rs"]
 pub(crate) mod backgrounds;
 #[path = "storage/backup.rs"]
@@ -136,6 +138,9 @@ pub mod agent_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/assets.rs"]
 pub mod asset_commands;
+#[cfg(feature = "desktop")]
+#[path = "storage/commands/background_jobs.rs"]
+pub mod background_job_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/backup.rs"]
 pub mod backup_commands;

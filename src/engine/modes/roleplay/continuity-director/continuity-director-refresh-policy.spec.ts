@@ -196,6 +196,38 @@ describe("continuity director refresh policy", () => {
     });
   });
 
+  it("reruns at once when the queue resumes the same refresh its closed tab left pending", () => {
+    const startedAt = Date.parse(NOW);
+    const interrupted = state({
+      refreshMode: "cadence",
+      refreshEveryAssistantTurns: 1,
+      sourceSnapshot: null,
+      lastPlanningAttemptAssistantTurnCount: 1,
+      lastPlanningAttemptStartedAt: NOW,
+      lastPlanningAttemptStatus: "pending",
+    });
+    const sameReply = {
+      trigger: "assistant_saved" as const,
+      currentSourceSnapshot: snapshot("reply-1", 1),
+      refreshPending: false,
+      now: startedAt + 35_000,
+    };
+
+    // Only 35s old, so to anyone else it may still be planning...
+    expect(decideContinuityDirectorRefresh({ ...sameReply, state: interrupted })).toMatchObject({
+      eligible: false,
+      reason: "cadence_not_due",
+    });
+    // ...but the queue knows that run was its own and never finished.
+    expect(decideContinuityDirectorRefresh({ ...sameReply, state: interrupted, resumingInterruptedRun: true })).toEqual(
+      {
+        eligible: true,
+        reason: "cadence_due",
+        assistantTurnsElapsed: 1,
+      },
+    );
+  });
+
   it("keeps the full cadence after an attempt that settled as failed", () => {
     const failed = state({
       refreshMode: "cadence",

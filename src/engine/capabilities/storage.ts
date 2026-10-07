@@ -1,3 +1,4 @@
+import type { BackgroundJobsGateway } from "./background-jobs";
 import type { StorageEntity } from "./storage-collections";
 import type {
   CanonicalMemoryInput,
@@ -204,6 +205,8 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
     expectedValue: unknown,
     value: unknown,
   ): Promise<{ updated: boolean; record: T }>;
+  /** Durable post-reply work (Director refreshes and similar) that outlives the tab. */
+  backgroundJobs?: BackgroundJobsGateway;
   acquireMemoryCaptureWorker?(workerId: string, leaseId?: string): Promise<string | null>;
   releaseMemoryCaptureWorker?(workerId: string, leaseId: string): Promise<void>;
   updateMemoryCaptureJob?(

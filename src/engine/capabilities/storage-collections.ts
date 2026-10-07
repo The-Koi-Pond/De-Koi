@@ -72,6 +72,11 @@ const STORAGE_COLLECTIONS = {
   extensions: { genericApi: true },
   "plugin-memory": { genericApi: true },
   "extension-data-retention": { genericApi: true },
+  "background-jobs": {
+    genericApi: false,
+    internalOnly: true,
+    internalReason: "background jobs are queued, claimed and finished through dedicated lease-fenced commands",
+  },
   "memory-capture-jobs": {
     genericApi: true,
     readJsonFields: [

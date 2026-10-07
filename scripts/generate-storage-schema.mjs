@@ -149,6 +149,12 @@ const collectionMetadata = {
     notes:
       "Metadata-only records for explicitly retained extension storage, including host-controlled namespace, package identity, row count, and retention timestamps.",
   },
+  "background-jobs": {
+    model: "`ClaimedBackgroundJob`",
+    confidence: "Type-backed",
+    notes:
+      "Durable post-reply work (continuity Director refreshes) keyed by queue and chat. Rows carry the queue payload, status (queued/running/retryable/failed), attempts, retry time, the claiming worker lease, and a rerun request for triggers that arrive mid-run. Finished jobs are deleted; runtime-internal and excluded from profile exports.",
+  },
   "memory-capture-jobs": {
     model: "`MemoryCaptureJob`",
     confidence: "Type-backed",

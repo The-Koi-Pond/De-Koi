@@ -40,6 +40,16 @@ pub struct AppState {
     llm_stream_cancellations: Arc<Mutex<LlmStreamCancellations>>,
     memory_maintenance_worker: Arc<Mutex<Option<MemoryMaintenanceWorkerLease>>>,
     memory_capture_worker: Arc<Mutex<Option<MemoryCaptureWorkerLease>>>,
+    /// One worker lease per background-job queue (see `storage/background_jobs.rs`).
+    background_workers: Arc<Mutex<HashMap<String, BackgroundWorkerLease>>>,
+    /// Serializes enqueue/claim/finish so a trigger landing mid-run is never lost to the finish.
+    background_jobs_lock: Arc<Mutex<()>>,
+}
+
+struct BackgroundWorkerLease {
+    worker_id: String,
+    lease_id: String,
+    expires_at: Instant,
 }
 
 #[derive(Default)]
@@ -79,6 +89,7 @@ const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
+const BACKGROUND_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
 const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
 impl AppState {
@@ -122,6 +133,8 @@ impl AppState {
             llm_stream_cancellations: Arc::new(Mutex::new(LlmStreamCancellations::default())),
             memory_maintenance_worker: Arc::new(Mutex::new(None)),
             memory_capture_worker: Arc::new(Mutex::new(None)),
+            background_workers: Arc::new(Mutex::new(HashMap::new())),
+            background_jobs_lock: Arc::new(Mutex::new(())),
         };
         let character_version_media_ready = match run_startup_migration_once(
             &state.storage,
@@ -562,6 +575,112 @@ impl AppState {
             }
         }
         result
+    }
+
+    fn background_lease_error() -> AppError {
+        AppError::new(
+            "background_worker_lease_error",
+            "Background worker leases are unavailable",
+        )
+    }
+
+    /// Take (or renew, when `lease_id` is the caller's current one) the worker lease for `queue`.
+    /// Returns `None` while another worker holds an unexpired lease.
+    pub(crate) fn acquire_background_worker(
+        &self,
+        queue: &str,
+        worker_id: &str,
+        lease_id: Option<&str>,
+    ) -> AppResult<Option<String>> {
+        let now = Instant::now();
+        let mut workers = self
+            .background_workers
+            .lock()
+            .map_err(|_| Self::background_lease_error())?;
+        if let Some(requested_lease) = lease_id {
+            let Some(current) = workers.get_mut(queue) else {
+                return Ok(None);
+            };
+            if current.worker_id != worker_id
+                || current.lease_id != requested_lease
+                || current.expires_at <= now
+            {
+                return Ok(None);
+            }
+            current.expires_at = now + BACKGROUND_WORKER_LEASE_TTL;
+            return Ok(Some(current.lease_id.clone()));
+        }
+        if workers
+            .get(queue)
+            .is_some_and(|current| current.expires_at > now)
+        {
+            return Ok(None);
+        }
+        let lease_id = new_id();
+        workers.insert(
+            queue.to_string(),
+            BackgroundWorkerLease {
+                worker_id: worker_id.to_string(),
+                lease_id: lease_id.clone(),
+                expires_at: now + BACKGROUND_WORKER_LEASE_TTL,
+            },
+        );
+        Ok(Some(lease_id))
+    }
+
+    pub(crate) fn release_background_worker(
+        &self,
+        queue: &str,
+        worker_id: &str,
+        lease_id: &str,
+    ) -> AppResult<bool> {
+        let mut workers = self
+            .background_workers
+            .lock()
+            .map_err(|_| Self::background_lease_error())?;
+        let owned = workers
+            .get(queue)
+            .is_some_and(|current| current.worker_id == worker_id && current.lease_id == lease_id);
+        if owned {
+            workers.remove(queue);
+        }
+        Ok(owned)
+    }
+
+    /// Run `operation` only while `lease_id` is the live lease for `queue`.
+    pub(crate) fn with_background_worker_lease<T>(
+        &self,
+        queue: &str,
+        lease_id: &str,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        {
+            let workers = self
+                .background_workers
+                .lock()
+                .map_err(|_| Self::background_lease_error())?;
+            let live = workers.get(queue).is_some_and(|current| {
+                current.lease_id == lease_id && current.expires_at > Instant::now()
+            });
+            if !live {
+                return Err(AppError::new(
+                    "background_worker_lease_lost",
+                    "This background queue is owned by another runtime",
+                ));
+            }
+        }
+        operation()
+    }
+
+    pub(crate) fn with_background_jobs_lock<T>(
+        &self,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        let _guard = self
+            .background_jobs_lock
+            .lock()
+            .map_err(|_| Self::background_lease_error())?;
+        operation()
     }
 
     pub fn register_llm_stream(&self, stream_id: &str) -> AppResult<watch::Receiver<bool>> {
