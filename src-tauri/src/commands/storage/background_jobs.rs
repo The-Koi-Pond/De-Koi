@@ -17,7 +17,11 @@ const MAX_KEY_LEN: usize = 200;
 /// from a closed tab lapses within this, so its job still runs.
 const HOLD_TTL_MS: u64 = 30_000;
 
-pub(crate) const QUEUES: &[&str] = &["continuity-director", "lorebook-keeper"];
+pub(crate) const QUEUES: &[&str] = &[
+    "continuity-director",
+    "lorebook-keeper",
+    "conversation-summary",
+];
 
 fn read_text<'a>(body: &'a Value, field: &str, label: &str) -> AppResult<&'a str> {
     body.get(field)

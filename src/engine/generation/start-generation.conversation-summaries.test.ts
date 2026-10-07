@@ -6,6 +6,7 @@ import {
   cancelConversationSummaryBackfill,
   scheduleConversationSummaryBackfill,
 } from "../modes/chat/core/summaries/conversation-summary-background";
+import { createFakeBackgroundJobs } from "./background-job-queue.fake";
 import { startGeneration, type GenerationEngineDeps } from "./start-generation";
 
 async function drain(stream: AsyncGenerator<unknown>) {
@@ -212,6 +213,43 @@ describe("startGeneration conversation summary preparation", () => {
     } finally {
       cancelConversationSummaryBackfill(deps.storage, "chat-1");
       summary.resolve("{}");
+      vi.useRealTimers();
+    }
+  });
+
+  it("stores the summary pass before done on a runtime with background jobs, and runs it after the reply", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-14T12:00:00.000Z"));
+    const { deps, storage, complete } = depsForConversationSummaryGeneration();
+    const fake = createFakeBackgroundJobs();
+    const durableDeps = { ...deps, storage: { ...storage, backgroundJobs: fake.gateway } as StorageGateway };
+    const generation = startGeneration(durableDeps, {
+      chatId: "chat-1",
+      userMessage: "foreground turn",
+      impersonateBlockAgents: true,
+      userTimeZone: "America/New_York",
+    });
+
+    try {
+      for (;;) {
+        const next = await generation.next();
+        if (next.done) throw new Error("Generation finished before emitting done.");
+        if (next.value.type === "done") break;
+      }
+      expect(fake.jobs.get("conversation-summary:chat-1")).toMatchObject({
+        chatId: "chat-1",
+        payload: { connectionId: "connection-1", timeZone: "America/New_York" },
+      });
+      // Nothing summarizes while the reply is still running in this tab.
+      expect(complete).not.toHaveBeenCalled();
+
+      await generation.return(undefined);
+      await vi.waitFor(() =>
+        expect(fake.finished).toContainEqual({ jobId: "conversation-summary:chat-1", outcome: "done", error: null }),
+      );
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(storage.patchChatSummaries).toHaveBeenCalled();
+    } finally {
       vi.useRealTimers();
     }
   });

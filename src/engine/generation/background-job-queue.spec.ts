@@ -99,6 +99,27 @@ describe("background job queue", () => {
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
   });
 
+  it("stops claiming more jobs once a reply starts in the middle of a pass, then resumes after it", async () => {
+    let release: (() => void) | null = null;
+    const run = vi.fn(async (job: ClaimedBackgroundJob) => {
+      // The first job is running when the user sends a reply.
+      if (job.key === "chat-1") release = beginForegroundGeneration(storage);
+      return "done" as const;
+    });
+    const { fake, storage, queue } = setup(run);
+    await fake.gateway.enqueue({ queue: "continuity-director", key: "chat-1", payload: {} });
+    await fake.gateway.enqueue({ queue: "continuity-director", key: "chat-2", payload: {} });
+
+    queue.schedule({ storage });
+    await vi.waitFor(() => expect(fake.finished).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(run).toHaveBeenCalledTimes(1);
+
+    release!();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    expect(run).toHaveBeenLastCalledWith(expect.objectContaining({ key: "chat-2" }));
+  });
+
   it("refuses to queue on a runtime without background jobs instead of dropping the work", async () => {
     const { queue } = setup(async () => "done");
     await expect(queue.enqueue({ storage: {} as StorageGateway }, { key: "chat-1", payload: {} })).rejects.toThrow(
