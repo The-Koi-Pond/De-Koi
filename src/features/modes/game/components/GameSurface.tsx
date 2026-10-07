@@ -245,6 +245,19 @@ const GAME_SAVE_MOMENT_DESTINATIONS = [
   { id: "game-checkpoint", label: "Create checkpoint" },
 ] as const satisfies readonly SaveMomentDestination[];
 
+type GameWidgetBaseline = { messageId: string; widgets: HudWidget[] };
+
+// HUD widgets as they were before a GM reply applied its [widget:] tags, so
+// regenerating that reply can start from the same state instead of stacking the
+// discarded reply's changes.
+function readWidgetBaseline(value: unknown): GameWidgetBaseline | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.messageId === "string" && Array.isArray(record.widgets)
+    ? { messageId: record.messageId, widgets: record.widgets as HudWidget[] }
+    : null;
+}
+
 function compactSaveMomentText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -1664,6 +1677,7 @@ export function GameSurface({
   const compactHudWidgetsRef = useRef(compactHudWidgets);
   const compactHudReleaseWidthRef = useRef<number | null>(null);
   const lastProcessedMsgRef = useRef<string | null>(null);
+  const widgetBaselineRef = useRef<{ chatId: string; baseline: GameWidgetBaseline } | null>(null);
   const autoAssetGenerationKeyRef = useRef<string | null>(null);
   const introPresentationStorageKey = `game-intro-presented:${sceneRuntimeScopeKey}`;
   const assistantTurnCount = useMemo(
@@ -3117,6 +3131,19 @@ export function GameSurface({
     // Scene wrap-up: handle bg, music, sfx, ambient, widgets, state changes
     // Widget updates always come from the GM model; apply them immediately.
     let nextWidgetState: HudWidget[] | null = null;
+    if (tags.widgetUpdates.length > 0) {
+      const savedBaseline =
+        widgetBaselineRef.current?.chatId === activeChatId
+          ? widgetBaselineRef.current.baseline
+          : readWidgetBaseline(chatMeta.gameWidgetBaseline);
+      if (savedBaseline?.messageId !== msg.id) {
+        const baseline = { messageId: msg.id, widgets: useGameModeStore.getState().hudWidgets };
+        widgetBaselineRef.current = { chatId: activeChatId, baseline };
+        persistMetadata(activeChatId, { gameWidgetBaseline: baseline }).catch((error) => {
+          console.warn("[game-widgets] Could not save the pre-turn widget state:", error);
+        });
+      }
+    }
     for (const wu of tags.widgetUpdates) {
       nextWidgetState = applyWidgetUpdate(wu);
     }
@@ -3827,6 +3854,19 @@ export function GameSurface({
     markSceneReady("__retry_turn__");
     lastProcessedMsgRef.current = null;
 
+    // Undo the discarded reply's widget changes before the new reply applies its own.
+    const widgetBaseline =
+      widgetBaselineRef.current?.chatId === activeChatId
+        ? widgetBaselineRef.current.baseline
+        : readWidgetBaseline(chatMeta.gameWidgetBaseline);
+    if (widgetBaseline?.messageId === msg.id) {
+      useGameModeStore.getState().setHudWidgets(widgetBaseline.widgets);
+      syncHudWidgetsToChatCache(widgetBaseline.widgets);
+      persistMetadata(activeChatId, { gameWidgetState: widgetBaseline.widgets }).catch((error) => {
+        console.warn("[game-widgets] Could not restore the pre-turn widget state:", error);
+      });
+    }
+
     try {
       const receivedContent = await generateGameTurn({
         chatId: activeChatId,
@@ -3844,9 +3884,12 @@ export function GameSurface({
     activeChatId,
     appliedInventorySegmentsRef,
     appliedSegmentsRef,
+    chatMeta.gameWidgetBaseline,
     generateGameTurn,
     isStreaming,
     markSceneReady,
+    persistMetadata,
+    syncHudWidgetsToChatCache,
     readableQueueRef,
     resetAssetGenerationState,
     setActiveReadable,
