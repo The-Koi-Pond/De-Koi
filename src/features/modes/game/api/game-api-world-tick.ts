@@ -1,6 +1,6 @@
 import * as g from "./game-api-support";
 import { worldStateApi } from "../../../runtime/world-state/index";
-import { clockBaselinePatch, tagWorldTickJournalEntries } from "./game-api-clock-baseline";
+import { addedNpcNotes, tagWorldTickJournalEntries, worldTickBaselinePatch } from "./game-api-clock-baseline";
 import { journalFromChat } from "./game-api-journal-helpers";
 import { gameTimeFromMeta, weatherSeason } from "./game-api-mechanics-helpers";
 import {
@@ -95,12 +95,6 @@ export async function runWorldTick(data: {
   /** The GM reply whose scene end ran the tick; its first change saves the pre-turn state for Retry Turn. */
   turnMessageId?: string;
 }): Promise<GameWorldTickResponse> {
-  // A tick tied to a GM reply can be undone by Retry Turn, and that rewind restores only the
-  // clock, weather, tick history and the tick's journal recap. NPC rules would change gameNpcs
-  // outside it, so a reply-tied tick must not carry them.
-  if (data.turnMessageId && data.npcRules?.length) {
-    throw new Error("A world tick tied to a GM reply cannot apply NPC rules; Retry Turn could not undo them.");
-  }
   const chat = await g.getChat(data.chatId);
   const meta = g.chatMeta(chat);
   const sessionNumber = Number(meta.gameSessionNumber ?? 1);
@@ -152,7 +146,11 @@ export async function runWorldTick(data: {
   const formatted = g.formatGameTime(result.time);
   let weather = currentWeather;
   const metadataPatch: Record<string, unknown> = {
-    ...clockBaselinePatch(chat, data.turnMessageId),
+    ...worldTickBaselinePatch(
+      chat,
+      data.turnMessageId,
+      addedNpcNotes(Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [], result.npcs),
+    ),
     gameWorldTickEnabled: enabled,
     gameWorldTickLastRun: result.nextHistoryEntry,
     gameWorldTickHistory: [...history, result.nextHistoryEntry].slice(-WORLD_TICK_HISTORY_LIMIT),

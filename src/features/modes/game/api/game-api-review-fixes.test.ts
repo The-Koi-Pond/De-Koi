@@ -2210,18 +2210,56 @@ describe("game API review guards", () => {
     expect(journalEntries().filter((entry) => String(entry.title).startsWith("World advanced:"))).toHaveLength(1);
   });
 
-  it("refuses NPC rules on a world tick that Retry Turn could rewind", async () => {
-    storageApiMock.update.mockClear();
-    await expect(
+  it("takes back only the NPC notes a retried reply's world tick added", async () => {
+    const brannoc = { id: "npc-1", name: "Brannoc", notes: ["Owes the party a favor"] };
+    let chat: Record<string, unknown> = {
+      id: "chat-1",
+      metadata: {
+        gameWorldTickEnabled: true,
+        gameTime: { day: 1, hour: 8, minute: 0 },
+        gameNpcs: [brannoc],
+        gameJournal: { entries: [], quests: [], locations: [], npcLog: [], inventoryLog: [] },
+      },
+    };
+    storageApiMock.get.mockImplementation(async (entity: string) => (entity === "chats" ? structuredClone(chat) : null));
+    storageApiMock.list.mockImplementation(async () => []);
+    storageApiMock.update.mockImplementation(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+      chat = { ...chat, ...patch, id, metadata: { ...gRecord(chat.metadata), ...gRecord(patch.metadata) } };
+      return chat;
+    });
+    const tick = () =>
       runWorldTick({
         chatId: "chat-1",
         trigger: "scene_end",
         discriminator: "gm-1",
+        elapsedMinutes: 60,
         turnMessageId: "gm-1",
         npcRules: [{ npcId: "Brannoc", note: "moves to the Hollow Market" }],
-      }),
-    ).rejects.toThrow(/cannot apply NPC rules/);
-    expect(storageApiMock.update).not.toHaveBeenCalled();
+      });
+    const brannocNotes = () => (gRecord(chat.metadata).gameNpcs as Array<{ notes: string[] }>)[0]!.notes;
+
+    // The reply's clock moved first, so the tick adds its NPC note to an existing baseline.
+    await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 5, turnMessageId: "gm-1" });
+    await tick();
+    expect(brannocNotes()).toEqual(["Owes the party a favor", "[world_tick] moves to the Hollow Market"]);
+    // Something else in the discarded turn adds its own note; the rewind leaves it alone.
+    const npcs = gRecord(chat.metadata).gameNpcs as Array<{ notes: string[] }>;
+    chat = {
+      ...chat,
+      metadata: {
+        ...gRecord(chat.metadata),
+        gameNpcs: [{ ...npcs[0], notes: [...npcs[0]!.notes, "Met the party at dusk"] }],
+      },
+    };
+
+    await restoreClockBaseline({ chatId: "chat-1", messageId: "gm-1" });
+
+    expect(brannocNotes()).toEqual(["Owes the party a favor", "Met the party at dusk"]);
+    expect(gRecord(chat.metadata).gameTime).toEqual({ day: 1, hour: 8, minute: 0 });
+
+    // The retried reply's tick runs once and adds the note once.
+    await tick();
+    expect(brannocNotes().filter((note) => note.startsWith("[world_tick]"))).toHaveLength(1);
   });
 
   it("persists weather updates to the visible world state", async () => {
