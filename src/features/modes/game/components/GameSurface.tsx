@@ -2208,8 +2208,17 @@ export function GameSurface({
 
   const hasAsyncScenePrep = !!sceneConnectionId;
 
+  const lastInventoryProgressRef = useRef<InventorySegmentProgress | null>(null);
   const recordInventorySegmentProgress = useCallback(
-    (messageId: string, applied: number[]) => {
+    (messageId: string, landed: number[]) => {
+      // Only grow a reply's landed list, so no snapshot can drop a segment an earlier one saved.
+      // An empty list starts a new reply's record (including a retried one).
+      const previous = lastInventoryProgressRef.current;
+      const applied =
+        previous?.messageId === messageId && landed.length > 0
+          ? [...new Set([...previous.applied, ...landed])].sort((a, b) => a - b)
+          : landed;
+      lastInventoryProgressRef.current = { messageId, applied };
       persistMetadata(activeChatId, {
         gameInventorySegmentProgress: { messageId, applied } satisfies InventorySegmentProgress,
       }).catch((error) => {
@@ -2667,6 +2676,7 @@ export function GameSurface({
         const remaining = (segmentInventoryUpdatesFor(latestAssistantMsg.content, tags) ?? []).filter(
           (entry) => !applied.has(entry.segment),
         );
+        lastInventoryProgressRef.current = inventoryProgress;
         if (remaining.length > 0) {
           appliedInventorySegmentsRef.current = applied;
           setPendingInventorySegmentUpdates(remaining);
