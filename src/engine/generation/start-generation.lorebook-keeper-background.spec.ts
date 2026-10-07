@@ -142,7 +142,10 @@ async function advanceToDone(generator: AsyncGenerator<GenerationEvent>): Promis
 }
 
 describe("startGeneration Lorebook Keeper backfill", () => {
-  beforeEach(() => continuityScheduler.mockReset().mockResolvedValue(true));
+  beforeEach(() => {
+    // A block body: a function returned from beforeEach would run as cleanup, calling the mock again.
+    continuityScheduler.mockReset().mockResolvedValue(true);
+  });
 
   it("reports done only after the Director refresh is stored, so closing the tab then cannot drop it", async () => {
     const stored = deferred<boolean>();
@@ -368,6 +371,30 @@ describe("startGeneration Lorebook Keeper backfill", () => {
 
       try {
         await expect(advanceToDone(generation)).rejects.toThrow("disk full");
+        const keeperCalls = keeperEnqueue.mock.calls
+          .map(([call]) => call)
+          .filter((call) => call.queue === "lorebook-keeper");
+        expect(keeperCalls).toEqual([
+          expect.objectContaining({ holdId: expect.any(String) }),
+          expect.objectContaining({ releaseHoldId: keeperCalls[0]?.holdId }),
+        ]);
+        expect(liveHolds(fake)).toEqual([]);
+      } finally {
+        releaseBackfill();
+      }
+    });
+
+    it("releases the hold when queueing the Director fails after the reply is saved", async () => {
+      continuityScheduler.mockImplementation(async () => {
+        throw new Error("director queue offline");
+      });
+      const fake = createFakeBackgroundJobs();
+      const keeperEnqueue = vi.spyOn(fake.gateway, "enqueue");
+      const { storage, releaseBackfill } = lorebookKeeperBackgroundStorage();
+      const generation = durableGeneration(fake, storage);
+
+      try {
+        await expect(advanceToDone(generation)).rejects.toThrow("director queue offline");
         const keeperCalls = keeperEnqueue.mock.calls
           .map(([call]) => call)
           .filter((call) => call.queue === "lorebook-keeper");

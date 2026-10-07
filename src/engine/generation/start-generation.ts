@@ -5426,12 +5426,12 @@ async function* startGenerationImpl(
           throw error;
         });
     const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
-    // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
-    // and a tab closed during them must not take the refresh with it.
-    if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
     const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
     try {
+      // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
+      // and a tab closed during them must not take the refresh with it.
+      if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
       if (saved) {
         await persistLorebookTimingStatesSafely(
           deps.storage,
@@ -5822,11 +5822,11 @@ async function* startGenerationImpl(
         throw error;
       });
   const savedAssistantGeneration = !!saved && input.impersonate !== true && !isUserMessageRegeneration;
-  // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
-  // and a tab closed during them must not take the refresh with it.
-  if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
   try {
+    // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
+    // and a tab closed during them must not take the refresh with it.
+    if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
     if (saved) {
       await persistLorebookTimingStatesSafely(
         deps.storage,
