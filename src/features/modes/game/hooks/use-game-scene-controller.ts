@@ -69,10 +69,13 @@ export function useGameSceneController({
     setSceneReadyTick((tick) => tick + 1);
   }, []);
 
+  // Segment indexes restart at 0 for every reply, so a new reply must clear both applied
+  // sets; a stale inventory claim would otherwise skip the new reply's tag at that index.
   const resetSegmentEffects = useCallback(() => {
     setPendingSegmentEffects([]);
     appliedSegmentsRef.current = new Set();
-  }, []);
+    appliedInventorySegmentsRef.current = new Set();
+  }, [appliedInventorySegmentsRef]);
 
   if (sceneReadyMsgIdRef.current === undefined && !isMessagesLoading) {
     if (latestAssistantMsg && !isStreaming) {
@@ -164,15 +167,17 @@ export function useGameSceneController({
       }
 
       if (inventoryUpdates.length > 0) {
-        appliedInventorySegmentsRef.current.add(segmentIndex);
+        // Roll back on the set that made the claim; a newer reply may have replaced it by then.
+        const claimedSegments = appliedInventorySegmentsRef.current;
+        claimedSegments.add(segmentIndex);
         void applyInventoryUpdates(inventoryUpdates)
           .then((applied) => {
             if (!applied) {
-              appliedInventorySegmentsRef.current.delete(segmentIndex);
+              claimedSegments.delete(segmentIndex);
             }
           })
           .catch((error) => {
-            appliedInventorySegmentsRef.current.delete(segmentIndex);
+            claimedSegments.delete(segmentIndex);
             console.warn("Failed to apply inventory segment update", error);
           });
       }
