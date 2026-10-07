@@ -616,7 +616,7 @@ export function useCombatRound() {
 export function useAdvanceTime() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { chatId: string; action: string }) => gameApi.advanceTime(data),
+    mutationFn: (data: { chatId: string; action: string; minutes?: number }) => gameApi.advanceTime(data),
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });

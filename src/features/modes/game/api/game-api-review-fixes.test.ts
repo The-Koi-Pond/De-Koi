@@ -2075,10 +2075,17 @@ describe("game API review guards", () => {
     const result = await advanceTime({ chatId: "chat-1", action: "dialogue" });
 
     expect(result.formatted).toBe("Day 1, 08:15 (morning)");
-    expect(gRecord(chat.metadata).gameTimeFormatted).toBe("Day 1, 08:15 (morning)");
+    const elapsed = await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 95 });
+    expect(elapsed.formatted).toBe("Day 1, 09:50 (morning)");
+    const instant = await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 0 });
+    expect(instant.formatted).toBe("Day 1, 09:50 (morning)");
+    const fractional = await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 10.9 });
+    expect(fractional.formatted).toBe("Day 1, 10:00 (morning)");
+    await advanceTime({ chatId: "chat-1", action: "dialogue" });
+    expect(gRecord(chat.metadata).gameTimeFormatted).toBe("Day 1, 10:15 (morning)");
     expect(chat.gameState).toEqual(
       expect.objectContaining({
-        time: "Day 1, 08:15 (morning)",
+        time: "Day 1, 10:15 (morning)",
         weather: "clear",
         temperature: "20C",
       }),
