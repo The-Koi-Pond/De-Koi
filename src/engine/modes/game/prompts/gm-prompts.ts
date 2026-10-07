@@ -6,6 +6,7 @@ import type {
   SessionSummary,
   HudWidget,
 } from "../../../contracts/types/game";
+import { SCENE_TIME_OF_DAY_VALUES, SCENE_WEATHER_VALUES } from "../../../contracts/types/scene";
 import type { CharacterSpriteInfo } from "./sprite.service.js";
 
 export interface GmPromptContext {
@@ -788,7 +789,12 @@ export function buildGmFormatReminder(
   }
 
   if (!ctx.hasSceneModel) {
-    lines.push(`Scene tags allowed: [sfx: ...] [bg: ...] [ambient: ...]`);
+    lines.push(
+      `Scene tags allowed: [sfx: ...] [bg: ...] [ambient: ...] [time: ...] [weather: ...]`,
+      `- [time: elapsed="minutes"] - in-world minutes this turn consumed: 0-2 for instant actions, 3-10 for brief exchanges or a few combat beats, 10-60 for searches, shopping, or crafting, larger only for explicit travel, rest, or time skips; never above 1440. Omit it when no meaningful time passed.`,
+      `- [time: of_day="${SCENE_TIME_OF_DAY_VALUES.join("|")}"] - only when the story jumps to a new time of day without a minute count, such as sleeping until dawn. Indoor darkness or lamplight is not a time change.`,
+      `- [weather: ${SCENE_WEATHER_VALUES.join("|")}] - only when the weather the player can see or feel actually changes.`,
+    );
     if (ctx.canGenerateBackgrounds) {
       lines.push(
         `- If the scene moves to a new visually important location and no existing background tag fits, use [bg: backgrounds:generated:<short-location-slug>].`,
