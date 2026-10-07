@@ -22,8 +22,14 @@ type UseGameSceneControllerParams = {
   scopedAssetMap: GameAssetManifestMap;
   useSpotifyGameMusic: boolean;
   applyInventoryUpdates: (updates: InventoryTag[]) => Promise<boolean>;
+  /** Called after a reply's segment inventory lands, with every segment of that reply applied so far. */
+  onInventorySegmentsApplied?: (messageId: string, appliedSegments: number[]) => void;
   playDirections: (directions: DirectionCommand[]) => void;
 };
+
+// The segment the narration resumed at after a reload, per applied-segment set. Every new reply
+// gets a fresh set, so keying on it drops the resume point together with the applied claims.
+const resumedInventorySegment = new WeakMap<Set<number>, number>();
 
 export function useGameSceneController({
   sceneRuntimeScopeKey,
@@ -37,6 +43,7 @@ export function useGameSceneController({
   scopedAssetMap,
   useSpotifyGameMusic,
   applyInventoryUpdates,
+  onInventorySegmentsApplied,
   playDirections,
 }: UseGameSceneControllerParams) {
   const [narrationDoneMsgId, setNarrationDoneMsgId] = useState<string | null>(null);
@@ -125,16 +132,79 @@ export function useGameSceneController({
     resetSegmentEffects();
   }, [resetSegmentEffects, sceneRuntimeScopeKey]);
 
+  const latestAssistantMsgId = latestAssistantMsg?.id ?? null;
+
+  // Claim and apply queued inventory updates for the given segments of the current reply.
+  const applyInventorySegments = useCallback(
+    (isDue: (segment: number) => boolean) => {
+      const claimedSegments = appliedInventorySegmentsRef.current;
+      const due = pendingInventorySegmentUpdates
+        .filter((entry) => isDue(entry.segment) && !claimedSegments.has(entry.segment))
+        .sort((a, b) => a.segment - b.segment);
+      if (due.length === 0) return;
+      const segments = [...new Set(due.map((entry) => entry.segment))];
+      for (const segment of segments) claimedSegments.add(segment);
+      const messageId = latestAssistantMsgId;
+      // Roll back on the set that made the claim; a newer reply may have replaced it by then.
+      const rollBack = () => {
+        for (const segment of segments) claimedSegments.delete(segment);
+      };
+      void applyInventoryUpdates(due.map((entry) => entry.update))
+        .then((applied) => {
+          if (!applied) {
+            rollBack();
+            return;
+          }
+          if (messageId && appliedInventorySegmentsRef.current === claimedSegments) {
+            onInventorySegmentsApplied?.(
+              messageId,
+              [...claimedSegments].sort((a, b) => a - b),
+            );
+          }
+        })
+        .catch((error) => {
+          rollBack();
+          console.warn("Failed to apply inventory segment update", error);
+        });
+    },
+    [
+      appliedInventorySegmentsRef,
+      applyInventoryUpdates,
+      latestAssistantMsgId,
+      onInventorySegmentsApplied,
+      pendingInventorySegmentUpdates,
+    ],
+  );
+
+  // After a reload the narration resumes mid-reply without "entering" that segment, and the
+  // restored queue can arrive before or after it does. Whichever comes second applies every
+  // update the reader already reached, so tags at or before the resume point are not lost.
+  const applyThroughResumedSegment = useCallback(() => {
+    const resumed = resumedInventorySegment.get(appliedInventorySegmentsRef.current);
+    if (resumed === undefined) return;
+    applyInventorySegments((segment) => segment <= resumed);
+  }, [appliedInventorySegmentsRef, applyInventorySegments]);
+
+  useEffect(() => {
+    applyThroughResumedSegment();
+  }, [applyThroughResumedSegment]);
+
+  /** The narration resumed at this segment after a reload; catches up inventory without replaying scene effects. */
+  const handleSegmentResume = useCallback(
+    (segmentIndex: number) => {
+      resumedInventorySegment.set(appliedInventorySegmentsRef.current, segmentIndex);
+      applyThroughResumedSegment();
+    },
+    [appliedInventorySegmentsRef, applyThroughResumedSegment],
+  );
+
   const handleSegmentEnter = useCallback(
     (segmentIndex: number) => {
       useGameModeStore.getState().setDiceRollResult(null);
       const sceneEffectsApplied = appliedSegmentsRef.current.has(segmentIndex);
-      const inventoryApplied = appliedInventorySegmentsRef.current.has(segmentIndex);
       const effects = sceneEffectsApplied ? [] : pendingSegmentEffects.filter((e) => e.segment === segmentIndex);
-      const inventoryUpdates = (inventoryApplied ? [] : pendingInventorySegmentUpdates)
-        .filter((entry) => entry.segment === segmentIndex)
-        .map((entry) => entry.update);
-      if (effects.length === 0 && inventoryUpdates.length === 0) return;
+      applyInventorySegments((segment) => segment === segmentIndex);
+      if (effects.length === 0) return;
 
       const assetMap = scopedAssetMap;
       if (effects.length > 0) {
@@ -165,32 +235,8 @@ export function useGameSceneController({
           }
         }
       }
-
-      if (inventoryUpdates.length > 0) {
-        // Roll back on the set that made the claim; a newer reply may have replaced it by then.
-        const claimedSegments = appliedInventorySegmentsRef.current;
-        claimedSegments.add(segmentIndex);
-        void applyInventoryUpdates(inventoryUpdates)
-          .then((applied) => {
-            if (!applied) {
-              claimedSegments.delete(segmentIndex);
-            }
-          })
-          .catch((error) => {
-            claimedSegments.delete(segmentIndex);
-            console.warn("Failed to apply inventory segment update", error);
-          });
-      }
     },
-    [
-      appliedInventorySegmentsRef,
-      applyInventoryUpdates,
-      pendingInventorySegmentUpdates,
-      pendingSegmentEffects,
-      playDirections,
-      scopedAssetMap,
-      useSpotifyGameMusic,
-    ],
+    [applyInventorySegments, pendingSegmentEffects, playDirections, scopedAssetMap, useSpotifyGameMusic],
   );
 
   return {
@@ -198,6 +244,7 @@ export function useGameSceneController({
     applySceneResultRef,
     handleNarrationComplete,
     handleSegmentEnter,
+    handleSegmentResume,
     isRestoredRef,
     markSceneReady,
     narrationDone,
