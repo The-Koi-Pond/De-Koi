@@ -10,11 +10,14 @@ import {
 } from "../../engine/generation/automatic-memory-maintenance-queue";
 import { selectBackgroundTextConnection } from "../../engine/generation/background-llm-connection";
 import { resumeQueuedContinuityDirectorRefreshes } from "../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
+import { resumeQueuedLorebookKeeperBackfills } from "../../engine/generation/start-generation";
 import { parseRecord, readString, type JsonRecord } from "../../engine/generation/runtime-records";
 import { connectionCatalogApi } from "../../shared/api/connection-catalog-api";
+import { integrationGateway } from "../../shared/api/integration-gateway";
 import { llmApi } from "../../shared/api/llm-api";
 import { memoryMaintenanceApi } from "../../shared/api/memory-maintenance-api";
 import { storageApi } from "../../shared/api/storage-api";
+import { visualAssetsApi } from "../../shared/api/visual-assets-api";
 
 const SWEEP_ID = "memory-maintenance-sweep-v1";
 const JOBS_COLLECTION = "memory-maintenance-jobs" as const;
@@ -193,10 +196,16 @@ export function useAutomaticMemoryMaintenance(): void {
   }, []);
 }
 
-/** Runs post-reply work (Director refreshes) that a closed or reloaded tab left queued. */
+/** Runs post-reply work (Director refreshes, Keeper backfills) that a closed or reloaded tab left queued. */
 export function useResumeQueuedBackgroundJobs(): void {
   useEffect(() => {
     resumeQueuedContinuityDirectorRefreshes({ storage: storageApi, llm: llmApi });
+    resumeQueuedLorebookKeeperBackfills({
+      storage: storageApi,
+      llm: llmApi,
+      integrations: integrationGateway,
+      visuals: visualAssetsApi,
+    });
   }, []);
 }
 

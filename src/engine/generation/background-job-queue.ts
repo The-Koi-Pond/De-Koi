@@ -21,7 +21,10 @@ export interface BackgroundJobQueueDependencies {
 
 export interface BackgroundJobQueue<Deps extends BackgroundJobQueueDependencies> {
   /** Store the job (or a rerun of it) on the runtime, then make sure a worker picks it up. */
-  enqueue(deps: Deps, input: { key: string; chatId?: string | null; payload: unknown }): Promise<void>;
+  enqueue(
+    deps: Deps,
+    input: { key: string; chatId?: string | null; payload: unknown; holdId?: string; releaseHoldId?: string },
+  ): Promise<void>;
   /** Run whatever is due. Safe to call often: passes coalesce and only one client runs a queue. */
   schedule(deps: Deps): void;
   cancel(storage: StorageGateway): void;
@@ -167,7 +170,14 @@ export function createBackgroundJobQueue<Deps extends BackgroundJobQueueDependen
     async enqueue(deps, input) {
       const jobs = deps.storage.backgroundJobs;
       if (!jobs) throw new Error("This runtime cannot store background jobs");
-      await jobs.enqueue({ queue, key: input.key, chatId: input.chatId ?? null, payload: input.payload });
+      await jobs.enqueue({
+        queue,
+        key: input.key,
+        chatId: input.chatId ?? null,
+        payload: input.payload,
+        ...(input.holdId ? { holdId: input.holdId } : {}),
+        ...(input.releaseHoldId ? { releaseHoldId: input.releaseHoldId } : {}),
+      });
       schedule(deps);
     },
     schedule,
