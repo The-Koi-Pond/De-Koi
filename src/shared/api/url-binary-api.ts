@@ -1,3 +1,4 @@
+import { remoteHeaders, remoteRuntimeTarget, type RuntimeTarget } from "./remote-runtime";
 import { invokeTauri } from "./tauri-client";
 
 interface UrlBinaryResponse {
@@ -50,8 +51,41 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   return new Blob([bytesToArrayBuffer(base64ToBytes(base64))], { type: mimeType });
 }
 
+/**
+ * The remote runtime's own managed-asset URLs (`<runtime>/api/assets/...`). The browser loads these
+ * directly: routing them through `load_url_binary` makes the server fetch its own address, which its
+ * outbound-URL guard rejects as a local or private host.
+ */
+function remoteRuntimeAssetRequest(url: string): { url: string; target: RuntimeTarget } | null {
+  const target = remoteRuntimeTarget();
+  if (!target) return null;
+  const base = new URL(`${target.baseUrl}/`);
+  let parsed: URL;
+  try {
+    parsed = new URL(url, base);
+  } catch {
+    return null;
+  }
+  if (parsed.origin !== base.origin || !parsed.pathname.startsWith(`${base.pathname}api/assets/`)) return null;
+  return { url: parsed.toString(), target };
+}
+
+async function loadRemoteRuntimeAsset(
+  request: { url: string; target: RuntimeTarget },
+  fallbackMimeType: string,
+): Promise<Blob> {
+  const response = await fetch(request.url, { method: "GET", headers: remoteHeaders(request.target) });
+  if (!response.ok) {
+    throw new Error(`Remote runtime asset returned ${response.status}`);
+  }
+  const blob = await response.blob();
+  return blob.type ? blob : new Blob([blob], { type: fallbackMimeType });
+}
+
 export const urlBinaryApi = {
   load: async (url: string, fallbackMimeType = "application/octet-stream"): Promise<Blob> => {
+    const runtimeAsset = remoteRuntimeAssetRequest(url);
+    if (runtimeAsset) return loadRemoteRuntimeAsset(runtimeAsset, fallbackMimeType);
     const response = await invokeTauri<unknown>("load_url_binary", {
       url,
       fallbackMime: fallbackMimeType,
