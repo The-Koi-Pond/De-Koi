@@ -264,6 +264,7 @@ describe("startGeneration Lorebook Keeper backfill", () => {
 
     it("stores the Keeper backfill with the reply, then runs it once generation is done", async () => {
       const fake = createFakeBackgroundJobs();
+      const enqueue = vi.spyOn(fake.gateway, "enqueue");
       const { storage, releaseBackfill, backfillStarted } = lorebookKeeperBackgroundStorage();
       const durableStorage = { ...storage, backgroundJobs: fake.gateway } as StorageGateway;
       const generation = startGeneration(
@@ -278,7 +279,13 @@ describe("startGeneration Lorebook Keeper backfill", () => {
 
       try {
         await advanceToDone(generation);
-        // Stored before done, and held back while the reply is still generating.
+        // Stored behind a gate at save (so no other client runs it during post-save work), then
+        // released once this tab's post-save work is done, all before done.
+        const keeperCalls = enqueue.mock.calls.map(([call]) => call).filter((call) => call.queue === "lorebook-keeper");
+        expect(keeperCalls).toEqual([
+          expect.objectContaining({ key: "chat-1", delayMs: 120_000 }),
+          expect.not.objectContaining({ delayMs: expect.anything() }),
+        ]);
         expect(fake.jobs.get("lorebook-keeper:chat-1")).toMatchObject({
           chatId: "chat-1",
           payload: { connectionId: "conn-1" },

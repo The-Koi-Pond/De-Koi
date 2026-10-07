@@ -7,6 +7,7 @@ import type {
 
 interface FakeJob extends ClaimedBackgroundJob {
   status: "queued" | "running" | "retryable" | "failed";
+  notBefore: number;
   claimLeaseId: string | null;
   rerunPayload: unknown;
   rerunRequested: boolean;
@@ -30,7 +31,7 @@ export function createFakeBackgroundJobs() {
   };
 
   const gateway: BackgroundJobsGateway = {
-    async enqueue({ queue, key, chatId, payload }) {
+    async enqueue({ queue, key, chatId, payload, delayMs }) {
       const id = `${queue}:${key}`;
       const existing = jobs.get(id);
       if (existing?.status === "running") {
@@ -46,6 +47,7 @@ export function createFakeBackgroundJobs() {
         payload,
         attempts: 0,
         status: "queued",
+        notBefore: delayMs ? Date.now() + delayMs : 0,
         claimLeaseId: null,
         rerunPayload: null,
         rerunRequested: false,
@@ -70,10 +72,14 @@ export function createFakeBackgroundJobs() {
         .filter(
           (job) =>
             job.queue === queue &&
-            (job.status === "queued" || (job.status === "running" && job.claimLeaseId !== leaseId)),
+            ((job.status === "queued" && job.notBefore <= Date.now()) ||
+              (job.status === "running" && job.claimLeaseId !== leaseId)),
         )
         .sort((a, b) => a.createdAt - b.createdAt)[0];
-      if (!due) return { job: null, nextDueAt: null };
+      if (!due) {
+        const gated = [...jobs.values()].filter((job) => job.queue === queue && job.status === "queued");
+        return { job: null, nextDueAt: gated.length ? Math.min(...gated.map((job) => job.notBefore)) : null };
+      }
       due.status = "running";
       due.claimLeaseId = leaseId;
       due.attempts += 1;

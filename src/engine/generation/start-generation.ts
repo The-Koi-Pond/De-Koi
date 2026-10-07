@@ -4424,20 +4424,55 @@ function scheduleLorebookKeeperBackfillInThisTab(
   });
 }
 
-// Awaited right after the reply is saved, like the Director: the backfill is stored on the
-// runtime before any post-save work, and only runs once this tab's generation is done.
-async function scheduleLorebookKeeperBackfillAfterSavedAssistant(
+/**
+ * How long a Keeper backfill stored at save time stays closed while this tab finishes its own
+ * post-save work (including its own Keeper pass). If the tab closes first, the gate opens on its
+ * own after this, and any open client runs the backfill.
+ */
+const LOREBOOK_KEEPER_BACKFILL_GATE_MS = 2 * 60_000;
+
+type LorebookKeeperBackfillHandle = { stored: boolean } | null;
+
+// Step 1, right after the reply is saved: store the backfill behind a gate, so it survives this tab
+// closing during post-save work but no other client runs it while that work is still going.
+async function storeLorebookKeeperBackfillAfterSavedAssistant(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+  connection: JsonRecord,
+): Promise<LorebookKeeperBackfillHandle> {
+  const chatId = readString(chat.id).trim();
+  if (!chatId) return null;
+  if (!deps.storage.backgroundJobs) return { stored: false };
+  try {
+    await lorebookKeeperBackfillQueue.enqueue(deps, {
+      key: chatId,
+      chatId,
+      payload: { connectionId: readString(connection.id) || input.connectionId || null },
+      delayMs: LOREBOOK_KEEPER_BACKFILL_GATE_MS,
+    });
+    return { stored: true };
+  } catch (error) {
+    console.warn("[lorebook-keeper] could not store the backfill; running it in this tab instead", error);
+    return { stored: false };
+  }
+}
+
+// Step 2, once post-save work is done: open the gate (or, when the job could not be stored, run the
+// backfill in this tab as before). The worker still waits for this tab's generation to finish.
+async function releaseLorebookKeeperBackfill(
+  handle: LorebookKeeperBackfillHandle,
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   chat: JsonRecord,
   connection: JsonRecord,
 ): Promise<void> {
-  const chatId = readString(chat.id).trim();
-  if (!chatId) return;
-  if (!deps.storage.backgroundJobs) {
+  if (!handle) return;
+  if (!handle.stored) {
     scheduleLorebookKeeperBackfillInThisTab(deps, input, chat, connection);
     return;
   }
+  const chatId = readString(chat.id).trim();
   try {
     await lorebookKeeperBackfillQueue.enqueue(deps, {
       key: chatId,
@@ -4445,9 +4480,8 @@ async function scheduleLorebookKeeperBackfillAfterSavedAssistant(
       payload: { connectionId: readString(connection.id) || input.connectionId || null },
     });
   } catch (error) {
-    // The runtime could not store it; still backfill now, just not durably.
-    console.warn("[lorebook-keeper] could not queue the backfill; running it in this tab", error);
-    scheduleLorebookKeeperBackfillInThisTab(deps, input, chat, connection);
+    // The gated job is already stored and opens on its own; nothing is lost, it just runs later.
+    console.warn("[lorebook-keeper] could not release the stored backfill; it will run when its gate opens", error);
   }
 }
 
@@ -5377,8 +5411,9 @@ async function* startGenerationImpl(
     // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
     // and a tab closed during them must not take the refresh with it.
     if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
-    if (savedAssistantGeneration)
-      await scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+    const keeperBackfill = savedAssistantGeneration
+      ? await storeLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection)
+      : null;
     const postSaveStartedAt = saved ? generationTimingStartedAt() : null;
     let latestSaved = saved;
     try {
@@ -5495,8 +5530,7 @@ async function* startGenerationImpl(
       if (postSaveStartedAt) {
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
       }
-      if (savedAssistantGeneration) {
-      }
+      await releaseLorebookKeeperBackfill(keeperBackfill, deps, input, chat, connection);
       yield { type: "done", data: { transcript: visibleTranscript(generationMessages) } };
       if (savedAssistantGeneration) {
         const backgroundMaintenanceStartedAt = generationTimingStartedAt();
@@ -5765,7 +5799,9 @@ async function* startGenerationImpl(
   // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
   // and a tab closed during them must not take the refresh with it.
   if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
-  if (savedAssistantGeneration) await scheduleLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection);
+  const keeperBackfill = savedAssistantGeneration
+    ? await storeLorebookKeeperBackfillAfterSavedAssistant(deps, input, chat, connection)
+    : null;
   const directPostSaveStartedAt = saved ? generationTimingStartedAt() : null;
   try {
     if (saved) {
@@ -5796,8 +5832,7 @@ async function* startGenerationImpl(
     if (directPostSaveStartedAt) {
       reportPerformanceTiming("generation.post_save", directPostSaveStartedAt, "ok");
     }
-    if (savedAssistantGeneration) {
-    }
+    await releaseLorebookKeeperBackfill(keeperBackfill, deps, input, chat, connection);
     yield { type: "done" };
     if (savedAssistantGeneration) {
       const backgroundMaintenanceStartedAt = generationTimingStartedAt();

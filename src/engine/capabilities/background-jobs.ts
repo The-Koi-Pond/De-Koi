@@ -24,11 +24,16 @@ export interface BackgroundJobClaim {
  * worker per queue (any open client) holds a lease and claims due jobs.
  */
 export interface BackgroundJobsGateway {
+  /**
+   * `delayMs` keeps the job unclaimable until then (a "not before" gate): queue with a delay while
+   * this client still has work to finish first, then enqueue again with none to release it.
+   */
   enqueue(input: {
     queue: BackgroundJobQueueName;
     key: string;
     chatId?: string | null;
     payload: unknown;
+    delayMs?: number;
   }): Promise<void>;
   acquireWorker(queue: BackgroundJobQueueName, workerId: string, leaseId?: string): Promise<string | null>;
   releaseWorker(queue: BackgroundJobQueueName, workerId: string, leaseId: string): Promise<void>;

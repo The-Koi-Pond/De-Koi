@@ -13,6 +13,8 @@ pub(crate) const JOBS_COLLECTION: &str = "background-jobs";
 const MAX_ATTEMPTS: u64 = 3;
 const RETRY_BACKOFF_MS: [u64; 3] = [60_000, 5 * 60_000, 30 * 60_000];
 const MAX_KEY_LEN: usize = 200;
+/// Longest "not before" a caller may set; a gate that outlives its tab must still open soon.
+const MAX_ENQUEUE_DELAY_MS: u64 = 10 * 60_000;
 
 pub(crate) const QUEUES: &[&str] = &["continuity-director", "lorebook-keeper"];
 
@@ -59,12 +61,24 @@ fn optional_chat_id(body: &Value) -> Option<String> {
 }
 
 /// Queue (or re-queue) the job for `queue` + `key`. A job that is already waiting just takes the
-/// newer payload; one that is running is asked to run again with it once the current run ends.
+/// newer payload and delay; one that is running is asked to run again with it once the current run
+/// ends. `delayMs` keeps a waiting job unclaimable until then: a client that still has work to finish
+/// first queues with a delay (so the job survives if it closes), then re-queues with none when ready.
 pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
     let queue = queue_name(&body)?;
     let key = read_text(&body, "key", "key")?;
     let payload = body.get("payload").cloned().unwrap_or(Value::Null);
     let chat_id = optional_chat_id(&body);
+    let delay_ms = body
+        .get("delayMs")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(MAX_ENQUEUE_DELAY_MS);
+    let not_before = if delay_ms == 0 {
+        0
+    } else {
+        now_ms() + delay_ms
+    };
     let id = job_id(queue, key);
     state.with_background_jobs_lock(|| {
         let existing = state.storage.get(JOBS_COLLECTION, &id)?;
@@ -95,7 +109,7 @@ pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
                 "payload": payload,
                 "status": "queued",
                 "attempts": 0,
-                "nextAttemptAt": 0,
+                "nextAttemptAt": not_before,
                 "claimLeaseId": null,
                 "rerunRequested": false,
                 "rerunPayload": null,
@@ -109,8 +123,7 @@ pub(crate) fn enqueue(state: &AppState, body: Value) -> AppResult<Value> {
 
 fn job_is_due(job: &Value, lease_id: &str, now: u64) -> bool {
     match job_text(job, "status") {
-        "queued" => true,
-        "retryable" => job_number(job, "nextAttemptAt") <= now,
+        "queued" | "retryable" => job_number(job, "nextAttemptAt") <= now,
         // A run claimed under an older lease belongs to a worker that is gone.
         "running" => job_text(job, "claimLeaseId") != lease_id,
         _ => false,
@@ -134,7 +147,7 @@ pub(crate) fn claim(state: &AppState, body: Value) -> AppResult<Value> {
             let Some(job) = queued.iter().find(|job| job_is_due(job, lease_id, now)) else {
                 let next_due_at = queued
                     .iter()
-                    .filter(|job| job_text(job, "status") == "retryable")
+                    .filter(|job| matches!(job_text(job, "status"), "queued" | "retryable"))
                     .map(|job| job_number(job, "nextAttemptAt"))
                     .min();
                 return Ok(json!({ "job": null, "nextDueAt": next_due_at }));
@@ -398,6 +411,43 @@ mod tests {
         let job = state.storage.get(JOBS_COLLECTION, id).unwrap().unwrap();
         assert_eq!(job["status"], json!("failed"));
         assert_eq!(job["attempts"], json!(3));
+    }
+
+    #[test]
+    fn a_delayed_job_waits_until_its_owner_releases_it_or_the_delay_runs_out() {
+        let state = test_state("delayed");
+        let lease_id = lease(&state, "tab-a");
+        let id = "continuity-director:chat-1";
+        enqueue(
+            &state,
+            json!({ "queue": QUEUE, "key": "chat-1", "payload": { "trigger": "assistant_saved" }, "delayMs": 120_000 }),
+        )
+        .unwrap();
+        let waiting = claim_job(&state, &lease_id);
+        assert!(
+            waiting["job"].is_null(),
+            "another client must not run it early"
+        );
+        assert!(waiting["nextDueAt"].as_u64().unwrap() > now_ms() + 100_000);
+        // The owner finished its own work and releases it.
+        enqueue_trigger(&state, "chat-1", "assistant_saved");
+        assert_eq!(claim_job(&state, &lease_id)["job"]["id"], json!(id));
+        finish_job(&state, &lease_id, id, "done");
+        // If the owner never releases it, it still becomes due once the delay runs out.
+        enqueue(
+            &state,
+            json!({ "queue": QUEUE, "key": "chat-1", "payload": {}, "delayMs": 120_000 }),
+        )
+        .unwrap();
+        state
+            .storage
+            .patch(
+                JOBS_COLLECTION,
+                id,
+                json!({ "nextAttemptAt": now_ms() - 1 }),
+            )
+            .unwrap();
+        assert_eq!(claim_job(&state, &lease_id)["job"]["id"], json!(id));
     }
 
     #[test]
