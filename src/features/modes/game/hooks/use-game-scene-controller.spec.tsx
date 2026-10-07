@@ -263,6 +263,46 @@ describe("useGameSceneController inventory segment application", () => {
       expect(onInventorySegmentsApplied).toHaveBeenLastCalledWith("gm-1", [0, 2, 4]);
     });
 
+    it("reports only segments whose inventory landed, even when applies settle out of order", async () => {
+      const first = deferred<boolean>();
+      const second = deferred<boolean>();
+      const applyInventoryUpdates = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      const onInventorySegmentsApplied = vi.fn();
+      let controller: SceneController | null = null;
+
+      await act(async () => {
+        root = createRoot(container!);
+        root.render(
+          <ReloadProbe
+            pending={[
+              { segment: 0, update: keyFound },
+              { segment: 2, update: coinsPaid },
+            ]}
+            applyInventoryUpdates={applyInventoryUpdates}
+            onInventorySegmentsApplied={onInventorySegmentsApplied}
+            onController={(next) => {
+              controller = next;
+            }}
+          />,
+        );
+      });
+      act(() => {
+        controller!.handleSegmentEnter(0);
+        controller!.handleSegmentEnter(2);
+      });
+      // Segment 2 lands first while segment 0 is still in flight; then segment 0 fails.
+      await act(async () => {
+        second.resolve(true);
+        await second.promise;
+      });
+      expect(onInventorySegmentsApplied).toHaveBeenLastCalledWith("gm-1", [2]);
+      await act(async () => {
+        first.resolve(false);
+        await first.promise;
+      });
+      expect(onInventorySegmentsApplied).toHaveBeenCalledTimes(1);
+    });
+
     it("applies tags restored after the narration already resumed past them", async () => {
       const applyInventoryUpdates = vi.fn().mockResolvedValue(true);
       let controller: SceneController | null = null;

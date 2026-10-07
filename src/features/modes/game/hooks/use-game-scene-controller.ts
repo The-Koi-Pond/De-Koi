@@ -30,6 +30,9 @@ type UseGameSceneControllerParams = {
 // The segment the narration resumed at after a reload, per applied-segment set. Every new reply
 // gets a fresh set, so keying on it drops the resume point together with the applied claims.
 const resumedInventorySegment = new WeakMap<Set<number>, number>();
+// Claimed segments whose inventory apply hasn't settled yet. Progress reports only segments that
+// actually landed, so a reload never skips one whose apply then failed.
+const inFlightInventorySegments = new WeakMap<Set<number>, Set<number>>();
 
 export function useGameSceneController({
   sceneRuntimeScopeKey,
@@ -143,10 +146,19 @@ export function useGameSceneController({
         .sort((a, b) => a.segment - b.segment);
       if (due.length === 0) return;
       const segments = [...new Set(due.map((entry) => entry.segment))];
-      for (const segment of segments) claimedSegments.add(segment);
+      const inFlight = inFlightInventorySegments.get(claimedSegments) ?? new Set<number>();
+      inFlightInventorySegments.set(claimedSegments, inFlight);
+      for (const segment of segments) {
+        claimedSegments.add(segment);
+        inFlight.add(segment);
+      }
       const messageId = latestAssistantMsgId;
+      const settle = () => {
+        for (const segment of segments) inFlight.delete(segment);
+      };
       // Roll back on the set that made the claim; a newer reply may have replaced it by then.
       const rollBack = () => {
+        settle();
         for (const segment of segments) claimedSegments.delete(segment);
       };
       void applyInventoryUpdates(due.map((entry) => entry.update))
@@ -155,10 +167,13 @@ export function useGameSceneController({
             rollBack();
             return;
           }
+          settle();
           if (messageId && appliedInventorySegmentsRef.current === claimedSegments) {
+            // The metadata writer merges and sends these one at a time per chat, so the latest
+            // landed list is the one that persists.
             onInventorySegmentsApplied?.(
               messageId,
-              [...claimedSegments].sort((a, b) => a - b),
+              [...claimedSegments].filter((segment) => !inFlight.has(segment)).sort((a, b) => a - b),
             );
           }
         })
