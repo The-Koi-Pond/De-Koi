@@ -616,7 +616,8 @@ export function useCombatRound() {
 export function useAdvanceTime() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { chatId: string; action: string; minutes?: number }) => gameApi.advanceTime(data),
+    mutationFn: (data: { chatId: string; action: string; minutes?: number; turnMessageId?: string }) =>
+      gameApi.advanceTime(data),
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
@@ -637,8 +638,14 @@ export function useAdvanceTime() {
 export function useUpdateWeather() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { chatId: string; action: string; location?: string; season?: string; type?: string }) =>
-      gameApi.updateWeather(data),
+    mutationFn: (data: {
+      chatId: string;
+      action: string;
+      location?: string;
+      season?: string;
+      type?: string;
+      turnMessageId?: string;
+    }) => gameApi.updateWeather(data),
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
@@ -668,6 +675,7 @@ export function useWorldTick() {
       enabled?: boolean;
       discriminator?: string;
       elapsedMinutes?: number;
+      turnMessageId?: string;
     }) => gameApi.runWorldTick(data),
     onSuccess: (res, variables) => {
       publishSessionChat(qc, res.sessionChat);

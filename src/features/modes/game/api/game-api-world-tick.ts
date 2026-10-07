@@ -1,5 +1,6 @@
 import * as g from "./game-api-support";
 import { worldStateApi } from "../../../runtime/world-state/index";
+import { addedNpcNotes, tagWorldTickJournalEntries, worldTickBaselinePatch } from "./game-api-clock-baseline";
 import { journalFromChat } from "./game-api-journal-helpers";
 import { gameTimeFromMeta, weatherSeason } from "./game-api-mechanics-helpers";
 import {
@@ -91,6 +92,8 @@ export async function runWorldTick(data: {
   discriminator?: string;
   elapsedMinutes?: number;
   npcRules?: readonly GameWorldTickNpcRule[];
+  /** The GM reply whose scene end ran the tick; its first change saves the pre-turn state for Retry Turn. */
+  turnMessageId?: string;
 }): Promise<GameWorldTickResponse> {
   const chat = await g.getChat(data.chatId);
   const meta = g.chatMeta(chat);
@@ -110,6 +113,7 @@ export async function runWorldTick(data: {
   const location = g.readTrimmed(gameState.location) || g.readTrimmed(meta.gameCurrentLocation) || null;
   const enabled = worldTickEnabled(meta, data.enabled);
 
+  const journalBefore = journalFromChat(chat, meta, { includeCurrentLocation: true });
   const result = resolveGameWorldTick({
     enabled,
     trigger: data.trigger,
@@ -118,7 +122,7 @@ export async function runWorldTick(data: {
     time: currentTime,
     weather: currentWeather,
     location,
-    journal: journalFromChat(chat, meta, { includeCurrentLocation: true }),
+    journal: journalBefore,
     npcs: Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [],
     npcRules: npcRulesFromInput(data.npcRules),
     elapsedMinutes: data.elapsedMinutes,
@@ -142,12 +146,17 @@ export async function runWorldTick(data: {
   const formatted = g.formatGameTime(result.time);
   let weather = currentWeather;
   const metadataPatch: Record<string, unknown> = {
+    ...worldTickBaselinePatch(
+      chat,
+      data.turnMessageId,
+      addedNpcNotes(Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as g.GameNpc[]) : [], result.npcs),
+    ),
     gameWorldTickEnabled: enabled,
     gameWorldTickLastRun: result.nextHistoryEntry,
     gameWorldTickHistory: [...history, result.nextHistoryEntry].slice(-WORLD_TICK_HISTORY_LIMIT),
     gameTime: result.time,
     gameTimeFormatted: formatted,
-    gameJournal: result.journal,
+    gameJournal: tagWorldTickJournalEntries(journalBefore, result.journal, data.turnMessageId),
     gameNpcs: result.npcs,
   };
 
