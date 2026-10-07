@@ -1675,6 +1675,35 @@ export function GameSurface({
   const [pendingNpcPortraitUploadName, setPendingNpcPortraitUploadName] = useState<string | null>(null);
   const [generatingNpcPortraitNames, setGeneratingNpcPortraitNames] = useState<Set<string>>(() => new Set());
 
+  // Escape closes the topmost game panel. The character sheet handles its own
+  // Escape (it must not discard an edit in progress). Inside a text field the
+  // first Escape only leaves the field, so typing is never thrown away.
+  useEffect(() => {
+    if (characterSheetOpen) return;
+    const closeTopPanel = inventoryOpen
+      ? () => setInventoryOpen(false)
+      : checkpointsOpen
+        ? () => setCheckpointsOpen(false)
+        : journalOpen
+          ? () => setJournalOpen(false)
+          : historyOpen
+            ? () => setHistoryOpen(false)
+            : null;
+    if (!closeTopPanel) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) {
+        target.blur();
+        return;
+      }
+      event.preventDefault();
+      closeTopPanel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [characterSheetOpen, checkpointsOpen, historyOpen, inventoryOpen, journalOpen, setInventoryOpen]);
+
   const narrationAutoPlayBlocked =
     !!activeReadable ||
     !!activeQte ||
