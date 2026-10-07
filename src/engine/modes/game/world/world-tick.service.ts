@@ -99,7 +99,8 @@ function normalizeTriggerKey(value: string): string {
   return value.trim();
 }
 
-function elapsedMinutesFromInput(value: number | undefined): number | null {
+/** Scene elapsed-time estimates: whole minutes, 0 to one day. Shared by both clock paths. */
+export function elapsedMinutesFromInput(value: number | undefined): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Math.max(0, Math.min(24 * 60, Math.trunc(value)));
 }

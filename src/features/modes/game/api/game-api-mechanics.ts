@@ -1,3 +1,4 @@
+import { elapsedMinutesFromInput } from "../../../../engine/modes/game/world/world-tick.service";
 import * as g from "./game-api-support";
 import { worldStateApi } from "../../../runtime/world-state/index";
 import { createAutomaticGameCheckpoint } from "./game-api-checkpoint-helpers";
@@ -249,9 +250,10 @@ export async function advanceTime(data: {
 }): Promise<{ time: g.GameTime; formatted: string; sessionChat: g.Chat }> {
   const meta = g.chatMeta(await g.getChat(data.chatId));
   const currentTime = gameTimeFromMeta(meta);
+  const elapsedMinutes = elapsedMinutesFromInput(data.minutes);
   const time =
-    typeof data.minutes === "number" && Number.isFinite(data.minutes)
-      ? g.addGameMinutes(currentTime, Math.max(0, Math.round(data.minutes)))
+    elapsedMinutes !== null
+      ? g.addGameMinutes(currentTime, elapsedMinutes)
       : g.isTimeOfDayLabel(data.action)
         ? g.setTimeOfDay(currentTime, data.action)
         : g.advanceGameTime(currentTime, data.action);
