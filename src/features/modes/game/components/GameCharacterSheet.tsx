@@ -285,6 +285,18 @@ export function GameCharacterSheet({
     setDraft(createDraft(card.gameCard));
   }, [card]);
 
+  // Escape closes the sheet, but never while editing (the draft would be lost).
+  useEffect(() => {
+    if (isEditing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isEditing, onClose]);
+
   const previewGameCard = isEditing ? normalizeDraft(draft) : normalizeDraft(createDraft(card.gameCard));
   const hasRpgAttributes =
     previewGameCard?.rpgStats &&
