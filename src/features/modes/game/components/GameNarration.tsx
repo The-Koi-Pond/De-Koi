@@ -181,6 +181,11 @@ interface GameNarrationProps {
   onActiveSpeakerChange?: (speaker: { name: string; avatarUrl: string; expression?: string } | null) => void;
   /** Called when the user enters a new narration segment (for segment-tied effects). Index is 0-based. */
   onSegmentEnter?: (segmentIndex: number) => void;
+  /**
+   * Called once when the narration resumes mid-reply after a reload. That segment is shown
+   * without being "entered", so scene effects don't replay; the parent can still catch up state.
+   */
+  onSegmentResume?: (segmentIndex: number) => void;
   /** Render prop: shown inside the narration box once the player has read all segments */
   inputSlot?: ReactNode;
   /** When true, the latest user message is shown as an animated narration/dialogue segment before the AI turn */
@@ -420,6 +425,7 @@ export function GameNarration({
   speakerAvatarMap,
   onActiveSpeakerChange,
   onSegmentEnter,
+  onSegmentResume,
   inputSlot,
   showUserMessages,
   partyDialogue,
@@ -2133,10 +2139,18 @@ export function GameNarration({
           : segments.length - 1;
       setActiveIndex(targetIdx);
       setVisibleChars(effectDisplayLength(segments[targetIdx]!.content));
+      const resumedSegment = segments[targetIdx]!;
       // Allow persistence and segment-enter AFTER the restore state settles
       requestAnimationFrame(() => {
         segmentChangeReady.current = true;
         segmentEnterReady.current = true;
+        if (
+          resumedSegment.sourceMessageId === latestAssistant.id &&
+          resumedSegment.sourceSegmentIndex != null &&
+          resumedSegment.sourceSegmentIndex >= 0
+        ) {
+          onSegmentResume?.(resumedSegment.sourceSegmentIndex);
+        }
       });
       return;
     }
@@ -2159,6 +2173,7 @@ export function GameNarration({
     segments,
     playerSegmentOffset,
     getSegmentStartVisibleChars,
+    onSegmentResume,
   ]);
 
   // When segments grow after restore (e.g. party dialogue restored asynchronously),

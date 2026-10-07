@@ -116,6 +116,7 @@ import {
   type CombatEncounterTag,
   type ElementAttackTag,
   type CombatStatusTag,
+  type InventoryTag,
   type PartyChangeTag,
 } from "../lib/game-tag-parser";
 import { resolveAssetTag } from "../lib/asset-fuzzy-match";
@@ -257,6 +258,32 @@ function readWidgetBaseline(value: unknown): GameWidgetBaseline | null {
   return typeof record.messageId === "string" && Array.isArray(record.widgets)
     ? { messageId: record.messageId, widgets: record.widgets as HudWidget[] }
     : null;
+}
+
+// Which segments of a reply have had their [inventory:] tags applied. Saved as they land so a
+// reload mid-narration re-queues only the rest.
+type InventorySegmentProgress = { messageId: string; applied: number[] };
+
+function readInventorySegmentProgress(value: unknown): InventorySegmentProgress | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.messageId !== "string" || !Array.isArray(record.applied)) return null;
+  return {
+    messageId: record.messageId,
+    applied: record.applied.filter((segment): segment is number => Number.isInteger(segment) && segment >= 0),
+  };
+}
+
+// A reply's inventory updates keyed to the narration segment they belong to, or null when the
+// reply has no narration to wait for and they should apply right away.
+function segmentInventoryUpdatesFor(
+  content: string,
+  tags: ReturnType<typeof parseGmTags>,
+): Array<{ segment: number; update: InventoryTag }> | null {
+  const timed = parseSegmentInventoryUpdates(content);
+  if (timed.length > 0) return timed;
+  if (!tags.cleanContent.trim()) return null;
+  return tags.inventoryUpdates.map((update) => ({ segment: 0, update }));
 }
 
 function compactSaveMomentText(value: string): string {
@@ -2181,11 +2208,23 @@ export function GameSurface({
 
   const hasAsyncScenePrep = !!sceneConnectionId;
 
+  const recordInventorySegmentProgress = useCallback(
+    (messageId: string, applied: number[]) => {
+      persistMetadata(activeChatId, {
+        gameInventorySegmentProgress: { messageId, applied } satisfies InventorySegmentProgress,
+      }).catch((error) => {
+        console.warn("[game-inventory] Could not save which inventory tags already landed:", error);
+      });
+    },
+    [activeChatId, persistMetadata],
+  );
+
   const {
     appliedSegmentsRef,
     applySceneResultRef,
     handleNarrationComplete,
     handleSegmentEnter,
+    handleSegmentResume,
     isRestoredRef,
     markSceneReady,
     narrationDone,
@@ -2214,6 +2253,7 @@ export function GameSurface({
     scopedAssetMap,
     useSpotifyGameMusic: useExternalGameMusic,
     applyInventoryUpdates,
+    onInventorySegmentsApplied: recordInventorySegmentProgress,
     playDirections,
   });
 
@@ -2619,6 +2659,19 @@ export function GameSurface({
           setQueuedCombatGeneration({ messageId: latestAssistantMsg.id });
         }
       }
+      // Re-queue this reply's segment inventory that hadn't landed before the reload. Replies
+      // without a progress record (read before this existed) are left alone so nothing doubles.
+      const inventoryProgress = readInventorySegmentProgress(chatMeta.gameInventorySegmentProgress);
+      if (inventoryProgress?.messageId === latestAssistantMsg.id && tags.inventoryUpdates.length > 0) {
+        const applied = new Set(inventoryProgress.applied);
+        const remaining = (segmentInventoryUpdatesFor(latestAssistantMsg.content, tags) ?? []).filter(
+          (entry) => !applied.has(entry.segment),
+        );
+        if (remaining.length > 0) {
+          appliedInventorySegmentsRef.current = applied;
+          setPendingInventorySegmentUpdates(remaining);
+        }
+      }
       lastProcessedMsgRef.current = latestAssistantMsg.id;
       // Clear restored flag so subsequent new messages are processed normally
       // by processScene (which skips when isRestoredRef.current is true).
@@ -2637,6 +2690,9 @@ export function GameSurface({
     chatMeta.gameRecentMusic,
     chatMeta.gameRecentSpotifyTracks,
     chatMeta.gameSceneAmbient,
+    chatMeta.gameInventorySegmentProgress,
+    appliedInventorySegmentsRef,
+    setPendingInventorySegmentUpdates,
     hasQteResponseAfterMessage,
     hasCombatResultAfterMessage,
     handlePartyChangeCommands,
@@ -3179,13 +3235,13 @@ export function GameSurface({
 
     // Inventory updates â€” apply when the relevant segment is reached, not at turn start.
     if (tags.inventoryUpdates.length > 0) {
-      const timedInventoryUpdates = parseSegmentInventoryUpdates(msg.content);
-      if (timedInventoryUpdates.length > 0) {
-        setPendingInventorySegmentUpdates(timedInventoryUpdates);
-      } else if (!tags.cleanContent.trim()) {
-        void applyInventoryUpdates(tags.inventoryUpdates);
+      const segmentInventoryUpdates = segmentInventoryUpdatesFor(msg.content, tags);
+      if (segmentInventoryUpdates) {
+        setPendingInventorySegmentUpdates(segmentInventoryUpdates);
+        // Start this reply's record, so a reload mid-narration can re-queue what hasn't landed yet.
+        recordInventorySegmentProgress(msg.id, []);
       } else {
-        setPendingInventorySegmentUpdates(tags.inventoryUpdates.map((update) => ({ segment: 0, update })));
+        void applyInventoryUpdates(tags.inventoryUpdates);
       }
     }
 
@@ -8542,6 +8598,7 @@ export function GameSurface({
                           speakerAvatarMap={librarySpeakerAvatars}
                           onActiveSpeakerChange={handleActiveSpeakerChange}
                           onSegmentEnter={handleSegmentEnter}
+                          onSegmentResume={handleSegmentResume}
                           showUserMessages
                           partyDialogue={partyDialogue}
                           partyChatInput={partyChatInput}
@@ -8627,6 +8684,7 @@ export function GameSurface({
                       speakerAvatarMap={librarySpeakerAvatars}
                       onActiveSpeakerChange={handleActiveSpeakerChange}
                       onSegmentEnter={handleSegmentEnter}
+                      onSegmentResume={handleSegmentResume}
                       showUserMessages
                       partyDialogue={partyDialogue}
                       partyChatInput={partyChatInput}
