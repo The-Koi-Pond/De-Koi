@@ -259,20 +259,34 @@ describe("conversation summary background coordinator", () => {
       expect(fake.jobs.get(jobId)?.status).toBe("retryable");
     });
 
-    it("finishes queued passes for a deleted chat or one that is no longer a conversation", async () => {
-      const { fake, deps } = durableHarness({ "chat-rp": { id: "chat-rp", mode: "roleplay" } });
+    it("finishes a queued pass for a deleted chat without running it", async () => {
+      const { fake, deps } = durableHarness({});
       await fake.gateway.enqueue({ queue: "conversation-summary", key: "chat-gone", chatId: "chat-gone", payload: {} });
-      await fake.gateway.enqueue({ queue: "conversation-summary", key: "chat-rp", chatId: "chat-rp", payload: {} });
 
       resumeQueuedConversationSummaries(deps);
 
       await vi.waitFor(() =>
-        expect(fake.finished).toEqual([
-          { jobId: "conversation-summary:chat-gone", outcome: "done", error: null },
-          { jobId: "conversation-summary:chat-rp", outcome: "done", error: null },
-        ]),
+        expect(fake.finished).toEqual([{ jobId: "conversation-summary:chat-gone", outcome: "done", error: null }]),
       );
       expect(mockedBackfill).not.toHaveBeenCalled();
+    });
+
+    it("leaves which chats get summaries to the summarizer, whatever field holds the chat's mode", async () => {
+      const { fake, deps } = durableHarness({ "chat-legacy": { id: "chat-legacy", chatMode: "conversation" } });
+      mockedBackfill.mockResolvedValue(EMPTY_RESULT);
+      await fake.gateway.enqueue({
+        queue: "conversation-summary",
+        key: "chat-legacy",
+        chatId: "chat-legacy",
+        payload: {},
+      });
+
+      resumeQueuedConversationSummaries(deps);
+
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([{ jobId: "conversation-summary:chat-legacy", outcome: "done", error: null }]),
+      );
+      expect(mockedBackfill).toHaveBeenCalledWith(deps, expect.objectContaining({ chatId: "chat-legacy" }));
     });
 
     it("reports that it could not store the pass on a runtime without background jobs", async () => {

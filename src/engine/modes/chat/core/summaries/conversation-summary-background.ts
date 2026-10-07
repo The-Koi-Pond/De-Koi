@@ -130,8 +130,9 @@ const conversationSummaryQueue = createBackgroundJobQueue<ConversationSummaryBac
   queue: "conversation-summary",
   async run(job, deps) {
     const chatId = normalizedChatId(job.chatId ?? job.key);
-    const chat = await deps.storage.get<JsonRecord>("chats", chatId);
-    if (!chat || chat.mode !== "conversation") return "done";
+    // Which chats get summaries is the summarizer's call (it skips non-conversation chats itself);
+    // here only a deleted chat ends the job early.
+    if (!(await deps.storage.get<JsonRecord>("chats", chatId))) return "done";
     const payload = parseRecord(job.payload);
     const input = {
       chatId,
