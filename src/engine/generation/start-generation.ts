@@ -30,6 +30,7 @@ import { getConversationStatus } from "../modes/chat/autonomous/autonomous.servi
 import { scheduleContinuityDirectorRefreshDurably } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
 import {
   cancelConversationSummaryBackfill,
+  queueConversationSummaryBackfill,
   scheduleConversationSummaryBackfill,
 } from "../modes/chat/core/summaries/conversation-summary-background";
 import {
@@ -1527,6 +1528,29 @@ function cancelConversationSummaryBackgroundForForeground(storage: StorageGatewa
   cancelConversationSummaryBackfill(storage, readString(chat.id).trim());
 }
 
+function conversationSummaryBackfillInput(chat: JsonRecord, input: StartGenerationInput, connection: JsonRecord) {
+  return {
+    chatId: readString(chat.id).trim() || readString(input.chatId).trim(),
+    connectionId: readString(connection.id).trim() || readString(input.connectionId).trim() || null,
+    timeZone: resolveGenerationPromptTimeZone(chat, input) ?? null,
+  };
+}
+
+// Awaited right after the reply is saved, so a tab closed while the reply finishes still gets its
+// summary pass. Resolves false when it could not be stored; it then runs in this tab after done.
+async function queueConversationSummaryAfterSavedAssistant(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  connection: JsonRecord,
+): Promise<boolean> {
+  if (!isConversationGenerationChat(chat)) return true;
+  return queueConversationSummaryBackfill(
+    { storage: deps.storage, llm: deps.llm },
+    conversationSummaryBackfillInput(chat, input, connection),
+  );
+}
+
 function scheduleConversationSummaryBackgroundAfterSavedAssistant(
   deps: GenerationEngineDeps,
   chat: JsonRecord,
@@ -1536,11 +1560,7 @@ function scheduleConversationSummaryBackgroundAfterSavedAssistant(
   if (!isConversationGenerationChat(chat)) return;
   scheduleConversationSummaryBackfill(
     { storage: deps.storage, llm: deps.llm },
-    {
-      chatId: readString(chat.id).trim() || readString(input.chatId).trim(),
-      connectionId: readString(connection.id).trim() || readString(input.connectionId).trim() || null,
-      timeZone: resolveGenerationPromptTimeZone(chat, input) ?? null,
-    },
+    conversationSummaryBackfillInput(chat, input, connection),
   );
 }
 
@@ -5432,6 +5452,8 @@ async function* startGenerationImpl(
       // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
       // and a tab closed during them must not take the refresh with it.
       if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
+      const summaryQueued =
+        savedAssistantGeneration && (await queueConversationSummaryAfterSavedAssistant(deps, chat, input, connection));
       if (saved) {
         await persistLorebookTimingStatesSafely(
           deps.storage,
@@ -5560,7 +5582,7 @@ async function* startGenerationImpl(
             connection,
           );
           await enqueueStoryConsolidationSafely(deps, chat, connection);
-          scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+          if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
           scheduledTaskCount += 3;
           if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
             scheduleSparseCharacterInterpretations(
@@ -5827,6 +5849,8 @@ async function* startGenerationImpl(
     // Queue the Director as soon as the reply exists: the post-save steps below can take seconds,
     // and a tab closed during them must not take the refresh with it.
     if (savedAssistantGeneration) await scheduleContinuityDirectorAfterSavedAssistant(deps, input, chat);
+    const summaryQueued =
+      savedAssistantGeneration && (await queueConversationSummaryAfterSavedAssistant(deps, chat, input, connection));
     if (saved) {
       await persistLorebookTimingStatesSafely(
         deps.storage,
@@ -5870,7 +5894,7 @@ async function* startGenerationImpl(
           connection,
         );
         await enqueueStoryConsolidationSafely(deps, chat, connection);
-        scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
+        if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
         scheduledTaskCount += 3;
         if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
           scheduleSparseCharacterInterpretations(

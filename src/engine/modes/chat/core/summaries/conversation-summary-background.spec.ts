@@ -2,8 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LlmGateway } from "../../../../capabilities/llm";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import { backfillConversationSummaries, type ConversationSummaryBackfillResult } from "./auto-summary.service";
+import { beginForegroundGeneration } from "../../../../generation/background-generation-coordinator";
+import { createFakeBackgroundJobs } from "../../../../generation/background-job-queue.fake";
 import {
   cancelConversationSummaryBackfill,
+  queueConversationSummaryBackfill,
+  resumeQueuedConversationSummaries,
   scheduleConversationSummaryBackfill,
 } from "./conversation-summary-background";
 
@@ -170,6 +174,110 @@ describe("conversation summary background coordinator", () => {
       stage: "week",
       identifier: "2026-W27",
       error: "week parse failed",
+    });
+  });
+
+  describe("on a runtime that stores background jobs", () => {
+    const jobId = "conversation-summary:chat-1";
+
+    function durableHarness(
+      chats: Record<string, Record<string, unknown>> = { "chat-1": { id: "chat-1", mode: "conversation" } },
+    ) {
+      const fake = createFakeBackgroundJobs();
+      const storage = {
+        backgroundJobs: fake.gateway,
+        get: vi.fn(async (entity: string, id: string) => (entity === "chats" ? (chats[id] ?? null) : null)),
+      } as unknown as StorageGateway;
+      return { fake, deps: { storage, llm: {} as LlmGateway } };
+    }
+
+    it("stores the summary pass, then runs it with the stored connection and time zone", async () => {
+      const { fake, deps } = durableHarness();
+      mockedBackfill.mockResolvedValue(EMPTY_RESULT);
+
+      await expect(
+        queueConversationSummaryBackfill(deps, {
+          chatId: " chat-1 ",
+          connectionId: "connection-1",
+          timeZone: "America/New_York",
+        }),
+      ).resolves.toBe(true);
+
+      await vi.waitFor(() => expect(fake.finished).toEqual([{ jobId, outcome: "done", error: null }]));
+      expect(mockedBackfill).toHaveBeenCalledWith(deps, {
+        chatId: "chat-1",
+        connectionId: "connection-1",
+        timeZone: "America/New_York",
+        maxMissingDays: 1,
+        signal: expect.any(AbortSignal),
+      });
+      expect(fake.jobs.size).toBe(0);
+    });
+
+    it("queues it again when a reply interrupts it, and runs it once that reply is done", async () => {
+      const { fake, deps } = durableHarness();
+      let runs = 0;
+      mockedBackfill.mockImplementation(async (_deps, input) => {
+        runs += 1;
+        if (runs > 1) return EMPTY_RESULT;
+        await new Promise<void>((_resolve, reject) => {
+          input.signal?.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            { once: true },
+          );
+        });
+        return EMPTY_RESULT;
+      });
+
+      await queueConversationSummaryBackfill(deps, { chatId: "chat-1" });
+      await vi.waitFor(() => expect(mockedBackfill).toHaveBeenCalledTimes(1));
+      // The user sends a reply in this chat.
+      const releaseReply = beginForegroundGeneration(deps.storage);
+      cancelConversationSummaryBackfill(deps.storage, "chat-1");
+
+      await vi.waitFor(() => expect(fake.finished).toHaveLength(1));
+      expect(fake.jobs.get(jobId)?.status).toBe("queued");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(mockedBackfill).toHaveBeenCalledTimes(1);
+
+      releaseReply();
+      await vi.waitFor(() => expect(mockedBackfill).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(fake.jobs.size).toBe(0));
+    });
+
+    it("retries a pass that fails instead of dropping it", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const { fake, deps } = durableHarness();
+      mockedBackfill.mockRejectedValue(new Error("provider unavailable"));
+
+      await queueConversationSummaryBackfill(deps, { chatId: "chat-1" });
+
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([{ jobId, outcome: "retry", error: "provider unavailable" }]),
+      );
+      expect(fake.jobs.get(jobId)?.status).toBe("retryable");
+    });
+
+    it("finishes queued passes for a deleted chat or one that is no longer a conversation", async () => {
+      const { fake, deps } = durableHarness({ "chat-rp": { id: "chat-rp", mode: "roleplay" } });
+      await fake.gateway.enqueue({ queue: "conversation-summary", key: "chat-gone", chatId: "chat-gone", payload: {} });
+      await fake.gateway.enqueue({ queue: "conversation-summary", key: "chat-rp", chatId: "chat-rp", payload: {} });
+
+      resumeQueuedConversationSummaries(deps);
+
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([
+          { jobId: "conversation-summary:chat-gone", outcome: "done", error: null },
+          { jobId: "conversation-summary:chat-rp", outcome: "done", error: null },
+        ]),
+      );
+      expect(mockedBackfill).not.toHaveBeenCalled();
+    });
+
+    it("reports that it could not store the pass on a runtime without background jobs", async () => {
+      await expect(queueConversationSummaryBackfill(harness(), { chatId: "chat-1" })).resolves.toBe(false);
+      expect(mockedBackfill).not.toHaveBeenCalled();
     });
   });
 });

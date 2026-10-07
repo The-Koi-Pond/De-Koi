@@ -104,6 +104,8 @@ export function createBackgroundJobQueue<Deps extends BackgroundJobQueueDependen
     try {
       for (;;) {
         if (leaseLost) return busyRetryMs;
+        // A reply started in this tab: stop claiming; the next pass waits for it to finish.
+        if (foregroundGenerationActive(deps.storage)) return 0;
         const claim = await jobs.claim(queue, leaseId);
         if (!claim.job) {
           return claim.nextDueAt === null ? null : Math.max(0, claim.nextDueAt - Date.now());
