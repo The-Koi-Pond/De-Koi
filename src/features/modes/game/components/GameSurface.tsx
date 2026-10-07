@@ -2190,6 +2190,7 @@ export function GameSurface({
     markSceneReady,
     narrationDone,
     processSceneRef,
+    resetSegmentEffects,
     sceneAnalysisFailed,
     sceneAnalysisTimeoutRef,
     scenePreparing,
@@ -2983,9 +2984,8 @@ export function GameSurface({
     setCombatItemEffects([]);
     setCombatMechanics([]);
     setCombatDialogueCues([]);
-    setPendingSegmentEffects([]);
     setPendingInventorySegmentUpdates([]);
-    appliedSegmentsRef.current = new Set();
+    resetSegmentEffects();
     // Cancel any pending segment persist timer to prevent it from overwriting our reset
     if (segmentPersistTimer.current) {
       clearTimeout(segmentPersistTimer.current);
@@ -6964,7 +6964,6 @@ export function GameSurface({
     setPendingSegmentEffects([]);
     setPendingInventorySegmentUpdates([]);
     appliedSegmentsRef.current = new Set();
-    appliedInventorySegmentsRef.current = new Set();
     appliedInventorySegmentsRef.current = new Set();
 
     const tags = parseGmTags(latestAssistantMsg.content);
