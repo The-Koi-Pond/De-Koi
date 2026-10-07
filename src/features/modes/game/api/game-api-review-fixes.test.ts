@@ -2077,6 +2077,8 @@ describe("game API review guards", () => {
     expect(result.formatted).toBe("Day 1, 08:15 (morning)");
     const elapsed = await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 95 });
     expect(elapsed.formatted).toBe("Day 1, 09:50 (morning)");
+    const instant = await advanceTime({ chatId: "chat-1", action: "elapsed", minutes: 0 });
+    expect(instant.formatted).toBe("Day 1, 09:50 (morning)");
     await advanceTime({ chatId: "chat-1", action: "dialogue" });
     expect(gRecord(chat.metadata).gameTimeFormatted).toBe("Day 1, 10:05 (morning)");
     expect(chat.gameState).toEqual(

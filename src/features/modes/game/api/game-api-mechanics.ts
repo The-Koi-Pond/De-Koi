@@ -250,8 +250,8 @@ export async function advanceTime(data: {
   const meta = g.chatMeta(await g.getChat(data.chatId));
   const currentTime = gameTimeFromMeta(meta);
   const time =
-    typeof data.minutes === "number" && Number.isFinite(data.minutes) && data.minutes > 0
-      ? g.addGameMinutes(currentTime, Math.round(data.minutes))
+    typeof data.minutes === "number" && Number.isFinite(data.minutes)
+      ? g.addGameMinutes(currentTime, Math.max(0, Math.round(data.minutes)))
       : g.isTimeOfDayLabel(data.action)
         ? g.setTimeOfDay(currentTime, data.action)
         : g.advanceGameTime(currentTime, data.action);

@@ -3411,7 +3411,7 @@ export function GameSurface({
     if (sceneClock.elapsedMinutes != null) {
       if (gameWorldTickEnabled) {
         runAutomaticWorldTick("scene_end", msg.id, activeChatId, sceneClock.elapsedMinutes);
-      } else {
+      } else if (sceneClock.elapsedMinutes > 0) {
         // Without the world tick, still move the clock by the scene's elapsed time.
         _advanceTime.mutate({ chatId: activeChatId, action: "elapsed", minutes: sceneClock.elapsedMinutes });
       }
