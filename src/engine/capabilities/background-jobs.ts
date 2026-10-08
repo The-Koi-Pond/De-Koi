@@ -1,5 +1,9 @@
 /** Queues the runtime accepts; must match `QUEUES` in `src-tauri/src/commands/storage/background_jobs.rs`. */
-export type BackgroundJobQueueName = "continuity-director" | "lorebook-keeper" | "conversation-summary";
+export type BackgroundJobQueueName =
+  | "continuity-director"
+  | "lorebook-keeper"
+  | "conversation-summary"
+  | "character-interpretation";
 
 export type BackgroundJobOutcome = "done" | "retry" | "failed";
 

@@ -21,6 +21,7 @@ pub(crate) const QUEUES: &[&str] = &[
     "continuity-director",
     "lorebook-keeper",
     "conversation-summary",
+    "character-interpretation",
 ];
 
 fn read_text<'a>(body: &'a Value, field: &str, label: &str) -> AppResult<&'a str> {

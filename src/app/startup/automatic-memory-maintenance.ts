@@ -10,6 +10,7 @@ import {
 } from "../../engine/generation/automatic-memory-maintenance-queue";
 import { selectBackgroundTextConnection } from "../../engine/generation/background-llm-connection";
 import { resumeQueuedContinuityDirectorRefreshes } from "../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
+import { resumeQueuedCharacterInterpretations } from "../../engine/generation/behavioral-interpretation-background";
 import { resumeQueuedLorebookKeeperBackfills } from "../../engine/generation/start-generation";
 import { resumeQueuedConversationSummaries } from "../../engine/modes/chat/core/summaries/conversation-summary-background";
 import { parseRecord, readString, type JsonRecord } from "../../engine/generation/runtime-records";
@@ -197,11 +198,12 @@ export function useAutomaticMemoryMaintenance(): void {
   }, []);
 }
 
-/** Runs post-reply work (Director refreshes, Keeper backfills, summaries) that a closed or reloaded tab left queued. */
+/** Runs post-reply work (Director refreshes, Keeper backfills, summaries, character interpretations) that a closed or reloaded tab left queued. */
 export function useResumeQueuedBackgroundJobs(): void {
   useEffect(() => {
     resumeQueuedContinuityDirectorRefreshes({ storage: storageApi, llm: llmApi });
     resumeQueuedConversationSummaries({ storage: storageApi, llm: llmApi });
+    resumeQueuedCharacterInterpretations({ storage: storageApi, llm: llmApi });
     resumeQueuedLorebookKeeperBackfills({
       storage: storageApi,
       llm: llmApi,
