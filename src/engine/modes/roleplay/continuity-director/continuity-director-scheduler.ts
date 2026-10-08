@@ -2,7 +2,7 @@ import type { BackgroundJobOutcome, ClaimedBackgroundJob } from "../../../capabi
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import { createBackgroundJobQueue, type BackgroundJobQueue } from "../../../generation/background-job-queue";
-import { parseRecord, type JsonRecord } from "../../../generation/runtime-records";
+import { parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
 import { refreshContinuityDirectorPlan } from "./continuity-director-planner";
 import {
   decideContinuityDirectorRefresh,
@@ -37,9 +37,19 @@ export interface ContinuityDirectorRefreshScheduler {
    * the reply finishes can no longer drop the refresh before it was queued.
    */
   scheduleDurably(input: ScheduleContinuityDirectorRefreshInput): Promise<boolean>;
+  /**
+   * Store the refresh on the runtime, placing or releasing a hold on it; rejects when it cannot be
+   * stored (no fallback here, the caller decides).
+   */
+  enqueue(input: ScheduleContinuityDirectorRefreshInput & DirectorRefreshHold): Promise<void>;
   /** Run refreshes a closed tab left queued; call once a client starts. */
   resumeQueued(deps: DirectorQueueDependencies): void;
   isPending(storage: StorageGateway, chatId: string): boolean;
+}
+
+interface DirectorRefreshHold {
+  holdId?: string;
+  releaseHoldId?: string;
 }
 
 interface DirectorQueueDependencies {
@@ -212,6 +222,21 @@ export function createContinuityDirectorRefreshScheduler(
     },
   });
 
+  async function enqueue(input: ScheduleContinuityDirectorRefreshInput & DirectorRefreshHold): Promise<void> {
+    const chatId = input.chatId.trim();
+    if (!chatId) throw new Error("chatId is required");
+    await durableQueue.enqueue(
+      { storage: input.storage, llm: input.llm },
+      {
+        key: chatId,
+        chatId,
+        payload: { trigger: input.trigger },
+        ...(input.holdId ? { holdId: input.holdId } : {}),
+        ...(input.releaseHoldId ? { releaseHoldId: input.releaseHoldId } : {}),
+      },
+    );
+  }
+
   async function scheduleDurably(input: ScheduleContinuityDirectorRefreshInput): Promise<boolean> {
     const chatId = input.chatId.trim();
     if (!chatId) return false;
@@ -221,10 +246,7 @@ export function createContinuityDirectorRefreshScheduler(
       return true;
     }
     try {
-      await durableQueue.enqueue(
-        { storage: input.storage, llm: input.llm },
-        { key: chatId, chatId, payload: { trigger: input.trigger } },
-      );
+      await enqueue(normalizedInput);
     } catch (error) {
       // The runtime could not store it; still refresh now, just not durably.
       console.warn("[continuity-director] could not queue the refresh; running it in this tab", error);
@@ -284,6 +306,7 @@ export function createContinuityDirectorRefreshScheduler(
       return true;
     },
     scheduleDurably,
+    enqueue,
     resumeQueued(deps) {
       durableQueue.schedule(deps);
     },
@@ -299,10 +322,22 @@ export function scheduleContinuityDirectorRefresh(input: ScheduleContinuityDirec
   return defaultScheduler.schedule(input);
 }
 
-export function scheduleContinuityDirectorRefreshDurably(
-  input: ScheduleContinuityDirectorRefreshInput,
-): Promise<boolean> {
-  return defaultScheduler.scheduleDurably(input);
+/** Store the refresh on the runtime with a hold placed or released; rejects when it cannot be stored. */
+export function queueContinuityDirectorRefresh(
+  input: ScheduleContinuityDirectorRefreshInput & DirectorRefreshHold,
+): Promise<void> {
+  return defaultScheduler.enqueue(input);
+}
+
+/**
+ * Whether saving an assistant reply in this chat can start an automatic Director refresh. Only a
+ * cadence Director refreshes on replies; queueing a reply trigger for any other chat would only
+ * replace a scene trigger still waiting in the queue.
+ */
+export function assistantRepliesRefreshContinuityDirector(chat: JsonRecord): boolean {
+  if (readString(chat.mode || chat.chatMode).trim() !== "roleplay") return false;
+  const director = normalizeContinuityDirectorState(parseRecord(chat.metadata).roleplayContinuityDirector);
+  return director.enabled && director.refreshMode === "cadence";
 }
 
 export function resumeQueuedContinuityDirectorRefreshes(deps: DirectorQueueDependencies): void {
