@@ -314,6 +314,7 @@ describe("long Conversation context focus", () => {
         { id: "user-1", role: "user", content: "who's cooking tonight?" },
         { id: "sol-1", role: "assistant", characterId: "sol", content: "SOL_LINE not me, I burned the rice" },
         { id: "mira-1", role: "assistant", characterId: "mira", content: "MIRA_LINE I'll do it" },
+        { id: "sol-2", role: "assistant", characterId: "sol", content: "Mira: SOL_QUOTING_MIRA you heard her" },
         { id: "current-user", role: "user", content: "and dessert?" },
       ],
       connection: { provider: "openai", model: "qa-model", maxContext: 128_000 },
@@ -324,6 +325,7 @@ describe("long Conversation context focus", () => {
     const history = result.messages.filter((message) => message.contextKind === "history");
     const text = promptText(history);
     expect(text).toContain("Sol: SOL_LINE not me, I burned the rice");
+    expect(text).toContain("Sol: Mira: SOL_QUOTING_MIRA you heard her");
     expect(text).not.toContain("sol:\n");
     expect(text).not.toContain("Mira: MIRA_LINE");
     expect(history.find((message) => message.content.includes("MIRA_LINE"))?.role).toBe("assistant");

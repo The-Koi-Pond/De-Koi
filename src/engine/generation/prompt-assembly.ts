@@ -4024,12 +4024,12 @@ function prefixOtherConversationSpeakers(
   targetCharacterId: string,
 ): ChatMLMessage[] {
   const characterNames = characterNameLookup(characters);
-  const knownSpeakerNames = normalizedKnownSpeakerNames(characters, persona);
   return messages.map((message) => {
     if (!isIndividualGroupHistoryMessage(message)) return message;
     if (readString(message.characterId).trim() === targetCharacterId) return message;
     const speakerName = historySpeakerName(message, characterNames, persona);
-    if (!speakerName || hasKnownSpeakerPrefix(message.content, knownSpeakerNames)) return message;
+    // Only the speaker's own label counts; a line that opens with someone else's name still needs one.
+    if (!speakerName || hasKnownSpeakerPrefix(message.content, [speakerName])) return message;
     return transformPromptMessageContent(message, (content) => `${speakerName}: ${content}`);
   });
 }
