@@ -4,11 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Modal } from "../../../../../shared/components/ui/Modal";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
-import {
-  applyLorebookKeeperUpdate,
-  lorebookKeeperReviewStillPending,
-  recordLorebookKeeperReview,
-} from "../../lib/lorebook-keeper-updates";
+import { approveLorebookKeeperProposal, rejectLorebookKeeperProposal } from "../../lib/lorebook-keeper-updates";
 import { lorebookKeys } from "../../query-keys";
 
 interface Props {
@@ -32,22 +28,20 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
     if (pending.length <= 1) onClose();
   };
 
+  // A decision is claimed on the stored proposal atomically: if another tab decided it first this
+  // one just moves on, and if the decision can't be saved the proposal stays here with the error.
   const handleApprove = async () => {
     setApplying(true);
     setError(null);
     try {
-      if (!(await lorebookKeeperReviewStillPending(entry))) {
+      const outcome = await approveLorebookKeeperProposal(entry);
+      if (outcome === "already-reviewed") {
         toast(`"${entry.entryName}" was already reviewed.`);
-        advance();
-        return;
+      } else {
+        await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
+        await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
+        toast.success(`Lorebook Keeper ${entry.action === "create" ? "created" : "updated"} "${entry.entryName}".`);
       }
-      // Applying a stored proposal again is a no-op, so if saving the decision fails the dialog
-      // keeps the proposal and Approve can simply be pressed again.
-      await applyLorebookKeeperUpdate(entry);
-      await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
-      await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
-      await recordLorebookKeeperReview(entry, "applied");
-      toast.success(`Lorebook Keeper ${entry.action === "create" ? "created" : "updated"} "${entry.entryName}".`);
       advance();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply lorebook update.");
@@ -56,14 +50,15 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
     }
   };
 
-  // Rejecting (or closing the dialog) settles the proposal too, so it is not offered again. If the
-  // rejection can't be saved, the proposal stays here with the error instead of quietly coming back.
+  // Rejecting (or closing the dialog) settles the proposal too, so it is not offered again.
   const closeAndAdvance = async () => {
     if (applying) return;
     setApplying(true);
     setError(null);
     try {
-      await recordLorebookKeeperReview(entry, "rejected");
+      if ((await rejectLorebookKeeperProposal(entry)) === "already-reviewed") {
+        toast(`"${entry.entryName}" was already reviewed.`);
+      }
       advance();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save the rejection.");

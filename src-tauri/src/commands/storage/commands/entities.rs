@@ -759,6 +759,90 @@ pub(crate) fn app_settings_update_if_unchanged_inner(
     Ok(json!({ "updated": was_updated, "record": record }))
 }
 
+/// The review states a stored Lorebook Keeper proposal moves between once a
+/// client decides it (the engine writes the others when it stores the run).
+const KEEPER_REVIEW_STATUSES: &[&str] = &["pending", "applying", "applied", "rejected"];
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn agent_run_keeper_review_update(
+    state: State<'_, AppState>,
+    run_id: String,
+    update_index: usize,
+    expected_statuses: Vec<String>,
+    status: String,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        agent_run_keeper_review_update_inner(
+            &state,
+            run_id,
+            update_index,
+            expected_statuses,
+            status,
+        )
+    })
+    .await
+    .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
+/// Moves one Lorebook Keeper proposal stored on an agent run (its
+/// `resultData.updates[update_index].reviewStatus`) to `status`, only if it is
+/// still one of `expected_statuses`. The check and the write happen under the
+/// storage write lock, so two clients deciding the same proposal can't both
+/// win: the loser gets `updated: false` and the status it lost to.
+pub(crate) fn agent_run_keeper_review_update_inner(
+    state: &AppState,
+    run_id: String,
+    update_index: usize,
+    expected_statuses: Vec<String>,
+    status: String,
+) -> Result<Value, AppError> {
+    let known = |value: &str| KEEPER_REVIEW_STATUSES.contains(&value);
+    if !known(&status) {
+        return Err(AppError::invalid_input(format!(
+            "Unknown Lorebook Keeper review status: {status}"
+        )));
+    }
+    if expected_statuses.is_empty() || !expected_statuses.iter().all(|value| known(value)) {
+        return Err(AppError::invalid_input(
+            "expectedStatuses must list known Lorebook Keeper review statuses",
+        ));
+    }
+    let mut current = String::new();
+    let updated = state.storage.patch_if("agent-runs", &run_id, |row| {
+        let proposal = row
+            .get_mut("resultData")
+            .and_then(Value::as_object_mut)
+            .and_then(|data| data.get_mut("updates"))
+            .and_then(Value::as_array_mut)
+            .and_then(|updates| updates.get_mut(update_index))
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| {
+                AppError::not_found(format!(
+                    "agent-runs/{run_id} has no Lorebook Keeper proposal {update_index}"
+                ))
+            })?;
+        current = proposal
+            .get("reviewStatus")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if !expected_statuses
+            .iter()
+            .any(|expected| expected == &current)
+        {
+            return Ok(false);
+        }
+        proposal.insert("reviewStatus".to_string(), Value::String(status.clone()));
+        Ok(true)
+    })?;
+    Ok(match updated {
+        Some(_) => json!({ "updated": true, "status": status }),
+        None => json!({ "updated": false, "status": current }),
+    })
+}
+
 fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<(), AppError> {
     let fields = value.as_object().ok_or_else(|| {
         AppError::invalid_input(format!("Conditional chat {label} must be an object"))
@@ -1768,6 +1852,96 @@ mod tests {
         assert_eq!(
             state.storage.get("app-settings", "deki").unwrap().unwrap()["value"]["activeSessionId"],
             "session-b"
+        );
+    }
+
+    fn seed_keeper_run(state: &AppState) {
+        state
+            .storage
+            .create(
+                "agent-runs",
+                json!({
+                    "id": "run-1",
+                    "agentType": "lorebook-keeper",
+                    "resultData": { "updates": [
+                        { "entryName": "Archivist koi", "reviewStatus": "pending" },
+                        { "entryName": "Lantern", "reviewStatus": "pending" }
+                    ] }
+                }),
+            )
+            .expect("keeper run should seed");
+    }
+
+    fn keeper_review(state: &AppState, index: usize, expected: &[&str], status: &str) -> Value {
+        agent_run_keeper_review_update_inner(
+            state,
+            "run-1".to_string(),
+            index,
+            expected.iter().map(|value| value.to_string()).collect(),
+            status.to_string(),
+        )
+        .expect("review update should run")
+    }
+
+    #[test]
+    fn keeper_review_lets_only_one_decision_win() {
+        let state = test_state("keeper-review-claim");
+        seed_keeper_run(&state);
+
+        // One tab claims the proposal to apply it; a stale tab's reject then loses.
+        let claim = keeper_review(&state, 0, &["pending"], "applying");
+        assert_eq!(claim, json!({ "updated": true, "status": "applying" }));
+        let stale_reject = keeper_review(&state, 0, &["pending"], "rejected");
+        assert_eq!(
+            stale_reject,
+            json!({ "updated": false, "status": "applying" })
+        );
+        let applied = keeper_review(&state, 0, &["applying"], "applied");
+        assert_eq!(applied["updated"], true);
+
+        let run = state.storage.get("agent-runs", "run-1").unwrap().unwrap();
+        assert_eq!(run["resultData"]["updates"][0]["reviewStatus"], "applied");
+        assert_eq!(
+            run["resultData"]["updates"][0]["entryName"],
+            "Archivist koi"
+        );
+        // The other proposal on the run is untouched.
+        assert_eq!(run["resultData"]["updates"][1]["reviewStatus"], "pending");
+    }
+
+    #[test]
+    fn keeper_review_rejects_unknown_statuses_and_missing_proposals() {
+        let state = test_state("keeper-review-invalid");
+        seed_keeper_run(&state);
+
+        for (expected, status) in [
+            (vec!["pending"], "approved"),
+            (vec!["skipped"], "rejected"),
+            (vec![], "rejected"),
+        ] {
+            let error = agent_run_keeper_review_update_inner(
+                &state,
+                "run-1".to_string(),
+                0,
+                expected.iter().map(|value| value.to_string()).collect(),
+                status.to_string(),
+            )
+            .expect_err("unknown statuses are refused");
+            assert_eq!(error.code, "invalid_input");
+        }
+        let missing = agent_run_keeper_review_update_inner(
+            &state,
+            "run-1".to_string(),
+            7,
+            vec!["pending".to_string()],
+            "rejected".to_string(),
+        )
+        .expect_err("a missing proposal is refused");
+        assert_eq!(missing.code, "not_found");
+        assert_eq!(
+            state.storage.get("agent-runs", "run-1").unwrap().unwrap()["resultData"]["updates"][0]
+                ["reviewStatus"],
+            "pending"
         );
     }
 

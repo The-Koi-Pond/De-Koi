@@ -794,6 +794,14 @@ pub(crate) async fn dispatch_for_runtime_owner(
             dispatch_blocking_http_storage(state, &args, http_storage_dispatch::storage_update)
                 .await
         }
+        "agent_run_keeper_review_update" => {
+            dispatch_blocking_http_storage(
+                state,
+                &args,
+                http_storage_dispatch::agent_run_keeper_review_update,
+            )
+            .await
+        }
         "app_settings_update_if_unchanged" => {
             dispatch_blocking_http_storage(
                 state,
@@ -2016,6 +2024,7 @@ mod tests {
         "admin_expunge_command",
         "agent_cadence_status",
         "agent_echo_messages_clear",
+        "agent_run_keeper_review_update",
         "agent_memory_clear",
         "agent_memory_get",
         "agent_memory_patch",

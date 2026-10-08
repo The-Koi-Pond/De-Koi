@@ -24,7 +24,7 @@ export interface LorebookKeeperUpdate {
  * Stored on each proposal in a Keeper run's `resultData.updates[i].reviewStatus`, so whichever
  * client opens the chat (or none) can tell what still needs a decision.
  */
-export type LorebookKeeperReviewStatus = "pending" | "applied" | "rejected" | "failed" | "skipped";
+export type LorebookKeeperReviewStatus = "pending" | "applying" | "applied" | "rejected" | "failed" | "skipped";
 
 export interface LorebookKeeperApplyResult {
   applied: boolean;
@@ -73,6 +73,7 @@ export function lorebookKeeperRawUpdates(data: unknown): JsonRecord[] {
 export function lorebookKeeperReviewStatus(rawUpdate: JsonRecord): LorebookKeeperReviewStatus | null {
   const status = readString(rawUpdate.reviewStatus).trim();
   return status === "pending" ||
+    status === "applying" ||
     status === "applied" ||
     status === "rejected" ||
     status === "failed" ||

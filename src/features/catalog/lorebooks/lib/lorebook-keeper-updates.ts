@@ -9,24 +9,13 @@ import {
   type LorebookKeeperReviewStatus,
 } from "../../../../engine/generation/lorebook-keeper-updates";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
+import { lorebookCommandApi } from "../../../../shared/api/lorebook-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useAgentStore, type PendingLorebookUpdate } from "../../../../shared/stores/agent.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { lorebookKeys } from "../query-keys";
 
 type JsonRecord = Record<string, unknown>;
-
-function asRecord(value: unknown): JsonRecord {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as JsonRecord;
-  if (typeof value === "string" && value.trim()) {
-    try {
-      return asRecord(JSON.parse(value));
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -41,6 +30,11 @@ export async function applyLorebookKeeperUpdate(update: PendingLorebookUpdate) {
   return applyLorebookKeeperUpdateToStorage(storageApi, update, vectorize, { proposalEntryId });
 }
 
+/** `applying` is an approval that never finished (its tab closed); approving it again completes it. */
+function awaitingDecision(status: LorebookKeeperReviewStatus | null): boolean {
+  return status === "pending" || status === "applying";
+}
+
 /**
  * The Keeper proposals still waiting for a decision in this chat. They are read from the stored
  * Keeper runs, so a proposal made while no tab was open (or in another tab) still shows up here.
@@ -51,7 +45,7 @@ export async function loadPendingLorebookKeeperReviews(chatId: string): Promise<
     (run) =>
       run.success !== false &&
       isLorebookKeeperResult({ agentType: readString(run.agentType), type: readString(run.resultType) }) &&
-      lorebookKeeperRawUpdates(run.resultData).some((update) => lorebookKeeperReviewStatus(update) === "pending"),
+      lorebookKeeperRawUpdates(run.resultData).some((update) => awaitingDecision(lorebookKeeperReviewStatus(update))),
   );
   if (keeperRuns.length === 0) return [];
   // Read failures reject rather than pass for "nothing to review"; the proposals stay pending and
@@ -65,7 +59,7 @@ export async function loadPendingLorebookKeeperReviews(chatId: string): Promise<
     const runId = readString(run.id);
     const createdAt = Date.parse(readString(run.createdAt)) || 0;
     lorebookKeeperRawUpdates(run.resultData).forEach((rawUpdate, updateIndex) => {
-      if (lorebookKeeperReviewStatus(rawUpdate) !== "pending") return;
+      if (!awaitingDecision(lorebookKeeperReviewStatus(rawUpdate))) return;
       const update = resolveLorebookKeeperUpdate(rawUpdate, { chat, lorebooks });
       if (!update) return;
       pending.push({
@@ -82,30 +76,74 @@ export async function loadPendingLorebookKeeperReviews(chatId: string): Promise<
   return pending.sort((left, right) => left.timestamp - right.timestamp);
 }
 
-/**
- * Whether the proposal still waits for a decision on its stored run. Another tab may have decided it
- * since this one queued it; approving it again would write the entry twice.
- */
-export async function lorebookKeeperReviewStillPending(update: PendingLorebookUpdate): Promise<boolean> {
-  if (!update.runId || update.updateIndex === undefined) return true;
-  const run = await storageApi.get<JsonRecord>("agent-runs", update.runId);
-  const stored = run ? lorebookKeeperRawUpdates(run.resultData)[update.updateIndex] : undefined;
-  return !!stored && lorebookKeeperReviewStatus(stored) === "pending";
+export type LorebookKeeperReviewOutcome = "applied" | "rejected" | "already-reviewed";
+
+/** The stored proposal is mid-approval in another tab; it can't be rejected now. */
+export class LorebookKeeperReviewBusyError extends Error {
+  constructor(entryName: string) {
+    super(`"${entryName}" is being applied in another tab.`);
+  }
 }
 
-/** Store the decision on the proposal's Keeper run, so it is not offered again. */
-export async function recordLorebookKeeperReview(
+function keeperReviewTransition(
+  update: PendingLorebookUpdate & { runId: string; updateIndex: number },
+  expectedStatuses: Array<"pending" | "applying">,
+  status: "pending" | "applying" | "applied" | "rejected",
+) {
+  return lorebookCommandApi.keeperReviewUpdate({
+    runId: update.runId,
+    updateIndex: update.updateIndex,
+    expectedStatuses,
+    status,
+  });
+}
+
+function storedProposal(
   update: PendingLorebookUpdate,
-  status: Extract<LorebookKeeperReviewStatus, "applied" | "rejected">,
-): Promise<void> {
-  if (!update.runId || update.updateIndex === undefined) return;
-  const run = await storageApi.get<JsonRecord>("agent-runs", update.runId);
-  if (!run) return;
-  const resultData = asRecord(run.resultData);
-  const updates = lorebookKeeperRawUpdates(resultData);
-  if (!updates[update.updateIndex]) return;
-  updates[update.updateIndex] = { ...updates[update.updateIndex], reviewStatus: status };
-  await storageApi.update("agent-runs", update.runId, { resultData: { ...resultData, updates } });
+): (PendingLorebookUpdate & { runId: string; updateIndex: number }) | null {
+  return update.runId && update.updateIndex !== undefined
+    ? (update as PendingLorebookUpdate & { runId: string; updateIndex: number })
+    : null;
+}
+
+/**
+ * Approve a proposal. A stored one is first claimed (`pending`/`applying` -> `applying`) in one atomic
+ * step, so a reject from another tab can't land on top of it, and a proposal another tab already
+ * decided is left alone. Applying again from `applying` (a retry, or a tab that died mid-approval) is
+ * safe: the write is idempotent. If the write fails the claim is handed back to `pending`.
+ */
+export async function approveLorebookKeeperProposal(
+  update: PendingLorebookUpdate,
+): Promise<LorebookKeeperReviewOutcome> {
+  const stored = storedProposal(update);
+  if (!stored) {
+    await applyLorebookKeeperUpdate(update);
+    return "applied";
+  }
+  const claim = await keeperReviewTransition(stored, ["pending", "applying"], "applying");
+  if (!claim.updated) return "already-reviewed";
+  try {
+    await applyLorebookKeeperUpdate(stored);
+  } catch (error) {
+    await keeperReviewTransition(stored, ["applying"], "pending").catch((releaseError: unknown) => {
+      console.warn("[lorebook-keeper] could not hand a failed approval back for review", releaseError);
+    });
+    throw error;
+  }
+  const settled = await keeperReviewTransition(stored, ["applying"], "applied");
+  return settled.updated || settled.status === "applied" ? "applied" : "already-reviewed";
+}
+
+/** Reject a proposal; only one still `pending` can be rejected, so a racing approval always wins cleanly. */
+export async function rejectLorebookKeeperProposal(
+  update: PendingLorebookUpdate,
+): Promise<LorebookKeeperReviewOutcome> {
+  const stored = storedProposal(update);
+  if (!stored) return "rejected";
+  const result = await keeperReviewTransition(stored, ["pending"], "rejected");
+  if (result.updated) return "rejected";
+  if (result.status === "applying") throw new LorebookKeeperReviewBusyError(update.entryName);
+  return "already-reviewed";
 }
 
 /** Queue this chat's undecided proposals in the review dialog and open it when any are new. */

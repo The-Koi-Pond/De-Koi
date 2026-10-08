@@ -152,6 +152,21 @@ pub fn app_settings_update_if_unchanged(
     )
 }
 
+pub fn agent_run_keeper_review_update(
+    state: &AppState,
+    args: &Map<String, Value>,
+) -> AppResult<Value> {
+    let update_index = usize::try_from(required_i64(args, "updateIndex")?)
+        .map_err(|_| AppError::invalid_input("updateIndex must not be negative"))?;
+    entity_commands::agent_run_keeper_review_update_inner(
+        state,
+        required_string(args, "runId")?.to_string(),
+        update_index,
+        required_non_empty_string_vec(args, "expectedStatuses")?,
+        required_string(args, "status")?.to_string(),
+    )
+}
+
 pub fn chat_update_if_unchanged(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
     entity_commands::chat_update_if_unchanged_inner(
         state,
