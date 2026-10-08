@@ -144,7 +144,10 @@ describe("long Conversation context focus", () => {
     const text = promptText(result.messages);
     const history = result.messages.filter((message) => message.contextKind === "history");
     expect(history.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
-    expect(text).toContain("<conversation_focus_contract>");
+    expect(text).toContain("<conversation_focus>");
+    expect(text).toContain("Default to short replies.");
+    expect(text).toContain("Do not over-explain your feelings.");
+    expect(text).not.toContain("identifiable in isolation");
     expect(text).toContain("<conversation_character_core>");
     expect(text).toContain("Respond from inside Mira's world");
     expect(text).toContain("<conversation_voice_examples>");
@@ -300,6 +303,8 @@ describe("long Conversation context focus", () => {
     ).toEqual(["user", "assistant", "user", "assistant", "user"]);
     expect(text).toContain("<conversation_voice_examples>");
     expect(text).toContain("Respond only as Mira");
+    expect(text).toContain("casual group DM conversation");
+    expect(text).not.toContain("texting privately");
   });
 
   it("names the other group members whose lines reach a targeted speaker as user turns", async () => {

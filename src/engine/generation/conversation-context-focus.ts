@@ -162,7 +162,7 @@ function conversationVoiceExamples(
   if (examples.length === 0) return undefined;
   return [
     CONVERSATION_VOICE_EXAMPLES_OPEN,
-    `Make each reply identifiable in isolation as ${character.name}. Speak from ${character.name}'s personal stakes and worldview, never as a neutral commentator. Match the examples' diction, casing, cadence, and degree of formality without quoting them.`,
+    "Match the examples' diction, casing, cadence, and degree of formality without quoting them.",
     ...examples,
     "</conversation_voice_examples>",
   ].join("\n\n");
