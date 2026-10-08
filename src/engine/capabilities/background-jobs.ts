@@ -3,7 +3,8 @@ export type BackgroundJobQueueName =
   | "continuity-director"
   | "lorebook-keeper"
   | "conversation-summary"
-  | "character-interpretation";
+  | "character-interpretation"
+  | "post-reply-agents";
 
 export type BackgroundJobOutcome = "done" | "retry" | "failed";
 

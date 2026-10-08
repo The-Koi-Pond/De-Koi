@@ -22,6 +22,7 @@ pub(crate) const QUEUES: &[&str] = &[
     "lorebook-keeper",
     "conversation-summary",
     "character-interpretation",
+    "post-reply-agents",
 ];
 
 fn read_text<'a>(body: &'a Value, field: &str, label: &str) -> AppResult<&'a str> {
@@ -535,5 +536,23 @@ mod tests {
         let error = enqueue(&state, json!({ "queue": "nope", "key": "chat-1" }))
             .expect_err("unknown queue");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn accepts_every_queue_the_app_enqueues() {
+        let state = test_state("queues");
+        for queue in [
+            "continuity-director",
+            "lorebook-keeper",
+            "conversation-summary",
+            "character-interpretation",
+            "post-reply-agents",
+        ] {
+            enqueue(
+                &state,
+                json!({ "queue": queue, "key": "chat-1", "payload": null }),
+            )
+            .unwrap_or_else(|error| panic!("{queue} rejected: {error:?}"));
+        }
     }
 }

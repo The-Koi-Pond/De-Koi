@@ -17,6 +17,7 @@ import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { AddChatMessageSwipeOptions, ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
+import type { BackgroundJobOutcome, ClaimedBackgroundJob } from "../capabilities/background-jobs";
 import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
 import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
@@ -3462,6 +3463,8 @@ async function saveAssistantMessage(args: {
     reason: "idle_timeout" | "incomplete_stream" | "length" | "transport";
     message: string;
   } | null;
+  /** This turn's held post-reply-agents job; the reply carries it until the turn marks it done. */
+  postReplyAgentsTurnId?: string | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
@@ -3490,6 +3493,9 @@ async function saveAssistantMessage(args: {
       : {}),
     ...(args.generationInterrupted !== undefined || regenerateMessageId
       ? { generationInterrupted: args.generationInterrupted ?? null }
+      : {}),
+    ...(args.postReplyAgentsTurnId
+      ? { postReplyAgents: postReplyAgentsMarker(args.postReplyAgentsTurnId, "pending") }
       : {}),
   };
   const generationInfo = {
@@ -4114,8 +4120,10 @@ async function runGenerationAgentsForTarget(args: {
   target: JsonRecord | null;
   agentTypes: Set<string>;
   signal?: AbortSignal;
+  /** Re-run the helpers of a turn that never ran them, as that automatic turn would have. */
+  postReplyRecovery?: { regeneration: boolean };
 }): Promise<{ results: AgentResult[]; events: GenerationEvent[] }> {
-  const { deps, input, chat, connection, storedMessages, target, agentTypes, signal } = args;
+  const { deps, input, chat, connection, storedMessages, target, agentTypes, signal, postReplyRecovery } = args;
   const chatId = readString(input.chatId).trim();
   const targetTrackerTarget = trackerSnapshotTargetFromMessage(target);
   const trackerReadContext = await createTrackerSnapshotReadContext(deps.storage, chatId);
@@ -4153,23 +4161,42 @@ async function runGenerationAgentsForTarget(args: {
     persistPromptVariables: true,
   });
   const results: AgentResult[] = [];
+  // A recovery counts run intervals over the messages its turn saw: everything before the reply, plus
+  // the reply being replaced when the turn was a regeneration.
+  const recoveryRegenerates = postReplyRecovery?.regeneration === true && target !== null;
   const runtime = await createGenerationAgentRuntime(
     { storage: deps.storage, llm: deps.llm, integrations: deps.integrations, visuals: deps.visuals },
     {
       chat: chatForAgents,
       connection,
       storedMessages: contextMessages,
-      cadenceMessages: storedMessages,
+      cadenceMessages: postReplyRecovery
+        ? recoveryRegenerates
+          ? [...contextMessages, target]
+          : contextMessages
+        : storedMessages,
       characters: assembly.characters,
       persona: assembly.persona,
       activatedLorebookEntries: assembly.activatedLorebookEntries,
       chatSummary: assembly.chatSummary,
       embeddingSource,
-      agentTypes,
+      // No explicit types: a recovery resolves agents as the automatic turn did.
+      agentTypes: postReplyRecovery ? undefined : agentTypes,
       bypassCustomAgentActivation: retryBypassesCustomAgentActivation(input),
       hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
       signal,
-      regenerateMessageId: readString(input.regenerateMessageId).trim() || null,
+      regenerateMessageId: postReplyRecovery
+        ? recoveryRegenerates
+          ? readString(target.id).trim() || null
+          : null
+        : readString(input.regenerateMessageId).trim() || null,
+      ...(postReplyRecovery
+        ? {
+            postReplyRecovery: {
+              preGenInjections: normalizeContextInjections(parseRecord(target?.extra).contextInjections),
+            },
+          }
+        : {}),
       spotifyDjManualRetry: agentTypes.has("spotify") || agentTypes.has("music-dj"),
       spotifyDjForceFreshPick: agentTypes.has("spotify") || agentTypes.has("music-dj"),
       illustratorManualRequest: input.options?.illustratorManualRequest === true,
@@ -4578,20 +4605,153 @@ function holdContinuityDirectorRefresh(deps: GenerationEngineDeps, chat: JsonRec
   });
 }
 
+interface PostReplyAgentsMarker {
+  turnId: string;
+  status: "pending" | "done";
+}
+
 /**
- * Holds this turn's post-reply jobs that read the saved reply (Keeper backfill, Director refresh)
- * from before the save until the turn has written everything; releases all of them together.
+ * Stored on the reply as `extra.postReplyAgents`: the save writes it pending, and the turn marks it
+ * done once its helpers (parallel and post-processing agents) have written everything.
+ */
+function postReplyAgentsMarker(turnId: string, status: PostReplyAgentsMarker["status"]): PostReplyAgentsMarker {
+  return { turnId, status };
+}
+
+function readPostReplyAgentsMarker(message: unknown): PostReplyAgentsMarker | null {
+  const marker = parseRecord(parseRecord(isRecord(message) ? message.extra : null).postReplyAgents);
+  const turnId = readString(marker.turnId).trim();
+  return turnId ? { turnId, status: marker.status === "done" ? "done" : "pending" } : null;
+}
+
+function newPostReplyAgentsTurnId(): string {
+  return `reply-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
+async function markPostReplyAgentsDone(storage: StorageGateway, saved: unknown, turnId: string | null): Promise<void> {
+  const id = messageId(saved);
+  if (!turnId || !id) return;
+  try {
+    // A regeneration saved since then carries its own turn; leave its marker alone.
+    const current = await loadChatMessage(storage, id);
+    if (readPostReplyAgentsMarker(current)?.turnId !== turnId) return;
+    await storage.patchChatMessageExtra(id, { postReplyAgents: postReplyAgentsMarker(turnId, "done") });
+  } catch (error) {
+    // The reply stays pending, so the held job runs these helpers again from storage.
+    console.warn("[post-reply-agents] could not mark this reply's helpers done; they will run again", error);
+  }
+}
+
+// Re-runs the helpers of a reply whose tab closed before they finished: same agents as the turn,
+// read from storage, persisting message extras, the tracker snapshot, agent runs and illustrations.
+async function recoverPostReplyAgents(
+  deps: GenerationEngineDeps,
+  job: ClaimedBackgroundJob,
+): Promise<BackgroundJobOutcome> {
+  const payload = parseRecord(job.payload);
+  const chatId = readString(job.chatId).trim();
+  const turnId = readString(payload.turnId).trim();
+  if (!chatId || !turnId) return "failed";
+  const chat = await deps.storage.get<JsonRecord>("chats", chatId);
+  if (!chat) return "done";
+  try {
+    assertChatCanGenerate(chat);
+  } catch {
+    // A concluded scene or a chat without active characters cannot run agents; retrying won't change that.
+    return "failed";
+  }
+  const input: RetryAgentsInput = {
+    chatId,
+    connectionId: readString(payload.connectionId).trim() || null,
+    hideAutomatedSummarySourceMessages: payload.hideAutomatedSummarySourceMessages === true,
+  };
+  const recentMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
+  const reply = recentMessages.find((message) => readPostReplyAgentsMarker(message)?.turnId === turnId);
+  // Done, never saved, or replaced by a later regeneration (which holds its own job).
+  if (!reply || readPostReplyAgentsMarker(reply)?.status === "done") return "done";
+  const replyId = readString(reply.id).trim();
+  const storedMessages = await loadMessagesForGenerationTarget({
+    storage: deps.storage,
+    chatId,
+    chat,
+    input,
+    targetMessageId: replyId,
+  });
+  const target = storedMessages.find((message) => readString(message.id).trim() === replyId) ?? null;
+  if (!target) return "done";
+  const connection = await resolveGenerationConnection(deps.storage, chat, input);
+  await runGenerationAgentsForTarget({
+    deps,
+    input: { ...input, options: { forMessageId: replyId } },
+    chat,
+    connection,
+    storedMessages,
+    target,
+    agentTypes: new Set(),
+    postReplyRecovery: { regeneration: payload.regeneration === true },
+  });
+  await markPostReplyAgentsDone(deps.storage, target, turnId);
+  return "done";
+}
+
+const postReplyAgentsQueue = createBackgroundJobQueue<GenerationEngineDeps>({
+  queue: "post-reply-agents",
+  run: (job, deps) => recoverPostReplyAgents(deps, job),
+});
+
+/** Re-run helpers of replies a closed or reloaded tab never finished; call once a client starts. */
+export function resumeQueuedPostReplyAgents(deps: GenerationEngineDeps): void {
+  postReplyAgentsQueue.schedule(deps);
+}
+
+// The turn runs its helpers live as always; the held job only matters when the tab closes first. Its
+// hold lapses, and whichever client claims it finds the reply still pending and re-runs them.
+function holdPostReplyAgents(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+  connection: JsonRecord,
+  turnId: string | null,
+): Promise<TurnJobHold> | null {
+  const chatId = readString(chat.id).trim();
+  if (!chatId || !turnId) return null;
+  const job = {
+    key: turnId,
+    chatId,
+    payload: {
+      turnId,
+      connectionId: readString(connection.id) || input.connectionId || null,
+      regeneration: !!readString(input.regenerateMessageId).trim(),
+      hideAutomatedSummarySourceMessages: input.hideAutomatedSummarySourceMessages === true,
+    },
+  };
+  return holdJobForTurn({
+    label: "post-reply-agents",
+    job: "helpers",
+    canStore: !!deps.storage.backgroundJobs,
+    enqueue: (hold) => postReplyAgentsQueue.enqueue(deps, { ...job, ...hold }),
+    // Without a stored job there is nothing to recover; this tab runs the helpers live either way.
+    runInThisTab: () => {},
+  });
+}
+
+/**
+ * Holds this turn's post-reply jobs that read the saved reply (Keeper backfill, Director refresh,
+ * and the helpers' recovery when `postReplyAgentsTurnId` is set) from before the save until the
+ * turn has written everything; releases all of them together.
  */
 async function holdPostReplyJobs(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   chat: JsonRecord,
   connection: JsonRecord,
+  postReplyAgentsTurnId: string | null = null,
 ): Promise<TurnJobHold> {
   const holds = (
     await Promise.all([
       holdLorebookKeeperBackfill(deps, input, chat, connection),
       holdContinuityDirectorRefresh(deps, chat),
+      holdPostReplyAgents(deps, input, chat, connection, postReplyAgentsTurnId),
     ])
   ).filter((hold): hold is TurnJobHold => hold !== null);
   return {
@@ -5511,9 +5671,17 @@ async function* startGenerationImpl(
       ? undefined
       : await regenerationTargetExtra(deps.storage, chatId, storedMessages, input.regenerateMessageId);
     const summaryQueued = replyWillBeSaved && (await queueConversationSummaryForReply(deps, chat, input, connection));
+    // Only a turn whose helpers a recovery would run again holds a job for them.
+    const postReplyAgentsTurnId =
+      replyWillBeSaved && runtime?.hasPostReplyAgents && deps.storage.backgroundJobs
+        ? newPostReplyAgentsTurnId()
+        : null;
     // Held from before the save, so no client starts a Keeper backfill or Director refresh that would
-    // read this turn half-written, and a tab closed the moment the reply lands still has them stored.
-    const postReplyJobs = replyWillBeSaved ? await holdPostReplyJobs(deps, input, chat, connection) : null;
+    // read this turn half-written, or re-runs helpers this turn is still running, and a tab closed
+    // the moment the reply lands still has them stored.
+    const postReplyJobs = replyWillBeSaved
+      ? await holdPostReplyJobs(deps, input, chat, connection, postReplyAgentsTurnId)
+      : null;
     const saved = connected.suppressAssistantMessage
       ? null
       : await saveAssistantMessage({
@@ -5540,6 +5708,7 @@ async function* startGenerationImpl(
           clearWebResearchRequest: mainTools?.characterWebResearchGrant != null,
           webResearchSources,
           roleplayQualityCorrection: roleplayQuality.correction,
+          postReplyAgentsTurnId,
         }).catch(async (error: unknown) => {
           await postReplyJobs?.release(false);
           throw error;
@@ -5657,6 +5826,7 @@ async function* startGenerationImpl(
         throwIfAborted(signal);
         await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
+        if (savedAssistantGeneration) await markPostReplyAgentsDone(deps.storage, latestSaved, postReplyAgentsTurnId);
       }
       if (postSaveStartedAt) {
         reportPerformanceTiming("generation.post_save", postSaveStartedAt, "ok");
