@@ -308,30 +308,34 @@ const characterInterpretationQueue = createBackgroundJobQueue<InterpretationDeps
 });
 
 /**
- * Store a derivation job for each character that needs one. Resolves false when the runtime cannot
- * store them, so the caller runs them in this tab instead (`scheduleSparseCharacterInterpretations`).
+ * Store a derivation job for each character that needs one. Resolves the ids that could not be
+ * stored (all of them on a runtime without background jobs), for the caller to run in this tab with
+ * `scheduleSparseCharacterInterpretations`; characters that were stored never run twice.
  */
 export async function queueSparseCharacterInterpretations(
   deps: InterpretationDeps,
   input: ScheduleSparseCharacterInterpretationsInput,
-): Promise<boolean> {
+): Promise<string[]> {
   const connectionId = clean(input.connectionId);
-  if (!connectionId) return true;
-  if (!deps.storage.backgroundJobs) return false;
-  try {
-    for (const characterId of [...new Set(input.characterIds.map(clean).filter(Boolean))]) {
+  const characterIds = [...new Set(input.characterIds.map(clean).filter(Boolean))];
+  if (!connectionId) return [];
+  if (!deps.storage.backgroundJobs) return characterIds;
+  const notStored: string[] = [];
+  for (const characterId of characterIds) {
+    try {
       // Most characters are rich or already interpreted; only store a job when there is work.
       const character = await deps.storage.get<Character>("characters", characterId);
       if (!character || !needsDerivation(character)) continue;
       await characterInterpretationQueue.enqueue(deps, { key: characterId, payload: { connectionId } });
+    } catch (error) {
+      console.warn("[generation] could not queue a behavioral interpretation; running it in this tab", {
+        characterId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      notStored.push(characterId);
     }
-    return true;
-  } catch (error) {
-    console.warn("[generation] could not queue behavioral interpretations; running them in this tab", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return false;
   }
+  return notStored;
 }
 
 /** Run interpretations a closed or reloaded tab left queued; call once a client starts. */

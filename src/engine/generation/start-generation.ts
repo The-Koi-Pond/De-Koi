@@ -4519,15 +4519,15 @@ async function holdLorebookKeeperBackfill(
 }
 
 // Stores the characters' pending interpretations on the runtime, so closing the tab can't drop them.
-// Resolves false when they could not be stored; they then run in this tab after done.
+// Resolves the character ids that could not be stored; those run in this tab after done.
 async function queueCharacterInterpretationsForReply(
   deps: GenerationEngineDeps,
   chat: JsonRecord,
   input: StartGenerationInput,
   connection: JsonRecord,
   characters: GenerationCharacterContext[],
-): Promise<boolean> {
-  if (readString(chat.mode || chat.chatMode).trim() !== "roleplay") return true;
+): Promise<string[]> {
+  if (readString(chat.mode || chat.chatMode).trim() !== "roleplay") return [];
   return queueSparseCharacterInterpretations(
     { storage: deps.storage, llm: deps.llm },
     {
@@ -5436,9 +5436,9 @@ async function* startGenerationImpl(
       !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
     // Interpretations read only the character cards, never the reply, so they are queued before the
     // save: a tab closed the moment the reply lands can't drop them.
-    const interpretationsQueued =
-      replyWillBeSaved &&
-      (await queueCharacterInterpretationsForReply(deps, chat, input, connection, assembly.characters));
+    const interpretationsForThisTab = replyWillBeSaved
+      ? await queueCharacterInterpretationsForReply(deps, chat, input, connection, assembly.characters)
+      : [];
     // Held from before the save, so no client starts a backfill that would read this turn half-written.
     const keeperBackfill = replyWillBeSaved ? await holdLorebookKeeperBackfill(deps, input, chat, connection) : null;
     const saved = connected.suppressAssistantMessage
@@ -5610,11 +5610,12 @@ async function* startGenerationImpl(
           await enqueueStoryConsolidationSafely(deps, chat, connection);
           if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
           scheduledTaskCount += 3;
-          if (!interpretationsQueued && readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+          if (interpretationsForThisTab.length > 0) {
+            // Only the characters whose jobs could not be stored; stored ones never run twice.
             scheduleSparseCharacterInterpretations(
               { storage: deps.storage, llm: deps.llm },
               {
-                characterIds: assembly.characters.map((character) => character.id),
+                characterIds: interpretationsForThisTab,
                 connectionId: readString(connection.id) || input.connectionId || null,
               },
             );
@@ -5839,9 +5840,9 @@ async function* startGenerationImpl(
     !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
   // Interpretations read only the character cards, never the reply, so they are queued before the
   // save: a tab closed the moment the reply lands can't drop them.
-  const interpretationsQueued =
-    replyWillBeSaved &&
-    (await queueCharacterInterpretationsForReply(deps, chat, input, connection, assembly.characters));
+  const interpretationsForThisTab = replyWillBeSaved
+    ? await queueCharacterInterpretationsForReply(deps, chat, input, connection, assembly.characters)
+    : [];
   // Held from before the save, so no client starts a backfill that would read this turn half-written.
   const keeperBackfill = replyWillBeSaved ? await holdLorebookKeeperBackfill(deps, input, chat, connection) : null;
   const saved = connected.suppressAssistantMessage
@@ -5926,11 +5927,12 @@ async function* startGenerationImpl(
         await enqueueStoryConsolidationSafely(deps, chat, connection);
         if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
         scheduledTaskCount += 3;
-        if (!interpretationsQueued && readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+        if (interpretationsForThisTab.length > 0) {
+          // Only the characters whose jobs could not be stored; stored ones never run twice.
           scheduleSparseCharacterInterpretations(
             { storage: deps.storage, llm: deps.llm },
             {
-              characterIds: assembly.characters.map((character) => character.id),
+              characterIds: interpretationsForThisTab,
               connectionId: readString(connection.id) || input.connectionId || null,
             },
           );

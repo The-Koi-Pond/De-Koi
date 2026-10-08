@@ -399,7 +399,7 @@ describe("sparse character behavioral interpretation background", () => {
           { storage, llm },
           { characterIds: ["mira", "quiet", "missing", "mira"], connectionId: "connection-1" },
         ),
-      ).resolves.toBe(true);
+      ).resolves.toEqual([]);
 
       expect(enqueue.mock.calls.map(([call]) => call)).toEqual([
         expect.objectContaining({
@@ -466,14 +466,38 @@ describe("sparse character behavioral interpretation background", () => {
       }
     });
 
-    it("reports that it could not store the jobs on a runtime without background jobs", async () => {
+    it("hands every character back for this tab on a runtime without background jobs", async () => {
       const { storage } = storageFor(character());
       const llm = llmReturning(readyClaims);
 
       await expect(
         queueSparseCharacterInterpretations({ storage, llm }, { characterIds: ["mira"], connectionId: "connection-1" }),
-      ).resolves.toBe(false);
+      ).resolves.toEqual(["mira"]);
       expect(storage.get).not.toHaveBeenCalled();
+    });
+
+    it("hands back only the characters it could not store when queueing fails partway", async () => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const second = { ...character(), id: "sable" } as Character;
+      const { fake, storage } = durableStorage([character(), second]);
+      const realEnqueue = fake.gateway.enqueue.bind(fake.gateway);
+      const enqueue = vi.spyOn(fake.gateway, "enqueue").mockImplementation(async (input) => {
+        if (input.key === "sable") throw new Error("runtime unavailable");
+        return realEnqueue(input);
+      });
+
+      try {
+        await expect(
+          queueSparseCharacterInterpretations(
+            { storage, llm: llmReturning(readyClaims) },
+            { characterIds: ["mira", "sable"], connectionId: "connection-1" },
+          ),
+        ).resolves.toEqual(["sable"]);
+        // Mira's job was stored, so she is not handed back to run a second time in this tab.
+        expect(enqueue.mock.calls.map(([call]) => call.key)).toEqual(["mira", "sable"]);
+      } finally {
+        warning.mockRestore();
+      }
     });
   });
 });
