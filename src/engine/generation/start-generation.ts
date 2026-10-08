@@ -4607,12 +4607,13 @@ function holdContinuityDirectorRefresh(deps: GenerationEngineDeps, chat: JsonRec
 
 interface PostReplyAgentsMarker {
   turnId: string;
-  status: "pending" | "done";
+  status: "pending" | "done" | "skipped";
 }
 
 /**
  * Stored on the reply as `extra.postReplyAgents`: the save writes it pending, and the turn marks it
- * done once its helpers (parallel and post-processing agents) have written everything.
+ * done once its helpers (parallel and post-processing agents) have written everything. A recovery
+ * that can never run (the chat can no longer generate) marks it skipped.
  */
 function postReplyAgentsMarker(turnId: string, status: PostReplyAgentsMarker["status"]): PostReplyAgentsMarker {
   return { turnId, status };
@@ -4621,21 +4622,32 @@ function postReplyAgentsMarker(turnId: string, status: PostReplyAgentsMarker["st
 function readPostReplyAgentsMarker(message: unknown): PostReplyAgentsMarker | null {
   const marker = parseRecord(parseRecord(isRecord(message) ? message.extra : null).postReplyAgents);
   const turnId = readString(marker.turnId).trim();
-  return turnId ? { turnId, status: marker.status === "done" ? "done" : "pending" } : null;
+  const status = marker.status === "done" || marker.status === "skipped" ? marker.status : "pending";
+  return turnId ? { turnId, status } : null;
 }
 
 function newPostReplyAgentsTurnId(): string {
   return `reply-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
-async function markPostReplyAgentsDone(storage: StorageGateway, saved: unknown, turnId: string | null): Promise<void> {
+async function settlePostReplyAgents(
+  storage: StorageGateway,
+  saved: unknown,
+  turnId: string,
+  status: "done" | "skipped",
+): Promise<void> {
   const id = messageId(saved);
-  if (!turnId || !id) return;
+  if (!id) return;
+  // A regeneration saved since then carries its own turn; leave its marker alone.
+  const current = await loadChatMessage(storage, id);
+  if (readPostReplyAgentsMarker(current)?.turnId !== turnId) return;
+  await storage.patchChatMessageExtra(id, { postReplyAgents: postReplyAgentsMarker(turnId, status) });
+}
+
+async function markPostReplyAgentsDone(storage: StorageGateway, saved: unknown, turnId: string | null): Promise<void> {
+  if (!turnId) return;
   try {
-    // A regeneration saved since then carries its own turn; leave its marker alone.
-    const current = await loadChatMessage(storage, id);
-    if (readPostReplyAgentsMarker(current)?.turnId !== turnId) return;
-    await storage.patchChatMessageExtra(id, { postReplyAgents: postReplyAgentsMarker(turnId, "done") });
+    await settlePostReplyAgents(storage, saved, turnId, "done");
   } catch (error) {
     // The reply stays pending, so the held job runs these helpers again from storage.
     console.warn("[post-reply-agents] could not mark this reply's helpers done; they will run again", error);
@@ -4654,12 +4666,6 @@ async function recoverPostReplyAgents(
   if (!chatId || !turnId) return "failed";
   const chat = await deps.storage.get<JsonRecord>("chats", chatId);
   if (!chat) return "done";
-  try {
-    assertChatCanGenerate(chat);
-  } catch {
-    // A concluded scene or a chat without active characters cannot run agents; retrying won't change that.
-    return "failed";
-  }
   const input: RetryAgentsInput = {
     chatId,
     connectionId: readString(payload.connectionId).trim() || null,
@@ -4667,8 +4673,16 @@ async function recoverPostReplyAgents(
   };
   const recentMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
   const reply = recentMessages.find((message) => readPostReplyAgentsMarker(message)?.turnId === turnId);
-  // Done, never saved, or replaced by a later regeneration (which holds its own job).
-  if (!reply || readPostReplyAgentsMarker(reply)?.status === "done") return "done";
+  // Settled, never saved, or replaced by a later regeneration (which holds its own job).
+  if (!reply || readPostReplyAgentsMarker(reply)?.status !== "pending") return "done";
+  try {
+    assertChatCanGenerate(chat);
+  } catch {
+    // A concluded scene or a chat without active characters cannot run agents; retrying won't change
+    // that, so the reply says its helpers were skipped instead of staying pending.
+    await settlePostReplyAgents(deps.storage, reply, turnId, "skipped");
+    return "failed";
+  }
   const replyId = readString(reply.id).trim();
   const storedMessages = await loadMessagesForGenerationTarget({
     storage: deps.storage,

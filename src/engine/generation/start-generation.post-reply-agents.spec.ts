@@ -307,7 +307,7 @@ describe("post-reply helpers held as a durable job", () => {
       ]);
     });
 
-    it("runs nothing when a later regeneration replaced the reply", async () => {
+    it("runs nothing when the reply now carries a later regeneration's turn", async () => {
       const runtime = pendingReply("reply-2");
 
       const { finished, agentModels } = await recover(runtime, "reply-1");
@@ -325,6 +325,22 @@ describe("post-reply helpers held as a durable job", () => {
 
       expect(agentModels()).toEqual([]);
       expect(runtime.snapshots).toEqual([]);
+    });
+
+    it("marks the reply's helpers skipped when the chat can no longer generate", async () => {
+      const runtime = pendingReply("reply-1");
+      const chat = (await runtime.storage.get<Row>("chats", "chat-1"))!;
+      chat.metadata = { ...(chat.metadata as Row), sceneStatus: "concluded" };
+
+      const { finished, agentModels } = await recover(runtime, "reply-1");
+
+      // Retrying can't change a concluded scene, so the job fails and the reply stops claiming pending work.
+      expect(finished).toEqual([{ jobId: "post-reply-agents:reply-1", outcome: "failed", error: null }]);
+      expect(agentModels()).toEqual([]);
+      expect((runtime.findMessage("assistant-1")!.extra as Row).postReplyAgents).toEqual({
+        turnId: "reply-1",
+        status: "skipped",
+      });
     });
   });
 });
