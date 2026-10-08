@@ -14,6 +14,7 @@ vi.mock("../../../../shared/api/integration-gateway", () => ({ integrationGatewa
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
+  applyLorebookKeeperUpdate,
   loadPendingLorebookKeeperReviews,
   lorebookKeeperReviewStillPending,
   recordLorebookKeeperReview,
@@ -129,5 +130,31 @@ describe("stored Lorebook Keeper reviews", () => {
 
     expect(await lorebookKeeperReviewStillPending(first!)).toBe(false);
     expect(await lorebookKeeperReviewStillPending(second!)).toBe(true);
+  });
+
+  it("rejects when the lorebooks can't be read, so stored proposals aren't mistaken for none", async () => {
+    storedRuns([keeperRun]);
+    storageApi.list.mockImplementation(async (entity: string) => {
+      if (entity === "agent-runs") return [keeperRun];
+      throw new Error("runtime unreachable");
+    });
+
+    await expect(loadPendingLorebookKeeperReviews("chat-1")).rejects.toThrow("runtime unreachable");
+    await expect(showPendingLorebookKeeperReviews("chat-1")).rejects.toThrow("runtime unreachable");
+    expect(useAgentStore.getState().pendingLorebookUpdates).toEqual([]);
+  });
+
+  it("creates an approved proposal under an id tied to its run, so a repeat can't duplicate it", async () => {
+    storedRuns([keeperRun]);
+    const [first] = await loadPendingLorebookKeeperReviews("chat-1");
+    storageApi.get.mockResolvedValue(null);
+    storageApi.create.mockImplementation(async (_entity: string, value: Record<string, unknown>) => value);
+
+    await applyLorebookKeeperUpdate(first!);
+
+    expect(storageApi.create).toHaveBeenCalledWith(
+      "lorebook-entries",
+      expect.objectContaining({ id: "keeper-run-1-0", name: "Archivist koi" }),
+    );
   });
 });

@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
   applyLorebookKeeperUpdate as applyLorebookKeeperUpdateToStorage,
   isLorebookKeeperResult,
+  lorebookKeeperProposalEntryId,
   lorebookKeeperRawUpdates,
   lorebookKeeperReviewStatus,
   resolveLorebookKeeperUpdate,
@@ -33,7 +34,11 @@ function readString(value: unknown): string {
 
 export async function applyLorebookKeeperUpdate(update: PendingLorebookUpdate) {
   const vectorize = integrationGateway.lorebooks?.vectorizeEntries;
-  return applyLorebookKeeperUpdateToStorage(storageApi, update, vectorize);
+  const proposalEntryId =
+    update.runId && update.updateIndex !== undefined
+      ? lorebookKeeperProposalEntryId(update.runId, update.updateIndex)
+      : undefined;
+  return applyLorebookKeeperUpdateToStorage(storageApi, update, vectorize, { proposalEntryId });
 }
 
 /**
@@ -49,9 +54,11 @@ export async function loadPendingLorebookKeeperReviews(chatId: string): Promise<
       lorebookKeeperRawUpdates(run.resultData).some((update) => lorebookKeeperReviewStatus(update) === "pending"),
   );
   if (keeperRuns.length === 0) return [];
+  // Read failures reject rather than pass for "nothing to review"; the proposals stay pending and
+  // are offered the next time the chat opens.
   const [chat, lorebooks] = await Promise.all([
-    storageApi.get<JsonRecord>("chats", chatId).catch(() => null),
-    storageApi.list<JsonRecord>("lorebooks").catch(() => []),
+    storageApi.get<JsonRecord>("chats", chatId),
+    storageApi.list<JsonRecord>("lorebooks"),
   ]);
   const pending: PendingLorebookUpdate[] = [];
   for (const run of keeperRuns) {

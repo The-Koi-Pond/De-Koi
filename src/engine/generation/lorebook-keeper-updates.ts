@@ -205,18 +205,46 @@ async function vectorizeEntry(
   }
 }
 
-/** Writes one proposal to its lorebook. Throws when the entry is locked or the write fails. */
+/**
+ * The id a reviewed proposal's new entry is created under. Storage refuses a second record with the
+ * same id, so approving one proposal twice (two tabs, or a retry after its decision failed to save)
+ * can never create the entry twice.
+ */
+export function lorebookKeeperProposalEntryId(runId: string, updateIndex: number): string {
+  return `keeper-${runId}-${updateIndex}`;
+}
+
+async function entryExists(storage: StorageGateway, id: string): Promise<boolean> {
+  return !!(await storage.get<LorebookEntry>("lorebook-entries", id).catch(() => null));
+}
+
+/**
+ * Writes one proposal to its lorebook. Throws when the entry is locked or the write fails. With
+ * `proposalEntryId`, applying the same proposal again is a no-op: a create made under that id is not
+ * made twice, and update and delete already leave a repeated proposal's changes as they are.
+ */
 export async function applyLorebookKeeperUpdate(
   storage: StorageGateway,
   update: LorebookKeeperUpdate,
   vectorize?: LorebookEntryVectorizer,
+  options: { proposalEntryId?: string } = {},
 ): Promise<LorebookKeeperApplyResult> {
   const result = (applied: boolean, entryId: string | null) => ({ applied, lorebookId: update.lorebookId, entryId });
+  const { proposalEntryId } = options;
   const create = async () => {
-    const created = await storage.create<LorebookEntry>(
-      "lorebook-entries",
-      createLorebookEntrySchema.parse(entryDefaults(update.lorebookId, update)),
-    );
+    if (proposalEntryId && (await entryExists(storage, proposalEntryId))) return result(true, proposalEntryId);
+    const value = createLorebookEntrySchema.parse(entryDefaults(update.lorebookId, update));
+    let created: LorebookEntry;
+    try {
+      created = await storage.create<LorebookEntry>(
+        "lorebook-entries",
+        proposalEntryId ? { ...value, id: proposalEntryId } : value,
+      );
+    } catch (error) {
+      // Another approval of this proposal created it first.
+      if (proposalEntryId && (await entryExists(storage, proposalEntryId))) return result(true, proposalEntryId);
+      throw error;
+    }
     await vectorizeEntry(vectorize, update.lorebookId, created.id);
     return result(true, created.id);
   };
@@ -270,7 +298,9 @@ export async function settleLorebookKeeperResults(
   if (keeperResults.length === 0) return { results, settlement: null };
 
   const reviewRequired = lorebookKeeperReviewRequired(chat);
-  const lorebooks = await deps.storage.list<JsonRecord>("lorebooks").catch(() => []);
+  // A failed read must not pass for "no lorebooks": that would mark every proposal skipped for good.
+  // Throwing fails this run instead, and the queued backfill retries it.
+  const lorebooks = await deps.storage.list<JsonRecord>("lorebooks");
   const settlement: LorebookKeeperSettlement = { chatId, applied: 0, pending: 0, lorebookIds: [] };
   const settled = new Map<AgentResult, AgentResult>();
   for (const result of keeperResults) {

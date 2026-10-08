@@ -41,13 +41,13 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
         advance();
         return;
       }
+      // Applying a stored proposal again is a no-op, so if saving the decision fails the dialog
+      // keeps the proposal and Approve can simply be pressed again.
       await applyLorebookKeeperUpdate(entry);
       await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
       await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
+      await recordLorebookKeeperReview(entry, "applied");
       toast.success(`Lorebook Keeper ${entry.action === "create" ? "created" : "updated"} "${entry.entryName}".`);
-      await recordLorebookKeeperReview(entry, "applied").catch((recordError: unknown) => {
-        console.warn("[lorebook-keeper] could not save the approval on its run", recordError);
-      });
       advance();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply lorebook update.");
@@ -56,19 +56,27 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
     }
   };
 
-  // Rejecting (or closing the dialog) settles the proposal too, so it is not offered again.
-  const closeAndAdvance = () => {
-    void recordLorebookKeeperReview(entry, "rejected").catch((recordError: unknown) => {
-      console.warn("[lorebook-keeper] could not save the rejection on its run", recordError);
-    });
-    advance();
+  // Rejecting (or closing the dialog) settles the proposal too, so it is not offered again. If the
+  // rejection can't be saved, the proposal stays here with the error instead of quietly coming back.
+  const closeAndAdvance = async () => {
+    if (applying) return;
+    setApplying(true);
+    setError(null);
+    try {
+      await recordLorebookKeeperReview(entry, "rejected");
+      advance();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save the rejection.");
+    } finally {
+      setApplying(false);
+    }
   };
 
   const queueNote = pending.length > 1 ? ` (${pending.length - 1} more queued)` : "";
   const facts = entry.newFacts.length > 0 ? entry.newFacts : entry.content ? [entry.content] : [];
 
   return (
-    <Modal open={open} onClose={closeAndAdvance} title="Review Lorebook Keeper Update" width="max-w-2xl">
+    <Modal open={open} onClose={() => void closeAndAdvance()} title="Review Lorebook Keeper Update" width="max-w-2xl">
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-400/15 ring-1 ring-amber-400/25">
@@ -131,7 +139,7 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
         <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-3">
           <button
             type="button"
-            onClick={closeAndAdvance}
+            onClick={() => void closeAndAdvance()}
             disabled={applying}
             className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
           >
