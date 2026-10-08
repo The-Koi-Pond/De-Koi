@@ -84,6 +84,10 @@ export const visualAssetsApi: VisualAssetGateway = {
   listBackgrounds: () => backgroundsApi.list(),
   gameAssetsManifest: () => gameAssetsApi.manifest(),
   uploadNpcAvatar: (chatId, name, avatar) => npcAvatarApi.upload(chatId, name, avatar),
+  uploadBackground: async ({ filename, dataUrl, mimeType }) => {
+    const blob = await fetch(dataUrl).then((response) => response.blob());
+    return backgroundsApi.upload(new File([blob], filename, { type: blob.type || mimeType }));
+  },
   resolveReferenceImage: async (source) => {
     const fallbackMimeType = referenceImageFallbackMimeType(source.mimeType);
     const inline =

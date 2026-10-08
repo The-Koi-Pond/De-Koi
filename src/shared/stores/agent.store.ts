@@ -74,6 +74,10 @@ export interface PendingCardUpdate {
   agentName: string;
   /** ms since epoch — used for stable ordering. */
   timestamp: number;
+  /** Set when the proposals are stored on an agent run (a recovered run), so the decision is saved there. */
+  runId?: string;
+  /** Indexes of these proposals in that run's `resultData.updates`. */
+  updateIndexes?: number[];
 }
 
 export interface PendingLorebookUpdate {
