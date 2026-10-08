@@ -5,8 +5,11 @@ import type { StorageGateway } from "../capabilities/storage";
 import type { Character, CharacterData } from "../contracts/types/character";
 import {
   deriveCharacterBehavioralInterpretation,
+  queueSparseCharacterInterpretations,
+  resumeQueuedCharacterInterpretations,
   scheduleSparseCharacterInterpretations,
 } from "./behavioral-interpretation-background";
+import { createFakeBackgroundJobs } from "./background-job-queue.fake";
 import { behavioralInterpretationSourceHash } from "./behavioral-interpretation";
 
 function characterData(overrides: Partial<CharacterData> = {}): CharacterData {
@@ -348,5 +351,129 @@ describe("sparse character behavioral interpretation background", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(state.current().behavioralInterpretation?.enabled).toBe(false);
+  });
+
+  describe("on a runtime that stores background jobs", () => {
+    const readyClaims = {
+      claims: [
+        {
+          statement: "Mira may resist direct questions about the letter.",
+          evidenceClass: "tentative",
+          evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+        },
+      ],
+    };
+
+    function durableStorage(rows: Character[]) {
+      const fake = createFakeBackgroundJobs();
+      const current = new Map(rows.map((row) => [row.id, structuredClone(row)]));
+      const storage = {
+        backgroundJobs: fake.gateway,
+        get: vi.fn(async (_entity: string, id: string) => structuredClone(current.get(id) ?? null)),
+        update: vi.fn(async (_entity: string, id: string, patch: Record<string, unknown>) => {
+          current.set(id, { ...current.get(id)!, ...patch } as Character);
+          return structuredClone(current.get(id));
+        }),
+      } as unknown as StorageGateway;
+      return { fake, storage, current: (id: string) => current.get(id) };
+    }
+
+    it("stores a job only for characters that need an interpretation, then derives and saves it", async () => {
+      const disabled = {
+        ...character(),
+        id: "quiet",
+        behavioralInterpretation: {
+          version: 1,
+          sourceHash: "",
+          status: "ready" as const,
+          enabled: false,
+          claims: [],
+        },
+      } as Character;
+      const { fake, storage, current } = durableStorage([character(), disabled]);
+      const enqueue = vi.spyOn(fake.gateway, "enqueue");
+      const llm = llmReturning(readyClaims);
+
+      await expect(
+        queueSparseCharacterInterpretations(
+          { storage, llm },
+          { characterIds: ["mira", "quiet", "missing", "mira"], connectionId: "connection-1" },
+        ),
+      ).resolves.toBe(true);
+
+      expect(enqueue.mock.calls.map(([call]) => call)).toEqual([
+        expect.objectContaining({
+          queue: "character-interpretation",
+          key: "mira",
+          payload: { connectionId: "connection-1" },
+        }),
+      ]);
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([{ jobId: "character-interpretation:mira", outcome: "done", error: null }]),
+      );
+      expect(current("mira")?.behavioralInterpretation?.status).toBe("ready");
+      expect(fake.jobs.size).toBe(0);
+    });
+
+    it("saves a model failure on the character instead of retrying it", async () => {
+      const { fake, storage, current } = durableStorage([character()]);
+      const llm = {
+        complete: vi.fn(async () => {
+          throw new Error("model unreachable");
+        }),
+        stream: vi.fn(),
+        listModels: vi.fn(),
+      } as unknown as LlmGateway;
+      await fake.gateway.enqueue({
+        queue: "character-interpretation",
+        key: "mira",
+        payload: { connectionId: "connection-1" },
+      });
+
+      resumeQueuedCharacterInterpretations({ storage, llm });
+
+      await vi.waitFor(() =>
+        expect(fake.finished).toEqual([{ jobId: "character-interpretation:mira", outcome: "done", error: null }]),
+      );
+      expect(current("mira")?.behavioralInterpretation).toMatchObject({ status: "failed" });
+    });
+
+    it("retries when storage fails during the run instead of dropping the job", async () => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const fake = createFakeBackgroundJobs();
+      const storage = {
+        backgroundJobs: fake.gateway,
+        get: vi.fn(async () => {
+          throw new Error("storage unavailable");
+        }),
+      } as unknown as StorageGateway;
+      await fake.gateway.enqueue({
+        queue: "character-interpretation",
+        key: "mira",
+        payload: { connectionId: "connection-1" },
+      });
+
+      try {
+        resumeQueuedCharacterInterpretations({ storage, llm: llmReturning(readyClaims) });
+
+        await vi.waitFor(() =>
+          expect(fake.finished).toEqual([
+            { jobId: "character-interpretation:mira", outcome: "retry", error: "storage unavailable" },
+          ]),
+        );
+      } finally {
+        warning.mockRestore();
+      }
+    });
+
+    it("reports that it could not store the jobs on a runtime without background jobs", async () => {
+      const { storage } = storageFor(character());
+      const llm = llmReturning(readyClaims);
+
+      await expect(
+        queueSparseCharacterInterpretations({ storage, llm }, { characterIds: ["mira"], connectionId: "connection-1" }),
+      ).resolves.toBe(false);
+      expect(storage.get).not.toHaveBeenCalled();
+    });
   });
 });

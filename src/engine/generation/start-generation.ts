@@ -110,7 +110,10 @@ import {
 import { enqueueAndScheduleStoryEpisode } from "./story-consolidation-queue";
 import { getEffectiveStoryConsolidationEnabled } from "./story-projections";
 import { beginForegroundGeneration } from "./background-generation-coordinator";
-import { scheduleSparseCharacterInterpretations } from "./behavioral-interpretation-background";
+import {
+  queueSparseCharacterInterpretations,
+  scheduleSparseCharacterInterpretations,
+} from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
@@ -4515,6 +4518,25 @@ async function holdLorebookKeeperBackfill(
   };
 }
 
+// Stores the characters' pending interpretations on the runtime, so closing the tab can't drop them.
+// Resolves false when they could not be stored; they then run in this tab after done.
+async function queueCharacterInterpretationsForReply(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  connection: JsonRecord,
+  characters: GenerationCharacterContext[],
+): Promise<boolean> {
+  if (readString(chat.mode || chat.chatMode).trim() !== "roleplay") return true;
+  return queueSparseCharacterInterpretations(
+    { storage: deps.storage, llm: deps.llm },
+    {
+      characterIds: characters.map((character) => character.id),
+      connectionId: readString(connection.id) || input.connectionId || null,
+    },
+  );
+}
+
 // Awaited right after the reply is saved: the refresh is stored on the runtime before any
 // post-save work, so a tab closed while the reply finishes still gets its Director plan.
 async function scheduleContinuityDirectorAfterSavedAssistant(
@@ -5410,11 +5432,15 @@ async function* startGenerationImpl(
       yield { type: "content_replace", data: displayContent };
     }
     content = displayContent;
+    const replyWillBeSaved =
+      !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
+    // Interpretations read only the character cards, never the reply, so they are queued before the
+    // save: a tab closed the moment the reply lands can't drop them.
+    const interpretationsQueued =
+      replyWillBeSaved &&
+      (await queueCharacterInterpretationsForReply(deps, chat, input, connection, assembly.characters));
     // Held from before the save, so no client starts a backfill that would read this turn half-written.
-    const keeperBackfill =
-      !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration
-        ? await holdLorebookKeeperBackfill(deps, input, chat, connection)
-        : null;
+    const keeperBackfill = replyWillBeSaved ? await holdLorebookKeeperBackfill(deps, input, chat, connection) : null;
     const saved = connected.suppressAssistantMessage
       ? null
       : await saveAssistantMessage({
@@ -5584,7 +5610,7 @@ async function* startGenerationImpl(
           await enqueueStoryConsolidationSafely(deps, chat, connection);
           if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
           scheduledTaskCount += 3;
-          if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+          if (!interpretationsQueued && readString(chat.mode || chat.chatMode).trim() === "roleplay") {
             scheduleSparseCharacterInterpretations(
               { storage: deps.storage, llm: deps.llm },
               {
@@ -5809,11 +5835,15 @@ async function* startGenerationImpl(
     yield { type: "content_replace", data: displayContentDirect };
   }
   content = displayContentDirect;
+  const replyWillBeSaved =
+    !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
+  // Interpretations read only the character cards, never the reply, so they are queued before the
+  // save: a tab closed the moment the reply lands can't drop them.
+  const interpretationsQueued =
+    replyWillBeSaved &&
+    (await queueCharacterInterpretationsForReply(deps, chat, input, connection, assembly.characters));
   // Held from before the save, so no client starts a backfill that would read this turn half-written.
-  const keeperBackfill =
-    !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration
-      ? await holdLorebookKeeperBackfill(deps, input, chat, connection)
-      : null;
+  const keeperBackfill = replyWillBeSaved ? await holdLorebookKeeperBackfill(deps, input, chat, connection) : null;
   const saved = connected.suppressAssistantMessage
     ? null
     : await saveAssistantMessage({
@@ -5896,7 +5926,7 @@ async function* startGenerationImpl(
         await enqueueStoryConsolidationSafely(deps, chat, connection);
         if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
         scheduledTaskCount += 3;
-        if (readString(chat.mode || chat.chatMode).trim() === "roleplay") {
+        if (!interpretationsQueued && readString(chat.mode || chat.chatMode).trim() === "roleplay") {
           scheduleSparseCharacterInterpretations(
             { storage: deps.storage, llm: deps.llm },
             {

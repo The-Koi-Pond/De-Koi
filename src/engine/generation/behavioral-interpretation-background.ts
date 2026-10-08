@@ -17,6 +17,8 @@ import {
   isBehavioralInterpretationCurrent,
   validateBehavioralInterpretation,
 } from "./behavioral-interpretation";
+import { createBackgroundJobQueue } from "./background-job-queue";
+import { parseRecord, readString } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
 
 const AUTHORED_EVIDENCE_FIELDS = [
@@ -252,6 +254,7 @@ async function deriveAndSave(
   }
 }
 
+/** Run derivations in this tab now (for runtimes that cannot store background jobs). */
 export function scheduleSparseCharacterInterpretations(
   deps: { storage: StorageGateway; llm: LlmGateway },
   input: ScheduleSparseCharacterInterpretationsInput,
@@ -287,4 +290,51 @@ async function runScheduledDerivations(
       scheduled.delete(characterId);
     }
   }
+}
+
+type InterpretationDeps = { storage: StorageGateway; llm: LlmGateway };
+
+// Stored on the runtime per character, so closing the tab after a reply no longer drops a pending
+// interpretation. It reads only the character card, never the chat, so a reply still being written
+// can't change it. A model failure is saved on the character (as before); a storage error retries.
+const characterInterpretationQueue = createBackgroundJobQueue<InterpretationDeps>({
+  queue: "character-interpretation",
+  async run(job, deps) {
+    const connectionId = clean(readString(parseRecord(job.payload).connectionId));
+    if (!connectionId) return "failed";
+    await deriveAndSave(deps, job.key, connectionId);
+    return "done";
+  },
+});
+
+/**
+ * Store a derivation job for each character that needs one. Resolves false when the runtime cannot
+ * store them, so the caller runs them in this tab instead (`scheduleSparseCharacterInterpretations`).
+ */
+export async function queueSparseCharacterInterpretations(
+  deps: InterpretationDeps,
+  input: ScheduleSparseCharacterInterpretationsInput,
+): Promise<boolean> {
+  const connectionId = clean(input.connectionId);
+  if (!connectionId) return true;
+  if (!deps.storage.backgroundJobs) return false;
+  try {
+    for (const characterId of [...new Set(input.characterIds.map(clean).filter(Boolean))]) {
+      // Most characters are rich or already interpreted; only store a job when there is work.
+      const character = await deps.storage.get<Character>("characters", characterId);
+      if (!character || !needsDerivation(character)) continue;
+      await characterInterpretationQueue.enqueue(deps, { key: characterId, payload: { connectionId } });
+    }
+    return true;
+  } catch (error) {
+    console.warn("[generation] could not queue behavioral interpretations; running them in this tab", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/** Run interpretations a closed or reloaded tab left queued; call once a client starts. */
+export function resumeQueuedCharacterInterpretations(deps: InterpretationDeps): void {
+  characterInterpretationQueue.schedule(deps);
 }
