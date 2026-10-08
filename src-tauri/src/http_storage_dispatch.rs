@@ -158,12 +158,21 @@ pub fn agent_run_keeper_review_update(
 ) -> AppResult<Value> {
     let update_index = usize::try_from(required_i64(args, "updateIndex")?)
         .map_err(|_| AppError::invalid_input("updateIndex must not be negative"))?;
+    let claim_id = args
+        .get("claimId")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let stale_after_ms = args.get("staleAfterMs").and_then(Value::as_u64);
     entity_commands::agent_run_keeper_review_update_inner(
         state,
-        required_string(args, "runId")?.to_string(),
-        update_index,
-        required_non_empty_string_vec(args, "expectedStatuses")?,
-        required_string(args, "status")?.to_string(),
+        entity_commands::KeeperReviewUpdate {
+            run_id: required_string(args, "runId")?.to_string(),
+            update_index,
+            expected_statuses: required_non_empty_string_vec(args, "expectedStatuses")?,
+            status: required_string(args, "status")?.to_string(),
+            claim_id,
+            stale_after_ms,
+        },
     )
 }
 

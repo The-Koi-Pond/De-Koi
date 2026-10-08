@@ -85,16 +85,24 @@ export class LorebookKeeperReviewBusyError extends Error {
   }
 }
 
+/**
+ * An approval that never finished (its tab closed mid-write) can be taken over after this long. A live
+ * approval is a few storage writes and one embedding call, far shorter.
+ */
+const ABANDONED_KEEPER_CLAIM_MS = 5 * 60_000;
+
 function keeperReviewTransition(
   update: PendingLorebookUpdate & { runId: string; updateIndex: number },
   expectedStatuses: Array<"pending" | "applying">,
   status: "pending" | "applying" | "applied" | "rejected",
+  claim: { claimId?: string; staleAfterMs?: number } = {},
 ) {
   return lorebookCommandApi.keeperReviewUpdate({
     runId: update.runId,
     updateIndex: update.updateIndex,
     expectedStatuses,
     status,
+    ...claim,
   });
 }
 
@@ -107,10 +115,11 @@ function storedProposal(
 }
 
 /**
- * Approve a proposal. A stored one is first claimed (`pending`/`applying` -> `applying`) in one atomic
- * step, so a reject from another tab can't land on top of it, and a proposal another tab already
- * decided is left alone. Applying again from `applying` (a retry, or a tab that died mid-approval) is
- * safe: the write is idempotent. If the write fails the claim is handed back to `pending`.
+ * Approve a proposal. A stored one is first claimed for this approval alone (`pending` -> `applying`,
+ * atomically), so a reject or a second approval from another tab can't overlap it, and a proposal
+ * another tab already decided is left alone. Only this claim can settle it (`applied`) or hand it back
+ * (`pending`, when the write fails). A claim left by a tab that closed mid-approval can be taken over
+ * once it is abandoned; the entry write is idempotent, so finishing it again is safe.
  */
 export async function approveLorebookKeeperProposal(
   update: PendingLorebookUpdate,
@@ -120,18 +129,27 @@ export async function approveLorebookKeeperProposal(
     await applyLorebookKeeperUpdate(update);
     return "applied";
   }
-  const claim = await keeperReviewTransition(stored, ["pending", "applying"], "applying");
-  if (!claim.updated) return "already-reviewed";
+  const claimId = `approve-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  const claim = await keeperReviewTransition(stored, ["pending", "applying"], "applying", {
+    claimId,
+    staleAfterMs: ABANDONED_KEEPER_CLAIM_MS,
+  });
+  if (!claim.updated) {
+    if (claim.status === "applying") throw new LorebookKeeperReviewBusyError(update.entryName);
+    return "already-reviewed";
+  }
   try {
     await applyLorebookKeeperUpdate(stored);
   } catch (error) {
-    await keeperReviewTransition(stored, ["applying"], "pending").catch((releaseError: unknown) => {
+    await keeperReviewTransition(stored, ["applying"], "pending", { claimId }).catch((releaseError: unknown) => {
       console.warn("[lorebook-keeper] could not hand a failed approval back for review", releaseError);
     });
     throw error;
   }
-  const settled = await keeperReviewTransition(stored, ["applying"], "applied");
-  return settled.updated || settled.status === "applied" ? "applied" : "already-reviewed";
+  const settled = await keeperReviewTransition(stored, ["applying"], "applied", { claimId });
+  if (settled.updated || settled.status === "applied") return "applied";
+  // The write landed but this claim no longer owns the proposal; say so rather than report a decision.
+  throw new Error(`"${update.entryName}" was taken over by another tab while it was being applied.`);
 }
 
 /** Reject a proposal; only one still `pending` can be rejected, so a racing approval always wins cleanly. */

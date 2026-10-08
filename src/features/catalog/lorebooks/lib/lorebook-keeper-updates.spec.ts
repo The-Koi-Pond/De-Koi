@@ -130,14 +130,19 @@ describe("stored Lorebook Keeper reviews", () => {
   });
 
   describe("deciding a stored proposal", () => {
-    /** The runtime's rule: move the status only from one it still has. */
-    function storedStatus(initial: string) {
+    /** The runtime's rule: move only from a status it still has; an `applying` claim belongs to its owner. */
+    function storedStatus(initial: string, owner = "") {
       let status = initial;
-      keeperReviewUpdate.mockImplementation(async (input: { expectedStatuses: string[]; status: string }) => {
-        if (!input.expectedStatuses.includes(status)) return { updated: false, status };
-        status = input.status;
-        return { updated: true, status };
-      });
+      let claimOwner = owner;
+      keeperReviewUpdate.mockImplementation(
+        async (input: { expectedStatuses: string[]; status: string; claimId?: string }) => {
+          if (!input.expectedStatuses.includes(status)) return { updated: false, status };
+          if (status === "applying" && input.claimId !== claimOwner) return { updated: false, status };
+          status = input.status;
+          claimOwner = input.status === "applying" ? (input.claimId ?? "") : "";
+          return { updated: true, status };
+        },
+      );
       return () => status;
     }
 
@@ -159,6 +164,9 @@ describe("stored Lorebook Keeper reviews", () => {
         [["pending", "applying"], "applying"],
         [["applying"], "applied"],
       ]);
+      const [[claim], [settle]] = keeperReviewUpdate.mock.calls;
+      expect(claim).toEqual(expect.objectContaining({ claimId: expect.any(String), staleAfterMs: 300_000 }));
+      expect(settle.claimId).toBe(claim.claimId);
       expect(keeperReviewUpdate).toHaveBeenCalledWith(expect.objectContaining({ runId: "run-1", updateIndex: 0 }));
       expect(storageApi.create).toHaveBeenCalledTimes(1);
       expect(status()).toBe("applied");
@@ -181,12 +189,13 @@ describe("stored Lorebook Keeper reviews", () => {
       expect(status()).toBe("pending");
     });
 
-    it("finishes an approval a closed tab left mid-way", async () => {
+    it("does not write a proposal another tab is approving right now", async () => {
       const proposal = await storedProposal();
-      const status = storedStatus("applying");
+      const status = storedStatus("applying", "other-tab");
 
-      await expect(approveLorebookKeeperProposal(proposal)).resolves.toBe("applied");
-      expect(status()).toBe("applied");
+      await expect(approveLorebookKeeperProposal(proposal)).rejects.toBeInstanceOf(LorebookKeeperReviewBusyError);
+      expect(storageApi.create).not.toHaveBeenCalled();
+      expect(status()).toBe("applying");
     });
 
     it("rejects only a pending proposal, and never one another tab is applying", async () => {

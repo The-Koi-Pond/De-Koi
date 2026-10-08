@@ -763,27 +763,53 @@ pub(crate) fn app_settings_update_if_unchanged_inner(
 /// client decides it (the engine writes the others when it stores the run).
 const KEEPER_REVIEW_STATUSES: &[&str] = &["pending", "applying", "applied", "rejected"];
 
+/// One requested move of a stored Keeper proposal's review status.
+pub(crate) struct KeeperReviewUpdate {
+    pub run_id: String,
+    pub update_index: usize,
+    pub expected_statuses: Vec<String>,
+    pub status: String,
+    /// Required to claim (`applying`); the claim's owner passes it again to settle or release.
+    pub claim_id: Option<String>,
+    /// Lets another client take over an `applying` claim at least this old (its tab is gone).
+    pub stale_after_ms: Option<u64>,
+}
+
 #[cfg(feature = "desktop")]
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn agent_run_keeper_review_update(
     state: State<'_, AppState>,
     run_id: String,
     update_index: usize,
     expected_statuses: Vec<String>,
     status: String,
+    claim_id: Option<String>,
+    stale_after_ms: Option<u64>,
 ) -> Result<Value, AppError> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         agent_run_keeper_review_update_inner(
             &state,
-            run_id,
-            update_index,
-            expected_statuses,
-            status,
+            KeeperReviewUpdate {
+                run_id,
+                update_index,
+                expected_statuses,
+                status,
+                claim_id,
+                stale_after_ms,
+            },
         )
     })
     .await
     .map_err(|error| AppError::new("task_join_error", error.to_string()))?
+}
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Moves one Lorebook Keeper proposal stored on an agent run (its
@@ -791,13 +817,22 @@ pub async fn agent_run_keeper_review_update(
 /// still one of `expected_statuses`. The check and the write happen under the
 /// storage write lock, so two clients deciding the same proposal can't both
 /// win: the loser gets `updated: false` and the status it lost to.
+///
+/// An `applying` proposal is claimed by one client (`claim_id`). Only that
+/// client can move it on, unless the claim is older than `stale_after_ms`
+/// (the client is gone), so two approvals never apply it at the same time.
 pub(crate) fn agent_run_keeper_review_update_inner(
     state: &AppState,
-    run_id: String,
-    update_index: usize,
-    expected_statuses: Vec<String>,
-    status: String,
+    request: KeeperReviewUpdate,
 ) -> Result<Value, AppError> {
+    let KeeperReviewUpdate {
+        run_id,
+        update_index,
+        expected_statuses,
+        status,
+        claim_id,
+        stale_after_ms,
+    } = request;
     let known = |value: &str| KEEPER_REVIEW_STATUSES.contains(&value);
     if !known(&status) {
         return Err(AppError::invalid_input(format!(
@@ -809,6 +844,13 @@ pub(crate) fn agent_run_keeper_review_update_inner(
             "expectedStatuses must list known Lorebook Keeper review statuses",
         ));
     }
+    let claim_id = claim_id.filter(|value| !value.trim().is_empty());
+    if status == "applying" && claim_id.is_none() {
+        return Err(AppError::invalid_input(
+            "Claiming a Lorebook Keeper proposal needs a claimId",
+        ));
+    }
+    let now = epoch_ms();
     let mut current = String::new();
     let updated = state.storage.patch_if("agent-runs", &run_id, |row| {
         let proposal = row
@@ -834,7 +876,28 @@ pub(crate) fn agent_run_keeper_review_update_inner(
         {
             return Ok(false);
         }
+        if current == "applying" {
+            let owns_claim = claim_id.is_some()
+                && proposal.get("reviewClaimId").and_then(Value::as_str) == claim_id.as_deref();
+            let claimed_at = proposal
+                .get("reviewClaimedAt")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let claim_is_stale = stale_after_ms
+                .is_some_and(|stale_after| now.saturating_sub(claimed_at) >= stale_after);
+            if !owns_claim && !claim_is_stale {
+                return Ok(false);
+            }
+        }
         proposal.insert("reviewStatus".to_string(), Value::String(status.clone()));
+        if status == "applying" {
+            let claim = claim_id.clone().unwrap_or_default();
+            proposal.insert("reviewClaimId".to_string(), Value::String(claim));
+            proposal.insert("reviewClaimedAt".to_string(), json!(now));
+        } else {
+            proposal.remove("reviewClaimId");
+            proposal.remove("reviewClaimedAt");
+        }
         Ok(true)
     })?;
     Ok(match updated {
@@ -1872,13 +1935,33 @@ mod tests {
             .expect("keeper run should seed");
     }
 
-    fn keeper_review(state: &AppState, index: usize, expected: &[&str], status: &str) -> Value {
+    fn keeper_review_request(
+        index: usize,
+        expected: &[&str],
+        status: &str,
+        claim_id: Option<&str>,
+        stale_after_ms: Option<u64>,
+    ) -> KeeperReviewUpdate {
+        KeeperReviewUpdate {
+            run_id: "run-1".to_string(),
+            update_index: index,
+            expected_statuses: expected.iter().map(|value| value.to_string()).collect(),
+            status: status.to_string(),
+            claim_id: claim_id.map(ToOwned::to_owned),
+            stale_after_ms,
+        }
+    }
+
+    fn keeper_review(
+        state: &AppState,
+        index: usize,
+        expected: &[&str],
+        status: &str,
+        claim_id: Option<&str>,
+    ) -> Value {
         agent_run_keeper_review_update_inner(
             state,
-            "run-1".to_string(),
-            index,
-            expected.iter().map(|value| value.to_string()).collect(),
-            status.to_string(),
+            keeper_review_request(index, expected, status, claim_id, Some(300_000)),
         )
         .expect("review update should run")
     }
@@ -1889,24 +1972,85 @@ mod tests {
         seed_keeper_run(&state);
 
         // One tab claims the proposal to apply it; a stale tab's reject then loses.
-        let claim = keeper_review(&state, 0, &["pending"], "applying");
+        let claim = keeper_review(
+            &state,
+            0,
+            &["pending", "applying"],
+            "applying",
+            Some("tab-a"),
+        );
         assert_eq!(claim, json!({ "updated": true, "status": "applying" }));
-        let stale_reject = keeper_review(&state, 0, &["pending"], "rejected");
+        let stale_reject = keeper_review(&state, 0, &["pending"], "rejected", None);
         assert_eq!(
             stale_reject,
             json!({ "updated": false, "status": "applying" })
         );
-        let applied = keeper_review(&state, 0, &["applying"], "applied");
+        // A second approval can't claim it while tab A's claim is live, nor settle it.
+        let second_claim = keeper_review(
+            &state,
+            0,
+            &["pending", "applying"],
+            "applying",
+            Some("tab-b"),
+        );
+        assert_eq!(
+            second_claim,
+            json!({ "updated": false, "status": "applying" })
+        );
+        let not_owner = keeper_review(&state, 0, &["applying"], "applied", Some("tab-b"));
+        assert_eq!(not_owner["updated"], false);
+        let applied = keeper_review(&state, 0, &["applying"], "applied", Some("tab-a"));
         assert_eq!(applied["updated"], true);
 
         let run = state.storage.get("agent-runs", "run-1").unwrap().unwrap();
-        assert_eq!(run["resultData"]["updates"][0]["reviewStatus"], "applied");
-        assert_eq!(
-            run["resultData"]["updates"][0]["entryName"],
-            "Archivist koi"
-        );
+        let proposal = &run["resultData"]["updates"][0];
+        assert_eq!(proposal["reviewStatus"], "applied");
+        assert_eq!(proposal["entryName"], "Archivist koi");
+        assert!(proposal.get("reviewClaimId").is_none());
         // The other proposal on the run is untouched.
         assert_eq!(run["resultData"]["updates"][1]["reviewStatus"], "pending");
+    }
+
+    #[test]
+    fn keeper_review_lets_a_stale_claim_be_taken_over() {
+        let state = test_state("keeper-review-stale-claim");
+        seed_keeper_run(&state);
+        keeper_review(&state, 0, &["pending"], "applying", Some("tab-a"));
+
+        // Tab A closed mid-approval: once its claim is old enough another tab takes over.
+        let fresh = agent_run_keeper_review_update_inner(
+            &state,
+            keeper_review_request(
+                0,
+                &["pending", "applying"],
+                "applying",
+                Some("tab-b"),
+                Some(60_000),
+            ),
+        )
+        .unwrap();
+        assert_eq!(fresh["updated"], false);
+        let takeover = agent_run_keeper_review_update_inner(
+            &state,
+            keeper_review_request(
+                0,
+                &["pending", "applying"],
+                "applying",
+                Some("tab-b"),
+                Some(0),
+            ),
+        )
+        .unwrap();
+        assert_eq!(takeover["updated"], true);
+        // The new owner settles it; the old one no longer can.
+        assert_eq!(
+            keeper_review(&state, 0, &["applying"], "pending", Some("tab-a"))["updated"],
+            false
+        );
+        assert_eq!(
+            keeper_review(&state, 0, &["applying"], "applied", Some("tab-b"))["updated"],
+            true
+        );
     }
 
     #[test]
@@ -1914,27 +2058,19 @@ mod tests {
         let state = test_state("keeper-review-invalid");
         seed_keeper_run(&state);
 
-        for (expected, status) in [
-            (vec!["pending"], "approved"),
-            (vec!["skipped"], "rejected"),
-            (vec![], "rejected"),
+        for request in [
+            keeper_review_request(0, &["pending"], "approved", None, None),
+            keeper_review_request(0, &["skipped"], "rejected", None, None),
+            keeper_review_request(0, &[], "rejected", None, None),
+            keeper_review_request(0, &["pending"], "applying", None, None),
         ] {
-            let error = agent_run_keeper_review_update_inner(
-                &state,
-                "run-1".to_string(),
-                0,
-                expected.iter().map(|value| value.to_string()).collect(),
-                status.to_string(),
-            )
-            .expect_err("unknown statuses are refused");
+            let error = agent_run_keeper_review_update_inner(&state, request)
+                .expect_err("invalid requests are refused");
             assert_eq!(error.code, "invalid_input");
         }
         let missing = agent_run_keeper_review_update_inner(
             &state,
-            "run-1".to_string(),
-            7,
-            vec!["pending".to_string()],
-            "rejected".to_string(),
+            keeper_review_request(7, &["pending"], "rejected", None, None),
         )
         .expect_err("a missing proposal is refused");
         assert_eq!(missing.code, "not_found");

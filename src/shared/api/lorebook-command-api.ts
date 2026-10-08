@@ -26,6 +26,10 @@ export const lorebookCommandApi = {
     updateIndex: number;
     expectedStatuses: LorebookKeeperReviewTransitionStatus[];
     status: LorebookKeeperReviewTransitionStatus;
+    /** Required to claim (`applying`); the owner passes it again to settle or release the claim. */
+    claimId?: string;
+    /** Take over an `applying` claim at least this old (the tab that held it is gone). */
+    staleAfterMs?: number;
   }) => invokeTauri<LorebookKeeperReviewTransition>("agent_run_keeper_review_update", input, { timeoutMs: null }),
   uploadImage: <T = unknown>(id: string, image: string, filename?: string) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
