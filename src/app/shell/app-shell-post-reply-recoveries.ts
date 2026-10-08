@@ -11,9 +11,13 @@ function warnReviewLoadFailure(error: unknown): void {
   console.warn("[card-evolution] could not load the card updates waiting for review", error);
 }
 
+// Only while that chat is still on screen: checked again once the module and the proposals have loaded.
 function showCardEvolutionReviews(chatId: string): void {
+  const stillOpen = () => useChatStore.getState().activeChatId === chatId;
   void cardReviews()
-    .then(({ showPendingCardEvolutionReviews }) => showPendingCardEvolutionReviews(chatId))
+    .then(({ showPendingCardEvolutionReviews }) =>
+      stillOpen() ? showPendingCardEvolutionReviews(chatId, stillOpen) : undefined,
+    )
     .catch(warnReviewLoadFailure);
 }
 

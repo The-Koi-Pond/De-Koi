@@ -209,9 +209,16 @@ export async function rejectCardEvolutionReview(entry: PendingCardUpdate): Promi
   return rejected ? "rejected" : "already-reviewed";
 }
 
-/** Queue this chat's undecided stored proposals in the review dialog and open it when any are new. */
-export async function showPendingCardEvolutionReviews(chatId: string): Promise<void> {
+/**
+ * Queue this chat's undecided stored proposals in the review dialog and open it when any are new.
+ * `stillWanted` is checked once they are loaded, so a chat the user left meanwhile queues nothing.
+ */
+export async function showPendingCardEvolutionReviews(
+  chatId: string,
+  stillWanted: () => boolean = () => true,
+): Promise<void> {
   const pending = await loadPendingCardEvolutionReviews(chatId);
+  if (!stillWanted()) return;
   const agentStore = useAgentStore.getState();
   const queued = new Set(agentStore.pendingCardUpdates.map((entry) => entry.id));
   const fresh = pending.filter((entry) => !queued.has(entry.id));

@@ -121,10 +121,16 @@ export function CharacterCardUpdateModal({ open, onClose }: Props) {
     // Apply each edit as a targeted substring replace inside the field's current
     // value, NOT by overwriting the field with newText (which would erase
     // everything around the edited sentence).
+    // Each edit must still find its text after the ones before it; two edits to the same passage
+    // would otherwise drop one silently while the batch is recorded as applied.
     let nextData: Record<string, unknown> = { ...parsedData };
     for (const u of applicableUpdates) {
       const base = getCharacterCardFieldValue(nextData, u.field);
-      if (typeof base !== "string") continue;
+      if (typeof base !== "string" || !base.includes(u.oldText)) {
+        throw new Error(
+          `Two of these edits change the same ${u.field} text, so they can't all be applied. Reject them.`,
+        );
+      }
       nextData = setCharacterCardFieldValue(nextData, u.field, base.replace(u.oldText, u.newText));
     }
     nextData.character_version = bumpCharacterVersion(nextData.character_version);

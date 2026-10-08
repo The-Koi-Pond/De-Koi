@@ -944,7 +944,7 @@ async function applyBackgroundChoice(chatId: string, chosen: unknown) {
 
 type BackgroundGenerationDeps = {
   storage: Pick<typeof storageApi, "get" | "list">;
-  backgrounds: Pick<typeof backgroundsApi, "upload">;
+  backgrounds: Pick<typeof backgroundsApi, "upload"> & Partial<Pick<typeof backgroundsApi, "delete">>;
   image: NonNullable<IntegrationGateway["image"]>;
   applyChoice: (chatId: string, chosen: unknown) => Promise<void>;
 };
@@ -965,6 +965,7 @@ export async function generateAndApplyBackgroundRequest(
     upload: async (image) =>
       deps.backgrounds.upload(await dataUrlToFile(image.dataUrl, image.filename, image.mimeType)),
     applyChoice: deps.applyChoice,
+    discard: deps.backgrounds.delete ? (chosen) => deps.backgrounds.delete!(chosen) : undefined,
   });
 }
 

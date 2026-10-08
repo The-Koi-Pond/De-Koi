@@ -92,6 +92,29 @@ describe("CharacterCardUpdateModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("refuses to record overlapping edits as applied when one can no longer find its text", async () => {
+    const overlapping: PendingCardUpdate = {
+      ...storedEntry,
+      updates: [
+        { ...storedEntry.updates[0]!, oldText: "keeps the lantern", newText: "guards the lamp" },
+        { ...storedEntry.updates[0]!, oldText: "the lantern", newText: "the old lantern" },
+      ],
+    };
+    useAgentStore.getState().clearPendingCardUpdates();
+    useAgentStore.getState().enqueuePendingCardUpdate(overlapping);
+    cardReviews.approveCardEvolutionReview.mockImplementationOnce(async (_entry, apply: () => Promise<void>) => {
+      await apply();
+      return "applied";
+    });
+    renderDialog();
+
+    await act(async () => button("Approve").click());
+
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(queuedIds()).toEqual(["run-1:mira"]);
+    expect(document.body.textContent).toContain("Two of these edits change the same description text");
+  });
+
   it("keeps the proposals and shows the error when approving fails", async () => {
     cardReviews.approveCardEvolutionReview.mockRejectedValueOnce(new Error("Mira's card update is being applied"));
     const onClose = renderDialog();

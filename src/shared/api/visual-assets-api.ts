@@ -88,6 +88,7 @@ export const visualAssetsApi: VisualAssetGateway = {
     const blob = await fetch(dataUrl).then((response) => response.blob());
     return backgroundsApi.upload(new File([blob], filename, { type: blob.type || mimeType }));
   },
+  deleteBackground: (filename) => backgroundsApi.delete(filename),
   resolveReferenceImage: async (source) => {
     const fallbackMimeType = referenceImageFallbackMimeType(source.mimeType);
     const inline =

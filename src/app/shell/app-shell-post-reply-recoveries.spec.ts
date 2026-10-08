@@ -28,7 +28,32 @@ describe("post-reply recovery effects in the app shell", () => {
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.detail("chat-1") });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.messages("chat-1") });
-    await vi.waitFor(() => expect(showPendingCardEvolutionReviews).toHaveBeenCalledWith("chat-1"));
+    await vi.waitFor(() =>
+      expect(showPendingCardEvolutionReviews).toHaveBeenCalledWith("chat-1", expect.any(Function)),
+    );
+  });
+
+  it("offers nothing when the user leaves the chat while the review code loads", async () => {
+    unsubscribe = subscribePostReplyRecoveryEffects(new QueryClient());
+    useChatStore.getState().setActiveChatId("chat-1");
+
+    publishPostReplyRecovery({ chatId: "chat-1", messageId: "reply-1", pendingCardReviews: 1 });
+    useChatStore.getState().setActiveChatId("chat-2");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(showPendingCardEvolutionReviews).not.toHaveBeenCalled();
+  });
+
+  it("checks the chat is still open once the proposals load", async () => {
+    unsubscribe = subscribePostReplyRecoveryEffects(new QueryClient());
+    useChatStore.getState().setActiveChatId("chat-1");
+
+    publishPostReplyRecovery({ chatId: "chat-1", messageId: "reply-1", pendingCardReviews: 1 });
+    await vi.waitFor(() => expect(showPendingCardEvolutionReviews).toHaveBeenCalled());
+    const stillWanted = (showPendingCardEvolutionReviews.mock.calls[0] as unknown[])[1] as () => boolean;
+    expect(stillWanted()).toBe(true);
+    useChatStore.getState().setActiveChatId("chat-2");
+    expect(stillWanted()).toBe(false);
   });
 
   it("leaves card updates for when the chat opens if another chat is on screen, or none are waiting", async () => {

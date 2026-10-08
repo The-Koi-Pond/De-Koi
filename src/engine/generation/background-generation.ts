@@ -23,6 +23,8 @@ export interface BackgroundGenerationDeps {
   upload(image: GeneratedBackgroundImage): Promise<unknown>;
   /** Make the uploaded background (its stored filename) the chat's background. */
   applyChoice(chatId: string, chosen: string): Promise<void>;
+  /** Remove an uploaded background that could not be applied, so the library keeps no orphan. */
+  discard?(chosen: string): Promise<unknown>;
 }
 
 function normalizeBackgroundGenerationRequest(value: unknown): BackgroundGenerationRequest | null {
@@ -135,7 +137,14 @@ export async function generateBackgroundForAgentResult(
   });
   const chosen = uploadedBackgroundChoice(upload);
   if (!chosen) throw new Error("Generated background upload did not return a filename.");
-  await deps.applyChoice(chatId, chosen);
+  try {
+    await deps.applyChoice(chatId, chosen);
+  } catch (error) {
+    await deps.discard?.(chosen).catch((discardError: unknown) => {
+      console.warn("[background] could not remove a generated background that was not applied", discardError);
+    });
+    throw error;
+  }
   return chosen;
 }
 

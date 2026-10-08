@@ -4364,6 +4364,7 @@ async function generateRecoveredBackgrounds(
         applyChoice: async (id, chosen) => {
           await deps.storage.patchChatMetadata(id, { background: chosen });
         },
+        discard: deps.visuals?.deleteBackground ? (chosen) => deps.visuals!.deleteBackground!(chosen) : undefined,
       });
     } catch (error) {
       console.warn("[post-reply-agents] could not generate the background a recovered run asked for", error);

@@ -131,6 +131,15 @@ describe("stored Card Evolution reviews", () => {
     expect(useUIStore.getState().modal).toEqual(expect.objectContaining({ type: "character-card-update" }));
   });
 
+  it("queues nothing when the chat is no longer wanted once its proposals load", async () => {
+    storedRuns([auditorRun]);
+
+    await showPendingCardEvolutionReviews("chat-1", () => false);
+
+    expect(useAgentStore.getState().pendingCardUpdates).toEqual([]);
+    expect(useUIStore.getState().modal).toBeNull();
+  });
+
   it("approves by claiming every proposal, writing the card, then settling them applied", async () => {
     const statuses = reviewCommand(["pending", "pending"]);
     const apply = vi.fn(async () => {
