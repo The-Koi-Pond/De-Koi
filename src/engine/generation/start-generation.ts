@@ -53,6 +53,8 @@ import {
   runFocusedRoleplayQualityAudit,
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
+import { publishLorebookKeeperSettlement } from "./lorebook-keeper-settlements";
+import { settleLorebookKeeperResults, type LorebookEntryVectorizer } from "./lorebook-keeper-updates";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
 import {
@@ -2572,6 +2574,11 @@ async function agentNameLookup(storage: StorageGateway): Promise<Map<string, str
   return lookup;
 }
 
+function lorebookEntryVectorizer(deps: GenerationEngineDeps): LorebookEntryVectorizer | undefined {
+  const lorebooks = deps.integrations?.lorebooks;
+  return lorebooks ? (lorebookId, entryIds) => lorebooks.vectorizeEntries(lorebookId, entryIds) : undefined;
+}
+
 async function persistAgentResults(
   storage: StorageGateway,
   chatId: string,
@@ -4255,7 +4262,16 @@ async function runGenerationAgentsForTarget(args: {
       deps.onTrackerSnapshotSaved,
     );
   }
+  // Keeper proposals are applied (review off) or marked pending (review on) before the run is
+  // stored, so they reach the lorebook or the review dialog whichever client runs this, or none.
+  const keeperSettlement = await settleLorebookKeeperResults(
+    { storage: deps.storage, vectorize: lorebookEntryVectorizer(deps) },
+    chatForAgents,
+    finalResults,
+  );
+  finalResults = keeperSettlement.results;
   await persistAgentResults(deps.storage, chatId, target ? readString(target.id) || null : null, finalResults);
+  if (keeperSettlement.settlement) publishLorebookKeeperSettlement(keeperSettlement.settlement);
 
   const events: GenerationEvent[] = runtime.agentWarnings.map((warning) => ({ type: "agent_warning", data: warning }));
   for (const patched of patchedMessages) {

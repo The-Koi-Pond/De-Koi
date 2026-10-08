@@ -4,7 +4,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Modal } from "../../../../../shared/components/ui/Modal";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
-import { applyLorebookKeeperUpdate } from "../../lib/lorebook-keeper-updates";
+import {
+  applyLorebookKeeperUpdate,
+  lorebookKeeperReviewStillPending,
+  recordLorebookKeeperReview,
+} from "../../lib/lorebook-keeper-updates";
 import { lorebookKeys } from "../../query-keys";
 
 interface Props {
@@ -22,7 +26,7 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
 
   if (!entry) return null;
 
-  const closeAndAdvance = () => {
+  const advance = () => {
     dismissPendingLorebookUpdate(entry.id);
     setError(null);
     if (pending.length <= 1) onClose();
@@ -32,16 +36,32 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
     setApplying(true);
     setError(null);
     try {
+      if (!(await lorebookKeeperReviewStillPending(entry))) {
+        toast(`"${entry.entryName}" was already reviewed.`);
+        advance();
+        return;
+      }
       await applyLorebookKeeperUpdate(entry);
       await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
       await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
       toast.success(`Lorebook Keeper ${entry.action === "create" ? "created" : "updated"} "${entry.entryName}".`);
-      closeAndAdvance();
+      await recordLorebookKeeperReview(entry, "applied").catch((recordError: unknown) => {
+        console.warn("[lorebook-keeper] could not save the approval on its run", recordError);
+      });
+      advance();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply lorebook update.");
     } finally {
       setApplying(false);
     }
+  };
+
+  // Rejecting (or closing the dialog) settles the proposal too, so it is not offered again.
+  const closeAndAdvance = () => {
+    void recordLorebookKeeperReview(entry, "rejected").catch((recordError: unknown) => {
+      console.warn("[lorebook-keeper] could not save the rejection on its run", recordError);
+    });
+    advance();
   };
 
   const queueNote = pending.length > 1 ? ` (${pending.length - 1} more queued)` : "";

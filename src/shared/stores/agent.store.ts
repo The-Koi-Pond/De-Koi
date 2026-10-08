@@ -91,6 +91,9 @@ export interface PendingLorebookUpdate {
   reason: string;
   agentName: string;
   timestamp: number;
+  /** The stored Keeper run this proposal came from, and its index there; the decision is saved on it. */
+  runId?: string;
+  updateIndex?: number;
 }
 
 interface AgentState {

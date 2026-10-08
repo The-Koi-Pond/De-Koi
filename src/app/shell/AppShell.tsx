@@ -68,6 +68,10 @@ import {
   subscribeAutomaticMemoryCaptureStatuses,
 } from "../../engine/generation/automatic-memory-capture-events";
 import { subscribeContinuityDirectorRefreshCacheInvalidation } from "./app-shell-continuity-director";
+import {
+  showLorebookKeeperReviewsForOpenedChat,
+  subscribeLorebookKeeperSettlementEffects,
+} from "./app-shell-lorebook-keeper";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
@@ -376,6 +380,7 @@ export function AppShell() {
   );
 
   useEffect(() => subscribeContinuityDirectorRefreshCacheInvalidation(queryClient), [queryClient]);
+  useEffect(() => subscribeLorebookKeeperSettlementEffects(queryClient), [queryClient]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -510,6 +515,7 @@ export function AppShell() {
   // Shell interactivity follows the transient optional tour, not the legacy persisted completion flag.
   const hasCompletedOnboarding = !onboardingTourOpen;
   const activeChatId = useChatStore((s) => s.activeChatId);
+  useEffect(() => showLorebookKeeperReviewsForOpenedChat(activeChatId), [activeChatId]);
   const pendingNewChatMode = useChatStore((s) => s.pendingNewChatMode);
   const setupJourneyIntent = useSetupJourneyStore((s) => s.intent);
   useEffect(() => {
