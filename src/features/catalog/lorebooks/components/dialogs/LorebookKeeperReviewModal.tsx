@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Modal } from "../../../../../shared/components/ui/Modal";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
-import { applyLorebookKeeperUpdate } from "../../lib/lorebook-keeper-updates";
+import { approveLorebookKeeperProposal, rejectLorebookKeeperProposal } from "../../lib/lorebook-keeper-updates";
 import { lorebookKeys } from "../../query-keys";
 
 interface Props {
@@ -22,23 +22,46 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
 
   if (!entry) return null;
 
-  const closeAndAdvance = () => {
+  const advance = () => {
     dismissPendingLorebookUpdate(entry.id);
     setError(null);
     if (pending.length <= 1) onClose();
   };
 
+  // A decision is claimed on the stored proposal atomically: if another tab decided it first this
+  // one just moves on, and if the decision can't be saved the proposal stays here with the error.
   const handleApprove = async () => {
     setApplying(true);
     setError(null);
     try {
-      await applyLorebookKeeperUpdate(entry);
-      await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
-      await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
-      toast.success(`Lorebook Keeper ${entry.action === "create" ? "created" : "updated"} "${entry.entryName}".`);
-      closeAndAdvance();
+      const outcome = await approveLorebookKeeperProposal(entry);
+      if (outcome === "already-reviewed") {
+        toast(`"${entry.entryName}" was already reviewed.`);
+      } else {
+        await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
+        await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
+        toast.success(`Lorebook Keeper ${entry.action === "create" ? "created" : "updated"} "${entry.entryName}".`);
+      }
+      advance();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply lorebook update.");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  // Rejecting (or closing the dialog) settles the proposal too, so it is not offered again.
+  const closeAndAdvance = async () => {
+    if (applying) return;
+    setApplying(true);
+    setError(null);
+    try {
+      if ((await rejectLorebookKeeperProposal(entry)) === "already-reviewed") {
+        toast(`"${entry.entryName}" was already reviewed.`);
+      }
+      advance();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save the rejection.");
     } finally {
       setApplying(false);
     }
@@ -48,7 +71,7 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
   const facts = entry.newFacts.length > 0 ? entry.newFacts : entry.content ? [entry.content] : [];
 
   return (
-    <Modal open={open} onClose={closeAndAdvance} title="Review Lorebook Keeper Update" width="max-w-2xl">
+    <Modal open={open} onClose={() => void closeAndAdvance()} title="Review Lorebook Keeper Update" width="max-w-2xl">
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-400/15 ring-1 ring-amber-400/25">
@@ -111,7 +134,7 @@ export function LorebookKeeperReviewModal({ open, onClose }: Props) {
         <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-3">
           <button
             type="button"
-            onClick={closeAndAdvance}
+            onClick={() => void closeAndAdvance()}
             disabled={applying}
             className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
           >

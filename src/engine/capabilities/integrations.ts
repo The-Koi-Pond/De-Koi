@@ -42,6 +42,11 @@ export interface WebResearchGateway {
   readPage<T = unknown>(input: { chatId: string; grantId: string; query: string; url: string }): Promise<T>;
 }
 
+export interface LorebookCommandsGateway {
+  /** Embed these entries of a lorebook (skipping ones already current). */
+  vectorizeEntries<T = unknown>(lorebookId: string, entryIds: string[]): Promise<T>;
+}
+
 export interface IntegrationGateway {
   music?: MusicGateway;
   spotify: SpotifyGateway;
@@ -49,5 +54,6 @@ export interface IntegrationGateway {
   image: ImageGenerationGateway;
   discord?: DiscordGateway;
   webResearch?: WebResearchGateway;
+  lorebooks?: LorebookCommandsGateway;
 }
 import type { GeneratedImageResult } from "../contracts/generated-image";

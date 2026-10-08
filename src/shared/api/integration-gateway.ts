@@ -6,6 +6,7 @@ import {
 } from "../../engine/contracts/constants/core-modules";
 import { coreModulesApi } from "./core-modules-api";
 import { imageGenerationApi } from "./image-generation-api";
+import { lorebookCommandApi } from "./lorebook-command-api";
 import { spotifyApi } from "./integration-utility-api";
 import { musicApi } from "./music-api";
 import { invokeTauri } from "./tauri-client";
@@ -36,6 +37,10 @@ async function musicPlayerModuleEnabled(): Promise<boolean> {
 }
 
 export const integrationGateway: IntegrationGateway = {
+  lorebooks: {
+    vectorizeEntries: (lorebookId, entryIds) =>
+      lorebookCommandApi.vectorize(lorebookId, { onlyMissing: true, entryIds }),
+  },
   webResearch: {
     search: (input) => webResearchApi.search(input),
     readPage: (input) => webResearchApi.readPage(input),

@@ -8,7 +8,29 @@ export interface LorebookVectorizeInput {
   entryIds?: string[];
 }
 
+export type LorebookKeeperReviewTransitionStatus = "pending" | "applying" | "applied" | "rejected";
+
+export interface LorebookKeeperReviewTransition {
+  /** False when the proposal had already moved past `expectedStatuses`; `status` is what it is now. */
+  updated: boolean;
+  status: string;
+}
+
 export const lorebookCommandApi = {
+  /**
+   * Move one stored Keeper proposal to `status`, only if it is still one of `expectedStatuses`
+   * (checked and written atomically by the runtime).
+   */
+  keeperReviewUpdate: (input: {
+    runId: string;
+    updateIndex: number;
+    expectedStatuses: LorebookKeeperReviewTransitionStatus[];
+    status: LorebookKeeperReviewTransitionStatus;
+    /** Required to claim (`applying`); the owner passes it again to settle or release the claim. */
+    claimId?: string;
+    /** Take over an `applying` claim at least this old (the tab that held it is gone). */
+    staleAfterMs?: number;
+  }) => invokeTauri<LorebookKeeperReviewTransition>("agent_run_keeper_review_update", input, { timeoutMs: null }),
   uploadImage: <T = unknown>(id: string, image: string, filename?: string) =>
     invalidateRemoteManagedAssetObjectUrlsAfter(
       invokeTauri<T>("lorebook_image_upload", { id, body: { image, filename } }),

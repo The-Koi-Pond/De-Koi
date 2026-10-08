@@ -1,297 +1,184 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
-  createLorebookEntrySchema,
-  updateLorebookEntrySchema,
-} from "../../../../engine/contracts/schemas/lorebook.schema";
-import type { Chat } from "../../../../engine/contracts/types/chat";
-import type { Lorebook, LorebookEntry } from "../../../../engine/contracts/types/lorebook";
-import { resolveLorebookKeeperTarget } from "../../../../engine/generation-core/lorebooks/lorebook-keeper-target";
+  applyLorebookKeeperUpdate as applyLorebookKeeperUpdateToStorage,
+  isLorebookKeeperResult,
+  lorebookKeeperProposalEntryId,
+  lorebookKeeperRawUpdates,
+  lorebookKeeperReviewStatus,
+  resolveLorebookKeeperUpdate,
+  type LorebookKeeperReviewStatus,
+} from "../../../../engine/generation/lorebook-keeper-updates";
+import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { lorebookCommandApi } from "../../../../shared/api/lorebook-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { parseChatMetadata } from "../../../../shared/lib/chat-display";
-import type { PendingLorebookUpdate } from "../../../../shared/stores/agent.store";
-import { chatKeys } from "../../chats/query-keys";
+import { useAgentStore, type PendingLorebookUpdate } from "../../../../shared/stores/agent.store";
+import { useUIStore } from "../../../../shared/stores/ui.store";
 import { lorebookKeys } from "../query-keys";
 
-type LorebookKeeperVectorizationResult =
-  | { status: "not-applicable" }
-  | { status: "vectorized"; vectorized: number; skipped: number }
-  | { status: "failed"; error: string };
-
-interface LorebookKeeperApplyResult {
-  applied: boolean;
-  lorebookId: string;
-  entryId: string | null;
-  vectorization: LorebookKeeperVectorizationResult;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
-  return {};
-}
+type JsonRecord = Record<string, unknown>;
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.map((item) => readString(item)).filter(Boolean)
-    : typeof value === "string" && value.trim()
-      ? [value.trim()]
-      : [];
+export async function applyLorebookKeeperUpdate(update: PendingLorebookUpdate) {
+  const vectorize = integrationGateway.lorebooks?.vectorizeEntries;
+  const proposalEntryId =
+    update.runId && update.updateIndex !== undefined
+      ? lorebookKeeperProposalEntryId(update.runId, update.updateIndex)
+      : undefined;
+  return applyLorebookKeeperUpdateToStorage(storageApi, update, vectorize, { proposalEntryId });
 }
 
-function uniqueStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const trimmed = value.trim();
-    const key = trimmed.toLowerCase();
-    if (!trimmed || seen.has(key)) continue;
-    seen.add(key);
-    result.push(trimmed);
-  }
-  return result;
+/** `applying` is an approval that never finished (its tab closed); approving it again completes it. */
+function awaitingDecision(status: LorebookKeeperReviewStatus | null): boolean {
+  return status === "pending" || status === "applying";
 }
 
-function entryDefaults(lorebookId: string, update: PendingLorebookUpdate): Record<string, unknown> {
-  return {
-    lorebookId,
-    name: update.entryName || "Untitled entry",
-    content: update.content,
-    description: "",
-    keys: update.keys,
-    secondaryKeys: [],
-    enabled: true,
-    constant: false,
-    selective: false,
-    selectiveLogic: "and",
-    probability: null,
-    scanDepth: null,
-    matchWholeWords: false,
-    caseSensitive: false,
-    useRegex: false,
-    characterFilterMode: "any",
-    characterFilterIds: [],
-    characterTagFilterMode: "any",
-    characterTagFilters: [],
-    generationTriggerFilterMode: "any",
-    generationTriggerFilters: [],
-    additionalMatchingSources: [],
-    position: 0,
-    depth: 4,
-    order: 100,
-    role: "system",
-    sticky: null,
-    cooldown: null,
-    delay: null,
-    ephemeral: null,
-    group: "",
-    groupWeight: null,
-    folderId: null,
-    preventRecursion: false,
-    locked: false,
-    tag: update.tag,
-    relationships: {},
-    dynamicState: {},
-    activationConditions: [],
-    schedule: null,
-    excludeFromVectorization: false,
-    embedding: null,
-  };
-}
-
-async function chatForUpdate(queryClient: QueryClient, chatId: string): Promise<Chat | null> {
-  const cached = queryClient.getQueryData<Chat>(chatKeys.detail(chatId));
-  if (cached) return cached;
-  return (await storageApi.get<Chat>("chats", chatId).catch(() => null)) ?? null;
-}
-
-async function lorebooksForUpdate(queryClient: QueryClient): Promise<Lorebook[]> {
-  const cached = queryClient.getQueryData<Lorebook[]>(lorebookKeys.list());
-  if (cached) return cached;
-  return storageApi.list<Lorebook>("lorebooks").catch(() => []);
-}
-
-function resolveTargetLorebook(
-  chat: Chat | null,
-  lorebooks: Lorebook[],
-  rawUpdate: Record<string, unknown>,
-): { id: string; name: string } | null {
-  return resolveLorebookKeeperTarget(lorebooks, {
-    chat,
-    characters: (chat?.characterIds ?? []).map((id) => ({ id })),
-    persona: chat?.personaId ? { id: chat.personaId } : null,
-    proposedLorebookId: rawUpdate.lorebookId,
-  });
-}
-
-function normalizeRawLorebookUpdate(raw: unknown): Record<string, unknown> | null {
-  const update = asRecord(raw);
-  const action = readString(update.action).toLowerCase();
-  if (action !== "create" && action !== "update" && action !== "delete") return null;
-  const entryName = readString(update.entryName) || readString(update.name);
-  const entryId = readString(update.entryId) || readString(update.id);
-  if (!entryName && !entryId) return null;
-  return update;
-}
-
-function isNormalizedLorebookUpdate(value: Record<string, unknown> | null): value is Record<string, unknown> {
-  return value !== null;
-}
-
-export function lorebookKeeperReviewRequired(chat: Chat | null | undefined): boolean {
-  const metadata = parseChatMetadata(chat?.metadata);
-  return metadata.lorebookKeeperReviewRequired !== false;
-}
-
-export async function buildPendingLorebookUpdates(
-  queryClient: QueryClient,
-  chatId: string,
-  agentName: string,
-  rawData: unknown,
-): Promise<PendingLorebookUpdate[]> {
-  const data = asRecord(rawData);
-  const updates = Array.isArray(data.updates)
-    ? data.updates.map(normalizeRawLorebookUpdate).filter(isNormalizedLorebookUpdate)
-    : [];
-  if (updates.length === 0) return [];
-
-  const timestamp = Date.now();
-  const chat = await chatForUpdate(queryClient, chatId);
-  const lorebooks = await lorebooksForUpdate(queryClient);
+/**
+ * The Keeper proposals still waiting for a decision in this chat. They are read from the stored
+ * Keeper runs, so a proposal made while no tab was open (or in another tab) still shows up here.
+ */
+export async function loadPendingLorebookKeeperReviews(chatId: string): Promise<PendingLorebookUpdate[]> {
+  const runs = await storageApi.list<JsonRecord>("agent-runs", { filters: { chatId } });
+  const keeperRuns = runs.filter(
+    (run) =>
+      run.success !== false &&
+      isLorebookKeeperResult({ agentType: readString(run.agentType), type: readString(run.resultType) }) &&
+      lorebookKeeperRawUpdates(run.resultData).some((update) => awaitingDecision(lorebookKeeperReviewStatus(update))),
+  );
+  if (keeperRuns.length === 0) return [];
+  // Read failures reject rather than pass for "nothing to review"; the proposals stay pending and
+  // are offered the next time the chat opens.
+  const [chat, lorebooks] = await Promise.all([
+    storageApi.get<JsonRecord>("chats", chatId),
+    storageApi.list<JsonRecord>("lorebooks"),
+  ]);
   const pending: PendingLorebookUpdate[] = [];
-  for (const rawUpdate of updates) {
-    const target = resolveTargetLorebook(chat, lorebooks, rawUpdate);
-    if (!target) continue;
-    const action = readString(rawUpdate.action).toLowerCase() as PendingLorebookUpdate["action"];
-    pending.push({
-      id: `lorebook-update-${target.id}-${timestamp}-${pending.length}`,
-      chatId,
-      lorebookId: target.id,
-      lorebookName: target.name,
-      action,
-      entryId: readString(rawUpdate.entryId) || readString(rawUpdate.id) || null,
-      entryName: readString(rawUpdate.entryName) || readString(rawUpdate.name) || "Untitled entry",
-      content: readString(rawUpdate.content),
-      newFacts: stringArray(rawUpdate.newFacts),
-      keys: uniqueStrings(stringArray(rawUpdate.keys)),
-      tag: readString(rawUpdate.tag),
-      reason: readString(rawUpdate.reason),
-      agentName,
-      timestamp: timestamp + pending.length,
+  for (const run of keeperRuns) {
+    const runId = readString(run.id);
+    const createdAt = Date.parse(readString(run.createdAt)) || 0;
+    lorebookKeeperRawUpdates(run.resultData).forEach((rawUpdate, updateIndex) => {
+      if (!awaitingDecision(lorebookKeeperReviewStatus(rawUpdate))) return;
+      const update = resolveLorebookKeeperUpdate(rawUpdate, { chat, lorebooks });
+      if (!update) return;
+      pending.push({
+        ...update,
+        id: `${runId}:${updateIndex}`,
+        chatId,
+        runId,
+        updateIndex,
+        agentName: readString(run.agentName) || "Lorebook Keeper",
+        timestamp: createdAt + updateIndex,
+      });
     });
   }
-  return pending;
+  return pending.sort((left, right) => left.timestamp - right.timestamp);
 }
 
-async function findExistingEntry(update: PendingLorebookUpdate): Promise<LorebookEntry | null> {
-  if (update.entryId) {
-    const entry = await storageApi.get<LorebookEntry>("lorebook-entries", update.entryId).catch(() => null);
-    if (entry?.lorebookId === update.lorebookId) return entry;
+export type LorebookKeeperReviewOutcome = "applied" | "rejected" | "already-reviewed";
+
+/** The stored proposal is mid-approval in another tab; it can't be rejected now. */
+export class LorebookKeeperReviewBusyError extends Error {
+  constructor(entryName: string) {
+    super(`"${entryName}" is being applied in another tab.`);
   }
-  const entries = await storageApi.list<LorebookEntry>("lorebook-entries", {
-    filters: { lorebookId: update.lorebookId },
+}
+
+/**
+ * An approval that never finished (its tab closed mid-write) can be taken over after this long. A live
+ * approval is a few storage writes and one embedding call, far shorter.
+ */
+const ABANDONED_KEEPER_CLAIM_MS = 5 * 60_000;
+
+function keeperReviewTransition(
+  update: PendingLorebookUpdate & { runId: string; updateIndex: number },
+  expectedStatuses: Array<"pending" | "applying">,
+  status: "pending" | "applying" | "applied" | "rejected",
+  claim: { claimId?: string; staleAfterMs?: number } = {},
+) {
+  return lorebookCommandApi.keeperReviewUpdate({
+    runId: update.runId,
+    updateIndex: update.updateIndex,
+    expectedStatuses,
+    status,
+    ...claim,
   });
-  const targetName = update.entryName.trim().toLowerCase();
-  return entries.find((entry) => entry.name.trim().toLowerCase() === targetName) ?? null;
 }
 
-function appendLoreFacts(existingContent: string, update: PendingLorebookUpdate): string {
-  const additions = uniqueStrings([
-    ...update.newFacts,
-    ...(update.content && !existingContent.trim() ? [update.content] : []),
-    ...(update.content &&
-    existingContent.trim() &&
-    !existingContent.includes(update.content) &&
-    update.newFacts.length === 0
-      ? [update.content]
-      : []),
-  ]).filter((fact) => !existingContent.toLowerCase().includes(fact.toLowerCase()));
-  if (additions.length === 0) return existingContent;
-  const additionText = additions.map((fact) => `- ${fact}`).join("\n");
-  return [existingContent.trim(), additionText].filter(Boolean).join("\n\n");
-}
-
-function vectorizationErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Lorebook Keeper auto-vectorization failed.";
-}
-
-async function autoVectorizeKeeperEntry(
-  lorebookId: string,
-  entryId: string | null,
-): Promise<LorebookKeeperVectorizationResult> {
-  if (!entryId) return { status: "not-applicable" };
-  try {
-    const result = await lorebookCommandApi.vectorize<{ vectorized?: number; skipped?: number }>(lorebookId, {
-      onlyMissing: true,
-      entryIds: [entryId],
-    });
-    return {
-      status: "vectorized",
-      vectorized: typeof result.vectorized === "number" ? result.vectorized : 0,
-      skipped: typeof result.skipped === "number" ? result.skipped : 0,
-    };
-  } catch (error) {
-    const message = vectorizationErrorMessage(error);
-    console.warn("[lorebook-keeper] Auto-vectorization failed", { lorebookId, entryId, error });
-    return { status: "failed", error: message };
-  }
-}
-
-function applyResult(
+function storedProposal(
   update: PendingLorebookUpdate,
-  applied: boolean,
-  entryId: string | null,
-  vectorization: LorebookKeeperVectorizationResult = { status: "not-applicable" },
-): LorebookKeeperApplyResult {
-  return {
-    applied,
-    lorebookId: update.lorebookId,
-    entryId,
-    vectorization,
-  };
+): (PendingLorebookUpdate & { runId: string; updateIndex: number }) | null {
+  return update.runId && update.updateIndex !== undefined
+    ? (update as PendingLorebookUpdate & { runId: string; updateIndex: number })
+    : null;
 }
 
-export async function applyLorebookKeeperUpdate(update: PendingLorebookUpdate): Promise<LorebookKeeperApplyResult> {
-  if (update.action === "create") {
-    const created = await storageApi.create<LorebookEntry>(
-      "lorebook-entries",
-      createLorebookEntrySchema.parse(entryDefaults(update.lorebookId, update)),
-    );
-    return applyResult(update, true, created.id, await autoVectorizeKeeperEntry(update.lorebookId, created.id));
+/**
+ * Approve a proposal. A stored one is first claimed for this approval alone (`pending` -> `applying`,
+ * atomically), so a reject or a second approval from another tab can't overlap it, and a proposal
+ * another tab already decided is left alone. Only this claim can settle it (`applied`) or hand it back
+ * (`pending`, when the write fails). A claim left by a tab that closed mid-approval can be taken over
+ * once it is abandoned; the entry write is idempotent, so finishing it again is safe.
+ */
+export async function approveLorebookKeeperProposal(
+  update: PendingLorebookUpdate,
+): Promise<LorebookKeeperReviewOutcome> {
+  const stored = storedProposal(update);
+  if (!stored) {
+    await applyLorebookKeeperUpdate(update);
+    return "applied";
   }
+  const claimId = `approve-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  const claim = await keeperReviewTransition(stored, ["pending", "applying"], "applying", {
+    claimId,
+    staleAfterMs: ABANDONED_KEEPER_CLAIM_MS,
+  });
+  if (!claim.updated) {
+    if (claim.status === "applying") throw new LorebookKeeperReviewBusyError(update.entryName);
+    return "already-reviewed";
+  }
+  try {
+    await applyLorebookKeeperUpdate(stored);
+  } catch (error) {
+    await keeperReviewTransition(stored, ["applying"], "pending", { claimId }).catch((releaseError: unknown) => {
+      console.warn("[lorebook-keeper] could not hand a failed approval back for review", releaseError);
+    });
+    throw error;
+  }
+  const settled = await keeperReviewTransition(stored, ["applying"], "applied", { claimId });
+  if (settled.updated || settled.status === "applied") return "applied";
+  // The write landed but this claim no longer owns the proposal; say so rather than report a decision.
+  throw new Error(`"${update.entryName}" was taken over by another tab while it was being applied.`);
+}
 
-  const existing = await findExistingEntry(update);
-  if (!existing) {
-    if (update.action === "delete") return applyResult(update, false, null);
-    const created = await storageApi.create<LorebookEntry>(
-      "lorebook-entries",
-      createLorebookEntrySchema.parse(entryDefaults(update.lorebookId, update)),
-    );
-    return applyResult(update, true, created.id, await autoVectorizeKeeperEntry(update.lorebookId, created.id));
-  }
+/** Reject a proposal; only one still `pending` can be rejected, so a racing approval always wins cleanly. */
+export async function rejectLorebookKeeperProposal(
+  update: PendingLorebookUpdate,
+): Promise<LorebookKeeperReviewOutcome> {
+  const stored = storedProposal(update);
+  if (!stored) return "rejected";
+  const result = await keeperReviewTransition(stored, ["pending"], "rejected");
+  if (result.updated) return "rejected";
+  if (result.status === "applying") throw new LorebookKeeperReviewBusyError(update.entryName);
+  return "already-reviewed";
+}
 
-  if (existing.locked) {
-    throw new Error(`"${existing.name}" is locked and cannot be changed by Lorebook Keeper.`);
-  }
+/** Queue this chat's undecided proposals in the review dialog and open it when any are new. */
+export async function showPendingLorebookKeeperReviews(chatId: string): Promise<void> {
+  const pending = await loadPendingLorebookKeeperReviews(chatId);
+  const agentStore = useAgentStore.getState();
+  const queued = new Set(agentStore.pendingLorebookUpdates.map((entry) => entry.id));
+  const fresh = pending.filter((entry) => !queued.has(entry.id));
+  for (const entry of fresh) agentStore.enqueuePendingLorebookUpdate(entry);
+  // Never cover another dialog; the queued proposals wait for the next time this chat opens.
+  if (fresh.length > 0 && !useUIStore.getState().modal) useUIStore.getState().openModal("lorebook-keeper-review");
+}
 
-  if (update.action === "delete") {
-    await storageApi.delete("lorebook-entries", existing.id);
-    return applyResult(update, true, existing.id);
-  }
-
-  const nextContent = appendLoreFacts(existing.content ?? "", update);
-  const nextKeys = uniqueStrings([...(existing.keys ?? []), ...update.keys]);
-  const patch: Record<string, unknown> = {};
-  if (nextContent !== existing.content) patch.content = nextContent;
-  if (nextKeys.length !== (existing.keys ?? []).length) patch.keys = nextKeys;
-  if (update.tag && update.tag !== existing.tag) patch.tag = update.tag;
-  if (Object.keys(patch).length > 0) {
-    patch.embedding = null;
-    await storageApi.update<LorebookEntry>("lorebook-entries", existing.id, updateLorebookEntrySchema.parse(patch));
-    return applyResult(update, true, existing.id, await autoVectorizeKeeperEntry(update.lorebookId, existing.id));
-  }
-  return applyResult(update, false, existing.id);
+/** Refresh the lorebook views a Keeper run just wrote to. */
+export async function invalidateLorebookKeeperWrites(queryClient: QueryClient, lorebookIds: string[]): Promise<void> {
+  await Promise.all([
+    ...lorebookIds.map((lorebookId) => queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(lorebookId) })),
+    queryClient.invalidateQueries({ queryKey: lorebookKeys.active() }),
+  ]);
 }

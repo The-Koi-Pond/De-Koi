@@ -50,12 +50,6 @@ import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
 import { chatKeys, sanitizeTimelineMessageRecord } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
 import { personaKeys } from "../../../catalog/personas/index";
-import {
-  applyLorebookKeeperUpdate,
-  buildPendingLorebookUpdates,
-  lorebookKeys,
-  lorebookKeeperReviewRequired,
-} from "../../../catalog/lorebooks/index";
 import type { GenerationReplayInput } from "../../../../engine/generation/generation-replay";
 import { findPersonaSnapshotForChat } from "../../../../engine/generation/persona-snapshot";
 import { readNonNegativeInteger } from "../../../../engine/generation/runtime-records";
@@ -1423,27 +1417,8 @@ async function applyAgentResultEffects(
     if (pending.length) useUIStore.getState().openModal("character-card-update");
   }
 
-  if (result.type === "lorebook_update" || result.agentType === "lorebook-keeper") {
-    const pending = await buildPendingLorebookUpdates(queryClient, chatId, agentName, result.data);
-    if (pending.length) {
-      const chat =
-        queryClient.getQueryData<Chat>(chatKeys.detail(chatId)) ??
-        ((await storageApi.get<Chat>("chats", chatId).catch(() => null)) as Chat | null);
-      if (lorebookKeeperReviewRequired(chat)) {
-        for (const entry of pending) agentStore.enqueuePendingLorebookUpdate(entry);
-        useUIStore.getState().openModal("lorebook-keeper-review");
-      } else {
-        let applied = 0;
-        for (const entry of pending) {
-          await applyLorebookKeeperUpdate(entry);
-          applied += 1;
-          await queryClient.invalidateQueries({ queryKey: lorebookKeys.entries(entry.lorebookId) });
-        }
-        await queryClient.invalidateQueries({ queryKey: lorebookKeys.active() });
-        if (applied > 0) toast.success(`Lorebook Keeper applied ${applied} ${applied === 1 ? "update" : "updates"}.`);
-      }
-    }
-  }
+  // Keeper proposals are applied or left for review by the engine before their run is stored;
+  // the app shell's Keeper settlement listener refreshes lorebooks and opens the review dialog.
 
   if (result.type === "background_change" || result.agentType === "background") {
     await generateAndApplyBackgroundRequest(chatId, result).catch((error) => {
