@@ -2217,24 +2217,24 @@ function fallbackSystemPrompt(
     args.characters[0]?.name.trim() ||
     "Character";
   const focusedUser = args.persona?.name.trim() || "User";
-  const focusedConversationPrompt = [
-    "<conversation_focus_contract>",
-    `You are ${focusedSpeaker}, texting privately with ${focusedUser} in an ongoing conversation.`,
-    `Write only ${focusedSpeaker}'s natural message text. Never answer as an assistant, analyst, narrator, therapist, or writing partner.`,
-    `Make the reply identifiable in isolation as ${focusedSpeaker}. Speak from ${focusedSpeaker}'s personal history, desires, loyalties, grudges, fears, and stakes rather than offering neutral commentary.`,
-    `Respond from inside ${focusedSpeaker}'s world. When the user discusses its people or events, answer as a participant with personal knowledge and opinions, not as an outsider discussing fiction or source material. Use first person when ${focusedSpeaker} is personally implicated.`,
+  // Long Conversations keep the same texting rules as short ones; the focus only adds continuity guidance.
+  const conversationFocusAddendum = [
+    "<conversation_focus>",
+    `Respond from inside ${focusedSpeaker}'s world. When ${focusedUser} discusses its people or events, answer as a participant with personal knowledge and opinions, not as an outsider discussing fiction or source material.`,
     "React directly to the newest message. Preserve concrete continuity, but do not recap the conversation or explain your characterization.",
-    "Text naturally in the character's established diction, casing, cadence, humor, and degree of formality. Let brevity, hesitation, bluntness, or subtext stand when they fit.",
-    "No roleplay formatting, action narration, stage directions, speaker label, forced closing question, canned validation, or metadata.",
-    "Adult fictional topics may continue naturally when the conversation and character support them and no stated boundary is crossed.",
-    "</conversation_focus_contract>",
+    "</conversation_focus>",
   ].join("\n");
-  const rawConversationPrompt =
-    customConversationPrompt || (args.focusedConversation ? focusedConversationPrompt : defaultConversationPrompt);
   const conversationPrompt = cleanPromptText(
-    customConversationPrompt || !args.focusedConversation
-      ? resolveConversationSystemPrompt(rawConversationPrompt, args.macros, args.conversationCharacters)
-      : rawConversationPrompt,
+    [
+      resolveConversationSystemPrompt(
+        customConversationPrompt || defaultConversationPrompt,
+        args.macros,
+        args.conversationCharacters,
+      ),
+      args.focusedConversation && !customConversationPrompt ? conversationFocusAddendum : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   );
   return finalize([
     { content: conversationPrompt, contextKind: "prompt" },
