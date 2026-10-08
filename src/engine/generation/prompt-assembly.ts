@@ -3735,8 +3735,8 @@ function mergeIntoPreviousPromptMessage(previous: ChatMLMessage, message: ChatML
 }
 
 function strictRoleBoundaryLabel(message: ChatMLMessage): string {
-  const speaker =
-    readString(message.name).trim() || readString(message.displayName).trim() || readString(message.characterId).trim();
+  // Character ids are storage keys, not speaker names; unnamed lines fall through to their context label.
+  const speaker = readString(message.name).trim() || readString(message.displayName).trim();
   if (speaker) return `${speaker}:`;
   if (message.contextKind === "prompt") return "[Prompt]";
   if (message.contextKind === "history") return "[History]";
@@ -4007,6 +4007,27 @@ function prefixGroupIndividualHistorySpeakers(
 
   return messages.map((message) => {
     if (!isIndividualGroupHistoryMessage(message)) return message;
+    const speakerName = historySpeakerName(message, characterNames, persona);
+    if (!speakerName || hasKnownSpeakerPrefix(message.content, knownSpeakerNames)) return message;
+    return transformPromptMessageContent(message, (content) => `${speakerName}: ${content}`);
+  });
+}
+
+/**
+ * A targeted group Conversation turn sends everyone else's lines as user turns, so each one needs its
+ * speaker's name or the model reads another character's messages as the user's.
+ */
+function prefixOtherConversationSpeakers(
+  messages: ChatMLMessage[],
+  characters: GenerationCharacterContext[],
+  persona: GenerationPersonaContext | null,
+  targetCharacterId: string,
+): ChatMLMessage[] {
+  const characterNames = characterNameLookup(characters);
+  const knownSpeakerNames = normalizedKnownSpeakerNames(characters, persona);
+  return messages.map((message) => {
+    if (!isIndividualGroupHistoryMessage(message)) return message;
+    if (readString(message.characterId).trim() === targetCharacterId) return message;
     const speakerName = historySpeakerName(message, characterNames, persona);
     if (!speakerName || hasKnownSpeakerPrefix(message.content, knownSpeakerNames)) return message;
     return transformPromptMessageContent(message, (content) => `${speakerName}: ${content}`);
@@ -5067,6 +5088,7 @@ export async function assembleGenerationPrompt(
     messages = scopeIndividualGroupHistoryRoles(messages, individualGroupTarget);
   }
   if (targetedConversationCharacterId) {
+    messages = prefixOtherConversationSpeakers(messages, characters, persona, targetedConversationCharacterId);
     messages = scopeIndividualGroupHistoryRoles(messages, targetedConversationCharacterId);
   }
   messages = finalizeDeferredCharacterMessages(messages, macros, individualGroupTargetCharacter);

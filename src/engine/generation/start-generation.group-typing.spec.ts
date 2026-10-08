@@ -347,8 +347,12 @@ describe("startGeneration group typing", () => {
 
     expect(mainRequests).toHaveLength(2);
     const secondPrompt = mainRequests[1]!.messages.map((message) => message.content).join("\n");
-    expect(secondPrompt.match(/Aki:/g)).toHaveLength(1);
-    expect(secondPrompt).toContain("Aki: Aki's final patched contribution.");
+    const peerContext = mainRequests[1]!.messages.find((message) =>
+      message.content.includes("Same-send peer contributions"),
+    )!.content;
+    expect(peerContext.match(/Aki:/g)).toHaveLength(1);
+    expect(peerContext).toContain("Aki: Aki's final patched contribution.");
+    expect(secondPrompt).toContain("[History]\nAki: Aki's final patched contribution.");
     expect(secondPrompt).not.toContain("Aki's initial contribution.");
   });
 

@@ -302,6 +302,28 @@ describe("long Conversation context focus", () => {
     expect(text).toContain("Respond only as Mira");
   });
 
+  it("names the other group members whose lines reach a targeted speaker as user turns", async () => {
+    const result = await assembleGenerationPrompt(focusStorage([longCharacter(), longCharacter("sol", "Sol")]), {
+      chat: { id: "chat-targeted-peers", mode: "conversation", characterIds: ["mira", "sol"], metadata: {} },
+      storedMessages: [
+        { id: "user-1", role: "user", content: "who's cooking tonight?" },
+        { id: "sol-1", role: "assistant", characterId: "sol", content: "SOL_LINE not me, I burned the rice" },
+        { id: "mira-1", role: "assistant", characterId: "mira", content: "MIRA_LINE I'll do it" },
+        { id: "current-user", role: "user", content: "and dessert?" },
+      ],
+      connection: { provider: "openai", model: "qa-model", maxContext: 128_000 },
+      request: { forCharacterId: "mira" },
+      latestUserInput: "and dessert?",
+    });
+
+    const history = result.messages.filter((message) => message.contextKind === "history");
+    const text = promptText(history);
+    expect(text).toContain("Sol: SOL_LINE not me, I burned the rice");
+    expect(text).not.toContain("sol:\n");
+    expect(text).not.toContain("Mira: MIRA_LINE");
+    expect(history.find((message) => message.content.includes("MIRA_LINE"))?.role).toBe("assistant");
+  });
+
   it("leaves Roleplay on the normal prompt path", async () => {
     const result = await assembleGenerationPrompt(focusStorage([longCharacter()]), {
       chat: { id: "chat-roleplay", mode: "roleplay", characterIds: ["mira"], metadata: {} },
