@@ -113,6 +113,14 @@ export interface GenerationAgentRuntimeInput {
   spotifyDjForceFreshPick?: boolean;
   illustratorManualRequest?: boolean;
   illustratorGuidance?: string;
+  /**
+   * Re-runs the helpers of a reply that is already saved, when the turn that saved it never ran
+   * them (its tab closed). Agents resolve exactly as on that automatic turn (enabled flags,
+   * activation, run intervals), then only the parallel and post-processing ones run; nothing is
+   * injected and pre-generation agents do not run again. Post-processing agents read the
+   * injections the turn stored on the reply.
+   */
+  postReplyRecovery?: { preGenInjections: AgentInjection[] };
 }
 
 export interface GenerationAgentRuntime {
@@ -121,6 +129,8 @@ export interface GenerationAgentRuntime {
   agentWarnings: AgentConnectionWarning[];
   agentData: Record<string, string>;
   availableSprites: AvailableSpriteCharacter[];
+  /** Whether a parallel or post-processing agent runs that a recovery of this turn would run again. */
+  hasPostReplyAgents: boolean;
   runParallel(): Promise<AgentResult[]>;
   runPost(mainResponse: string): Promise<AgentResult[]>;
 }
@@ -180,6 +190,9 @@ const MAX_AGENT_PARALLEL_JOBS = 16;
 const MAX_ILLUSTRATOR_REFERENCE_IMAGES = 8;
 const IMAGE_REFERENCE_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
 const PROMPT_INJECTABLE_RESULT_TYPES = new Set(["context_injection", "director_event", "secret_plot"]);
+// Their results only matter live (a music cue, echo reactions, choices for the reply on screen) or
+// act outside the app (the Music Player plays tracks), so a recovered run never replays them.
+const POST_REPLY_RECOVERY_SKIPPED_AGENT_TYPES = new Set(["music-dj", "spotify", "echo-chamber", "cyoa"]);
 type AutomaticIntervalMessageRole = "assistant" | "user";
 
 const DEFAULT_ROLEPLAY_EXPRESSIONS = [
@@ -1765,12 +1778,26 @@ export async function runFocusedRoleplayQualityAudit(
   return executeAgent(coreEditor, context, coreEditor.provider, coreEditor.model);
 }
 
+function runsAgainInPostReplyRecovery(agent: ResolvedAgent): boolean {
+  return (
+    agent.phase !== "pre_generation" &&
+    !KNOWLEDGE_AGENT_TYPES.has(agent.type) &&
+    !POST_REPLY_RECOVERY_SKIPPED_AGENT_TYPES.has(agent.type)
+  );
+}
+
 export async function createGenerationAgentRuntime(
   deps: AgentDeps,
   input: GenerationAgentRuntimeInput,
   onResult?: (result: AgentResult) => void,
 ): Promise<GenerationAgentRuntime> {
-  const { agents, skippedResults, staticInjections, agentWarnings } = await resolveAgents(deps, input);
+  const resolved = await resolveAgents(deps, input);
+  const { skippedResults, agentWarnings } = resolved;
+  const recovery = input.postReplyRecovery;
+  const agents = recovery ? resolved.agents.filter(runsAgainInPostReplyRecovery) : resolved.agents;
+  // Static injections only feed the prompt, which a recovered run never builds.
+  const staticInjections = recovery ? [] : resolved.staticInjections;
+  const hasPostReplyAgents = agents.some(runsAgainInPostReplyRecovery);
   const preResults: AgentResult[] = [...skippedResults];
   const overrideInjections = normalizedAgentInjectionOverrides(input.agentInjectionOverrides);
   const initialInjections = mergeAgentInjections(staticInjections, overrideInjections);
@@ -1793,6 +1820,7 @@ export async function createGenerationAgentRuntime(
       agentWarnings,
       agentData,
       availableSprites: [],
+      hasPostReplyAgents,
       runParallel: async () => [],
       runPost: async () => [],
     };
@@ -1807,6 +1835,20 @@ export async function createGenerationAgentRuntime(
     onResult?.(resultEventData(result));
   });
 
+  if (recovery) {
+    return {
+      preInjections: [],
+      preResults,
+      agentWarnings,
+      agentData,
+      availableSprites,
+      hasPostReplyAgents,
+      runParallel: async () => pipeline.runParallel(),
+      runPost: async (mainResponse) =>
+        pipeline.postGenerate(mainResponse, { preGenInjections: recovery.preGenInjections }),
+    };
+  }
+
   if (overrideInjections.length > 0) {
     return {
       preInjections: initialInjections,
@@ -1814,6 +1856,7 @@ export async function createGenerationAgentRuntime(
       agentWarnings,
       agentData,
       availableSprites,
+      hasPostReplyAgents,
       runParallel: async () => pipeline.runParallel(),
       runPost: async (mainResponse) =>
         pipeline.postGenerate(mainResponse, {
@@ -1847,6 +1890,7 @@ export async function createGenerationAgentRuntime(
     agentWarnings,
     agentData,
     availableSprites,
+    hasPostReplyAgents,
     runParallel: async () => pipeline.runParallel(),
     runPost: async (mainResponse) =>
       pipeline.postGenerate(mainResponse, {

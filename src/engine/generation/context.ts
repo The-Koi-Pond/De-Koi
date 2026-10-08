@@ -29,6 +29,7 @@ const GENERATION_MESSAGE_EXTRA_FIELDS = [
   "cyoaChoices",
   "spriteExpressions",
   "isConversationStart",
+  "postReplyAgents",
 ];
 
 function uniqueStrings(values: readonly string[]): string[] {
