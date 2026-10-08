@@ -308,9 +308,11 @@ const characterInterpretationQueue = createBackgroundJobQueue<InterpretationDeps
 });
 
 /**
- * Store a derivation job for each character that needs one. Resolves the ids that could not be
- * stored (all of them on a runtime without background jobs), for the caller to run in this tab with
- * `scheduleSparseCharacterInterpretations`; characters that were stored never run twice.
+ * Store a derivation job for each character that needs one. On a runtime without background jobs it
+ * stores nothing and resolves every id, for the caller to run in this tab with
+ * `scheduleSparseCharacterInterpretations`. A character whose job fails to store is not run here
+ * (the store may have landed anyway, and running it twice would duplicate the model call); it still
+ * needs an interpretation, so the next reply queues it again.
  */
 export async function queueSparseCharacterInterpretations(
   deps: InterpretationDeps,
@@ -320,7 +322,6 @@ export async function queueSparseCharacterInterpretations(
   const characterIds = [...new Set(input.characterIds.map(clean).filter(Boolean))];
   if (!connectionId) return [];
   if (!deps.storage.backgroundJobs) return characterIds;
-  const notStored: string[] = [];
   for (const characterId of characterIds) {
     try {
       // Most characters are rich or already interpreted; only store a job when there is work.
@@ -328,14 +329,13 @@ export async function queueSparseCharacterInterpretations(
       if (!character || !needsDerivation(character)) continue;
       await characterInterpretationQueue.enqueue(deps, { key: characterId, payload: { connectionId } });
     } catch (error) {
-      console.warn("[generation] could not queue a behavioral interpretation; running it in this tab", {
+      console.warn("[generation] could not queue a behavioral interpretation; the next reply queues it again", {
         characterId,
         error: error instanceof Error ? error.message : String(error),
       });
-      notStored.push(characterId);
     }
   }
-  return notStored;
+  return [];
 }
 
 /** Run interpretations a closed or reloaded tab left queued; call once a client starts. */

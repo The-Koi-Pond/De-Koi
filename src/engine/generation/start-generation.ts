@@ -4519,7 +4519,7 @@ async function holdLorebookKeeperBackfill(
 }
 
 // Stores the characters' pending interpretations on the runtime, so closing the tab can't drop them.
-// Resolves the character ids that could not be stored; those run in this tab after done.
+// On a runtime that cannot store them, resolves the character ids to run in this tab after done.
 async function queueCharacterInterpretationsForReply(
   deps: GenerationEngineDeps,
   chat: JsonRecord,
@@ -5611,7 +5611,7 @@ async function* startGenerationImpl(
           if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
           scheduledTaskCount += 3;
           if (interpretationsForThisTab.length > 0) {
-            // Only the characters whose jobs could not be stored; stored ones never run twice.
+            // Only on a runtime without background jobs; queued characters never run here too.
             scheduleSparseCharacterInterpretations(
               { storage: deps.storage, llm: deps.llm },
               {
@@ -5928,7 +5928,7 @@ async function* startGenerationImpl(
         if (!summaryQueued) scheduleConversationSummaryBackgroundAfterSavedAssistant(deps, chat, input, connection);
         scheduledTaskCount += 3;
         if (interpretationsForThisTab.length > 0) {
-          // Only the characters whose jobs could not be stored; stored ones never run twice.
+          // Only on a runtime without background jobs; queued characters never run here too.
           scheduleSparseCharacterInterpretations(
             { storage: deps.storage, llm: deps.llm },
             {

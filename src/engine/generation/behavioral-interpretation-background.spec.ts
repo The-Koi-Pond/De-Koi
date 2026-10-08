@@ -476,7 +476,7 @@ describe("sparse character behavioral interpretation background", () => {
       expect(storage.get).not.toHaveBeenCalled();
     });
 
-    it("hands back only the characters it could not store when queueing fails partway", async () => {
+    it("never also runs a character in this tab when storing its job fails; the next reply queues it again", async () => {
       const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
       const second = { ...character(), id: "sable" } as Character;
       const { fake, storage } = durableStorage([character(), second]);
@@ -492,9 +492,13 @@ describe("sparse character behavioral interpretation background", () => {
             { storage, llm: llmReturning(readyClaims) },
             { characterIds: ["mira", "sable"], connectionId: "connection-1" },
           ),
-        ).resolves.toEqual(["sable"]);
-        // Mira's job was stored, so she is not handed back to run a second time in this tab.
+        ).resolves.toEqual([]);
+        // Sable's failure didn't stop Mira's job from being stored.
         expect(enqueue.mock.calls.map(([call]) => call.key)).toEqual(["mira", "sable"]);
+        expect(warning).toHaveBeenCalledWith(
+          "[generation] could not queue a behavioral interpretation; the next reply queues it again",
+          { characterId: "sable", error: "runtime unavailable" },
+        );
       } finally {
         warning.mockRestore();
       }
