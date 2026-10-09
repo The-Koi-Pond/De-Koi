@@ -201,6 +201,22 @@ describe("waitForPostReplyWork", () => {
     other();
   });
 
+  it("also waits for work that starts while it waits, within the same limit", async () => {
+    vi.useFakeTimers();
+    const first = trackPostReplyWork(storage, "chat-d");
+    let waited: "finished" | "timed-out" | null = null;
+    void waitForPostReplyWork(storage, "chat-d", { timeoutMs: 20_000 }).then((outcome) => {
+      waited = outcome;
+    });
+    const late = trackPostReplyWork(storage, "chat-d");
+    first();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(waited).toBeNull();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(waited).toBe("timed-out");
+    late();
+  });
+
   it("gives up after the limit, and stops when the turn is cancelled", async () => {
     vi.useFakeTimers();
     const finish = trackPostReplyWork(storage, "chat-c");

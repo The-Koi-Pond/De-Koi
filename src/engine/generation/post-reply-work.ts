@@ -33,31 +33,35 @@ export function postReplyWorkRunning(storage: StorageGateway, chatId: string): b
 }
 
 /**
- * Wait for the chat's running helper work, at most `timeoutMs`. Resolves `"finished"` when it all ended,
- * `"timed-out"` when the limit came first (the caller goes ahead anyway); rejects if `signal` aborts.
+ * Wait for the chat's running helper work, at most `timeoutMs` in total, including work that starts
+ * while waiting. Resolves `"finished"` when none is left, `"timed-out"` when the limit came first (the
+ * caller goes ahead anyway); rejects if `signal` aborts.
  */
 export async function waitForPostReplyWork(
   storage: StorageGateway,
   chatId: string,
   options: { timeoutMs: number; signal?: AbortSignal },
 ): Promise<"finished" | "timed-out"> {
-  const running = [...(inFlight.get(storage)?.get(chatId) ?? [])];
-  if (running.length === 0) return "finished";
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
+  const deadline = new Promise<"timed-out">((resolve) => {
+    timer = setTimeout(() => resolve("timed-out"), options.timeoutMs);
+  });
+  const aborted = new Promise<never>((_, reject) => {
+    if (!options.signal) return;
+    onAbort = () => reject(options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    if (options.signal.aborted) onAbort();
+    else options.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  // Seen by the race below; this only keeps an abort after the wait ended from going unhandled.
+  aborted.catch(() => {});
   try {
-    return await Promise.race([
-      Promise.all(running).then(() => "finished" as const),
-      new Promise<"timed-out">((resolve) => {
-        timer = setTimeout(() => resolve("timed-out"), options.timeoutMs);
-      }),
-      new Promise<never>((_, reject) => {
-        if (!options.signal) return;
-        onAbort = () => reject(options.signal?.reason ?? new DOMException("Aborted", "AbortError"));
-        if (options.signal.aborted) onAbort();
-        else options.signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
+    for (;;) {
+      const running = [...(inFlight.get(storage)?.get(chatId) ?? [])];
+      if (running.length === 0) return "finished";
+      const outcome = await Promise.race([Promise.all(running).then(() => "batch" as const), deadline, aborted]);
+      if (outcome === "timed-out") return outcome;
+    }
   } finally {
     if (timer) clearTimeout(timer);
     if (onAbort) options.signal?.removeEventListener("abort", onAbort);
