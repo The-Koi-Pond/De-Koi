@@ -159,7 +159,7 @@ describe("generateAndApplyBackgroundRequest", () => {
           } as never,
           backgrounds: { upload: vi.fn() } as never,
           image: { generate: vi.fn() } as never,
-          applyChoice: vi.fn(),
+          showChoice: vi.fn(),
         },
       ),
     ).resolves.toBeNull();
@@ -187,7 +187,8 @@ describe("generateAndApplyBackgroundRequest", () => {
         } as T;
       },
     };
-    const applyChoice = vi.fn(async () => undefined);
+    const showChoice = vi.fn(async () => undefined);
+    const updateChatIfUnchanged = vi.fn(async () => ({ updated: true, chat: {} }));
 
     const chosen = await generateAndApplyBackgroundRequest(
       "chat-1",
@@ -206,10 +207,11 @@ describe("generateAndApplyBackgroundRequest", () => {
           async list() {
             return [];
           },
+          updateChatIfUnchanged,
         } as never,
         backgrounds,
         image,
-        applyChoice,
+        showChoice,
       },
     );
 
@@ -224,7 +226,13 @@ describe("generateAndApplyBackgroundRequest", () => {
     );
     expect(upload).toHaveBeenCalledTimes(1);
     expect(upload.mock.calls[0]?.[0].name).toBe("moonlit-archive.png");
-    expect(applyChoice).toHaveBeenCalledWith("chat-1", "moonlit-archive.png");
+    // Saved only if the chat still has no background, then shown.
+    expect(updateChatIfUnchanged).toHaveBeenCalledWith(
+      "chat-1",
+      { metadata: { background: null } },
+      { metadata: { background: "moonlit-archive.png" } },
+    );
+    expect(showChoice).toHaveBeenCalledWith("chat-1", "moonlit-archive.png");
     expect(chosen).toBe("moonlit-archive.png");
   });
 
@@ -243,7 +251,7 @@ describe("generateAndApplyBackgroundRequest", () => {
         return undefined as T;
       },
     };
-    const applyChoice = vi.fn();
+    const showChoice = vi.fn();
 
     const chosen = await generateAndApplyBackgroundRequest("chat-1", backgroundResult({ location: "Nowhere" }), {
       storage: {
@@ -256,19 +264,19 @@ describe("generateAndApplyBackgroundRequest", () => {
       } as never,
       backgrounds,
       image,
-      applyChoice,
+      showChoice,
     });
 
     expect(chosen).toBeNull();
     expect(imageGenerate).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
-    expect(applyChoice).not.toHaveBeenCalled();
+    expect(showChoice).not.toHaveBeenCalled();
   });
 
   it("does not generate over a background that is already set", async () => {
     const imageGenerate = vi.fn();
     const upload = vi.fn();
-    const applyChoice = vi.fn();
+    const showChoice = vi.fn();
 
     const chosen = await generateAndApplyBackgroundRequest(
       "chat-1",
@@ -289,21 +297,19 @@ describe("generateAndApplyBackgroundRequest", () => {
         } as never,
         backgrounds: { upload: upload as never },
         image: { generate: imageGenerate as never },
-        applyChoice,
+        showChoice,
       },
     );
 
     expect(chosen).toBeNull();
     expect(imageGenerate).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
-    expect(applyChoice).not.toHaveBeenCalled();
+    expect(showChoice).not.toHaveBeenCalled();
   });
 
   it("removes the uploaded background when it can't be applied, so the library keeps no orphan", async () => {
     const remove = vi.fn(async () => undefined);
-    const applyChoice = vi.fn(async () => {
-      throw new Error("chat save failed");
-    });
+    const showChoice = vi.fn();
 
     await expect(
       generateAndApplyBackgroundRequest(
@@ -322,23 +328,69 @@ describe("generateAndApplyBackgroundRequest", () => {
             async list() {
               return [];
             },
+            async updateChatIfUnchanged() {
+              throw new Error("chat save failed");
+            },
           } as never,
           backgrounds: {
             upload: async <T = unknown>(file: File): Promise<T> => ({ filename: file.name }) as T,
             delete: remove as never,
           },
           image: { generate: async () => ({ base64: "iVBORw0KGgo=", mimeType: "image/png", ext: "png" }) } as never,
-          applyChoice,
+          showChoice,
         },
       ),
     ).rejects.toThrow("chat save failed");
     expect(remove).toHaveBeenCalledWith("moonlit-archive.png");
+    expect(showChoice).not.toHaveBeenCalled();
+  });
+
+  it("keeps the background another client set first and removes its own upload", async () => {
+    const remove = vi.fn(async () => undefined);
+    const showChoice = vi.fn();
+    // Both clients read an empty chat; the other one's conditional save landed first.
+    const updateChatIfUnchanged = vi.fn(async () => ({
+      updated: false,
+      chat: { metadata: { background: "rainy-pier.png" } },
+    }));
+
+    const chosen = await generateAndApplyBackgroundRequest(
+      "chat-1",
+      backgroundResult({
+        location: "Moonlit Archive",
+        prompt: "Wide background of a moonlit archive, empty, no characters.",
+      }),
+      {
+        storage: {
+          async get(entity: string) {
+            if (entity === "agents") return { settings: { imageConnectionId: "image-conn" } };
+            if (entity === "chats") return { metadata: {} };
+            return null;
+          },
+          async list() {
+            return [];
+          },
+          updateChatIfUnchanged,
+        } as never,
+        backgrounds: {
+          upload: async <T = unknown>(file: File): Promise<T> =>
+            ({ filename: "moonlit-archive-1.png", name: file.name }) as T,
+          delete: remove as never,
+        },
+        image: { generate: async () => ({ base64: "iVBORw0KGgo=", mimeType: "image/png", ext: "png" }) } as never,
+        showChoice,
+      },
+    );
+
+    expect(chosen).toBeNull();
+    expect(remove).toHaveBeenCalledWith("moonlit-archive-1.png");
+    expect(showChoice).not.toHaveBeenCalled();
   });
 
   it("does not apply a generated background when one is selected during generation", async () => {
     let backgroundWasSelected = false;
     const upload = vi.fn();
-    const applyChoice = vi.fn();
+    const showChoice = vi.fn();
     const imageGenerate = vi.fn(async () => {
       backgroundWasSelected = true;
       return { base64: "iVBORw0KGgo=", mimeType: "image/png", ext: "png" };
@@ -365,14 +417,14 @@ describe("generateAndApplyBackgroundRequest", () => {
         } as never,
         backgrounds: { upload: upload as never },
         image: { generate: imageGenerate as never },
-        applyChoice,
+        showChoice,
       },
     );
 
     expect(chosen).toBeNull();
     expect(imageGenerate).toHaveBeenCalledTimes(1);
     expect(upload).not.toHaveBeenCalled();
-    expect(applyChoice).not.toHaveBeenCalled();
+    expect(showChoice).not.toHaveBeenCalled();
   });
 });
 
