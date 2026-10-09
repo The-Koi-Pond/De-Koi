@@ -2,13 +2,9 @@ import { useCallback, useMemo } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { retryGenerationAgents, startGeneration } from "../../../../engine/generation/start-generation";
-import {
-  EDITABLE_CHARACTER_CARD_FIELDS,
-  type AgentResult,
-  type CharacterCardFieldUpdate,
-  type EditableCharacterCardField,
-} from "../../../../engine/contracts/types/agent";
-import { normalizeGeneratedImageResult } from "../../../../engine/contracts/generated-image";
+import type { AgentResult, CharacterCardFieldUpdate } from "../../../../engine/contracts/types/agent";
+import { generateBackgroundForAgentResult } from "../../../../engine/generation/background-generation";
+import { parseCharacterCardFieldUpdate } from "../../../../engine/generation/card-evolution-reviews";
 import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type {
   CharacterStat,
@@ -625,26 +621,6 @@ export function showAgentWarningToast(
   });
 }
 
-const editableCharacterCardFieldSet = new Set<string>(EDITABLE_CHARACTER_CARD_FIELDS);
-
-function parseCardFieldUpdate(raw: unknown): CharacterCardFieldUpdate | null {
-  if (!isRecord(raw)) return null;
-  if (raw.action !== "update") return null;
-  const characterId = readString(raw.characterId).trim();
-  const field = readString(raw.field);
-  const oldText = readString(raw.oldText);
-  const newText = readString(raw.newText);
-  if (!characterId || !editableCharacterCardFieldSet.has(field) || oldText === newText) return null;
-  return {
-    characterId,
-    action: "update",
-    field: field as EditableCharacterCardField,
-    oldText,
-    newText,
-    reason: readString(raw.reason),
-  };
-}
-
 function normalizeIdList(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
   if (typeof value !== "string") return [];
@@ -719,7 +695,9 @@ async function buildPendingCardUpdates(
 ): Promise<PendingCardUpdate[]> {
   const data = parseMaybeRecord(rawData);
   const rawUpdates = Array.isArray(data.updates) ? data.updates : [];
-  const updates = rawUpdates.map(parseCardFieldUpdate).filter((update): update is CharacterCardFieldUpdate => !!update);
+  const updates = rawUpdates
+    .map(parseCharacterCardFieldUpdate)
+    .filter((update): update is CharacterCardFieldUpdate => !!update);
   if (updates.length === 0) return [];
 
   let chat = queryClient.getQueryData<Chat>(chatKeys.detail(chatId));
@@ -964,87 +942,12 @@ async function applyBackgroundChoice(chatId: string, chosen: unknown) {
   }
 }
 
-type BackgroundGenerationRequest = {
-  location: string;
-  prompt: string;
-  reason: string;
-};
-
 type BackgroundGenerationDeps = {
   storage: Pick<typeof storageApi, "get" | "list">;
-  backgrounds: Pick<typeof backgroundsApi, "upload">;
+  backgrounds: Pick<typeof backgroundsApi, "upload"> & Partial<Pick<typeof backgroundsApi, "delete">>;
   image: NonNullable<IntegrationGateway["image"]>;
   applyChoice: (chatId: string, chosen: unknown) => Promise<void>;
 };
-
-function normalizeBackgroundGenerationRequest(value: unknown): BackgroundGenerationRequest | null {
-  const record = parseMaybeRecord(value);
-  const prompt = readString(record.prompt).trim();
-  if (!prompt) return null;
-  return {
-    location: readString(record.location).trim(),
-    prompt,
-    reason: readString(record.reason).trim(),
-  };
-}
-
-function backgroundSlug(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "generated-background"
-  );
-}
-
-async function defaultAgentImageConnectionId(storage: BackgroundGenerationDeps["storage"]): Promise<string> {
-  const connections = await storage.list<Record<string, unknown>>("connections").catch(() => []);
-  const defaultConnection = connections.find(
-    (item) => readString(item.provider).trim() === "image_generation" && item.defaultForAgents === true,
-  );
-  return readString(defaultConnection?.id).trim();
-}
-
-async function backgroundAgentImageConnectionId(
-  chatId: string,
-  result: AgentResult,
-  deps: BackgroundGenerationDeps,
-): Promise<string> {
-  const agentId = readString(result.agentId).trim();
-  const direct = agentId ? await deps.storage.get<Record<string, unknown>>("agents", agentId).catch(() => null) : null;
-  const fallback = await deps.storage.get<Record<string, unknown>>("agents", "background").catch(() => null);
-  const directSettings = parseMaybeRecord(direct?.settings);
-  const fallbackSettings = parseMaybeRecord(fallback?.settings);
-  const settingsConnectionId =
-    readString(directSettings.imageConnectionId).trim() || readString(fallbackSettings.imageConnectionId).trim();
-  if (settingsConnectionId) return settingsConnectionId;
-
-  const chat = await deps.storage.get<Record<string, unknown>>("chats", chatId).catch(() => null);
-  const meta = parseMaybeRecord(chat?.metadata);
-  const chatConnectionId = readString(meta.imageGenConnectionId).trim() || readString(meta.imageConnectionId).trim();
-  if (chatConnectionId) return chatConnectionId;
-
-  return defaultAgentImageConnectionId(deps.storage);
-}
-
-function uploadedBackgroundChoice(upload: unknown): string {
-  const record = parseMaybeRecord(upload);
-  return (
-    readString(record.filename).trim() ||
-    readString(record.name).trim() ||
-    readString(record.path).trim() ||
-    readString(record.url).trim()
-  );
-}
-
-async function chatHasBackground(storage: BackgroundGenerationDeps["storage"], chatId: string): Promise<boolean> {
-  const chat = await storage.get<Record<string, unknown>>("chats", chatId).catch(() => null);
-  const metadata = parseMaybeRecord(chat?.metadata);
-  return !!readString(metadata.background ?? chat?.background).trim();
-}
 
 export async function generateAndApplyBackgroundRequest(
   chatId: string,
@@ -1056,38 +959,14 @@ export async function generateAndApplyBackgroundRequest(
     applyChoice: applyBackgroundChoice,
   },
 ): Promise<string | null> {
-  const data = parseMaybeRecord(result.data);
-  const request = normalizeBackgroundGenerationRequest(data.generate);
-  if (!request) return null;
-  if (!deps.image) throw new Error("Image generation is not available.");
-
-  if (await chatHasBackground(deps.storage, chatId)) return null;
-
-  const connectionId = await backgroundAgentImageConnectionId(chatId, result, deps);
-  if (!connectionId) return null;
-
-  const image = await deps.image.generate({
-    connectionId,
-    kind: "background",
-    reviewId: `background:${chatId}:${backgroundSlug(request.location || request.prompt)}`,
-    reviewTitle: request.location ? `Background: ${request.location}` : "Generated background",
-    prompt: request.prompt,
-    negativePrompt: "people, characters, text, captions, UI, panels, collage",
-    width: 1280,
-    height: 720,
+  return generateBackgroundForAgentResult(chatId, result, {
+    storage: deps.storage,
+    image: deps.image,
+    upload: async (image) =>
+      deps.backgrounds.upload(await dataUrlToFile(image.dataUrl, image.filename, image.mimeType)),
+    applyChoice: deps.applyChoice,
+    discard: deps.backgrounds.delete ? (chosen) => deps.backgrounds.delete!(chosen) : undefined,
   });
-  const normalizedImage = normalizeGeneratedImageResult(image);
-  const imageUrl = normalizedImage.dataUrl;
-  if (!imageUrl) throw new Error("Image provider returned no background image data.");
-  if (await chatHasBackground(deps.storage, chatId)) return null;
-
-  const filename = `${backgroundSlug(request.location || request.prompt)}.${normalizedImage.ext}`;
-  const file = await dataUrlToFile(imageUrl, filename, normalizedImage.mimeType);
-  const upload = await deps.backgrounds.upload<Record<string, unknown>>(file);
-  const chosen = uploadedBackgroundChoice(upload);
-  if (!chosen) throw new Error("Generated background upload did not return a filename.");
-  await deps.applyChoice(chatId, chosen);
-  return chosen;
 }
 
 function applyQuestUpdates(rawData: unknown, autoRemoveFullyCompleted: boolean) {

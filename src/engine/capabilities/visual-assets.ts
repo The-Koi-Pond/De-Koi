@@ -51,4 +51,8 @@ export interface VisualAssetGateway {
   gameAssetsManifest?(): Promise<GameAssetManifest | null>;
   resolveReferenceImage?(source: VisualReferenceImageSource): Promise<string | null>;
   uploadNpcAvatar?(chatId: string, name: string, avatar: string): Promise<NpcAvatarUploadResult>;
+  /** Add a generated image (a `data:` URL) to the background library; resolves with the upload record (its `filename`). */
+  uploadBackground?(image: { filename: string; dataUrl: string; mimeType: string }): Promise<unknown>;
+  /** Remove a background from the library by its stored filename. */
+  deleteBackground?(filename: string): Promise<unknown>;
 }

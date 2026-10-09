@@ -55,6 +55,14 @@ import {
   type GenerationAgentRuntimeInput,
 } from "./agent-runner";
 import { publishLorebookKeeperSettlement } from "./lorebook-keeper-settlements";
+import { generateBackgroundForAgentResult, isBackgroundAgentResult } from "./background-generation";
+import {
+  cardEvolutionRawUpdates,
+  cardEvolutionReviewStatus,
+  isCardEvolutionResult,
+  markCardEvolutionProposalsPending,
+} from "./card-evolution-reviews";
+import { publishPostReplyRecovery } from "./post-reply-recoveries";
 import { settleLorebookKeeperResults, type LorebookEntryVectorizer } from "./lorebook-keeper-updates";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
@@ -4297,6 +4305,8 @@ async function runGenerationAgentsForTarget(args: {
     finalResults,
   );
   finalResults = keeperSettlement.results;
+  // A recovered run has no tab showing its Card Evolution proposals, so they are stored for review.
+  if (postReplyRecovery) finalResults = markCardEvolutionProposalsPending(finalResults).results;
   await persistAgentResults(deps.storage, chatId, target ? readString(target.id) || null : null, finalResults);
   if (keeperSettlement.settlement) publishLorebookKeeperSettlement(keeperSettlement.settlement);
 
@@ -4326,8 +4336,40 @@ async function runGenerationAgentsForTarget(args: {
       attachments: illustration.attachments,
     });
   }
+  if (postReplyRecovery) await generateRecoveredBackgrounds(deps, chatId, finalResults);
 
   return { results: finalResults, events };
+}
+
+// A live turn's tab generates the background a Background agent asks for; a recovered run has no tab,
+// so the engine generates it and saves it as the chat's background. A failure only costs the
+// background (the live path only reports it too); it never re-runs the reply's helpers.
+async function generateRecoveredBackgrounds(
+  deps: GenerationEngineDeps,
+  chatId: string,
+  results: AgentResult[],
+): Promise<void> {
+  const uploadBackground = deps.visuals?.uploadBackground;
+  for (const result of results) {
+    if (!result.success || !isBackgroundAgentResult(result)) continue;
+    if (!uploadBackground) {
+      console.warn("[post-reply-agents] this runtime cannot store backgrounds; the recovered background is skipped");
+      return;
+    }
+    try {
+      await generateBackgroundForAgentResult(chatId, result, {
+        storage: deps.storage,
+        image: deps.integrations.image,
+        upload: (image) => uploadBackground(image),
+        applyChoice: async (id, chosen) => {
+          await deps.storage.patchChatMetadata(id, { background: chosen });
+        },
+        discard: deps.visuals?.deleteBackground ? (chosen) => deps.visuals!.deleteBackground!(chosen) : undefined,
+      });
+    } catch (error) {
+      console.warn("[post-reply-agents] could not generate the background a recovered run asked for", error);
+    }
+  }
 }
 
 async function runLorebookKeeperBackfill(
@@ -4694,7 +4736,7 @@ async function recoverPostReplyAgents(
   const target = storedMessages.find((message) => readString(message.id).trim() === replyId) ?? null;
   if (!target) return "done";
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
-  await runGenerationAgentsForTarget({
+  const { results } = await runGenerationAgentsForTarget({
     deps,
     input: { ...input, options: { forMessageId: replyId } },
     chat,
@@ -4705,7 +4747,15 @@ async function recoverPostReplyAgents(
     postReplyRecovery: { regeneration: payload.regeneration === true },
   });
   await markPostReplyAgentsDone(deps.storage, target, turnId);
+  publishPostReplyRecovery({ chatId, messageId: replyId, pendingCardReviews: pendingCardEvolutionReviews(results) });
   return "done";
+}
+
+function pendingCardEvolutionReviews(results: AgentResult[]): number {
+  return results
+    .filter(isCardEvolutionResult)
+    .flatMap((result) => cardEvolutionRawUpdates(result.data))
+    .filter((update) => cardEvolutionReviewStatus(update) === "pending").length;
 }
 
 const postReplyAgentsQueue = createBackgroundJobQueue<GenerationEngineDeps>({

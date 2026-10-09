@@ -299,6 +299,42 @@ describe("generateAndApplyBackgroundRequest", () => {
     expect(applyChoice).not.toHaveBeenCalled();
   });
 
+  it("removes the uploaded background when it can't be applied, so the library keeps no orphan", async () => {
+    const remove = vi.fn(async () => undefined);
+    const applyChoice = vi.fn(async () => {
+      throw new Error("chat save failed");
+    });
+
+    await expect(
+      generateAndApplyBackgroundRequest(
+        "chat-1",
+        backgroundResult({
+          location: "Moonlit Archive",
+          prompt: "Wide background of a moonlit archive, empty, no characters.",
+        }),
+        {
+          storage: {
+            async get(entity: string) {
+              if (entity === "agents") return { settings: { imageConnectionId: "image-conn" } };
+              if (entity === "chats") return { metadata: {} };
+              return null;
+            },
+            async list() {
+              return [];
+            },
+          } as never,
+          backgrounds: {
+            upload: async <T = unknown>(file: File): Promise<T> => ({ filename: file.name }) as T,
+            delete: remove as never,
+          },
+          image: { generate: async () => ({ base64: "iVBORw0KGgo=", mimeType: "image/png", ext: "png" }) } as never,
+          applyChoice,
+        },
+      ),
+    ).rejects.toThrow("chat save failed");
+    expect(remove).toHaveBeenCalledWith("moonlit-archive.png");
+  });
+
   it("does not apply a generated background when one is selected during generation", async () => {
     let backgroundWasSelected = false;
     const upload = vi.fn();

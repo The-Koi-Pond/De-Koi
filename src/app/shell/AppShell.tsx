@@ -72,6 +72,10 @@ import {
   showLorebookKeeperReviewsForOpenedChat,
   subscribeLorebookKeeperSettlementEffects,
 } from "./app-shell-lorebook-keeper";
+import {
+  showCardEvolutionReviewsForOpenedChat,
+  subscribePostReplyRecoveryEffects,
+} from "./app-shell-post-reply-recoveries";
 import { HelpCircle, Loader2 } from "lucide-react";
 import {
   lazy,
@@ -381,6 +385,7 @@ export function AppShell() {
 
   useEffect(() => subscribeContinuityDirectorRefreshCacheInvalidation(queryClient), [queryClient]);
   useEffect(() => subscribeLorebookKeeperSettlementEffects(queryClient), [queryClient]);
+  useEffect(() => subscribePostReplyRecoveryEffects(queryClient), [queryClient]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -516,6 +521,7 @@ export function AppShell() {
   const hasCompletedOnboarding = !onboardingTourOpen;
   const activeChatId = useChatStore((s) => s.activeChatId);
   useEffect(() => showLorebookKeeperReviewsForOpenedChat(activeChatId), [activeChatId]);
+  useEffect(() => showCardEvolutionReviewsForOpenedChat(activeChatId), [activeChatId]);
   const pendingNewChatMode = useChatStore((s) => s.pendingNewChatMode);
   const setupJourneyIntent = useSetupJourneyStore((s) => s.intent);
   useEffect(() => {
