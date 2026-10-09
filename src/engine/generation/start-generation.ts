@@ -63,6 +63,7 @@ import {
   markCardEvolutionProposalsPending,
 } from "./card-evolution-reviews";
 import { publishPostReplyRecovery } from "./post-reply-recoveries";
+import { postReplyWorkRunning, trackPostReplyWork, waitForPostReplyWork } from "./post-reply-work";
 import { settleLorebookKeeperResults, type LorebookEntryVectorizer } from "./lorebook-keeper-updates";
 import { buildBuiltInAgentFallback } from "./built-in-agent-fallback";
 import { generationContextAttribution } from "./context-attribution";
@@ -4736,16 +4737,22 @@ async function recoverPostReplyAgents(
   const target = storedMessages.find((message) => readString(message.id).trim() === replyId) ?? null;
   if (!target) return "done";
   const connection = await resolveGenerationConnection(deps.storage, chat, input);
-  const { results } = await runGenerationAgentsForTarget({
-    deps,
-    input: { ...input, options: { forMessageId: replyId } },
-    chat,
-    connection,
-    storedMessages,
-    target,
-    agentTypes: new Set(),
-    postReplyRecovery: { regeneration: payload.regeneration === true },
-  });
+  const finishHelperWrites = trackPostReplyWork(deps.storage, chatId);
+  let results: AgentResult[];
+  try {
+    ({ results } = await runGenerationAgentsForTarget({
+      deps,
+      input: { ...input, options: { forMessageId: replyId } },
+      chat,
+      connection,
+      storedMessages,
+      target,
+      agentTypes: new Set(),
+      postReplyRecovery: { regeneration: payload.regeneration === true },
+    }));
+  } finally {
+    finishHelperWrites();
+  }
   await markPostReplyAgentsDone(deps.storage, target, turnId);
   publishPostReplyRecovery({ chatId, messageId: replyId, pendingCardReviews: pendingCardEvolutionReviews(results) });
   return "done";
@@ -5113,6 +5120,9 @@ export async function* dryRunGeneration(
   yield { type: "done", data: { dryRun: result } };
 }
 
+/** How long a new turn waits for the last reply's helpers to finish writing trackers before going ahead. */
+const POST_REPLY_WORK_WAIT_MS = 20_000;
+
 export async function* startGeneration(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
@@ -5146,6 +5156,16 @@ async function* startGenerationImpl(
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
+  // Send unlocks once a reply is saved, while its helpers may still be writing the trackers this turn
+  // reads. Give them a bounded head start rather than build this turn on the state before them.
+  if (postReplyWorkRunning(deps.storage, chatId)) {
+    yield { type: "phase", data: "Finishing the last reply's trackers..." };
+    const waited = await waitForPostReplyWork(deps.storage, chatId, { timeoutMs: POST_REPLY_WORK_WAIT_MS, signal });
+    if (waited === "timed-out") {
+      console.warn("[generation] the last reply's helpers are still running; starting this turn without them");
+    }
+    throwIfAborted(signal);
+  }
   let regexScriptsPromise: Promise<JsonRecord[]> | null = null;
   const loadTurnRegexScripts = () => (regexScriptsPromise ??= loadRuntimeRegexScripts(deps.storage));
 
@@ -5746,6 +5766,8 @@ async function* startGenerationImpl(
     const postReplyJobs = replyWillBeSaved
       ? await holdPostReplyJobs(deps, input, chat, connection, postReplyAgentsTurnId)
       : null;
+    // A turn started while this one's helpers still write what it reads waits for them (bounded).
+    const finishHelperWrites = replyWillBeSaved && runtime ? trackPostReplyWork(deps.storage, chatId) : () => {};
     const saved = connected.suppressAssistantMessage
       ? null
       : await saveAssistantMessage({
@@ -5774,6 +5796,7 @@ async function* startGenerationImpl(
           roleplayQualityCorrection: roleplayQuality.correction,
           postReplyAgentsTurnId,
         }).catch(async (error: unknown) => {
+          finishHelperWrites();
           await postReplyJobs?.release(false);
           throw error;
         });
@@ -5849,6 +5872,25 @@ async function* startGenerationImpl(
           }
         }
 
+        // The trackers and agent runs come first: they are what the next turn reads, and an illustration
+        // can take a while.
+        if (savedAssistantGeneration) {
+          await persistTrackerSnapshotSafely(
+            deps.storage,
+            chatId,
+            latestSaved,
+            allAgentResults,
+            generationTrackerBaseline,
+            readString(parseRecord(latestSaved).content),
+            deps.onTrackerSnapshotSaved,
+            true,
+          );
+        }
+        throwIfAborted(signal);
+        await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
+        finishHelperWrites();
+        throwIfAborted(signal);
+
         const hasIllustrationRequest = emittedAgentResults.some((result) => illustratorPromptData(result) !== null);
         if (savedAssistantGeneration && hasIllustrationRequest) {
           yield { type: "phase", data: "Generating illustration..." };
@@ -5874,21 +5916,6 @@ async function* startGenerationImpl(
             };
           }
         }
-        throwIfAborted(signal);
-        if (savedAssistantGeneration) {
-          await persistTrackerSnapshotSafely(
-            deps.storage,
-            chatId,
-            latestSaved,
-            allAgentResults,
-            generationTrackerBaseline,
-            readString(parseRecord(latestSaved).content),
-            deps.onTrackerSnapshotSaved,
-            true,
-          );
-        }
-        throwIfAborted(signal);
-        await persistAgentResults(deps.storage, chatId, messageId(latestSaved), allAgentResults);
         throwIfAborted(signal);
         if (savedAssistantGeneration) await markPostReplyAgentsDone(deps.storage, latestSaved, postReplyAgentsTurnId);
       }
@@ -5938,6 +5965,7 @@ async function* startGenerationImpl(
       }
       throw error;
     } finally {
+      finishHelperWrites();
       // A failed or abandoned turn writes nothing more; let the held jobs run (the backfill repairs it).
       await postReplyJobs?.release(false);
     }
