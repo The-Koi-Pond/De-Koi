@@ -4362,9 +4362,6 @@ async function generateRecoveredBackgrounds(
         storage: deps.storage,
         image: deps.integrations.image,
         upload: (image) => uploadBackground(image),
-        applyChoice: async (id, chosen) => {
-          await deps.storage.patchChatMetadata(id, { background: chosen });
-        },
         discard: deps.visuals?.deleteBackground ? (chosen) => deps.visuals!.deleteBackground!(chosen) : undefined,
       });
     } catch (error) {

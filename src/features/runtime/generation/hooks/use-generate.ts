@@ -931,22 +931,17 @@ function shouldCacheLiveAgentResult(result: AgentResult, options: AgentResultEff
   return result.agentType === "expression" || result.type === "sprite_change";
 }
 
-async function applyBackgroundChoice(chatId: string, chosen: unknown) {
-  const metadataValue = readString(chosen).trim();
+// The engine already saved it as the chat's background (only if the chat had none); show it here too.
+function showBackgroundChoice(_chatId: string, chosen: string) {
   const url = chatBackgroundMetadataToUrl(chosen);
   if (url) useUIStore.getState().setChatBackground(url);
-  if (metadataValue) {
-    await storageApi.patchChatMetadata(chatId, { background: metadataValue }).catch((error) => {
-      console.warn("Failed to persist background agent choice", error);
-    });
-  }
 }
 
 type BackgroundGenerationDeps = {
-  storage: Pick<typeof storageApi, "get" | "list">;
+  storage: Pick<typeof storageApi, "get" | "list" | "updateChatIfUnchanged">;
   backgrounds: Pick<typeof backgroundsApi, "upload"> & Partial<Pick<typeof backgroundsApi, "delete">>;
   image: NonNullable<IntegrationGateway["image"]>;
-  applyChoice: (chatId: string, chosen: unknown) => Promise<void>;
+  showChoice: (chatId: string, chosen: string) => void;
 };
 
 export async function generateAndApplyBackgroundRequest(
@@ -956,7 +951,7 @@ export async function generateAndApplyBackgroundRequest(
     storage: storageApi,
     backgrounds: backgroundsApi,
     image: integrationGateway.image!,
-    applyChoice: applyBackgroundChoice,
+    showChoice: showBackgroundChoice,
   },
 ): Promise<string | null> {
   return generateBackgroundForAgentResult(chatId, result, {
@@ -964,7 +959,7 @@ export async function generateAndApplyBackgroundRequest(
     image: deps.image,
     upload: async (image) =>
       deps.backgrounds.upload(await dataUrlToFile(image.dataUrl, image.filename, image.mimeType)),
-    applyChoice: deps.applyChoice,
+    onApplied: deps.showChoice,
     discard: deps.backgrounds.delete ? (chosen) => deps.backgrounds.delete!(chosen) : undefined,
   });
 }

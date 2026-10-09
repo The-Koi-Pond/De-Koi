@@ -113,6 +113,20 @@ function recoveredChat(metadata: Row = {}) {
       chat.metadata = { ...(chat.metadata as Row), ...patch };
       return chat as T;
     },
+    async updateChatIfUnchanged<T = unknown>(_chatId: string, expected: Row, patch: Row) {
+      const metadata = chat.metadata as Row;
+      const expectedMetadata = (expected.metadata ?? {}) as Row;
+      const matches =
+        Object.entries(expectedMetadata).every(([key, value]) => (metadata[key] ?? null) === value) &&
+        Object.entries(expected)
+          .filter(([key]) => key !== "metadata")
+          .every(([key, value]) => (chat[key] ?? null) === value);
+      if (!matches) return { updated: false, chat: chat as T };
+      const metadataPatch = (patch.metadata ?? {}) as Row;
+      metadataPatches.push(metadataPatch);
+      chat.metadata = { ...metadata, ...metadataPatch };
+      return { updated: true, chat: chat as T };
+    },
     async patchChatSummaries<T = unknown>() {
       return {} as T;
     },
