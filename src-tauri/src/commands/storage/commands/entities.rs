@@ -923,6 +923,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                     if !matches!(
                         metadata_field.as_str(),
                         "activeAgentIds"
+                            | "background"
                             | "agentConnectionOverrides"
                             | "agentRunIntervalOverrides"
                             | "enableAgents"
@@ -2109,6 +2110,50 @@ mod tests {
         .expect_err("missing chats must not look like stale writes");
 
         assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
+    fn conditional_chat_background_is_set_only_while_the_chat_has_none() {
+        let state = test_state("conditional-chat-background");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "mode": "roleplay", "metadata": { "enableAgents": true } }),
+            )
+            .expect("chat should seed");
+        let unset = json!({ "metadata": { "background": null } });
+
+        // A missing background counts as null, so the first generated background lands.
+        let first = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unset.clone(),
+            json!({ "metadata": { "background": "rainy-harbor.png" } }),
+        )
+        .expect("first background applies");
+        assert_eq!(first["updated"], json!(true));
+        assert_eq!(
+            first["chat"]["metadata"]["background"],
+            json!("rainy-harbor.png")
+        );
+        assert_eq!(first["chat"]["metadata"]["enableAgents"], json!(true));
+
+        // A second client that also read an empty chat loses and leaves the first one's choice.
+        let second = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unset,
+            json!({ "metadata": { "background": "rainy-harbor-1.png" } }),
+        )
+        .expect("second attempt reports the current chat");
+        assert_eq!(second["updated"], json!(false));
+        let stored = state
+            .storage
+            .get("chats", "chat-1")
+            .expect("chat reads")
+            .expect("chat exists");
+        assert_eq!(stored["metadata"]["background"], json!("rainy-harbor.png"));
     }
 
     #[test]

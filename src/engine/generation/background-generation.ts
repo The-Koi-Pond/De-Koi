@@ -17,13 +17,13 @@ export interface GeneratedBackgroundImage {
 }
 
 export interface BackgroundGenerationDeps {
-  storage: Pick<StorageGateway, "get" | "list">;
+  storage: Pick<StorageGateway, "get" | "list" | "updateChatIfUnchanged">;
   image: Pick<ImageGenerationGateway, "generate"> | null | undefined;
   /** Store the generated image as a background; resolves with the upload record. */
   upload(image: GeneratedBackgroundImage): Promise<unknown>;
-  /** Make the uploaded background (its stored filename) the chat's background. */
-  applyChoice(chatId: string, chosen: string): Promise<void>;
-  /** Remove an uploaded background that could not be applied, so the library keeps no orphan. */
+  /** Called once the uploaded background (its stored filename) became the chat's background. */
+  onApplied?(chatId: string, chosen: string): void | Promise<void>;
+  /** Remove an uploaded background that was not applied, so the library keeps no orphan. */
   discard?(chosen: string): Promise<unknown>;
 }
 
@@ -97,6 +97,38 @@ async function chatHasBackground(storage: BackgroundGenerationDeps["storage"], c
 }
 
 /**
+ * Makes `chosen` the chat's background only if it still has none, as one atomic compare-and-set in the
+ * runtime: `metadata.background` must still hold the empty value read here (a legacy top-level
+ * background is caught by that read). Two clients generating for the same empty chat can't both win;
+ * resolves false for the one that lost (or a chat that got a background meanwhile).
+ */
+async function applyIfChatStillHasNoBackground(
+  storage: BackgroundGenerationDeps["storage"],
+  chatId: string,
+  chosen: string,
+): Promise<boolean> {
+  const updateChatIfUnchanged = storage.updateChatIfUnchanged;
+  if (!updateChatIfUnchanged) throw new Error("This runtime cannot set a chat background only if it is unset.");
+  const chat = await storage.get<Record<string, unknown>>("chats", chatId);
+  if (!chat) return false;
+  const metadata = parseRecord(chat.metadata);
+  if (readString(metadata.background ?? chat.background).trim()) return false;
+  const { updated } = await updateChatIfUnchanged.call(
+    storage,
+    chatId,
+    { metadata: { background: metadata.background ?? null } },
+    { metadata: { background: chosen } },
+  );
+  return updated;
+}
+
+async function discardUnapplied(deps: BackgroundGenerationDeps, chosen: string): Promise<void> {
+  await deps.discard?.(chosen).catch((discardError: unknown) => {
+    console.warn("[background] could not remove a generated background that was not applied", discardError);
+  });
+}
+
+/**
  * Generates the image a Background agent asked for (`data.generate`) and makes it the chat's
  * background, unless the chat already has one (checked again after the slow image call) or no image
  * connection is set. Resolves with the chosen background, or null when nothing was applied.
@@ -137,14 +169,19 @@ export async function generateBackgroundForAgentResult(
   });
   const chosen = uploadedBackgroundChoice(upload);
   if (!chosen) throw new Error("Generated background upload did not return a filename.");
+  let applied: boolean;
   try {
-    await deps.applyChoice(chatId, chosen);
+    applied = await applyIfChatStillHasNoBackground(deps.storage, chatId, chosen);
   } catch (error) {
-    await deps.discard?.(chosen).catch((discardError: unknown) => {
-      console.warn("[background] could not remove a generated background that was not applied", discardError);
-    });
+    await discardUnapplied(deps, chosen);
     throw error;
   }
+  if (!applied) {
+    // Another client (or the user) set a background while this one was generated.
+    await discardUnapplied(deps, chosen);
+    return null;
+  }
+  await deps.onApplied?.(chatId, chosen);
   return chosen;
 }
 
