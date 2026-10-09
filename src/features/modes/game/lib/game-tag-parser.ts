@@ -595,6 +595,17 @@ function parseInventoryTagBody(body: string): InventoryTag | null {
     const itemsUnquoted = /items?\s*=\s*([^,\]\s][\s\S]*?)(?=\s+\w+\s*=|$)/i.exec(body);
     if (itemsUnquoted) itemStr = itemsUnquoted[1]!;
   }
+  // Shorthand `add="Item"` / `remove="Item"`: older GM replies used it, and models copy it from the
+  // chat history, so it must not be dropped. The key is the action unless `action=` says otherwise.
+  if (!itemStr) {
+    const shorthand =
+      /(?:^|\s)(add|remove)\s*=\s*"([^"]+)"/i.exec(body) ??
+      /(?:^|\s)(add|remove)\s*=\s*([^"\s\]][\s\S]*?)(?=\s+\w+\s*=|$)/i.exec(body);
+    if (shorthand) {
+      itemStr = shorthand[2]!;
+      if (!actAttr) action = shorthand[1]!.toLowerCase() as "add" | "remove";
+    }
+  }
 
   const items = itemStr
     .split(",")
