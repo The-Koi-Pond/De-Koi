@@ -73,7 +73,7 @@ describe("CharacterCardUpdateModal", () => {
   });
 
   it("approves through the stored decision, writing the edit inside the field, and moves on", async () => {
-    cardReviews.approveCardEvolutionReview.mockImplementationOnce(async (_entry, apply: () => Promise<void>) => {
+    cardReviews.approveCardEvolutionReview.mockImplementationOnce(async (_entry, apply: () => Promise<number[]>) => {
       await apply();
       return "applied";
     });
@@ -92,6 +92,30 @@ describe("CharacterCardUpdateModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("reports only the edits it wrote when one is already stale", async () => {
+    const mixed: PendingCardUpdate = {
+      ...storedEntry,
+      updates: [
+        storedEntry.updates[0]!,
+        { ...storedEntry.updates[0]!, oldText: "text no longer on the card", newText: "anything" },
+      ],
+      updateIndexes: [0, 1],
+    };
+    useAgentStore.getState().clearPendingCardUpdates();
+    useAgentStore.getState().enqueuePendingCardUpdate(mixed);
+    let written: number[] = [];
+    cardReviews.approveCardEvolutionReview.mockImplementationOnce(async (_entry, apply: () => Promise<number[]>) => {
+      written = await apply();
+      return "applied";
+    });
+    renderDialog();
+
+    await act(async () => button("Approve").click());
+
+    expect(written).toEqual([0]);
+    expect(mutateAsync).toHaveBeenCalledOnce();
+  });
+
   it("refuses to record overlapping edits as applied when one can no longer find its text", async () => {
     const overlapping: PendingCardUpdate = {
       ...storedEntry,
@@ -102,7 +126,7 @@ describe("CharacterCardUpdateModal", () => {
     };
     useAgentStore.getState().clearPendingCardUpdates();
     useAgentStore.getState().enqueuePendingCardUpdate(overlapping);
-    cardReviews.approveCardEvolutionReview.mockImplementationOnce(async (_entry, apply: () => Promise<void>) => {
+    cardReviews.approveCardEvolutionReview.mockImplementationOnce(async (_entry, apply: () => Promise<number[]>) => {
       await apply();
       return "applied";
     });

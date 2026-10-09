@@ -117,7 +117,8 @@ export function CharacterCardUpdateModal({ open, onClose }: Props) {
     }
   };
 
-  const applyToCard = async () => {
+  // Resolves with the positions (in `entry.updates`) of the edits written; stale ones are left out.
+  const applyToCard = async (): Promise<number[]> => {
     // Apply each edit as a targeted substring replace inside the field's current
     // value, NOT by overwriting the field with newText (which would erase
     // everything around the edited sentence).
@@ -140,6 +141,7 @@ export function CharacterCardUpdateModal({ open, onClose }: Props) {
       versionSource: "agent",
       versionReason: `${entry.agentName} card update`,
     });
+    return entry.updates.flatMap((update, position) => (applicableUpdates.includes(update) ? [position] : []));
   };
 
   // Proposals stored on a recovered run are decided there atomically: if another tab decided them first

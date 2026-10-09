@@ -144,12 +144,14 @@ function transition(
 /**
  * Approve one character's stored proposals: claim each for this approval alone (`pending` -> `applying`,
  * atomically, lowest index first, as rejections go too, so the first proposal decides which tab wins),
- * write the card with `apply`, then settle them `applied`. If the write fails, the claims are handed
- * back to `pending` and the error surfaces. A live (unstored) entry is just applied.
+ * write the card with `apply`, then settle them. `apply` resolves with the positions (in `entry.updates`)
+ * of the edits it wrote: those settle `applied`, the rest (stale edits it left out) `rejected`, so a
+ * proposal is only ever recorded as applied when it reached the card. If the write fails, the claims
+ * are handed back to `pending` and the error surfaces. A live (unstored) entry is just applied.
  */
 export async function approveCardEvolutionReview(
   entry: PendingCardUpdate,
-  apply: () => Promise<void>,
+  apply: () => Promise<number[]>,
 ): Promise<CardEvolutionReviewOutcome> {
   const stored = storedEntry(entry);
   if (!stored) {
@@ -177,15 +179,17 @@ export async function approveCardEvolutionReview(
     }
     claimed.push(index);
   }
+  let written: Set<number>;
   try {
-    await apply();
+    written = new Set(await apply());
   } catch (error) {
     await releaseClaims();
     throw error;
   }
-  for (const index of stored.updateIndexes) {
-    const settled = await transition(stored, index, ["applying"], "applied", { claimId });
-    if (!settled.updated && settled.status !== "applied") {
+  for (const [position, index] of stored.updateIndexes.entries()) {
+    const status = written.has(position) ? "applied" : "rejected";
+    const settled = await transition(stored, index, ["applying"], status, { claimId });
+    if (!settled.updated && settled.status !== status) {
       // The card was written but this claim no longer owns the proposal; say so rather than report a decision.
       throw new Error(`${entry.characterName}'s card update was taken over by another tab while it was being applied.`);
     }

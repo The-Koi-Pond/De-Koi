@@ -144,12 +144,21 @@ describe("stored Card Evolution reviews", () => {
     const statuses = reviewCommand(["pending", "pending"]);
     const apply = vi.fn(async () => {
       expect(statuses).toEqual(["applying", "applying"]);
+      return [0, 1];
     });
 
     await expect(approveCardEvolutionReview(storedEntry(), apply)).resolves.toBe("applied");
 
     expect(apply).toHaveBeenCalledOnce();
     expect(statuses).toEqual(["applied", "applied"]);
+  });
+
+  it("records a stale edit the card write left out as rejected, never applied", async () => {
+    const statuses = reviewCommand(["pending", "pending"]);
+
+    await expect(approveCardEvolutionReview(storedEntry(), async () => [1])).resolves.toBe("applied");
+
+    expect(statuses).toEqual(["rejected", "applied"]);
   });
 
   it("writes nothing when another tab already rejected them", async () => {
@@ -168,6 +177,7 @@ describe("stored Card Evolution reviews", () => {
         CardEvolutionReviewBusyError,
       );
       await expect(rejectCardEvolutionReview(storedEntry())).rejects.toBeInstanceOf(CardEvolutionReviewBusyError);
+      return [0, 1];
     });
     expect(statuses).toEqual(["applied", "applied"]);
   });
@@ -195,7 +205,7 @@ describe("stored Card Evolution reviews", () => {
 
   it("leaves a live (unstored) entry to the dialog: approve just writes, reject saves nothing", async () => {
     const live = { ...storedEntry(), runId: undefined, updateIndexes: undefined };
-    const apply = vi.fn(async () => {});
+    const apply = vi.fn(async () => [0]);
 
     await expect(approveCardEvolutionReview(live, apply)).resolves.toBe("applied");
     await expect(rejectCardEvolutionReview(live)).resolves.toBe("rejected");
