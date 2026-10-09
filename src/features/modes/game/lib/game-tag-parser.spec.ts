@@ -20,6 +20,24 @@ describe("game GM tag parsing", () => {
     ]);
   });
 
+  it("reads the shorthand add/remove item form older replies used, which models copy from history", () => {
+    const parsed = parseGmTags(
+      [
+        '[inventory: add="Neon Checkerboard Coat"]',
+        '[inventory: remove="Photo Printout"]',
+        '[inventory: remove="Arrow, Rope" count="2"]',
+        "[inventory: add=Torch]",
+      ].join(" "),
+    );
+
+    expect(parsed.inventoryUpdates).toEqual([
+      { action: "add", items: ["Neon Checkerboard Coat"] },
+      { action: "remove", items: ["Photo Printout"] },
+      { action: "remove", items: ["Arrow", "Rope"], count: 2 },
+      { action: "add", items: ["Torch"] },
+    ]);
+  });
+
   it("stops unquoted inventory item names before trailing attributes", () => {
     const parsed = parseGmTags("[inventory: action=add item=Potion count=3]");
 
