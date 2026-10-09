@@ -44,6 +44,7 @@ import { createPortal } from "react-dom";
 import { useUpdateMessageExtra } from "../../../../catalog/chats/index";
 import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
+import { StreamingPendingIndicator } from "./StreamingPendingIndicator";
 import { createMessageMacroResolver } from "../../../../../shared/lib/chat-macros";
 import { canonicalizeKeywordEscapes } from "../../../../../shared/lib/chat-css";
 import { useApplyRegex } from "../../../../catalog/regex-scripts/regex-application";
@@ -1672,13 +1673,7 @@ export const ChatMessage = memo(function ChatMessage({
     <>
       <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
         {isStreaming && !message.content ? (
-          <div
-            className="mari-streaming-pending mari-message-typing inline-flex items-center gap-2 py-0.5"
-            aria-label="Assistant response is starting"
-          >
-            <span className="mari-streaming-pending-glow" aria-hidden="true" />
-            <span className="mari-streaming-pending-line" aria-hidden="true" />
-          </div>
+          <StreamingPendingIndicator chatId={message.chatId} />
         ) : isStreaming ? (
           <div className="mari-streaming-reveal">{renderedContent}</div>
         ) : (
@@ -2608,13 +2603,7 @@ export const ChatMessage = memo(function ChatMessage({
               <>
                 <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
                   {isStreaming && !message.content ? (
-                    <div
-                      className="mari-streaming-pending mari-message-typing inline-flex items-center gap-2 py-0.5"
-                      aria-label="Assistant response is starting"
-                    >
-                      <span className="mari-streaming-pending-glow" aria-hidden="true" />
-                      <span className="mari-streaming-pending-line" aria-hidden="true" />
-                    </div>
+                    <StreamingPendingIndicator chatId={message.chatId} />
                   ) : isStreaming ? (
                     <div className="mari-streaming-reveal">{renderedContent}</div>
                   ) : (

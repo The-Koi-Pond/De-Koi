@@ -92,8 +92,11 @@ interface ChatState {
   streamingCharacterIdByChatId: Map<string, string>;
   /** Character name(s) shown in typing indicator when generation is active. */
   typingCharacterName: string | null;
-  /** Human-readable label for the current server-side generation phase (e.g. "Running agents..."). */
-  generationPhase: string | null;
+  /**
+   * Per chat: a human-readable label for the generation's current phase (e.g. "Calling model..."),
+   * shown while its reply has not started streaming yet.
+   */
+  generationPhaseByChatId: Map<string, string>;
   /** Character name + status shown during DND/idle delay (before generation starts). */
   delayedCharacterInfo: { name: string; status: string } | null;
   /** Per-chat typing state so switching chats restores the correct indicator. */
@@ -154,7 +157,7 @@ interface ChatState {
   setRegenerateMessageId: (id: string | null, chatId?: string) => void;
   setStreamingCharacterId: (id: string | null, chatId?: string) => void;
   setTypingCharacterName: (name: string | null) => void;
-  setGenerationPhase: (phase: string | null) => void;
+  setGenerationPhase: (chatId: string, phase: string | null) => void;
   setDelayedCharacterInfo: (info: { name: string; status: string } | null) => void;
   setPerChatTyping: (chatId: string, name: string | null) => void;
   setPerChatDelayed: (chatId: string, info: { name: string; status: string } | null) => void;
@@ -212,7 +215,7 @@ export const useChatStore = create<ChatState>()(
     streamingCharacterId: null,
     streamingCharacterIdByChatId: new Map(),
     typingCharacterName: null,
-    generationPhase: null,
+    generationPhaseByChatId: new Map(),
     delayedCharacterInfo: null,
     perChatTyping: new Map(),
     perChatDelayed: new Map(),
@@ -319,7 +322,6 @@ export const useChatStore = create<ChatState>()(
       set({
         isStreaming: streaming,
         streamingChatId: streaming ? (chatId ?? null) : null,
-        ...(!streaming ? { generationPhase: null } : {}),
       }),
     setAssistantPhase: (chatId, phase) =>
       set((state) => {
@@ -458,7 +460,14 @@ export const useChatStore = create<ChatState>()(
 
     setTypingCharacterName: (name) => set({ typingCharacterName: name, delayedCharacterInfo: null }),
 
-    setGenerationPhase: (phase) => set({ generationPhase: phase }),
+    setGenerationPhase: (chatId, phase) =>
+      set((state) => {
+        if ((state.generationPhaseByChatId.get(chatId) ?? null) === phase) return state;
+        const phases = new Map(state.generationPhaseByChatId);
+        if (phase) phases.set(chatId, phase);
+        else phases.delete(chatId);
+        return { generationPhaseByChatId: phases };
+      }),
 
     setDelayedCharacterInfo: (info) => set({ delayedCharacterInfo: info, typingCharacterName: null }),
 
@@ -707,7 +716,7 @@ export const useChatStore = create<ChatState>()(
         streamingCharacterId: null,
         streamingCharacterIdByChatId: new Map(),
         typingCharacterName: null,
-        generationPhase: null,
+        generationPhaseByChatId: new Map(),
         delayedCharacterInfo: null,
         perChatTyping: new Map(),
         perChatDelayed: new Map(),

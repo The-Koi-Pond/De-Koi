@@ -991,6 +991,20 @@
   animation: mari-streaming-pending-shimmer 1.45s ease-in-out infinite;
 }
 
+.mari-streaming-pending {
+  max-width: 100%;
+}
+
+.mari-streaming-pending-phase {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mari-streaming-reveal,
   .mari-streaming-reveal::after,
