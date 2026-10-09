@@ -1342,7 +1342,7 @@ export async function runGenerationWithUi(
     chatStore.setStreaming(true, chatId);
     chatStore.setRegenerateMessageId(regenerateMessageId, chatId);
     chatStore.setStreamingCharacterId(requestedCharacterId, chatId);
-    chatStore.setGenerationPhase("Starting generation...");
+    chatStore.setGenerationPhase(chatId, "Starting generation...");
     chatStore.setStreamBuffer("", chatId);
     chatStore.setThinkingBuffer("", chatId);
     useAgentStore.getState().clearFailedAgentTypes();
@@ -1639,9 +1639,9 @@ export async function runGenerationWithUi(
     // doesn't leave stale per-chat ids that leak when it's next opened.
     state.setRegenerateMessageId(null, chatId);
     state.setStreamingCharacterId(null, chatId);
+    state.setGenerationPhase(chatId, null);
     if (state.streamingChatId === chatId) {
       state.setStreaming(false, chatId);
-      state.setGenerationPhase(null);
     }
     if (useChatStore.getState().abortControllers.size === 0) {
       useAgentStore.getState().setProcessing(false);
@@ -1674,7 +1674,7 @@ export async function runGenerationWithUi(
           break;
         case "phase":
           if (!foregroundGenerationReleased && typeof event.data === "string") {
-            useChatStore.getState().setGenerationPhase(event.data);
+            useChatStore.getState().setGenerationPhase(chatId, event.data);
           }
           break;
         case "thinking":
@@ -1683,7 +1683,7 @@ export async function runGenerationWithUi(
               receivedThinking = true;
               clearChatAvailabilityState();
               const state = useChatStore.getState();
-              if (state.activeChatId === chatId) state.setGenerationPhase("Thinking...");
+              state.setGenerationPhase(chatId, "Thinking...");
               state.setAssistantPhase(chatId, "thinking");
             }
             appendThinkingText(event.data);
@@ -1798,7 +1798,7 @@ export async function runGenerationWithUi(
         }
         case "tool_call": {
           const name = toolEventName(event.data);
-          useChatStore.getState().setGenerationPhase(name ? `Running tool: ${name}...` : "Running tool...");
+          useChatStore.getState().setGenerationPhase(chatId, name ? `Running tool: ${name}...` : "Running tool...");
           break;
         }
         case "tool_result": {
@@ -1808,6 +1808,7 @@ export async function runGenerationWithUi(
           useChatStore
             .getState()
             .setGenerationPhase(
+              chatId,
               name ? `Tool ${success ? "finished" : "failed"}: ${name}.` : `Tool ${success ? "finished" : "failed"}.`,
             );
           break;

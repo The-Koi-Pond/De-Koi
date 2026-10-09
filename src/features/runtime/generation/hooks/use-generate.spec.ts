@@ -595,6 +595,58 @@ describe("runGenerationWithUi", () => {
     }
   });
 
+  it("records each phase for its own chat and clears it once the reply is released", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-phase-text";
+    queryClient.setQueryData(chatKeys.detail(chatId), { id: chatId, mode: "roleplay", metadata: {} } as Chat);
+    queryClient.setQueryData(chatKeys.messages(chatId), { pages: [[]], pageParams: [undefined] });
+    useChatStore.getState().setActiveChatId(chatId);
+    useChatStore.getState().setGenerationPhase("other-chat", "Calling model...");
+
+    let markWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      markWaiting = resolve;
+    });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "phase", data: "Finishing the last reply's trackers..." } as StreamEvent;
+      markWaiting();
+      await finished;
+      yield {
+        type: "assistant_message",
+        data: {
+          id: "reply-1",
+          chatId,
+          role: "assistant",
+          content: "Here.",
+          createdAt: "2026-10-09T00:00:00.000Z",
+          extra: {},
+        },
+      } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      await waiting;
+      const phases = useChatStore.getState().generationPhaseByChatId;
+      expect(phases.get(chatId)).toBe("Finishing the last reply's trackers...");
+      // Another chat's phase is left alone.
+      expect(phases.get("other-chat")).toBe("Calling model...");
+      finish();
+      await run;
+      expect(useChatStore.getState().generationPhaseByChatId.has(chatId)).toBe(false);
+    } finally {
+      finish();
+      await Promise.allSettled([run]);
+      useChatStore.getState().setGenerationPhase("other-chat", null);
+      queryClient.clear();
+    }
+  });
+
   it("shows an optimistic user message for an image-only send", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-image-only-optimistic";
