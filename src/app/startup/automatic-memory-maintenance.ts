@@ -16,6 +16,7 @@ import {
   resumeQueuedPostReplyAgents,
 } from "../../engine/generation/start-generation";
 import { resumeQueuedConversationSummaries } from "../../engine/modes/chat/core/summaries/conversation-summary-background";
+import { resumeQueuedStoryConsolidation } from "../../engine/generation/story-consolidation-queue";
 import { parseRecord, readString, type JsonRecord } from "../../engine/generation/runtime-records";
 import { connectionCatalogApi } from "../../shared/api/connection-catalog-api";
 import { integrationGateway } from "../../shared/api/integration-gateway";
@@ -202,7 +203,7 @@ export function useAutomaticMemoryMaintenance(): void {
 }
 
 /**
- * Runs post-reply work (Director refreshes, Keeper backfills, summaries, character interpretations,
+ * Runs post-reply work (Director refreshes, Keeper backfills, summaries, story episodes, character interpretations,
  * helpers of a reply whose tab closed first) that a closed or reloaded tab left queued.
  */
 export function useResumeQueuedBackgroundJobs(): void {
@@ -210,6 +211,7 @@ export function useResumeQueuedBackgroundJobs(): void {
     resumeQueuedContinuityDirectorRefreshes({ storage: storageApi, llm: llmApi });
     resumeQueuedConversationSummaries({ storage: storageApi, llm: llmApi });
     resumeQueuedCharacterInterpretations({ storage: storageApi, llm: llmApi });
+    resumeQueuedStoryConsolidation({ storage: storageApi, llm: llmApi });
     const generationDeps = {
       storage: storageApi,
       llm: llmApi,

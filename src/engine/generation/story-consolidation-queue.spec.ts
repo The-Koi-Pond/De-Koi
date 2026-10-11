@@ -1,13 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryInput, CanonicalMemoryRecord, StoryProjectionJob } from "../contracts/types/memory";
+import { beginForegroundGeneration } from "./background-generation-coordinator";
 import {
+  enqueueAndScheduleStoryEpisode,
   enqueueStoryArcJob,
   enqueueStoryEpisodeJob,
   persistCompletedSceneStoryEpisode,
   processStoryConsolidationQueue,
+  resumeQueuedStoryConsolidation,
   STORY_CONSOLIDATION_JOBS_COLLECTION,
 } from "./story-consolidation-queue";
 
@@ -713,5 +716,62 @@ describe("story consolidation queue", () => {
     expect(test.jobs.get(String(job?.id))?.status).toBe("failed");
     expect(test.memories.get("existing-episode")?.status).toBe("active");
     expect(test.memories).toHaveLength(1);
+  });
+});
+
+describe("story consolidation scheduling", () => {
+  const episodeInput = {
+    chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+    messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+    connectionId: "connection-1",
+    model: "model-1",
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("runs a job queued during a reply once the reply finishes", async () => {
+    const test = harness();
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+    const release = beginForegroundGeneration(test.storage);
+
+    const job = await enqueueAndScheduleStoryEpisode({ storage: test.storage, llm }, episodeInput);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(test.jobs.get(String(job?.id))?.status).toBe("pending");
+
+    release();
+    await vi.waitFor(() => expect(test.jobs.get(String(job?.id))?.status).toBe("completed"));
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes a job a closed tab left pending", async () => {
+    const test = harness();
+    const job = await enqueueStoryEpisodeJob(test.storage, episodeInput);
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+
+    resumeQueuedStoryConsolidation({ storage: test.storage, llm });
+
+    await vi.waitFor(() => expect(test.jobs.get(String(job?.id))?.status).toBe("completed"));
+  });
+
+  it("retries a failed pass when its backoff ends", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-08-27T01:00:00.000Z") });
+    const test = harness();
+    const complete = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new Error("provider hiccup"))
+      .mockResolvedValue(llmResult());
+    const llm = { complete } as unknown as LlmGateway;
+
+    const job = await enqueueAndScheduleStoryEpisode({ storage: test.storage, llm }, episodeInput);
+    // Source fingerprints hash on real crypto, so poll instead of only advancing fake time.
+    await vi.waitFor(() => expect(test.jobs.get(String(job?.id))?.status).toBe("retryable"));
+    expect(complete).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => expect(test.jobs.get(String(job?.id))?.status).toBe("completed"));
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 });
