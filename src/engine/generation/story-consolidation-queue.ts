@@ -9,7 +9,10 @@ import type {
   StoryProjectionSections,
 } from "../contracts/types/memory";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
-import { foregroundGenerationActive } from "./background-generation-coordinator";
+import {
+  deferUntilForegroundGenerationCompletes,
+  foregroundGenerationActive,
+} from "./background-generation-coordinator";
 import { sha256MemoryId } from "./deterministic-memory-id";
 import { nowIso, parseArray, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import {
@@ -30,6 +33,9 @@ const STORY_SUMMARY_MAX_TOKENS = 1800;
 const STORY_SUMMARY_RETRY_MAX_TOKENS = 8192;
 const workerId = `story-consolidation-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
 const activeWorkers = new WeakSet<StorageGateway>();
+const pendingWorkerReruns = new WeakSet<StorageGateway>();
+const scheduledWorkerTimers = new WeakMap<StorageGateway, ReturnType<typeof setTimeout>>();
+const storyWorkerKey = {};
 
 export interface StoryEpisodeScheduleInput {
   chat: JsonRecord;
@@ -876,20 +882,107 @@ export async function processStoryConsolidationQueue(
   }
 }
 
-function scheduleStoryConsolidationQueueProcessing(dependencies: StoryConsolidationDependencies): void {
-  if (activeWorkers.has(dependencies.storage)) return;
-  activeWorkers.add(dependencies.storage);
+function nextStoryPassAt(job: StoryProjectionJob, now: number): number | null {
+  if (job.status === "pending") return now;
+  if (job.status === "processing") {
+    const updatedAt = Date.parse(job.updatedAt);
+    return Number.isFinite(updatedAt) ? Math.max(now, updatedAt + ABANDONED_PROCESSING_MS) : now;
+  }
+  if (job.status !== "retryable") return null;
+  const nextAttemptAt = Date.parse(job.nextAttemptAt ?? "");
+  return Number.isFinite(nextAttemptAt) ? Math.max(now, nextAttemptAt) : now;
+}
+
+function scheduleStoryPassAfter(dependencies: StoryConsolidationDependencies, delayMs: number): void {
+  const { storage } = dependencies;
+  const existing = scheduledWorkerTimers.get(storage);
+  if (existing !== undefined) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    scheduledWorkerTimers.delete(storage);
+    scheduleStoryConsolidationQueueProcessing(dependencies);
+  }, delayMs);
+  scheduledWorkerTimers.set(storage, timer);
+}
+
+// Wakes the worker for the next job that becomes due: pending jobs left behind,
+// retry backoff, or a pass abandoned by a closed tab.
+async function scheduleNextStoryPass(dependencies: StoryConsolidationDependencies, minimumDelayMs: number) {
+  const { storage } = dependencies;
+  if (foregroundGenerationActive(storage)) {
+    deferUntilForegroundGenerationCompletes(storage, storyWorkerKey, () =>
+      scheduleStoryConsolidationQueueProcessing(dependencies),
+    );
+    return;
+  }
+  let jobs: StoryProjectionJob[];
+  try {
+    jobs = await storage.list<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION);
+  } catch {
+    scheduleStoryPassAfter(dependencies, RETRY_BACKOFF_MS[0]);
+    return;
+  }
+  const now = Date.now();
+  let nextRunAt: number | null = null;
+  for (const job of jobs) {
+    const runAt = nextStoryPassAt(job, now);
+    if (runAt !== null) nextRunAt = nextRunAt === null ? runAt : Math.min(nextRunAt, runAt);
+  }
+  if (nextRunAt === null) return;
+  scheduleStoryPassAfter(dependencies, Math.max(minimumDelayMs, nextRunAt - now));
+}
+
+export function scheduleStoryConsolidationQueueProcessing(dependencies: StoryConsolidationDependencies): void {
+  const { storage } = dependencies;
+  if (!storage.acquireStoryConsolidationWorker || !storage.releaseStoryConsolidationWorker || !storage.createMemory) {
+    return;
+  }
+  // A reply in progress would make the pass stop without claiming anything; run
+  // once the reply finishes instead of leaving the job pending.
+  if (foregroundGenerationActive(storage)) {
+    deferUntilForegroundGenerationCompletes(storage, storyWorkerKey, () =>
+      scheduleStoryConsolidationQueueProcessing(dependencies),
+    );
+    return;
+  }
+  if (activeWorkers.has(storage)) {
+    pendingWorkerReruns.add(storage);
+    return;
+  }
+  const existing = scheduledWorkerTimers.get(storage);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+    scheduledWorkerTimers.delete(storage);
+  }
+  activeWorkers.add(storage);
+  let minimumDelayMs = 0;
   setTimeout(() => {
     void (async () => {
       for (let processed = 0; processed < 100; processed += 1) {
         const result = await processStoryConsolidationQueue(dependencies);
+        if (!result.leaseAcquired) minimumDelayMs = LEASE_HEARTBEAT_MS;
         if (!result.leaseAcquired || result.processed === 0 || result.retryable > 0 || result.failed > 0) break;
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     })()
-      .catch((error) => console.warn("[story-consolidation] queue worker stopped", error))
-      .finally(() => activeWorkers.delete(dependencies.storage));
+      .catch((error) => {
+        minimumDelayMs = RETRY_BACKOFF_MS[0];
+        console.warn("[story-consolidation] queue worker stopped", error);
+      })
+      .finally(() => {
+        activeWorkers.delete(storage);
+        if (pendingWorkerReruns.has(storage)) {
+          pendingWorkerReruns.delete(storage);
+          scheduleStoryConsolidationQueueProcessing(dependencies);
+          return;
+        }
+        void scheduleNextStoryPass(dependencies, minimumDelayMs);
+      });
   }, 0);
+}
+
+/** Runs story jobs a closed or reloaded tab left queued. */
+export function resumeQueuedStoryConsolidation(dependencies: StoryConsolidationDependencies): void {
+  scheduleStoryConsolidationQueueProcessing(dependencies);
 }
 
 export async function enqueueAndScheduleStoryEpisode(
