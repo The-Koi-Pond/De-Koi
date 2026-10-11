@@ -3161,6 +3161,40 @@ function buildRoleplayQualityContext(
   };
 }
 
+export const PROSE_STYLE_NOTE = [
+  "[Style for this reply, do not mention it] Write like a person, not a model. These habits make text read as AI-generated; do not use them unless the user explicitly asks for that style:",
+  "- Em dashes or en dashes. Use a comma, a period, or parentheses instead.",
+  '- Contrast framing: "not X, but Y", "X, not Y", "not X so much as Y", "Not X. Y.", "It isn\'t X. It\'s Y." State the thing directly.',
+  '- "The way a/the..." similes and hedges like "something like", "something close to".',
+  '- Runs of one-to-three-word fragments ("Settled. Claimed. Home."), lists of three, and paired negations ("He does not step back. He does not step closer.").',
+  "- Lines that sum up the moment as a lesson or aphorism, especially as the closing line.",
+  '- Stock beats: "Of course he...", "For once...", "A beat.", "A pause."',
+  "Plain, specific, slightly uneven sentences are better than polished ones.",
+].join("\n");
+
+// Style guidance buried in a long system prompt loses to the card's voice and to past replies the
+// model copies. The same note after the latest user turn is followed far more reliably, and system
+// messages cannot carry it there: some providers (Claude subscription) fold every system message into
+// the system prompt.
+function appendProseStyleNoteToLatestUserTurn(input: PromptAssemblyInput, messages: ChatMLMessage[]): ChatMLMessage[] {
+  const mode = modeOf(input.chat);
+  if (mode !== "roleplay" && mode !== "visual_novel" && mode !== "conversation") return messages;
+  if (input.request.impersonate === true) return messages;
+  let latestTurnIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]!.role !== "system") {
+      latestTurnIndex = index;
+      break;
+    }
+  }
+  if (latestTurnIndex < 0 || messages[latestTurnIndex]!.role !== "user") return messages;
+  return messages.map((message, index) =>
+    index === latestTurnIndex
+      ? transformPromptMessageContent(message, (content) => `${content}\n\n${PROSE_STYLE_NOTE}`)
+      : message,
+  );
+}
+
 function buildConversationScheduleBlock(
   chat: JsonRecord,
   characters: GenerationCharacterContext[],
@@ -5095,6 +5129,7 @@ export async function assembleGenerationPrompt(
   if (messages.some((message) => hasDeferredCharacterMacros(message.content))) {
     throw new Error("Deferred character macro placeholder remained before prompt handoff");
   }
+  messages = appendProseStyleNoteToLatestUserTurn(input, messages);
   const previewMessages = previewMessagesForPrompt(messages);
   const shouldEnforceStrictRoles = boolish(promptParameters?.strictRoleFormatting, true) && !individualGroupTarget;
   messages = shouldEnforceStrictRoles ? enforceStrictRoles(messages) : mergeAdjacentMessages(messages);

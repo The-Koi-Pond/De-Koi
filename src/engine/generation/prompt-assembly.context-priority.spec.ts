@@ -287,7 +287,8 @@ describe("prompt context priority", () => {
     expect(underBudget.messages).toBe(assembly.messages);
     expect(underBudget.messages.map((message) => message.content).join("\n---\n")).toBe(originalText);
 
-    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 500 }, { maxContext: 1_800 });
+    // Leaves room for the fixed prose style note on the current turn while the summary still overflows.
+    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 500 }, { maxContext: 2_100 });
     const fittedText = fitted.messages.map((message) => message.content).join("\n");
     expect(fittedText).not.toContain("Festival continuity paragraph 1.");
     expect(fittedText).toContain("Mira is a careful festival guide.");
