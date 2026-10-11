@@ -38,7 +38,9 @@ async function readOptionalLocalSidecarStatus(): Promise<LocalSidecarStatusRespo
   } catch (error) {
     const details = error instanceof ApiError ? error.details : null;
     const code = details && typeof details === "object" ? (details as { code?: unknown }).code : null;
-    if (code !== "admin_access_required") throw error;
+    // A remote browser without the right Admin Access secret cannot see the sidecar. The
+    // Connections sidecar card reports the secret problem; workflow setup treats it as unavailable.
+    if (code !== "admin_access_required" && code !== "admin_access_invalid") throw error;
     return null;
   }
 }

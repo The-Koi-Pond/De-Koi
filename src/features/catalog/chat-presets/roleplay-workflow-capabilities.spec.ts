@@ -142,6 +142,17 @@ describe("resolveRoleplayWorkflowCapabilities", () => {
     });
   });
 
+  it("keeps ordinary workflow profiles available when the saved Admin Access secret is wrong", async () => {
+    mocks.getSidecarStatus.mockRejectedValue(
+      new ApiError("Admin Access secret did not match.", 401, { code: "admin_access_invalid" }),
+    );
+
+    await expect(resolveRoleplayWorkflowCapabilities(roleplayChat)).resolves.toMatchObject({
+      hasUniversalPreset: true,
+      localSidecarReady: false,
+    });
+  });
+
   it("still surfaces unexpected sidecar status failures", async () => {
     mocks.getSidecarStatus.mockRejectedValue(new Error("Sidecar IPC failed"));
 
