@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import { assembleGenerationPrompt } from "./prompt-assembly";
+import { assembleGenerationPrompt, PROSE_STYLE_NOTE } from "./prompt-assembly";
 
 function asStorageValue<T>(value: unknown): T {
   return value as T;
@@ -166,7 +166,8 @@ describe("long Conversation context focus", () => {
     expect(text).toContain("OLD_ASSISTANT_DRIFT_20");
     expect(text).not.toContain("OLD_ASSISTANT_DRIFT_17");
     expect(text.match(/BLOATED_DESCRIPTION_MIDDLE/g)?.length ?? 0).toBeLessThan(25);
-    expect(text.length).toBeLessThan(7_000);
+    // The fixed per-turn prose style note is not context bloat.
+    expect(text.replace(PROSE_STYLE_NOTE, "").length).toBeLessThan(7_000);
   });
 
   it("keeps the assistant replies that give follow-up questions their referents", async () => {
