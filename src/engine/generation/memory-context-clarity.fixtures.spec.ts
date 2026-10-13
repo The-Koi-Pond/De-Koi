@@ -2135,14 +2135,29 @@ describe("memory context clarity semantic fixtures", () => {
       expect(result.candidates).toHaveLength(1);
     });
 
-    it("accepts a one-letter typo in a longer evidence word", async () => {
-      const result = await extract(
-        "Chai said Chai has always really struggled to keep Chai's plants alive.",
-        "fact",
-        "i've alwasy really struggled to keep my plants alive",
-      );
+    it("routes a typo-only mismatch to the verifier instead of matching it on the surface", async () => {
+      const typoMemory = {
+        kind: "fact",
+        content: "Chai said Chai has always really struggled to keep Chai's plants alive.",
+        confidence: 0.9,
+        evidence: "direct_user_assertion",
+        sourceMessageIds: ["user-text"],
+      };
+      const typoEvidence = "i've alwasy really struggled to keep my plants alive";
+      const unverified = await extract(typoMemory.content, typoMemory.kind, typoEvidence);
+      const { llm, prompts } = sequencedGateway([
+        JSON.stringify({ memories: [typoMemory] }),
+        JSON.stringify({ verdicts: [{ index: 0, faithful: true }] }),
+      ]);
 
-      expect(result.candidates).toHaveLength(1);
+      const verified = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow(typoEvidence)]),
+      });
+
+      expect(unverified.candidates).toHaveLength(0);
+      expect(verified.candidates).toHaveLength(1);
+      expect(prompts).toHaveLength(2);
     });
 
     it("accepts a told frame whose addressee is a known participant", async () => {

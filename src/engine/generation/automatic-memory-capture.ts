@@ -487,21 +487,14 @@ function claimSupportingEvidenceClauses(claim: string, evidence: string, evidenc
   for (const claimProposition of evidencePropositions(claim)) {
     const claimTokens = evidenceTokens(claimProposition);
     if (claimTokens.size === 0) return [];
-    const claimWords = claimProposition.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
     const matches = evidencePropositionList.filter((evidenceProposition) => {
       const evidenceTokenSet = evidenceTokens(evidenceProposition);
       if (evidenceSpeakerLabel && /\b(?:i|me|mine|my|myself|our|ours|ourselves|us|we)\b/i.test(evidenceProposition)) {
         evidenceTokens(evidenceSpeakerLabel).forEach((token) => evidenceTokenSet.add(token));
       }
-      const evidenceWords = evidenceProposition.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-      const typoTokens = new Set(
-        claimWords
-          .filter((word) => evidenceWords.some((evidenceWord) => typoVariant(word, evidenceWord)))
-          .map(evidenceToken),
-      );
       return (
         hasNegativePolarity(evidenceProposition) === hasNegativePolarity(claimProposition) &&
-        [...claimTokens].every((token) => evidenceTokenSet.has(token) || typoTokens.has(token))
+        [...claimTokens].every((token) => evidenceTokenSet.has(token))
       );
     });
     if (matches.length === 0) return [];
@@ -847,29 +840,7 @@ function surfaceTokensMatch(left: string, right: string): boolean {
   const rightPast = right === "kept" || (right.length > 4 && right.endsWith("ed"));
   if (leftPast !== rightPast) return false;
   const rightForms = surfaceForms(right);
-  return [...surfaceForms(left)].some((form) => rightForms.has(form)) || typoVariant(left, right);
-}
-
-// Casual chat text misspells ("alwasy"); accept one edit or adjacent swap in longer words only.
-function typoVariant(left: string, right: string): boolean {
-  if (left.length < 6 || right.length < 6 || left[0] !== right[0] || Math.abs(left.length - right.length) > 1) {
-    return false;
-  }
-  if (left.length === right.length) {
-    const diffs = [...left].flatMap((char, index) => (char === right[index] ? [] : [index]));
-    if (diffs.length === 1) return true;
-    const [first, second] = diffs;
-    return (
-      diffs.length === 2 &&
-      second === (first ?? -2) + 1 &&
-      left[first ?? 0] === right[second ?? 0] &&
-      left[second ?? 0] === right[first ?? 0]
-    );
-  }
-  const [shorter, longer] = left.length < right.length ? [left, right] : [right, left];
-  let index = 0;
-  while (index < shorter.length && shorter[index] === longer[index]) index += 1;
-  return shorter.slice(index) === longer.slice(index + 1);
+  return [...surfaceForms(left)].some((form) => rightForms.has(form));
 }
 
 function orderedSurfaceMatchIndexes(
