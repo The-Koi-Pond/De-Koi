@@ -88,9 +88,11 @@ const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time|you (?
 
 function explicitRecallRequest(text: string): boolean {
   const lower = text.toLowerCase().trim();
+  // The question-only phrases must sit in the sentence that carries the question mark.
+  const questions = lower.match(/[^.!?]*\?/g) ?? [];
   return (
     RECALL_REQUEST_PATTERNS.some((pattern) => pattern.test(lower)) ||
-    (lower.includes("?") && RECALL_QUESTION_PATTERN.test(lower))
+    questions.some((question) => RECALL_QUESTION_PATTERN.test(question))
   );
 }
 

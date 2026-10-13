@@ -768,6 +768,7 @@ describe("canonical memory context", () => {
     "last time i went out it rained",
     "you forgot my keys at your place",
     "you remember the password, not me",
+    "did you lock the door? you forgot my keys at your place.",
   ])("keeps moderate semantic matches out for an ordinary statement: %s", async (latestUserInput) => {
     const bracelet = memory({
       id: "memory-bracelet",
