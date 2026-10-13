@@ -761,7 +761,12 @@ describe("canonical memory context", () => {
     ]);
   });
 
-  it("keeps moderate semantic matches out when the user is not asking to remember", async () => {
+  it.each([
+    "i dropped something shiny under the bed and can't reach it",
+    "i forgot my keys again",
+    "remember to eat something today",
+    "last time i went out it rained",
+  ])("keeps moderate semantic matches out for an ordinary statement: %s", async (latestUserInput) => {
     const bracelet = memory({
       id: "memory-bracelet",
       scope: { kind: "character", id: "harlequin" },
@@ -782,7 +787,7 @@ describe("canonical memory context", () => {
     const result = await buildCanonicalMemoryContext(storage, {
       chat: { id: "new-chat", mode: "conversation", metadata: { enableMemoryRecall: true } },
       storedMessages: [],
-      latestUserInput: "i dropped something shiny under the bed and can't reach it",
+      latestUserInput,
       characters: [{ id: "harlequin", name: "Harlequin", tags: [] }],
       connectionId: "nano",
     });

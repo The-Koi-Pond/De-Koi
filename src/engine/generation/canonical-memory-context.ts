@@ -79,8 +79,21 @@ const SEMANTIC_CANDIDATE_LIMIT = 24;
 // An explicit "do you remember..." turn admits its best moderate semantic matches,
 // which the cross-chat gate above would otherwise drop.
 const MAX_RECALL_REQUEST_MEMORIES = 3;
-const EXPLICIT_RECALL_REQUEST =
-  /\b(?:remember|recall|remind me|forgot|forget)\b|\bwhat happened (?:with|to)\b|\blast time\b/i;
+const RECALL_REQUEST_PATTERNS = [
+  /\b(?:do|did|can|could|would|will) you (?:still |even )?(?:remember|recall)\b/,
+  /\byou (?:remember|recall|forgot|forget)\b/,
+  /(?:^|[.!?]\s*)remember (?:when|the|that|what|how|my|our|me|us)\b/,
+  /\bremind me (?:of|about|what|when|how|who)\b/,
+];
+const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time)\b/;
+
+function explicitRecallRequest(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  return (
+    RECALL_REQUEST_PATTERNS.some((pattern) => pattern.test(lower)) ||
+    (lower.includes("?") && RECALL_QUESTION_PATTERN.test(lower))
+  );
+}
 
 const STOPWORDS = new Set([
   "about",
@@ -704,7 +717,7 @@ export async function buildCanonicalMemoryContext(
     const existing = rankedById.get(candidate.memory.id);
     if (!existing || candidate.score > existing.score) rankedById.set(candidate.memory.id, candidate);
   }
-  const recallRequestIds = EXPLICIT_RECALL_REQUEST.test(input.latestUserInput)
+  const recallRequestIds = explicitRecallRequest(input.latestUserInput)
     ? new Set(
         Array.from(rankedById.values())
           .filter((candidate) => candidate.semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD)
