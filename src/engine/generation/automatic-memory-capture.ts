@@ -1407,7 +1407,8 @@ export async function extractCanonicalMemoryConsequences(input: {
   const accepted: Array<{
     memory: CanonicalMemoryInput;
     verify: boolean;
-    evidenceRows: CanonicalConsequenceSourceMessage[];
+    sourceRows: CanonicalConsequenceSourceMessage[];
+    referenceRows: CanonicalConsequenceSourceMessage[];
   }> = [];
   let skippedCount = 0;
 
@@ -1485,7 +1486,7 @@ export async function extractCanonicalMemoryConsequences(input: {
         referenceMessageIds: referenceIds,
       },
     };
-    accepted.push({ memory, verify, evidenceRows: [...evidenceMessages, ...referenceMessages] });
+    accepted.push({ memory, verify, sourceRows: evidenceMessages, referenceRows: referenceMessages });
   }
 
   const pending = accepted.filter((entry) => entry.verify);
@@ -1498,20 +1499,25 @@ export async function extractCanonicalMemoryConsequences(input: {
 }
 
 // One batched call judges every candidate that failed the surface checks against its cited rows.
-// Only an explicit faithful verdict keeps a candidate; a missing verdict rejects it, and a provider
-// failure propagates so the capture job retries.
+// Only an explicit faithful verdict keeps a candidate. A verdict set that does not give exactly one
+// boolean per candidate rejects every candidate, and a provider failure propagates so the job retries.
 async function verifyMemoryFidelity(
   input: { llm: LlmGateway; request: CanonicalConsequenceExtractionRequest; signal?: AbortSignal },
-  pending: Array<{ memory: CanonicalMemoryInput; evidenceRows: CanonicalConsequenceSourceMessage[] }>,
+  pending: Array<{
+    memory: CanonicalMemoryInput;
+    sourceRows: CanonicalConsequenceSourceMessage[];
+    referenceRows: CanonicalConsequenceSourceMessage[];
+  }>,
 ): Promise<Set<number>> {
   const { request } = input;
+  const row = (label: string, message: CanonicalConsequenceSourceMessage) =>
+    `  ${label} ${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`;
   const items = pending
     .map((entry, index) =>
       [
         `Candidate ${index} (${entry.memory.kind}): ${entry.memory.content}`,
-        ...entry.evidenceRows.map(
-          (message) => `  cited ${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`,
-        ),
+        ...entry.sourceRows.map((message) => row("source", message)),
+        ...entry.referenceRows.map((message) => row("reference (identity only)", message)),
       ].join("\n"),
     )
     .join("\n\n");
@@ -1528,7 +1534,7 @@ async function verifyMemoryFidelity(
           role: "user",
           content: [
             "Each candidate memory summarizes its cited rows. A summary may paraphrase, fix typos, and replace I or my with the speaker's name.",
-            "Mark a candidate faithful only if every claim in it is stated by the cited rows and it follows every rule below.",
+            "Mark a candidate faithful only if every claim in it is stated by its source rows and it follows every rule below. Reference rows may only identify who or what a bare name or pronoun means; they never support a claim.",
             `The user identity is ${request.userLabel}.`,
             ...MEMORY_FIDELITY_RULES,
             'Return JSON only: {"verdicts":[{"index":0,"faithful":true}]} with one verdict per candidate.',
@@ -1541,12 +1547,23 @@ async function verifyMemoryFidelity(
     input.signal,
   );
   const parsed = extractJsonObject(raw);
-  const verdicts = Array.isArray(parsed.verdicts) ? parsed.verdicts.filter(isRecord) : [];
-  return new Set(
-    verdicts
-      .filter((verdict) => verdict.faithful === true && Number.isInteger(verdict.index))
-      .map((verdict) => verdict.index as number),
-  );
+  const verdicts = Array.isArray(parsed.verdicts) ? parsed.verdicts : [];
+  const byIndex = new Map<number, boolean>();
+  for (const verdict of verdicts) {
+    if (
+      !isRecord(verdict) ||
+      typeof verdict.faithful !== "boolean" ||
+      !Number.isInteger(verdict.index) ||
+      (verdict.index as number) < 0 ||
+      (verdict.index as number) >= pending.length ||
+      byIndex.has(verdict.index as number)
+    ) {
+      return new Set();
+    }
+    byIndex.set(verdict.index as number, verdict.faithful);
+  }
+  if (byIndex.size !== pending.length) return new Set();
+  return new Set([...byIndex].filter(([, faithful]) => faithful).map(([index]) => index));
 }
 
 function extractJsonObject(raw: string): Record<string, unknown> {

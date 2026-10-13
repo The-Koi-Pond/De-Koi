@@ -2228,8 +2228,55 @@ describe("memory context clarity semantic fixtures", () => {
 
       expect(result.candidates.map((memory) => memory.content)).toEqual([summary.content]);
       expect(prompts).toHaveLength(2);
-      expect(prompts[1]).toContain(`cited user-text | user | Chai | ${summaryEvidence}`);
+      expect(prompts[1]).toContain(`source user-text | user | Chai | ${summaryEvidence}`);
       expect(prompts[1]).toContain("never invert what a cited row says");
+    });
+
+    it("labels reference rows as identity-only context for the verifier", async () => {
+      const { llm, prompts } = sequencedGateway([
+        JSON.stringify({ memories: [{ ...summary, referenceMessageIds: ["user-older"] }] }),
+        JSON.stringify({ verdicts: [{ index: 0, faithful: false }] }),
+      ]);
+
+      await extractCanonicalMemoryConsequences({
+        llm,
+        request: request(
+          "Chai",
+          [userRow(summaryEvidence)],
+          [{ ...userRow("my apartment is the one above the bakery"), id: "user-older" }],
+        ),
+      });
+
+      expect(prompts[1]).toContain("reference (identity only) user-older | user | Chai |");
+      expect(prompts[1]).toContain("they never support a claim");
+    });
+
+    it.each([
+      [
+        "a duplicate verdict",
+        [
+          { index: 0, faithful: true },
+          { index: 0, faithful: true },
+        ],
+      ],
+      [
+        "an out-of-range verdict",
+        [
+          { index: 0, faithful: true },
+          { index: 1, faithful: true },
+        ],
+      ],
+      ["a non-boolean verdict", [{ index: 0, faithful: "yes" }]],
+      ["no verdict for the candidate", []],
+    ])("rejects every candidate when the verifier returns %s", async (_label, verdicts) => {
+      const { llm } = sequencedGateway([JSON.stringify({ memories: [summary] }), JSON.stringify({ verdicts })]);
+
+      const result = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow(summaryEvidence)]),
+      });
+
+      expect(result.candidates).toEqual([]);
     });
 
     it("drops a paraphrased summary that the verifier does not mark faithful", async () => {
