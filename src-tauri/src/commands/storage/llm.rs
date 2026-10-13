@@ -1090,6 +1090,7 @@ fn provider_model_catalog(provider: &str) -> Vec<Value> {
             "codex-auto-review",
         ],
         "anthropic" => &[
+            "claude-opus-5-5",
             "claude-opus-4-8",
             "claude-fable-5",
             "claude-mythos-5",
@@ -1104,6 +1105,7 @@ fn provider_model_catalog(provider: &str) -> Vec<Value> {
             "claude-3-opus-latest",
         ],
         "claude_subscription" => &[
+            "claude-opus-5-5",
             "claude-opus-4-8",
             "claude-opus-4-8[1m]",
             "claude-fable-5",

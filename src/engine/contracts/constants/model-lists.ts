@@ -112,6 +112,7 @@ const OPENAI_MODELS: KnownModel[] = [
 // ── Anthropic / Claude (from #model_claude_select) ──
 
 const ANTHROPIC_MODELS: KnownModel[] = [
+  { id: "claude-opus-5-5", name: "claude-opus-5-5", context: 1000000, maxOutput: 128000 },
   { id: "claude-opus-4-8", name: "claude-opus-4-8", context: 1000000, maxOutput: 128000 },
   { id: "claude-fable-5", name: "claude-fable-5", context: 1000000, maxOutput: 128000 },
   { id: "claude-mythos-5", name: "claude-mythos-5 (limited access)", context: 1000000, maxOutput: 128000 },
@@ -143,6 +144,7 @@ const ANTHROPIC_MODELS: KnownModel[] = [
 
 // ── Claude (Subscription via local Claude Code auth) ──
 const CLAUDE_SUBSCRIPTION_MODELS: KnownModel[] = [
+  { id: "claude-opus-5-5", name: "Claude Opus 5.5", context: 1000000, maxOutput: 128000 },
   { id: "claude-opus-4-8", name: "Claude Opus 4.8", context: 1000000, maxOutput: 128000 },
   { id: "claude-opus-4-8[1m]", name: "Claude Opus 4.8 (1M context)", context: 1000000, maxOutput: 128000 },
   { id: "claude-fable-5", name: "Claude Fable 5", context: 1000000, maxOutput: 128000 },
