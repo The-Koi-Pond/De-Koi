@@ -81,11 +81,10 @@ const SEMANTIC_CANDIDATE_LIMIT = 24;
 const MAX_RECALL_REQUEST_MEMORIES = 3;
 const RECALL_REQUEST_PATTERNS = [
   /\b(?:do|did|can|could|would|will) you (?:still |even )?(?:remember|recall)\b/,
-  /\byou (?:remember|recall|forgot|forget)\b/,
   /(?:^|[.!?]\s*)remember (?:when|the|that|what|how|my|our|me|us)\b/,
   /\bremind me (?:of|about|what|when|how|who)\b/,
 ];
-const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time)\b/;
+const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time|you (?:remember|recall|forgot|forget))\b/;
 
 function explicitRecallRequest(text: string): boolean {
   const lower = text.toLowerCase().trim();
