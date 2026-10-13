@@ -76,6 +76,25 @@ const SEMANTIC_SIMILARITY_THRESHOLD = 0.28;
 const STRONG_SEMANTIC_RELEVANCE_THRESHOLD = 0.4;
 const MIN_LEXICAL_QUERY_COVERAGE = 0.5;
 const SEMANTIC_CANDIDATE_LIMIT = 24;
+// An explicit "do you remember..." turn admits its best moderate semantic matches,
+// which the cross-chat gate above would otherwise drop.
+const MAX_RECALL_REQUEST_MEMORIES = 3;
+const RECALL_REQUEST_PATTERNS = [
+  /\b(?:do|did|can|could|would|will) you (?:still |even )?(?:remember|recall)\b/,
+  /(?:^|[.!?]\s*)remember (?:when|the|that|what|how|my|our|me|us)\b/,
+  /\bremind me (?:of|about|what|when|how|who)\b/,
+];
+const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time)\b/;
+
+function explicitRecallRequest(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  // The question-only phrases must sit in the sentence that carries the question mark.
+  const questions = lower.match(/[^.!?]*\?/g) ?? [];
+  return (
+    RECALL_REQUEST_PATTERNS.some((pattern) => pattern.test(lower)) ||
+    questions.some((question) => RECALL_QUESTION_PATTERN.test(question))
+  );
+}
 
 const STOPWORDS = new Set([
   "about",
@@ -699,8 +718,20 @@ export async function buildCanonicalMemoryContext(
     const existing = rankedById.get(candidate.memory.id);
     if (!existing || candidate.score > existing.score) rankedById.set(candidate.memory.id, candidate);
   }
+  const recallRequestIds = explicitRecallRequest(input.latestUserInput)
+    ? new Set(
+        Array.from(rankedById.values())
+          .filter((candidate) => candidate.semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD)
+          .sort((a, b) => b.semanticScore - a.semanticScore)
+          .slice(0, MAX_RECALL_REQUEST_MEMORIES)
+          .map((candidate) => candidate.memory.id),
+      )
+    : new Set<string>();
   let ranked = Array.from(rankedById.values())
-    .filter((candidate) => relevantEnoughForPrompt(candidate, input, queryTokens.length))
+    .filter(
+      (candidate) =>
+        recallRequestIds.has(candidate.memory.id) || relevantEnoughForPrompt(candidate, input, queryTokens.length),
+    )
     .filter((candidate) => candidate.score >= MIN_CANONICAL_MEMORY_SCORE || candidate.memory.status === "pinned")
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CANDIDATE_MEMORIES);
