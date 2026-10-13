@@ -419,6 +419,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Replace context-dependent it, this, or that with the actual supported subject when the subject matters.",
     ...MEMORY_FIDELITY_RULES,
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
+    "Each confidence must be a JSON number from 0 to 1, such as 0.9.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
     "Allowed kinds: fact, preference, promise, relationship_state, scene_event, plot_state, contradiction.",
     "Allowed evidence: direct_user_assertion, explicit_promise, explicit_screen_event, explicit_exchange.",
@@ -1371,6 +1372,131 @@ function evidenceSupportsKind(
   return false;
 }
 
+type ScreenedConsequence = {
+  memory: CanonicalMemoryInput;
+  verify: boolean;
+  sourceRows: CanonicalConsequenceSourceMessage[];
+  referenceRows: CanonicalConsequenceSourceMessage[];
+};
+
+// Wording and format slips the model can fix without changing a claim. Every other failure is final.
+type CorrectableCandidateProblem = AutomaticCaptureMemoryFailure | "invalid_confidence";
+
+type CorrectableCandidate = {
+  candidate: AutomaticMemoryCandidate;
+  problems: CorrectableCandidateProblem[];
+  sourceRows: CanonicalConsequenceSourceMessage[];
+  referenceRows: CanonicalConsequenceSourceMessage[];
+};
+
+type CandidateScreen =
+  | { status: "accepted"; entry: ScreenedConsequence }
+  | { status: "correctable"; correctable: CorrectableCandidate }
+  | { status: "rejected" };
+
+const CANDIDATE_CORRECTIONS: Record<CorrectableCandidateProblem, string> = {
+  third_person_personal_pronoun:
+    "It uses a third-person personal pronoun. Replace each one with the name of the person or thing it refers to in the rows.",
+  generic_speaker_label: "It uses User, character, or assistant as a name. Use the speaker's name from the rows.",
+  unresolved_opening_reference: "It opens with a pronoun or with this or that. Open with the subject's name instead.",
+  dangling_topic_reference: "It talks about an unnamed it, this, or that. Name the topic from the source rows.",
+  invalid_confidence: "Its confidence is not a number from 0 to 1. Give a number such as 0.9.",
+};
+
+function screenConsequenceCandidate(
+  candidate: AutomaticMemoryCandidate,
+  request: CanonicalConsequenceExtractionRequest,
+  sourceById: ReadonlyMap<string, CanonicalConsequenceSourceMessage>,
+  referenceById: ReadonlyMap<string, CanonicalConsequenceSourceMessage>,
+  eligibleIds: ReadonlySet<string>,
+): CandidateScreen {
+  const kind = consequenceKind(candidate);
+  const content = readString(candidate.content).trim();
+  const confidence =
+    typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence)
+      ? candidate.confidence
+      : Number.NaN;
+  const evidence = validConsequenceEvidence(candidate.evidence);
+  const evidenceIds = Array.from(new Set(readStringArray(candidate.sourceMessageIds)));
+  const referenceIds = Array.from(new Set(readStringArray(candidate.referenceMessageIds)));
+  const evidenceMessages = evidenceIds
+    .map((id) => sourceById.get(id))
+    .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
+  const referenceMessages = referenceIds
+    .map((id) => referenceById.get(id))
+    .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
+  const supersedesMemoryId = readString(candidate.supersedesMemoryId).trim() || null;
+  if (
+    !kind ||
+    !content ||
+    content.length > MAX_CONSEQUENCE_CONTENT_LENGTH ||
+    !evidence ||
+    evidenceIds.length === 0 ||
+    evidenceMessages.length !== evidenceIds.length ||
+    referenceMessages.length !== referenceIds.length ||
+    !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
+    !contentSupportedByEvidence(content, evidenceMessages) ||
+    !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
+    (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
+  ) {
+    return { status: "rejected" };
+  }
+  const wordingFailure = automaticCaptureMemoryFailure(content);
+  const problems: CorrectableCandidateProblem[] = [];
+  if (wordingFailure) problems.push(wordingFailure);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) problems.push("invalid_confidence");
+  if (problems.length > 0) {
+    return {
+      status: "correctable",
+      correctable: { candidate, problems, sourceRows: evidenceMessages, referenceRows: referenceMessages },
+    };
+  }
+  // The surface checks only pass near-verbatim restatements; a faithful summary of casual chat
+  // text fails them, so it goes to the model verifier instead of being dropped.
+  const verify =
+    !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request), referenceMessages) ||
+    !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
+    !evidenceSpecificityPreserved(content, evidenceMessages);
+  const latestEvidence = evidenceMessages
+    .map((message) => message.createdAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  return {
+    status: "accepted",
+    entry: {
+      verify,
+      sourceRows: evidenceMessages,
+      referenceRows: referenceMessages,
+      memory: {
+        kind,
+        status: confidence >= ACTIVE_CONFIDENCE_THRESHOLD ? "active" : "stale",
+        scope: request.scope,
+        content,
+        confidence,
+        provenance: {
+          sourceChatId: request.chatId,
+          messageIds: Array.from(new Set([...evidenceIds, ...referenceIds])),
+          characterId: request.activeCharacterId,
+          timestamp: latestEvidence || null,
+        },
+        title: null,
+        tags: ["automatic", "consequence", kind],
+        supersedesMemoryId,
+        payload: {
+          automatic: true,
+          captureVersion: request.version,
+          captureJobId: request.jobId,
+          evidence,
+          mode: request.mode,
+          sourceMessageIds: evidenceIds,
+          referenceMessageIds: referenceIds,
+        },
+      },
+    },
+  };
+}
+
 export async function extractCanonicalMemoryConsequences(input: {
   llm: LlmGateway;
   request: CanonicalConsequenceExtractionRequest;
@@ -1404,89 +1530,23 @@ export async function extractCanonicalMemoryConsequences(input: {
       .filter((memory) => memory.status === "active")
       .map((memory) => memory.id),
   );
-  const accepted: Array<{
-    memory: CanonicalMemoryInput;
-    verify: boolean;
-    sourceRows: CanonicalConsequenceSourceMessage[];
-    referenceRows: CanonicalConsequenceSourceMessage[];
-  }> = [];
-  let skippedCount = 0;
+  const screen = (candidate: AutomaticMemoryCandidate) =>
+    screenConsequenceCandidate(candidate, request, sourceById, referenceById, eligibleIds);
 
+  const accepted: ScreenedConsequence[] = [];
+  const correctable: CorrectableCandidate[] = [];
   for (const candidate of rawCandidates) {
-    const kind = consequenceKind(candidate);
-    const content = readString(candidate.content).trim();
-    const confidence =
-      typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence)
-        ? candidate.confidence
-        : Number.NaN;
-    const evidence = validConsequenceEvidence(candidate.evidence);
-    const evidenceIds = Array.from(new Set(readStringArray(candidate.sourceMessageIds)));
-    const referenceIds = Array.from(new Set(readStringArray(candidate.referenceMessageIds)));
-    const evidenceMessages = evidenceIds
-      .map((id) => sourceById.get(id))
-      .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
-    const referenceMessages = referenceIds
-      .map((id) => referenceById.get(id))
-      .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
-    const provenanceMessageIds = Array.from(new Set([...evidenceIds, ...referenceIds]));
-    const supersedesMemoryId = readString(candidate.supersedesMemoryId).trim() || null;
-    if (
-      !kind ||
-      !content ||
-      automaticCaptureMemoryFailure(content) !== null ||
-      content.length > MAX_CONSEQUENCE_CONTENT_LENGTH ||
-      !Number.isFinite(confidence) ||
-      confidence < 0 ||
-      confidence > 1 ||
-      !evidence ||
-      evidenceIds.length === 0 ||
-      evidenceMessages.length !== evidenceIds.length ||
-      referenceMessages.length !== referenceIds.length ||
-      !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
-      !contentSupportedByEvidence(content, evidenceMessages) ||
-      !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
-      (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
-    ) {
-      skippedCount += 1;
-      continue;
+    const screened = screen(candidate);
+    if (screened.status === "accepted") accepted.push(screened.entry);
+    if (screened.status === "correctable") correctable.push(screened.correctable);
+  }
+  if (correctable.length > 0) {
+    const corrections = await correctMemoryCandidates(input, correctable);
+    for (const [index, correction] of corrections) {
+      const screened = screen({ ...correctable[index]!.candidate, ...correction });
+      // A corrected sentence is new model wording, so the verifier always judges it.
+      if (screened.status === "accepted") accepted.push({ ...screened.entry, verify: true });
     }
-    // The surface checks only pass near-verbatim restatements; a faithful summary of casual chat
-    // text fails them, so it goes to the model verifier instead of being dropped.
-    const verify =
-      !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request), referenceMessages) ||
-      !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
-      !evidenceSpecificityPreserved(content, evidenceMessages);
-    const latestEvidence = evidenceMessages
-      .map((message) => message.createdAt)
-      .filter(Boolean)
-      .sort()
-      .at(-1);
-    const memory: CanonicalMemoryInput = {
-      kind,
-      status: confidence >= ACTIVE_CONFIDENCE_THRESHOLD ? "active" : "stale",
-      scope: request.scope,
-      content,
-      confidence,
-      provenance: {
-        sourceChatId: request.chatId,
-        messageIds: provenanceMessageIds,
-        characterId: request.activeCharacterId,
-        timestamp: latestEvidence || null,
-      },
-      title: null,
-      tags: ["automatic", "consequence", kind],
-      supersedesMemoryId,
-      payload: {
-        automatic: true,
-        captureVersion: request.version,
-        captureJobId: request.jobId,
-        evidence,
-        mode: request.mode,
-        sourceMessageIds: evidenceIds,
-        referenceMessageIds: referenceIds,
-      },
-    };
-    accepted.push({ memory, verify, sourceRows: evidenceMessages, referenceRows: referenceMessages });
   }
 
   const pending = accepted.filter((entry) => entry.verify);
@@ -1494,8 +1554,59 @@ export async function extractCanonicalMemoryConsequences(input: {
   const candidates = accepted
     .filter((entry) => !entry.verify || faithful.has(pending.indexOf(entry)))
     .map((entry) => entry.memory);
-  skippedCount += accepted.length - candidates.length;
-  return { candidates, skippedCount };
+  return { candidates, skippedCount: rawCandidates.length - candidates.length };
+}
+
+// One batched call fixes the wording and format slips screening found. A correction may change only
+// content and confidence; it is screened again and verified, and a missing correction stays dropped.
+async function correctMemoryCandidates(
+  input: { llm: LlmGateway; request: CanonicalConsequenceExtractionRequest; signal?: AbortSignal },
+  pending: CorrectableCandidate[],
+): Promise<Map<number, { content: unknown; confidence: unknown }>> {
+  const { request } = input;
+  const row = (label: string, message: CanonicalConsequenceSourceMessage) =>
+    `  ${label} ${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`;
+  const items = pending
+    .map((entry, index) =>
+      [
+        `Candidate ${index} (${readString(entry.candidate.kind)}): ${readString(entry.candidate.content)}`,
+        `  confidence: ${JSON.stringify(entry.candidate.confidence ?? null)}`,
+        ...entry.problems.map((problem) => `  problem: ${CANDIDATE_CORRECTIONS[problem]}`),
+        ...entry.sourceRows.map((message) => row("source", message)),
+        ...entry.referenceRows.map((message) => row("reference", message)),
+      ].join("\n"),
+    )
+    .join("\n\n");
+  const raw = await input.llm.complete(
+    {
+      connectionId: request.connectionId,
+      model: request.model ?? undefined,
+      messages: [
+        { role: "system", content: "You correct the wording of saved memories. Return strict JSON only." },
+        {
+          role: "user",
+          content: [
+            "Each candidate memory below breaks a wording or format rule. Fix only the listed problems.",
+            "Keep every claim, condition, and speaker exactly as written; do not add, drop, or change any fact.",
+            `The user identity is ${request.userLabel}.`,
+            'Return JSON only: {"corrections":[{"index":0,"content":"...","confidence":0.9}]} with one correction per candidate.',
+            items,
+          ].join("\n"),
+        },
+      ],
+      parameters: { temperature: 0, maxTokens: 900 },
+    },
+    input.signal,
+  );
+  const parsed = extractJsonObject(raw);
+  const corrections = new Map<number, { content: unknown; confidence: unknown }>();
+  for (const correction of Array.isArray(parsed.corrections) ? parsed.corrections : []) {
+    if (!isRecord(correction) || !Number.isInteger(correction.index)) continue;
+    const index = correction.index as number;
+    if (index < 0 || index >= pending.length || corrections.has(index)) continue;
+    corrections.set(index, { content: correction.content, confidence: correction.confidence });
+  }
+  return corrections;
 }
 
 // One batched call judges every candidate that failed the surface checks against its cited rows.
