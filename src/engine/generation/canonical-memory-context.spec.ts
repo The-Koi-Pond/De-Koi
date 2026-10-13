@@ -673,6 +673,123 @@ describe("canonical memory context", () => {
     expect(result?.block).toContain("cat is named Miso");
   });
 
+  it("admits the best moderate semantic match when the user explicitly asks the character to remember", async () => {
+    const bracelet = memory({
+      id: "memory-bracelet",
+      scope: { kind: "character", id: "harlequin" },
+      content:
+        "After Chai lost an important bracelet and bought nonreturnable shorts that did not fit, Harlequin learned that clothing setbacks hit Chai hard.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-bracelet"],
+        sceneId: null,
+        characterId: "harlequin",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const moth = memory({
+      id: "memory-moth",
+      scope: { kind: "character", id: "harlequin" },
+      content: "Harlequin promised to send Chai a picture when the luna moth shadow box is finished.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-moth"],
+        sceneId: null,
+        characterId: "harlequin",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const storage = storageWithMemories({
+      indexed: [bracelet, moth],
+      semantic: [
+        { memory: bracelet, similarity: 0.34, provider: "nanogpt", model: "embedding", connectionId: "nano" },
+        { memory: moth, similarity: 0.23, provider: "nanogpt", model: "embedding", connectionId: "nano" },
+      ],
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "new-chat", mode: "conversation", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "do you remember what happened with my bracelet?",
+      characters: [{ id: "harlequin", name: "Harlequin", tags: [] }],
+      connectionId: "nano",
+    });
+
+    expect(result?.block).toContain("lost an important bracelet");
+    expect(result?.block).not.toContain("luna moth");
+  });
+
+  it("admits at most three moderate semantic matches for one recall request", async () => {
+    const memories = [0.36, 0.35, 0.34, 0.33, 0.32].map((similarity, index) => ({
+      record: memory({
+        id: `memory-trip-${index}`,
+        scope: { kind: "character", id: "harlequin" },
+        content: `Chai described trip detail number ${index} to Harlequin.`,
+        provenance: {
+          sourceChatId: "older-chat",
+          messageIds: [`older-trip-${index}`],
+          sceneId: null,
+          characterId: "harlequin",
+          timestamp: "2026-08-30T10:00:00.000Z",
+        },
+      }),
+      similarity,
+    }));
+    const storage = storageWithMemories({
+      indexed: memories.map((entry) => entry.record),
+      semantic: memories.map((entry) => ({
+        memory: entry.record,
+        similarity: entry.similarity,
+        provider: "nanogpt",
+        model: "embedding",
+        connectionId: "nano",
+      })),
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "new-chat", mode: "conversation", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "remember the beach?",
+      characters: [{ id: "harlequin", name: "Harlequin", tags: [] }],
+      connectionId: "nano",
+    });
+
+    expect(result?.attributionItems.map((item) => item.sourceId).sort()).toEqual([
+      "memory-trip-0",
+      "memory-trip-1",
+      "memory-trip-2",
+    ]);
+  });
+
+  it("keeps moderate semantic matches out when the user is not asking to remember", async () => {
+    const bracelet = memory({
+      id: "memory-bracelet",
+      scope: { kind: "character", id: "harlequin" },
+      content: "After Chai lost an important bracelet, Harlequin learned that clothing setbacks hit Chai hard.",
+      provenance: {
+        sourceChatId: "older-chat",
+        messageIds: ["older-bracelet"],
+        sceneId: null,
+        characterId: "harlequin",
+        timestamp: "2026-08-30T10:00:00.000Z",
+      },
+    });
+    const storage = storageWithMemories({
+      indexed: [bracelet],
+      semantic: [{ memory: bracelet, similarity: 0.34, provider: "nanogpt", model: "embedding", connectionId: "nano" }],
+    });
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "new-chat", mode: "conversation", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "i dropped something shiny under the bed and can't reach it",
+      characters: [{ id: "harlequin", name: "Harlequin", tags: [] }],
+      connectionId: "nano",
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("keeps lexical recall working when provider semantic retrieval fails", async () => {
     const storage = storageWithMemories({
       indexed: [memory({ id: "memory-fallback", content: "The obsidian compass points toward the archive." })],

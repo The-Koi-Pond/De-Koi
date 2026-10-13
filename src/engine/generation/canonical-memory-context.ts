@@ -76,6 +76,11 @@ const SEMANTIC_SIMILARITY_THRESHOLD = 0.28;
 const STRONG_SEMANTIC_RELEVANCE_THRESHOLD = 0.4;
 const MIN_LEXICAL_QUERY_COVERAGE = 0.5;
 const SEMANTIC_CANDIDATE_LIMIT = 24;
+// An explicit "do you remember..." turn admits its best moderate semantic matches,
+// which the cross-chat gate above would otherwise drop.
+const MAX_RECALL_REQUEST_MEMORIES = 3;
+const EXPLICIT_RECALL_REQUEST =
+  /\b(?:remember|recall|remind me|forgot|forget)\b|\bwhat happened (?:with|to)\b|\blast time\b/i;
 
 const STOPWORDS = new Set([
   "about",
@@ -699,8 +704,20 @@ export async function buildCanonicalMemoryContext(
     const existing = rankedById.get(candidate.memory.id);
     if (!existing || candidate.score > existing.score) rankedById.set(candidate.memory.id, candidate);
   }
+  const recallRequestIds = EXPLICIT_RECALL_REQUEST.test(input.latestUserInput)
+    ? new Set(
+        Array.from(rankedById.values())
+          .filter((candidate) => candidate.semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD)
+          .sort((a, b) => b.semanticScore - a.semanticScore)
+          .slice(0, MAX_RECALL_REQUEST_MEMORIES)
+          .map((candidate) => candidate.memory.id),
+      )
+    : new Set<string>();
   let ranked = Array.from(rankedById.values())
-    .filter((candidate) => relevantEnoughForPrompt(candidate, input, queryTokens.length))
+    .filter(
+      (candidate) =>
+        recallRequestIds.has(candidate.memory.id) || relevantEnoughForPrompt(candidate, input, queryTokens.length),
+    )
     .filter((candidate) => candidate.score >= MIN_CANONICAL_MEMORY_SCORE || candidate.memory.status === "pinned")
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CANDIDATE_MEMORIES);
