@@ -107,6 +107,7 @@ describe("automatic memory consequence extraction", () => {
     expect(prompt).toContain("Preserve reporting acts and their certainty");
     expect(prompt).toContain("only a bare name or antecedent identity");
     expect(prompt).toContain("A commitment requires direct first-person intent");
+    expect(prompt).toContain("Each confidence must be a JSON number from 0 to 1");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.content).toBe("Celia's cat is named Miso.");
   });
@@ -245,5 +246,183 @@ describe("automatic memory consequence extraction", () => {
     });
 
     expect(result).toEqual({ candidates: [], skippedCount: 1 });
+  });
+
+  describe("wording and format corrections", () => {
+    const catRow = {
+      id: "user-cat",
+      chatId: "chat-1",
+      role: "user",
+      content: "i finally named the stray cat that hangs around my building. i named her Pickle",
+      characterId: null,
+      createdAt: "2026-07-30T12:01:00.000Z",
+      speakerLabel: "Chai",
+    };
+    const named = "Chai named the stray cat that hangs around Chai's building Pickle.";
+
+    function catRequest(): CanonicalConsequenceExtractionRequest {
+      return { ...request(), userLabel: "Chai", sourceMessages: [catRow], referenceMessages: [] };
+    }
+
+    function catMemory(overrides: Record<string, unknown> = {}) {
+      return {
+        kind: "fact",
+        content: named,
+        confidence: 0.95,
+        evidence: "direct_user_assertion",
+        sourceMessageIds: ["user-cat"],
+        ...overrides,
+      };
+    }
+
+    function sequencedGateway(replies: Array<unknown>) {
+      const prompts: string[] = [];
+      const llm: LlmGateway = {
+        async complete(llmRequest) {
+          prompts.push(llmRequest.messages.map((message) => String(message.content)).join("\n"));
+          const reply = replies.shift();
+          if (reply instanceof Error) throw reply;
+          return JSON.stringify(reply ?? {});
+        },
+        async *stream() {
+          yield { type: "done" as const };
+        },
+        async listModels() {
+          return [];
+        },
+      };
+      return { llm, prompts };
+    }
+
+    it("corrects a third-person pronoun to the name and verifies the corrected wording", async () => {
+      const { llm, prompts } = sequencedGateway([
+        { memories: [catMemory({ content: "Chai named the stray cat that hangs around their building Pickle." })] },
+        { corrections: [{ index: 0, content: named, confidence: 0.95 }] },
+        { verdicts: [{ index: 0, faithful: true }] },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result.candidates.map((memory) => memory.content)).toEqual([named]);
+      expect(result.skippedCount).toBe(0);
+      expect(prompts).toHaveLength(3);
+      expect(prompts[1]).toContain(
+        "Candidate 0 (fact): Chai named the stray cat that hangs around their building Pickle.",
+      );
+      expect(prompts[1]).toContain("problem: It uses a third-person personal pronoun.");
+      expect(prompts[1]).toContain(`source user-cat | user | Chai | ${catRow.content}`);
+      expect(prompts[2]).toContain(`Candidate 0 (fact): ${named}`);
+    });
+
+    it("corrects a word confidence into a number", async () => {
+      const { llm, prompts } = sequencedGateway([
+        { memories: [catMemory({ confidence: "high" })] },
+        { corrections: [{ index: 0, content: named, confidence: 0.9 }] },
+        { verdicts: [{ index: 0, faithful: true }] },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result.candidates).toEqual([
+        expect.objectContaining({ content: named, confidence: 0.9, status: "active" }),
+      ]);
+      expect(prompts[1]).toContain('confidence: "high"');
+      expect(prompts[1]).toContain("problem: Its confidence is not a number from 0 to 1.");
+    });
+
+    it("lets a correction change only content and confidence", async () => {
+      const { llm } = sequencedGateway([
+        { memories: [catMemory({ confidence: "high" })] },
+        {
+          corrections: [
+            {
+              index: 0,
+              content: named,
+              confidence: 0.9,
+              kind: "promise",
+              evidence: "explicit_promise",
+              sourceMessageIds: ["assistant-current"],
+            },
+          ],
+        },
+        { verdicts: [{ index: 0, faithful: true }] },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result.candidates).toEqual([
+        expect.objectContaining({
+          kind: "fact",
+          payload: expect.objectContaining({ evidence: "direct_user_assertion", sourceMessageIds: ["user-cat"] }),
+        }),
+      ]);
+    });
+
+    it("drops a correction that still breaks a rule without verifying it", async () => {
+      const pronoun = "Chai named the stray cat that hangs around their building Pickle.";
+      const { llm, prompts } = sequencedGateway([
+        { memories: [catMemory({ content: pronoun })] },
+        { corrections: [{ index: 0, content: pronoun, confidence: 0.95 }] },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(prompts).toHaveLength(2);
+    });
+
+    it("drops a corrected name swap that the verifier rejects", async () => {
+      const { llm, prompts } = sequencedGateway([
+        { memories: [catMemory({ content: "Chai named the stray cat that hangs around their building Pickle." })] },
+        {
+          corrections: [
+            {
+              index: 0,
+              content: "Chai named the stray cat that hangs around Pierrot's building Pickle.",
+              confidence: 0.95,
+            },
+          ],
+        },
+        { verdicts: [{ index: 0, faithful: false }] },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(prompts).toHaveLength(3);
+    });
+
+    it("keeps a candidate dropped when the correction reply has no usable entry for it", async () => {
+      const { llm } = sequencedGateway([
+        { memories: [catMemory({ confidence: "high" })] },
+        {
+          corrections: [
+            { index: 1, content: named, confidence: 0.9 },
+            { content: named, confidence: 0.9 },
+          ],
+        },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    });
+
+    it("does not ask for a correction when a candidate fails a substance check", async () => {
+      const { llm, prompts } = sequencedGateway([
+        { memories: [catMemory({ confidence: "high", sourceMessageIds: ["missing-row"] })] },
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
+
+      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(prompts).toHaveLength(1);
+    });
+
+    it("propagates a correction provider failure so the capture job retries", async () => {
+      const { llm } = sequencedGateway([{ memories: [catMemory({ confidence: "high" })] }, new Error("provider down")]);
+
+      await expect(extractCanonicalMemoryConsequences({ llm, request: catRequest() })).rejects.toThrow("provider down");
+    });
   });
 });
