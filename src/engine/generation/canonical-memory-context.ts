@@ -84,7 +84,7 @@ const RECALL_REQUEST_PATTERNS = [
   /(?:^|[.!?]\s*)remember (?:when|the|that|what|how|my|our|me|us)\b/,
   /\bremind me (?:of|about|what|when|how|who)\b/,
 ];
-const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time|you (?:remember|recall|forgot|forget))\b/;
+const RECALL_QUESTION_PATTERN = /\b(?:what happened (?:with|to)|last time)\b/;
 
 function explicitRecallRequest(text: string): boolean {
   const lower = text.toLowerCase().trim();
