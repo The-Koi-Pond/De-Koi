@@ -2103,6 +2103,240 @@ describe("memory context clarity semantic fixtures", () => {
     ]);
   });
 
+  describe("casual texting evidence", () => {
+    function userRow(content: string) {
+      return {
+        id: "user-text",
+        chatId: "fixture-chat",
+        role: "user" as const,
+        content,
+        characterId: null,
+        createdAt: timestamp,
+        speakerLabel: "Chai",
+      };
+    }
+
+    async function extract(content: string, kind: string, evidenceText: string) {
+      return extractCanonicalMemoryConsequences({
+        llm: gateway([
+          { kind, content, confidence: 0.9, evidence: "direct_user_assertion", sourceMessageIds: ["user-text"] },
+        ]),
+        request: request("Chai", [userRow(evidenceText)]),
+      });
+    }
+
+    it("accepts a named reporting frame that repeats the speaker instead of a pronoun", async () => {
+      const result = await extract(
+        "Chai said Chai has always really struggled to keep Chai's plants alive.",
+        "fact",
+        "i've always really struggled to keep my plants alive",
+      );
+
+      expect(result.candidates).toHaveLength(1);
+    });
+
+    it("routes a typo-only mismatch to the verifier instead of matching it on the surface", async () => {
+      const typoMemory = {
+        kind: "fact",
+        content: "Chai said Chai has always really struggled to keep Chai's plants alive.",
+        confidence: 0.9,
+        evidence: "direct_user_assertion",
+        sourceMessageIds: ["user-text"],
+      };
+      const typoEvidence = "i've alwasy really struggled to keep my plants alive";
+      const unverified = await extract(typoMemory.content, typoMemory.kind, typoEvidence);
+      const { llm, prompts } = sequencedGateway([
+        JSON.stringify({ memories: [typoMemory] }),
+        JSON.stringify({ verdicts: [{ index: 0, faithful: true }] }),
+      ]);
+
+      const verified = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow(typoEvidence)]),
+      });
+
+      expect(unverified.candidates).toHaveLength(0);
+      expect(verified.candidates).toHaveLength(1);
+      expect(prompts).toHaveLength(2);
+    });
+
+    it("accepts a told frame whose addressee is a known participant", async () => {
+      const result = await extract(
+        "Chai told Pierrot that Chai wants to learn to bake bread.",
+        "preference",
+        "pierrot....i want to learn to bake bread",
+      );
+
+      expect(result.candidates).toHaveLength(1);
+    });
+
+    it("still rejects an inverted told-frame claim", async () => {
+      const result = await extract(
+        "Chai told Pierrot that Chai does not want to learn to bake bread.",
+        "preference",
+        "pierrot....i want to learn to bake bread",
+      );
+
+      expect(result.candidates).toHaveLength(0);
+    });
+
+    it("still rejects a different predicate that is one letter away", async () => {
+      const result = await extract("Chai said Chai really licked the bread.", "fact", "i really liked the bread");
+
+      expect(result.candidates).toHaveLength(0);
+    });
+
+    function sequencedGateway(replies: Array<string | Error>) {
+      const prompts: string[] = [];
+      const llm: LlmGateway = {
+        async complete(request) {
+          prompts.push(request.messages.map((message) => String(message.content)).join("\n"));
+          const reply = replies.shift();
+          if (reply instanceof Error) throw reply;
+          return reply ?? "{}";
+        },
+        async *stream() {
+          yield { type: "done" as const };
+        },
+        async listModels() {
+          return [];
+        },
+      };
+      return { llm, prompts };
+    }
+
+    const summary = {
+      kind: "fact",
+      content: "Chai finds it hard to keep Chai's apartment clean because looking at the whole mess overwhelms Chai.",
+      confidence: 0.9,
+      evidence: "direct_user_assertion",
+      sourceMessageIds: ["user-text"],
+    };
+    const summaryEvidence =
+      "ugh i can never keep my apartment clean, i look at the whole mess and just freeze up, its so overwhelming";
+
+    it("keeps a paraphrased summary that the verifier marks faithful", async () => {
+      const { llm, prompts } = sequencedGateway([
+        JSON.stringify({ memories: [summary] }),
+        JSON.stringify({ verdicts: [{ index: 0, faithful: true }] }),
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow(summaryEvidence)]),
+      });
+
+      expect(result.candidates.map((memory) => memory.content)).toEqual([summary.content]);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain(`source user-text | user | Chai | ${summaryEvidence}`);
+      expect(prompts[1]).toContain("never invert what a cited row says");
+    });
+
+    it("labels reference rows as identity-only context for the verifier", async () => {
+      const { llm, prompts } = sequencedGateway([
+        JSON.stringify({ memories: [{ ...summary, referenceMessageIds: ["user-older"] }] }),
+        JSON.stringify({ verdicts: [{ index: 0, faithful: false }] }),
+      ]);
+
+      await extractCanonicalMemoryConsequences({
+        llm,
+        request: request(
+          "Chai",
+          [userRow(summaryEvidence)],
+          [{ ...userRow("my apartment is the one above the bakery"), id: "user-older" }],
+        ),
+      });
+
+      expect(prompts[1]).toContain("reference (identity only) user-older | user | Chai |");
+      expect(prompts[1]).toContain("they never support a claim");
+    });
+
+    it.each([
+      [
+        "a duplicate verdict",
+        [
+          { index: 0, faithful: true },
+          { index: 0, faithful: true },
+        ],
+      ],
+      [
+        "an out-of-range verdict",
+        [
+          { index: 0, faithful: true },
+          { index: 1, faithful: true },
+        ],
+      ],
+      ["a non-boolean verdict", [{ index: 0, faithful: "yes" }]],
+      ["no verdict for the candidate", []],
+    ])("rejects every candidate when the verifier returns %s", async (_label, verdicts) => {
+      const { llm } = sequencedGateway([JSON.stringify({ memories: [summary] }), JSON.stringify({ verdicts })]);
+
+      const result = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow(summaryEvidence)]),
+      });
+
+      expect(result.candidates).toEqual([]);
+    });
+
+    it("drops a paraphrased summary that the verifier does not mark faithful", async () => {
+      const { llm } = sequencedGateway([
+        JSON.stringify({ memories: [summary] }),
+        JSON.stringify({ verdicts: [{ index: 0, faithful: false }] }),
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow(summaryEvidence)]),
+      });
+
+      expect(result.candidates).toEqual([]);
+      expect(result.skippedCount).toBe(1);
+    });
+
+    it("propagates a verifier provider failure so the capture job retries", async () => {
+      const { llm } = sequencedGateway([JSON.stringify({ memories: [summary] }), new Error("provider down")]);
+
+      await expect(
+        extractCanonicalMemoryConsequences({ llm, request: request("Chai", [userRow(summaryEvidence)]) }),
+      ).rejects.toThrow("provider down");
+    });
+
+    it("skips the verifier when every candidate passes the surface checks", async () => {
+      const { llm, prompts } = sequencedGateway([
+        JSON.stringify({
+          memories: [
+            {
+              kind: "fact",
+              content: "Chai said Chai has always really struggled to keep Chai's plants alive.",
+              confidence: 0.9,
+              evidence: "direct_user_assertion",
+              sourceMessageIds: ["user-text"],
+            },
+          ],
+        }),
+      ]);
+
+      const result = await extractCanonicalMemoryConsequences({
+        llm,
+        request: request("Chai", [userRow("i've always really struggled to keep my plants alive")]),
+      });
+
+      expect(result.candidates).toHaveLength(1);
+      expect(prompts).toHaveLength(1);
+    });
+
+    it("still rejects an unsupported extra claim after the repeated speaker", async () => {
+      const result = await extract(
+        "Chai said Chai has always really struggled to keep Chai's plants and cats alive.",
+        "fact",
+        "i've always really struggled to keep my plants alive",
+      );
+
+      expect(result.candidates).toHaveLength(0);
+    });
+  });
+
   it("resolves only the user token when a persona exists", () => {
     const stored = "{{user}} likes tea beside {{char}} and {{setvar::x::bad}}.";
     expect(resolveMemoryUserIdentity(stored, "Celia")).toBe("Celia likes tea beside {{char}} and {{setvar::x::bad}}.");

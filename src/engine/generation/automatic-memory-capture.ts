@@ -378,6 +378,21 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((entry) => readString(entry).trim()).filter((entry) => entry.length > 0) : [];
 }
 
+// Shared by extraction and verification so both judge a memory by the same fidelity contract.
+const MEMORY_FIDELITY_RULES = [
+  "Any reporting or commitment clause naming a speaker must be supported by cited source rows from that named speaker.",
+  "A commitment requires direct first-person intent such as I promise or I will; refusal or inability is not a commitment.",
+  "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
+  "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
+  "Preserve conditions, tense, uncertainty, and modality, including which clause is conditional; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
+  "Preserve each direct subject's identity; never replace one known participant with another.",
+  "Bind first-person forms anywhere in a cited row to that row's named speaker; never bind second-person you to the speaker.",
+  "Preserve unresolved second-person argument slots such as you or your; never replace them with another name or topic without explicit addressee evidence.",
+  "Preserve role prepositions around second-person slots; never swap who is addressed with what is discussed.",
+  "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
+  "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
+];
+
 function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequest): string {
   const eligibleMemories = request.eligibleMemories.filter(canonicalMemoryEligibleForConsequences);
   const eligible =
@@ -402,17 +417,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     `The user identity is ${request.userLabel}; never use User as a person's name.`,
     "Do not use third-person personal pronouns; repeat the supported person's name instead.",
     "Replace context-dependent it, this, or that with the actual supported subject when the subject matters.",
-    "Any reporting or commitment clause naming a speaker must be supported by cited source rows from that named speaker.",
-    "A commitment requires direct first-person intent such as I promise or I will; refusal or inability is not a commitment.",
-    "Preserve explicit one, single, this, or that scope; never broaden a specific observation into an unqualified class-wide statement.",
-    "Preserve each proposition's positive or negative polarity; never invert what a cited row says.",
-    "Preserve conditions, tense, uncertainty, and modality, including which clause is conditional; never turn if, will, may, might, could, probably, seems, or similar qualified wording into an asserted fact.",
-    "Preserve each direct subject's identity; never replace one known participant with another.",
-    "Bind first-person forms anywhere in a cited row to that row's named speaker; never bind second-person you to the speaker.",
-    "Preserve unresolved second-person argument slots such as you or your; never replace them with another name or topic without explicit addressee evidence.",
-    "Preserve role prepositions around second-person slots; never swap who is addressed with what is discussed.",
-    "Preserve reporting acts and their certainty; never replace claimed with confirmed or another different act.",
-    "Older reference messages may resolve only a bare name or antecedent identity; they cannot prove descriptors, appositives, relative clauses, or a new claim.",
+    ...MEMORY_FIDELITY_RULES,
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
     "Allowed kinds: fact, preference, promise, relationship_state, scene_event, plot_state, contradiction.",
@@ -570,8 +575,15 @@ function namedReportingClausesSupportedByEvidence(
   for (const match of content.matchAll(pattern)) {
     const subject = match[1]?.trim() ?? "";
     const reportingVerb = match[2]?.trim() ?? "";
-    const claim = match[3]?.trim() ?? "";
     const subjectLabelPattern = new RegExp(`(?:^|[^\\p{L}\\p{N}_])(${speakerAlternation})(?![\\p{L}\\p{N}_])`, "giu");
+    const addresseePattern = new RegExp(`^(${speakerAlternation})(?![\\p{L}\\p{N}_])\\s*(?:that\\b)?\\s*`, "iu");
+    const addressee = ADDRESSEE_REPORTING_FRAME_WORDS.has(reportingVerb.toLowerCase())
+      ? (match[3]?.trim().match(addresseePattern) ?? null)
+      : null;
+    const claim =
+      addressee && !subject.toLowerCase().includes((addressee[1] ?? "").toLowerCase())
+        ? (match[3]?.trim() ?? "").slice(addressee[0].length)
+        : (match[3]?.trim() ?? "");
     const subjectLabels = [...subject.matchAll(subjectLabelPattern)].map((labelMatch) => labelMatch[1]?.trim() ?? "");
     for (const speakerLabel of subjectLabels) {
       const speakerEvidence = evidenceMessages.filter((message) =>
@@ -682,6 +694,9 @@ const LEADING_REPORTING_FRAME_WORDS = new Set([
   "vows",
 ]);
 
+// Frames whose next named participant is the listener, not part of the reported claim.
+const ADDRESSEE_REPORTING_FRAME_WORDS = new Set(["told", "tells"]);
+
 const FIRST_PERSON_REFERENCE_WORDS = new Set([
   "i",
   "me",
@@ -747,7 +762,22 @@ function propositionContentTokens(
   let contentStart = 0;
   const reportingFrame = propositionReportingFrame(value, ignoredSpeakerTokens);
   if (reportingFrame !== null) {
-    contentStart = words.indexOf(reportingFrame) + 1;
+    const frameIndex = words.indexOf(reportingFrame);
+    const frameSpeaker = words.slice(0, frameIndex);
+    contentStart = frameIndex + 1;
+    const addressee = words[contentStart] ?? "";
+    if (
+      ADDRESSEE_REPORTING_FRAME_WORDS.has(reportingFrame) &&
+      ignoredSpeakerTokens.has(addressee) &&
+      !frameSpeaker.includes(addressee)
+    ) {
+      contentStart += 1;
+    }
+    if (words[contentStart] === "that") contentStart += 1;
+    // "Mara said Mara has..." repeats the framed speaker as the reported subject where the
+    // source row says "I"; the evidence side omits that first-person subject, so omit the repeat.
+    const repeatsSpeaker = frameSpeaker.every((word, index) => words[contentStart + index] === word);
+    if (repeatsSpeaker && words[contentStart + frameSpeaker.length] !== "s") contentStart += frameSpeaker.length;
   } else if (words[0] === "according" && words[1] === "to") {
     contentStart = 2;
     while (contentStart < words.length && ignoredSpeakerTokens.has(words[contentStart] ?? "")) contentStart += 1;
@@ -1374,7 +1404,12 @@ export async function extractCanonicalMemoryConsequences(input: {
       .filter((memory) => memory.status === "active")
       .map((memory) => memory.id),
   );
-  const candidates: CanonicalMemoryInput[] = [];
+  const accepted: Array<{
+    memory: CanonicalMemoryInput;
+    verify: boolean;
+    sourceRows: CanonicalConsequenceSourceMessage[];
+    referenceRows: CanonicalConsequenceSourceMessage[];
+  }> = [];
   let skippedCount = 0;
 
   for (const candidate of rawCandidates) {
@@ -1410,20 +1445,23 @@ export async function extractCanonicalMemoryConsequences(input: {
       !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
       !contentSupportedByEvidence(content, evidenceMessages) ||
       !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
-      !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request), referenceMessages) ||
-      !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
-      !evidenceSpecificityPreserved(content, evidenceMessages) ||
       (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
     ) {
       skippedCount += 1;
       continue;
     }
+    // The surface checks only pass near-verbatim restatements; a faithful summary of casual chat
+    // text fails them, so it goes to the model verifier instead of being dropped.
+    const verify =
+      !evidencePolarityPreserved(content, evidenceMessages, knownSpeakerTokens(request), referenceMessages) ||
+      !namedReportingClausesSupportedByEvidence(content, evidenceMessages, request) ||
+      !evidenceSpecificityPreserved(content, evidenceMessages);
     const latestEvidence = evidenceMessages
       .map((message) => message.createdAt)
       .filter(Boolean)
       .sort()
       .at(-1);
-    candidates.push({
+    const memory: CanonicalMemoryInput = {
       kind,
       status: confidence >= ACTIVE_CONFIDENCE_THRESHOLD ? "active" : "stale",
       scope: request.scope,
@@ -1447,10 +1485,85 @@ export async function extractCanonicalMemoryConsequences(input: {
         sourceMessageIds: evidenceIds,
         referenceMessageIds: referenceIds,
       },
-    });
+    };
+    accepted.push({ memory, verify, sourceRows: evidenceMessages, referenceRows: referenceMessages });
   }
 
+  const pending = accepted.filter((entry) => entry.verify);
+  const faithful = pending.length > 0 ? await verifyMemoryFidelity(input, pending) : new Set<number>();
+  const candidates = accepted
+    .filter((entry) => !entry.verify || faithful.has(pending.indexOf(entry)))
+    .map((entry) => entry.memory);
+  skippedCount += accepted.length - candidates.length;
   return { candidates, skippedCount };
+}
+
+// One batched call judges every candidate that failed the surface checks against its cited rows.
+// Only an explicit faithful verdict keeps a candidate. A verdict set that does not give exactly one
+// boolean per candidate rejects every candidate, and a provider failure propagates so the job retries.
+async function verifyMemoryFidelity(
+  input: { llm: LlmGateway; request: CanonicalConsequenceExtractionRequest; signal?: AbortSignal },
+  pending: Array<{
+    memory: CanonicalMemoryInput;
+    sourceRows: CanonicalConsequenceSourceMessage[];
+    referenceRows: CanonicalConsequenceSourceMessage[];
+  }>,
+): Promise<Set<number>> {
+  const { request } = input;
+  const row = (label: string, message: CanonicalConsequenceSourceMessage) =>
+    `  ${label} ${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`;
+  const items = pending
+    .map((entry, index) =>
+      [
+        `Candidate ${index} (${entry.memory.kind}): ${entry.memory.content}`,
+        ...entry.sourceRows.map((message) => row("source", message)),
+        ...entry.referenceRows.map((message) => row("reference (identity only)", message)),
+      ].join("\n"),
+    )
+    .join("\n\n");
+  const raw = await input.llm.complete(
+    {
+      connectionId: request.connectionId,
+      model: request.model ?? undefined,
+      messages: [
+        {
+          role: "system",
+          content: "You verify saved memories against the chat rows they cite. Return strict JSON only.",
+        },
+        {
+          role: "user",
+          content: [
+            "Each candidate memory summarizes its cited rows. A summary may paraphrase, fix typos, and replace I or my with the speaker's name.",
+            "Mark a candidate faithful only if every claim in it is stated by its source rows and it follows every rule below. Reference rows may only identify who or what a bare name or pronoun means; they never support a claim.",
+            `The user identity is ${request.userLabel}.`,
+            ...MEMORY_FIDELITY_RULES,
+            'Return JSON only: {"verdicts":[{"index":0,"faithful":true}]} with one verdict per candidate.',
+            items,
+          ].join("\n"),
+        },
+      ],
+      parameters: { temperature: 0, maxTokens: 600 },
+    },
+    input.signal,
+  );
+  const parsed = extractJsonObject(raw);
+  const verdicts = Array.isArray(parsed.verdicts) ? parsed.verdicts : [];
+  const byIndex = new Map<number, boolean>();
+  for (const verdict of verdicts) {
+    if (
+      !isRecord(verdict) ||
+      typeof verdict.faithful !== "boolean" ||
+      !Number.isInteger(verdict.index) ||
+      (verdict.index as number) < 0 ||
+      (verdict.index as number) >= pending.length ||
+      byIndex.has(verdict.index as number)
+    ) {
+      return new Set();
+    }
+    byIndex.set(verdict.index as number, verdict.faithful);
+  }
+  if (byIndex.size !== pending.length) return new Set();
+  return new Set([...byIndex].filter(([, faithful]) => faithful).map(([index]) => index));
 }
 
 function extractJsonObject(raw: string): Record<string, unknown> {
