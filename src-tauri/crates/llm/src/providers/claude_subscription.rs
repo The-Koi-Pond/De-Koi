@@ -757,7 +757,8 @@ pub(crate) fn process_claude_subscription_stream_line(
 }
 
 /// Settles a streaming reply once Claude Code has exited: errors it reported, a reply that never
-/// finished, and a reply whose text arrived only in the final result (sent as one token).
+/// finished, a reply whose text arrived only in the final result (sent as one token), and a final
+/// result that continues or replaces the streamed text.
 pub(crate) fn finish_claude_subscription_stream(
     state: ClaudeSubscriptionStreamState,
     exit: &ClaudeSubscriptionStreamExit,
@@ -805,11 +806,23 @@ pub(crate) fn finish_claude_subscription_stream(
             ));
         };
         emit(json!({ "type": "token", "text": text, "data": text }))?;
-    } else if final_text.is_some_and(|text| text.trim() != state.streamed_text.trim()) {
-        eprintln!(
-            "[claude-subscription] streamed {} characters but the final result differs; the streamed text was kept",
-            state.streamed_text.chars().count()
-        );
+    } else if let Some(text) = final_text {
+        // When a stream breaks mid-reply, Claude Code drops the partial message and asks again
+        // without streaming, so the final text can extend or replace what was already sent.
+        if let Some(rest) = text.strip_prefix(state.streamed_text.as_str()) {
+            if !rest.is_empty() {
+                emit(json!({ "type": "token", "text": rest, "data": rest }))?;
+            }
+        } else if text.trim() != state.streamed_text.trim() {
+            return Err(AppError::with_details(
+                "claude_subscription_stream_replaced",
+                "Claude Code restarted this reply after its stream broke, so the text shown so far is not the final reply. Retry the request.",
+                json!({
+                    "streamedChars": state.streamed_text.chars().count(),
+                    "finalChars": text.chars().count(),
+                }),
+            ));
+        }
     }
     if let Some(usage) = claude_subscription_usage_from_json(&result) {
         emit(json!({ "type": "usage", "data": usage }))?;

@@ -5758,6 +5758,41 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
     }
 
     #[test]
+    fn claude_subscription_stream_fallback_never_keeps_a_partial_reply() {
+        // Claude Code retries a broken stream without streaming; its final text can extend or
+        // replace what was already sent.
+        let partial = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"The lamp"}}}"#;
+        let (events, result) = claude_subscription_stream_events(
+            &[
+                partial,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"The lamp went out."}"#,
+            ],
+            claude_subscription_clean_exit(),
+        );
+        result.expect("a continued reply should finish");
+        let tokens = events
+            .iter()
+            .filter(|event| event["type"] == "token")
+            .map(|event| event["text"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(tokens, ["The lamp", " went out."]);
+
+        let (_, result) = claude_subscription_stream_events(
+            &[
+                partial,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"A different reply."}"#,
+            ],
+            claude_subscription_clean_exit(),
+        );
+        assert_eq!(
+            result
+                .expect_err("a replaced reply must not keep the streamed text")
+                .code,
+            "claude_subscription_stream_replaced"
+        );
+    }
+
+    #[test]
     fn claude_subscription_stream_errors_never_become_reply_text() {
         let (events, result) = claude_subscription_stream_events(
             &[
