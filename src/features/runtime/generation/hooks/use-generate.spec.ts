@@ -1169,7 +1169,7 @@ describe("runGenerationWithUi", () => {
     }
     await expect(run).rejects.toThrow(message);
 
-    // The streaming bubble renders only while the chat is streaming; the next send resets the buffer.
+    expect(useChatStore.getState().streamBuffer).toBe("");
     expect(useChatStore.getState().isStreaming).toBe(false);
     expect(useChatStore.getState().streamingChatId).not.toBe(chatId);
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(message), expect.anything());
