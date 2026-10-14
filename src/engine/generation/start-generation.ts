@@ -6622,6 +6622,9 @@ async function* streamMainGenerationLoop(args: {
         } else if (chunk.type === "thinking") {
           const text = llmChunkText(chunk);
           if (text) yield* emitTurnThinking(text);
+        } else if (chunk.type === "thinking_progress") {
+          const phase = thinkingProgressPhase(chunk.data);
+          if (phase) yield { type: "phase", data: phase };
         } else if (chunk.type === "tool_call") {
           const normalized = normalizeToolCall(chunk.data);
           if (normalized) pendingToolCalls.push(normalized);
@@ -6829,6 +6832,13 @@ async function* streamMainGenerationLoop(args: {
     webResearchRequest,
     webResearchSources,
   };
+}
+
+/** Phase text for a provider's running estimate of hidden thinking, so a long think does not look stuck. */
+function thinkingProgressPhase(data: unknown): string | null {
+  const estimatedTokens = isRecord(data) ? data.estimatedTokens : null;
+  if (typeof estimatedTokens !== "number" || !Number.isFinite(estimatedTokens) || estimatedTokens <= 0) return null;
+  return `Thinking... (~${Math.round(estimatedTokens).toLocaleString("en-US")} tokens)`;
 }
 
 /**

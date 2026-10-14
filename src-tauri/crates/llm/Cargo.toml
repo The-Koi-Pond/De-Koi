@@ -17,5 +17,5 @@ base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 ring = "0.17"
-tokio = { version = "1", features = ["net", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["net", "macros", "rt-multi-thread", "sync"] }
 uuid = { version = "1", features = ["v5"] }

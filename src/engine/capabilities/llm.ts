@@ -52,7 +52,17 @@ export interface LlmEmbeddingRequest {
 }
 
 export interface LlmChunk {
-  type: "start" | "token" | "thinking" | "tool_call" | "usage" | "provider_metadata" | "done" | "error";
+  /** `thinking_progress` carries `{ estimatedTokens }` when a provider hides its thinking text. */
+  type:
+    | "start"
+    | "token"
+    | "thinking"
+    | "thinking_progress"
+    | "tool_call"
+    | "usage"
+    | "provider_metadata"
+    | "done"
+    | "error";
   text?: string;
   data?: unknown;
   finishReason?: string;

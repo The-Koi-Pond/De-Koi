@@ -24,7 +24,7 @@ mod providers;
 
 use providers::{
     anthropic::{complete_anthropic_rich, stream_anthropic},
-    claude_subscription::complete_claude_subscription_rich,
+    claude_subscription::{complete_claude_subscription_rich, stream_claude_subscription},
     cohere::{complete_cohere_rich, stream_cohere},
     google::{complete_google_rich, stream_google},
     openai::{complete_openai_compatible_rich, stream_openai_compatible, stream_openai_responses},
@@ -304,19 +304,10 @@ pub async fn stream_events(
         stream_openai_compatible(request, &mut emit).await?;
     } else if request.connection.provider == "cohere" {
         stream_cohere(request, &mut emit).await?;
-    } else if request.connection.provider != "claude_subscription" {
-        stream_openai_compatible(request, &mut emit).await?;
+    } else if request.connection.provider == "claude_subscription" {
+        stream_claude_subscription(request, &mut emit).await?;
     } else {
-        let result = complete_rich(request).await?;
-        if !result.content.is_empty() {
-            emit(json!({ "type": "token", "text": result.content, "data": result.content }))?;
-        }
-        for tool_call in result.tool_calls {
-            emit(json!({ "type": "tool_call", "data": tool_call }))?;
-        }
-        if let Some(provider_metadata) = result.provider_metadata {
-            emit(json!({ "type": "provider_metadata", "data": provider_metadata }))?;
-        }
+        stream_openai_compatible(request, &mut emit).await?;
     }
     emit(json!({ "type": "done" }))?;
     Ok(())
@@ -5533,9 +5524,18 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             false,
             &selection,
             Some("You are Simon."),
+            ClaudeSubscriptionOutput::Stream,
         );
         let args = command_args(&command);
         assert_eq!(command.get_current_dir(), Some(isolated.as_path()));
+        let format_flag = args
+            .iter()
+            .position(|arg| arg == "--output-format")
+            .expect("output format flag");
+        assert_eq!(args[format_flag + 1], "stream-json");
+        for flag in ["--include-partial-messages", "--verbose"] {
+            assert!(args.iter().any(|arg| arg == flag), "missing {flag}");
+        }
         let prompt_flag = args
             .iter()
             .position(|arg| arg == "--system-prompt")
@@ -5593,8 +5593,15 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             false,
             &selection,
             Some("  "),
+            ClaudeSubscriptionOutput::Json,
         );
         let args = command_args(&command);
+        let format_flag = args
+            .iter()
+            .position(|arg| arg == "--output-format")
+            .expect("output format flag");
+        assert_eq!(args[format_flag + 1], "json");
+        assert!(!args.iter().any(|arg| arg == "--include-partial-messages"));
         let prompt_flag = args
             .iter()
             .position(|arg| arg == "--system-prompt")
@@ -5669,6 +5676,158 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             claude_subscription_run_child(child, b"hello").expect("output should be collected");
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "hello");
+    }
+
+    fn claude_subscription_stream_events(
+        lines: &[&str],
+        exit: ClaudeSubscriptionStreamExit,
+    ) -> (Vec<Value>, AppResult<()>) {
+        let mut events = Vec::new();
+        let mut emit = |event: Value| {
+            events.push(event);
+            Ok(())
+        };
+        let mut state = ClaudeSubscriptionStreamState::default();
+        for line in lines {
+            process_claude_subscription_stream_line(line, &mut state, &mut emit)
+                .expect("line should be handled");
+        }
+        let result = finish_claude_subscription_stream(state, &exit, "claude-opus-5-5", &mut emit);
+        (events, result)
+    }
+
+    fn claude_subscription_clean_exit() -> ClaudeSubscriptionStreamExit {
+        ClaudeSubscriptionStreamExit {
+            success: true,
+            stderr: String::new(),
+        }
+    }
+
+    #[test]
+    fn claude_subscription_stream_sends_partial_text_once_then_final_usage() {
+        // Shapes from Claude Code 2.1.289 `-p --output-format stream-json --include-partial-messages`.
+        let (events, result) = claude_subscription_stream_events(
+            &[
+                r#"{"type":"system","subtype":"init","model":"claude-opus-5-5"}"#,
+                r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":433,"output_tokens":1}}}}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}}"#,
+                r#"{"type":"system","subtype":"thinking_tokens","estimated_tokens":50,"estimated_tokens_delta":50}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"","estimated_tokens":50}}}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"One"}}}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"\nTwo"}}}"#,
+                r#"{"type":"assistant","message":{"content":[{"type":"text","text":"One\nTwo"}]}}"#,
+                r#"{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}}"#,
+                r#"{"type":"stream_event","event":{"type":"message_stop"}}"#,
+                r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}"#,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"One\nTwo","usage":{"input_tokens":433,"output_tokens":4},"modelUsage":{"claude-opus-5-5":{}},"fast_mode_state":"off"}"#,
+            ],
+            claude_subscription_clean_exit(),
+        );
+        result.expect("stream should finish");
+        let tokens = events
+            .iter()
+            .filter(|event| event["type"] == "token")
+            .map(|event| event["text"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(tokens, ["One", "\nTwo"]);
+        assert!(
+            !events.iter().any(|event| event["type"] == "thinking"),
+            "hidden thinking has no text to show"
+        );
+        let progress = events
+            .iter()
+            .find(|event| event["type"] == "thinking_progress")
+            .expect("thinking progress");
+        assert_eq!(progress["data"]["estimatedTokens"], 50);
+        let last = events.last().expect("usage event");
+        assert_eq!(last["type"], "usage");
+        assert_eq!(last["data"]["output_tokens"], 4);
+        assert!(last["data"]["modelUsage"]["claude-opus-5-5"].is_object());
+    }
+
+    #[test]
+    fn claude_subscription_stream_without_partial_text_sends_the_final_result() {
+        let (events, result) = claude_subscription_stream_events(
+            &[r#"{"type":"result","subtype":"success","is_error":false,"result":"Hello."}"#],
+            claude_subscription_clean_exit(),
+        );
+        result.expect("stream should finish");
+        assert_eq!(events[0]["type"], "token");
+        assert_eq!(events[0]["text"], "Hello.");
+    }
+
+    #[test]
+    fn claude_subscription_stream_errors_never_become_reply_text() {
+        let (events, result) = claude_subscription_stream_events(
+            &[
+                r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":529,"result":"API Error: 529 Overloaded"}"#,
+            ],
+            ClaudeSubscriptionStreamExit {
+                success: false,
+                stderr: String::new(),
+            },
+        );
+        let error = result.expect_err("a reported error must fail the stream");
+        assert_eq!(error.code, "claude_subscription_failed");
+        assert_eq!(error.message, "API Error: 529 Overloaded");
+        assert!(events.is_empty());
+
+        let (_, result) = claude_subscription_stream_events(
+            &[],
+            ClaudeSubscriptionStreamExit {
+                success: false,
+                stderr: "Invalid API key".to_string(),
+            },
+        );
+        assert_eq!(
+            result.expect_err("a failed exit must fail").message,
+            "Invalid API key"
+        );
+
+        let (_, result) = claude_subscription_stream_events(
+            &[
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Half a"}}}"#,
+            ],
+            claude_subscription_clean_exit(),
+        );
+        assert_eq!(
+            result
+                .expect_err("a reply without its result line is incomplete")
+                .code,
+            "claude_subscription_incomplete"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn claude_subscription_streaming_child_sends_lines_as_written_and_dropping_kills_it() {
+        let child = Command::new("sh")
+            .args(["-c", "cat > /dev/null; echo first; sleep 30; echo late"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("sh should spawn");
+        let pid = child.id();
+        let mut stream = ClaudeSubscriptionStreamingChild::start(child, b"prompt".to_vec(), None)
+            .expect("stream should start");
+        let first = tokio::time::timeout(Duration::from_secs(10), stream.next_line())
+            .await
+            .expect("the first line must arrive while the process is still running")
+            .expect("a line")
+            .expect("line should be read");
+        assert_eq!(first.trim(), "first");
+        let dropped_at = Instant::now();
+        drop(stream);
+        assert!(
+            dropped_at.elapsed() < Duration::from_secs(10),
+            "dropping must kill the process, not wait for it to finish"
+        );
+        assert!(
+            !Path::new(&format!("/proc/{pid}")).exists(),
+            "a cancelled reply must kill and reap Claude Code"
+        );
     }
 
     #[test]
