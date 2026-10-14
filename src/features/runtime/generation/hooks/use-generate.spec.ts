@@ -1133,6 +1133,49 @@ describe("runGenerationWithUi", () => {
     );
     queryClient.clear();
   });
+  it("clears streamed partial text from the screen when the provider fails", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-replaced-reply";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "roleplay",
+      metadata: {},
+    } as Chat);
+    useChatStore.getState().setActiveChatId(chatId);
+    useUIStore.getState().setEnableStreaming(true);
+    // A hidden page paints streamed text at once instead of waiting for typewriter frames.
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    let failStream!: () => void;
+    const streamFailed = new Promise<void>((resolve) => {
+      failStream = resolve;
+    });
+    const message =
+      "Claude Code restarted this reply after its stream broke, so the text shown so far is not the final reply. Retry the request.";
+
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "token", data: "The lamp" } as StreamEvent;
+      await streamFailed;
+      throw new Error(message);
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      for (let i = 0; i < 20 && useChatStore.getState().streamBuffer === ""; i += 1) {
+        await Promise.resolve();
+      }
+      expect(useChatStore.getState().streamBuffer).toBe("The lamp");
+    } finally {
+      failStream();
+    }
+    await expect(run).rejects.toThrow(message);
+
+    expect(useChatStore.getState().streamBuffer).toBe("");
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(useChatStore.getState().streamingChatId).not.toBe(chatId);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(message), expect.anything());
+    visibilityState.mockRestore();
+    queryClient.clear();
+  });
   it("reveals the completed reply immediately instead of waiting for typewriter frames", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-completed-reply-flush";

@@ -1,3 +1,4 @@
+use crate::providers::anthropic::process_anthropic_stream_event;
 use crate::*;
 
 pub(crate) fn render_claude_subscription_transcript(
@@ -394,6 +395,29 @@ fn claude_subscription_require_safe_mode(command_name: &str) -> AppResult<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClaudeSubscriptionOutput {
+    /// One JSON result object once the reply is complete.
+    Json,
+    /// Newline-delimited events, including the reply text as the model writes it.
+    Stream,
+}
+
+pub(crate) fn claude_subscription_output_args(
+    output: ClaudeSubscriptionOutput,
+) -> &'static [&'static str] {
+    match output {
+        ClaudeSubscriptionOutput::Json => &["--output-format", "json"],
+        // Claude Code refuses stream-json in print mode without --verbose.
+        ClaudeSubscriptionOutput::Stream => &[
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--verbose",
+        ],
+    }
+}
+
 /// One-shot `claude -p` invocation that sees only the prompt De-Koi assembled: no tools, slash commands,
 /// persisted session, Claude Code system prompt, or instruction files from the working directory.
 pub(crate) fn claude_subscription_command_for(
@@ -402,13 +426,13 @@ pub(crate) fn claude_subscription_command_for(
     fast_mode: bool,
     selection: &ClaudeSubscriptionModelSelection,
     system_prompt: Option<&str>,
+    output: ClaudeSubscriptionOutput,
 ) -> Command {
     let mut command = Command::new(command_name);
     command
         .current_dir(cwd)
         .arg("-p")
-        .arg("--output-format")
-        .arg("json")
+        .args(claude_subscription_output_args(output))
         .arg("--settings")
         .arg(json!({ "fastMode": fast_mode }).to_string())
         .arg("--tools")
@@ -441,6 +465,7 @@ fn claude_subscription_isolated_command(
     fast_mode: bool,
     selection: &ClaudeSubscriptionModelSelection,
     system_prompt: Option<&str>,
+    output: ClaudeSubscriptionOutput,
 ) -> AppResult<(Command, ClaudeSubscriptionWorkspace)> {
     let command_name = claude_subscription_command();
     claude_subscription_require_safe_mode(&command_name)?;
@@ -451,6 +476,7 @@ fn claude_subscription_isolated_command(
         fast_mode,
         selection,
         system_prompt,
+        output,
     );
     Ok((command, workspace))
 }
@@ -528,6 +554,280 @@ pub(crate) fn claude_subscription_run_child(
         stdout,
         stderr,
     })
+}
+
+fn claude_subscription_io_error(error: std::io::Error) -> AppError {
+    AppError::new("claude_subscription_io_error", error.to_string())
+}
+
+/// A running streaming `claude -p` whose stdout arrives line by line from a reader thread while the
+/// prompt is written on another, so neither side can block the other. Dropping it before [`finish`]
+/// (Stop, or the client going away) kills and reaps the process instead of letting the reply generate
+/// to the end; the workspace field is removed only after that.
+///
+/// [`finish`]: ClaudeSubscriptionStreamingChild::finish
+pub(crate) struct ClaudeSubscriptionStreamingChild {
+    child: Option<std::process::Child>,
+    lines: tokio::sync::mpsc::UnboundedReceiver<std::io::Result<Vec<u8>>>,
+    stderr_reader: Option<std::thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+    stdin_writer: Option<std::thread::JoinHandle<std::io::Result<()>>>,
+    _workspace: Option<ClaudeSubscriptionWorkspace>,
+}
+
+pub(crate) struct ClaudeSubscriptionStreamExit {
+    pub(crate) success: bool,
+    pub(crate) stderr: String,
+}
+
+impl ClaudeSubscriptionStreamingChild {
+    pub(crate) fn start(
+        mut child: std::process::Child,
+        prompt: Vec<u8>,
+        workspace: Option<ClaudeSubscriptionWorkspace>,
+    ) -> AppResult<Self> {
+        use std::io::{BufRead, Read};
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let stdin = child.stdin.take();
+        let (sender, lines) = tokio::sync::mpsc::unbounded_channel();
+        // From here on an early return drops `stream`, which kills and reaps the child.
+        let mut stream = Self {
+            child: Some(child),
+            lines,
+            stderr_reader: None,
+            stdin_writer: None,
+            _workspace: workspace,
+        };
+        if let Some(stdout) = stdout {
+            std::thread::Builder::new()
+                .name("claude-subscription-stream".to_string())
+                .spawn(move || {
+                    let mut reader = std::io::BufReader::new(stdout);
+                    loop {
+                        let mut line = Vec::new();
+                        match reader.read_until(b'\n', &mut line) {
+                            Ok(0) => break,
+                            Ok(_) => {
+                                if sender.send(Ok(line)).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(error) => {
+                                let _ = sender.send(Err(error));
+                                break;
+                            }
+                        }
+                    }
+                })
+                .map_err(claude_subscription_io_error)?;
+        }
+        if let Some(mut stderr) = stderr {
+            stream.stderr_reader = Some(
+                std::thread::Builder::new()
+                    .name("claude-subscription-stderr".to_string())
+                    .spawn(move || {
+                        let mut buffer = Vec::new();
+                        stderr.read_to_end(&mut buffer).map(|_| buffer)
+                    })
+                    .map_err(claude_subscription_io_error)?,
+            );
+        }
+        if let Some(mut stdin) = stdin {
+            stream.stdin_writer = Some(
+                std::thread::Builder::new()
+                    .name("claude-subscription-prompt".to_string())
+                    .spawn(move || stdin.write_all(&prompt))
+                    .map_err(claude_subscription_io_error)?,
+            );
+        }
+        Ok(stream)
+    }
+
+    /// The next stdout line, or `None` once the process has closed its output.
+    pub(crate) async fn next_line(&mut self) -> Option<AppResult<String>> {
+        let line = self.lines.recv().await?;
+        Some(
+            line.map(|line| String::from_utf8_lossy(&line).into_owned())
+                .map_err(claude_subscription_io_error),
+        )
+    }
+
+    /// Waits for the process to exit after its output closed. A prompt that could not be written only
+    /// counts as a failure when the process itself reported success.
+    pub(crate) fn finish(mut self) -> AppResult<ClaudeSubscriptionStreamExit> {
+        fn join<T>(
+            handle: Option<std::thread::JoinHandle<std::io::Result<T>>>,
+        ) -> std::io::Result<Option<T>> {
+            match handle.map(|handle| handle.join()) {
+                None => Ok(None),
+                Some(Ok(result)) => result.map(Some),
+                Some(Err(_)) => Err(std::io::Error::other("Claude Code pipe thread panicked")),
+            }
+        }
+        let Some(child) = self.child.as_mut() else {
+            return Err(AppError::new(
+                "claude_subscription_io_error",
+                "Claude Code process was already finished.",
+            ));
+        };
+        let status = child.wait().map_err(claude_subscription_io_error)?;
+        self.child = None;
+        let stderr = join(self.stderr_reader.take())
+            .map_err(claude_subscription_io_error)?
+            .unwrap_or_default();
+        let prompt_written = join(self.stdin_writer.take());
+        if status.success() {
+            prompt_written.map_err(claude_subscription_io_error)?;
+        }
+        Ok(ClaudeSubscriptionStreamExit {
+            success: status.success(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        })
+    }
+}
+
+impl Drop for ClaudeSubscriptionStreamingChild {
+    fn drop(&mut self) {
+        // The pipe threads end on their own once the process's pipes close.
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// What a streaming reply has produced so far: the text already sent to the client and Claude Code's
+/// final `result` line.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeSubscriptionStreamState {
+    pub(crate) streamed_text: String,
+    pub(crate) result: Option<Value>,
+}
+
+/// Handles one stdout line of `claude -p --output-format stream-json --include-partial-messages`.
+/// Only the partial-message events become tokens; the complete `assistant` message repeats that text
+/// and is ignored, and the `result` line is kept for [`finish_claude_subscription_stream`]. Claude
+/// Code hides the thinking text, so its running thinking-token estimate is passed on as
+/// `thinking_progress` to show the reply is still being worked on.
+pub(crate) fn process_claude_subscription_stream_line(
+    line: &str,
+    state: &mut ClaudeSubscriptionStreamState,
+    emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+) -> AppResult<()> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(());
+    }
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        // A reply without its result line still fails in finish_claude_subscription_stream.
+        eprintln!(
+            "[claude-subscription] skipped a stream line that is not JSON: {}",
+            redact_sensitive_text(&line.chars().take(200).collect::<String>())
+        );
+        return Ok(());
+    };
+    match value.get("type").and_then(Value::as_str) {
+        Some("stream_event") => {
+            if let Some(event) = value.get("event") {
+                let streamed_text = &mut state.streamed_text;
+                process_anthropic_stream_event(event, "", &mut |event: Value| {
+                    if event.get("type").and_then(Value::as_str) == Some("token") {
+                        if let Some(text) = event.get("text").and_then(Value::as_str) {
+                            streamed_text.push_str(text);
+                        }
+                    }
+                    emit(event)
+                })?;
+            }
+        }
+        Some("system")
+            if value.get("subtype").and_then(Value::as_str) == Some("thinking_tokens") =>
+        {
+            if let Some(estimated_tokens) = value.get("estimated_tokens").and_then(Value::as_u64) {
+                emit(json!({
+                    "type": "thinking_progress",
+                    "data": { "estimatedTokens": estimated_tokens }
+                }))?;
+            }
+        }
+        Some("result") => state.result = Some(value),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Settles a streaming reply once Claude Code has exited: errors it reported, a reply that never
+/// finished, a reply whose text arrived only in the final result (sent as one token), and a final
+/// result that continues or replaces the streamed text.
+pub(crate) fn finish_claude_subscription_stream(
+    state: ClaudeSubscriptionStreamState,
+    exit: &ClaudeSubscriptionStreamExit,
+    requested_model: &str,
+    emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+) -> AppResult<()> {
+    let reported_error = state
+        .result
+        .as_ref()
+        .filter(|result| result.get("is_error").and_then(Value::as_bool) == Some(true));
+    if !exit.success || reported_error.is_some() {
+        let message = reported_error
+            .and_then(|result| result.get("result").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|message| !message.is_empty())
+            .or_else(|| Some(exit.stderr.trim()).filter(|stderr| !stderr.is_empty()))
+            .map(redact_sensitive_text)
+            .unwrap_or_else(|| "Claude Code request failed.".to_string());
+        return Err(AppError::with_details(
+            "claude_subscription_failed",
+            message,
+            redact_sensitive_json(json!({
+                "exitedCleanly": exit.success,
+                "subtype": reported_error.and_then(|result| result.get("subtype")),
+                "apiErrorStatus": reported_error.and_then(|result| result.get("api_error_status")),
+            })),
+        ));
+    }
+    let Some(result) = state.result else {
+        return Err(AppError::new(
+            "claude_subscription_incomplete",
+            "Claude Code exited without finishing the reply. Retry the request.",
+        ));
+    };
+    log_claude_subscription_status(&result, requested_model);
+    let final_text = claude_subscription_text_from_json(&result);
+    if state.streamed_text.trim().is_empty() {
+        let Some(text) = final_text else {
+            let diagnostic = claude_subscription_output_diagnostic(&result)
+                .unwrap_or_else(|| "no diagnostic fields returned".to_string());
+            return Err(AppError::with_details(
+                "claude_subscription_empty",
+                format!("Claude Code returned no content ({diagnostic})."),
+                redact_sensitive_json(result),
+            ));
+        };
+        emit(json!({ "type": "token", "text": text, "data": text }))?;
+    } else if let Some(text) = final_text {
+        // When a stream breaks mid-reply, Claude Code drops the partial message and asks again
+        // without streaming, so the final text can extend or replace what was already sent.
+        if let Some(rest) = text.strip_prefix(state.streamed_text.as_str()) {
+            if !rest.is_empty() {
+                emit(json!({ "type": "token", "text": rest, "data": rest }))?;
+            }
+        } else if text.trim() != state.streamed_text.trim() {
+            return Err(AppError::with_details(
+                "claude_subscription_stream_replaced",
+                "Claude Code restarted this reply after its stream broke, so the text shown so far is not the final reply. Retry the request.",
+                json!({
+                    "streamedChars": state.streamed_text.chars().count(),
+                    "finalChars": text.chars().count(),
+                }),
+            ));
+        }
+    }
+    if let Some(usage) = claude_subscription_usage_from_json(&result) {
+        emit(json!({ "type": "usage", "data": usage }))?;
+    }
+    Ok(())
 }
 
 pub fn check_claude_subscription_available() -> AppResult<String> {
@@ -799,8 +1099,12 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
         ));
     }
     let started = std::time::Instant::now();
-    let (mut command, _workspace) =
-        claude_subscription_isolated_command(fast_mode, &selection, None)?;
+    let (mut command, _workspace) = claude_subscription_isolated_command(
+        fast_mode,
+        &selection,
+        None,
+        ClaudeSubscriptionOutput::Json,
+    )?;
     let child = command.spawn().map_err(|error| {
         AppError::new(
             "claude_subscription_unavailable",
@@ -879,6 +1183,7 @@ pub(crate) async fn complete_claude_subscription_rich(
         request.connection.claude_fast_mode,
         &model_selection,
         prompt_selection.system_prompt.as_deref(),
+        ClaudeSubscriptionOutput::Json,
     )?;
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
@@ -925,4 +1230,57 @@ pub(crate) async fn complete_claude_subscription_rich(
         ));
     }
     parse_claude_subscription_output_rich(&stdout, &model_selection.cli_model)
+}
+
+/// Streams a reply from Claude Code as the model writes it. Cancelling the returned future (Stop, or
+/// the client disconnecting) drops the running process with it, which kills it.
+pub(crate) async fn stream_claude_subscription(
+    request: LlmRequest,
+    emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+) -> AppResult<()> {
+    let prompt_selection = claude_subscription_prompt(&request)?;
+    let model_selection = claude_subscription_model_selection(&request.connection.model);
+    let (mut command, workspace) = claude_subscription_isolated_command(
+        request.connection.claude_fast_mode,
+        &model_selection,
+        prompt_selection.system_prompt.as_deref(),
+        ClaudeSubscriptionOutput::Stream,
+    )?;
+    if !request.connection.api_key.trim().is_empty() {
+        command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
+    }
+    log_prompt_connection_request(
+        "claude_subscription",
+        "claude-code://local",
+        &request,
+        &json!({
+            "model": model_selection.cli_model.clone(),
+            "configuredModel": model_selection.configured_model.clone(),
+            "longContextBeta": model_selection.long_context_beta,
+            "outputFormat": "stream-json",
+            "fastMode": request.connection.claude_fast_mode,
+            "sessionId": prompt_selection.session_id.as_deref(),
+            "promptShape": prompt_selection.prompt_shape
+        }),
+    );
+    let child = command.spawn().map_err(|error| {
+        AppError::new(
+            "claude_subscription_unavailable",
+            format!(
+                "Failed to start Claude Code. Install @anthropic-ai/claude-code, run `claude login`, or set CLAUDE_CODE_COMMAND. Underlying error: {error}"
+            ),
+        )
+    })?;
+    drop(command);
+    let mut stream = ClaudeSubscriptionStreamingChild::start(
+        child,
+        prompt_selection.prompt.into_bytes(),
+        Some(workspace),
+    )?;
+    let mut state = ClaudeSubscriptionStreamState::default();
+    while let Some(line) = stream.next_line().await {
+        process_claude_subscription_stream_line(&line?, &mut state, emit)?;
+    }
+    let exit = stream.finish()?;
+    finish_claude_subscription_stream(state, &exit, &model_selection.cli_model, emit)
 }

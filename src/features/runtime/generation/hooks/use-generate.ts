@@ -1911,6 +1911,9 @@ export async function runGenerationWithUi(
     return receivedAnyContent;
   } catch (error) {
     if (!isAbortError(error)) {
+      // Text streamed before a failure is not a reply. A partial reply the engine saved arrives as a
+      // message event first, which releases the UI, so its buffers are left alone here.
+      if (!foregroundGenerationReleased && ownsChatController()) resetLiveGenerationBuffers();
       const message = errorMessage(error);
       const toastMessage = generationFailureToastMessage(args, message);
       useChatStore.getState().setGenerationFailure(chatId, { message: toastMessage, failedAt: Date.now() });

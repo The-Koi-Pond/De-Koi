@@ -311,13 +311,23 @@ pub(crate) fn process_anthropic_sse_block(
     }
     let value: Value = serde_json::from_str(&payload)
         .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    process_anthropic_stream_event(&value, event_name, emit)
+}
+
+/// Handles one parsed Messages API stream event. Claude Code's `stream-json` output wraps these same
+/// events, so the Claude subscription provider reuses this.
+pub(crate) fn process_anthropic_stream_event(
+    value: &Value,
+    event_name: &str,
+    emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
+) -> AppResult<SseBlockStatus> {
     let event_type = value
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or(event_name);
     match event_type {
         "message_start" | "message_delta" => {
-            emit_anthropic_usage(&value, emit)?;
+            emit_anthropic_usage(value, emit)?;
         }
         "content_block_start" => {
             if let Some(block) = value.get("content_block") {
@@ -362,7 +372,7 @@ pub(crate) fn process_anthropic_sse_block(
             }
         }
         "error" => {
-            let error = value.get("error").cloned().unwrap_or(value);
+            let error = value.get("error").unwrap_or(value).clone();
             return Err(AppError::with_details(
                 "llm_provider_error",
                 "Anthropic stream error",
