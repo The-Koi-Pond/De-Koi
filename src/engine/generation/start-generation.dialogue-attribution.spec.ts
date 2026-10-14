@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway, LlmRequest } from "../capabilities/llm";
+import type { LlmChunk, LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
 import { startGeneration } from "./start-generation";
@@ -589,6 +589,40 @@ describe("startGeneration roleplay text persistence", () => {
       expect(messages.filter((item) => item.role === "assistant")).toEqual([]);
     },
   );
+
+  it("does not save streamed text when the provider replaces the reply", async () => {
+    const { storage, messages } = roleplayAttributionStorage();
+    const llm: LlmGateway = {
+      complete: vi.fn(async () => ""),
+      listModels: vi.fn(async () => []),
+      async *stream() {
+        yield { type: "token", text: "The lamp" };
+        // Shape of the remote runtime's error event for claude_subscription_stream_replaced.
+        yield {
+          type: "error",
+          code: "claude_subscription_stream_replaced",
+          text: "Claude Code restarted this reply after its stream broke, so the text shown so far is not the final reply. Retry the request.",
+          data: { streamedChars: 8, finalChars: 18 },
+        } as LlmChunk;
+      },
+    };
+
+    await expect(
+      collectEvents(
+        startGeneration(
+          { storage, llm, integrations: {} as IntegrationGateway },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            userMessage: "Continue.",
+            impersonateBlockAgents: true,
+          },
+        ),
+      ),
+    ).rejects.toThrow("Claude Code restarted this reply");
+
+    expect(messages.filter((item) => item.role === "assistant")).toEqual([]);
+  });
 
   it("does not create a blank assistant message for a zero-text length stop", async () => {
     const { storage, messages } = roleplayAttributionStorage();
