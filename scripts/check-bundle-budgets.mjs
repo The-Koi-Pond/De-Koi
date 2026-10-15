@@ -13,8 +13,10 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   homeJs: 300 * 1024,
   // Measured 1695.2 KiB after dropping framer-motion (#1343) and @dnd-kit
   // before it (down from 1730.4 KiB). Spend this margin on features before
-  // raising it.
-  totalJs: 1731 * 1024,
+  // raising it. Fanfic mode spent the last of it: main measured 1714.3 KiB and
+  // the mode adds 19.3 KiB (1733.6 KiB; its lazy route chunk is 13.3 KiB), so
+  // the ceiling moved from 1731 KiB to 1740 KiB.
+  totalJs: 1740 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });

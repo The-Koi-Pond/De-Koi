@@ -506,6 +506,11 @@ const CONVERSATION_BUILT_IN_AGENT_ID_SET = new Set<string>(CONVERSATION_BUILT_IN
 const GAME_BUILT_IN_AGENT_ID_SET = new Set<string>(GAME_BUILT_IN_AGENT_IDS);
 const ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET = new Set<string>(ROLEPLAY_AGENT_PICKER_HIDDEN_IDS);
 
+/** Fanfic chats are written from the request and outline alone; no built-in or custom agent runs there. */
+function isAgentFreeChatMode(mode: unknown): boolean {
+  return mode === "fanfic";
+}
+
 function normalizeAgentChatMode(mode: unknown): Exclude<AgentChatMode, "visual_novel"> {
   return mode === "conversation" || mode === "game" ? mode : "roleplay";
 }
@@ -559,7 +564,7 @@ function modeAllowlistIncludes(
 
 export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string): boolean {
   const id = canonicalAgentActiveId(agentId);
-  if (!id) return false;
+  if (!id || isAgentFreeChatMode(mode)) return false;
   const meta = BUILT_IN_AGENTS.find((agent) => agent.id === id) ?? null;
   if (!meta) return true;
   const chatMode = normalizeAgentChatMode(mode);
@@ -579,7 +584,7 @@ export function isBuiltInAgentHiddenFromChatSettingsPicker(mode: unknown, agentI
 
 export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] {
   const record = metadataRecord(metadata);
-  if (!chatAgentsEnabled(record)) return [];
+  if (!chatAgentsEnabled(record) || isAgentFreeChatMode(mode)) return [];
   const chatMode = normalizeAgentChatMode(mode);
   return canonicalAgentActiveIds(record.activeAgentIds, {
     remapLegacySpotify: chatMode === "roleplay",
@@ -592,6 +597,7 @@ export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<str
 
 export function filterAgentIdsForChatMode(agentIds: Iterable<string>, mode: unknown): Set<string> {
   const filtered = new Set<string>();
+  if (isAgentFreeChatMode(mode)) return filtered;
   for (const id of agentIds) {
     const canonical = canonicalAgentActiveId(id);
     if (canonical && isBuiltInAgentAvailableInChatMode(mode, canonical)) filtered.add(canonical);

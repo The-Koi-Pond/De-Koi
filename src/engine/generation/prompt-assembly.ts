@@ -59,6 +59,8 @@ import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-dir
 import { formatMoraleContext, getMoraleTier } from "../modes/game/mechanics/morale.service";
 import { formatPerceptionHints, generatePerceptionHints } from "../modes/game/mechanics/perception.service";
 import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
+import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
+import { readFanficState } from "../modes/fanfic/request";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
@@ -1223,6 +1225,8 @@ async function loadSelectedPromptPreset(
     request: JsonRecord;
   },
 ): Promise<SelectedPromptPreset | null> {
+  // Prompt presets are written for chat and roleplay turns; fanfic owns its author prompt.
+  if (readString(input.chat.mode || input.chat.chatMode) === "fanfic") return null;
   const defaultPromptId = await loadDefaultPromptId(storage);
   const candidates = promptPresetCandidates(input.chat, input.connection, input.request, defaultPromptId);
   if (candidates.length === 0) return null;
@@ -2172,6 +2176,28 @@ function fallbackSystemPrompt(
     const retained = segments.filter((segment) => segment.content.trim().length > 0);
     return { content: retained.map((segment) => segment.content).join("\n\n"), contextSegments: retained };
   };
+
+  if (mode === "fanfic") {
+    const state = readFanficState(meta);
+    if (!state) throw new Error("This fanfic has no request yet.");
+    return finalize([
+      ...buildFanficSystemSegments({
+        state,
+        castCards: renderFanficCastCards(args.characters),
+        worldInfo: "",
+      }).map((segment) => ({ ...segment, contextKind: "prompt" as const })),
+      { content: args.worldBefore, contextKind: "lorebook", displayName: "World Info Before" },
+      { content: args.worldAfter, contextKind: "lorebook", displayName: "World Info After" },
+      {
+        content: args.summary
+          ? `Story so far:
+${args.summary}`
+          : "",
+        contextKind: "summary",
+        displayName: "Summary",
+      },
+    ]);
+  }
 
   if (mode === "game") {
     return finalize([
@@ -4449,6 +4475,11 @@ export async function assembleGenerationPrompt(
     input = { ...input, storedMessages: reusableContext.storedMessages };
   } else if (chatMode === "game") {
     input = { ...input, storedMessages: applyAllSegmentEdits(input.storedMessages, chatMeta) };
+  } else if (chatMode === "fanfic") {
+    input = {
+      ...input,
+      storedMessages: labelFanficChapterHistory(input.storedMessages, readFanficState(chatMeta)?.outline ?? null),
+    };
   }
 
   const [loadedCharacters, persona, selectedPreset] = await Promise.all([
@@ -4567,7 +4598,11 @@ export async function assembleGenerationPrompt(
   if (!canReuseSourceSensitiveContext) {
     const authoredPromptCharacters = conversationFocus?.characters ?? promptCharactersForGeneration(input, characters);
     const behavioralExampleSelection =
-      conversationFocus || chatMode === "game" || compactMergedRoleplayCards || !!targetedConversationCharacterId
+      conversationFocus ||
+      chatMode === "game" ||
+      chatMode === "fanfic" ||
+      compactMergedRoleplayCards ||
+      !!targetedConversationCharacterId
         ? null
         : await selectBehavioralExamples({
             candidates: buildBehavioralExamplePool(authoredPromptCharacters),
@@ -5080,7 +5115,9 @@ export async function assembleGenerationPrompt(
 
   const authorNotesEntry = authorNotesDepthEntry(input.chat);
   const characterDepthEntries =
-    chatMode === "game" ? [] : characterDepthPromptEntries(promptCharacters, macros, activeGroupScenarioOverride);
+    chatMode === "game" || chatMode === "fanfic"
+      ? []
+      : characterDepthPromptEntries(promptCharacters, macros, activeGroupScenarioOverride);
   messages = injectAtDepth(
     messages,
     authorNotesEntry

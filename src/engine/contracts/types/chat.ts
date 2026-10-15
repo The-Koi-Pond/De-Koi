@@ -9,7 +9,7 @@ import type { MemoryKind, MemoryStatus } from "./memory.js";
 import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-director.js";
 
 /** The primary chat modes the engine supports. */
-export type ChatMode = "conversation" | "roleplay" | "game";
+export type ChatMode = "conversation" | "roleplay" | "game" | "fanfic";
 /** Legacy persisted/imported mode name. New inputs should migrate this to "roleplay". */
 export type LegacyChatMode = "visual_novel";
 export type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
@@ -462,6 +462,8 @@ export interface ChatMetadata {
   gameCombatState?: import("./game.js").GameCombatStateSnapshot | null;
   /** User's initial game setup preferences */
   gameSetupConfig?: import("./game.js").GameSetupConfig | null;
+  /** Fanfic mode request, outline, and outline approval. */
+  fanfic?: import("./fanfic.js").FanficState | null;
   /** Image style profile chosen for this game chat. Missing uses setup config or global default profile. */
   imageStyleProfileId?: string | null;
   /** Tracked NPCs with reputation */

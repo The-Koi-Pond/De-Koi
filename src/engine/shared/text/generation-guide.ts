@@ -7,6 +7,8 @@ export const GENERATION_GUIDE_SOURCES = [
   "game_start",
   "game_turn",
   "game_retry",
+  "fanfic_chapter",
+  "fanfic_revise",
 ] as const;
 
 export type GenerationGuideSource = (typeof GENERATION_GUIDE_SOURCES)[number];
@@ -29,6 +31,8 @@ const GUIDE_SOURCE_LABELS: Record<GenerationGuideSource, string> = {
   game_start: "Game Start Guide",
   game_turn: "Game Turn Guide",
   game_retry: "Game Retry Guide",
+  fanfic_chapter: "Fanfic Chapter Guide",
+  fanfic_revise: "Fanfic Revision Guide",
 };
 
 export function insertGenerationGuideBeforeFinalUser(

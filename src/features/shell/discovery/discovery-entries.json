@@ -94,6 +94,31 @@
     "coverage": "core"
   },
   {
+    "id": "fanfic-mode",
+    "title": "Fanfic Mode",
+    "category": "Chat modes",
+    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, and save the fic as HTML or Markdown.",
+    "keywords": [
+      "fanfic",
+      "fanfiction",
+      "fic",
+      "ao3",
+      "ship",
+      "trope",
+      "story",
+      "chapter",
+      "outline",
+      "rewrite",
+      "export",
+      "one-shot",
+      "multi-chapter"
+    ],
+    "audience": "Readers who want a story written for them rather than a scene to play in.",
+    "where": "Home > Fanfic, then the request form, outline, and chapter reader.",
+    "actions": [{ "type": "open-mode-setup", "mode": "fanfic", "label": "Request a fic" }],
+    "coverage": "core"
+  },
+  {
     "id": "roleplay-workflow-profiles",
     "title": "Roleplay workflow profiles",
     "category": "Chat modes",

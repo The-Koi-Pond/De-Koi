@@ -14,7 +14,7 @@ const validCategories = new Set([
   "Help",
 ]);
 const validCoverage = new Set(["core", "advanced", "experimental", "needs-polish"]);
-const validModes = new Set(["conversation", "roleplay", "game"]);
+const validModes = new Set(["conversation", "roleplay", "game", "fanfic"]);
 const validChatDestinations = new Set([
   "chat-settings",
   "chat-settings-continuity",

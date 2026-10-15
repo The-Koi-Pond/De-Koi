@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, HelpCircle, Import, List, MessageSquare, Server, Theater } from "lucide-react";
+import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Server, Theater } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
@@ -13,12 +13,13 @@ import { RecentChats } from "./RecentChats";
 import { getHomeSuggestions, type HomeSuggestionDestination } from "../lib/home-suggestions";
 import { useLibraryPresence } from "../../../catalog/library-presence";
 
-type QuickStartMode = "conversation" | "roleplay" | "game";
+type QuickStartMode = "conversation" | "roleplay" | "game" | "fanfic";
 
 const quickStartModePreloads: Record<QuickStartMode, () => Promise<unknown>> = {
   conversation: () => import("../../conversation/index"),
   roleplay: () => import("../../roleplay/index"),
   game: () => import("../../game/index"),
+  fanfic: () => import("../../fanfic/index"),
 };
 const preloadedQuickStartModes = new Set<QuickStartMode>();
 
@@ -166,7 +167,7 @@ export function ModeHomeSurface({
 
             <div
               className={cn(
-                "grid w-full max-w-[32rem] min-w-0 grid-cols-3 gap-2 px-0 sm:gap-4",
+                "grid w-full max-w-[22rem] min-w-0 grid-cols-2 gap-2 px-0 sm:max-w-[42rem] sm:grid-cols-4 sm:gap-4",
                 showQuickStartEntranceEffects && "stagger-children",
               )}
             >
@@ -202,6 +203,17 @@ export function ModeHomeSurface({
                 tooltip="AI-managed singleplayer RPG with a Game Master, party, dice, maps, and quests"
                 onPrewarm={() => prewarmQuickStartMode("game")}
                 onClick={() => handleQuickStart("game")}
+              />
+              <QuickStartCard
+                icon={<Feather size="1.125rem" />}
+                label="Fanfic"
+                bg="linear-gradient(135deg, #ffb7c9 0%, #e0607e 55%, #7a2a40 100%)"
+                iconColor="#fff4f6"
+                labelColor="#f08aa6"
+                shadowColor="rgba(240,138,166,0.18)"
+                tooltip="Request a fanfic: fandom, ships, rating, and tropes, then read it chapter by chapter"
+                onPrewarm={() => prewarmQuickStartMode("fanfic")}
+                onClick={() => handleQuickStart("fanfic")}
               />
             </div>
           </section>

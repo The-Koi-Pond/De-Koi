@@ -28,6 +28,7 @@ import {
   X,
   Star,
   Loader2,
+  Feather,
 } from "lucide-react";
 import {
   useBulkExportChats,
@@ -85,7 +86,7 @@ import {
 } from "./chat-sidebar-recovery";
 import { buildSupportReportText } from "../../shared/lib/support-report";
 type ChatSortOption = ChatSidebarSortOption;
-export type ChatSidebarTab = "conversation" | "roleplay" | "game";
+export type ChatSidebarTab = "conversation" | "roleplay" | "game" | "fanfic";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
 type ChatDropTarget = { folderId: string | null } | null;
 
@@ -239,6 +240,21 @@ const MODE_CONFIG: Record<
     iconForeground: "#130d07",
     description: CHAT_MODES.game.description,
   },
+  fanfic: {
+    icon: <Feather size="0.75rem" />,
+    label: CHAT_MODES.fanfic.name,
+    shortLabel: CHAT_MODES.fanfic.name,
+    bg: "linear-gradient(135deg, #ffb7c9 0%, #e0607e 55%, #7a2a40 100%)",
+    iconForeground: "#fff4f6",
+    description: CHAT_MODES.fanfic.description,
+  },
+};
+
+const SIDEBAR_TAB_NOUNS: Record<ChatSidebarTab, { plural: string; newLabel: string }> = {
+  conversation: { plural: "conversations", newLabel: "chat" },
+  roleplay: { plural: "roleplays", newLabel: "RP" },
+  game: { plural: "games", newLabel: "game" },
+  fanfic: { plural: "fics", newLabel: "fic" },
 };
 
 export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: ChatSidebarProps) {
@@ -527,8 +543,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
     // 1. Tab sync — once per chat switch
     if (!s.tabSynced) {
-      const chatMode = chat.mode as "conversation" | "roleplay" | "game";
-      if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "game") {
+      const chatMode = chat.mode as ChatSidebarTab;
+      if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "game" || chatMode === "fanfic") {
         onActiveTabChange(chatMode);
       }
       // Clear search so the active chat isn't hidden by a stale filter.
@@ -1205,7 +1221,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
       {/* Tabs */}
       <div className="flex items-center gap-1 px-3 pt-2">
-        {(["conversation", "roleplay", "game"] as const).map((tab) => {
+        {(["conversation", "roleplay", "game", "fanfic"] as const).map((tab) => {
           const cfg = MODE_CONFIG[tab];
           const isActive = activeTab === tab;
           const tabUnread =
@@ -1227,16 +1243,15 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 onActiveTabChange(tab);
               }}
               className={cn(
-                "relative flex min-h-[2.125rem] min-w-0 flex-1 items-center justify-center gap-1 overflow-visible rounded-lg px-1 py-2 text-[0.625rem] leading-normal font-medium transition-all",
+                // Icon over label: four mode tabs leave too little width for "Conversation" side by side.
+                "relative flex min-h-[2.75rem] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 overflow-visible rounded-lg px-0.5 py-1.5 text-[0.625rem] leading-normal font-medium transition-all",
                 isActive
                   ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
                   : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)]",
               )}
             >
               <span className="shrink-0 leading-none">{cfg.icon}</span>
-              <span className="inline-flex min-h-[1rem] min-w-0 items-center truncate pb-px leading-normal">
-                {cfg.shortLabel}
-              </span>
+              <span className="block min-h-[1rem] max-w-full truncate pb-px leading-normal">{cfg.shortLabel}</span>
               {tabUnread > 0 && !isActive && (
                 <span className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[0.5625rem] font-bold leading-none text-white">
                   {tabUnread > 99 ? "99+" : tabUnread}
@@ -1253,7 +1268,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           <Search size="0.8125rem" className="shrink-0 text-[var(--muted-foreground)]" />
           <input
             type="text"
-            placeholder={`Search ${activeTab === "conversation" ? "conversations" : activeTab === "game" ? "games" : "roleplays"}...`}
+            placeholder={`Search ${SIDEBAR_TAB_NOUNS[activeTab].plural}...`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none"
@@ -1287,9 +1302,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
               className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
             >
               {newChatJourneyPending ? <Loader2 size="0.8rem" className="animate-spin" /> : <Plus size="0.8rem" />}
-              {newChatJourneyPending
-                ? "Starting..."
-                : `New ${activeTab === "conversation" ? "chat" : activeTab === "game" ? "game" : "RP"}`}
+              {newChatJourneyPending ? "Starting..." : `New ${SIDEBAR_TAB_NOUNS[activeTab].newLabel}`}
             </button>
             <button
               onClick={handleCreateFolder}
@@ -1401,6 +1414,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 <MessageSquare size="1.25rem" className="text-[var(--muted-foreground)]" />
               ) : activeTab === "game" ? (
                 <Theater size="1.25rem" className="text-[var(--muted-foreground)]" />
+              ) : activeTab === "fanfic" ? (
+                <Feather size="1.25rem" className="text-[var(--muted-foreground)]" />
               ) : (
                 <BookOpen size="1.25rem" className="text-[var(--muted-foreground)]" />
               )}

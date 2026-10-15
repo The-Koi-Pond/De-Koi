@@ -24,8 +24,15 @@ type ChatSidebarRecoveryError = {
 };
 
 export type ChatSidebarRecoveryContext =
-  | { mode: "conversation" | "roleplay" | "game"; state: "error" }
-  | { mode: "conversation" | "roleplay" | "game"; state: "empty"; hasFilters: boolean };
+  | { mode: "conversation" | "roleplay" | "game" | "fanfic"; state: "error" }
+  | { mode: "conversation" | "roleplay" | "game" | "fanfic"; state: "empty"; hasFilters: boolean };
+
+const EMPTY_NOUNS: Record<ChatSidebarRecoveryContext["mode"], { plural: string; singular: string; create: string }> = {
+  conversation: { plural: "conversations", singular: "conversation", create: "New Conversation" },
+  roleplay: { plural: "roleplays", singular: "roleplay", create: "New Roleplay" },
+  game: { plural: "games", singular: "game", create: "New Game" },
+  fanfic: { plural: "fics", singular: "fic", create: "New Fanfic" },
+};
 
 const RETRY = { id: "retry", label: "Retry" } as const;
 const VIEW_HEALTH = { id: "view-health", label: "View Health" } as const;
@@ -36,7 +43,8 @@ function isKnownRecoveryError(error: unknown): error is ChatSidebarRecoveryError
 }
 
 function emptyRecovery(context: Extract<ChatSidebarRecoveryContext, { state: "empty" }>): ChatSidebarRecovery {
-  const noun = context.mode === "conversation" ? "conversations" : context.mode === "roleplay" ? "roleplays" : "games";
+  const nouns = EMPTY_NOUNS[context.mode];
+  const noun = nouns.plural;
   if (context.hasFilters) {
     return {
       title: `No matching ${noun}`,
@@ -45,12 +53,10 @@ function emptyRecovery(context: Extract<ChatSidebarRecoveryContext, { state: "em
     };
   }
 
-  const label =
-    context.mode === "conversation" ? "New Conversation" : context.mode === "roleplay" ? "New Roleplay" : "New Game";
   return {
     title: `No ${noun} yet`,
-    description: `Create your first ${context.mode === "conversation" ? "conversation" : context.mode}.`,
-    primaryAction: { id: "create", label },
+    description: `Create your first ${nouns.singular}.`,
+    primaryAction: { id: "create", label: nouns.create },
   };
 }
 
