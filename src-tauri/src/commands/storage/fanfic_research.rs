@@ -5,12 +5,13 @@
 //! same public-host checks as character web research.
 
 use super::shared::get_required;
-use super::web_research::{has_secret_query, host_is_public, validate_resolved_public_host};
+use super::web_research::{has_secret_query, host_is_public, ip_is_public};
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 const MAX_QUERIES: usize = 5;
@@ -38,12 +39,6 @@ pub(crate) async fn research(state: &AppState, body: Value) -> AppResult<Value> 
     ensure_research_enabled(&chat)?;
     let queries = clean_queries(&request.queries)?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .user_agent(USER_AGENT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|error| AppError::new("fanfic_research_client_failed", error.to_string()))?;
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
     let mut failures = Vec::new();
@@ -66,7 +61,7 @@ pub(crate) async fn research(state: &AppState, body: Value) -> AppResult<Value> 
             if !seen.insert(result.url.clone()) {
                 continue;
             }
-            match read_page(&client, &result.url).await {
+            match read_page(&result.url).await {
                 Ok(text) => {
                     picked += 1;
                     sources.push(json!({
@@ -143,8 +138,15 @@ fn reference_rank(url: &str) -> usize {
     let Ok(parsed) = reqwest::Url::parse(url) else {
         return 3;
     };
-    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
-    if host.ends_with("fandom.com") || host.ends_with("wiki.gg") || host.ends_with("wikipedia.org")
+    let host = parsed
+        .host_str()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let on_domain = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    if ["fandom.com", "wiki.gg", "wikipedia.org"]
+        .iter()
+        .any(|domain| on_domain(domain))
     {
         0
     } else if host.contains("wiki") || parsed.path().starts_with("/wiki/") {
@@ -176,9 +178,55 @@ fn page_url(raw: &str) -> AppResult<reqwest::Url> {
     Ok(url)
 }
 
-async fn read_page(client: &reqwest::Client, raw_url: &str) -> AppResult<String> {
+/// Every address the host resolves to, provided all of them are public.
+async fn resolve_public_addrs(url: &reqwest::Url) -> AppResult<Vec<SocketAddr>> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| AppError::invalid_input("Research result URL has no host."))?
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|error| AppError::new("fanfic_research_dns_failed", error.to_string()))?
+        .collect();
+    if addrs.is_empty() || !addrs.iter().all(|addr| ip_is_public(addr.ip())) {
+        return Err(AppError::invalid_input(
+            "Research result host does not resolve to a public address.",
+        ));
+    }
+    Ok(addrs)
+}
+
+/// Reads at most `cap` bytes of the body, chunk by chunk, whatever the server claims about its length.
+async fn read_capped(mut response: reqwest::Response, cap: usize) -> AppResult<Vec<u8>> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| AppError::new("fanfic_research_page_failed", error.to_string()))?
+    {
+        let room = cap - body.len();
+        body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        if body.len() >= cap {
+            break;
+        }
+    }
+    Ok(body)
+}
+
+async fn read_page(raw_url: &str) -> AppResult<String> {
     let url = page_url(raw_url)?;
-    validate_resolved_public_host(&url).await?;
+    let addrs = resolve_public_addrs(&url).await?;
+    // The request connects only to the addresses just checked, so DNS cannot swap in a private one.
+    let host = url.host_str().unwrap_or_default().to_string();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        .user_agent(USER_AGENT)
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(&host, &addrs)
+        .build()
+        .map_err(|error| AppError::new("fanfic_research_client_failed", error.to_string()))?;
     let response = client
         .get(url)
         .send()
@@ -186,20 +234,8 @@ async fn read_page(client: &reqwest::Client, raw_url: &str) -> AppResult<String>
         .map_err(|error| AppError::new("fanfic_research_page_failed", error.to_string()))?
         .error_for_status()
         .map_err(|error| AppError::new("fanfic_research_page_status", error.to_string()))?;
-    if response
-        .content_length()
-        .is_some_and(|length| length > PAGE_MAX_BYTES as u64)
-    {
-        return Err(AppError::new(
-            "fanfic_research_page_too_large",
-            "The page is too large to read.",
-        ));
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| AppError::new("fanfic_research_page_failed", error.to_string()))?;
-    let html = String::from_utf8_lossy(&bytes[..bytes.len().min(PAGE_MAX_BYTES)]);
+    let bytes = read_capped(response, PAGE_MAX_BYTES).await?;
+    let html = String::from_utf8_lossy(&bytes);
     let text = readable_text(&html, PAGE_TEXT_CHARS);
     if text.chars().count() < 200 {
         return Err(AppError::new(
@@ -282,9 +318,15 @@ fn remove_elements(html: &str, tag: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_queries, ensure_research_enabled, page_url, rank_results, readable_text};
+    use super::super::web_research::ip_is_public;
     use super::super::web_search::WebSearchResult;
+    use super::{
+        clean_queries, ensure_research_enabled, page_url, rank_results, read_capped, readable_text,
+    };
     use serde_json::json;
+    use std::net::IpAddr;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn research_needs_a_fanfic_chat_that_opted_in() {
@@ -360,5 +402,81 @@ mod tests {
             text,
             "Pierrot is a clown & performer. Eyes Gold He cooks brigadeiros."
         );
+    }
+
+    #[test]
+    fn mapped_and_tailnet_addresses_are_not_public() {
+        for private in [
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.5",
+            "::ffff:192.168.1.20",
+            "::ffff:169.254.169.254",
+            "100.64.240.39",
+            "::1",
+            "fe80::1",
+        ] {
+            let ip: IpAddr = private.parse().expect("test address");
+            assert!(!ip_is_public(ip), "{private} should not be public");
+        }
+        for public in [
+            "93.184.216.34",
+            "2606:2800:220:1:248:1893:25c8:1946",
+            "::ffff:93.184.216.34",
+        ] {
+            let ip: IpAddr = public.parse().expect("test address");
+            assert!(ip_is_public(ip), "{public} should be public");
+        }
+        assert!(page_url("http://[::ffff:127.0.0.1]/").is_err());
+        assert!(page_url("http://[::1]:7860/").is_err());
+        assert!(page_url("http://100.64.240.39:7860/").is_err());
+    }
+
+    #[test]
+    fn lookalike_domains_do_not_get_reference_rank() {
+        let result = |url: &str| WebSearchResult {
+            title: url.to_string(),
+            url: url.to_string(),
+            snippet: String::new(),
+        };
+        let ranked = rank_results(vec![
+            result("https://fakefandom.com/page"),
+            result("https://fakewikipedia.org/page"),
+            result("https://notwiki.gg.example.com/page"),
+            result("https://EN.Wikipedia.org./wiki/Pierrot"),
+            result("https://dbd.fandom.com/wiki/The_Shape"),
+        ]);
+        assert_eq!(ranked[0].url, "https://EN.Wikipedia.org./wiki/Pierrot");
+        assert_eq!(ranked[1].url, "https://dbd.fandom.com/wiki/The_Shape");
+    }
+
+    #[tokio::test]
+    async fn chunked_pages_stop_at_the_byte_cap() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let address = listener.local_addr().expect("address");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer).await;
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n")
+                .await;
+            let chunk = vec![b'a'; 4096];
+            for _ in 0..64 {
+                let header = format!("{:x}\r\n", chunk.len());
+                if stream.write_all(header.as_bytes()).await.is_err()
+                    || stream.write_all(&chunk).await.is_err()
+                    || stream.write_all(b"\r\n").await.is_err()
+                {
+                    return;
+                }
+            }
+            let _ = stream.write_all(b"0\r\n\r\n").await;
+        });
+        let response = reqwest::get(format!("http://{address}/"))
+            .await
+            .expect("response");
+        assert!(response.content_length().is_none());
+        let body = read_capped(response, 10_000).await.expect("body");
+        assert_eq!(body.len(), 10_000);
     }
 }
