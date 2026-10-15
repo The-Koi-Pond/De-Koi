@@ -12,6 +12,7 @@ import {
 } from "../../../../engine/modes/fanfic/chapters";
 import { generateFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { readFanficState } from "../../../../engine/modes/fanfic/request";
+import { saveFanficRequest, type SaveFanficRequestInput } from "../../../../engine/modes/fanfic/request-save";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { llmApi } from "../../../../shared/api/llm-api";
@@ -99,6 +100,20 @@ export function useFanficWriter(chatId: string, connectionId: string | null) {
     },
     [chatId, connectionId, queryClient],
   );
+}
+
+/** Saves a submitted request (connection, linked cards, request) as one unit; see saveFanficRequest. */
+export function useFanficRequestSave(chatId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (input: Omit<SaveFanficRequestInput, "chatId">) => saveFanficRequest(storageApi, { chatId, ...input }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) }),
+        queryClient.invalidateQueries({ queryKey: chatKeys.list() }),
+      ]),
+  });
 }
 
 export function useFanficOutline(chatId: string) {

@@ -20,7 +20,7 @@ export function FanficPlanning({
       {error ? (
         <>
           <div role="alert" className="w-full rounded-xl border border-red-400/35 bg-red-500/10 p-4 text-sm">
-            <p className="font-semibold text-[var(--foreground)]">The outline didn't come back.</p>
+            <p className="font-semibold text-[var(--foreground)]">The outline needs another try.</p>
             <p className="mt-1 break-words text-[var(--muted-foreground)]">{error}</p>
           </div>
           <div className="flex flex-wrap justify-center gap-2">

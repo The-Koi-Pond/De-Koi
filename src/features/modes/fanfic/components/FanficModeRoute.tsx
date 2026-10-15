@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { useUpdateChat, useUpdateChatMetadata } from "../../../catalog/chats/index";
+import { toast } from "sonner";
+import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState } from "../../../../engine/contracts/types/fanfic";
-import { createFanficState, defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
+import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import {
   useFanficChat,
   useFanficGenerationState,
   useFanficOutline,
+  useFanficRequestSave,
   useFanficWriter,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
@@ -29,7 +31,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const { chat, state, chapters, isLoading, messagesComplete, error } = useFanficChat(activeChatId);
   const generation = useFanficGenerationState(activeChatId);
   const updateMetadata = useUpdateChatMetadata();
-  const updateChat = useUpdateChat();
+  const saveRequest = useFanficRequestSave(activeChatId);
   const outline = useFanficOutline(activeChatId);
   const connectionId = chat?.connectionId ?? null;
   const write = useFanficWriter(activeChatId, connectionId);
@@ -81,7 +83,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   // mid-plan) plans once per submit. It waits for the request save, so the planner reads the new request.
   const [planToken, setPlanToken] = useState(0);
   const planningStartedFor = useRef<string | null>(null);
-  const savingRequest = updateMetadata.isPending || updateChat.isPending;
+  const savingRequest = saveRequest.isPending;
   useEffect(() => {
     if (stage !== "outline" || editingRequest || savingRequest || outline.isPending || outline.isError) return;
     const key = `${activeChatId}:${planToken}`;
@@ -104,18 +106,26 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
 
   const saveState = (next: FanficState) => updateMetadata.mutateAsync({ id: activeChatId, fanfic: next });
 
-  const submitRequest = async ({ request, connectionId: nextConnectionId, characterIds }: FanficRequestSubmit) => {
+  // Planning starts from the effect above once the saved request is back in the chat cache.
+  const submitRequest = (value: FanficRequestSubmit) => {
     outlineAbort.current?.abort();
     outline.reset();
-    setPlanToken((token) => token + 1);
-    await updateChat.mutateAsync({ id: activeChatId, connectionId: nextConnectionId, characterIds });
-    await saveState(createFanficState(request));
-    setEditingRequest(false);
+    saveRequest.mutate(value, {
+      onSuccess: () => {
+        setPlanToken((token) => token + 1);
+        setEditingRequest(false);
+      },
+    });
   };
 
   const approveOutline = async (approved: FanficOutline) => {
     if (!state) return;
-    await saveState({ ...state, outline: approved, outlineApproved: true });
+    try {
+      await saveState({ ...state, outline: approved, outlineApproved: true });
+    } catch (error) {
+      toast.error(errorText(error) ?? "The outline could not be saved.");
+      return;
+    }
     if (chapters.length === 0) runWrite({ kind: "chapter" });
   };
 
@@ -153,8 +163,9 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           initialRequest={state?.request ?? defaultFanficRequest()}
           initialConnectionId={connectionId}
           initialCharacterIds={Array.isArray(chat.characterIds) ? chat.characterIds : []}
-          submitting={updateMetadata.isPending || updateChat.isPending}
-          onSubmit={(value) => void submitRequest(value)}
+          submitting={saveRequest.isPending}
+          submitError={errorText(saveRequest.error)}
+          onSubmit={submitRequest}
           onCancel={editingRequest && state?.outline ? () => setEditingRequest(false) : undefined}
         />
       ) : planning || !state ? (

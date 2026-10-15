@@ -186,7 +186,7 @@ flowchart TB
               <td><code>features/modes</code></td>
               <td>
                 <code>conversation</code>, <code>roleplay</code>, <code>game</code>, <code>game-assets</code>,
-                <code>router</code>, <code>shared/chat-ui</code>, <code>shared/scene-ui</code>.
+                <code>fanfic</code>, <code>router</code>, <code>shared/chat-ui</code>, <code>shared/scene-ui</code>.
               </td>
               <td>Own concrete user modes, shared mode UI, and the mode composition point.</td>
               <td>Import shell tools, or import sibling concrete modes outside <code>modes/router</code>.</td>
@@ -393,6 +393,14 @@ flowchart TB
               </td>
             </tr>
             <tr>
+              <td><code>modes/fanfic</code></td>
+              <td>Fanfic request form, outline review, chapter reader, versions, rewrite with notes, and export.</td>
+              <td>
+                Request, outline, chapter, and export rules stay under <code>engine/modes/fanfic</code>; the feature
+                package binds them to catalog hooks and shared APIs and does not use shared chat UI.
+              </td>
+            </tr>
+            <tr>
               <td><code>modes/router</code></td>
               <td><code>ModeSurface</code>, the active mode composition point.</td>
               <td>
@@ -428,27 +436,34 @@ flowchart TB
   ConversationUI[features/modes/conversation]
   RoleplayUI[features/modes/roleplay]
   GameUI[features/modes/game]
+  FanficUI[features/modes/fanfic]
 
   ChatEngine[engine/modes/chat]
   RoleplayEngine[engine/modes/roleplay]
   GameEngine[engine/modes/game]
+  FanficEngine[engine/modes/fanfic]
   Lower[engine lower layers<br/>contracts, shared, repositories,<br/>generation-core, generation, capabilities]
 
   Router --> ConversationUI
   Router --> RoleplayUI
   Router --> GameUI
+  Router --> FanficUI
   ConversationUI --> SharedModeUI
   RoleplayUI --> SharedModeUI
   GameUI --> SharedModeUI
   ConversationUI --> ChatEngine
   RoleplayUI --> RoleplayEngine
   GameUI --> GameEngine
+  FanficUI --> FanficEngine
   ChatEngine --> Lower
   RoleplayEngine --> Lower
   GameEngine --> Lower
+  FanficEngine --> Lower
   ConversationUI -. forbidden .-> RoleplayUI
   RoleplayUI -. forbidden .-> GameUI
   GameUI -. forbidden .-> ConversationUI
+  FanficUI -. forbidden .-> RoleplayUI
+  SharedModeUI -. forbidden .-> FanficUI
         </pre>
 
         <table>
@@ -479,6 +494,17 @@ flowchart TB
                 assets.
               </td>
               <td>Game rules do not move into chat or roleplay UI for reuse.</td>
+            </tr>
+            <tr>
+              <td><code>engine/modes/fanfic</code></td>
+              <td>
+                Fanfic request rules, outline planning, chapter and rewrite guides, author prompt, and HTML/Markdown
+                export. Chapters run through the shared <code>engine/generation</code> pipeline.
+              </td>
+              <td>
+                Fanfic rules do not move into chat, roleplay, or game; prompt assembly reads them the same way it reads
+                game prompts.
+              </td>
             </tr>
             <tr>
               <td><code>features/modes/router</code></td>

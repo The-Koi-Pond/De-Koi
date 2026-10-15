@@ -64,6 +64,14 @@ const RATING_DETAIL: Record<FanficRequest["rating"], string> = {
 
 const WORD_OPTIONS = [1000, 1500, 2000, 3000, 4000, 5000];
 
+/** The presets plus a saved value that isn't one of them, so the select never renders blank. */
+function wordOptions(current: number): number[] {
+  const options = WORD_OPTIONS.filter(
+    (words) => words >= FANFIC_MIN_WORDS_PER_CHAPTER && words <= FANFIC_MAX_WORDS_PER_CHAPTER,
+  );
+  return options.includes(current) ? options : [...options, current].sort((a, b) => a - b);
+}
+
 export interface FanficRequestSubmit {
   request: FanficRequest;
   connectionId: string | null;
@@ -75,6 +83,8 @@ interface FanficRequestFormProps {
   initialConnectionId: string | null;
   initialCharacterIds: string[];
   submitting: boolean;
+  /** Why the last save failed; nothing was half-saved. */
+  submitError?: string | null;
   onSubmit: (value: FanficRequestSubmit) => void;
   /** Shown when editing a request that already has an outline. */
   onCancel?: () => void;
@@ -89,6 +99,7 @@ export function FanficRequestForm({
   initialConnectionId,
   initialCharacterIds,
   submitting,
+  submitError = null,
   onSubmit,
   onCancel,
 }: FanficRequestFormProps) {
@@ -424,9 +435,7 @@ export function FanficRequestForm({
               value={request.wordsPerChapter}
               onChange={(event) => update("wordsPerChapter", Number(event.target.value))}
             >
-              {WORD_OPTIONS.filter(
-                (words) => words >= FANFIC_MIN_WORDS_PER_CHAPTER && words <= FANFIC_MAX_WORDS_PER_CHAPTER,
-              ).map((words) => (
+              {wordOptions(request.wordsPerChapter).map((words) => (
                 <option key={words} value={words}>
                   About {words.toLocaleString()} words
                 </option>
@@ -461,6 +470,16 @@ export function FanficRequestForm({
           </FanficField>
         )}
       </FanficSection>
+
+      {submitError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-400/35 bg-red-500/10 p-3 text-sm text-[var(--foreground)]"
+        >
+          <p className="font-semibold">Couldn't save the request</p>
+          <p className="mt-0.5 break-words text-[var(--muted-foreground)]">{submitError}</p>
+        </div>
+      )}
 
       {showProblems && problems.length > 0 && (
         <div

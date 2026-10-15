@@ -20,6 +20,15 @@ export class FanficOutlineParseError extends Error {
   }
 }
 
+export class FanficOutlineCountError extends Error {
+  constructor(received: number, requested: number) {
+    super(
+      `The outline came back with ${received} chapter${received === 1 ? "" : "s"} instead of ${requested}. Try again, or change the chapter count.`,
+    );
+    this.name = "FanficOutlineCountError";
+  }
+}
+
 function jsonCandidate(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced?.[1]) return fenced[1];
@@ -78,9 +87,11 @@ export async function generateFanficOutline(
     signal,
   );
   if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-  const parsed = parseFanficOutlineReply(raw);
-  // The model was asked for exactly this many chapters; a longer plan would never match the request.
-  const outline = { ...parsed, chapters: parsed.chapters.slice(0, state.request.chapterCount) };
+  const outline = parseFanficOutlineReply(raw);
+  // The reader, progress, and export all count against the request, so only an exact plan is stored.
+  if (outline.chapters.length !== state.request.chapterCount) {
+    throw new FanficOutlineCountError(outline.chapters.length, state.request.chapterCount);
+  }
   const next: FanficState = { ...state, outline, outlineApproved: !state.request.reviewOutline };
   await deps.storage.patchChatMetadata(input.chatId, { fanfic: next });
   return next;

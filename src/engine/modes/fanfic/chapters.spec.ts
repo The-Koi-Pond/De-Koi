@@ -6,8 +6,9 @@ import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
 import type { GenerationEvent } from "../../generation/generation-events";
 import { startFanficGeneration } from "./chapters";
-import { generateFanficOutline } from "./outline";
+import { FanficOutlineCountError, generateFanficOutline } from "./outline";
 import { defaultFanficRequest, normalizeFanficRequest } from "./request";
+import { saveFanficRequest } from "./request-save";
 
 type StoredMessage = {
   id: string;
@@ -305,7 +306,6 @@ describe("generateFanficOutline", () => {
         chapters: [
           { title: "A", summary: "a" },
           { title: "B", summary: "b" },
-          { title: "Extra", summary: "the model planned one chapter too many" },
         ],
       }),
     );
@@ -326,8 +326,80 @@ describe("generateFanficOutline", () => {
       outline: null,
       outlineApproved: false,
     });
-    const llm = proseLlm([], '{"title":"T","summary":"S","chapters":[{"title":"A","summary":"a"}]}');
+    const llm = proseLlm(
+      [],
+      '{"title":"T","summary":"S","chapters":[{"title":"A","summary":"a"},{"title":"B","summary":"b"}]}',
+    );
     const state = await generateFanficOutline({ storage, llm }, { chatId: "chat-1" });
     expect(state.outlineApproved).toBe(true);
+  });
+
+  it.each([
+    ["fewer", [{ title: "A", summary: "a" }], "1 chapter instead of 2"],
+    [
+      "more",
+      [
+        { title: "A", summary: "a" },
+        { title: "B", summary: "b" },
+        { title: "C", summary: "c" },
+      ],
+      "3 chapters instead of 2",
+    ],
+  ])("stores nothing when the plan has %s chapters than requested", async (_label, chapters, message) => {
+    const pending = { ...approvedState, outline: null, outlineApproved: false };
+    const { storage, records } = fanficStorage(pending);
+    const llm = proseLlm([], JSON.stringify({ title: "T", summary: "S", chapters }));
+
+    await expect(generateFanficOutline({ storage, llm }, { chatId: "chat-1" })).rejects.toThrow(
+      FanficOutlineCountError,
+    );
+    await expect(generateFanficOutline({ storage, llm }, { chatId: "chat-1" })).rejects.toThrow(message);
+    expect((records["chat-1"]!.metadata as { fanfic: FanficState }).fanfic).toEqual(pending);
+  });
+});
+
+describe("saveFanficRequest", () => {
+  const request = normalizeFanficRequest({ ...defaultFanficRequest(), fandom: "Hades", prompt: "A quiet night." });
+
+  it("saves the connection, linked cards, and a fresh request together", async () => {
+    const { storage, records } = fanficStorage();
+    const state = await saveFanficRequest(storage, {
+      chatId: "chat-1",
+      request,
+      connectionId: "conn-2",
+      characterIds: ["char-zag"],
+    });
+    expect(state).toMatchObject({ outline: null, outlineApproved: false });
+    expect(records["chat-1"]).toMatchObject({ connectionId: "conn-2", characterIds: ["char-zag"] });
+    expect((records["chat-1"]!.metadata as { fanfic: FanficState }).fanfic.request.fandom).toBe("Hades");
+  });
+
+  it("puts the previous connection and cards back when the request write fails", async () => {
+    const { storage, records } = fanficStorage();
+    storage.patchChatMetadata = async () => {
+      throw new Error("disk full");
+    };
+    await expect(
+      saveFanficRequest(storage, { chatId: "chat-1", request, connectionId: "conn-2", characterIds: ["char-zag"] }),
+    ).rejects.toThrow("The request could not be saved (disk full). Nothing was changed; try again.");
+    expect(records["chat-1"]).toMatchObject({ connectionId: "conn-1", characterIds: ["char-crowley"] });
+    expect((records["chat-1"]!.metadata as { fanfic: FanficState }).fanfic).toEqual(approvedState);
+  });
+
+  it("says so when the rollback fails too", async () => {
+    const { storage } = fanficStorage();
+    const update = storage.update.bind(storage);
+    let updates = 0;
+    storage.update = async (entity, id, patch) => {
+      updates += 1;
+      if (updates > 1) throw new Error("offline");
+      return update(entity, id, patch);
+    };
+    storage.patchChatMetadata = async () => {
+      throw new Error("disk full");
+    };
+    await expect(
+      saveFanficRequest(storage, { chatId: "chat-1", request, connectionId: "conn-2", characterIds: [] }),
+    ).rejects.toThrow("could not be restored");
   });
 });
