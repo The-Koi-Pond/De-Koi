@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState } from "../../../../engine/contracts/types/fanfic";
-import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
+import { defaultFanficRequest, fanficStage, normalizeFanficOutline } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import {
   useFanficChat,
@@ -120,6 +120,11 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
 
   const approveOutline = async (approved: FanficOutline) => {
     if (!state) return;
+    // A chapter with neither title nor beats would be dropped on read, leaving a shorter plan than requested.
+    if (normalizeFanficOutline(approved)?.chapters.length !== state.request.chapterCount) {
+      toast.error("Give every chapter a title or some beats before writing.");
+      return;
+    }
     try {
       await saveState({ ...state, outline: approved, outlineApproved: true });
     } catch (error) {

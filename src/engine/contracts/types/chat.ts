@@ -247,6 +247,8 @@ export function getEffectiveMemoryRecallEnabled(
   chatMode: ChatMode | LegacyChatMode | string | null | undefined,
   metadata: MemoryRecallMetadata | null | undefined,
 ): boolean {
+  // Fanfic chats are written from the request and outline; recall would leak other chats into the fic.
+  if (chatMode === "fanfic") return false;
   if (typeof metadata?.enableMemoryRecall === "boolean") return metadata.enableMemoryRecall;
   if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "visual_novel") return true;
   return metadata?.sceneStatus === "active";

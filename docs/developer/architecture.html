@@ -463,6 +463,8 @@ flowchart TB
   RoleplayUI -. forbidden .-> GameUI
   GameUI -. forbidden .-> ConversationUI
   FanficUI -. forbidden .-> RoleplayUI
+  FanficUI -. forbidden .-> ConversationUI
+  GameUI -. forbidden .-> FanficUI
   SharedModeUI -. forbidden .-> FanficUI
         </pre>
 
@@ -763,7 +765,8 @@ flowchart TB
             <tr>
               <td>Shared mode UI stays lower than concrete modes</td>
               <td>
-                <code>features/modes/shared</code> cannot import concrete conversation, roleplay, or game packages.
+                <code>features/modes/shared</code> cannot import concrete conversation, roleplay, game, or fanfic
+                packages.
               </td>
             </tr>
             <tr>

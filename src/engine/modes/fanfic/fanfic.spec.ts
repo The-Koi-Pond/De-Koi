@@ -5,6 +5,7 @@ import {
   filterAgentIdsForChatMode,
   isBuiltInAgentAvailableInChatMode,
 } from "../../contracts/types/agent";
+import { getEffectiveMemoryRecallEnabled } from "../../contracts/types/chat";
 import type { FanficState } from "../../contracts/types/fanfic";
 import { fanficChapterRefs } from "./chapters";
 import { buildFanficHtml, buildFanficMarkdown } from "./export";
@@ -217,5 +218,12 @@ describe("fanfic agents", () => {
     expect(isBuiltInAgentAvailableInChatMode("fanfic", "world-state")).toBe(false);
     expect([...filterAgentIdsForChatMode(["world-state", "custom-agent-1"], "fanfic")]).toEqual([]);
     expect(enabledChatAgentIds(metadata, "roleplay")).toContain("world-state");
+  });
+});
+
+describe("fanfic memory recall", () => {
+  it("stays off even when stale metadata asks for it or carries an active scene", () => {
+    expect(getEffectiveMemoryRecallEnabled("fanfic", { enableMemoryRecall: true, sceneStatus: "active" })).toBe(false);
+    expect(getEffectiveMemoryRecallEnabled("roleplay", {})).toBe(true);
   });
 });

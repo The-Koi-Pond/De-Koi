@@ -110,6 +110,7 @@ export function FanficRequestForm({
   const [characterDraft, setCharacterDraft] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [showProblems, setShowProblems] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [castSearch, setCastSearch] = useState("");
   const { data: connections } = useConnections();
   const { data: characterRows } = useCharacterSummaries(true);
@@ -156,7 +157,16 @@ export function FanficRequestForm({
       setShowProblems(true);
       return;
     }
-    onSubmit({ request: normalized, connectionId: connectionId ?? languageConnections[0]?.id ?? null, characterIds });
+    // A saved connection that was deleted or is no longer a text model falls back to one that exists.
+    const usableConnectionId = languageConnections.some((connection) => connection.id === connectionId)
+      ? connectionId
+      : (languageConnections[0]?.id ?? null);
+    if (!usableConnectionId) {
+      setConnectionError("Add a text model connection before requesting a fic.");
+      return;
+    }
+    setConnectionError(null);
+    onSubmit({ request: normalized, connectionId: usableConnectionId, characterIds });
   };
 
   return (
@@ -460,7 +470,9 @@ export function FanficRequestForm({
               value={connectionId ?? ""}
               onChange={(event) => setConnectionId(event.target.value || null)}
             >
-              {!connectionId && <option value="">Choose a connection</option>}
+              {!languageConnections.some((connection) => connection.id === connectionId) && (
+                <option value="">Choose a connection</option>
+              )}
               {languageConnections.map((connection) => (
                 <option key={connection.id} value={connection.id}>
                   {connection.name || connection.id}
@@ -470,6 +482,15 @@ export function FanficRequestForm({
           </FanficField>
         )}
       </FanficSection>
+
+      {connectionError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-400/35 bg-red-500/10 p-3 text-sm font-semibold text-[var(--foreground)]"
+        >
+          {connectionError}
+        </div>
+      )}
 
       {submitError && (
         <div

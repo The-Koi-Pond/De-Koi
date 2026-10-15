@@ -125,7 +125,7 @@ export function useFanficOutline(chatId: string) {
       generateFanficOutline({ storage: storageApi, llm: llmApi }, { chatId, connectionId }, signal),
     onSuccess: async (state: FanficState) => {
       await queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
-      const chatName = useChatStore.getState().activeChat?.name ?? "";
+      const chatName = queryClient.getQueryData<{ name?: string }>(chatKeys.detail(chatId))?.name ?? "";
       const title = state.outline?.title.trim();
       if (title && title !== "Untitled" && DEFAULT_CHAT_NAME.test(chatName.trim())) {
         updateChat.mutate({ id: chatId, name: title });

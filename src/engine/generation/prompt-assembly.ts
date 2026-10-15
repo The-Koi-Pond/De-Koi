@@ -5048,7 +5048,8 @@ export async function assembleGenerationPrompt(
       messages.unshift(gameSystem!);
     }
     messages.push(gameReminder!);
-  } else {
+  } else if (chatMode !== "fanfic") {
+    // Fanfic owns its whole system prompt; roleplay narrator, scene, and ensemble blocks never apply.
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
     const sceneBlock = buildRoleplayScenePromptBlock(input.chat, history, wrapFormat);
     const ensembleBlock = buildMergedRoleplayEnsemblePromptBlock(input, promptCharacters, wrapFormat);
