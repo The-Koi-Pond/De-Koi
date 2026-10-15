@@ -5,9 +5,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Headphones,
   ListOrdered,
   Loader2,
+  Pause,
   Pencil,
+  Play,
   RefreshCw,
   Square,
   Trash2,
@@ -25,6 +28,13 @@ import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
 import type { FanficChapterView, FanficWriteArgs } from "../hooks/use-fanfic";
+import { useFanficNarration, type FanficNarrationStatus } from "../hooks/use-fanfic-narration";
+import {
+  buildFanficNarration,
+  FANFIC_SCENE_BREAK,
+  fanficProseBlocks,
+  type FanficNarrationPlan,
+} from "../lib/narration";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
 type ReaderView = number | "all";
@@ -53,22 +63,45 @@ function chapterHeading(state: FanficState, number: number): string {
   return `Chapter ${number}${title ? `: ${title}` : ""}`;
 }
 
-const SCENE_BREAK = /^(?:(?:\*\s*){3,}|-{3,}|_{3,}|~{3,}|#{1,6}|⁂)$/;
+function isPartlyOnScreen(element: Element): boolean {
+  const rect = element.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight;
+}
 
-/** Book-style prose: real paragraphs, inline emphasis, centered scene breaks. */
-function Prose({ text, keyBase }: { text: string; keyBase: string }) {
-  const blocks = useMemo(
-    () =>
-      stripFanficChapterHeading(text)
-        .split(/\n\s*\n/)
-        .map((block) => block.trim())
-        .filter(Boolean),
-    [text],
-  );
+function isFullyOnScreen(element: Element): boolean {
+  const rect = element.getBoundingClientRect();
+  return rect.top >= 0 && rect.bottom <= window.innerHeight;
+}
+
+/**
+ * Book-style prose: real paragraphs, inline emphasis, centered scene breaks.
+ * `activeBlock` highlights the paragraph being read aloud; the page follows it while the reader is following along.
+ */
+function Prose({ text, keyBase, activeBlock = null }: { text: string; keyBase: string; activeBlock?: number | null }) {
+  const blocks = useMemo(() => fanficProseBlocks(text), [text]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const previousActive = useRef<Element | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (activeBlock === null || !container) {
+      previousActive.current = null;
+      return;
+    }
+    const element = container.querySelector(`[data-block="${activeBlock}"]`);
+    if (!element) return;
+    const following = previousActive.current ? isPartlyOnScreen(previousActive.current) : true;
+    if (following && !isFullyOnScreen(element)) element.scrollIntoView({ behavior: "smooth", block: "center" });
+    previousActive.current = element;
+  }, [activeBlock]);
+
   return (
-    <div className="break-words text-[1rem] leading-[1.75] text-[var(--foreground)] sm:text-[1.0625rem]">
+    <div
+      ref={containerRef}
+      className="break-words text-[1rem] leading-[1.75] text-[var(--foreground)] sm:text-[1.0625rem]"
+    >
       {blocks.map((block, index) =>
-        SCENE_BREAK.test(block) ? (
+        FANFIC_SCENE_BREAK.test(block) ? (
           <div
             key={`${keyBase}-${index}`}
             role="separator"
@@ -78,7 +111,15 @@ function Prose({ text, keyBase }: { text: string; keyBase: string }) {
             * * *
           </div>
         ) : (
-          <p key={`${keyBase}-${index}`} className="mb-[1.1em] last:mb-0">
+          <p
+            key={`${keyBase}-${index}`}
+            data-block={index}
+            aria-current={activeBlock === index ? "true" : undefined}
+            className={cn(
+              "-mx-2 mb-[1.1em] rounded-md px-2 transition-colors duration-300 last:mb-0",
+              activeBlock === index && "bg-[var(--primary)]/12",
+            )}
+          >
             {block
               .split("\n")
               .flatMap((line, lineIndex) => [
@@ -385,6 +426,79 @@ function ChapterTools({
   );
 }
 
+function NarrationBar({
+  plan,
+  scopeLabel,
+  playingLabel,
+  status,
+  partIndex,
+  partCount,
+  elevenLabs,
+  disabled,
+  onPlay,
+  onPause,
+  onResume,
+  onStop,
+}: {
+  plan: FanficNarrationPlan;
+  scopeLabel: string;
+  playingLabel: string;
+  status: FanficNarrationStatus;
+  partIndex: number | null;
+  partCount: number;
+  elevenLabs: boolean;
+  disabled: boolean;
+  onPlay: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+}) {
+  if (status === "idle") {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <FanficButton onClick={onPlay} disabled={disabled || Boolean(plan.problem)}>
+          <Headphones size="0.9rem" aria-hidden="true" />
+          Listen to {scopeLabel}
+        </FanficButton>
+        <span className="text-xs text-[var(--muted-foreground)]">
+          {plan.problem ??
+            (elevenLabs
+              ? `About ${plan.characters.toLocaleString()} ElevenLabs characters the first time. Replays are free.`
+              : `About ${plan.characters.toLocaleString()} characters.`)}
+        </span>
+      </div>
+    );
+  }
+  const progress = partIndex === null ? "getting the voice ready…" : `part ${partIndex + 1} of ${partCount}`;
+  return (
+    <div
+      className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--background)]/95 px-2 py-1.5 backdrop-blur"
+      role="group"
+      aria-label="Narration"
+    >
+      {status === "paused" ? (
+        <FanficButton onClick={onResume} tone="primary">
+          <Play size="0.9rem" aria-hidden="true" />
+          Resume
+        </FanficButton>
+      ) : (
+        <FanficButton onClick={onPause} disabled={status === "loading"}>
+          <Pause size="0.9rem" aria-hidden="true" />
+          Pause
+        </FanficButton>
+      )}
+      <FanficButton onClick={onStop}>
+        <Square size="0.8rem" aria-hidden="true" />
+        Stop
+      </FanficButton>
+      <span role="status" className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+        {status === "loading" && <Loader2 size="0.8rem" className="animate-spin" aria-hidden="true" />}
+        Reading {playingLabel}, {progress}
+      </span>
+    </div>
+  );
+}
+
 function StreamingChapter({
   heading,
   text,
@@ -491,6 +605,8 @@ export function FanficReader({
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
   const writingNew = generating && !regeneratingMessageId;
+  const narration = useFanficNarration(chatId);
+  const { stop: stopNarration } = narration;
 
   // Jump to a chapter as soon as it is written, and to the newest when a fic first opens.
   useEffect(() => {
@@ -504,6 +620,7 @@ export function FanficReader({
   );
 
   const changeView = (next: ReaderView) => {
+    stopNarration();
     setView(next);
     topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -526,9 +643,29 @@ export function FanficReader({
     }
   };
 
-  const visible =
-    view === "all" ? chapters : chapters.filter((chapter) => chapter.number === Math.min(view, chapterCount));
+  const visible = useMemo(
+    () => (view === "all" ? chapters : chapters.filter((chapter) => chapter.number === Math.min(view, chapterCount))),
+    [chapterCount, chapters, view],
+  );
   const viewingLast = view === "all" || view >= chapterCount;
+  const narrationConfig = narration.config;
+  const narrationPlan = useMemo(
+    () =>
+      narrationConfig
+        ? buildFanficNarration(
+            visible.map((chapter) => ({
+              messageId: chapter.message.id,
+              number: chapter.number,
+              heading: chapterHeading(state, chapter.number),
+              content: chapter.message.content,
+            })),
+            narrationConfig,
+          )
+        : null,
+    [narrationConfig, state, visible],
+  );
+  const narratedPart = narration.currentPart;
+  const narrationScope = view === "all" && chapterCount > 1 ? "the whole work" : `chapter ${visible[0]?.number ?? 1}`;
 
   return (
     <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-4 pb-10">
@@ -544,6 +681,22 @@ export function FanficReader({
       <div ref={topRef} className="scroll-mt-4">
         <ChapterNav state={state} chapterCount={chapterCount} view={view} onChange={changeView} />
       </div>
+      {narrationPlan && chapterCount > 0 && (
+        <NarrationBar
+          plan={narrationPlan}
+          scopeLabel={narrationScope}
+          playingLabel={narration.label}
+          status={narration.status}
+          partIndex={narration.partIndex}
+          partCount={narration.partCount}
+          elevenLabs={narrationConfig?.source === "elevenlabs"}
+          disabled={Boolean(regeneratingMessageId)}
+          onPlay={() => narration.play(narrationPlan.parts, narrationScope)}
+          onPause={narration.pause}
+          onResume={narration.resume}
+          onStop={stopNarration}
+        />
+      )}
 
       {chapterCount === 0 && !generating && (
         <p className="px-1 text-sm text-[var(--muted-foreground)]">
@@ -574,7 +727,11 @@ export function FanficReader({
             <h3 id={`fanfic-ch-${chapter.number}`} className="text-lg font-bold text-[var(--foreground)]">
               {heading}
             </h3>
-            <Prose text={chapter.message.content} keyBase={`fanfic-${chapter.message.id}`} />
+            <Prose
+              text={chapter.message.content}
+              keyBase={`fanfic-${chapter.message.id}`}
+              activeBlock={narratedPart?.chapterNumber === chapter.number ? narratedPart.block : null}
+            />
             <div className="border-t border-[var(--border)] pt-3">
               <ChapterTools
                 chatId={chatId}
