@@ -77,6 +77,7 @@ export async function generateFanficOutline(
   const messages = buildFanficOutlineMessages({
     request: state.request,
     castCards: renderFanficCastCards(characters),
+    researchNotes: state.research?.notes,
   });
   const raw = await deps.llm.complete(
     {

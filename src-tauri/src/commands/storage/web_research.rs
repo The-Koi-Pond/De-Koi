@@ -269,7 +269,7 @@ fn normalize_query(query: &str) -> String {
         .to_lowercase()
 }
 
-fn has_secret_query(url: &reqwest::Url) -> bool {
+pub(crate) fn has_secret_query(url: &reqwest::Url) -> bool {
     url.query_pairs().any(|(key, _)| {
         matches!(
             key.to_ascii_lowercase().as_str(),
@@ -295,30 +295,42 @@ fn domain_matches(host: &str, approved: &str) -> bool {
     !approved.is_empty() && (host == approved || host.ends_with(&format!(".{approved}")))
 }
 
-fn host_is_public(host: &str) -> bool {
+pub(crate) fn host_is_public(host: &str) -> bool {
     let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if normalized.is_empty() || normalized == "localhost" || normalized.ends_with(".localhost") {
         return false;
     }
+    // `Url::host_str` keeps the brackets on IPv6 literals ("[::1]").
     normalized
+        .trim_start_matches('[')
+        .trim_end_matches(']')
         .parse::<IpAddr>()
         .map(ip_is_public)
         .unwrap_or(true)
 }
 
-fn ip_is_public(ip: IpAddr) -> bool {
+pub(crate) fn ip_is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
+            let [first, second, ..] = ip.octets();
             !(ip.is_private()
                 || ip.is_loopback()
                 || ip.is_link_local()
                 || ip.is_unspecified()
                 || ip.is_broadcast()
-                || ip.octets()[0] == 0)
+                || ip.is_multicast()
+                || first == 0
+                // 100.64.0.0/10: carrier-grade NAT, which also carries Tailscale tailnets.
+                || (first == 100 && (second & 0xC0) == 64))
         }
         IpAddr::V6(ip) => {
+            // ::ffff:a.b.c.d reaches the IPv4 address, so it gets the IPv4 rules.
+            if let Some(mapped) = ip.to_ipv4_mapped() {
+                return ip_is_public(IpAddr::V4(mapped));
+            }
             !(ip.is_loopback()
                 || ip.is_unspecified()
+                || ip.is_multicast()
                 || ip.is_unique_local()
                 || ip.is_unicast_link_local())
         }

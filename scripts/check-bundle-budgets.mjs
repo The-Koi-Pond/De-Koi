@@ -15,8 +15,10 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // before it (down from 1730.4 KiB). Spend this margin on features before
   // raising it. Fanfic mode spent the last of it: main measured 1714.3 KiB and
   // the mode adds 19.3 KiB (1733.6 KiB; its lazy route chunk is 13.3 KiB), so
-  // the ceiling moved from 1731 KiB to 1740 KiB.
-  totalJs: 1740 * 1024,
+  // the ceiling moved from 1731 KiB to 1740 KiB. Fanfic narration, the prose
+  // check, and online research then brought it to 1742.4 KiB (research's
+  // planning steps and notes UI are about 5 KiB), so it moved to 1750 KiB.
+  totalJs: 1750 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });

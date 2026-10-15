@@ -41,6 +41,7 @@ const approvedState: FanficState = {
     ],
   },
   outlineApproved: true,
+  research: null,
 };
 
 function fanficStorage(fanfic: FanficState | null = approvedState) {

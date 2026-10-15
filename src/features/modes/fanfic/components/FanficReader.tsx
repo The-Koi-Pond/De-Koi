@@ -7,6 +7,7 @@ import {
   Download,
   Headphones,
   ListOrdered,
+  Search,
   Loader2,
   Pause,
   Pencil,
@@ -41,6 +42,7 @@ import {
   fanficProseBlocks,
   type FanficNarrationPlan,
 } from "../lib/narration";
+import { FanficResearchSources } from "./FanficOutlineView";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
 type ReaderView = number | "all";
@@ -159,6 +161,7 @@ function WorkHeader({
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(false);
   const extraTags = [
     ...request.warnings.map((warning) => FANFIC_WARNING_LABELS[warning]),
     ...request.relationships,
@@ -205,6 +208,12 @@ function WorkHeader({
           <ListOrdered size="0.9rem" aria-hidden="true" />
           {showOutline ? "Hide outline" : "Outline"}
         </FanficButton>
+        {state.research && (
+          <FanficButton onClick={() => setResearchOpen((open) => !open)} aria-expanded={researchOpen}>
+            <Search size="0.9rem" aria-hidden="true" />
+            {researchOpen ? "Hide research" : "Research"}
+          </FanficButton>
+        )}
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
           Save as HTML
@@ -228,6 +237,14 @@ function WorkHeader({
             </li>
           ))}
         </ol>
+      )}
+      {researchOpen && state.research && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-[var(--border)] pt-3">
+          <p className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--foreground)]/90">
+            {state.research.notes}
+          </p>
+          <FanficResearchSources research={state.research} />
+        </div>
       )}
     </header>
   );

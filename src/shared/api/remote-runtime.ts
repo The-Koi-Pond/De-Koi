@@ -7,6 +7,7 @@ import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
 const REMOTE_COMMANDS = new Set([
   "character_web_search",
   "character_web_read_page",
+  "fanfic_web_research",
   "load_url_binary",
   "profile_import",
   "backup_create",

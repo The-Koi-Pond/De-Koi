@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { chatKeys, useChat, useChatMessages, useUpdateChat } from "../../../catalog/chats/index";
@@ -10,10 +10,11 @@ import {
   type FanficGenerationKind,
   type StartFanficGenerationInput,
 } from "../../../../engine/modes/fanfic/chapters";
-import { generateFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { readFanficState } from "../../../../engine/modes/fanfic/request";
+import { planFanfic, type FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
 import { saveFanficRequest, type SaveFanficRequestInput } from "../../../../engine/modes/fanfic/request-save";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
+import { fanficResearchApi } from "../../../../shared/api/fanfic-research-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -116,13 +117,19 @@ export function useFanficRequestSave(chatId: string) {
   });
 }
 
+/** Plans the fic (research first when the request asked for it) and reports which step is running. */
 export function useFanficOutline(chatId: string) {
   const queryClient = useQueryClient();
   const updateChat = useUpdateChat();
-  return useMutation({
+  const [phase, setPhase] = useState<FanficPlanningPhase | null>(null);
+  const mutation = useMutation({
     meta: { handlesOwnErrors: true },
     mutationFn: ({ connectionId, signal }: { connectionId: string | null; signal?: AbortSignal }) =>
-      generateFanficOutline({ storage: storageApi, llm: llmApi }, { chatId, connectionId }, signal),
+      planFanfic(
+        { storage: storageApi, llm: llmApi, web: fanficResearchApi },
+        { chatId, connectionId },
+        { signal, onPhase: setPhase },
+      ).finally(() => setPhase(null)),
     onSuccess: async (state: FanficState) => {
       await queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
       const chatName = queryClient.getQueryData<{ name?: string }>(chatKeys.detail(chatId))?.name ?? "";
@@ -136,4 +143,5 @@ export function useFanficOutline(chatId: string) {
       toast.error(error instanceof Error ? error.message : "The outline could not be written.");
     },
   });
+  return { ...mutation, phase };
 }
