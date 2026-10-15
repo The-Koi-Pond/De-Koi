@@ -216,7 +216,8 @@ describe("startFanficGeneration", () => {
     expect(messages.map((message) => [message.role, message.content])).toEqual([["assistant", "Snow fell on Soho."]]);
     expect(llm.requests).toHaveLength(1);
     const prompt = promptText(llm.requests[0]);
-    expect(prompt).toContain("accomplished fanfiction author");
+    expect(prompt).toContain("You are writing a requested");
+    expect(prompt).toContain("These habits make prose read as machine-written");
     expect(prompt).toContain("Relationships: Aziraphale/Crowley");
     expect(prompt).toContain("### Crowley\nDescription: A demon who Crowley insists is not nice.");
     expect(prompt).not.toContain("Reader Persona");

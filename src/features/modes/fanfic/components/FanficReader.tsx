@@ -12,6 +12,7 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Sparkles,
   Square,
   Trash2,
   Wand2,
@@ -19,6 +20,11 @@ import {
 import { useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
 import type { FanficState } from "../../../../engine/contracts/types/fanfic";
+import {
+  buildFanficAiIsmCleanupNotes,
+  detectFanficAiIsms,
+  FANFIC_AI_ISM_CLEANUP_SCORE,
+} from "../../../../engine/modes/fanfic/ai-isms";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
@@ -278,6 +284,56 @@ function ChapterNav({
   );
 }
 
+function joinWithAnd(items: string[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/** Flags a chapter that leans on machine-sounding habits and offers a targeted clean-up rewrite. */
+function AiIsmNotice({ text, busy, onCleanUp }: { text: string; busy: boolean; onCleanUp: (notes: string) => void }) {
+  const report = useMemo(() => detectFanficAiIsms(text), [text]);
+  const [open, setOpen] = useState(false);
+  if (report.score < FANFIC_AI_ISM_CLEANUP_SCORE) return null;
+  const total = report.findings.reduce((sum, finding) => sum + finding.count, 0);
+  const top = report.findings.slice(0, 3).map((finding) => lowerFirst(finding.label));
+  return (
+    <section
+      aria-label="Prose check"
+      className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3"
+    >
+      <p className="text-[0.8125rem] font-semibold text-[var(--foreground)]">Sounds a bit AI-written</p>
+      <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+        {total} habits spotted, mostly {joinWithAnd(top)}. A clean-up keeps the story and rewrites how the sentences are
+        built. It's saved as a new version, so you can flip back.
+      </p>
+      {open && (
+        <ul className="flex flex-col gap-1.5 text-xs text-[var(--muted-foreground)]">
+          {report.findings.map((finding) => (
+            <li key={finding.id}>
+              <span className="font-semibold text-[var(--foreground)]">
+                {finding.label} ({finding.count})
+              </span>
+              {finding.examples.length > 0 && <span>: “{finding.examples[0]}”</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <FanficButton tone="primary" disabled={busy} onClick={() => onCleanUp(buildFanficAiIsmCleanupNotes(report))}>
+          <Sparkles size="0.9rem" aria-hidden="true" />
+          Clean up prose
+        </FanficButton>
+        <FanficButton onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+          {open ? "Hide details" : "Show details"}
+        </FanficButton>
+      </div>
+    </section>
+  );
+}
+
 function ChapterTools({
   chatId,
   chapter,
@@ -390,6 +446,13 @@ function ChapterTools({
           </FanficButton>
         )}
       </div>
+      {mode === "idle" && (
+        <AiIsmNotice
+          text={message.content}
+          busy={busy}
+          onCleanUp={(cleanupNotes) => onWrite({ kind: "revise", messageId: message.id, notes: cleanupNotes })}
+        />
+      )}
       {mode === "revise" && (
         <form
           className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3"
