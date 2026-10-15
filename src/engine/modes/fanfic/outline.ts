@@ -96,3 +96,17 @@ export async function generateFanficOutline(
   await deps.storage.patchChatMetadata(input.chatId, { fanfic: next });
   return next;
 }
+
+/**
+ * The requester's reviewed outline, normalized and held to the requested chapter count, ready to store
+ * as approved. Rows with neither title nor beats are dropped by normalization, so blanking a chapter
+ * fails here instead of quietly shortening the fic.
+ */
+export function approveFanficOutline(state: FanficState, edited: FanficOutline): FanficState {
+  const outline = normalizeFanficOutline(edited);
+  const received = outline?.chapters.length ?? 0;
+  if (!outline || received !== state.request.chapterCount) {
+    throw new FanficOutlineCountError(received, state.request.chapterCount);
+  }
+  return { ...state, outline, outlineApproved: true };
+}

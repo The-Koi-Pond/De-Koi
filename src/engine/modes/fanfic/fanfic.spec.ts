@@ -9,7 +9,12 @@ import { getEffectiveMemoryRecallEnabled } from "../../contracts/types/chat";
 import type { FanficState } from "../../contracts/types/fanfic";
 import { fanficChapterRefs } from "./chapters";
 import { buildFanficHtml, buildFanficMarkdown } from "./export";
-import { FanficOutlineParseError, parseFanficOutlineReply } from "./outline";
+import {
+  approveFanficOutline,
+  FanficOutlineCountError,
+  FanficOutlineParseError,
+  parseFanficOutlineReply,
+} from "./outline";
 import {
   buildFanficChapterGuide,
   buildFanficRevisionGuide,
@@ -225,5 +230,35 @@ describe("fanfic memory recall", () => {
   it("stays off even when stale metadata asks for it or carries an active scene", () => {
     expect(getEffectiveMemoryRecallEnabled("fanfic", { enableMemoryRecall: true, sceneStatus: "active" })).toBe(false);
     expect(getEffectiveMemoryRecallEnabled("roleplay", {})).toBe(true);
+  });
+});
+
+describe("fanfic outline approval", () => {
+  const pending = (): FanficState => ({ ...writingState(), outlineApproved: false });
+
+  it("stores the normalized edit as approved when every requested chapter is there", () => {
+    const outline = pending().outline!;
+    const approved = approveFanficOutline(pending(), {
+      ...outline,
+      chapters: outline.chapters.map((chapter) => ({ ...chapter, title: `  ${chapter.title}  ` })),
+    });
+    expect(approved.outlineApproved).toBe(true);
+    expect(approved.outline?.chapters.map((chapter) => chapter.title)).toEqual(["First Flakes", "Thaw"]);
+  });
+
+  it("rejects a blanked chapter or an extra one instead of saving a different count", () => {
+    const outline = pending().outline!;
+    expect(() =>
+      approveFanficOutline(pending(), {
+        ...outline,
+        chapters: [outline.chapters[0]!, { number: 2, title: " ", summary: "" }],
+      }),
+    ).toThrow(FanficOutlineCountError);
+    expect(() =>
+      approveFanficOutline(pending(), {
+        ...outline,
+        chapters: [...outline.chapters, { number: 3, title: "Extra", summary: "x" }],
+      }),
+    ).toThrow(FanficOutlineCountError);
   });
 });
