@@ -227,6 +227,21 @@ async fn read_page(raw_url: &str) -> AppResult<String> {
         .resolve_to_addrs(&host, &addrs)
         .build()
         .map_err(|error| AppError::new("fanfic_research_client_failed", error.to_string()))?;
+    // Fan wikis often put article pages behind a bot challenge ("Just a moment...") for servers while
+    // leaving the MediaWiki API open, so their articles are read through the API first.
+    if let Some(api_url) = mediawiki_parse_url(&url) {
+        let bytes = fetch_capped(&client, api_url).await;
+        if let Some(html) = bytes.ok().and_then(|bytes| mediawiki_parse_html(&bytes)) {
+            if let Ok(text) = article_text(&html) {
+                return Ok(text);
+            }
+        }
+    }
+    let bytes = fetch_capped(&client, url).await?;
+    article_text(&String::from_utf8_lossy(&bytes))
+}
+
+async fn fetch_capped(client: &reqwest::Client, url: reqwest::Url) -> AppResult<Vec<u8>> {
     let response = client
         .get(url)
         .send()
@@ -234,9 +249,11 @@ async fn read_page(raw_url: &str) -> AppResult<String> {
         .map_err(|error| AppError::new("fanfic_research_page_failed", error.to_string()))?
         .error_for_status()
         .map_err(|error| AppError::new("fanfic_research_page_status", error.to_string()))?;
-    let bytes = read_capped(response, PAGE_MAX_BYTES).await?;
-    let html = String::from_utf8_lossy(&bytes);
-    let text = readable_text(&html, PAGE_TEXT_CHARS);
+    read_capped(response, PAGE_MAX_BYTES).await
+}
+
+fn article_text(html: &str) -> AppResult<String> {
+    let text = readable_text(html, PAGE_TEXT_CHARS);
     if text.chars().count() < 200 {
         return Err(AppError::new(
             "fanfic_research_page_empty",
@@ -244,6 +261,62 @@ async fn read_page(raw_url: &str) -> AppResult<String> {
         ));
     }
     Ok(text)
+}
+
+/// The MediaWiki `action=parse` URL for a fandom.com or wiki.gg article, on the same host.
+fn mediawiki_parse_url(url: &reqwest::Url) -> Option<reqwest::Url> {
+    let host = url.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    if !(host.ends_with(".fandom.com") || host.ends_with(".wiki.gg")) {
+        return None;
+    }
+    let title = percent_decode(url.path().strip_prefix("/wiki/")?);
+    if title.trim().is_empty() {
+        return None;
+    }
+    let mut api = url.clone();
+    api.set_path("/api.php");
+    api.set_query(None);
+    api.set_fragment(None);
+    api.query_pairs_mut()
+        .append_pair("action", "parse")
+        .append_pair("page", &title)
+        .append_pair("prop", "text")
+        .append_pair("redirects", "1")
+        .append_pair("format", "json")
+        .append_pair("formatversion", "2");
+    Some(api)
+}
+
+/// The rendered article HTML from an `action=parse` reply (formatversion 2).
+fn mediawiki_parse_html(bytes: &[u8]) -> Option<String> {
+    let reply: Value = serde_json::from_slice(bytes).ok()?;
+    reply
+        .pointer("/parse/text")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let hex = bytes
+            .get(index + 1..index + 3)
+            .and_then(|pair| std::str::from_utf8(pair).ok())
+            .and_then(|pair| u8::from_str_radix(pair, 16).ok());
+        match (bytes[index], hex) {
+            (b'%', Some(byte)) => {
+                decoded.push(byte);
+                index += 3;
+            }
+            (byte, _) => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 /// Article text from an HTML page: starts at the main content when the page marks it, drops scripts,
@@ -321,7 +394,8 @@ mod tests {
     use super::super::web_research::ip_is_public;
     use super::super::web_search::WebSearchResult;
     use super::{
-        clean_queries, ensure_research_enabled, page_url, rank_results, read_capped, readable_text,
+        clean_queries, ensure_research_enabled, mediawiki_parse_html, mediawiki_parse_url,
+        page_url, percent_decode, rank_results, read_capped, readable_text,
     };
     use serde_json::json;
     use std::net::IpAddr;
@@ -478,5 +552,47 @@ mod tests {
         assert!(response.content_length().is_none());
         let body = read_capped(response, 10_000).await.expect("body");
         assert_eq!(body.len(), 10_000);
+    }
+
+    #[test]
+    fn fan_wiki_articles_map_to_the_mediawiki_parse_api() {
+        let url = |raw: &str| reqwest::Url::parse(raw).expect("url");
+        let api = mediawiki_parse_url(&url(
+            "https://the-freak-circus.fandom.com/wiki/Pierrot%27s_Tent?so=search#Trivia",
+        ))
+        .expect("fandom article");
+        assert_eq!(api.host_str(), Some("the-freak-circus.fandom.com"));
+        assert_eq!(api.path(), "/api.php");
+        let pairs: Vec<(String, String)> = api.query_pairs().into_owned().collect();
+        assert!(pairs.contains(&("action".into(), "parse".into())));
+        assert!(pairs.contains(&("page".into(), "Pierrot's_Tent".into())));
+        assert!(pairs.contains(&("formatversion".into(), "2".into())));
+        assert_eq!(api.fragment(), None);
+        assert!(mediawiki_parse_url(&url("https://terraria.wiki.gg/wiki/Guide")).is_some());
+        assert!(mediawiki_parse_url(&url("https://fakefandom.com/wiki/Pierrot")).is_none());
+        assert!(mediawiki_parse_url(&url("https://en.wikipedia.org/wiki/Pierrot")).is_none());
+        assert!(mediawiki_parse_url(&url("https://dbd.fandom.com/wiki/")).is_none());
+        assert!(mediawiki_parse_url(&url("https://dbd.fandom.com/f/discussion")).is_none());
+    }
+
+    #[test]
+    fn parse_api_replies_yield_the_article_html() {
+        let reply = br#"{"parse":{"title":"Pierrot","text":"<div class=\"mw-parser-output\"><p>Golden eyes.</p></div>"}}"#;
+        assert_eq!(
+            mediawiki_parse_html(reply).as_deref(),
+            Some("<div class=\"mw-parser-output\"><p>Golden eyes.</p></div>")
+        );
+        assert_eq!(
+            mediawiki_parse_html(br#"{"error":{"code":"missingtitle"}}"#),
+            None
+        );
+        assert_eq!(
+            mediawiki_parse_html(b"<!DOCTYPE html>Just a moment..."),
+            None
+        );
+        assert_eq!(
+            percent_decode("Ticket_Taker%20%E2%9C%A6%zz"),
+            "Ticket_Taker ✦%zz"
+        );
     }
 }
