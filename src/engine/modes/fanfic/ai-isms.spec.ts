@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildFanficAiIsmCleanupNotes, detectFanficAiIsms, FANFIC_AI_ISM_CLEANUP_SCORE } from "./ai-isms";
+import {
+  buildFanficAiIsmCleanupNotes,
+  detectFanficAiIsms,
+  FANFIC_AI_ISM_CLEANUP_SCORE,
+  fanficAiIsmNeedsCleanup,
+} from "./ai-isms";
 
 const MACHINE = [
   "The kettle did not answer, which he decided to forgive. He had been told it existed. He had not been told it was beige.",
@@ -56,6 +61,41 @@ describe("detectFanficAiIsms", () => {
 
   it("ignores a chapter heading the model added", () => {
     expect(detectFanficAiIsms("# Chapter 1: Then Then\n\nShe laughed.").findings).toEqual([]);
+  });
+
+  it("flags the narrator's verdict asides but not ordinary relative clauses", () => {
+    const ordinary = [
+      "They reached the bookshop, which was built in 1800, before the snow got deep.",
+      "Crowley ordered the tea, which he drank in one go.",
+      "The Bentley, which had seen better decades, idled at the curb.",
+    ].join(" ");
+    const asides = [
+      "The ducks ignored him, which was worse.",
+      "The kettle did not answer, which he decided to forgive.",
+      "It was nowhere near the A, which was a cruelty.",
+      "The cowboy hat, which somehow made it worse, stayed on.",
+    ].join("\n");
+
+    expect(detectFanficAiIsms(ordinary).findings.find((finding) => finding.id === "wry_which")).toBeUndefined();
+    expect(detectFanficAiIsms(asides).findings.find((finding) => finding.id === "wry_which")?.count).toBe(4);
+  });
+});
+
+describe("fanficAiIsmNeedsCleanup", () => {
+  const filler = (words: number) => Array.from({ length: words }, () => "snow").join(" ");
+
+  it("never offers a clean-up for one stray line in a short scene", () => {
+    const short = detectFanficAiIsms(`${filler(40)}. The bookshop, which was old, smelled of dust. He did not move.`);
+
+    expect(short.score).toBeGreaterThan(FANFIC_AI_ISM_CLEANUP_SCORE);
+    expect(fanficAiIsmNeedsCleanup(short)).toBe(false);
+  });
+
+  it("offers it when a full-length chapter leans on the habits", () => {
+    const chapter = `${filler(250)}.\n\n${MACHINE}\n\n${MACHINE}`;
+
+    expect(fanficAiIsmNeedsCleanup(detectFanficAiIsms(chapter))).toBe(true);
+    expect(fanficAiIsmNeedsCleanup(detectFanficAiIsms(`${filler(400)}.\n\n${PLAIN}`))).toBe(false);
   });
 });
 

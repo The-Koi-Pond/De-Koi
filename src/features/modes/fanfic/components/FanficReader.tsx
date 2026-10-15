@@ -23,7 +23,7 @@ import type { FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
   buildFanficAiIsmCleanupNotes,
   detectFanficAiIsms,
-  FANFIC_AI_ISM_CLEANUP_SCORE,
+  fanficAiIsmNeedsCleanup,
 } from "../../../../engine/modes/fanfic/ai-isms";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
@@ -296,7 +296,7 @@ function lowerFirst(text: string): string {
 function AiIsmNotice({ text, busy, onCleanUp }: { text: string; busy: boolean; onCleanUp: (notes: string) => void }) {
   const report = useMemo(() => detectFanficAiIsms(text), [text]);
   const [open, setOpen] = useState(false);
-  if (report.score < FANFIC_AI_ISM_CLEANUP_SCORE) return null;
+  if (!fanficAiIsmNeedsCleanup(report)) return null;
   const total = report.findings.reduce((sum, finding) => sum + finding.count, 0);
   const top = report.findings.slice(0, 3).map((finding) => lowerFirst(finding.label));
   return (

@@ -73,7 +73,10 @@ const NEGATION =
   /\b(?:did not|didn't|does not|doesn't|had not|hadn't|was not|wasn't|could not|couldn't|would not|wouldn't)\b/i;
 const REFRAME =
   /\b(?:wasn't|was not|isn't|is not|weren't|were not)\b[^.!?]{1,60}[.!?]["”]?\s+(?:It|This|That|He|She|They)\s+(?:was|were|is)\b/g;
-const WRY_WHICH = /,\s+which\s+(?:was|is|seemed|somehow|made|meant|felt|he|she|they|it)\b/gi;
+// Only the narrator's verdict asides (", which was worse", ", which he decided to forgive"), never an
+// ordinary relative clause like ", which was built in 1900".
+const WRY_WHICH =
+  /,\s+which\s+(?:somehow\b|(?:was|is|seemed|felt)\s+(?:somehow\s+|probably\s+|almost\s+|arguably\s+|even\s+)?(?:worse|better|fair|fine|its own|a\s+(?:cruelty|mercy|relief|kindness|lie|problem|mistake|start|comfort|choice))\b|(?:he|she|they|I)\s+(?:decided|chose|took\s+as|supposed|assumed|found\s+(?:both|deeply|oddly|faintly|extremely|very))\b)/gi;
 const SIMPLY = /\b(?:simply|merely)\b/gi;
 const DOUBLED = /\bvery \w+ and very \w+/gi;
 const STOCK_PHRASES = [
@@ -114,6 +117,15 @@ export interface FanficAiIsmReport {
 
 /** Score at which a chapter is worth offering a clean-up pass. */
 export const FANFIC_AI_ISM_CLEANUP_SCORE = 10;
+/** A handful of hits in a long enough chapter, so one stray line in a short scene never raises the alarm. */
+const CLEANUP_MIN_WORDS = 300;
+const CLEANUP_MIN_HITS = 5;
+
+/** True when the chapter leans on these habits enough to offer a clean-up. */
+export function fanficAiIsmNeedsCleanup(report: FanficAiIsmReport): boolean {
+  const hits = report.findings.reduce((sum, finding) => sum + finding.count, 0);
+  return report.words >= CLEANUP_MIN_WORDS && hits >= CLEANUP_MIN_HITS && report.score >= FANFIC_AI_ISM_CLEANUP_SCORE;
+}
 
 function sentencesOf(text: string): string[] {
   return text
