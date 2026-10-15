@@ -9,6 +9,8 @@ import {
   type FanficPov,
   type FanficRating,
   type FanficRequest,
+  type FanficResearch,
+  type FanficResearchSource,
   type FanficSetting,
   type FanficState,
   type FanficTense,
@@ -72,6 +74,7 @@ export function defaultFanficRequest(): FanficRequest {
     styleNotes: "",
     reviewOutline: true,
     adultsConfirmed: false,
+    research: true,
   };
 }
 
@@ -138,6 +141,8 @@ export function normalizeFanficRequest(raw: unknown): FanficRequest {
     styleNotes: text(record.styleNotes, 4000),
     reviewOutline: typeof record.reviewOutline === "boolean" ? record.reviewOutline : defaults.reviewOutline,
     adultsConfirmed: record.adultsConfirmed === true,
+    // Requests saved before research existed never opted in.
+    research: record.research === true,
   };
 }
 
@@ -181,6 +186,21 @@ export function normalizeFanficOutline(raw: unknown): FanficOutline | null {
   };
 }
 
+const MAX_RESEARCH_SOURCES = 12;
+export const FANFIC_RESEARCH_NOTES_MAX = 12_000;
+
+export function normalizeFanficResearch(raw: unknown): FanficResearch | null {
+  if (!isRecord(raw)) return null;
+  const notes = text(raw.notes, FANFIC_RESEARCH_NOTES_MAX);
+  if (!notes) return null;
+  const sources: FanficResearchSource[] = (Array.isArray(raw.sources) ? raw.sources : [])
+    .filter(isRecord)
+    .map((source) => ({ title: text(source.title, 300), url: text(source.url, 2000) }))
+    .filter((source) => /^https?:\/\//i.test(source.url))
+    .slice(0, MAX_RESEARCH_SOURCES);
+  return { notes, sources, fromWeb: raw.fromWeb === true && sources.length > 0 };
+}
+
 /** Reads `metadata.fanfic`; null until a request has been saved. */
 export function readFanficState(metadata: unknown): FanficState | null {
   const raw = parseJsonObject(metadata).fanfic;
@@ -191,11 +211,18 @@ export function readFanficState(metadata: unknown): FanficState | null {
     request: normalizeFanficRequest(raw.request),
     outline,
     outlineApproved: !!outline && raw.outlineApproved === true,
+    research: normalizeFanficResearch(raw.research),
   };
 }
 
 export function createFanficState(request: FanficRequest): FanficState {
-  return { version: 1, request: normalizeFanficRequest(request), outline: null, outlineApproved: false };
+  return {
+    version: 1,
+    request: normalizeFanficRequest(request),
+    outline: null,
+    outlineApproved: false,
+    research: null,
+  };
 }
 
 export type FanficStage = "request" | "outline" | "outline_review" | "writing";

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState } from "../../../../engine/contracts/types/fanfic";
 import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
+import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import {
@@ -119,11 +120,11 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     });
   };
 
-  const approveOutline = async (approved: FanficOutline) => {
+  const approveOutline = async (approved: FanficOutline, researchNotes: string | null) => {
     if (!state) return;
     let next: FanficState;
     try {
-      next = approveFanficOutline(state, approved);
+      next = withFanficResearchNotes(approveFanficOutline(state, approved), researchNotes);
     } catch {
       toast.error("Give every chapter a title or some beats before writing.");
       return;
@@ -178,6 +179,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
         />
       ) : planning || !state ? (
         <FanficPlanning
+          phase={outline.phase}
           error={errorText(outline.error)}
           onRetry={replan}
           onCancel={() => {
@@ -190,8 +192,9 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
         <FanficOutlineReview
           key={JSON.stringify(state.outline)}
           outline={state.outline}
+          research={state.research}
           saving={updateMetadata.isPending}
-          onApprove={(approved) => void approveOutline(approved)}
+          onApprove={(approved, notes) => void approveOutline(approved, notes)}
           onReplan={replan}
           onEditRequest={() => setEditingRequest(true)}
         />

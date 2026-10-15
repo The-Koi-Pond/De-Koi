@@ -462,6 +462,21 @@ export function FanficRequestForm({
           />
           Show me the outline before chapter 1
         </label>
+        <label className="flex items-start gap-2 text-sm text-[var(--foreground)]">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+            checked={request.research}
+            onChange={(event) => update("research", event.target.checked)}
+          />
+          <span>
+            Look things up online first
+            <span className="block text-xs text-[var(--muted-foreground)]">
+              Searches fan wikis and the web for the characters, setting, and any real-world topics, then plans from
+              what it finds. Adds about a minute.
+            </span>
+          </span>
+        </label>
         {languageConnections.length > 1 && (
           <FanficField label="Model connection" htmlFor="fanfic-connection">
             <select

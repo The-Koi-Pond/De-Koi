@@ -258,6 +258,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             storage_commands::web_research_commands::character_web_search,
             storage_commands::web_research_commands::character_web_read_page,
+            storage_commands::fanfic_research_commands::fanfic_web_research,
             storage_commands::profile_commands::load_url_binary,
             storage_commands::local_file_commands::local_file_save,
             storage_commands::local_file_commands::local_file_save_cleanup,

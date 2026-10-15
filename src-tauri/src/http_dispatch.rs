@@ -3,10 +3,10 @@ use crate::state::AppState;
 use crate::storage_commands::{
     admin, agents, avatars, background_jobs, backgrounds, backup, bot_browser, canonical_memory,
     characters, chat_memory, chats, connection_secrets, custom_tools, customization, deki,
-    entity_images, exports, fonts, game_assets, generation, http, images, imports, integrations,
-    knowledge, knowledge_edges, llm, lorebook_images, managed_thumbnails, memory_capture,
-    memory_maintenance, personas, profile, prompts, shared, sidecar, sprites, translation, updates,
-    web_research,
+    entity_images, exports, fanfic_research, fonts, game_assets, generation, http, images, imports,
+    integrations, knowledge, knowledge_edges, llm, lorebook_images, managed_thumbnails,
+    memory_capture, memory_maintenance, personas, profile, prompts, shared, sidecar, sprites,
+    translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -703,6 +703,9 @@ pub(crate) async fn dispatch_for_runtime_owner(
         }
         "custom_tool_capabilities" => Ok(custom_tools::custom_tool_capabilities()),
         "character_web_search" => web_research::search(state, optional_value(&args, "body")).await,
+        "fanfic_web_research" => {
+            fanfic_research::research(state, optional_value(&args, "body")).await
+        }
         "character_web_read_page" => {
             web_research::read_page(state, optional_value(&args, "body")).await
         }

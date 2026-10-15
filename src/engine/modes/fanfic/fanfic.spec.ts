@@ -52,6 +52,7 @@ function writingState(overrides: Partial<FanficState["request"]> = {}): FanficSt
       ],
     },
     outlineApproved: true,
+    research: null,
   };
 }
 

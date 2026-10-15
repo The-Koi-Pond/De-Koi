@@ -198,7 +198,7 @@ pub(crate) fn web_page_url_for_grant(
     Ok(parsed)
 }
 
-async fn validate_resolved_public_host(url: &reqwest::Url) -> AppResult<()> {
+pub(crate) async fn validate_resolved_public_host(url: &reqwest::Url) -> AppResult<()> {
     let host = url
         .host_str()
         .ok_or_else(|| AppError::invalid_input("Web page URL has no host."))?;
@@ -269,7 +269,7 @@ fn normalize_query(query: &str) -> String {
         .to_lowercase()
 }
 
-fn has_secret_query(url: &reqwest::Url) -> bool {
+pub(crate) fn has_secret_query(url: &reqwest::Url) -> bool {
     url.query_pairs().any(|(key, _)| {
         matches!(
             key.to_ascii_lowercase().as_str(),
@@ -295,7 +295,7 @@ fn domain_matches(host: &str, approved: &str) -> bool {
     !approved.is_empty() && (host == approved || host.ends_with(&format!(".{approved}")))
 }
 
-fn host_is_public(host: &str) -> bool {
+pub(crate) fn host_is_public(host: &str) -> bool {
     let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if normalized.is_empty() || normalized == "localhost" || normalized.ends_with(".localhost") {
         return false;

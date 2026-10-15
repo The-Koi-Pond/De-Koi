@@ -45,6 +45,8 @@ export interface FanficRequest {
   reviewOutline: boolean;
   /** The requester confirmed every character in sexual content is an adult (required for mature/explicit). */
   adultsConfirmed: boolean;
+  /** Look up the canon and real-world details online before planning. */
+  research: boolean;
 }
 
 export interface FanficOutlineChapter {
@@ -59,6 +61,20 @@ export interface FanficOutline {
   chapters: FanficOutlineChapter[];
 }
 
+export interface FanficResearchSource {
+  title: string;
+  url: string;
+}
+
+/** What the fic should get right, gathered before planning. */
+export interface FanficResearch {
+  /** Notes the outline and chapters lean on; the requester can edit them. */
+  notes: string;
+  sources: FanficResearchSource[];
+  /** False when no web page could be read, so the notes come from the model's own knowledge. */
+  fromWeb: boolean;
+}
+
 /** Stored on the chat as `metadata.fanfic`. */
 export interface FanficState {
   version: 1;
@@ -66,4 +82,6 @@ export interface FanficState {
   outline: FanficOutline | null;
   /** True once the requester accepted the outline (or skipped review). */
   outlineApproved: boolean;
+  /** Present once research ran for this fic. */
+  research: FanficResearch | null;
 }

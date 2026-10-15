@@ -47,6 +47,8 @@ pub(crate) mod deki;
 pub(crate) mod entity_images;
 #[path = "storage/exports.rs"]
 pub(crate) mod exports;
+#[path = "storage/fanfic_research.rs"]
+pub(crate) mod fanfic_research;
 #[path = "storage/fonts.rs"]
 pub(crate) mod fonts;
 #[path = "storage/game_assets.rs"]
@@ -158,6 +160,9 @@ pub mod customization_commands;
 pub mod deki_commands;
 #[path = "storage/commands/entities.rs"]
 pub mod entity_commands;
+#[cfg(feature = "desktop")]
+#[path = "storage/commands/fanfic_research.rs"]
+pub mod fanfic_research_commands;
 #[cfg(feature = "desktop")]
 #[path = "storage/commands/game_state_snapshots.rs"]
 pub mod game_state_snapshot_commands;
