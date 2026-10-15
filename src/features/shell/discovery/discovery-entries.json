@@ -97,7 +97,7 @@
     "id": "fanfic-mode",
     "title": "Fanfic Mode",
     "category": "Chat modes",
-    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, and save the fic as HTML or Markdown.",
+    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, and save the fic as HTML or Markdown.",
     "keywords": [
       "fanfic",
       "fanfiction",
@@ -111,7 +111,10 @@
       "rewrite",
       "export",
       "one-shot",
-      "multi-chapter"
+      "multi-chapter",
+      "listen",
+      "read aloud",
+      "audiobook"
     ],
     "audience": "Readers who want a story written for them rather than a scene to play in.",
     "where": "Home > Fanfic, then the request form, outline, and chapter reader.",

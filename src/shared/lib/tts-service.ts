@@ -19,6 +19,13 @@ interface TTSSpeakOptions {
   cacheAliases?: string[];
 }
 
+interface TTSSequenceOptions extends Pick<TTSSpeakOptions, "signal" | "throwOnError" | "playbackRate"> {
+  /** How many upcoming parts to fetch while the current part plays. Defaults to 0 (fetch each part when reached). */
+  lookahead?: number;
+  /** Called with the index into `requests` each time a part starts playing. */
+  onPartStart?: (index: number) => void;
+}
+
 interface TTSSpeakRequest {
   text: string;
   speaker?: string;
@@ -159,13 +166,12 @@ class TTSService {
     }
   }
 
-  async speakSequence(
-    requests: TTSSpeakRequest[],
-    id?: string,
-    options: Pick<TTSSpeakOptions, "signal" | "throwOnError" | "playbackRate"> = {},
-  ): Promise<void> {
-    const playableRequests = requests.filter((request) => request.text.trim().length > 0);
+  async speakSequence(requests: TTSSpeakRequest[], id?: string, options: TTSSequenceOptions = {}): Promise<void> {
+    const playableRequests = requests
+      .map((request, index) => ({ request, index }))
+      .filter(({ request }) => request.text.trim().length > 0);
     if (playableRequests.length === 0) return;
+    const lookahead = Math.max(0, Math.floor(options.lookahead ?? 0));
 
     this.stop();
     const sequence = ++this.sequence;
@@ -183,8 +189,28 @@ class TTSService {
       }
     }
 
+    // Audio for upcoming parts is requested while the current part plays, so long reads have no gap between parts.
+    const pendingBlobs = new Map<number, Promise<Blob>>();
+    const blobAt = (position: number): Promise<Blob> => {
+      const existing = pendingBlobs.get(position);
+      if (existing) return existing;
+      const { request } = playableRequests[position]!;
+      const pending = this.getAudioBlob(request.text, {
+        speaker: request.speaker,
+        tone: request.tone,
+        voice: request.voice,
+        signal: abortController.signal,
+        cacheKey: request.cacheKey,
+        cacheAliases: request.cacheAliases,
+      });
+      // A prefetch that fails is reported when its part is reached, not as an unhandled rejection.
+      pending.catch(() => undefined);
+      pendingBlobs.set(position, pending);
+      return pending;
+    };
+
     try {
-      for (const request of playableRequests) {
+      for (let position = 0; position < playableRequests.length; position += 1) {
         if (!this.isCurrentSequence(sequence)) return;
         if (abortController.signal.aborted) {
           this.setState("idle");
@@ -192,14 +218,15 @@ class TTSService {
         }
         this.setState("loading", id ?? null);
 
-        const blob = await this.getAudioBlob(request.text, {
-          speaker: request.speaker,
-          tone: request.tone,
-          voice: request.voice,
-          signal: abortController.signal,
-          cacheKey: request.cacheKey,
-          cacheAliases: request.cacheAliases,
-        });
+        const blob = await blobAt(position);
+        pendingBlobs.delete(position);
+        for (
+          let ahead = position + 1;
+          ahead <= Math.min(position + lookahead, playableRequests.length - 1);
+          ahead += 1
+        ) {
+          void blobAt(ahead);
+        }
         if (!this.isCurrentSequence(sequence)) return;
         if (abortController.signal.aborted) {
           this.setState("idle");
@@ -221,6 +248,7 @@ class TTSService {
         }
         this.audio = audio;
         this.setState("playing", id ?? null);
+        options.onPartStart?.(playableRequests[position]!.index);
 
         const playbackResult = await new Promise<"ended" | "aborted">((resolve, reject) => {
           let onAbort: (() => void) | null = null;
