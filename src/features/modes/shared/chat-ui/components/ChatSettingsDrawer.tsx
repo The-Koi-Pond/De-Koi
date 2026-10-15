@@ -260,6 +260,8 @@ const MODE_INTROS: Record<ChatMode, string> = {
   roleplay:
     "Plain roleplay surface — no built-in dice, combat, or GM pipeline; sprites, world-state tracking, and other helpers are available as optional agents below.",
   game: "Full Game Master with built-in dice, combat, encounters, world state, and session/map tracking — an optional Scene Effects Model (under Agents) adds scene analysis for backgrounds, music, and weather.",
+  fanfic:
+    "Fanfic request — the model writes your fic chapter by chapter from the request and outline; no agents, trackers, or persona turns.",
 };
 
 type AvailableAgent = {

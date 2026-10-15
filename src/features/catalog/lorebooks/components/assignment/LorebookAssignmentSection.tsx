@@ -37,6 +37,7 @@ const MODE_LABELS: Record<ChatMode, string> = {
   conversation: "Conversation",
   roleplay: "Roleplay",
   game: "Game",
+  fanfic: "Fanfic",
 };
 
 function getOwnerIds(lorebook: Lorebook, ownerType: LorebookOwnerType): string[] {

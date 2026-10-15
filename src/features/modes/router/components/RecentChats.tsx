@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MessageSquare, BookOpen, Theater } from "lucide-react";
+import { MessageSquare, BookOpen, Feather, Theater } from "lucide-react";
 import { useRecentChatSummaries, type ChatListItem } from "../../../catalog/chats/index";
 import {
   CharacterAvatarImage,
@@ -18,6 +18,7 @@ const MODE_BADGE: Record<string, { icon: React.ReactNode; bg: string; label: str
   },
   roleplay: { icon: <BookOpen size="0.75rem" />, bg: "linear-gradient(135deg, #eb8951, #d97530)", label: "Roleplay" },
   game: { icon: <Theater size="0.75rem" />, bg: "linear-gradient(135deg, #e15c8c, #c94776)", label: "Game" },
+  fanfic: { icon: <Feather size="0.75rem" />, bg: "linear-gradient(135deg, #e0607e, #7a2a40)", label: "Fanfic" },
 };
 
 function readAvatarCrop(value: unknown): AvatarCropValue | null {

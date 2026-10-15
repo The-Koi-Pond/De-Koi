@@ -39,4 +39,11 @@ export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {
     icon: "🎲",
     defaultAgents: ["world-state", "quest", "expression", "combat"],
   },
+  fanfic: {
+    id: "fanfic",
+    name: "Fanfic",
+    description: "Request a fanfic: pick the fandom, ships, rating, and tropes, then read it chapter by chapter.",
+    icon: "📖",
+    defaultAgents: [],
+  },
 };

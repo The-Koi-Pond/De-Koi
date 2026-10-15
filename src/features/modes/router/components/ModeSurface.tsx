@@ -9,6 +9,7 @@ import { ModeHomeSurface } from "./ModeHomeSurface";
 const ConversationModeRoute = lazy(MODE_ROUTE_LOADERS.conversation);
 const RoleplayModeRoute = lazy(MODE_ROUTE_LOADERS.roleplay);
 const GameModeRoute = lazy(MODE_ROUTE_LOADERS.game);
+const FanficModeRoute = lazy(MODE_ROUTE_LOADERS.fanfic);
 
 function RestoringChatState({ error, onBack }: { error?: string | null; onBack: () => void }) {
   const hasError = !!error;
@@ -101,6 +102,8 @@ export function ModeSurface({
     <Suspense fallback={fallback}>
       {chatMode === "game" ? (
         <GameModeRoute key={activeChatId} activeChatId={activeChatId} />
+      ) : chatMode === "fanfic" ? (
+        <FanficModeRoute key={activeChatId} activeChatId={activeChatId} />
       ) : chatMode === "conversation" ? (
         <ConversationModeRoute activeChatId={activeChatId} />
       ) : (

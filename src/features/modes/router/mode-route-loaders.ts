@@ -13,6 +13,10 @@ export const MODE_ROUTE_LOADERS = {
     const module = await import("../game/index");
     return { default: module.GameModeRoute };
   },
+  fanfic: async () => {
+    const module = await import("../fanfic/index");
+    return { default: module.FanficModeRoute };
+  },
 } as const;
 
 export type ModeRoutePreloaders = Record<ChatMode, () => Promise<unknown>>;

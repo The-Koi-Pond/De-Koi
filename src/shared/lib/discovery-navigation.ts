@@ -1,4 +1,4 @@
-export type DiscoveryMode = "conversation" | "roleplay" | "game";
+export type DiscoveryMode = "conversation" | "roleplay" | "game" | "fanfic";
 
 export type DiscoveryChatDestination =
   | "chat-settings"

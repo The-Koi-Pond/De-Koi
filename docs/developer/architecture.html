@@ -49,7 +49,7 @@ flowchart TB
 
   subgraph Features[src/features]
     ShellLayer[shell<br/>settings, connections UI, Mari,<br/>imports, bot browser, onboarding,<br/>notifications, Spotify]
-    ModesLayer[modes<br/>router, shared chat UI, shared scene UI,<br/>conversation, roleplay, game, game-assets]
+    ModesLayer[modes<br/>router, shared chat UI, shared scene UI,<br/>conversation, roleplay, game, game-assets, fanfic]
     RuntimeLayer[runtime<br/>generation, world-state,<br/>visuals, tracker]
     CatalogLayer[catalog<br/>chats, characters, personas, sprites,<br/>lorebooks, presets, chat-presets,<br/>connections data, agents, gallery, knowledge]
   end
@@ -73,7 +73,7 @@ flowchart TB
     Agents[agents-runtime<br/>executor, knowledge, pipeline]
     Generation[generation<br/>generation lifecycle]
     DekiEngine[deki<br/>Deki-senpai entry contract]
-    EngineModes[modes<br/>chat, roleplay, game]
+    EngineModes[modes<br/>chat, roleplay, game, fanfic]
   end
 
   subgraph Tauri[src-tauri]
@@ -140,7 +140,7 @@ flowchart TB
         <pre class="mermaid">
 flowchart TB
   Shell[features/shell<br/>app-level tools and panels]
-  Modes[features/modes<br/>conversation, roleplay, game, router,<br/>shared mode UI, game assets]
+  Modes[features/modes<br/>conversation, roleplay, game, fanfic, router,<br/>shared mode UI, game assets]
   Runtime[features/runtime<br/>generation, world-state, visuals,<br/>tracker]
   Catalog[features/catalog<br/>resource data, hooks, query keys,<br/>library/editor surfaces]
 
@@ -186,7 +186,7 @@ flowchart TB
               <td><code>features/modes</code></td>
               <td>
                 <code>conversation</code>, <code>roleplay</code>, <code>game</code>, <code>game-assets</code>,
-                <code>router</code>, <code>shared/chat-ui</code>, <code>shared/scene-ui</code>.
+                <code>fanfic</code>, <code>router</code>, <code>shared/chat-ui</code>, <code>shared/scene-ui</code>.
               </td>
               <td>Own concrete user modes, shared mode UI, and the mode composition point.</td>
               <td>Import shell tools, or import sibling concrete modes outside <code>modes/router</code>.</td>
@@ -251,7 +251,8 @@ flowchart TB
             <tr>
               <td><code>features/modes/router/shell.ts</code></td>
               <td>
-                The only current React entrypoint allowed to compose concrete conversation, roleplay, and game packages.
+                The only current React entrypoint allowed to compose concrete conversation, roleplay, game, and fanfic
+                packages.
               </td>
             </tr>
             <tr>
@@ -392,6 +393,14 @@ flowchart TB
               </td>
             </tr>
             <tr>
+              <td><code>modes/fanfic</code></td>
+              <td>Fanfic request form, outline review, chapter reader, versions, rewrite with notes, and export.</td>
+              <td>
+                Request, outline, chapter, and export rules stay under <code>engine/modes/fanfic</code>; the feature
+                package binds them to catalog hooks and shared APIs and does not use shared chat UI.
+              </td>
+            </tr>
+            <tr>
               <td><code>modes/router</code></td>
               <td><code>ModeSurface</code>, the active mode composition point.</td>
               <td>
@@ -427,27 +436,37 @@ flowchart TB
   ConversationUI[features/modes/conversation]
   RoleplayUI[features/modes/roleplay]
   GameUI[features/modes/game]
+  FanficUI[features/modes/fanfic]
 
   ChatEngine[engine/modes/chat]
   RoleplayEngine[engine/modes/roleplay]
   GameEngine[engine/modes/game]
+  FanficEngine[engine/modes/fanfic]
   Lower[engine lower layers<br/>contracts, shared, repositories,<br/>generation-core, generation, capabilities]
 
   Router --> ConversationUI
   Router --> RoleplayUI
   Router --> GameUI
+  Router --> FanficUI
   ConversationUI --> SharedModeUI
   RoleplayUI --> SharedModeUI
   GameUI --> SharedModeUI
   ConversationUI --> ChatEngine
   RoleplayUI --> RoleplayEngine
   GameUI --> GameEngine
+  FanficUI --> FanficEngine
   ChatEngine --> Lower
   RoleplayEngine --> Lower
   GameEngine --> Lower
+  FanficEngine --> Lower
   ConversationUI -. forbidden .-> RoleplayUI
   RoleplayUI -. forbidden .-> GameUI
   GameUI -. forbidden .-> ConversationUI
+  FanficUI -. forbidden .-> RoleplayUI
+  FanficUI -. forbidden .-> ConversationUI
+  FanficUI -. forbidden .-> GameUI
+  GameUI -. forbidden .-> FanficUI
+  SharedModeUI -. forbidden .-> FanficUI
         </pre>
 
         <table>
@@ -480,6 +499,17 @@ flowchart TB
               <td>Game rules do not move into chat or roleplay UI for reuse.</td>
             </tr>
             <tr>
+              <td><code>engine/modes/fanfic</code></td>
+              <td>
+                Fanfic request rules, outline planning, chapter and rewrite guides, author prompt, and HTML/Markdown
+                export. Chapters run through the shared <code>engine/generation</code> pipeline.
+              </td>
+              <td>
+                Fanfic rules do not move into chat, roleplay, or game; prompt assembly reads them the same way it reads
+                game prompts.
+              </td>
+            </tr>
+            <tr>
               <td><code>features/modes/router</code></td>
               <td>Current React composition point for concrete modes and shared active-chat workflow.</td>
               <td>
@@ -492,7 +522,7 @@ flowchart TB
         <h2>Engine Layers</h2>
         <pre class="mermaid">
 flowchart TB
-  Modes[modes<br/>chat, roleplay, game]
+  Modes[modes<br/>chat, roleplay, game, fanfic]
   Deki[deki<br/>Deki-senpai entry]
   Generation[generation<br/>lifecycle, replay, makers, prompt review]
   Agents[agents-runtime<br/>executor, knowledge, pipeline]
@@ -574,7 +604,7 @@ flowchart TB
             </tr>
             <tr>
               <td><code>modes</code></td>
-              <td>Mode-owned product behavior for chat, roleplay, and game.</td>
+              <td>Mode-owned product behavior for chat, roleplay, game, and fanfic.</td>
               <td>Sibling mode internals.</td>
             </tr>
           </tbody>
@@ -728,14 +758,16 @@ flowchart TB
             <tr>
               <td>Concrete modes are separated</td>
               <td>
-                Conversation/chat, roleplay, and game cannot import each other's concrete UI or engine mode internals.
+                Conversation/chat, roleplay, game, and fanfic cannot import each other's concrete UI or engine mode
+                internals.
                 <code>features/modes/router</code> is the composition exception for React surfaces.
               </td>
             </tr>
             <tr>
               <td>Shared mode UI stays lower than concrete modes</td>
               <td>
-                <code>features/modes/shared</code> cannot import concrete conversation, roleplay, or game packages.
+                <code>features/modes/shared</code> cannot import concrete conversation, roleplay, game, or fanfic
+                packages.
               </td>
             </tr>
             <tr>

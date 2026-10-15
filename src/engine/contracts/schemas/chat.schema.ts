@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { defaultBackgroundAgentIdsForNewChat } from "../constants/chat-modes";
 
-const canonicalChatModeSchema = z.enum(["conversation", "roleplay", "game"]);
+const canonicalChatModeSchema = z.enum(["conversation", "roleplay", "game", "fanfic"]);
 
 export const chatModeSchema = z.preprocess(
   (value) => (value === "visual_novel" ? "roleplay" : value),

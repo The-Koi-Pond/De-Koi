@@ -15,6 +15,7 @@ export const DISCOVERY_CORE_SURFACE_IDS = [
   "conversation-mode",
   "roleplay-mode",
   "game-mode",
+  "fanfic-mode",
   "characters",
   "personas",
   "lorebooks",
@@ -43,7 +44,7 @@ const DISCOVERY_PANEL_TARGETS = [
 const categorySet = new Set<string>(DISCOVERY_CATEGORIES);
 const coverageSet = new Set<string>(DISCOVERY_COVERAGE);
 const panelTargetSet = new Set<string>(DISCOVERY_PANEL_TARGETS);
-const modeSet = new Set(["conversation", "roleplay", "game"]);
+const modeSet = new Set(["conversation", "roleplay", "game", "fanfic"]);
 const chatDestinationSet = new Set([
   "chat-settings",
   "chat-settings-prompt-preset",

@@ -15,6 +15,8 @@ const GUIDE_SOURCE_LABELS: Record<GuideSource, string> = {
   game_start: "Game start",
   game_turn: "Game turn",
   game_retry: "Game retry",
+  fanfic_chapter: "Fanfic chapter",
+  fanfic_revise: "Fanfic rewrite",
 };
 
 function storedText(value: unknown): string | null {

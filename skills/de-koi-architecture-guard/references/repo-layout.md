@@ -20,7 +20,7 @@ src/features/runtime/
   Shared runtime systems: generation, world-state, visuals, tracker.
 
 src/features/modes/
-  User mode surfaces and mode-specific UI: shared, conversation, roleplay, game, game-assets, router.
+  User mode surfaces and mode-specific UI: shared, conversation, roleplay, game, game-assets, fanfic, router.
 
 src/features/shell/
   App-level tools: settings, connections, spotify, onboarding, mari, bot-browser, imports, notifications.
@@ -48,7 +48,7 @@ engine/repositories    Layer 4: capability-backed repositories
 engine/generation-core Layer 5: prompt, lorebook, regex, LLM message building blocks
 engine/agents-runtime  Layer 6: agent executor, tools, knowledge, memory
 engine/generation      Layer 7: generation lifecycle and persistence
-engine/modes           Layer 8: chat, roleplay, game top-level mode engines
+engine/modes           Layer 8: chat, roleplay, game, fanfic top-level mode engines
 ```
 
 Higher layers may import lower layers. Lower layers may not import higher layers.
@@ -114,6 +114,7 @@ Important feature owners:
 - `features/modes/roleplay`: roleplay surface, HUD, choices, encounters, scene controls, and roleplay tracker UI.
 - `features/modes/game`: game surface, hooks, stores, API facade, and gameplay UI.
 - `features/modes/game-assets`: game asset browser and editor UI.
+- `features/modes/fanfic`: fanfic request form, outline review, and chapter reader; generation runs through `engine/modes/fanfic` on the shared pipeline.
 - `features/modes/router`: the only concrete mode composition point.
 - `features/shell/settings`, `features/shell/connections`, `features/shell/spotify`, `features/shell/onboarding`, `features/shell/mari`, `features/shell/bot-browser`, `features/shell/imports`, `features/shell/notifications`: app-level tools and shell workflows.
 
