@@ -59,6 +59,10 @@ function reasonLabel(reason: LorebookActivationTraceEntry["reason"]): string {
       return "Position";
     case "recursion_blocked":
       return "Recursion";
+    case "recursion_excluded":
+      return "Non-recursable";
+    case "recursion_delayed":
+      return "Waits for recursion";
     case "unscanned":
       return "Not scanned";
   }
