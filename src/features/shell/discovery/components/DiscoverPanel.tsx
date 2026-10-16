@@ -16,8 +16,13 @@ const COVERAGE_LABELS: Record<DiscoveryCoverage, string> = {
   core: "Everyday",
   advanced: "Advanced",
   experimental: "Experimental",
-  "needs-polish": "Experimental",
+  "needs-polish": "Needs polish",
 };
+
+/** Coverage filters that some entry uses, so no filter is a dead end. */
+const COVERAGE_FILTERS = DISCOVERY_COVERAGE.filter((item) =>
+  DISCOVERY_ENTRIES.some((entry) => entry.coverage === item),
+);
 
 const COVERAGE_CLASS: Record<DiscoveryCoverage, string> = {
   core: "border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
@@ -186,7 +191,7 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
         </div>
 
         <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1" role="radiogroup" aria-label="Feature coverage">
-          {(["All", ...DISCOVERY_COVERAGE] as const).map((item) => {
+          {(["All", ...COVERAGE_FILTERS] as const).map((item) => {
             const selected = coverage === item;
             return (
               <button
