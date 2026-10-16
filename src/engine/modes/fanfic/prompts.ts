@@ -38,6 +38,7 @@ const PROSE_RULES = [
     '- Runs of sentences that open the same way, countdowns, "Then... Then..." chains, and the rule-of-three list of failed attempts.',
     '- Doubled intensifiers ("very long and very heavy") and stock phrases (a breath they didn\'t know they were holding, something shifted, the weight of, for a long moment, a flicker of).',
     "- More than an occasional em dash.",
+    "- Reaching for the same pet name, catchphrase, or signature detail (a sound, an accessory, a color) in every exchange. Use each a couple of times a chapter where it lands, not as the default way to address someone or show a reaction.",
     "- Ending on a small symbolic object or a quiet one-line button. End where the scene actually ends.",
   ].join("\n"),
   "Vary sentence length and paragraph shape the way a person does without thinking about it.",
@@ -82,7 +83,7 @@ function renderFanficOutline(outline: FanficOutline): string {
 function researchSection(notes: string | undefined): string {
   const trimmed = notes?.trim() ?? "";
   return trimmed
-    ? `## Research notes\nGathered before planning. Rely on these facts over guesses, and keep anything listed under Unsure vague. The requester's character notes win if they disagree.\n\n${trimmed}`
+    ? `## Research notes\nGathered before planning. Rely on these facts over guesses, and keep anything listed under Unsure vague. The requester's character notes win if they disagree. Looks and habits here are facts to get right, not details to mention in every scene.\n\n${trimmed}`
     : "";
 }
 
@@ -151,12 +152,14 @@ function finalChapterNote(state: FanficState, chapterNumber: number): string {
   return "";
 }
 
-export function buildFanficChapterGuide(state: FanficState, chapterNumber: number, notes = ""): string {
+/** `overused` is the repetition guide for what earlier chapters already wore out (see repetition.ts). */
+export function buildFanficChapterGuide(state: FanficState, chapterNumber: number, notes = "", overused = ""): string {
   return [
     `Write chapter ${chapterNumber} now, about ${state.request.wordsPerChapter} words.`,
     chapterPlan(state, chapterNumber),
     finalChapterNote(state, chapterNumber),
     notes.trim() ? `Requester's notes for this chapter:\n${notes.trim()}` : "",
+    overused.trim(),
     PLAIN_PROSE_REMINDER,
     "Output only the chapter prose.",
   ]
@@ -169,14 +172,18 @@ export function buildFanficRevisionGuide(
   chapterNumber: number,
   notes: string,
   previousText: string,
+  overused = "",
 ): string {
   return [
     `Rewrite chapter ${chapterNumber} using the requester's notes. Keep what already works, change what the notes ask for, and keep it about ${state.request.wordsPerChapter} words.`,
     chapterPlan(state, chapterNumber),
     `Requester's notes:\n${notes.trim()}`,
+    overused.trim(),
     `Previous draft:\n"""\n${previousText.trim()}\n"""`,
     "Output only the rewritten chapter prose.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** Messages for the one-shot outline request; the reply is JSON. */

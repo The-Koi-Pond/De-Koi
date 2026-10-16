@@ -2,6 +2,7 @@
 // Fanfic: spot the prose habits that make a chapter read as machine-written
 // ──────────────────────────────────────────────
 import { stripFanficChapterHeading } from "./prompts";
+import { buildFanficRepetitionCleanupLines, type FanficRepetitionReport } from "./repetition";
 
 export type FanficAiIsmId =
   | "negation_beat"
@@ -207,15 +208,24 @@ export function detectFanficAiIsms(chapterText: string): FanficAiIsmReport {
   return { words, score: words > 0 ? Math.round((total / words) * 10000) / 10 : 0, findings };
 }
 
-/** Rewrite notes that point the model at the exact habits it fell into, keeping story and length intact. */
-export function buildFanficAiIsmCleanupNotes(report: FanficAiIsmReport): string {
+/**
+ * Rewrite notes that point the model at the exact habits it fell into, keeping story and length intact. Pass the
+ * chapter's repetition report to also cut the pet names, details, and phrases it keeps reusing.
+ */
+export function buildFanficAiIsmCleanupNotes(report: FanficAiIsmReport, repetition?: FanficRepetitionReport): string {
+  const repeats = repetition ? buildFanficRepetitionCleanupLines(repetition) : [];
   const lines = [
-    "Clean up the prose so it reads like a person wrote it. Keep the plot, every beat and joke, the dialogue's meaning, the point of view, and the length. Only change how sentences are built.",
+    repeats.length > 0
+      ? "Clean up the prose so it reads like a person wrote it. Keep the plot, every beat and joke, the dialogue's meaning, the point of view, and the length. Change how sentences are built, and cut the repeats listed below."
+      : "Clean up the prose so it reads like a person wrote it. Keep the plot, every beat and joke, the dialogue's meaning, the point of view, and the length. Only change how sentences are built.",
   ];
   for (const finding of report.findings) {
     const examples = finding.examples.slice(0, 3).map((example) => `"${example}"`);
     lines.push(`- ${finding.advice}${examples.length > 0 ? ` For example: ${examples.join("; ")}` : ""}`);
   }
+  lines.push(...repeats);
+  if (repeats.length > 0)
+    lines.push("Keep anything the plot depends on. Where a repeat goes, don't fill the gap with a new one.");
   lines.push("Don't swap one habit for another (no new stock phrases, no new repeated sentence shapes).");
   return lines.join("\n");
 }

@@ -29,6 +29,11 @@ import {
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
+import {
+  detectFanficRepetition,
+  fanficRepetitionNames,
+  type FanficRepeat,
+} from "../../../../engine/modes/fanfic/repetition";
 import { FANFIC_RATING_LABELS, FANFIC_WARNING_LABELS } from "../../../../engine/modes/fanfic/request";
 import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/file-save-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -309,37 +314,85 @@ function lowerFirst(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
-/** Flags a chapter that leans on machine-sounding habits and offers a targeted clean-up rewrite. */
-function AiIsmNotice({ text, busy, onCleanUp }: { text: string; busy: boolean; onCleanUp: (notes: string) => void }) {
+function repeatLabel(repeat: FanficRepeat): string {
+  if (repeat.kind === "pet_name") return `Calling someone “${repeat.term}”`;
+  if (repeat.kind === "detail") return `“${repeat.term}” as a detail`;
+  return `The phrase “${repeat.term}”`;
+}
+
+/**
+ * Flags a chapter that leans on machine-sounding habits or keeps reusing the same pet name, detail, or phrase, and
+ * offers a targeted clean-up rewrite.
+ */
+function ProseCheckNotice({
+  chapterTexts,
+  chapterIndex,
+  names,
+  busy,
+  onCleanUp,
+}: {
+  chapterTexts: string[];
+  chapterIndex: number;
+  names: string[];
+  busy: boolean;
+  onCleanUp: (notes: string) => void;
+}) {
+  const text = chapterTexts[chapterIndex] ?? "";
   const report = useMemo(() => detectFanficAiIsms(text), [text]);
+  const repetition = useMemo(
+    () => detectFanficRepetition(chapterTexts, { names, focus: chapterIndex }),
+    [chapterIndex, chapterTexts, names],
+  );
   const [open, setOpen] = useState(false);
-  if (!fanficAiIsmNeedsCleanup(report)) return null;
+  const aiIsms = fanficAiIsmNeedsCleanup(report);
+  const repeats = repetition.repeats;
+  if (!aiIsms && repeats.length === 0) return null;
   const total = report.findings.reduce((sum, finding) => sum + finding.count, 0);
   const top = report.findings.slice(0, 3).map((finding) => lowerFirst(finding.label));
+  const repeatSummary = joinWithAnd(repeats.slice(0, 3).map((repeat) => `“${repeat.term}” (${repeat.count}×)`));
   return (
     <section
       aria-label="Prose check"
       className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3"
     >
-      <p className="text-[0.8125rem] font-semibold text-[var(--foreground)]">Sounds a bit AI-written</p>
+      <p className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
+        {aiIsms ? "Sounds a bit AI-written" : "Repeats itself"}
+      </p>
       <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-        {total} habits spotted, mostly {joinWithAnd(top)}. A clean-up keeps the story and rewrites how the sentences are
-        built. It's saved as a new version, so you can flip back.
+        {aiIsms && `${total} habits spotted, mostly ${joinWithAnd(top)}. `}
+        {repeats.length > 0 && `Keeps reusing ${repeatSummary}. `}A clean-up keeps the story and{" "}
+        {aiIsms ? "rewrites how the sentences are built" : "cuts the repeats"}. It's saved as a new version, so you can
+        flip back.
       </p>
       {open && (
         <ul className="flex flex-col gap-1.5 text-xs text-[var(--muted-foreground)]">
-          {report.findings.map((finding) => (
-            <li key={finding.id}>
+          {aiIsms &&
+            report.findings.map((finding) => (
+              <li key={finding.id}>
+                <span className="font-semibold text-[var(--foreground)]">
+                  {finding.label} ({finding.count})
+                </span>
+                {finding.examples.length > 0 && <span>: “{finding.examples[0]}”</span>}
+              </li>
+            ))}
+          {repeats.map((repeat) => (
+            <li key={`${repeat.kind}-${repeat.term}`}>
               <span className="font-semibold text-[var(--foreground)]">
-                {finding.label} ({finding.count})
+                {repeatLabel(repeat)} ({repeat.count})
               </span>
-              {finding.examples.length > 0 && <span>: “{finding.examples[0]}”</span>}
+              {repeat.examples.length > 0 && <span>: {repeat.examples[0]}</span>}
             </li>
           ))}
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
-        <FanficButton tone="primary" disabled={busy} onClick={() => onCleanUp(buildFanficAiIsmCleanupNotes(report))}>
+        <FanficButton
+          tone="primary"
+          disabled={busy}
+          onClick={() =>
+            onCleanUp(buildFanficAiIsmCleanupNotes(aiIsms ? report : { ...report, findings: [] }, repetition))
+          }
+        >
           <Sparkles size="0.9rem" aria-hidden="true" />
           Clean up prose
         </FanficButton>
@@ -354,12 +407,16 @@ function AiIsmNotice({ text, busy, onCleanUp }: { text: string; busy: boolean; o
 function ChapterTools({
   chatId,
   chapter,
+  chapterTexts,
+  names,
   isLast,
   busy,
   onWrite,
 }: {
   chatId: string;
   chapter: FanficChapterView;
+  chapterTexts: string[];
+  names: string[];
   isLast: boolean;
   busy: boolean;
   onWrite: (args: FanficWriteArgs) => void;
@@ -464,8 +521,10 @@ function ChapterTools({
         )}
       </div>
       {mode === "idle" && (
-        <AiIsmNotice
-          text={message.content}
+        <ProseCheckNotice
+          chapterTexts={chapterTexts}
+          chapterIndex={chapter.number - 1}
+          names={names}
           busy={busy}
           onCleanUp={(cleanupNotes) => onWrite({ kind: "revise", messageId: message.id, notes: cleanupNotes })}
         />
@@ -681,6 +740,8 @@ export function FanficReader({
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
+  const chapterTexts = useMemo(() => chapters.map((chapter) => chapter.message.content), [chapters]);
+  const repetitionNames = useMemo(() => fanficRepetitionNames(state.request), [state.request]);
   const [showOutline, setShowOutline] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
@@ -816,6 +877,8 @@ export function FanficReader({
               <ChapterTools
                 chatId={chatId}
                 chapter={chapter}
+                chapterTexts={chapterTexts}
+                names={repetitionNames}
                 isLast={chapter.number === chapterCount}
                 busy={generating}
                 onWrite={onWrite}

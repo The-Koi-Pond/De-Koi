@@ -3,6 +3,7 @@ import type { GenerationEngineDeps, StartGenerationInput } from "../../generatio
 import { startGeneration } from "../../generation/start-generation";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { buildFanficChapterGuide, buildFanficRevisionGuide, stripFanficChapterHeading } from "./prompts";
+import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { fanficChapterMaxTokens, fanficStage, readFanficState } from "./request";
 
 export interface FanficChapterRef {
@@ -59,23 +60,30 @@ function targetChapter(chapters: FanficChapterRef[], messageId: string): FanficC
   return chapter;
 }
 
+/** What the other chapters already overuse, so the chapter being written doesn't pile on. */
+function overusedElsewhere(state: FanficState, chapters: FanficChapterRef[], skip?: FanficChapterRef): string {
+  const others = chapters.filter((chapter) => chapter !== skip).map((chapter) => chapter.content);
+  return buildFanficRepetitionGuide(detectFanficRepetition(others, { names: fanficRepetitionNames(state.request) }));
+}
+
 function fanficGuide(state: FanficState, chapters: FanficChapterRef[], input: StartFanficGenerationInput) {
   const notes = readString(input.notes).trim();
   if (input.fanficKind === "chapter") {
     return {
-      guide: buildFanficChapterGuide(state, chapters.length + 1, notes),
+      guide: buildFanficChapterGuide(state, chapters.length + 1, notes, overusedElsewhere(state, chapters)),
       source: "fanfic_chapter" as const,
     };
   }
   const chapter = targetChapter(chapters, readString(input.regenerateMessageId).trim());
+  const overused = overusedElsewhere(state, chapters, chapter);
   if (input.fanficKind === "revise") {
     if (!notes) throw new Error("Say what to change before rewriting the chapter.");
     return {
-      guide: buildFanficRevisionGuide(state, chapter.number, notes, chapter.content),
+      guide: buildFanficRevisionGuide(state, chapter.number, notes, chapter.content, overused),
       source: "fanfic_revise" as const,
     };
   }
-  return { guide: buildFanficChapterGuide(state, chapter.number), source: "fanfic_chapter" as const };
+  return { guide: buildFanficChapterGuide(state, chapter.number, "", overused), source: "fanfic_chapter" as const };
 }
 
 /**
