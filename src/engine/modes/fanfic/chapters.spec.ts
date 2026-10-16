@@ -256,6 +256,32 @@ describe("startFanficGeneration", () => {
     expect(prompt).toContain("Let Aziraphale win the argument.");
   });
 
+  it("tells the next chapter which pet names earlier chapters wore out, but not a redo of the same chapter", async () => {
+    const { storage, messages } = fanficStorage();
+    const angel = Array.from(
+      { length: 6 },
+      (_, index) => `"Angel, look." Crowley points at the snow. "Angel, it's ${index} inches."`,
+    ).join("\n\n");
+    const llm = proseLlm([angel, "They finally talked.", "Snow, again."]);
+    const deps = { storage, llm, integrations: {} as IntegrationGateway };
+
+    await drain(startFanficGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" }));
+    await drain(startFanficGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" }));
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        fanficKind: "regenerate",
+        regenerateMessageId: messages[0]!.id,
+      }),
+    );
+
+    const nextChapter = promptText(llm.requests[1]);
+    expect(nextChapter).toContain('Calling someone "Angel" (12 times so far): once or twice at most in this chapter.');
+    expect(nextChapter).not.toContain('Calling someone "Crowley"');
+    expect(promptText(llm.requests[2])).not.toContain('Calling someone "Angel"');
+  });
+
   it("rewrites a chapter with notes as a new version of the same message", async () => {
     const { storage, messages } = fanficStorage();
     const llm = proseLlm(["Draft one.", "Draft two, snarkier."]);
