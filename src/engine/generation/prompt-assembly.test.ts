@@ -320,6 +320,39 @@ describe("prompt assembly preset depth sections", () => {
     expect(promptText).not.toContain("Hidden combat-state description.");
   });
 
+  it("fills SillyTavern chat-history macros from the stored chat", async () => {
+    const prompt = await assembleGenerationPrompt(
+      promptAssemblyStorage({
+        sections: [
+          {
+            id: "history-macros",
+            presetId: "preset-1",
+            identifier: "historyMacros",
+            name: "History Macros",
+            content: "Last from user: {{lastUserMessage}} Last from {{char}}: {{lastCharMessage}} Idle: {{idle_duration}}",
+            role: "system",
+            enabled: true,
+            sortOrder: 10,
+          },
+        ],
+      }),
+      {
+        chat: { id: "chat-1", mode: "roleplay", characterIds: ["char-1"] },
+        storedMessages: [
+          { role: "user", content: "Did you hear that?", createdAt: new Date(Date.now() - 5 * 60_000).toISOString() },
+          { role: "assistant", content: "Only the wind.", createdAt: new Date(Date.now() - 4 * 60_000).toISOString() },
+          { role: "user", content: "Let's go look.", createdAt: new Date().toISOString() },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "Let's go look.",
+      },
+    );
+
+    const promptText = prompt.messages.map((message) => message.content).join("\n");
+    expect(promptText).toContain("Last from user: Let's go look. Last from Mira: Only the wind. Idle: 5 minutes");
+  });
+
   it("injects depth-positioned preset sections at the requested chat-history depth", async () => {
     const prompt = await assembleGenerationPrompt(
       promptAssemblyStorage({

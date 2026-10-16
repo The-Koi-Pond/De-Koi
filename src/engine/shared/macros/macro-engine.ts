@@ -25,6 +25,14 @@ export interface MacroContext {
   variables: Record<string, string>;
   /** Last user input message (for {{input}}) */
   lastInput?: string;
+  /** Latest chat message, any speaker (for {{lastMessage}}) */
+  lastMessage?: string;
+  /** Latest user message (for {{lastUserMessage}}) */
+  lastUserMessage?: string;
+  /** Latest character message (for {{lastCharMessage}}) */
+  lastCharMessage?: string;
+  /** When the user's previous message was sent, as SillyTavern measures {{idle_duration}} */
+  idleSince?: string | null;
   /** Chat ID (for {{chatId}}) */
   chatId?: string;
   /** Model name (for {{model}}) */
@@ -299,6 +307,10 @@ function macroContextForCharacterProfile(profile: CharacterMacroProfile, base?: 
     characterProfiles: base?.characterProfiles ?? [profile],
     variables: base?.variables ?? {},
     lastInput: base?.lastInput,
+    lastMessage: base?.lastMessage,
+    lastUserMessage: base?.lastUserMessage,
+    lastCharMessage: base?.lastCharMessage,
+    idleSince: base?.idleSince,
     chatId: base?.chatId,
     model: base?.model,
     agentData: base?.agentData,
@@ -907,6 +919,59 @@ export function resolveMacros(template: string, ctx: MacroContext, options: Reso
   });
 }
 
+/** SillyTavern's (moment.js) wording for a span of time, as {{idle_duration}} shows it. */
+export function humanizeIdleDuration(since: string | null | undefined, now: Date): string {
+  const start = since ? new Date(since).getTime() : Number.NaN;
+  if (!Number.isFinite(start)) return "just now";
+  const seconds = Math.max(0, (now.getTime() - start) / 1000);
+  if (seconds < 45) return "a few seconds";
+  if (seconds < 90) return "a minute";
+  const minutes = seconds / 60;
+  if (minutes < 45) return `${Math.round(minutes)} minutes`;
+  if (minutes < 90) return "an hour";
+  const hours = minutes / 60;
+  if (hours < 22) return `${Math.round(hours)} hours`;
+  if (hours < 36) return "a day";
+  const days = hours / 24;
+  if (days < 26) return `${Math.round(days)} days`;
+  if (days < 45) return "a month";
+  if (days < 320) return `${Math.round(days / 30)} months`;
+  if (days < 548) return "a year";
+  return `${Math.round(days / 365)} years`;
+}
+
+/** A repeatable 0..1 value for {{pick}}: the same chat, text, and position give the same choice. */
+function stablePickValue(seedText: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < seedText.length; index += 1) {
+    hash ^= seedText.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  let state = hash >>> 0;
+  state = Math.imul(state ^ (state >>> 15), state | 1);
+  state ^= state + Math.imul(state ^ (state >>> 7), state | 61);
+  return ((state ^ (state >>> 14)) >>> 0) / 4294967296;
+}
+
+/** SillyTavern list syntax: `a::b::c`, or the older `a,b,c`. */
+function splitMacroChoices(raw: string): string[] {
+  const parts = raw.includes("::") ? splitTopLevelDoubleColon(raw) : raw.split(",");
+  return parts.map((choice) => choice.trim()).filter(Boolean);
+}
+
+function rollDiceFormula(formula: string): string | undefined {
+  const match = formula.trim().match(/^(\d*)\s*d\s*(\d+)\s*(?:([+-])\s*(\d+))?$/i) ?? formula.trim().match(/^(\d+)$/);
+  if (!match) return undefined;
+  const isPlainSides = match.length === 2;
+  const count = isPlainSides ? 1 : Math.min(parseInt(match[1] || "1", 10) || 1, MAX_DICE_ROLL_COUNT);
+  const sides = Math.min(parseInt(isPlainSides ? match[1]! : match[2]!, 10), MAX_DICE_SIDES);
+  if (!sides) return undefined;
+  let total = 0;
+  for (let roll = 0; roll < count; roll += 1) total += Math.floor(Math.random() * sides) + 1;
+  if (!isPlainSides && match[3] && match[4]) total += (match[3] === "-" ? -1 : 1) * parseInt(match[4], 10);
+  return String(total);
+}
+
 function resolveMacrosWithState(
   template: string,
   ctx: MacroContext,
@@ -964,6 +1029,24 @@ function resolveMacrosWithState(
   result = result.replace(/\{\{model\}\}/gi, ctx.model ?? "");
   result = result.replace(/\{\{chatId\}\}/gi, ctx.chatId ?? "");
 
+  // ── SillyTavern chat and card macros ──
+  result = result.replace(/\{\{lastMessage\}\}/gi, () => ctx.lastMessage ?? "");
+  result = result.replace(/\{\{lastUserMessage\}\}/gi, () => ctx.lastUserMessage ?? "");
+  result = result.replace(/\{\{lastCharMessage\}\}/gi, () => ctx.lastCharMessage ?? "");
+  result = result.replace(/\{\{idle_duration\}\}/gi, () => humanizeIdleDuration(ctx.idleSince, new Date()));
+  result = result.replace(/\{\{mesExamples(?:Raw)?\}\}/gi, () =>
+    deferredCharacterReplacement("example", ctx, options, state),
+  );
+  result = result.replace(/\{\{group(?:NotMuted)?\}\}/gi, () => ctx.characters.join(", "));
+  result = result.replace(/\{\{notChar\}\}/gi, () =>
+    [...ctx.characters.filter((name) => name !== ctx.char), ctx.user].filter(Boolean).join(", "),
+  );
+  result = result.replace(
+    /\{\{persona(Description|Personality|Backstory|Appearance|Scenario)\}\}/gi,
+    (_, field: string) =>
+      ctx.personaFields?.[field.toLowerCase() as keyof NonNullable<MacroContext["personaFields"]>] ?? "",
+  );
+
   // ── Agent data ──
   result = result.replace(/\{\{agent::([\w-]+)\}\}/gi, (_, type) => {
     return ctx.agentData?.[type] ?? "";
@@ -978,10 +1061,32 @@ function resolveMacrosWithState(
   result = result.replace(/\{\{time\}\}/gi, formatZonedTime(now, tz));
   result = result.replace(/\{\{datetime\}\}/gi, formatZonedIsoDateTime(now, tz));
   result = result.replace(/\{\{isotime\}\}/gi, formatZonedIsoDateTime(now, tz));
+  result = result.replace(/\{\{isodate\}\}/gi, formatZonedDate(now, tz));
   result = result.replace(/\{\{weekday\}\}/gi, getZonedWeekdayName(now, tz));
 
   // ── Random values ──
   result = result.replace(/\{\{random\}\}/gi, () => String(Math.floor(Math.random() * 101)));
+  // {{pick}} is {{random}} that keeps its choice for this chat, as in SillyTavern.
+  const pickOccurrences = new Map<string, number>();
+  result = replaceBalancedMacros(result, (body) => {
+    const match = body.match(/^pick::?([\s\S]*)$/i);
+    if (!match) return undefined;
+    const choices = splitMacroChoices(match[1] ?? "");
+    if (choices.length === 0) return "";
+    const occurrence = pickOccurrences.get(body) ?? 0;
+    pickOccurrences.set(body, occurrence + 1);
+    const index = Math.floor(stablePickValue(`${ctx.chatId ?? ""}\u001f${body}\u001f${occurrence}`) * choices.length);
+    return resolveMacrosWithState(choices[index]!, ctx, { ...options, trimResult: false }, state);
+  });
+  // The older comma list, {{random:a,b,c}}.
+  result = replaceBalancedMacros(result, (body) => {
+    const match = body.match(/^random:(?!:)([\s\S]*,[\s\S]*)$/i);
+    if (!match) return undefined;
+    const choices = splitMacroChoices(match[1] ?? "");
+    if (choices.length === 0) return "";
+    const choice = choices[Math.floor(Math.random() * choices.length)]!;
+    return resolveMacrosWithState(choice, ctx, { ...options, trimResult: false }, state);
+  });
   result = replaceBalancedMacros(result, (body) => {
     const match = body.match(/^random::([\s\S]*)$/i);
     if (!match) return undefined;
@@ -1001,13 +1106,10 @@ function resolveMacrosWithState(
     return String(Math.floor(Math.random() * (hi - lo + 1)) + lo);
   });
 
-  // ── Dice rolls: {{roll:2d6}} ──
-  result = result.replace(/\{\{roll:(\d+)d(\d+)\}\}/gi, (_, count, sides) => {
-    const n = Math.min(parseInt(count, 10), MAX_DICE_ROLL_COUNT);
-    const s = Math.min(parseInt(sides, 10), MAX_DICE_SIDES);
-    let total = 0;
-    for (let i = 0; i < n; i++) total += Math.floor(Math.random() * s) + 1;
-    return String(total);
+  // ── Dice rolls: {{roll:2d6}}, {{roll:d20}}, {{roll:1d20+5}}, {{roll 6}} ──
+  result = replaceBalancedMacros(result, (body) => {
+    const match = body.match(/^roll[:\s]\s*([\s\S]+)$/i);
+    return match ? rollDiceFormula(match[1] ?? "") : undefined;
   });
 
   // ── Variable operations — resolve left-to-right so lorebook entries can set values for later entries. ──
