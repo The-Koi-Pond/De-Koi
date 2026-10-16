@@ -985,7 +985,8 @@ pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult
     if embedded.is_empty() {
         return Ok(());
     }
-    let mode_for = |script: &Value| -> Option<&'static str> {
+    // The card entry a stored script came from: (character id, position in the card, mode).
+    let card_entry_for = |script: &Value| -> Option<(String, usize, &'static str)> {
         if script.get("applyMode").and_then(Value::as_str).is_some() {
             return None;
         }
@@ -1033,23 +1034,38 @@ pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult
                         .find(|(index, _)| order == Some(*index as u64))
                         .copied(),
                 }?;
-                Some(st_regex_apply_mode(chosen.1))
+                Some((
+                    character_id.clone(),
+                    chosen.0,
+                    st_regex_apply_mode(chosen.1),
+                ))
             })
     };
     storage.update_collections_atomically(vec!["regex-scripts"], |collections| {
         let Some(scripts) = collections.first_mut() else {
             return Ok(());
         };
-        if !scripts
-            .rows()
-            .iter()
-            .any(|script| mode_for(script).is_some())
-        {
+        let matches: Vec<Option<(String, usize, &'static str)>> =
+            scripts.rows().iter().map(card_entry_for).collect();
+        // A card entry claimed by more than one stored script can't say which one it was,
+        // so none of them change.
+        let mut claims: HashMap<(String, usize), usize> = HashMap::new();
+        for (character_id, index, _) in matches.iter().flatten() {
+            *claims.entry((character_id.clone(), *index)).or_default() += 1;
+        }
+        let modes: Vec<Option<&'static str>> = matches
+            .into_iter()
+            .map(|found| {
+                let (character_id, index, mode) = found?;
+                (claims.get(&(character_id, index)) == Some(&1)).then_some(mode)
+            })
+            .collect();
+        if modes.iter().all(Option::is_none) {
             return Ok(());
         }
         let updated_at = now_iso();
-        for script in scripts.rows_mut().iter_mut() {
-            let Some(mode) = mode_for(script) else {
+        for (script, mode) in scripts.rows_mut().iter_mut().zip(modes) {
+            let Some(mode) = mode else {
                 continue;
             };
             if let Some(object) = script.as_object_mut() {
@@ -1081,7 +1097,8 @@ mod card_regex_apply_mode_tests {
             { "scriptName": "Strip notes", "findRegex": "/<note>/g", "promptOnly": true },
             { "scriptName": "", "findRegex": "/plain/g" },
             { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "markdownOnly": true },
-            { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "promptOnly": true }
+            { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "promptOnly": true },
+            { "scriptName": "Dup", "findRegex": "/d/g", "markdownOnly": true }
         ]);
         storage
             .replace_all(
@@ -1105,6 +1122,8 @@ mod card_regex_apply_mode_tests {
                     json!({ "id": "twin-a", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 3, "promptOnly": true }),
                     json!({ "id": "twin-b", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 4, "promptOnly": true }),
                     json!({ "id": "twin-c", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 9, "promptOnly": true }),
+                    json!({ "id": "dup-a", "name": "Dup", "findRegex": "d", "characterId": "char-a", "promptOnly": true }),
+                    json!({ "id": "dup-b", "name": "Dup", "findRegex": "d", "characterId": "char-a", "promptOnly": true }),
                 ],
             )
             .unwrap();
@@ -1144,6 +1163,12 @@ mod card_regex_apply_mode_tests {
             script("twin-c").get("applyMode").is_none(),
             "an ambiguous match is left alone"
         );
+        for id in ["dup-a", "dup-b"] {
+            assert!(
+                script(id).get("applyMode").is_none(),
+                "two stored scripts claiming one card entry both stay unchanged"
+            );
+        }
     }
 }
 
