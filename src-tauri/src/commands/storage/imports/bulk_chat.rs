@@ -187,6 +187,15 @@ fn st_message_is_system(row: &Value) -> bool {
 }
 
 fn st_message_hidden_from_ai(row: &Value) -> bool {
+    // De-Koi's own exports say outright whether a message is hidden, since SillyTavern's
+    // is_system also marks visible system notes.
+    if let Some(hidden) = row
+        .get("extra")
+        .and_then(|extra| extra.get("hiddenFromAI"))
+        .and_then(Value::as_bool)
+    {
+        return hidden;
+    }
     st_message_is_system(row)
         || bool_option(row.get("extra").and_then(|extra| extra.get("hiddenFromAI")))
             .unwrap_or(false)

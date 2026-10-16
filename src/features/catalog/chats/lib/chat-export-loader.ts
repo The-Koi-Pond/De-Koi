@@ -24,13 +24,12 @@ async function loadExportNames(storage: ChatExportStorage, chat: Chat, messages:
   const characters: Record<string, string> = {};
   await Promise.all(
     [...characterIds].map(async (id) => {
-      const name = recordName(await storage.get<NamedRecord>("characters", id).catch(() => null));
+      // A deleted character falls back to a generic name; a failed read fails the export.
+      const name = recordName(await storage.get<NamedRecord>("characters", id));
       if (name) characters[id] = name;
     }),
   );
-  const user = chat.personaId
-    ? recordName(await storage.get<NamedRecord>("personas", chat.personaId).catch(() => null))
-    : null;
+  const user = chat.personaId ? recordName(await storage.get<NamedRecord>("personas", chat.personaId)) : null;
   return { characters, user };
 }
 

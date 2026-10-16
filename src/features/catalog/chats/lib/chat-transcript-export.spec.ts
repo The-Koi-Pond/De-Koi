@@ -123,6 +123,28 @@ describe("formatChatJsonl", () => {
       ],
       extra: { reasoning: "think two" },
     });
-    expect(note).toMatchObject({ name: "Chai", is_user: true, is_system: true });
+    expect(note).toMatchObject({ name: "Chai", is_user: true, is_system: true, extra: { hiddenFromAI: true } });
+  });
+
+  it("keeps system messages system-shaped without marking them hidden", () => {
+    const system = {
+      id: "message-5",
+      chatId: "chat-1",
+      role: "system",
+      characterId: null,
+      content: "Scene moved to the docks.",
+      activeSwipeIndex: 0,
+      createdAt: "2026-06-01T12:05:00.000Z",
+      extra: baseExtra,
+    } as Message;
+
+    const [, row] = rowsOf([system]);
+
+    expect(row).toMatchObject({
+      name: "System",
+      is_system: true,
+      role: "system",
+      extra: { type: "comment", hiddenFromAI: false },
+    });
   });
 });

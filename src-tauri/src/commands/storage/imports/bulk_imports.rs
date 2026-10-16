@@ -1595,6 +1595,41 @@ mod tests {
     }
 
     #[test]
+    fn import_st_chat_text_reads_de_koi_hidden_flag_over_is_system() {
+        let app_root = temp_path("chat-de-koi-hidden-flag");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+
+        import_st_chat_text(
+            &state,
+            concat!(
+                r#"{"name":"System","is_system":true,"role":"system","mes":"Scene moved.","extra":{"type":"comment","hiddenFromAI":false}}"#,
+                "
+",
+                r#"{"name":"You","is_user":true,"is_system":true,"mes":"note","extra":{"hiddenFromAI":true}}"#
+            ),
+            "Imported Chat".to_string(),
+            None,
+            StChatImportContext {
+                character_lookup: HashMap::new(),
+                default_character_id: None,
+                timestamp_overrides: None,
+            },
+        )
+        .expect("De-Koi export should import");
+
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        assert_eq!(messages[0]["role"], "system");
+        assert_ne!(messages[0]["extra"]["hiddenFromAI"], json!(true));
+        assert_eq!(messages[1]["extra"]["hiddenFromAI"], json!(true));
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
     fn import_st_chat_text_preserves_sillytavern_system_rows_as_hidden_from_ai() {
         let app_root = temp_path("chat-st-system-hidden");
         let state = AppState::from_data_dir(&app_root, Vec::new())

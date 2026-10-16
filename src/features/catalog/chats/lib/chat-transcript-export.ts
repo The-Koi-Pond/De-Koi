@@ -53,7 +53,9 @@ type ChatTranscriptMessageRow = {
   mes: string;
   extra: {
     reasoning?: string;
-    type?: "narrator";
+    type?: "narrator" | "comment";
+    /** De-Koi's own hidden flag; SillyTavern's `is_system` also covers system notes. */
+    hiddenFromAI: boolean;
   };
   swipe_id?: number;
   swipes?: string[];
@@ -160,12 +162,15 @@ function chatTranscriptMessageRow(message: Message, names: ChatExportNames): Cha
   const row: ChatTranscriptMessageRow = {
     name: speakerNameForMessage(message, names),
     is_user: message.role === "user",
-    is_system: isHiddenFromAI(message),
+    // SillyTavern marks both hidden messages and its own system notes with is_system.
+    is_system: message.role === "system" || isHiddenFromAI(message),
     send_date: message.createdAt,
     mes: content,
     extra: {
       ...(reasoning ? { reasoning } : {}),
-      ...(message.role === "narrator" || message.role === "system" ? { type: "narrator" as const } : {}),
+      ...(message.role === "narrator" ? { type: "narrator" as const } : {}),
+      ...(message.role === "system" ? { type: "comment" as const } : {}),
+      hiddenFromAI: isHiddenFromAI(message),
     },
     role: message.role,
     characterId: message.characterId,
