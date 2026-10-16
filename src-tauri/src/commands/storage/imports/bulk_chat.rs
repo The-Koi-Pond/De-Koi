@@ -11,10 +11,28 @@ pub(crate) fn imported_jsonl_message_role(row: &Value) -> &'static str {
         Some("assistant") => "assistant",
         Some("system") => "system",
         Some("narrator") => "narrator",
-        _ if st_message_is_system(row) => "system",
+        // SillyTavern marks hidden messages with `is_system`, whoever wrote them, so the
+        // speaker comes from `is_user` and the message type, not from that flag.
         _ if row.get("is_user").and_then(Value::as_bool).unwrap_or(false) => "user",
+        _ if st_message_type(row) == Some("narrator") => "narrator",
+        _ if st_message_is_system(row) && st_message_is_app_note(row) => "system",
         _ => "assistant",
     }
+}
+
+/// SillyTavern's `extra.type`: `narrator` for /sys messages, other values for its own notes.
+fn st_message_type(row: &Value) -> Option<&str> {
+    row.get("extra")
+        .and_then(|extra| extra.get("type"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+}
+
+/// A note SillyTavern itself wrote (help, welcome, comments), not a hidden chat message.
+fn st_message_is_app_note(row: &Value) -> bool {
+    st_message_type(row).is_some()
+        || row.get("name").and_then(Value::as_str) == Some("SillyTavern System")
 }
 
 pub(super) type CharacterLookup = HashMap<String, Option<String>>;
@@ -255,6 +273,107 @@ fn st_message_extra(row: &Value) -> Value {
     Value::Object(extra)
 }
 
+fn st_reasoning(extra: Option<&Value>) -> Option<String> {
+    extra
+        .and_then(|extra| extra.get("reasoning"))
+        .and_then(Value::as_str)
+        .filter(|reasoning| !reasoning.trim().is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn with_st_swipe_details(
+    base: &Value,
+    reasoning: Option<String>,
+    send_date: Option<&str>,
+) -> Value {
+    let mut extra = base.as_object().cloned().unwrap_or_default();
+    match reasoning {
+        Some(reasoning) => {
+            extra.insert("thinking".to_string(), Value::String(reasoning));
+        }
+        None => {
+            extra.remove("thinking");
+        }
+    }
+    if let Some(send_date) = send_date.map(str::trim).filter(|date| !date.is_empty()) {
+        extra.insert(
+            "sillyTavernSendDate".to_string(),
+            Value::String(send_date.to_string()),
+        );
+    }
+    Value::Object(extra)
+}
+
+/// SillyTavern keeps every swipe's text in `swipes`, the shown one at `swipe_id`, and each
+/// swipe's date and reasoning in `swipe_info`. Returns the swipes and the active index. The
+/// active swipe uses `mes`, since older files can leave `swipes[swipe_id]` stale. Empty
+/// swipes (stopped generations) are dropped.
+fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Value>, usize) {
+    let message_reasoning = st_reasoning(row.get("extra"));
+    let texts: Vec<&str> = row
+        .get("swipes")
+        .and_then(Value::as_array)
+        .map(|swipes| {
+            swipes
+                .iter()
+                .map(|swipe| swipe.as_str().unwrap_or(""))
+                .collect()
+        })
+        .unwrap_or_default();
+    if texts.len() < 2 {
+        let extra = with_st_swipe_details(base_extra, message_reasoning, None);
+        return (vec![json!({ "content": content, "extra": extra })], 0);
+    }
+    let active = row
+        .get("swipe_id")
+        .and_then(Value::as_u64)
+        .map(|index| index as usize)
+        .filter(|index| *index < texts.len())
+        .unwrap_or(0);
+    let infos = row.get("swipe_info").and_then(Value::as_array);
+    let mut swipes = Vec::new();
+    let mut active_index = 0;
+    for (index, text) in texts.iter().enumerate() {
+        let is_active = index == active;
+        if !is_active && text.trim().is_empty() {
+            continue;
+        }
+        let info = infos.and_then(|infos| infos.get(index));
+        let reasoning = if is_active {
+            message_reasoning.clone()
+        } else {
+            st_reasoning(info.and_then(|info| info.get("extra")))
+        };
+        let send_date = info
+            .and_then(|info| info.get("send_date"))
+            .and_then(Value::as_str);
+        if is_active {
+            active_index = swipes.len();
+        }
+        swipes.push(json!({
+            "content": if is_active { content } else { text },
+            "extra": with_st_swipe_details(base_extra, reasoning, if is_active { None } else { send_date }),
+        }));
+    }
+    (swipes, active_index)
+}
+
+/// The chat's Author's Note, which SillyTavern keeps in the header's `chat_metadata`.
+fn st_author_note(rows: &[Value]) -> Option<(String, i64)> {
+    let metadata = rows.iter().find_map(|row| row.get("chat_metadata"))?;
+    let note = metadata
+        .get("note_prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|note| !note.is_empty())?;
+    let depth = metadata
+        .get("note_depth")
+        .and_then(Value::as_i64)
+        .unwrap_or(4)
+        .max(0);
+    Some((note.to_string(), depth))
+}
+
 fn st_datetime_from_rfc3339(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .map(|time| time.with_timezone(&Utc))
@@ -408,6 +527,16 @@ pub(super) fn import_st_chat_text(
     }
     chat.entry("metadata".to_string())
         .or_insert_with(|| json!({}));
+    if let Some((note, depth)) = st_author_note(&parsed_rows) {
+        if let Some(metadata) = chat.get_mut("metadata").and_then(Value::as_object_mut) {
+            metadata
+                .entry("authorNotes".to_string())
+                .or_insert(Value::String(note));
+            metadata
+                .entry("authorNotesDepth".to_string())
+                .or_insert(json!(depth));
+        }
+    }
     if !character_name.is_empty() {
         chat.entry("importedCharacterName".to_string())
             .or_insert(Value::String(character_name));
@@ -431,15 +560,15 @@ pub(super) fn import_st_chat_text(
             };
             let role = imported_jsonl_message_role(&row);
             let character_id = st_row_character_id(&row, &context, role);
-            let extra = st_message_extra(&row);
+            let (swipes, active_swipe) = st_message_swipes(&row, &content, &st_message_extra(&row));
             let mut message_payload = json!({
                 "chatId": chat_id,
                 "role": role,
                 "content": content,
                 "characterId": character_id,
-                "extra": extra,
-                "activeSwipeIndex": 0,
-                "swipes": [{ "content": content, "extra": extra }]
+                "extra": swipes[active_swipe]["extra"].clone(),
+                "activeSwipeIndex": active_swipe,
+                "swipes": swipes
             });
             let created_at = normalized_st_message_timestamp(
                 st_message_datetime(&row).unwrap_or(fallback_timestamp),
