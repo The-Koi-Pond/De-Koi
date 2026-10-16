@@ -116,6 +116,15 @@ fn card_extension_position(entry: &Value) -> Option<i64> {
 
 /// Reads the first non-null field from the entry, then from its
 /// SillyTavern/V3-style `extensions`, where cards keep placement details.
+/// SillyTavern stores Delay until recursion as `true` or as a recursion level (1 and up).
+fn delay_until_recursion(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(delay)) => *delay,
+        Some(Value::Number(level)) => level.as_f64().is_some_and(|level| level > 0.0),
+        _ => false,
+    }
+}
+
 fn entry_value<'a>(entry: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     let find = |source: &'a Value| {
         keys.iter()
@@ -174,7 +183,7 @@ fn normalize_lorebook_entry_fields(lorebook_id: &str, entry: &Value, index: usiz
             Some(false) => Value::Null,
             _ => optional_number(entry_value(entry, &["probability"])),
         };
-    json!({
+    let mut normalized = json!({
         "lorebookId": lorebook_id,
         "name": entry.get("comment").or_else(|| entry.get("name")).and_then(Value::as_str).unwrap_or(&format!("Entry {}", index + 1)),
         "content": string_field(entry, "content"),
@@ -208,10 +217,7 @@ fn normalize_lorebook_entry_fields(lorebook_id: &str, entry: &Value, index: usiz
         "group": entry_value(entry, &["group"]).and_then(Value::as_str).unwrap_or("").to_string(),
         "groupWeight": optional_number(entry_value(entry, &["groupWeight", "group_weight"])),
         "folderId": Value::Null,
-        "preventRecursion": bool_field(
-            entry_value(entry, &["preventRecursion", "prevent_recursion", "excludeRecursion", "exclude_recursion"]),
-            false,
-        ),
+        "preventRecursion": bool_field(entry_value(entry, &["preventRecursion", "prevent_recursion"]), false),
         "locked": bool_field(entry.get("locked"), false),
         "tag": detect_entry_tag(entry),
         "relationships": {},
@@ -219,7 +225,33 @@ fn normalize_lorebook_entry_fields(lorebook_id: &str, entry: &Value, index: usiz
         "activationConditions": [],
         "schedule": Value::Null,
         "excludeFromVectorization": false,
-    })
+    });
+    if let Some(object) = normalized.as_object_mut() {
+        // SillyTavern has three separate recursion flags: Prevent further recursion (this
+        // entry's content seeds nothing), Non-recursable (recursion can't trigger it), and
+        // Delay until recursion (only recursion can).
+        for (field, keys) in [
+            (
+                "excludeRecursion",
+                ["excludeRecursion", "exclude_recursion"],
+            ),
+            ("groupOverride", ["groupOverride", "group_override"]),
+            ("useGroupScoring", ["useGroupScoring", "use_group_scoring"]),
+        ] {
+            object.insert(
+                field.to_string(),
+                json!(bool_field(entry_value(entry, &keys), false)),
+            );
+        }
+        object.insert(
+            "delayUntilRecursion".to_string(),
+            json!(delay_until_recursion(entry_value(
+                entry,
+                &["delayUntilRecursion", "delay_until_recursion"]
+            ))),
+        );
+    }
+    normalized
 }
 
 pub(super) fn normalize_imported_lorebook_entry(
