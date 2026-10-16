@@ -16,6 +16,7 @@ import {
 } from "../generation-core/lorebooks/active-lorebook-scope";
 import {
   hintForTraceReason,
+  entryInclusionGroups,
   scanForActivatedEntriesWithTrace,
   updateTimingStatesForScan,
   type ActivatedEntry,
@@ -312,6 +313,10 @@ function normalizeLorebookEntry(entry: JsonRecord): LorebookEntry {
     folderId: readString(entry.folderId) || null,
     locked: boolish(entry.locked, false),
     preventRecursion: boolish(entry.preventRecursion, false),
+    excludeRecursion: boolish(entry.excludeRecursion, false),
+    delayUntilRecursion: boolish(entry.delayUntilRecursion, false),
+    groupOverride: boolish(entry.groupOverride, false),
+    useGroupScoring: boolish(entry.useGroupScoring, false),
     tag: readString(entry.tag),
     relationships: stringRecord(entry.relationships),
     dynamicState: parseRecord(entry.dynamicState),
@@ -1118,11 +1123,13 @@ async function scanActiveLorebookEntrySet(
     const remaining = entries.filter((entry) => !processedIds.has(entry.id) && !state.selectedIds.has(entry.id));
     if (remaining.length === 0) break;
 
-    frontierScan = await scanForActivatedEntriesWithTrace(
-      [{ role: "system", content: recursiveContent }],
-      remaining,
-      options,
-    );
+    const takenGroups = new Set(state.selected.flatMap((selected) => entryInclusionGroups(selected.entry)));
+    frontierScan = await scanForActivatedEntriesWithTrace(messages, remaining, {
+      ...options,
+      recursionPass: depth + 1,
+      recursionText: recursiveContent,
+      takenGroups,
+    });
     mergeTrace(frontierScan.trace, depth + 1);
     frontier = frontierScan.activatedEntries;
   }

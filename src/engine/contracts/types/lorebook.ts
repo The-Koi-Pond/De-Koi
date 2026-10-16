@@ -190,8 +190,17 @@ export interface LorebookEntry {
   ephemeral: number | null;
 
   // ── Grouping ──
+  /**
+   * Inclusion groups, comma-separated. When several entries in one group fire, only one is
+   * kept: a random pick weighted by `groupWeight`, unless one of them has `groupOverride`.
+   */
   group: string;
+  /** Chance of winning a group pick relative to the others (default 100). */
   groupWeight: number | null;
+  /** Wins its group pick by highest `order` instead of by weight (SillyTavern "Prioritize Inclusion"). */
+  groupOverride: boolean;
+  /** Only the group's entries that matched the most keys compete (SillyTavern "Group Scoring"). */
+  useGroupScoring: boolean;
   /**
    * ID of the folder this entry belongs to, or null if it lives at the
    * lorebook root level. Display sort by `order` is per-container — entries
@@ -206,6 +215,10 @@ export interface LorebookEntry {
   locked: boolean;
   /** When true, this entry's content won't seed later recursive scanning passes. */
   preventRecursion: boolean;
+  /** When true, recursive passes can't activate this entry; only chat text can (SillyTavern "Non-recursable"). */
+  excludeRecursion: boolean;
+  /** When true, this entry can only activate during a recursive pass (SillyTavern "Delay until recursion"). */
+  delayUntilRecursion: boolean;
   /** Sub-category tag for the entry (e.g. "location", "item", "lore", "quest") */
   tag: string;
   /** Relationships to other entries: { entryId: relationshipType } */
@@ -287,6 +300,8 @@ export type LorebookActivationTraceReason =
   | "empty_content"
   | "position_disabled"
   | "recursion_blocked"
+  | "recursion_excluded"
+  | "recursion_delayed"
   | "unscanned";
 
 export interface LorebookActivationTraceEntry {

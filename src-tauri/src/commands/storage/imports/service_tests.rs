@@ -800,6 +800,41 @@ fn import_st_preset_keeps_reasoning_effort_auto_unset_and_keeps_fallbacks() {
 }
 
 #[test]
+fn import_st_preset_keeps_assistant_prefill_and_a_fixed_seed() {
+    for (label, seed, expected_seed) in [
+        ("fixed", json!(1234), json!(1234)),
+        ("random", json!(-1), Value::Null),
+    ] {
+        let app_root = temp_path(&format!("st-preset-prefill-{label}"));
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let result = import_call(
+            &state,
+            &["st-preset"],
+            json!({
+                "name": format!("Prefill {label}"),
+                "assistant_prefill": "Mira:",
+                "seed": seed,
+                "prompts": []
+            }),
+        )
+        .expect("ST preset import should succeed");
+
+        let preset = created_prompt_from_import_result(&state, &result);
+        assert_eq!(preset["parameters"]["assistantPrefill"], "Mira:");
+        assert_eq!(
+            preset["parameters"]
+                .get("seed")
+                .cloned()
+                .unwrap_or(Value::Null),
+            expected_seed
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+}
+
+#[test]
 fn import_st_preset_honors_timestamp_overrides() {
     let app_root = temp_path("st-preset-timestamp-overrides");
     let state =

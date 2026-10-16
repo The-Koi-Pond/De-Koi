@@ -860,6 +860,11 @@ fn compatible_lorebook_export(lorebook: &Value, entries: &Value) -> Value {
                 "role": st_role(entry.get("role")),
                 "group": entry.get("group").and_then(Value::as_str).unwrap_or(""),
                 "groupWeight": entry.get("groupWeight").cloned().unwrap_or(Value::Null),
+                "groupOverride": entry.get("groupOverride").and_then(Value::as_bool).unwrap_or(false),
+                "useGroupScoring": entry.get("useGroupScoring").and_then(Value::as_bool).unwrap_or(false),
+                "preventRecursion": entry.get("preventRecursion").and_then(Value::as_bool).unwrap_or(false),
+                "excludeRecursion": entry.get("excludeRecursion").and_then(Value::as_bool).unwrap_or(false),
+                "delayUntilRecursion": entry.get("delayUntilRecursion").and_then(Value::as_bool).unwrap_or(false),
                 "sticky": entry.get("sticky").cloned().unwrap_or(Value::Null),
                 "cooldown": entry.get("cooldown").cloned().unwrap_or(Value::Null),
                 "delay": entry.get("delay").cloned().unwrap_or(Value::Null)
@@ -2489,6 +2494,11 @@ mod tests {
                                     "group": "memory",
                                     "groupWeight": 6,
                                     "excludeRecursion": true,
+                                    "extensions": {
+                                        "group_override": true,
+                                        "use_group_scoring": true,
+                                        "delay_until_recursion": 1
+                                    },
                                     "locked": true
                                 },
                                 {
@@ -2537,7 +2547,14 @@ mod tests {
         assert_eq!(entry["ephemeral"], 5);
         assert_eq!(entry["group"], "memory");
         assert_eq!(entry["groupWeight"], 6);
-        assert_eq!(entry["preventRecursion"], true);
+        assert_eq!(entry["groupOverride"], true);
+        assert_eq!(entry["useGroupScoring"], true);
+        assert_eq!(entry["excludeRecursion"], true);
+        assert_eq!(
+            entry["preventRecursion"], false,
+            "Non-recursable is not Prevent further recursion"
+        );
+        assert_eq!(entry["delayUntilRecursion"], true);
         assert_eq!(entry["locked"], true);
 
         let camel_case_entry = entries
