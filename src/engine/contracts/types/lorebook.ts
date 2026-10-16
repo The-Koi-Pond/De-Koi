@@ -5,8 +5,12 @@
 /** Top-level lorebook categories. */
 export type LorebookCategory = "world" | "character" | "npc" | "spellbook" | "uncategorized";
 
-/** Selective logic operators. */
-export type SelectiveLogic = "and" | "or" | "not";
+/**
+ * How secondary keys gate an entry, matching SillyTavern's four modes:
+ * "and" = AND ANY (default), "and_all" = AND ALL, "not" = NOT ANY, "not_all" = NOT ALL.
+ * "or" is an older alias of AND ANY.
+ */
+export type SelectiveLogic = "and" | "and_all" | "or" | "not" | "not_all";
 
 /** Role for injected lorebook content. */
 export type LorebookRole = "system" | "user" | "assistant";
