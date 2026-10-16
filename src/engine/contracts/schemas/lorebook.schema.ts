@@ -7,7 +7,7 @@ export const lorebookCategorySchema = z.enum(["world", "character", "npc", "spel
 
 const lorebookGeneratedBySchema = z.enum(["user", "agent", "import", "lorebook-maker", "game-session"]);
 
-const selectiveLogicSchema = z.enum(["and", "or", "not"]);
+const selectiveLogicSchema = z.enum(["and", "and_all", "or", "not", "not_all"]);
 
 const lorebookFilterModeSchema = z.enum(["any", "include", "exclude"]);
 

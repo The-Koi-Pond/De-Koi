@@ -95,17 +95,30 @@ fn created_prompt_from_import_result(state: &AppState, result: &Value) -> Value 
 
 #[test]
 fn normalizes_sillytavern_selective_logic_numbers() {
-    let entry = normalize_lorebook_entry(
-        "book-1",
-        &json!({
-            "content": "Lore",
-            "key": ["moon"],
-            "selectiveLogic": 1
-        }),
-        0,
-    );
+    for (logic, expected) in [
+        (json!(0), "and"),
+        (json!(1), "not_all"),
+        (json!(2), "not"),
+        (json!(3), "and_all"),
+        (json!("or"), "and"),
+        (json!("and_all"), "and_all"),
+        (json!("not_all"), "not_all"),
+    ] {
+        let entry = normalize_lorebook_entry(
+            "book-1",
+            &json!({
+                "content": "Lore",
+                "key": ["moon"],
+                "selectiveLogic": logic
+            }),
+            0,
+        );
 
-    assert_eq!(entry["selectiveLogic"], "or");
+        assert_eq!(
+            entry["selectiveLogic"], expected,
+            "SillyTavern logic {logic}"
+        );
+    }
 }
 
 #[test]
