@@ -40,6 +40,10 @@ function entry(patch: Partial<LorebookEntry>): LorebookEntry {
     folderId: null,
     locked: false,
     preventRecursion: false,
+    excludeRecursion: false,
+    delayUntilRecursion: false,
+    groupOverride: false,
+    useGroupScoring: false,
     tag: "",
     relationships: {},
     dynamicState: {},
@@ -92,8 +96,8 @@ describe("lorebook keyword scanner", () => {
         entry({ id: "cooldown", keys: ["ancient gate"], cooldown: 2 }),
         entry({ id: "probability-failed", keys: ["ancient gate"], probability: 25 }),
         entry({ id: "semantic", keys: ["missing"], embedding: [1, 0], order: 1 }),
-        entry({ id: "group-winner", keys: ["ancient gate"], group: "one", groupWeight: 90, order: 2 }),
-        entry({ id: "group-loser", keys: ["ancient gate"], group: "one", groupWeight: 10 }),
+        entry({ id: "group-winner", keys: ["ancient gate"], group: "one", groupWeight: 95, order: 2 }),
+        entry({ id: "group-loser", keys: ["ancient gate"], group: "one", groupWeight: 5 }),
         entry({ id: "sticky", keys: ["missing"], order: 3 }),
       ],
       {
@@ -160,5 +164,112 @@ describe("lorebook keyword scanner", () => {
       reason: "sticky",
       matchedKeys: ["[sticky]"],
     });
+  });
+});
+
+describe("inclusion groups", () => {
+  const chat = [{ role: "user", content: "the ancient gate under a silver moon" }];
+  const ids = async (entries: LorebookEntry[], options: Parameters<typeof scanForActivatedEntries>[2] = {}) =>
+    (await scanForActivatedEntries(chat, entries, options)).map((item) => item.entry.id).sort();
+
+  it("picks one entry at random, weighted by group weight", async () => {
+    const entries = [
+      entry({ id: "light", keys: ["gate"], group: "doors", groupWeight: 30 }),
+      entry({ id: "heavy", keys: ["gate"], group: "doors", groupWeight: 70 }),
+    ];
+
+    await expect(ids(entries, { random: () => 0.2 })).resolves.toEqual(["light"]);
+    await expect(ids(entries, { random: () => 0.5 })).resolves.toEqual(["heavy"]);
+  });
+
+  it("lets a Prioritize entry win by highest order", async () => {
+    const entries = [
+      entry({ id: "low", keys: ["gate"], group: "doors", groupOverride: true, order: 5 }),
+      entry({ id: "high", keys: ["gate"], group: "doors", groupOverride: true, order: 9 }),
+      entry({ id: "heavy", keys: ["gate"], group: "doors", groupWeight: 1000 }),
+    ];
+
+    await expect(ids(entries, { random: () => 0 })).resolves.toEqual(["high"]);
+  });
+
+  it("keeps only the entries that matched the most keys when group scoring is on", async () => {
+    const entries = [
+      entry({ id: "two-keys", keys: ["gate", "moon"], group: "doors", groupWeight: 1, useGroupScoring: true }),
+      entry({ id: "one-key", keys: ["gate"], group: "doors", groupWeight: 1000 }),
+    ];
+
+    await expect(ids(entries, { random: () => 0.99 })).resolves.toEqual(["two-keys"]);
+  });
+
+  it("treats comma-separated groups as separate groups", async () => {
+    const entries = [
+      entry({ id: "both", keys: ["gate"], group: "doors, night", groupOverride: true }),
+      entry({ id: "door", keys: ["gate"], group: "doors" }),
+      entry({ id: "night", keys: ["moon"], group: "night" }),
+      entry({ id: "free", keys: ["moon"] }),
+    ];
+
+    await expect(ids(entries)).resolves.toEqual(["both", "free"]);
+  });
+
+  it("keeps a sticky entry over new matches in its group", async () => {
+    const entries = [
+      entry({ id: "sticky", keys: ["missing"], group: "doors" }),
+      entry({ id: "fresh", keys: ["gate"], group: "doors", groupOverride: true }),
+    ];
+    const timingStates = new Map([
+      ["sticky", { lastActivatedAt: 1, stickyCount: 1, cooldownRemaining: 0, delayRemaining: 0 }],
+    ]);
+
+    await expect(ids(entries, { timingStates })).resolves.toEqual(["sticky"]);
+  });
+
+  it("drops new matches for a group that already has a winner from an earlier pass", async () => {
+    const entries = [entry({ id: "late", keys: ["gate"], group: "doors" }), entry({ id: "free", keys: ["gate"] })];
+
+    await expect(ids(entries, { takenGroups: new Set(["doors"]) })).resolves.toEqual(["free"]);
+  });
+});
+
+describe("recursion flags", () => {
+  const chat = [{ role: "user", content: "we reach the ancient gate" }];
+
+  it("waits for a recursive pass before a Delay to Recursion entry can fire, then scans chat and recursion", async () => {
+    const delayed = entry({ id: "delayed", keys: ["ancient gate"], delayUntilRecursion: true });
+
+    const direct = await scanForActivatedEntriesWithTrace(chat, [delayed]);
+    expect(direct.activatedEntries).toEqual([]);
+    expect(direct.trace.entries[0]).toMatchObject({ status: "skipped", reason: "recursion_delayed" });
+
+    const recursive = await scanForActivatedEntries(chat, [delayed], {
+      recursionPass: 1,
+      recursionText: "unrelated lore",
+    });
+    expect(recursive.map((item) => item.entry.id)).toEqual(["delayed"]);
+  });
+
+  it("never lets recursion activate a Non-recursable entry", async () => {
+    const guarded = entry({ id: "guarded", keys: ["dragon"], excludeRecursion: true });
+    const open = entry({ id: "open", keys: ["dragon"] });
+
+    const result = await scanForActivatedEntriesWithTrace(chat, [guarded, open], {
+      recursionPass: 1,
+      recursionText: "a dragon sleeps here",
+    });
+
+    expect(result.activatedEntries.map((item) => item.entry.id)).toEqual(["open"]);
+    expect(result.trace.entries.find((item) => item.entryId === "guarded")).toMatchObject({
+      status: "skipped",
+      reason: "recursion_excluded",
+    });
+  });
+
+  it("scans only the recursive content for ordinary entries in recursive passes", async () => {
+    const result = await scanForActivatedEntries(chat, [entry({ id: "chat-only", keys: ["ancient gate"] })], {
+      recursionPass: 1,
+      recursionText: "a dragon sleeps here",
+    });
+
+    expect(result).toEqual([]);
   });
 });

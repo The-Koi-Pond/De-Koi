@@ -237,4 +237,63 @@ describe("active lorebook scanner", () => {
       recursive: { depth: 1, preventedByEntry: false },
     });
   });
+
+  it("applies SillyTavern's recursion flags and one winner per group across passes", async () => {
+    const lorebook = {
+      id: "book-1",
+      name: "Recursive Book",
+      enabled: true,
+      isGlobal: true,
+      scanDepth: 0,
+      recursiveScanning: true,
+      maxRecursionDepth: 3,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const base = { lorebookId: "book-1", enabled: true };
+    const entries = [
+      {
+        ...base,
+        id: "seed",
+        name: "Seed",
+        content: "a dragon guards the vault",
+        keys: ["ancient gate"],
+        group: "guards",
+        order: 0,
+      },
+      {
+        ...base,
+        id: "non-recursable",
+        name: "Non-recursable",
+        content: "x",
+        keys: ["dragon"],
+        excludeRecursion: true,
+        order: 1,
+      },
+      {
+        ...base,
+        id: "delayed",
+        name: "Delayed",
+        content: "y",
+        keys: ["ancient gate"],
+        delayUntilRecursion: true,
+        order: 2,
+      },
+      { ...base, id: "same-group", name: "Same group", content: "z", keys: ["dragon"], group: "guards", order: 3 },
+      { ...base, id: "follower", name: "Follower", content: "w", keys: ["vault"], order: 4 },
+    ];
+    const result = await scanActiveLorebooks({
+      storage: storageFor(lorebook, entries),
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      characters: [],
+      persona: null,
+      storedMessages: messages,
+      request: {},
+      embeddingSource: null,
+    });
+
+    expect(result.activatedEntries.map((entry) => entry.entry.id).sort()).toEqual(["delayed", "follower", "seed"]);
+    const trace = new Map(result.activationTrace.entries.map((entry) => [entry.entryId, entry]));
+    expect(trace.get("non-recursable")).toMatchObject({ status: "skipped", reason: "recursion_excluded" });
+    expect(trace.get("same-group")).toMatchObject({ status: "skipped" });
+  });
 });
