@@ -811,6 +811,114 @@ fn attachment_filename_hint(
     format!("{message_id}-attachment-{}", index + 1)
 }
 
+/// Secondary-key logic `and` used to mean "every secondary key must match". It now means
+/// AND ANY, as in SillyTavern and Marinara, which is what imported entries always meant.
+/// Entries written in De-Koi (not imported) with two or more secondary keys move to
+/// `and_all` so they keep firing exactly as before.
+pub(crate) fn keep_all_secondary_keys_for_authored_lorebook_entries(
+    storage: &FileStorage,
+) -> AppResult<()> {
+    let imported_lorebooks: std::collections::HashSet<String> = storage
+        .list("lorebooks")?
+        .iter()
+        .filter(|row| row.get("generatedBy").and_then(Value::as_str) == Some("import"))
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    let keeps_all = |entry: &Value| {
+        let logic = entry
+            .get("selectiveLogic")
+            .and_then(Value::as_str)
+            .unwrap_or("and");
+        let lorebook_id = entry
+            .get("lorebookId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        logic.trim() == "and"
+            && !imported_lorebooks.contains(lorebook_id)
+            && super::shared::string_array_from_value(entry.get("secondaryKeys")).len() >= 2
+    };
+    storage.update_collections_atomically(vec!["lorebook-entries"], |collections| {
+        let Some(entries) = collections.first_mut() else {
+            return Ok(());
+        };
+        if !entries.rows().iter().any(&keeps_all) {
+            return Ok(());
+        }
+        let updated_at = now_iso();
+        for entry in entries.rows_mut().iter_mut() {
+            if !keeps_all(entry) {
+                continue;
+            }
+            if let Some(object) = entry.as_object_mut() {
+                object.insert("selectiveLogic".to_string(), json!("and_all"));
+                object.insert("updatedAt".to_string(), json!(updated_at));
+            }
+        }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod lorebook_selective_logic_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn authored_entries_keep_requiring_every_secondary_key() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+        let storage =
+            FileStorage::new(std::env::temp_dir().join(format!("de-koi-selective-logic-{nonce}")))
+                .expect("storage should initialize");
+        storage
+            .replace_all(
+                "lorebooks",
+                vec![
+                    json!({ "id": "mine", "generatedBy": "user" }),
+                    json!({ "id": "agent", "generatedBy": "agent" }),
+                    json!({ "id": "st", "generatedBy": "import" }),
+                ],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "lorebook-entries",
+                vec![
+                    json!({ "id": "mine-two", "lorebookId": "mine", "selectiveLogic": "and", "secondaryKeys": ["moon", "tide"] }),
+                    json!({ "id": "agent-two", "lorebookId": "agent", "selectiveLogic": "and", "secondaryKeys": ["a", "b", "c"] }),
+                    json!({ "id": "mine-one", "lorebookId": "mine", "selectiveLogic": "and", "secondaryKeys": ["moon"] }),
+                    json!({ "id": "mine-not", "lorebookId": "mine", "selectiveLogic": "not", "secondaryKeys": ["moon", "tide"] }),
+                    json!({ "id": "st-two", "lorebookId": "st", "selectiveLogic": "and", "secondaryKeys": ["moon", "tide"] }),
+                ],
+            )
+            .unwrap();
+
+        keep_all_secondary_keys_for_authored_lorebook_entries(&storage).unwrap();
+
+        let logic = |id: &str| {
+            storage.get("lorebook-entries", id).unwrap().unwrap()["selectiveLogic"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(logic("mine-two"), "and_all");
+        assert_eq!(logic("agent-two"), "and_all");
+        assert_eq!(
+            logic("mine-one"),
+            "and",
+            "one key: ANY and ALL are the same"
+        );
+        assert_eq!(logic("mine-not"), "not");
+        assert_eq!(
+            logic("st-two"),
+            "and",
+            "imported entries now behave as in SillyTavern"
+        );
+    }
+}
+
 fn json_value(value: Option<&Value>) -> Option<Value> {
     match value? {
         Value::String(raw) => serde_json::from_str(raw).ok(),

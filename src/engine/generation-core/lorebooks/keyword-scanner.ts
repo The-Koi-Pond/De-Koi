@@ -330,42 +330,75 @@ function latestUserMessageContent(messages: ScanMessage[]): string {
   return "";
 }
 
+/** Inclusion group names on an entry. SillyTavern allows several, separated by commas. */
+export function entryInclusionGroups(entry: Pick<LorebookEntry, "group">): string[] {
+  return (entry.group ?? "")
+    .split(",")
+    .map((group) => group.trim())
+    .filter(Boolean);
+}
+
+function groupScore(candidate: ActivatedEntry): number {
+  return candidate.matchedKeys.filter((key) => !key.startsWith("[")).length;
+}
+
+function pickGroupWinners(contenders: ActivatedEntry[], random: () => number): ActivatedEntry[] {
+  const sticky = contenders.filter((candidate) => candidate.sticky);
+  if (sticky.length > 0) return sticky;
+  let pool = contenders;
+  if (pool.some((candidate) => candidate.entry.useGroupScoring)) {
+    const best = Math.max(...pool.map(groupScore));
+    pool = pool.filter((candidate) => groupScore(candidate) === best);
+  }
+  const prioritized = pool.filter((candidate) => candidate.entry.groupOverride);
+  if (prioritized.length > 0) {
+    return [prioritized.reduce((best, candidate) => (candidate.entry.order > best.entry.order ? candidate : best))];
+  }
+  const weights = pool.map((candidate) => Math.max(0, candidate.entry.groupWeight ?? 100));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  if (total <= 0) return pool.slice(0, 1);
+  let roll = random() * total;
+  for (let index = 0; index < pool.length; index += 1) {
+    roll -= weights[index]!;
+    if (roll < 0) return [pool[index]!];
+  }
+  return pool.slice(-1);
+}
+
 /**
- * Group-based selection: within a group, only activate entries up to weight limits.
+ * Inclusion groups, as in SillyTavern: when several fired entries share a group, one is kept.
+ * Sticky entries keep their place. Otherwise group scoring (when an entry asks for it) keeps
+ * only the entries that matched the most keys, then a Prioritize entry wins by highest order,
+ * or a random pick weighted by group weight decides. A group that already has a winner from
+ * an earlier recursive pass keeps it.
  */
-function applyGroupSelection(entries: ActivatedEntry[]): ActivatedEntry[] {
-  const grouped = new Map<string, ActivatedEntry[]>();
-  const ungrouped: ActivatedEntry[] = [];
-
-  for (const entry of entries) {
-    const group = entry.entry.group;
-    if (group) {
-      const list = grouped.get(group) ?? [];
-      list.push(entry);
-      grouped.set(group, list);
-    } else {
-      ungrouped.push(entry);
+function applyGroupSelection(
+  entries: ActivatedEntry[],
+  random: () => number,
+  takenGroups: ReadonlySet<string>,
+): ActivatedEntry[] {
+  const removed = new Set<ActivatedEntry>();
+  const byGroup = new Map<string, ActivatedEntry[]>();
+  for (const candidate of entries) {
+    for (const group of entryInclusionGroups(candidate.entry)) {
+      if (takenGroups.has(group) && !candidate.sticky) {
+        removed.add(candidate);
+        continue;
+      }
+      const members = byGroup.get(group) ?? [];
+      members.push(candidate);
+      byGroup.set(group, members);
     }
   }
-
-  const result: ActivatedEntry[] = [...ungrouped];
-
-  for (const [, groupEntries] of grouped) {
-    // Sort by weight (higher = more likely), then by order
-    groupEntries.sort((a, b) => {
-      const wA = a.entry.groupWeight ?? 100;
-      const wB = b.entry.groupWeight ?? 100;
-      if (wA !== wB) return wB - wA;
-      return a.entry.order - b.entry.order;
-    });
-    // Pick the highest-weight entry from each group
-    const top = groupEntries[0];
-    if (top) {
-      result.push(top);
+  for (const members of byGroup.values()) {
+    const contenders = members.filter((candidate) => !removed.has(candidate));
+    if (contenders.length <= 1) continue;
+    const winners = pickGroupWinners(contenders, random);
+    for (const candidate of contenders) {
+      if (!winners.includes(candidate)) removed.add(candidate);
     }
   }
-
-  return result;
+  return entries.filter((candidate) => !removed.has(candidate));
 }
 
 export interface ScanOptions {
@@ -391,8 +424,14 @@ export interface ScanOptions {
   additionalMatchingSourceText?: Partial<Record<LorebookMatchingSource, string>>;
   /** Ignore sticky/cooldown/delay runtime state for preview/debug scans. */
   ignoreTiming?: boolean;
-  /** Random source for probability gates; injectable for deterministic tests. */
+  /** Random source for probability gates and group picks; injectable for deterministic tests. */
   random?: () => number;
+  /** 0 for the scan of chat text; 1 and up for recursive passes over activated entries' content. */
+  recursionPass?: number;
+  /** Content of entries activated in the previous pass; what recursive passes scan. */
+  recursionText?: string;
+  /** Inclusion groups that already have a winner from an earlier pass. */
+  takenGroups?: ReadonlySet<string>;
 }
 
 interface CachedLorebookEntryMatchers {
@@ -457,7 +496,7 @@ export function hintForTraceReason(reason: LorebookActivationTraceReason): strin
     case "probability_failed":
       return "Increase probability or test again with a new roll.";
     case "group_loser":
-      return "Raise this entry's group weight or move it to another group.";
+      return "Another entry won this group's pick. Raise this entry's group weight, turn on Prioritize, or move it to another group.";
     case "budget_lorebook":
       return "Raise this lorebook's token budget or shorten higher-priority entries.";
     case "budget_chat":
@@ -472,6 +511,10 @@ export function hintForTraceReason(reason: LorebookActivationTraceReason): strin
       return "Enable this injection position in the active prompt preset.";
     case "recursion_blocked":
       return "Disable anti-recursion only if this entry should seed recursive scans.";
+    case "recursion_excluded":
+      return "Turn off Non-recursable to let other entries' content trigger this entry.";
+    case "recursion_delayed":
+      return "This entry waits for a recursive pass. Turn on recursive scanning or turn off Delay to Recursion.";
     case "unscanned":
       return "This entry was not evaluated by this scanner pass.";
     case "keyword_match":
@@ -544,7 +587,11 @@ export async function scanForActivatedEntriesWithTrace(
     additionalMatchingSourceText = {},
     ignoreTiming = false,
     random = Math.random,
+    recursionPass = 0,
+    recursionText = "",
+    takenGroups = new Set<string>(),
   } = options;
+  const recursive = recursionPass > 0;
   const filterContext: LorebookFilterValueContext = {
     activeCharacterIds: makeValueSet(activeCharacterIds),
     activeCharacterTags: makeValueSet(activeCharacterTags),
@@ -553,7 +600,7 @@ export async function scanForActivatedEntriesWithTrace(
 
   const messagesToScan = scanDepth > 0 ? messages.slice(-scanDepth) : messages;
   const combinedText = messagesToScan.map((m) => m.content).join("\n");
-  const latestUserText = latestUserMessageContent(messages);
+  const latestUserText = recursive ? "" : latestUserMessageContent(messages);
 
   const activated: ActivatedEntry[] = [];
   const activatedIds = new Set<string>();
@@ -622,6 +669,11 @@ export async function scanForActivatedEntriesWithTrace(
       continue;
     }
 
+    if (recursive ? entry.excludeRecursion : entry.delayUntilRecursion) {
+      recordTrace(entry, traceEntry(entry, "skipped", recursive ? "recursion_excluded" : "recursion_delayed"));
+      continue;
+    }
+
     const gateReason = activationGateTraceReason(entry, timingState, filterContext, gameState, ignoreTiming);
     if (gateReason) {
       recordTrace(
@@ -662,7 +714,7 @@ export async function scanForActivatedEntriesWithTrace(
       continue;
     }
 
-    const baseEntryScanText =
+    const chatScanText =
       entry.scanDepth === 0
         ? messages.map((m) => m.content).join("\n")
         : entry.scanDepth !== null && entry.scanDepth > 0
@@ -671,6 +723,13 @@ export async function scanForActivatedEntriesWithTrace(
               .map((m) => m.content)
               .join("\n")
           : combinedText;
+    // Recursive passes scan the content activated so far. An entry delayed until recursion
+    // also sees the chat, as in SillyTavern, since it was never scanned against it.
+    const baseEntryScanText = !recursive
+      ? chatScanText
+      : entry.delayUntilRecursion
+        ? `${chatScanText}\n${recursionText}`
+        : recursionText;
     const extraMatchingText = getAdditionalMatchingText(entry, additionalMatchingSourceText);
     const entryScanText = extraMatchingText ? `${baseEntryScanText}\n${extraMatchingText}` : baseEntryScanText;
 
@@ -733,6 +792,7 @@ export async function scanForActivatedEntriesWithTrace(
     for (const entry of entries) {
       if (!entry.enabled || entry.constant || activatedIds.has(entry.id)) continue;
       if (entry.excludeFromVectorization) continue;
+      if (recursive ? entry.excludeRecursion : entry.delayUntilRecursion) continue;
       if (!entry.embedding || entry.embedding.length === 0) continue;
       const timingState = timingStates.get(entry.id);
       const gateReason = activationGateTraceReason(entry, timingState, filterContext, gameState, ignoreTiming);
@@ -771,7 +831,7 @@ export async function scanForActivatedEntriesWithTrace(
     }
   }
 
-  const afterGroups = applyGroupSelection(activated);
+  const afterGroups = applyGroupSelection(activated, random, takenGroups);
   const selectedIds = new Set(afterGroups.map((entry) => entry.entry.id));
   for (const entry of activated) {
     if (selectedIds.has(entry.entry.id)) continue;

@@ -180,22 +180,23 @@ export async function testPreparedSecondaryKeysAsync(
 ): Promise<boolean> {
   if (matcher.matchers.length === 0) return true;
 
+  let anyMatched = false;
+  let allMatched = true;
+  for (const prepared of matcher.matchers) {
+    if (await prepared.test(text, options)) anyMatched = true;
+    else allMatched = false;
+  }
+
   switch (logic) {
     case "and":
-      for (const prepared of matcher.matchers) {
-        if (!(await prepared.test(text, options))) return false;
-      }
-      return true;
     case "or":
-      for (const prepared of matcher.matchers) {
-        if (await prepared.test(text, options)) return true;
-      }
-      return false;
+      return anyMatched;
+    case "and_all":
+      return allMatched;
     case "not":
-      for (const prepared of matcher.matchers) {
-        if (await prepared.test(text, options)) return false;
-      }
-      return true;
+      return !anyMatched;
+    case "not_all":
+      return !allMatched;
     default:
       return true;
   }
