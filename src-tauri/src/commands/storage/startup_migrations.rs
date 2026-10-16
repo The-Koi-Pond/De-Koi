@@ -994,14 +994,19 @@ pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult
             .get("findRegex")
             .and_then(Value::as_str)
             .unwrap_or("");
+        let replace = script
+            .get("replaceString")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let order = script.get("order").and_then(Value::as_u64);
         regex_script_character_ids(script)
             .iter()
             .find_map(|character_id| {
-                embedded
+                let candidates: Vec<(usize, &Value)> = embedded
                     .get(character_id)?
                     .iter()
                     .enumerate()
-                    .find(|(index, entry)| {
+                    .filter(|(index, entry)| {
                         let entry_name = entry
                             .get("scriptName")
                             .and_then(Value::as_str)
@@ -1010,9 +1015,25 @@ pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult
                             .unwrap_or_else(|| format!("Regex {}", index + 1));
                         let entry_find =
                             entry.get("findRegex").and_then(Value::as_str).unwrap_or("");
-                        entry_name == name && st_regex_pattern(entry_find) == find
+                        let entry_replace = entry
+                            .get("replaceString")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        entry_name == name
+                            && st_regex_pattern(entry_find) == find
+                            && entry_replace == replace
                     })
-                    .map(|(_, entry)| st_regex_apply_mode(entry))
+                    .collect();
+                // The card import stored each script's position as its order, which tells
+                // identical-looking scripts apart. Anything still ambiguous is left alone.
+                let chosen = match candidates.as_slice() {
+                    [only] => Some(*only),
+                    many => many
+                        .iter()
+                        .find(|(index, _)| order == Some(*index as u64))
+                        .copied(),
+                }?;
+                Some(st_regex_apply_mode(chosen.1))
             })
     };
     storage.update_collections_atomically(vec!["regex-scripts"], |collections| {
@@ -1058,7 +1079,9 @@ mod card_regex_apply_mode_tests {
         let card_scripts = json!([
             { "scriptName": "Status panel", "findRegex": "/<status>(.*?)<\\/status>/gs", "markdownOnly": true },
             { "scriptName": "Strip notes", "findRegex": "/<note>/g", "promptOnly": true },
-            { "scriptName": "", "findRegex": "/plain/g" }
+            { "scriptName": "", "findRegex": "/plain/g" },
+            { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "markdownOnly": true },
+            { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "promptOnly": true }
         ]);
         storage
             .replace_all(
@@ -1079,6 +1102,9 @@ mod card_regex_apply_mode_tests {
                     json!({ "id": "edited", "name": "Status panel", "findRegex": "changed", "characterId": "char-a", "promptOnly": true }),
                     json!({ "id": "chosen", "name": "Strip notes", "findRegex": "<note>", "characterId": "char-a", "applyMode": "display", "promptOnly": false }),
                     json!({ "id": "global", "name": "Status panel", "findRegex": "<status>(.*?)<\\/status>", "promptOnly": false }),
+                    json!({ "id": "twin-a", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 3, "promptOnly": true }),
+                    json!({ "id": "twin-b", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 4, "promptOnly": true }),
+                    json!({ "id": "twin-c", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 9, "promptOnly": true }),
                 ],
             )
             .unwrap();
@@ -1103,6 +1129,20 @@ mod card_regex_apply_mode_tests {
         assert!(
             script("global").get("applyMode").is_none(),
             "global scripts are not card scripts"
+        );
+        assert_eq!(
+            script("twin-a")["applyMode"],
+            "display",
+            "position 3 is the display twin"
+        );
+        assert_eq!(
+            script("twin-b")["applyMode"],
+            "prompt",
+            "position 4 is the prompt twin"
+        );
+        assert!(
+            script("twin-c").get("applyMode").is_none(),
+            "an ambiguous match is left alone"
         );
     }
 }
