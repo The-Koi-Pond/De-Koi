@@ -315,7 +315,7 @@
     "id": "regex-scripts",
     "title": "Regex Scripts",
     "category": "Advanced",
-    "summary": "Manage SillyTavern-style find/replace scripts that transform user input, AI output, or prompt-only text.",
+    "summary": "Manage SillyTavern-style find/replace scripts that change what you see, what the AI reads, or both.",
     "keywords": [
       "regex",
       "regex scripts",
@@ -324,6 +324,8 @@
       "user input",
       "ai output",
       "prompt only",
+      "display only",
+      "alter chat display",
       "scoped regex"
     ],
     "audience": "Power users importing scoped scripts from cards or customizing text before it is sent, displayed, or assembled into prompts.",
