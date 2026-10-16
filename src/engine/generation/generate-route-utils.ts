@@ -422,9 +422,9 @@ export function recommendedGenerationProfileForRequest(
   const mode =
     requestedProfileMode === "structured" || requestedProfileMode === "agent"
       ? requestedProfileMode
-      : ["conversation", "roleplay", "visual_novel", "game"].includes(chatMode)
+      : ["conversation", "roleplay", "visual_novel"].includes(chatMode)
         ? chatMode
-        : ["conversation", "roleplay", "visual_novel", "game"].includes(legacyChatMode)
+        : ["conversation", "roleplay", "visual_novel"].includes(legacyChatMode)
           ? legacyChatMode
           : "conversation";
   return resolveRecommendedGenerationProfile({
@@ -449,8 +449,6 @@ export function generationParameterSources(
   promptPresetParameters?: unknown,
 ): unknown[] {
   const meta = parseRecord(chat?.metadata);
-  const mode = readString(chat?.mode || chat?.chatMode);
-  const setupConfig = parseRecord(meta.gameSetupConfig);
   const profile = recommendedGenerationProfileForRequest(connection, input, chat);
   const inheritedDefaults = mergeStoredGenerationParameters(
     connection?.defaultParameters,
@@ -460,13 +458,7 @@ export function generationParameterSources(
   for (const key of profile.suppressedParameters ?? []) {
     if (inheritedDefaults) suppressInheritedGenerationParameter(inheritedDefaults, key);
   }
-  return [
-    inheritedDefaults,
-    mode === "game" ? setupConfig.generationParameters : null,
-    mode === "game" ? meta.gameGenerationParameters : null,
-    meta.chatParameters,
-    input?.parameters,
-  ];
+  return [inheritedDefaults, meta.chatParameters, input?.parameters];
 }
 
 function trackerCharacterIdKey(character: Record<string, unknown>) {

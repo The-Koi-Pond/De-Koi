@@ -684,7 +684,7 @@ describe("generation agent runner", () => {
         integrations: noopIntegrations,
       },
       activeAgentRuntimeInput(connection, {
-        mode: "game",
+        mode: "conversation",
         activeAgentIds: ["cyoa"],
       }),
     );
@@ -697,7 +697,7 @@ describe("generation agent runner", () => {
         integrations: noopIntegrations,
       },
       activeAgentRuntimeInput(connection, {
-        mode: "game",
+        mode: "conversation",
         agentTypes: new Set(["cyoa"]),
       }),
     );

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync("src/styles/globals/08-game-cinematic-effects.css", "utf8");
+const css = readFileSync("src/styles/globals/08-deki-pond.css", "utf8");
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

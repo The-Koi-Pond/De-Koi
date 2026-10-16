@@ -182,109 +182,106 @@ export function TopBar({
         />
       )}
 
-      {chat?.mode !== "game" &&
-        (characters && characters.length > 1 ? (
-          // Multi-char: stacked avatars with status dots, each clickable to show activity
-          <div
-            className="relative flex shrink-0 items-center"
-            style={{ width: `${characters.length > 3 ? 92 : 20 * Math.min(characters.length, 3) + 12}px`, height: 32 }}
-          >
-            {characters.slice(0, 3).map((c, i) => {
-              const ext = (c.data?.extensions ?? {}) as Record<string, unknown>;
-              const dotColor = charStatusColor(ext);
-              const cActivity = showStatus
-                ? getMobileConversationStatusDetail(c, chatMeta, statusMessagesEnabledByDefault)
-                : "";
-              const isOpen = charPopup === i;
-              return (
-                <div key={c.id ?? i} className="absolute top-0" style={{ left: i * 20, zIndex: isOpen ? 10 : 3 - i }}>
-                  <button
-                    type="button"
-                    onClick={() => setCharPopup(isOpen ? null : i)}
-                    className="relative block active:scale-90 transition-transform"
-                    aria-label={c.data?.name ?? "Character"}
-                  >
-                    {c.avatarPath ? (
-                      <CharacterAvatarImage
-                        src={c.avatarPath}
-                        avatarFilePath={c.avatarFilePath}
-                        avatarFilename={c.avatarFilename}
-                        alt={c.data?.name ?? ""}
-                        crop={ext.avatarCrop}
-                        className="h-8 w-8 rounded-xl object-cover ring-2 ring-[var(--background)]"
-                        thumbnailSize={128}
-                        upgradeToFullResolution
-                      />
-                    ) : (
-                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--background)]">
-                        {(c.data?.name ?? "?")[0]?.toUpperCase()}
-                      </div>
-                    )}
-                    {dotColor && (
-                      <span
-                        className={cn(
-                          "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-[1.5px] ring-[var(--background)]",
-                          dotColor,
-                        )}
-                      />
-                    )}
-                  </button>
-                  {isOpen && (
-                    <div className="absolute left-1/2 top-full mt-1.5 z-50 min-w-[7rem] -translate-x-1/2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 shadow-lg backdrop-blur-xl">
-                      <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">
-                        {c.data?.name}
-                      </p>
-                      {cActivity && (
-                        <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
-                          {cActivity}
-                        </p>
-                      )}
+      {characters && characters.length > 1 ? (
+        // Multi-char: stacked avatars with status dots, each clickable to show activity
+        <div
+          className="relative flex shrink-0 items-center"
+          style={{ width: `${characters.length > 3 ? 92 : 20 * Math.min(characters.length, 3) + 12}px`, height: 32 }}
+        >
+          {characters.slice(0, 3).map((c, i) => {
+            const ext = (c.data?.extensions ?? {}) as Record<string, unknown>;
+            const dotColor = charStatusColor(ext);
+            const cActivity = showStatus
+              ? getMobileConversationStatusDetail(c, chatMeta, statusMessagesEnabledByDefault)
+              : "";
+            const isOpen = charPopup === i;
+            return (
+              <div key={c.id ?? i} className="absolute top-0" style={{ left: i * 20, zIndex: isOpen ? 10 : 3 - i }}>
+                <button
+                  type="button"
+                  onClick={() => setCharPopup(isOpen ? null : i)}
+                  className="relative block active:scale-90 transition-transform"
+                  aria-label={c.data?.name ?? "Character"}
+                >
+                  {c.avatarPath ? (
+                    <CharacterAvatarImage
+                      src={c.avatarPath}
+                      avatarFilePath={c.avatarFilePath}
+                      avatarFilename={c.avatarFilename}
+                      alt={c.data?.name ?? ""}
+                      crop={ext.avatarCrop}
+                      className="h-8 w-8 rounded-xl object-cover ring-2 ring-[var(--background)]"
+                      thumbnailSize={128}
+                      upgradeToFullResolution
+                    />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--background)]">
+                      {(c.data?.name ?? "?")[0]?.toUpperCase()}
                     </div>
                   )}
-                </div>
-              );
-            })}
-            {characters.length > 3 && (
-              <div
-                className="absolute top-0 flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-[0.6rem] font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--background)]"
-                style={{ left: 3 * 20, zIndex: 0 }}
-              >
-                +{characters.length - 3}
-              </div>
-            )}
-          </div>
-        ) : firstChar ? (
-          <div className="relative shrink-0">
-            {firstChar.avatarPath ? (
-              <CharacterAvatarImage
-                src={firstChar.avatarPath}
-                avatarFilePath={firstChar.avatarFilePath}
-                avatarFilename={firstChar.avatarFilename}
-                alt={firstChar.data?.name ?? ""}
-                crop={extensions.avatarCrop}
-                className="h-8 w-8 rounded-xl object-cover ring-1 ring-[var(--border)]/50"
-                thumbnailSize={128}
-                upgradeToFullResolution
-              />
-            ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]/50">
-                {(firstChar.data?.name ?? chatName ?? "?")[0]?.toUpperCase()}
-              </div>
-            )}
-            {status && (
-              <span
-                className={cn(
-                  "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-[1.5px] ring-[var(--border)]",
-                  statusColor,
+                  {dotColor && (
+                    <span
+                      className={cn(
+                        "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-[1.5px] ring-[var(--background)]",
+                        dotColor,
+                      )}
+                    />
+                  )}
+                </button>
+                {isOpen && (
+                  <div className="absolute left-1/2 top-full mt-1.5 z-50 min-w-[7rem] -translate-x-1/2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-3 py-2 shadow-lg backdrop-blur-xl">
+                    <p className="text-[0.7rem] font-semibold text-[var(--foreground)] leading-tight">{c.data?.name}</p>
+                    {cActivity && (
+                      <p className="mt-0.5 text-[0.6rem] text-[var(--muted-foreground)]/70 leading-tight">
+                        {cActivity}
+                      </p>
+                    )}
+                  </div>
                 )}
-              />
-            )}
-          </div>
-        ) : (
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)]">
-            {(chatName || "?")[0]?.toUpperCase()}
-          </div>
-        ))}
+              </div>
+            );
+          })}
+          {characters.length > 3 && (
+            <div
+              className="absolute top-0 flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-[0.6rem] font-bold text-[var(--muted-foreground)] ring-2 ring-[var(--background)]"
+              style={{ left: 3 * 20, zIndex: 0 }}
+            >
+              +{characters.length - 3}
+            </div>
+          )}
+        </div>
+      ) : firstChar ? (
+        <div className="relative shrink-0">
+          {firstChar.avatarPath ? (
+            <CharacterAvatarImage
+              src={firstChar.avatarPath}
+              avatarFilePath={firstChar.avatarFilePath}
+              avatarFilename={firstChar.avatarFilename}
+              alt={firstChar.data?.name ?? ""}
+              crop={extensions.avatarCrop}
+              className="h-8 w-8 rounded-xl object-cover ring-1 ring-[var(--border)]/50"
+              thumbnailSize={128}
+              upgradeToFullResolution
+            />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]/50">
+              {(firstChar.data?.name ?? chatName ?? "?")[0]?.toUpperCase()}
+            </div>
+          )}
+          {status && (
+            <span
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-[1.5px] ring-[var(--border)]",
+                statusColor,
+              )}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-xs font-bold text-[var(--muted-foreground)]">
+          {(chatName || "?")[0]?.toUpperCase()}
+        </div>
+      )}
 
       <div className={cn("relative min-w-0 flex-1", statusPopupOpen && "z-50")}>
         <span className="block truncate text-sm font-semibold leading-tight text-[var(--foreground)]">

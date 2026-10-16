@@ -394,6 +394,7 @@ pub(super) fn import_st_chat_text(
     chat.insert("name".to_string(), Value::String(chat_name));
     chat.entry("mode".to_string())
         .or_insert(Value::String("roleplay".to_string()));
+    crate::storage_commands::game_mode_removal::retire_game_chat_mode(&mut chat);
     if character_ids.is_empty() {
         chat.entry("characterIds".to_string())
             .or_insert_with(|| json!([]));

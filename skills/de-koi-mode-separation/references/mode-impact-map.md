@@ -1,6 +1,6 @@
 # Mode Impact Map
 
-Use this before touching chat, roleplay, game, or shared generation behavior.
+Use this before touching chat, roleplay, fanfic, or shared generation behavior.
 
 ## Chat
 
@@ -22,8 +22,7 @@ Owns:
 Must not own:
 
 - roleplay scene lifecycle
-- game turn state or game prompts
-- roleplay/game-specific prompt constraints
+- roleplay-specific prompt constraints
 
 ## Roleplay
 
@@ -44,30 +43,7 @@ Owns:
 
 Must not own:
 
-- game turns, game scene analysis, game maps, or game state repair
 - chat autonomous schedules
-
-## Game
-
-Owner paths:
-
-- `src/engine/modes/game`
-- `src/features/modes/game`
-- `src/features/modes/game-assets` for game asset browser UI
-
-Owns:
-
-- game start, normal turns, retries, and party turns
-- GM prompts, party prompts, game-specific generation guides
-- combat, dice, skill checks, loot, morale, reputation, perception, elements
-- map, weather, time, journal, travel
-- session state, checkpoints, repair, carryover, conclusion
-- game scene analysis and game asset orchestration
-
-Must not own:
-
-- roleplay scene lifecycle
-- chat autonomous scheduling
 
 ## Shared Lower Layers
 
@@ -82,10 +58,10 @@ Allowed shared homes:
 - `shared/components`: generic UI atoms.
 - `features/modes/shared/chat-ui`: shared transcript, input, overlays, settings, branch, summary, and gallery UI.
 - `features/modes/shared/scene-ui`: shared scene banner UI.
-- `features/runtime/visuals`: shared visual primitives when roleplay and game both need them.
+- `features/runtime/visuals`: shared visual primitives when more than one mode needs them.
 - `features/runtime/generation`, `features/runtime/world-state`, `features/runtime/tracker`: shared runtime systems used by mode surfaces.
 
-Shared mode UI should stay mode-neutral. If a shared component needs a concrete mode action, pass that action in from the owning mode/router or move the component to the owning mode package. Do not grow `features/modes/shared` with new direct imports from `engine/modes/chat`, `engine/modes/roleplay`, `engine/modes/game`, or concrete mode feature packages.
+Shared mode UI should stay mode-neutral. If a shared component needs a concrete mode action, pass that action in from the owning mode/router or move the component to the owning mode package. Do not grow `features/modes/shared` with new direct imports from `engine/modes/chat`, `engine/modes/roleplay`, `engine/modes/fanfic`, or concrete mode feature packages.
 
 ## Impact Report Questions
 

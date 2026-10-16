@@ -51,11 +51,11 @@ type ProfileImportStats = {
   sprites?: number;
   "knowledge-sources"?: number;
   "game-state-snapshots"?: number;
-  "game-checkpoints"?: number;
   "conversation-notes"?: number;
   "ooc-influences"?: number;
   files?: number;
   unsupportedPromptOverrides?: number;
+  skippedGameChats?: number;
 };
 
 type ProfileImportProgressState = {
@@ -142,13 +142,12 @@ const PROFILE_IMPORT_STAT_LABELS: Array<{ key: string; aliases?: string[]; singu
   { key: "background-metadata", singular: "background", plural: "backgrounds" },
   { key: "sprites", singular: "sprite", plural: "sprites" },
   { key: "knowledge-sources", singular: "knowledge source", plural: "knowledge sources" },
-  { key: "game-state-snapshots", singular: "game state snapshot", plural: "game state snapshots" },
-  { key: "game-checkpoints", singular: "game checkpoint", plural: "game checkpoints" },
+  { key: "game-state-snapshots", singular: "tracker snapshot", plural: "tracker snapshots" },
   { key: "conversation-notes", singular: "conversation note", plural: "conversation notes" },
   { key: "ooc-influences", singular: "OOC influence", plural: "OOC influences" },
   { key: "files", singular: "file", plural: "files" },
 ];
-const PROFILE_IMPORT_STAT_META_KEYS = new Set(["unsupportedPromptOverrides"]);
+const PROFILE_IMPORT_STAT_META_KEYS = new Set(["unsupportedPromptOverrides", "skippedGameChats"]);
 const PROFILE_IMPORT_STAT_ALIAS_KEYS = new Set(["prompts"]);
 
 function formatProfileImportDuration(seconds: number) {
@@ -222,9 +221,16 @@ function formatUnknownProfileImportStatKey(key: string) {
 }
 
 function formatProfileImportSkippedStats(stats?: ProfileImportStats) {
-  const count = stats?.unsupportedPromptOverrides;
-  if (typeof count !== "number" || count <= 0) return "";
-  return `${count} unsupported prompt override${count === 1 ? "" : "s"} skipped`;
+  const parts: string[] = [];
+  const overrides = stats?.unsupportedPromptOverrides;
+  if (typeof overrides === "number" && overrides > 0) {
+    parts.push(`${overrides} unsupported prompt override${overrides === 1 ? "" : "s"} skipped`);
+  }
+  const gameChats = stats?.skippedGameChats;
+  if (typeof gameChats === "number" && gameChats > 0) {
+    parts.push(`${gameChats} Game chat${gameChats === 1 ? "" : "s"} skipped (Game mode was removed)`);
+  }
+  return parts.join(", ");
 }
 
 function formatProfileImportWarnings(warnings?: ProfileImportWarning[]) {

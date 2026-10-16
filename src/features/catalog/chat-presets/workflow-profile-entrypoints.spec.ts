@@ -31,12 +31,12 @@ describe("Roleplay workflow profile entry points", () => {
     expect(workflowMount).toContain('revealFromDiscovery={settingsDestination === "chat-settings-workflow-profile"}');
   });
 
-  it("keeps Conversation and Game mode surfaces free of workflow-profile mounts", () => {
+  it("keeps Conversation and Fanfic mode surfaces free of workflow-profile mounts", () => {
     const conversation = read("src/features/modes/conversation/components/ChatConversationSurface.tsx");
-    const game = read("src/features/modes/game/components/GameSurface.tsx");
+    const fanfic = read("src/features/modes/fanfic/components/FanficModeRoute.tsx");
 
     expect(conversation).not.toContain("RoleplayWorkflowProfileChooser");
-    expect(game).not.toContain("RoleplayWorkflowProfileChooser");
+    expect(fanfic).not.toContain("RoleplayWorkflowProfileChooser");
   });
 
   it("provides stable Prompt Preset, Continuity, Agents, and workflow chooser targets", () => {

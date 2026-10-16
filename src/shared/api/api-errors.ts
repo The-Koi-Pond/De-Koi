@@ -51,29 +51,3 @@ export function getApiErrorRetryAfterMs(error: unknown): number | null {
   const retryAfterMs = error.details.retryAfterMs;
   return typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) ? Math.max(0, retryAfterMs) : null;
 }
-
-export interface JsonRepairRequest {
-  id?: string;
-  title?: string;
-  endpoint?: string;
-  rawJson?: string;
-  applyEndpoint: string;
-  applyBody?: Record<string, unknown>;
-  payload?: unknown;
-  error?: string;
-  [key: string]: unknown;
-}
-
-export function isJsonRepairApiError(error: unknown): boolean {
-  return error instanceof ApiError && !!getJsonRepairRequest(error);
-}
-
-export function getJsonRepairRequest(error: unknown): JsonRepairRequest | null {
-  if (!(error instanceof ApiError)) return null;
-  const details = error.details;
-  if (!isRecord(details)) return null;
-  const request = (details as { jsonRepair?: unknown }).jsonRepair;
-  if (!request || typeof request !== "object") return null;
-  if (typeof (request as { applyEndpoint?: unknown }).applyEndpoint !== "string") return null;
-  return request as JsonRepairRequest;
-}

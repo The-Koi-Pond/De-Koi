@@ -1,5 +1,4 @@
 import rawDiscoveryEntries from "./discovery-entries.json";
-import { NO_MODEL_GAME_SHOWCASE_ID } from "./showcase";
 import { findSettingsDestination, isSettingsTabId } from "../settings/discovery";
 import {
   DISCOVERY_CATEGORIES,
@@ -14,7 +13,6 @@ import {
 export const DISCOVERY_CORE_SURFACE_IDS = [
   "conversation-mode",
   "roleplay-mode",
-  "game-mode",
   "fanfic-mode",
   "characters",
   "personas",
@@ -26,7 +24,6 @@ export const DISCOVERY_CORE_SURFACE_IDS = [
   "imports",
   "bot-browser",
   "deki",
-  "no-model-showcase",
 ] as const;
 
 const DISCOVERY_PANEL_TARGETS = [
@@ -44,7 +41,7 @@ const DISCOVERY_PANEL_TARGETS = [
 const categorySet = new Set<string>(DISCOVERY_CATEGORIES);
 const coverageSet = new Set<string>(DISCOVERY_COVERAGE);
 const panelTargetSet = new Set<string>(DISCOVERY_PANEL_TARGETS);
-const modeSet = new Set(["conversation", "roleplay", "game", "fanfic"]);
+const modeSet = new Set(["conversation", "roleplay", "fanfic"]);
 const chatDestinationSet = new Set([
   "chat-settings",
   "chat-settings-prompt-preset",
@@ -54,10 +51,6 @@ const chatDestinationSet = new Set([
   "slash-commands",
   "prompt-inspector",
   "message-actions",
-  "game-tutorial",
-  "game-journal",
-  "game-checkpoints",
-  "game-tools",
   "roleplay-context",
 ]);
 
@@ -76,7 +69,6 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
   const panel = action.panel;
   const tab = action.tab;
   const destination = action.destination;
-  const showcaseId = action.showcaseId;
   const errors: string[] = [];
   if (action.label !== undefined && action.label !== null && !hasText(action.label)) {
     errors.push(`${path}.label must be non-empty.`);
@@ -111,11 +103,6 @@ function validateDiscoveryAction(action: unknown, entryId: string, index: number
     case "open-chat-destination":
       if (!hasText(destination) || !chatDestinationSet.has(destination)) {
         errors.push(`${path}.destination must target a known chat destination.`);
-      }
-      break;
-    case "open-showcase":
-      if (showcaseId !== NO_MODEL_GAME_SHOWCASE_ID) {
-        errors.push(`${path}.showcaseId must target a known showcase.`);
       }
       break;
     default:

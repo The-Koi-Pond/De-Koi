@@ -79,10 +79,6 @@ const agentResultTypeValues = [
   "spotify_control",
   "cyoa_choices",
   "secret_plot",
-  "game_master_narration",
-  "party_action",
-  "game_map_update",
-  "game_state_transition",
 ] satisfies AgentResultType[];
 const agentResultTypes = new Set<string>(agentResultTypeValues);
 

@@ -71,17 +71,10 @@ Different chat modes render content differently. Use `@chat-mode` blocks to targ
       background: rgba(0, 30, 0, 0.8);
     }
   }
-
-  /* Only in Game mode */
-  @chat-mode game {
-    [data-card-css] {
-      border: 1px solid rgba(0, 255, 0, 0.2);
-    }
-  }
 </style>
 ```
 
-CSS outside any `@chat-mode` block applies everywhere. Standard `@media` queries work normally inside `@chat-mode` blocks for responsive layouts.
+CSS outside any `@chat-mode` block applies everywhere. Standard `@media` queries work normally inside `@chat-mode` blocks for responsive layouts. Cards made for Marinara Engine may still carry `@chat-mode game { ... }` blocks; De-Koi has no Game mode, so those rules never apply.
 
 ---
 
@@ -233,16 +226,6 @@ You can also **swap the avatar image itself**, per character, without any CSS: t
 
 - **While a message is being edited, its card CSS is turned off** so the edit box uses the app's plain style. You don't need to design for the editing state — only the normal display.
 - **A multi-paragraph reply renders as a single `.mari-message-body`**, not several stacked bubbles — so your borders, corners, and `::after` stickers wrap the whole reply cleanly. Use `[data-card-css]:not([data-grouped])` for the first message in a run and `[data-grouped]` for continuations.
-
-### Game Mode
-
-Game mode is primarily GM/narrator-driven. Currently, card CSS applies to log entries that are attributed to specific characters via `data-card-css`. The active narration/dialogue segments do not yet carry character-specific CSS attributes — this may be added in a future update.
-
-**What works in Game mode:**
-
-- Styling log entries attributed to the character
-- Terminal/info-box styled blocks (if used with shared-base CSS)
-- Background and text color changes on attributed narration
 
 ---
 
@@ -435,19 +418,6 @@ Here's a full example for a cyberpunk character that looks different in each mod
     }
     [data-card-css]:hover {
       border-color: rgba(0, 255, 0, 0.5);
-    }
-  }
-
-  /* Game: tactical styling */
-  @chat-mode game {
-    [data-card-css] {
-      border: 1px solid rgba(0, 255, 0, 0.2);
-      border-radius: 4px;
-      background: rgba(0, 20, 0, 0.4);
-    }
-    [data-card-css] p {
-      font-family: "Courier New", monospace;
-      color: #b0ffb0;
     }
   }
 </style>

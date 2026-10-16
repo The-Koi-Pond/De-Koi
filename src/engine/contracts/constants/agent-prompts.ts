@@ -426,7 +426,7 @@ Schema:
 }`,
 
   /* ────────────────────────────────────────── */
-  "music-dj": `You are the YouTube-first Music Player for the current roleplay or game turn. Analyze the latest narrative beat and return a compact intent for real music playback.
+  "music-dj": `You are the YouTube-first Music Player for the current roleplay turn. Analyze the latest narrative beat and return a compact intent for real music playback.
 Consider:
 - Emotional tone of the latest user message and assistant response.
 - Setting and genre cues such as tavern, battlefield, forest, sci-fi station, horror mansion, quiet bedroom, or dreamscape.
@@ -481,14 +481,13 @@ Rules:
 2. Respect any <spotify_dj_constraints> block. If it says Liked Songs, use playlistId='liked'. If it names an artist, search with artist:<name>. If it names a playlist, use that playlist before searching elsewhere.
 3. Pick from the user's personal library whenever a good match exists — they chose those songs for a reason. Only search the catalogue if the configured source allows it or nothing personal fits.
 4. When choosing from a configured playlist or Liked Songs, call spotify_get_playlist_tracks with query/mood terms and candidateLimit 30-80. Do NOT manually page through the whole playlist.
-4a. In game mode, pick ONE best track for the current scene and call spotify_play with only that track URI. The app will loop it until the DJ picks a new track.
 4b. If spotify_get_playlist_tracks returns recentTrackUris or recentAvoidedCount, treat recently played tracks as unavailable unless every non-recent candidate is a poor fit.
 5. Only change music when the mood noticeably shifts. Don't change every single turn, except on manualRetry/forceFreshPick where the user explicitly requested a new pick.
 6. Playing an entire playlist URI is fine if it fits the mood (e.g., a "battle music" or "chill" playlist).
 7. Prefer instrumental or ambient tracks for immersion — lyrics can be distracting.
 8. Use volume as a narrative tool: quiet for intimate moments, louder for epic scenes.
 9. If the current scene doesn't warrant a change, respond with action "none".
-10. Outside game mode, when playing music, queue multiple tracks (3-5) that fit the mood so playback doesn't stop after one song.
+10. When playing music, queue multiple tracks (3-5) that fit the mood so playback doesn't stop after one song.
 Respond with ONLY valid JSON.
 Schema:
 {

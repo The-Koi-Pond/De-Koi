@@ -45,7 +45,7 @@ Explain this shape:
 - `src/engine/capabilities`: ports passed into engine services and implemented at the feature/app edge.
 - `src/engine/modes/chat`: normal chat and autonomous conversation.
 - `src/engine/modes/roleplay`: roleplay scenes, encounters, and visual-novel behavior.
-- `src/engine/modes/game`: game turns, prompts, mechanics, world, state, and assets.
+- `src/engine/modes/fanfic`: fanfic request, outline, chapter prompts, and export.
 - `src-tauri/src`: Tauri host, command registration, hostable HTTP server/dispatch, and `de-koi-server`.
 - `src-tauri/crates`: Rust local capabilities.
 
@@ -82,7 +82,7 @@ Test one workflow at a time and write down exact steps.
 - Chat: create/select connection, create/select character/persona, send a message, regenerate, retry, swipe/branch, test attachments and summaries if available.
 - Autonomous chat: enable/trigger autonomous behavior, observe schedule/status, verify persisted message changes.
 - Roleplay: create/fork/conclude a scene, use choices, test scene memory, sprites, and roleplay encounter flow.
-- Game: create game, start session, send a turn, retry, use dice/check/combat/map/journal/weather/time flows, test asset/music behavior.
+- Fanfic: submit a request, review or skip the outline, generate and redo a chapter, use Clean up prose and Listen.
 - Settings/providers: create connection, test connection, send test message, verify provider-specific errors are visible.
 - Imports/assets: import a character/lorebook/preset/persona, upload avatars/backgrounds/assets, export a current-format package.
 - Integrations: test TTS, translation, and Spotify only when credentials are available.
@@ -113,7 +113,7 @@ Then map the bug to an owner:
 When the user gives a concrete bug:
 
 1. Load `de-koi-bugfix-discipline`.
-2. Load `de-koi-mode-separation` if the issue touches chat, roleplay, game, prompts, or generation.
+2. Load `de-koi-mode-separation` if the issue touches chat, roleplay, fanfic, prompts, or generation.
 3. State owner, impact area, likely files, and checks.
 4. Fix the root cause.
 5. Run targeted checks.

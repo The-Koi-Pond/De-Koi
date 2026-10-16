@@ -2,8 +2,9 @@
 // Chat CSS — sanitization and scoping utilities
 // ──────────────────────────────────────────────
 
-export type ChatModeFilter = "roleplay" | "conversation" | "game";
+export type ChatModeFilter = "roleplay" | "conversation";
 
+// `game` stays recognized so imported cards that still target it never leak those rules into other modes.
 const CHAT_MODE_RE = /@chat-mode\s+(roleplay|conversation|game)\s*\{/gi;
 
 function findCssBlockEnd(css: string, bodyStart: number): { end: number; closed: boolean } {
@@ -59,7 +60,7 @@ function findCssBlockEnd(css: string, bodyStart: number): { end: number; closed:
  *
  * - `@chat-mode conversation { ... }` → included only in conversation mode
  * - `@chat-mode roleplay { ... }` → included only in roleplay mode
- * - `@chat-mode game { ... }` → included only in game mode
+ * - `@chat-mode game { ... }` → never included (Game mode was removed; imported cards may still carry it)
  * - CSS outside any `@chat-mode` block → included in ALL modes
  *
  * Card creators use this to target styles to specific surfaces while

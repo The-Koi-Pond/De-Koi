@@ -137,8 +137,8 @@ const tableMetadata = {
     notes: "Per-message/swipe tracker state.",
   },
   game_checkpoints: {
-    deKoi: "`game-checkpoints`",
-    notes: "Game rollback/checkpoint rows.",
+    deKoi: "Not imported",
+    notes: "Game rollback/checkpoint rows. De-Koi removed Game mode, so these rows and Game chats are skipped on import.",
   },
   regex_scripts: {
     deKoi: "`regex-scripts`",

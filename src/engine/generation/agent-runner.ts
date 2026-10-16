@@ -38,9 +38,7 @@ import {
   lorebookEntryPassesContextFilters,
   type GameStateForScanning,
 } from "../generation-core/lorebooks/keyword-scanner";
-import { resolveGameLorebookScopeExclusions } from "../generation-core/lorebooks/game-lorebook-scope";
 import { resolveLorebookKeeperTarget } from "../generation-core/lorebooks/lorebook-keeper-target";
-import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import {
   BUILT_IN_AGENT_TYPES,
   buildBuiltInAgentFallback,
@@ -621,20 +619,8 @@ function chatActiveLorebookIds(input: GenerationAgentRuntimeInput): Set<string> 
   return new Set([...stringSet(chatMetadata(input).activeLorebookIds), ...stringSet(input.chat.activeLorebookIds)]);
 }
 
-function lorebookExcludedByAgentScope(lorebook: JsonRecord, input: GenerationAgentRuntimeInput): boolean {
-  const scopeExclusions = resolveGameLorebookScopeExclusions(
-    readString(input.chat.mode || input.chat.chatMode),
-    chatMetadata(input),
-  );
-  const lorebookId = readString(lorebook.id).trim();
-  if (scopeExclusions.excludedLorebookIds.includes(lorebookId)) return true;
-  if (scopeExclusions.excludedSourceAgentIds.includes(readString(lorebook.sourceAgentId).trim())) return true;
-  return false;
-}
-
 function lorebookAppliesToAgentContext(lorebook: JsonRecord, input: GenerationAgentRuntimeInput): boolean {
   if (!boolish(lorebook.enabled, true)) return false;
-  if (lorebookExcludedByAgentScope(lorebook, input)) return false;
 
   if (boolish(lorebook.isGlobal ?? lorebook.global, false)) return true;
 
@@ -753,10 +739,7 @@ async function loadKnowledgeSourceLorebookEntries(
   const sourceIds = normalizeKnowledgeSourceLorebookIds(
     settings,
     scopedLorebooks.map((lorebook) => readString(lorebook.id).trim()).filter(Boolean),
-  ).filter((lorebookId) => {
-    const lorebook = lorebookById.get(lorebookId);
-    return !lorebook || !lorebookExcludedByAgentScope(lorebook, input);
-  });
+  );
   if (sourceIds.length === 0) return [];
 
   const rows = await Promise.all(
@@ -866,16 +849,8 @@ async function runKnowledgePreGenerationAgents(
   return { injections, results };
 }
 
-function promptVisibleStoredMessages(
-  input: GenerationAgentRuntimeInput,
-  chatMode = readString(input.chat.mode || input.chat.chatMode, "roleplay"),
-  chatMeta = parseRecord(input.chat.metadata),
-): JsonRecord[] {
-  return chatMode === "game" ? applyAllSegmentEdits(input.storedMessages, chatMeta) : input.storedMessages;
-}
-
 function activationScanMessages(input: GenerationAgentRuntimeInput): ActivationScanMessage[] {
-  return promptVisibleStoredMessages(input)
+  return input.storedMessages
     .filter((message) => !hiddenFromAi(message))
     .map((message) => ({ content: readString(message.content) }));
 }
@@ -1121,7 +1096,7 @@ function suppressAgentForTurn(input: GenerationAgentRuntimeInput, type: string):
   const isRegeneration = !!readString(input.regenerateMessageId).trim();
   if (isRegeneration && type === "echo-chamber") return true;
   const mode = chatMode(input);
-  const manualTrackerMode = mode !== "conversation" && mode !== "game";
+  const manualTrackerMode = mode !== "conversation";
   if (
     manualTrackerMode &&
     !input.agentTypes &&
@@ -1336,18 +1311,15 @@ function cleanOptionalString(value: unknown): string | null {
 }
 
 function buildSpotifyDjConstraints(
-  chatMode: string,
   chatMeta: JsonRecord,
   options: { manualRetry?: boolean; forceFreshPick?: boolean } = {},
 ): Record<string, unknown> {
-  const isGame = chatMode === "game";
-  const sourceType = normalizeSpotifyDjSourceType(isGame ? chatMeta.gameSpotifySourceType : chatMeta.spotifySourceType);
-  const playlistId = cleanOptionalString(isGame ? chatMeta.gameSpotifyPlaylistId : chatMeta.spotifyPlaylistId);
-  const playlistName = cleanOptionalString(isGame ? chatMeta.gameSpotifyPlaylistName : chatMeta.spotifyPlaylistName);
-  const artist = cleanOptionalString(isGame ? chatMeta.gameSpotifyArtist : chatMeta.spotifyArtist);
+  const sourceType = normalizeSpotifyDjSourceType(chatMeta.spotifySourceType);
+  const playlistId = cleanOptionalString(chatMeta.spotifyPlaylistId);
+  const playlistName = cleanOptionalString(chatMeta.spotifyPlaylistName);
+  const artist = cleanOptionalString(chatMeta.spotifyArtist);
   const constraints: Record<string, unknown> = {
-    mode: isGame ? "game" : "roleplay",
-    replaceBuiltInMusic: isGame && (chatMeta.gameUseMusicDj === true || chatMeta.gameUseSpotifyMusic === true),
+    mode: "roleplay",
     sourceType,
     playlistId: sourceType === "liked" ? "liked" : sourceType === "playlist" ? playlistId : null,
     playlistName: sourceType === "playlist" ? playlistName : null,
@@ -1374,9 +1346,8 @@ function buildSpotifyDjConstraints(
   }
 
   if (options.manualRetry || options.forceFreshPick) {
-    constraints.retryNote = isGame
-      ? "This is a manual Music Player retry from game mode. Pick a fresh fitting track now and call spotify_play unless Spotify playback is unavailable; do not keep the current track merely because it still fits."
-      : "This is a manual Music Player retry from roleplay. Pick a fresh fitting queue now and call spotify_play unless Spotify playback is unavailable.";
+    constraints.retryNote =
+      "This is a manual Music Player retry from roleplay. Pick a fresh fitting queue now and call spotify_play unless Spotify playback is unavailable.";
   }
 
   return constraints;
@@ -1591,7 +1562,7 @@ async function buildAgentContext(
   const chatId = readString(input.chat.id);
   const chatMode = readString(input.chat.mode || input.chat.chatMode, "roleplay");
   const chatMeta = parseRecord(input.chat.metadata);
-  const recentSourceMessages = promptVisibleStoredMessages(input, chatMode, chatMeta);
+  const recentSourceMessages = input.storedMessages;
   const resolvedAgentIds = uniqueStrings(agents.map((agent) => agent.id).filter((id) => readString(id).trim()));
   const memoryRows = await Promise.all(
     resolvedAgentIds.map((agentId) => loadAgentMemory(deps.storage, agentId, chatId)),
@@ -1604,7 +1575,7 @@ async function buildAgentContext(
     const illustratorGuidance = readString(input.illustratorGuidance).trim();
     if (illustratorGuidance) memory._illustratorGuidance = illustratorGuidance;
   }
-  const musicDjConstraints = buildSpotifyDjConstraints(chatMode, chatMeta, {
+  const musicDjConstraints = buildSpotifyDjConstraints(chatMeta, {
     manualRetry: input.spotifyDjManualRetry === true,
     forceFreshPick: input.spotifyDjForceFreshPick === true,
   });

@@ -86,6 +86,7 @@ const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV3";
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
+const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
@@ -235,6 +236,9 @@ impl AppState {
                 crate::storage_commands::chats::prune_orphaned_memory_jobs(storage).map(|_| ())
             },
         )?;
+        run_startup_migration_once(&state.storage, REMOVE_GAME_MODE_MIGRATION_KEY, |_| {
+            crate::storage_commands::game_mode_removal::remove_game_mode_data(&state).map(|_| ())
+        })?;
 
         Ok(state)
     }
@@ -2448,15 +2452,15 @@ mod tests {
     }
 
     #[test]
-    fn app_state_startup_persists_inline_game_avatar_state() {
-        let root = temp_root("inline-game-avatar-repair");
+    fn app_state_startup_persists_inline_tracker_avatar_state() {
+        let root = temp_root("inline-tracker-avatar-repair");
         let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
         storage
             .create(
                 "chats",
                 json!({
                     "id": "chat-1",
-                    "mode": "game",
+                    "mode": "roleplay",
                     "characterIds": [],
                     "gameState": {
                         "presentCharacters": [

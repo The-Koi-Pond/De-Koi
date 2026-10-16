@@ -39,22 +39,6 @@ describe("resolveRecommendedGenerationProfile", () => {
       },
     },
     {
-      name: "grounded game generation",
-      input: {
-        mode: "game" as const,
-        provider: "google",
-        model: "gemini-2.5-pro",
-        capabilities: { reasoning: true },
-        maxContext: 128_000,
-        executionTarget: "embedded" as const,
-      },
-      expected: {
-        profileId: "game-grounded",
-        source: "recommended",
-        parameters: { temperature: 0.6, maxTokens: 3072, reasoningEffort: "low", verbosity: "medium" },
-      },
-    },
-    {
       name: "efficient structured generation",
       input: {
         mode: "structured" as const,

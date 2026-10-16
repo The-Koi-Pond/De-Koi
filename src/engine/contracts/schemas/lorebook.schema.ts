@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { z } from "zod";
 
-export const lorebookCategorySchema = z.enum(["world", "character", "npc", "spellbook", "game", "uncategorized"]);
+export const lorebookCategorySchema = z.enum(["world", "character", "npc", "spellbook", "uncategorized"]);
 
 const lorebookGeneratedBySchema = z.enum(["user", "agent", "import", "lorebook-maker", "game-session"]);
 

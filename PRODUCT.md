@@ -6,7 +6,7 @@ product
 
 ## Users
 
-De-Koi is for AI roleplayers, character chatters, immersive story players, and everyday users who may not be comfortable with technical setup. The product should welcome people who want rich AI conversations, roleplay scenes, game-mode adventures, visual assets, voice, agents, and prompt tools without feeling like they need to be engineers to enjoy it.
+De-Koi is for AI roleplayers, character chatters, immersive story players, and everyday users who may not be comfortable with technical setup. The product should welcome people who want rich AI conversations, roleplay scenes, fanfics, visual assets, voice, agents, and prompt tools without feeling like they need to be engineers to enjoy it.
 
 Primary users include:
 
@@ -17,7 +17,7 @@ Primary users include:
 
 ## Product Purpose
 
-De-Koi is a local, AI-powered chat, roleplay, and game engine built to make advanced AI interaction feel playful, visual, and plug-and-play. It combines conversation mode, immersive roleplay, and game mode into one connected experience where characters, memories, assets, agents, and prompts can work together.
+De-Koi is a local, AI-powered chat, roleplay, and fanfic engine built to make advanced AI interaction feel playful, visual, and plug-and-play. It combines conversation mode, immersive roleplay, and fanfic mode into one connected experience where characters, memories, assets, agents, and prompts can work together.
 
 Success means users can install De-Koi, connect or configure a model, create or import characters, and quickly reach an immersive experience that feels alive. The interface should support serious power-user workflows while still feeling warm, pretty, and unintimidating for people who are bad at tech.
 
@@ -48,7 +48,7 @@ De-Koi should not look like:
    Visual charm matters, but controls still need to be legible, predictable, responsive, and efficient for repeated use.
 
 4. Treat mobile as a first-class play surface.
-   Roleplay, conversation, and game mode should remain usable on phones with touch-friendly controls, readable text, and layouts that do not require desktop precision.
+   Roleplay, conversation, and fanfic mode should remain usable on phones with touch-friendly controls, readable text, and layouts that do not require desktop precision.
 
 5. Let personality show through utility.
    Settings, logs, agents, lorebooks, and prompt tools can still feel playful and polished. Functional screens should not become lifeless.

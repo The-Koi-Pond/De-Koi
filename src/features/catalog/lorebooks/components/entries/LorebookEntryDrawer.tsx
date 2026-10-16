@@ -39,7 +39,6 @@ const MATCHING_SOURCE_OPTIONS: Array<{ value: LorebookMatchingSource; label: str
 const GENERATION_TRIGGER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "conversation", label: "Conversation" },
   { value: "roleplay", label: "Roleplay" },
-  { value: "game", label: "Game" },
   { value: "chat", label: "Chat reply" },
   { value: "continue", label: "Continue" },
   { value: "autonomous", label: "Autonomous" },
@@ -47,7 +46,6 @@ const GENERATION_TRIGGER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "impersonate", label: "Impersonate" },
   { value: "prompt_preview", label: "Prompt preview" },
   { value: "test_scan", label: "Test scan" },
-  { value: "game_setup", label: "Game setup" },
   { value: "lorebook_assistant", label: "Lorebook Assistant" },
 ];
 

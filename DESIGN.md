@@ -1,6 +1,6 @@
 ---
 name: "De-Koi"
-description: "A playful immersive AI chat, roleplay, and game engine with visual novel warmth."
+description: "A playful immersive AI chat, roleplay, and fanfic engine with visual novel warmth."
 colors:
   pond-depth: "#05090d"
   parchment-text: "#f1dfc9"
@@ -220,18 +220,18 @@ De-Koi uses a hybrid of tonal layering, low glow, and selective frosted surfaces
 ### Navigation
 
 - **Style:** Persistent sidebars use Sidebar Pond, compact labels, active ember or lotus accents, and enough contrast for long sessions.
-- **Mobile Treatment:** Navigation and settings controls must be touch-friendly, avoid hover-only disclosure, and keep primary chat/game actions reachable.
+- **Mobile Treatment:** Navigation and settings controls must be touch-friendly, avoid hover-only disclosure, and keep primary chat actions reachable.
 
-### Chat, Roleplay, and Game Surfaces
+### Chat and Roleplay Surfaces
 
-Conversation mode can use familiar message bubbles, but roleplay and game mode should feel more like visual novel and RPG surfaces. Sprites, backgrounds, narration boxes, dice, maps, and command badges should support the scene without making logs or controls hard to scan.
+Conversation mode can use familiar message bubbles, but roleplay should feel more like a visual novel surface. Sprites, backgrounds, narration boxes, dice, maps, and command badges should support the scene without making logs or controls hard to scan.
 
 ## 6. Do's and Don'ts
 
 ### Do:
 
 - **Do** use the existing semantic tokens (`--primary`, `--background`, `--card`, `--muted`, `--border`) before adding one-off colors.
-- **Do** keep game and roleplay surfaces immersive, with room for sprites, backgrounds, voice, image prompts, and command results.
+- **Do** keep roleplay surfaces immersive, with room for sprites, backgrounds, voice, image prompts, and command results.
 - **Do** make mobile controls touch-friendly and readable, especially settings drawers, prompt editors, maps, logs, and modal workflows.
 - **Do** pair color with labels, icons, shape, or state text for color-blind support.
 - **Do** use solid or near-solid surfaces for long text, JSON repair, prompt previews, and advanced parameter fields.
@@ -240,7 +240,7 @@ Conversation mode can use familiar message bubbles, but roleplay and game mode s
 
 - **Don't** turn De-Koi into a sterile SaaS dashboard with gray card grids and dry enterprise spacing.
 - **Don't** make it a bland SillyTavern clone. Compatibility themes may exist, but De-Koi's default should keep its own koi-pond visual novel identity.
-- **Don't** make it feel like a generic Discord clone. Chat familiarity is useful, but roleplay and game mode need their own atmosphere.
+- **Don't** make it feel like a generic Discord clone. Chat familiarity is useful, but roleplay needs its own atmosphere.
 - **Don't** build developer-only control panels that assume technical confidence. Advanced settings still need clear labels, forgiving defaults, and helpful validation.
 - **Don't** use colored side-stripe borders, decorative gradient text, nested cards, or glassmorphism as the default layout answer.
 - **Don't** rely on hover for important mobile actions.

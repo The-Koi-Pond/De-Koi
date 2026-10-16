@@ -28,16 +28,9 @@ export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {
   roleplay: {
     id: "roleplay",
     name: "Roleplay",
-    description: "Immersive roleplay with characters, game state tracking, and world simulation.",
+    description: "Immersive roleplay with characters, story state tracking, and world simulation.",
     icon: "🎭",
     defaultAgents: ["world-state", "continuity", "expression"],
-  },
-  game: {
-    id: "game",
-    name: "Game",
-    description: "AI-managed singleplayer RPG with a Game Master, party, dice, maps, and quests.",
-    icon: "🎲",
-    defaultAgents: ["world-state", "quest", "expression", "combat"],
   },
   fanfic: {
     id: "fanfic",

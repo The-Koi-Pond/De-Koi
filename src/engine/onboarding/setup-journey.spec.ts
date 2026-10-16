@@ -33,17 +33,17 @@ const desktopFacts = (overrides: Partial<SetupReadinessFacts> = {}): SetupReadin
 
 describe("setup journey model", () => {
   it("configures a missing web runtime", () => {
-    expect(deriveSetupJourneyAction(webFacts({ runtimeUrl: "" }), intent("game"))).toBe("configure-runtime");
+    expect(deriveSetupJourneyAction(webFacts({ runtimeUrl: "" }), intent("fanfic"))).toBe("configure-runtime");
   });
 
   it("repairs an unhealthy web runtime", () => {
-    expect(deriveSetupJourneyAction(webFacts({ runtimeHealth: "error" }), intent("game"))).toBe("repair-runtime");
+    expect(deriveSetupJourneyAction(webFacts({ runtimeHealth: "error" }), intent("fanfic"))).toBe("repair-runtime");
   });
 
   it.each(["unknown", "not-required"] as const)(
     "does not advance past a configured but %s web runtime",
     (runtimeHealth) => {
-      expect(deriveSetupJourneyAction(webFacts({ runtimeHealth }), intent("game"))).toBe("repair-runtime");
+      expect(deriveSetupJourneyAction(webFacts({ runtimeHealth }), intent("fanfic"))).toBe("repair-runtime");
       expect(isSetupReady(webFacts({ runtimeHealth }))).toBe(false);
     },
   );
@@ -62,7 +62,7 @@ describe("setup journey model", () => {
   });
 
   it("configures chat once infrastructure is ready", () => {
-    expect(deriveSetupJourneyAction(desktopFacts(), intent("game"))).toBe("configure-chat");
+    expect(deriveSetupJourneyAction(desktopFacts(), intent("fanfic"))).toBe("configure-chat");
   });
 
   it("chooses an experience when ready without intent", () => {
@@ -73,14 +73,14 @@ describe("setup journey model", () => {
     expect(
       deriveSetupJourneyAction(
         desktopFacts({ runtimeUrl: "", runtimeHealth: "error", usableConnectionCount: 0 }),
-        intent("game"),
+        intent("fanfic"),
       ),
     ).toBe("create-connection");
   });
 
   it("returns complete only after completion is explicitly recorded", () => {
     expect(isSetupReady(desktopFacts())).toBe(true);
-    expect(deriveSetupJourneyAction(desktopFacts(), intent("game"))).toBe("configure-chat");
-    expect(deriveSetupJourneyAction(desktopFacts(), intent("game", true))).toBe("complete");
+    expect(deriveSetupJourneyAction(desktopFacts(), intent("fanfic"))).toBe("configure-chat");
+    expect(deriveSetupJourneyAction(desktopFacts(), intent("fanfic", true))).toBe("complete");
   });
 });

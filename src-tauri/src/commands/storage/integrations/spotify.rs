@@ -1998,7 +1998,7 @@ fn build_recent_chat_context(
     persona_name: Option<&str>,
 ) -> AppResult<Vec<Value>> {
     let mut contexts = Vec::new();
-    for mode in ["conversation", "roleplay", "game"] {
+    for mode in ["conversation", "roleplay"] {
         let Some(chat) = chats
             .iter()
             .filter(|chat| chat.get("mode").and_then(Value::as_str) == Some(mode))

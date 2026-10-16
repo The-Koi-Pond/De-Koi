@@ -9,8 +9,6 @@ import {
 import { loadChatMessages, requireRecord } from "./context";
 import { loadCharacters, loadPersona } from "./prompt-assembly";
 import { hiddenFromAi, readString, type JsonRecord } from "./runtime-records";
-import { resolveVisibleGameStateAnchor } from "./generate-route-utils";
-import { selectTrackerSnapshotForGeneration } from "./tracker-snapshots";
 
 export interface ActiveLorebookScanResult {
   entries: Array<{
@@ -48,7 +46,7 @@ function selectMessagesForLastGenerationScan(messages: JsonRecord[]): JsonRecord
 
 function activeInfoGenerationTriggers(chat: JsonRecord, options: ActiveLorebookScanOptions): string[] {
   const mode = readString(chat.mode || chat.chatMode).trim();
-  const modeTrigger = mode === "game" ? "game" : mode || "roleplay";
+  const modeTrigger = mode || "roleplay";
   const triggers = options.includeTestScanTrigger ? ["test_scan", modeTrigger, "chat"] : [modeTrigger, "chat"];
   return Array.from(new Set(triggers));
 }
@@ -60,27 +58,7 @@ export async function scanActiveLorebookEntries(
 ): Promise<ActiveLorebookScanResult> {
   const rawChat = requireRecord(await storage.get("chats", chatId), "Chat");
   const storedMessages = await loadChatMessages(storage, chatId);
-  const chatMode = readString(rawChat.mode || rawChat.chatMode).trim();
-
-  // For game-mode chats, resolve the visible-anchor game state snapshot
-  // so the preview matches what generation actually sees.
-  let chat = rawChat;
-  if (chatMode === "game") {
-    try {
-      const visibleAnchor = resolveVisibleGameStateAnchor(storedMessages);
-      if (visibleAnchor) {
-        const snapshot = await selectTrackerSnapshotForGeneration(storage, chatId, {
-          preferLatestVisible: true,
-          visibleAnchor,
-        });
-        if (snapshot) {
-          chat = { ...rawChat, gameState: snapshot as unknown as JsonRecord };
-        }
-      }
-    } catch {
-      // Fall through to raw chat.gameState
-    }
-  }
+  const chat = rawChat;
 
   const characters = await loadCharacters(storage, chat);
   const persona = await loadPersona(storage, chat);

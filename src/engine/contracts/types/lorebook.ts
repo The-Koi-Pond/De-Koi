@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 
 /** Top-level lorebook categories. */
-export type LorebookCategory = "world" | "character" | "npc" | "spellbook" | "game" | "uncategorized";
+export type LorebookCategory = "world" | "character" | "npc" | "spellbook" | "uncategorized";
 
 /** Selective logic operators. */
 export type SelectiveLogic = "and" | "or" | "not";

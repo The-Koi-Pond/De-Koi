@@ -4692,7 +4692,7 @@ mod tests {
                     json!({
                         "id": "middle",
                         "name": "Middle",
-                        "mode": "game",
+                        "mode": "fanfic",
                         "createdAt": "2026-01-01T00:00:00Z",
                         "updatedAt": "2026-01-03T00:00:00Z",
                         "metadata": { "pinned": false, "tags": ["warm"], "secret": "omit" }
@@ -4729,7 +4729,7 @@ mod tests {
                 {
                     "id": "middle",
                     "name": "Middle",
-                    "mode": "game",
+                    "mode": "fanfic",
                     "updatedAt": "2026-01-03T00:00:00Z",
                     "metadata": { "pinned": false, "tags": ["warm"] }
                 }
@@ -6244,7 +6244,7 @@ mod tests {
         create_record(
             &state,
             "chat-presets",
-            json!({ "id": "game-a", "name": "Game", "mode": "game", "isActive": true, "active": true }),
+            json!({ "id": "fanfic-a", "name": "Fanfic", "mode": "fanfic", "isActive": true, "active": true }),
         );
 
         let selected = chat_preset_set_active_inner(&state, "conversation-b")
@@ -6259,7 +6259,7 @@ mod tests {
             json!(true)
         );
         assert_eq!(
-            read_record(&state, "chat-presets", "game-a")["isActive"],
+            read_record(&state, "chat-presets", "fanfic-a")["isActive"],
             json!(true)
         );
     }
@@ -6280,7 +6280,7 @@ mod tests {
         create_record(
             &state,
             "chat-folders",
-            json!({ "id": "game-a", "name": "Game", "mode": "game", "sortOrder": 0, "order": 0 }),
+            json!({ "id": "fanfic-a", "name": "Fanfic", "mode": "fanfic", "sortOrder": 0, "order": 0 }),
         );
 
         let error =
@@ -6302,7 +6302,7 @@ mod tests {
             vec![
                 "conversation-b".to_string(),
                 "conversation-a".to_string(),
-                "game-a".to_string(),
+                "fanfic-a".to_string(),
             ],
         )
         .expect_err("foreign mode folder should reject reorder");
@@ -6316,7 +6316,7 @@ mod tests {
             json!(1)
         );
         assert_eq!(
-            read_record(&state, "chat-folders", "game-a")["sortOrder"],
+            read_record(&state, "chat-folders", "fanfic-a")["sortOrder"],
             json!(0)
         );
         chat_folder_reorder_inner(
@@ -6334,7 +6334,7 @@ mod tests {
             json!(1)
         );
         assert_eq!(
-            read_record(&state, "chat-folders", "game-a")["sortOrder"],
+            read_record(&state, "chat-folders", "fanfic-a")["sortOrder"],
             json!(0)
         );
     }
@@ -8953,7 +8953,7 @@ mod tests {
             &state,
             "chat-folders".to_string(),
             "folder-a".to_string(),
-            json!({ "mode": "game" }),
+            json!({ "mode": "fanfic" }),
         )
         .expect_err("incompatible filed chats should block folder mode changes");
         assert_eq!(error.code, "invalid_input");
@@ -9365,7 +9365,7 @@ mod tests {
             json!({
                 "id": "game-chat",
                 "title": "Game Chat",
-                "mode": "game"
+                "mode": "fanfic"
             }),
         )
         .expect("chat should be created");
@@ -9386,7 +9386,7 @@ mod tests {
         storage_create_inner(
             &state,
             "chat-folders".to_string(),
-            json!({ "id": "game-folder", "name": "Game", "mode": "game" }),
+            json!({ "id": "fanfic-folder", "name": "Fanfic", "mode": "fanfic" }),
         )
         .expect("folder should be created");
         storage_create_inner(
@@ -9395,7 +9395,7 @@ mod tests {
             json!({
                 "id": "game-chat",
                 "title": "Game Chat",
-                "mode": "game"
+                "mode": "fanfic"
             }),
         )
         .expect("chat should be created");
@@ -9404,10 +9404,42 @@ mod tests {
             &state,
             "chats".to_string(),
             "game-chat".to_string(),
-            json!({ "folderId": "game-folder" }),
+            json!({ "folderId": "fanfic-folder" }),
         )
         .expect("compatible folder assignment should succeed");
-        assert_eq!(updated["folderId"], "game-folder");
+        assert_eq!(updated["folderId"], "fanfic-folder");
+    }
+
+    #[test]
+    fn chats_cannot_be_created_or_switched_into_removed_game_mode() {
+        let state = test_state("chat-removed-game-mode");
+        let error = storage_create_inner(
+            &state,
+            "chats".to_string(),
+            json!({ "name": "Old tab", "mode": "game", "characterIds": [] }),
+        )
+        .expect_err("new Game chats should be rejected");
+        assert_eq!(error.code, "invalid_input");
+
+        let chat = storage_create_inner(
+            &state,
+            "chats".to_string(),
+            json!({ "name": "Scene", "mode": "roleplay", "characterIds": [] }),
+        )
+        .expect("roleplay chat should be created");
+        let id = chat["id"].as_str().expect("chat id").to_string();
+        let error = storage_update_inner(
+            &state,
+            "chats".to_string(),
+            id.clone(),
+            json!({ "mode": "game" }),
+        )
+        .expect_err("switching a chat to Game mode should be rejected");
+        assert_eq!(error.code, "invalid_input");
+        assert_eq!(
+            state.storage.get("chats", &id).unwrap().unwrap()["mode"],
+            "roleplay"
+        );
     }
 
     #[test]
@@ -9416,7 +9448,7 @@ mod tests {
         storage_create_inner(
             &state,
             "chat-folders".to_string(),
-            json!({ "id": "game-folder", "name": "Game", "mode": "game" }),
+            json!({ "id": "fanfic-folder", "name": "Fanfic", "mode": "fanfic" }),
         )
         .expect("game folder should be created");
         storage_create_inner(
@@ -9444,17 +9476,17 @@ mod tests {
             &state,
             "chats".to_string(),
             "chat-compatible".to_string(),
-            json!({ "mode": "game", "folderId": "game-folder" }),
+            json!({ "mode": "fanfic", "folderId": "fanfic-folder" }),
         )
         .expect("post-patch mode and folder should be compatible");
-        assert_eq!(compatible["mode"], "game");
-        assert_eq!(compatible["folderId"], "game-folder");
+        assert_eq!(compatible["mode"], "fanfic");
+        assert_eq!(compatible["folderId"], "fanfic-folder");
 
         let incompatible = storage_update_inner(
             &state,
             "chats".to_string(),
             "chat-incompatible".to_string(),
-            json!({ "mode": "roleplay", "folderId": "game-folder" }),
+            json!({ "mode": "roleplay", "folderId": "fanfic-folder" }),
         )
         .expect_err("post-patch mode and folder mismatch should reject");
         assert_eq!(incompatible.code, "invalid_input");
@@ -9485,7 +9517,7 @@ mod tests {
             &state,
             "chats".to_string(),
             "chat-a".to_string(),
-            json!({ "mode": "game" }),
+            json!({ "mode": "fanfic" }),
         )
         .expect_err("mode-only patch should validate existing folder");
         assert_eq!(error.code, "invalid_input");

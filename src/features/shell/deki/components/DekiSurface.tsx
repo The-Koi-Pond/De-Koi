@@ -1,3 +1,4 @@
+import "../../../../styles/globals/08-deki-pond.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
@@ -222,9 +223,7 @@ function actionTitle(action: DekiEntryAction) {
 }
 
 function chatModeLabel(mode: DekiChatAccessMode): string {
-  if (mode === "conversation") return "conversation";
-  if (mode === "roleplay") return "roleplay";
-  return "game";
+  return mode === "conversation" ? "conversation" : "roleplay";
 }
 
 function chatAccessScopeLabel(scope: DekiChatAccessScope): string {

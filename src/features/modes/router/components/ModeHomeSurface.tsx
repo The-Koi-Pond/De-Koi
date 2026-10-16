@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Server, Theater } from "lucide-react";
+import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
@@ -13,12 +13,11 @@ import { RecentChats } from "./RecentChats";
 import { getHomeSuggestions, type HomeSuggestionDestination } from "../lib/home-suggestions";
 import { useLibraryPresence } from "../../../catalog/library-presence";
 
-type QuickStartMode = "conversation" | "roleplay" | "game" | "fanfic";
+type QuickStartMode = "conversation" | "roleplay" | "fanfic";
 
 const quickStartModePreloads: Record<QuickStartMode, () => Promise<unknown>> = {
   conversation: () => import("../../conversation/index"),
   roleplay: () => import("../../roleplay/index"),
-  game: () => import("../../game/index"),
   fanfic: () => import("../../fanfic/index"),
 };
 const preloadedQuickStartModes = new Set<QuickStartMode>();
@@ -63,12 +62,10 @@ function HomeSplashLetters({ text }: { text: string }) {
 }
 
 export function ModeHomeSurface({
-  onOpenNoModelShowcase,
   onOpenDiscover,
   hasActivity = false,
   readinessSurface = null,
 }: {
-  onOpenNoModelShowcase?: () => void;
   onOpenDiscover?: () => void;
   hasActivity?: boolean;
   readinessSurface?: ReactNode;
@@ -95,9 +92,9 @@ export function ModeHomeSurface({
   });
 
   const runHomeSuggestion = (destination: HomeSuggestionDestination) => {
-    if (destination === "sample-world") return onOpenNoModelShowcase?.();
     if (destination === "discover") return onOpenDiscover?.();
     const ui = useUIStore.getState();
+    if (destination === "connect-model") return ui.openRightPanel("connections");
     ui.openRightPanel("settings");
     ui.setSettingsTab(destination === "library-import" ? "import" : "advanced");
   };
@@ -167,7 +164,7 @@ export function ModeHomeSurface({
 
             <div
               className={cn(
-                "grid w-full max-w-[22rem] min-w-0 grid-cols-2 gap-2 px-0 sm:max-w-[42rem] sm:grid-cols-4 sm:gap-4",
+                "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 sm:max-w-[32rem] sm:gap-4",
                 showQuickStartEntranceEffects && "stagger-children",
               )}
             >
@@ -192,17 +189,6 @@ export function ModeHomeSurface({
                 tooltip="For roleplaying or creative writing with one or more characters"
                 onPrewarm={() => prewarmQuickStartMode("roleplay")}
                 onClick={() => handleQuickStart("roleplay")}
-              />
-              <QuickStartCard
-                icon={<Theater size="1.125rem" />}
-                label="Game"
-                bg="linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)"
-                iconColor="#130d07"
-                labelColor="#d9aa57"
-                shadowColor="rgba(217,170,87,0.18)"
-                tooltip="AI-managed singleplayer RPG with a Game Master, party, dice, maps, and quests"
-                onPrewarm={() => prewarmQuickStartMode("game")}
-                onClick={() => handleQuickStart("game")}
               />
               <QuickStartCard
                 icon={<Feather size="1.125rem" />}
@@ -233,9 +219,11 @@ export function ModeHomeSurface({
                 const Icon =
                   suggestion.destination === "server-setup"
                     ? Server
-                    : suggestion.destination === "library-import"
-                      ? Import
-                      : Compass;
+                    : suggestion.destination === "connect-model"
+                      ? Plug
+                      : suggestion.destination === "library-import"
+                        ? Import
+                        : Compass;
                 return (
                   <button
                     key={suggestion.destination}
