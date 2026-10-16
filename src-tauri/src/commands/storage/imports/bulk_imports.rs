@@ -1672,7 +1672,7 @@ mod tests {
                 r#"{"user_name":"You","character_name":"Bot","chat_metadata":{"note_prompt":"Keep it rainy.","note_depth":2}}"#,
                 r#"{"is_user":true,"mes":"Hello"}"#,
                 concat!(
-                    r#"{"name":"Bot","mes":"Second try","swipe_id":1,"#,
+                    r#"{"name":"Bot","mes":"Second try","swipe_id":1,"send_date":"2026-01-01T10:00:07.000Z","#,
                     r#""swipes":["First try","Second try","","Third try"],"#,
                     r#""extra":{"reasoning":"think two"},"#,
                     r#""swipe_info":[{"send_date":"2026-01-01T10:00:00.000Z","extra":{"reasoning":"think one"}},{"extra":{}},{"extra":{}},{"extra":{}}]}"#
@@ -1716,6 +1716,14 @@ mod tests {
             "2026-01-01T10:00:00.000Z"
         );
         assert!(swipes[2]["extra"].get("thinking").is_none());
+        assert!(
+            swipes[2]["extra"].get("sillyTavernSendDate").is_none(),
+            "a swipe without its own date does not borrow the message's"
+        );
+        assert_eq!(
+            swipes[1]["extra"]["sillyTavernSendDate"],
+            "2026-01-01T10:00:07.000Z"
+        );
 
         let chats = state.storage.list("chats").expect("chats should list");
         assert_eq!(chats[0]["metadata"]["authorNotes"], "Keep it rainy.");

@@ -295,6 +295,8 @@ fn with_st_swipe_details(
             extra.remove("thinking");
         }
     }
+    // Each swipe gets only its own date; the message's date must not leak onto other swipes.
+    extra.remove("sillyTavernSendDate");
     if let Some(send_date) = send_date.map(str::trim).filter(|date| !date.is_empty()) {
         extra.insert(
             "sillyTavernSendDate".to_string(),
@@ -310,6 +312,9 @@ fn with_st_swipe_details(
 /// swipes (stopped generations) are dropped.
 fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Value>, usize) {
     let message_reasoning = st_reasoning(row.get("extra"));
+    let message_date = base_extra
+        .get("sillyTavernSendDate")
+        .and_then(Value::as_str);
     let texts: Vec<&str> = row
         .get("swipes")
         .and_then(Value::as_array)
@@ -321,7 +326,7 @@ fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Val
         })
         .unwrap_or_default();
     if texts.len() < 2 {
-        let extra = with_st_swipe_details(base_extra, message_reasoning, None);
+        let extra = with_st_swipe_details(base_extra, message_reasoning, message_date);
         return (vec![json!({ "content": content, "extra": extra })], 0);
     }
     let active = row
@@ -344,15 +349,17 @@ fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Val
         } else {
             st_reasoning(info.and_then(|info| info.get("extra")))
         };
+        // The shown swipe falls back to the message's date when its swipe_info has none.
         let send_date = info
             .and_then(|info| info.get("send_date"))
-            .and_then(Value::as_str);
+            .and_then(Value::as_str)
+            .or(if is_active { message_date } else { None });
         if is_active {
             active_index = swipes.len();
         }
         swipes.push(json!({
             "content": if is_active { content } else { text },
-            "extra": with_st_swipe_details(base_extra, reasoning, if is_active { None } else { send_date }),
+            "extra": with_st_swipe_details(base_extra, reasoning, send_date),
         }));
     }
     (swipes, active_index)
