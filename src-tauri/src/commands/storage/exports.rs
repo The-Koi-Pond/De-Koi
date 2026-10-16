@@ -1311,10 +1311,12 @@ fn numeric_value(value: Option<&Value>, fallback: i64) -> i64 {
         .unwrap_or(fallback)
 }
 
+/// SillyTavern numbers: 0 AND ANY, 1 NOT ALL, 2 NOT ANY, 3 AND ALL.
 fn st_selective_logic(value: Option<&Value>) -> i64 {
     match value.and_then(Value::as_str) {
-        Some("or") => 1,
+        Some("not_all") => 1,
         Some("not") => 2,
+        Some("and_all") => 3,
         _ => 0,
     }
 }
@@ -1977,6 +1979,26 @@ mod tests {
                 "{collection} should report that no records matched"
             );
         }
+    }
+
+    #[test]
+    fn lorebook_export_writes_sillytavern_selective_logic_numbers() {
+        let entries = json!([
+            { "name": "any", "selectiveLogic": "and" },
+            { "name": "alias", "selectiveLogic": "or" },
+            { "name": "not all", "selectiveLogic": "not_all" },
+            { "name": "not any", "selectiveLogic": "not" },
+            { "name": "all", "selectiveLogic": "and_all" }
+        ]);
+        let exported = compatible_lorebook_export(&json!({ "name": "Book" }), &entries);
+        let logic: Vec<i64> = (0..5)
+            .map(|index| {
+                exported["entries"][index.to_string()]["selectiveLogic"]
+                    .as_i64()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(logic, vec![0, 0, 1, 2, 3]);
     }
 
     #[test]

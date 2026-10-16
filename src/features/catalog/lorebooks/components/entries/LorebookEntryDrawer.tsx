@@ -4,6 +4,7 @@ import type {
   LorebookEntry,
   LorebookFilterMode,
   LorebookMatchingSource,
+  SelectiveLogic,
 } from "../../../../../engine/contracts/types/lorebook";
 import { cn } from "../../../../../shared/lib/utils";
 import { registerAppCloseGuard } from "../../../../../shared/lib/app-close-guard";
@@ -34,6 +35,13 @@ const MATCHING_SOURCE_OPTIONS: Array<{ value: LorebookMatchingSource; label: str
   { value: "character_tags", label: "Character tags" },
   { value: "persona_description", label: "Persona description" },
   { value: "persona_tags", label: "Persona tags" },
+];
+
+const SELECTIVE_LOGIC_OPTIONS: Array<{ value: SelectiveLogic; label: string }> = [
+  { value: "and", label: "AND ANY" },
+  { value: "and_all", label: "AND ALL" },
+  { value: "not", label: "NOT ANY" },
+  { value: "not_all", label: "NOT ALL" },
 ];
 
 const GENERATION_TRIGGER_OPTIONS: Array<{ value: string; label: string }> = [
@@ -173,6 +181,8 @@ export function LorebookEntryDrawer({
   const [saveError, setSaveError] = useState(false);
   const loadedEntryIdRef = useRef(entry.id);
   const formRef = useRef<Partial<LorebookEntry>>({ ...entry });
+  // "or" is the older spelling of AND ANY.
+  const selectedLogic: SelectiveLogic = form.selectiveLogic === "or" ? "and" : (form.selectiveLogic ?? "and");
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
   const changeVersionRef = useRef(0);
@@ -359,23 +369,25 @@ export function LorebookEntryDrawer({
       <FieldGroup
         label="Secondary Keys"
         icon={Key}
-        help="Additional keywords used with AND/OR/NOT logic. 'AND' means both primary AND secondary must match. 'NOT' means primary must match but secondary must NOT."
+        help="Extra keywords checked after a primary key matches. AND ANY: at least one must appear. AND ALL: every one must appear. NOT ANY: none may appear. NOT ALL: at least one must be missing."
       >
         <KeysEditor keys={form.secondaryKeys ?? []} onChange={(keys) => update({ secondaryKeys: keys })} />
         <div className="mt-2 flex items-center gap-3">
           <label className="text-[0.6875rem] text-[var(--muted-foreground)]">Logic:</label>
-          {(["and", "or", "not"] as const).map((logic) => (
+          {SELECTIVE_LOGIC_OPTIONS.map(({ value, label }) => (
             <button
-              key={logic}
-              onClick={() => update({ selectiveLogic: logic })}
+              key={value}
+              type="button"
+              aria-pressed={selectedLogic === value}
+              onClick={() => update({ selectiveLogic: value })}
               className={cn(
                 "rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors",
-                form.selectiveLogic === logic
+                selectedLogic === value
                   ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
                   : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]",
               )}
             >
-              {logic.toUpperCase()}
+              {label}
             </button>
           ))}
         </div>

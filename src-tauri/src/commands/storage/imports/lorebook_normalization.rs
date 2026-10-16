@@ -43,15 +43,19 @@ fn normalize_lorebook_scope(value: Option<&Value>) -> Value {
     })
 }
 
-fn selective_logic_value(value: Option<&Value>) -> &'static str {
+/// SillyTavern numbers secondary-key logic 0 AND ANY, 1 NOT ALL, 2 NOT ANY, 3 AND ALL.
+/// De-Koi and Marinara spell them `and`, `not_all`, `not`, `and_all`; `or` is an older
+/// spelling of AND ANY.
+pub(crate) fn selective_logic_value(value: Option<&Value>) -> &'static str {
     let raw = match value {
         Some(Value::String(raw)) => raw.trim().to_ascii_lowercase(),
         Some(Value::Number(raw)) => raw.as_i64().unwrap_or(0).to_string(),
         _ => String::new(),
     };
     match raw.as_str() {
-        "1" | "or" => "or",
-        "2" | "not" => "not",
+        "1" | "not_all" => "not_all",
+        "2" | "not" | "not_any" => "not",
+        "3" | "and_all" => "and_all",
         _ => "and",
     }
 }
