@@ -286,7 +286,7 @@ pub(super) fn import_st_preset_payload(
             "reasoningEffort": st_reasoning_effort(raw.get("reasoning_effort")),
             "verbosity": Value::Null,
             "serviceTier": Value::Null,
-            "assistantPrefill": "",
+            "assistantPrefill": raw.get("assistant_prefill").and_then(Value::as_str).unwrap_or(""),
             "customParameters": {},
             "squashSystemMessages": raw.get("squash_system_messages").and_then(Value::as_bool).unwrap_or(true),
             "showThoughts": raw.get("show_thoughts").and_then(Value::as_bool).unwrap_or(true),
@@ -296,6 +296,19 @@ pub(super) fn import_st_preset_payload(
             "singleUserMessage": false
         }
     });
+    // SillyTavern saves -1 for "random seed"; De-Koi leaves the seed unset for that.
+    if let Some(seed) = raw
+        .get("seed")
+        .and_then(Value::as_i64)
+        .filter(|seed| *seed >= 0)
+    {
+        if let Some(parameters) = preset_body
+            .get_mut("parameters")
+            .and_then(Value::as_object_mut)
+        {
+            parameters.insert("seed".to_string(), json!(seed));
+        }
+    }
     if let Some(object) = preset_body.as_object_mut() {
         if let Some(value) = raw.get("isDefault") {
             object.insert("isDefault".to_string(), value.clone());
