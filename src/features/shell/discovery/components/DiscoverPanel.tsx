@@ -7,7 +7,7 @@ import {
   type DiscoveryCoverage,
   type DiscoveryEntry,
 } from "../discovery-registry";
-import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE } from "../discovery-types";
+import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE, discoveryCoverageGroup } from "../discovery-types";
 import { getDiscoveryActionLabel, runDiscoveryAction, type DiscoveryActionOutcome } from "../lib/discovery-actions";
 import { filterDiscoveryEntries } from "../lib/discovery-search";
 import { DISCOVERY_TASKS, filterEntriesForDiscoveryTask, type DiscoveryTaskId } from "../lib/discovery-tasks";
@@ -16,12 +16,17 @@ const COVERAGE_LABELS: Record<DiscoveryCoverage, string> = {
   core: "Everyday",
   advanced: "Advanced",
   experimental: "Experimental",
-  "needs-polish": "Needs polish",
+  "needs-polish": "Experimental",
 };
 
-/** Coverage filters that some entry uses, so no filter is a dead end. */
-const COVERAGE_FILTERS = DISCOVERY_COVERAGE.filter((item) =>
-  DISCOVERY_ENTRIES.some((entry) => entry.coverage === item),
+/**
+ * One filter per label users see (Experimental covers needs-polish too), and only filters
+ * some entry uses, so no filter repeats or leads to an empty list.
+ */
+const COVERAGE_FILTERS = DISCOVERY_COVERAGE.filter(
+  (item) =>
+    discoveryCoverageGroup(item) === item &&
+    DISCOVERY_ENTRIES.some((entry) => discoveryCoverageGroup(entry.coverage) === item),
 );
 
 const COVERAGE_CLASS: Record<DiscoveryCoverage, string> = {
