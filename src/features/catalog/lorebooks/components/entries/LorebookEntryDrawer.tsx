@@ -87,9 +87,14 @@ function buildEntrySavePayload(form: Partial<LorebookEntry>) {
     delay: form.delay,
     ephemeral: form.ephemeral,
     group: form.group,
+    groupWeight: form.groupWeight,
+    groupOverride: form.groupOverride,
+    useGroupScoring: form.useGroupScoring,
     tag: form.tag,
     locked: form.locked,
     preventRecursion: form.preventRecursion,
+    excludeRecursion: form.excludeRecursion,
+    delayUntilRecursion: form.delayUntilRecursion,
     excludeFromVectorization: form.excludeFromVectorization,
   };
   const name = typeof form.name === "string" ? form.name.trim() : "";
@@ -479,7 +484,7 @@ export function LorebookEntryDrawer({
         </p>
       </FieldGroup>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <ToggleButton
           label="Whole Words"
           value={form.matchWholeWords ?? false}
@@ -501,6 +506,18 @@ export function LorebookEntryDrawer({
           value={form.preventRecursion ?? false}
           onChange={(v) => update({ preventRecursion: v })}
           tooltip="When enabled, this entry's content won't trigger additional entries during recursive scanning."
+        />
+        <ToggleButton
+          label="Non-recursable"
+          value={form.excludeRecursion ?? false}
+          onChange={(v) => update({ excludeRecursion: v })}
+          tooltip="When enabled, other entries' content can't trigger this entry during recursive scanning. Only the chat can."
+        />
+        <ToggleButton
+          label="Delay to Recursion"
+          value={form.delayUntilRecursion ?? false}
+          onChange={(v) => update({ delayUntilRecursion: v })}
+          tooltip="When enabled, this entry can only trigger during recursive scanning, after another entry has fired."
         />
         <ToggleButton
           label="No Vector"
@@ -557,7 +574,7 @@ export function LorebookEntryDrawer({
       <FieldGroup
         label="Group & Tag"
         icon={Settings2}
-        help="Group entries together so only one from the group activates at a time. Tags are for your own organization."
+        help="When several entries in the same group fire, only one is used: a random pick weighted by Group Weight, or the highest Order when Prioritize is on. Separate several groups with commas. Tags are for your own organization."
       >
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div>
@@ -570,6 +587,24 @@ export function LorebookEntryDrawer({
               placeholder="Group name"
             />
           </div>
+          <NumberField
+            label="Group Weight"
+            value={form.groupWeight ?? 100}
+            onChange={(v) => update({ groupWeight: v })}
+            min={0}
+          />
+          <ToggleButton
+            label="Prioritize"
+            value={form.groupOverride ?? false}
+            onChange={(v) => update({ groupOverride: v })}
+            tooltip="When this entry's group picks one entry, the one with the highest Order wins instead of a weighted random pick."
+          />
+          <ToggleButton
+            label="Group Scoring"
+            value={form.useGroupScoring ?? false}
+            onChange={(v) => update({ useGroupScoring: v })}
+            tooltip="Only the group's entries that matched the most keys take part in the pick."
+          />
           <div>
             <label className="mb-1 block text-[0.6875rem] text-[var(--muted-foreground)]">Tag</label>
             <input
