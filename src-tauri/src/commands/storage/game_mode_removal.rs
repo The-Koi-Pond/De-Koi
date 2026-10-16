@@ -1,16 +1,15 @@
 //! One-time removal of data owned by the retired Game mode.
 //!
-//! Every record removed here is first written, with the gallery images and NPC
-//! portraits it points at, to `backups/removed-game-mode-<timestamp>/` so nothing
-//! is lost silently. Deletion then goes through one atomic write for the small
-//! collections and the normal chat delete cascade for chats.
+//! Every row removed here is first written, with the gallery images and NPC portraits
+//! it points at, to `backups/removed-game-mode-<timestamp>/` so nothing is lost
+//! silently. Deletion is then one atomic write that refuses to delete any row the
+//! backup does not hold.
 
 use super::backgrounds::import_background_file;
-use super::chats::{delete_chats_with_messages, messages_for_chat};
 use super::media_uploads::managed_record_file_path;
 use crate::state::AppState;
 use marinara_core::{now_iso, now_millis, AppError, AppResult};
-use marinara_storage::FileStorage;
+use marinara_storage::{AtomicCollectionRows, FileStorage};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -38,19 +37,6 @@ fn row_str<'a>(row: &'a Value, key: &str) -> &'a str {
 
 fn is_game_row(row: &Value) -> bool {
     row_str(row, "mode") == GAME_MODE || row_str(row, "chatMode") == GAME_MODE
-}
-
-fn rows_for_chats(
-    state: &AppState,
-    collection: &str,
-    chat_ids: &HashSet<String>,
-) -> AppResult<Vec<Value>> {
-    Ok(state
-        .storage
-        .list(collection)?
-        .into_iter()
-        .filter(|row| chat_ids.contains(row_str(row, "chatId")))
-        .collect())
 }
 
 fn canonical(path: &Path) -> AppResult<PathBuf> {
@@ -107,76 +93,244 @@ fn npc_avatar_files_for_chats(
     Ok(files)
 }
 
-struct GameModeData {
-    chats: Vec<Value>,
-    chat_ids: Vec<String>,
-    checkpoints: Vec<Value>,
-    presets: Vec<Value>,
+/// Every collection the removal rewrites. They change together in one atomic write.
+const RETIREMENT_COLLECTIONS: [&str; 14] = [
+    "chats",
+    "messages",
+    "message-swipes",
+    "game-state-snapshots",
+    "gallery",
+    "agent-runs",
+    "agent-memory",
+    "memory-capture-jobs",
+    "story-consolidation-jobs",
+    "memory-maintenance-jobs",
+    "background-jobs",
+    GAME_CHECKPOINTS_COLLECTION,
+    "chat-presets",
+    "lorebooks",
+];
+
+fn row_chat_id(row: &Value) -> Option<&str> {
+    row.get("chatId")
+        .or_else(|| row.get("chat_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+}
+
+/// Background and memory jobs name their chat directly or through a chat-scoped target.
+fn job_chat_id(job: &Value) -> Option<&str> {
+    row_chat_id(job).or_else(|| {
+        let scope = job.get("target")?.get("scope")?;
+        (scope.get("kind").and_then(Value::as_str) == Some("chat"))
+            .then(|| scope.get("id").and_then(Value::as_str))
+            .flatten()
+    })
+}
+
+fn note_mentions_chat(note: &Value, chat_ids: &HashSet<String>) -> bool {
+    ["sourceChatId", "targetChatId"]
+        .iter()
+        .any(|key| chat_ids.contains(row_str(note, key)))
+}
+
+fn rows_named<'a>(lists: &'a [(&str, Vec<Value>)], name: &str) -> &'a [Value] {
+    lists
+        .iter()
+        .find(|(collection, _)| *collection == name)
+        .map_or(&[], |(_, rows)| rows.as_slice())
+}
+
+/// The Game chats in a set of rows, and the one rule for which rows the removal deletes.
+/// The backup, the atomic write, and profile imports all use it, so the backup holds
+/// exactly the rows that are deleted.
+struct GameChats {
+    ids: HashSet<String>,
+    message_ids: HashSet<String>,
+}
+
+impl GameChats {
+    fn new(chats: &[Value], messages: &[Value]) -> Self {
+        let ids: HashSet<String> = chats
+            .iter()
+            .filter(|row| is_game_row(row))
+            .filter_map(row_id)
+            .collect();
+        let message_ids = messages
+            .iter()
+            .filter(|row| row_chat_id(row).is_some_and(|id| ids.contains(id)))
+            .filter_map(row_id)
+            .collect();
+        Self { ids, message_ids }
+    }
+
+    fn owns(&self, chat_id: Option<&str>) -> bool {
+        chat_id.is_some_and(|id| self.ids.contains(id))
+    }
+
+    /// Whether the removal deletes `row` from `collection`.
+    fn removes(&self, collection: &str, row: &Value) -> bool {
+        match collection {
+            "chats" | "chat-presets" => is_game_row(row),
+            "message-swipes" => {
+                self.owns(row_chat_id(row)) || self.message_ids.contains(row_str(row, "messageId"))
+            }
+            "memory-capture-jobs" | "memory-maintenance-jobs" | "background-jobs" => {
+                self.owns(job_chat_id(row))
+            }
+            "story-consolidation-jobs" => {
+                self.owns(row_chat_id(row)) || self.owns(Some(row_str(row, "ownerChatId")))
+            }
+            GAME_CHECKPOINTS_COLLECTION => true,
+            "lorebooks" => false,
+            _ => self.owns(row_chat_id(row)),
+        }
+    }
+
+    /// A kept chat the removal edits: connected to a Game chat, or holding notes about one.
+    fn edits_kept_chat(&self, chat: &Value) -> bool {
+        !is_game_row(chat)
+            && (self.ids.contains(row_str(chat, "connectedChatId"))
+                || chat
+                    .get("notes")
+                    .and_then(Value::as_array)
+                    .is_some_and(|notes| {
+                        notes.iter().any(|note| note_mentions_chat(note, &self.ids))
+                    }))
+    }
+
+    /// Unlinks a kept chat from Game chats and drops its notes about them.
+    fn edit_kept_chat(&self, chat: &mut Value, updated_at: &str) {
+        if !self.edits_kept_chat(chat) {
+            return;
+        }
+        let Some(object) = chat.as_object_mut() else {
+            return;
+        };
+        if self.ids.contains(
+            object
+                .get("connectedChatId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim(),
+        ) {
+            object.insert("connectedChatId".to_string(), Value::Null);
+        }
+        if let Some(Value::Array(notes)) = object.get_mut("notes") {
+            notes.retain(|note| !note_mentions_chat(note, &self.ids));
+        }
+        object.insert("updatedAt".to_string(), json!(updated_at));
+    }
+}
+
+fn retire_lorebook_category(row: &mut Value, updated_at: Option<&str>) {
+    if row_str(row, "category") != RETIRED_LOREBOOK_CATEGORY {
+        return;
+    }
+    if let Some(object) = row.as_object_mut() {
+        object.insert("category".to_string(), json!(REPLACEMENT_LOREBOOK_CATEGORY));
+        if let Some(updated_at) = updated_at {
+            object.insert("updatedAt".to_string(), json!(updated_at));
+        }
+    }
+}
+
+/// Identifies a backed-up row by its full contents, so a row that changed after the backup
+/// was written does not match.
+fn fingerprint(collection: &str, row: &Value) -> String {
+    format!("{collection}\u{1f}{row}")
+}
+
+/// What the removal will delete or edit, read from storage before anything changes.
+struct RemovalPlan {
+    chats: GameChats,
+    /// Rows to delete, per collection, in full.
+    removed: Vec<(&'static str, Vec<Value>)>,
+    /// Kept chats as they are before being unlinked from Game chats.
+    edited_chats: Vec<Value>,
     retired_category_lorebooks: usize,
 }
 
-impl GameModeData {
-    fn load(state: &AppState) -> AppResult<Self> {
-        let chats: Vec<Value> = state
-            .storage
-            .list("chats")?
-            .into_iter()
-            .filter(is_game_row)
+impl RemovalPlan {
+    fn load(storage: &FileStorage) -> AppResult<Self> {
+        let lists = RETIREMENT_COLLECTIONS
+            .iter()
+            .map(|name| Ok((*name, storage.list(name)?)))
+            .collect::<AppResult<Vec<_>>>()?;
+        let chats = GameChats::new(rows_named(&lists, "chats"), rows_named(&lists, "messages"));
+        let edited_chats = rows_named(&lists, "chats")
+            .iter()
+            .filter(|chat| chats.edits_kept_chat(chat))
+            .cloned()
             .collect();
-        let chat_ids = chats.iter().filter_map(row_id).collect();
+        let retired_category_lorebooks = rows_named(&lists, "lorebooks")
+            .iter()
+            .filter(|row| row_str(row, "category") == RETIRED_LOREBOOK_CATEGORY)
+            .count();
+        let removed = lists
+            .iter()
+            .map(|(name, rows)| {
+                let removed = rows
+                    .iter()
+                    .filter(|row| chats.removes(name, row))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (*name, removed)
+            })
+            .filter(|(_, rows)| !rows.is_empty())
+            .collect();
         Ok(Self {
             chats,
-            chat_ids,
-            checkpoints: state.storage.list(GAME_CHECKPOINTS_COLLECTION)?,
-            presets: state
-                .storage
-                .list("chat-presets")?
-                .into_iter()
-                .filter(is_game_row)
-                .collect(),
-            retired_category_lorebooks: state
-                .storage
-                .list("lorebooks")?
-                .iter()
-                .filter(|row| row_str(row, "category") == RETIRED_LOREBOOK_CATEGORY)
-                .count(),
+            removed,
+            edited_chats,
+            retired_category_lorebooks,
         })
     }
 
     fn needs_backup(&self) -> bool {
-        !self.chats.is_empty() || !self.checkpoints.is_empty() || !self.presets.is_empty()
+        !self.removed.is_empty() || !self.edited_chats.is_empty()
+    }
+
+    fn removed_rows(&self, collection: &str) -> &[Value] {
+        rows_named(&self.removed, collection)
+    }
+
+    fn fingerprints(&self) -> HashSet<String> {
+        self.removed
+            .iter()
+            .flat_map(|(name, rows)| rows.iter().map(|row| fingerprint(name, row)))
+            .collect()
     }
 }
 
 /// Writes every record about to be deleted, plus the files those records point at, into a
 /// staging folder, then publishes it with one rename. A failure anywhere leaves no
 /// published backup and nothing deleted.
-fn write_backup(state: &AppState, data: &GameModeData) -> AppResult<PathBuf> {
+struct PublishedBackup {
+    dir: PathBuf,
+    /// Image files the backup copied; removed once the records are gone.
+    source_files: Vec<PathBuf>,
+}
+
+fn write_backup(state: &AppState, plan: &RemovalPlan) -> AppResult<PublishedBackup> {
     let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
     let name = format!("removed-game-mode-{timestamp}-{}", now_millis());
     let backups = state.data_dir.join("backups");
     let staging = backups.join(format!(".staging-{name}"));
     let published = backups.join(&name);
+    let mut source_files = Vec::new();
     let result = (|| -> AppResult<()> {
         fs::create_dir_all(&staging)?;
         let data_dir = canonical(&state.data_dir)?;
-        let chat_id_set: HashSet<String> = data.chat_ids.iter().cloned().collect();
-        let mut messages = serde_json::Map::new();
-        for chat_id in &data.chat_ids {
-            messages.insert(
-                chat_id.clone(),
-                Value::Array(messages_for_chat(state, chat_id)?),
-            );
-        }
-        let gallery = rows_for_chats(state, "gallery", &chat_id_set)?;
         let mut files = Vec::new();
         let mut missing_files = Vec::new();
-        for row in &gallery {
+        for row in plan.removed_rows("gallery") {
             let record = format!("gallery:{}", row_id(row).unwrap_or_default());
             match managed_record_file_path(state, "gallery", row, "filePath", "filename")? {
                 Some(path) if path.is_file() => {
                     let relative = backup_file(&data_dir, &staging, &path)?;
                     files.push(json!({ "record": record, "path": relative }));
+                    source_files.push(path);
                 }
                 Some(path) => missing_files.push(json!({
                     "record": record,
@@ -185,27 +339,34 @@ fn write_backup(state: &AppState, data: &GameModeData) -> AppResult<PathBuf> {
                 None => missing_files.push(json!({ "record": record, "path": Value::Null })),
             }
         }
-        for path in npc_avatar_files_for_chats(state, &chat_id_set)? {
+        for path in npc_avatar_files_for_chats(state, &plan.chats.ids)? {
             let relative = backup_file(&data_dir, &staging, &path)?;
             files.push(json!({ "record": "npc-avatar", "path": relative }));
+            source_files.push(path);
         }
+        let removed_rows: serde_json::Map<String, Value> = plan
+            .removed
+            .iter()
+            .map(|(name, rows)| ((*name).to_string(), Value::Array(rows.clone())))
+            .collect();
         let records = json!({
             "removedAt": now_iso(),
             "reason": "Game mode was removed from De-Koi. These records were deleted after this backup was written.",
             "filesFolder": BACKUP_FILES_DIR,
             "files": files,
             "missingFiles": missing_files,
-            "chats": data.chats,
-            "messages": messages,
-            "trackerSnapshots": rows_for_chats(state, "game-state-snapshots", &chat_id_set)?,
-            "gallery": gallery,
-            "gameCheckpoints": data.checkpoints,
-            "chatPresets": data.presets,
+            "removedRows": removed_rows,
+            "editedChats": plan.edited_chats,
         });
-        fs::write(
-            staging.join(BACKUP_RECORDS_FILE),
-            serde_json::to_vec_pretty(&records)?,
-        )?;
+        let path = staging.join(BACKUP_RECORDS_FILE);
+        fs::write(&path, serde_json::to_vec_pretty(&records)?)?;
+        let written: Value = serde_json::from_slice(&fs::read(&path)?)?;
+        if written != records {
+            return Err(AppError::new(
+                "game_mode_backup_failed",
+                "the Game mode backup did not read back intact",
+            ));
+        }
         fs::rename(&staging, &published)?;
         Ok(())
     })();
@@ -220,72 +381,106 @@ fn write_backup(state: &AppState, data: &GameModeData) -> AppResult<PathBuf> {
         }
         return Err(error);
     }
-    Ok(published)
+    Ok(PublishedBackup {
+        dir: published,
+        source_files,
+    })
 }
 
-/// Removes Game checkpoints and Game chat-settings presets and moves lorebooks out of the
-/// retired Game category in one atomic write.
-fn retire_game_rows(storage: &FileStorage) -> AppResult<()> {
-    storage.update_collections_atomically(
-        vec![GAME_CHECKPOINTS_COLLECTION, "chat-presets", "lorebooks"],
-        |collections| {
-            let [checkpoints, presets, lorebooks] = collections else {
+fn atomic_rows<'a>(collections: &'a [AtomicCollectionRows], name: &str) -> &'a [Value] {
+    collections
+        .iter()
+        .find(|collection| collection.collection() == name)
+        .map_or(&[], AtomicCollectionRows::rows)
+}
+
+/// Removes Game chats and every row they own, unlinks chats that were connected to them,
+/// empties Game checkpoints, drops Game chat-settings presets, and moves lorebooks out of the
+/// retired Game category, all in one atomic write. The write re-reads every row and refuses
+/// to delete one the backup does not hold byte for byte; if it fails, nothing changes.
+fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> {
+    let backed_up = plan.fingerprints();
+    storage.update_collections_atomically(RETIREMENT_COLLECTIONS.to_vec(), |collections| {
+        let chats = GameChats::new(
+            atomic_rows(collections, "chats"),
+            atomic_rows(collections, "messages"),
+        );
+        for collection in collections.iter() {
+            let name = collection.collection();
+            let unsaved = collection
+                .rows()
+                .iter()
+                .any(|row| chats.removes(name, row) && !backed_up.contains(&fingerprint(name, row)));
+            if unsaved {
                 return Err(AppError::new(
-                    "storage_error",
-                    "Game mode removal expected checkpoints, presets, and lorebooks",
+                    "game_mode_backup_stale",
+                    format!("{name} changed after the Game mode backup was written; the removal runs again on the next start"),
                 ));
-            };
-            checkpoints.rows_mut().clear();
-            presets.rows_mut().retain(|row| !is_game_row(row));
-            let updated_at = now_iso();
-            for row in lorebooks.rows_mut() {
-                if row_str(row, "category") != RETIRED_LOREBOOK_CATEGORY {
-                    continue;
-                }
-                if let Some(object) = row.as_object_mut() {
-                    object.insert("category".to_string(), json!(REPLACEMENT_LOREBOOK_CATEGORY));
-                    object.insert("updatedAt".to_string(), json!(updated_at));
+            }
+        }
+        let updated_at = now_iso();
+        for collection in collections.iter_mut() {
+            let name = collection.collection().to_string();
+            let touched = collection.rows().iter().any(|row| {
+                chats.removes(&name, row)
+                    || (name == "chats" && chats.edits_kept_chat(row))
+                    || (name == "lorebooks"
+                        && row_str(row, "category") == RETIRED_LOREBOOK_CATEGORY)
+            });
+            if !touched {
+                continue;
+            }
+            let rows = collection.rows_mut();
+            rows.retain(|row| !chats.removes(&name, row));
+            for row in rows.iter_mut() {
+                match name.as_str() {
+                    "chats" => chats.edit_kept_chat(row, &updated_at),
+                    "lorebooks" => retire_lorebook_category(row, Some(&updated_at)),
+                    _ => {}
                 }
             }
-            Ok(())
-        },
-    )
+        }
+        Ok(())
+    })
 }
 
-/// Backs up, then deletes, Game chats, Game checkpoints, and Game chat-settings presets,
-/// and moves lorebooks out of the retired Game category. Returns the published backup
-/// folder when anything was removed.
+/// Backs up, then deletes, Game chats and the rows they own, Game checkpoints, and Game
+/// chat-settings presets, and moves lorebooks out of the retired Game category. Returns
+/// the published backup folder when anything was removed.
 ///
-/// Retry safety: nothing is deleted until a complete backup of everything still present is
-/// published. If a later step fails, the next start runs this again; that run backs up
-/// whatever Game data is left before deleting it, so every removed record is in some backup.
-/// Gallery rows whose image was already missing are kept in the backup and listed under
-/// `missingFiles`; there is no file left to save, and refusing to continue would leave the
-/// Game chats stuck forever.
+/// Order: publish a backup holding every row the removal deletes (and every kept chat it
+/// edits), then one atomic write for every record change, then remove the image files that
+/// backup already holds. A failure before the write leaves the profile unchanged, and the
+/// next start tries again. Gallery rows whose image was already missing are kept in the
+/// backup and listed under `missingFiles`; there is no file left to save, and refusing to
+/// continue would leave the Game chats stuck forever.
 pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBuf>> {
-    let data = GameModeData::load(state)?;
-    if !data.needs_backup() && data.retired_category_lorebooks == 0 {
+    let plan = RemovalPlan::load(&state.storage)?;
+    if !plan.needs_backup() && plan.retired_category_lorebooks == 0 {
         return Ok(None);
     }
-    let backup = if data.needs_backup() {
-        Some(write_backup(state, &data)?)
+    let backup = if plan.needs_backup() {
+        Some(write_backup(state, &plan)?)
     } else {
         None
     };
-    // The chat cascade is the app's normal chat delete path. It runs first so a failure
-    // there leaves the small collections untouched; the atomic write runs only after it.
-    if !data.chat_ids.is_empty() {
-        delete_chats_with_messages(state, &data.chat_ids)?;
+    retire_game_rows(&state.storage, &plan)?;
+    for path in backup.iter().flat_map(|backup| &backup.source_files) {
+        if let Err(error) = fs::remove_file(path) {
+            log::warn!(
+                "could not remove backed-up Game file {}: {error}",
+                path.display()
+            );
+        }
     }
-    retire_game_rows(&state.storage)?;
-    if let Some(dir) = &backup {
+    if let Some(backup) = &backup {
         log::info!(
             "removed Game mode data: chats={} backup={}",
-            data.chat_ids.len(),
-            dir.display()
+            plan.chats.ids.len(),
+            backup.dir.display()
         );
     }
-    Ok(backup)
+    Ok(backup.map(|backup| backup.dir))
 }
 
 const GAME_ASSETS_DIR: &str = "game-assets";
@@ -442,79 +637,42 @@ pub(crate) fn retire_game_asset_library(state: &AppState) -> AppResult<Option<Pa
     Ok(Some(destination))
 }
 
-/// Collections whose rows belong to one chat through `chatId`.
-const CHAT_OWNED_PROFILE_COLLECTIONS: &[&str] = &[
-    "messages",
-    "gallery",
-    "game-state-snapshots",
-    "agent-runs",
-    "agent-memory",
-    "memory-capture-jobs",
-    "story-consolidation-jobs",
-    "memory-maintenance-jobs",
-    "background-jobs",
-];
-
 /// Drops Game chats, the rows they own, and Game chat-settings presets from a profile
-/// restore, and moves lorebooks out of the retired Game category, so an older backup or a
-/// Marinara profile cannot bring Game mode data back. Keeps `imported` counts accurate and
-/// returns how many Game chats were skipped.
+/// restore, unlinks kept chats from them, and moves lorebooks out of the retired Game
+/// category, so an older backup or a Marinara profile cannot bring Game mode data back.
+/// Keeps `imported` counts accurate and returns how many Game chats were skipped.
 pub(crate) fn drop_game_mode_rows_from_profile_import(
     replacements: &mut [(&'static str, Vec<Value>)],
     imported: &mut serde_json::Map<String, Value>,
 ) -> usize {
-    let mut game_chat_ids = HashSet::new();
-    if let Some((_, chats)) = replacements.iter_mut().find(|(name, _)| *name == "chats") {
-        chats.retain(|row| {
-            if !is_game_row(row) {
-                return true;
-            }
-            if let Some(id) = row_id(row) {
-                game_chat_ids.insert(id);
-            }
-            false
-        });
-    }
-    let game_message_ids: HashSet<String> = replacements
-        .iter()
-        .filter(|(name, _)| *name == "messages")
-        .flat_map(|(_, rows)| rows.iter())
-        .filter(|row| game_chat_ids.contains(row_str(row, "chatId")))
-        .filter_map(row_id)
-        .collect();
+    let chats = {
+        let rows = |name: &str| {
+            replacements
+                .iter()
+                .find(|(collection, _)| *collection == name)
+                .map_or(&[][..], |(_, rows)| rows.as_slice())
+        };
+        GameChats::new(rows("chats"), rows("messages"))
+    };
+    let updated_at = now_iso();
     for (collection, rows) in replacements.iter_mut() {
         let before = rows.len();
-        match *collection {
-            "message-swipes" if !game_chat_ids.is_empty() => rows.retain(|row| {
-                !game_chat_ids.contains(row_str(row, "chatId"))
-                    && !game_message_ids.contains(row_str(row, "messageId"))
-            }),
-            "chat-presets" => rows.retain(|row| !is_game_row(row)),
-            "lorebooks" => {
-                for row in rows.iter_mut() {
-                    if row_str(row, "category") == RETIRED_LOREBOOK_CATEGORY {
-                        if let Some(object) = row.as_object_mut() {
-                            object.insert(
-                                "category".to_string(),
-                                json!(REPLACEMENT_LOREBOOK_CATEGORY),
-                            );
-                        }
-                    }
-                }
+        rows.retain(|row| !chats.removes(collection, row));
+        for row in rows.iter_mut() {
+            match *collection {
+                "chats" => chats.edit_kept_chat(row, &updated_at),
+                "lorebooks" => retire_lorebook_category(row, None),
+                _ => {}
             }
-            name if !game_chat_ids.is_empty() && CHAT_OWNED_PROFILE_COLLECTIONS.contains(&name) => {
-                rows.retain(|row| !game_chat_ids.contains(row_str(row, "chatId")));
-            }
-            _ => {}
         }
         if (rows.len() != before || *collection == "chats") && imported.contains_key(*collection) {
             imported.insert((*collection).to_string(), json!(rows.len()));
         }
     }
-    if !game_chat_ids.is_empty() {
-        imported.insert("skippedGameChats".to_string(), json!(game_chat_ids.len()));
+    if !chats.ids.is_empty() {
+        imported.insert("skippedGameChats".to_string(), json!(chats.ids.len()));
     }
-    game_chat_ids.len()
+    chats.ids.len()
 }
 
 /// A single exported Game chat imports as a Roleplay chat: its messages stay readable.
@@ -653,13 +811,16 @@ mod tests {
 
         let records: Value =
             serde_json::from_slice(&fs::read(dir.join(BACKUP_RECORDS_FILE)).unwrap()).unwrap();
-        assert_eq!(records["chats"][0]["id"], "game-1");
+        assert_eq!(records["removedRows"]["chats"][0]["id"], "game-1");
         assert_eq!(
-            records["messages"]["game-1"][0]["content"],
+            records["removedRows"]["messages"][0]["content"],
             "The GM speaks."
         );
-        assert_eq!(records["gameCheckpoints"][0]["id"], "cp-1");
-        assert_eq!(records["chatPresets"][0]["id"], "preset-game");
+        assert_eq!(records["removedRows"]["game-checkpoints"][0]["id"], "cp-1");
+        assert_eq!(
+            records["removedRows"]["chat-presets"][0]["id"],
+            "preset-game"
+        );
         let files = dir.join(BACKUP_FILES_DIR);
         assert_eq!(
             fs::read(files.join("avatars").join("npc").join("game-1-lio.png")).unwrap(),
@@ -723,6 +884,27 @@ mod tests {
     }
 
     #[test]
+    fn removal_refuses_rows_the_backup_does_not_hold() {
+        let state = test_state("stale-backup");
+        seed(&state);
+        let plan = RemovalPlan::load(&state.storage).unwrap();
+        state
+            .storage
+            .create(
+                "messages",
+                json!({ "id": "m-late", "chatId": "game-1", "role": "user", "content": "late" }),
+            )
+            .unwrap();
+
+        let error = retire_game_rows(&state.storage, &plan).unwrap_err();
+
+        assert_eq!(error.code, "game_mode_backup_stale");
+        assert!(state.storage.get("chats", "game-1").unwrap().is_some());
+        assert!(state.storage.get("messages", "m-late").unwrap().is_some());
+        assert!(state.storage.get("messages", "m-game").unwrap().is_some());
+    }
+
+    #[test]
     fn second_run_is_a_no_op() {
         let state = test_state("second-run");
         seed(&state);
@@ -739,30 +921,129 @@ mod tests {
     }
 
     #[test]
-    fn retry_after_a_partial_run_backs_up_what_is_left() {
-        let state = test_state("partial-run");
+    fn removal_clears_every_row_a_game_chat_owns_and_unlinks_partners() {
+        let state = test_state("owned-rows");
         seed(&state);
-        // Simulate an earlier run whose chat cascade finished but which failed before the
-        // atomic write for checkpoints, presets, and lorebooks.
-        delete_chats_with_messages(&state, &["game-1".to_string()]).unwrap();
+        let storage = &state.storage;
+        storage
+            .create(
+                "chats",
+                json!({
+                    "id": "convo-1",
+                    "name": "OOC",
+                    "mode": "conversation",
+                    "characterIds": [],
+                    "connectedChatId": "game-1",
+                    "notes": [
+                        { "id": "n-game", "type": "note", "sourceChatId": "convo-1", "targetChatId": "game-1", "content": "x" },
+                        { "id": "n-keep", "type": "note", "sourceChatId": "convo-1", "targetChatId": "rp-1", "content": "y" }
+                    ]
+                }),
+            )
+            .unwrap();
+        storage
+            .create(
+                "message-swipes",
+                json!({ "id": "m-game::swipe::0", "messageId": "m-game" }),
+            )
+            .unwrap();
+        storage
+            .create(
+                "game-state-snapshots",
+                json!({ "id": "s-game", "chatId": "game-1", "messageId": "m-game" }),
+            )
+            .unwrap();
+        storage
+            .create(
+                "agent-runs",
+                json!({ "id": "run-game", "chatId": "game-1" }),
+            )
+            .unwrap();
+        storage
+            .create("background-jobs", json!({ "id": "job-game", "target": { "scope": { "kind": "chat", "id": "game-1" } } }))
+            .unwrap();
+        storage
+            .create(
+                "background-jobs",
+                json!({ "id": "job-rp", "chatId": "rp-1" }),
+            )
+            .unwrap();
+        storage
+            .create(
+                "story-consolidation-jobs",
+                json!({ "id": "story-game", "ownerChatId": "game-1", "status": "pending" }),
+            )
+            .unwrap();
+        storage
+            .create(
+                "story-consolidation-jobs",
+                json!({ "id": "story-rp", "ownerChatId": "rp-1", "status": "pending" }),
+            )
+            .unwrap();
 
-        let dir = remove_game_mode_data(&state)
-            .unwrap()
-            .expect("the remaining Game rows still need a backup");
+        let backup = remove_game_mode_data(&state).unwrap().expect("backup");
         let records: Value =
-            serde_json::from_slice(&fs::read(dir.join(BACKUP_RECORDS_FILE)).unwrap()).unwrap();
-        assert!(records["chats"].as_array().unwrap().is_empty());
-        assert_eq!(records["gameCheckpoints"][0]["id"], "cp-1");
-        assert_eq!(records["chatPresets"][0]["id"], "preset-game");
-        assert!(state
-            .storage
-            .list(GAME_CHECKPOINTS_COLLECTION)
+            serde_json::from_slice(&fs::read(backup.join(BACKUP_RECORDS_FILE)).unwrap()).unwrap();
+        let removed = &records["removedRows"];
+        for (collection, id) in [
+            ("message-swipes", "m-game::swipe::0"),
+            ("game-state-snapshots", "s-game"),
+            ("agent-runs", "run-game"),
+            ("background-jobs", "job-game"),
+            ("story-consolidation-jobs", "story-game"),
+        ] {
+            assert!(
+                removed[collection]
+                    .as_array()
+                    .is_some_and(|rows| rows.iter().any(|row| row["id"] == id)),
+                "backup holds {collection}/{id}"
+            );
+        }
+        assert_eq!(records["editedChats"][0]["id"], "convo-1");
+        assert_eq!(records["editedChats"][0]["connectedChatId"], "game-1");
+        assert!(storage
+            .get("story-consolidation-jobs", "story-game")
             .unwrap()
-            .is_empty());
-        assert_eq!(
-            state.storage.get("lorebooks", "lb-game").unwrap().unwrap()["category"],
-            "world"
+            .is_none());
+        assert!(storage
+            .get("story-consolidation-jobs", "story-rp")
+            .unwrap()
+            .is_some());
+
+        let convo = storage.get("chats", "convo-1").unwrap().unwrap();
+        assert!(convo["connectedChatId"].is_null());
+        let notes = convo["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0]["id"], "n-keep");
+        assert!(storage
+            .get("message-swipes", "m-game::swipe::0")
+            .unwrap()
+            .is_none());
+        assert!(storage
+            .get("game-state-snapshots", "s-game")
+            .unwrap()
+            .is_none());
+        assert!(storage.get("agent-runs", "run-game").unwrap().is_none());
+        assert!(storage
+            .get("background-jobs", "job-game")
+            .unwrap()
+            .is_none());
+        assert!(storage.get("background-jobs", "job-rp").unwrap().is_some());
+        assert!(storage.get("gallery", "g-1").unwrap().is_none());
+        assert!(
+            !state
+                .data_dir
+                .join("gallery")
+                .join("game-1-lio.png")
+                .exists(),
+            "backed-up gallery files are removed after the records are gone"
         );
+        assert!(!state
+            .data_dir
+            .join("avatars")
+            .join("npc")
+            .join("game-1-lio.png")
+            .exists());
     }
 
     #[test]
