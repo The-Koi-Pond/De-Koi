@@ -55,7 +55,9 @@ describe("setup chat launch orchestration", () => {
     });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
 
-    expect(launch.claimSetupLaunch(request)).toEqual(expect.objectContaining({ mode: "roleplay", connectionId: "conn-1" }));
+    expect(launch.claimSetupLaunch(request)).toEqual(
+      expect.objectContaining({ mode: "roleplay", connectionId: "conn-1" }),
+    );
     expect(launch.claimSetupLaunch(request)).toBeNull();
   });
 

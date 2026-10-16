@@ -2,12 +2,14 @@
 //!
 //! Every record removed here is first written, with the gallery images and NPC
 //! portraits it points at, to `backups/removed-game-mode-<timestamp>/` so nothing
-//! is lost silently. Deletion then goes through the normal chat delete cascade.
+//! is lost silently. Deletion then goes through one atomic write for the small
+//! collections and the normal chat delete cascade for chats.
 
 use super::chats::{delete_chats_with_messages, messages_for_chat};
 use super::media_uploads::managed_record_file_path;
 use crate::state::AppState;
-use marinara_core::{now_iso, now_millis, AppResult};
+use marinara_core::{now_iso, now_millis, AppError, AppResult};
+use marinara_storage::FileStorage;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::fs;
@@ -16,6 +18,7 @@ use std::path::{Path, PathBuf};
 const GAME_MODE: &str = "game";
 const GAME_CHECKPOINTS_COLLECTION: &str = "game-checkpoints";
 const BACKUP_RECORDS_FILE: &str = "removed-records.json";
+const BACKUP_FILES_DIR: &str = "files";
 /// Game mode's Lorebook Keeper filed its books under a category the app no longer offers.
 const RETIRED_LOREBOOK_CATEGORY: &str = "game";
 const REPLACEMENT_LOREBOOK_CATEGORY: &str = "world";
@@ -49,13 +52,33 @@ fn rows_for_chats(
         .collect())
 }
 
-fn copy_into(source: &Path, target_dir: &Path) -> AppResult<()> {
-    let Some(name) = source.file_name() else {
-        return Ok(());
-    };
-    fs::create_dir_all(target_dir)?;
-    fs::copy(source, target_dir.join(name))?;
-    Ok(())
+fn canonical(path: &Path) -> AppResult<PathBuf> {
+    Ok(fs::canonicalize(path)?)
+}
+
+/// Copies `source` into the staged backup at its path relative to the data folder, so two
+/// files with the same name in different folders can never overwrite each other. Returns
+/// that relative path.
+fn backup_file(data_dir: &Path, staging: &Path, source: &Path) -> AppResult<String> {
+    let source = canonical(source)?;
+    let relative = source.strip_prefix(data_dir).map_err(|_| {
+        AppError::new(
+            "game_mode_backup_failed",
+            format!("{} is outside the data folder", source.display()),
+        )
+    })?;
+    let target = staging.join(BACKUP_FILES_DIR).join(relative);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(&source, &target)?;
+    if fs::metadata(&target)?.len() != fs::metadata(&source)?.len() {
+        return Err(AppError::new(
+            "game_mode_backup_failed",
+            format!("backup copy of {} is incomplete", source.display()),
+        ));
+    }
+    Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
 fn npc_avatar_files_for_chats(
@@ -83,104 +106,176 @@ fn npc_avatar_files_for_chats(
     Ok(files)
 }
 
-fn backup_dir(state: &AppState) -> PathBuf {
-    let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
-    state
-        .data_dir
-        .join("backups")
-        .join(format!("removed-game-mode-{timestamp}-{}", now_millis()))
+struct GameModeData {
+    chats: Vec<Value>,
+    chat_ids: Vec<String>,
+    checkpoints: Vec<Value>,
+    presets: Vec<Value>,
+    retired_category_lorebooks: usize,
 }
 
-/// Backs up, then deletes, Game chats, Game checkpoints, and Game chat-settings presets,
-/// and moves lorebooks out of the retired Game category. Returns the backup folder when
-/// anything was removed.
-pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBuf>> {
-    let game_chats: Vec<Value> = state
-        .storage
-        .list("chats")?
-        .into_iter()
-        .filter(is_game_row)
-        .collect();
-    let game_chat_ids: Vec<String> = game_chats.iter().filter_map(row_id).collect();
-    let game_chat_id_set: HashSet<String> = game_chat_ids.iter().cloned().collect();
-    let checkpoints = state.storage.list(GAME_CHECKPOINTS_COLLECTION)?;
-    let game_presets: Vec<Value> = state
-        .storage
-        .list("chat-presets")?
-        .into_iter()
-        .filter(is_game_row)
-        .collect();
-    let game_category_lorebook_ids: Vec<String> = state
-        .storage
-        .list("lorebooks")?
-        .iter()
-        .filter(|row| row_str(row, "category") == RETIRED_LOREBOOK_CATEGORY)
-        .filter_map(row_id)
-        .collect();
+impl GameModeData {
+    fn load(state: &AppState) -> AppResult<Self> {
+        let chats: Vec<Value> = state
+            .storage
+            .list("chats")?
+            .into_iter()
+            .filter(is_game_row)
+            .collect();
+        let chat_ids = chats.iter().filter_map(row_id).collect();
+        Ok(Self {
+            chats,
+            chat_ids,
+            checkpoints: state.storage.list(GAME_CHECKPOINTS_COLLECTION)?,
+            presets: state
+                .storage
+                .list("chat-presets")?
+                .into_iter()
+                .filter(is_game_row)
+                .collect(),
+            retired_category_lorebooks: state
+                .storage
+                .list("lorebooks")?
+                .iter()
+                .filter(|row| row_str(row, "category") == RETIRED_LOREBOOK_CATEGORY)
+                .count(),
+        })
+    }
 
-    let mut backup = None;
-    if !game_chats.is_empty() || !checkpoints.is_empty() || !game_presets.is_empty() {
-        let dir = backup_dir(state);
-        fs::create_dir_all(&dir)?;
+    fn needs_backup(&self) -> bool {
+        !self.chats.is_empty() || !self.checkpoints.is_empty() || !self.presets.is_empty()
+    }
+}
 
+/// Writes every record about to be deleted, plus the files those records point at, into a
+/// staging folder, then publishes it with one rename. A failure anywhere leaves no
+/// published backup and nothing deleted.
+fn write_backup(state: &AppState, data: &GameModeData) -> AppResult<PathBuf> {
+    let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
+    let name = format!("removed-game-mode-{timestamp}-{}", now_millis());
+    let backups = state.data_dir.join("backups");
+    let staging = backups.join(format!(".staging-{name}"));
+    let published = backups.join(&name);
+    let result = (|| -> AppResult<()> {
+        fs::create_dir_all(&staging)?;
+        let data_dir = canonical(&state.data_dir)?;
+        let chat_id_set: HashSet<String> = data.chat_ids.iter().cloned().collect();
         let mut messages = serde_json::Map::new();
-        for chat_id in &game_chat_ids {
+        for chat_id in &data.chat_ids {
             messages.insert(
                 chat_id.clone(),
                 Value::Array(messages_for_chat(state, chat_id)?),
             );
         }
-        let gallery = rows_for_chats(state, "gallery", &game_chat_id_set)?;
+        let gallery = rows_for_chats(state, "gallery", &chat_id_set)?;
+        let mut files = Vec::new();
+        let mut missing_files = Vec::new();
         for row in &gallery {
-            if let Some(path) =
-                managed_record_file_path(state, "gallery", row, "filePath", "filename")?
-            {
-                if path.is_file() {
-                    copy_into(&path, &dir.join("gallery"))?;
+            let record = format!("gallery:{}", row_id(row).unwrap_or_default());
+            match managed_record_file_path(state, "gallery", row, "filePath", "filename")? {
+                Some(path) if path.is_file() => {
+                    let relative = backup_file(&data_dir, &staging, &path)?;
+                    files.push(json!({ "record": record, "path": relative }));
                 }
+                Some(path) => missing_files.push(json!({
+                    "record": record,
+                    "path": path.to_string_lossy(),
+                })),
+                None => missing_files.push(json!({ "record": record, "path": Value::Null })),
             }
         }
-        for path in npc_avatar_files_for_chats(state, &game_chat_id_set)? {
-            copy_into(&path, &dir.join("avatars").join("npc"))?;
+        for path in npc_avatar_files_for_chats(state, &chat_id_set)? {
+            let relative = backup_file(&data_dir, &staging, &path)?;
+            files.push(json!({ "record": "npc-avatar", "path": relative }));
         }
         let records = json!({
             "removedAt": now_iso(),
             "reason": "Game mode was removed from De-Koi. These records were deleted after this backup was written.",
-            "chats": game_chats,
+            "filesFolder": BACKUP_FILES_DIR,
+            "files": files,
+            "missingFiles": missing_files,
+            "chats": data.chats,
             "messages": messages,
-            "trackerSnapshots": rows_for_chats(state, "game-state-snapshots", &game_chat_id_set)?,
+            "trackerSnapshots": rows_for_chats(state, "game-state-snapshots", &chat_id_set)?,
             "gallery": gallery,
-            "gameCheckpoints": checkpoints,
-            "chatPresets": game_presets,
+            "gameCheckpoints": data.checkpoints,
+            "chatPresets": data.presets,
         });
         fs::write(
-            dir.join(BACKUP_RECORDS_FILE),
+            staging.join(BACKUP_RECORDS_FILE),
             serde_json::to_vec_pretty(&records)?,
         )?;
-        backup = Some(dir);
+        fs::rename(&staging, &published)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if staging.exists() {
+            if let Err(cleanup) = fs::remove_dir_all(&staging) {
+                log::warn!(
+                    "could not remove incomplete Game mode backup {}: {cleanup}",
+                    staging.display()
+                );
+            }
+        }
+        return Err(error);
     }
+    Ok(published)
+}
 
-    if !game_chat_ids.is_empty() {
-        delete_chats_with_messages(state, &game_chat_ids)?;
-    }
-    state
-        .storage
-        .delete_where_matching(GAME_CHECKPOINTS_COLLECTION, |_| true)?;
-    state
-        .storage
-        .delete_where_matching("chat-presets", is_game_row)?;
-    for lorebook_id in game_category_lorebook_ids {
-        state.storage.patch(
-            "lorebooks",
-            &lorebook_id,
-            json!({ "category": REPLACEMENT_LOREBOOK_CATEGORY }),
-        )?;
-    }
+/// Removes Game checkpoints and Game chat-settings presets and moves lorebooks out of the
+/// retired Game category in one atomic write.
+fn retire_game_rows(storage: &FileStorage) -> AppResult<()> {
+    storage.update_collections_atomically(
+        vec![GAME_CHECKPOINTS_COLLECTION, "chat-presets", "lorebooks"],
+        |collections| {
+            let [checkpoints, presets, lorebooks] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Game mode removal expected checkpoints, presets, and lorebooks",
+                ));
+            };
+            checkpoints.rows_mut().clear();
+            presets.rows_mut().retain(|row| !is_game_row(row));
+            let updated_at = now_iso();
+            for row in lorebooks.rows_mut() {
+                if row_str(row, "category") != RETIRED_LOREBOOK_CATEGORY {
+                    continue;
+                }
+                if let Some(object) = row.as_object_mut() {
+                    object.insert("category".to_string(), json!(REPLACEMENT_LOREBOOK_CATEGORY));
+                    object.insert("updatedAt".to_string(), json!(updated_at));
+                }
+            }
+            Ok(())
+        },
+    )
+}
 
+/// Backs up, then deletes, Game chats, Game checkpoints, and Game chat-settings presets,
+/// and moves lorebooks out of the retired Game category. Returns the published backup
+/// folder when anything was removed.
+///
+/// Retry safety: nothing is deleted until a complete backup of everything still present is
+/// published. If a later step fails, startup runs this again; that run backs up whatever
+/// Game data is left before deleting it, so every removed record is in some backup.
+pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBuf>> {
+    let data = GameModeData::load(state)?;
+    if !data.needs_backup() && data.retired_category_lorebooks == 0 {
+        return Ok(None);
+    }
+    let backup = if data.needs_backup() {
+        Some(write_backup(state, &data)?)
+    } else {
+        None
+    };
+    retire_game_rows(&state.storage)?;
+    if !data.chat_ids.is_empty() {
+        delete_chats_with_messages(state, &data.chat_ids)?;
+    }
     if let Some(dir) = &backup {
         log::info!(
             "removed Game mode data: chats={} backup={}",
-            game_chat_ids.len(),
+            data.chat_ids.len(),
             dir.display()
         );
     }
@@ -252,10 +347,8 @@ pub(crate) fn drop_game_mode_rows_from_profile_import(
             }
             _ => {}
         }
-        if rows.len() != before || *collection == "chats" {
-            if imported.contains_key(*collection) {
-                imported.insert((*collection).to_string(), json!(rows.len()));
-            }
+        if (rows.len() != before || *collection == "chats") && imported.contains_key(*collection) {
+            imported.insert((*collection).to_string(), json!(rows.len()));
         }
     }
     if !game_chat_ids.is_empty() {
@@ -338,9 +431,55 @@ mod tests {
                 .join("avatars")
                 .join("npc")
                 .join("game-1-lio.png"),
-            b"png",
+            b"npc portrait",
         )
         .unwrap();
+        // A gallery image with the same file name as the NPC portrait must not overwrite it.
+        fs::create_dir_all(state.data_dir.join("gallery")).unwrap();
+        fs::write(
+            state.data_dir.join("gallery").join("game-1-lio.png"),
+            b"gallery image",
+        )
+        .unwrap();
+        storage
+            .create(
+                "gallery",
+                json!({ "id": "g-1", "chatId": "game-1", "filename": "game-1-lio.png", "filePath": "game-1-lio.png" }),
+            )
+            .unwrap();
+        storage
+            .create(
+                "gallery",
+                json!({ "id": "g-missing", "chatId": "game-1", "filename": "gone.png", "filePath": "gone.png" }),
+            )
+            .unwrap();
+    }
+
+    fn game_data_still_present(state: &AppState) -> bool {
+        state.storage.get("chats", "game-1").unwrap().is_some()
+            && state
+                .storage
+                .list_messages_for_chat("game-1")
+                .unwrap()
+                .len()
+                == 1
+            && state
+                .storage
+                .list(GAME_CHECKPOINTS_COLLECTION)
+                .unwrap()
+                .len()
+                == 1
+            && state
+                .storage
+                .get("chat-presets", "preset-game")
+                .unwrap()
+                .is_some()
+            && state.storage.get("lorebooks", "lb-game").unwrap().unwrap()["category"] == "game"
+            && state
+                .data_dir
+                .join("gallery")
+                .join("game-1-lio.png")
+                .is_file()
     }
 
     #[test]
@@ -361,11 +500,27 @@ mod tests {
         );
         assert_eq!(records["gameCheckpoints"][0]["id"], "cp-1");
         assert_eq!(records["chatPresets"][0]["id"], "preset-game");
-        assert!(dir
-            .join("avatars")
-            .join("npc")
-            .join("game-1-lio.png")
-            .is_file());
+        let files = dir.join(BACKUP_FILES_DIR);
+        assert_eq!(
+            fs::read(files.join("avatars").join("npc").join("game-1-lio.png")).unwrap(),
+            b"npc portrait"
+        );
+        assert_eq!(
+            fs::read(files.join("gallery").join("game-1-lio.png")).unwrap(),
+            b"gallery image"
+        );
+        assert_eq!(records["files"].as_array().unwrap().len(), 2);
+        assert_eq!(records["missingFiles"][0]["record"], "gallery:g-missing");
+        assert!(
+            !fs::read_dir(state.data_dir.join("backups"))
+                .unwrap()
+                .any(|entry| entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".staging-")),
+            "the staging folder should be published, not left behind"
+        );
 
         assert!(state.storage.get("chats", "game-1").unwrap().is_none());
         assert!(state
@@ -393,6 +548,51 @@ mod tests {
             state.storage.list_messages_for_chat("rp-1").unwrap().len(),
             1
         );
+    }
+
+    #[test]
+    fn failed_backup_deletes_nothing() {
+        let state = test_state("failed-backup");
+        seed(&state);
+        // A plain file where the backups folder should be makes the backup fail.
+        fs::write(state.data_dir.join("backups"), b"not a folder").unwrap();
+
+        remove_game_mode_data(&state).expect_err("a backup that cannot be written must abort");
+
+        assert!(game_data_still_present(&state));
+    }
+
+    #[test]
+    fn second_run_is_a_no_op() {
+        let state = test_state("second-run");
+        seed(&state);
+        remove_game_mode_data(&state)
+            .unwrap()
+            .expect("first run backs up");
+
+        assert!(remove_game_mode_data(&state).unwrap().is_none());
+        let backups = fs::read_dir(state.data_dir.join("backups"))
+            .unwrap()
+            .count();
+        assert_eq!(backups, 1);
+        assert!(state.storage.get("chats", "rp-1").unwrap().is_some());
+    }
+
+    #[test]
+    fn retry_after_a_partial_run_backs_up_what_is_left() {
+        let state = test_state("partial-run");
+        seed(&state);
+        // Simulate an earlier run that already retired the small collections before failing.
+        retire_game_rows(&state.storage).unwrap();
+
+        let dir = remove_game_mode_data(&state)
+            .unwrap()
+            .expect("remaining Game chats still need a backup");
+        let records: Value =
+            serde_json::from_slice(&fs::read(dir.join(BACKUP_RECORDS_FILE)).unwrap()).unwrap();
+        assert_eq!(records["chats"][0]["id"], "game-1");
+        assert!(records["gameCheckpoints"].as_array().unwrap().is_empty());
+        assert!(state.storage.get("chats", "game-1").unwrap().is_none());
     }
 
     #[test]

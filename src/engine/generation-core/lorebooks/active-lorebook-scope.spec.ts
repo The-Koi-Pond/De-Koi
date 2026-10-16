@@ -207,5 +207,4 @@ describe("active lorebook scope", () => {
     );
     expect(noMatchReasons).toEqual([]);
   });
-
 });

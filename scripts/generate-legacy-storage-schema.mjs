@@ -138,7 +138,8 @@ const tableMetadata = {
   },
   game_checkpoints: {
     deKoi: "Not imported",
-    notes: "Game rollback/checkpoint rows. De-Koi removed Game mode, so these rows and Game chats are skipped on import.",
+    notes:
+      "Game rollback/checkpoint rows. De-Koi removed Game mode, so these rows and Game chats are skipped on import.",
   },
   regex_scripts: {
     deKoi: "`regex-scripts`",

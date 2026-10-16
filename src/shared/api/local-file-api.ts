@@ -25,6 +25,7 @@ export {
   resolveEntityImageUrl,
   resolveFontFileUrl,
   resolveGalleryFileUrl,
+  resolveGameAssetFileUrl,
   resolveManagedAssetThumbnailFileUrl,
   resolveManagedLocalAssetThumbnailUrl,
   resolveManagedLocalAssetUrl,

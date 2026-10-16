@@ -67,7 +67,7 @@ function galleryLocalFilename(
   return filename?.trim() || filenameFromPath(absolutePath);
 }
 
-async function resolveGameAssetFileUrl(path: string): Promise<string> {
+export async function resolveGameAssetFileUrl(path: string): Promise<string> {
   const remoteUrl = await remoteManagedAssetResolvableUrl("game", path);
   if (remoteUrl) return remoteUrl;
   const response = await invokeTauri<PathResponse>("game_assets_file_path", { path });
