@@ -405,10 +405,9 @@ fn managed_asset_path(state: &AppState, kind: &str, path: &str) -> Result<PathBu
     match kind {
         "avatar" => avatar_asset_path(state, path),
         "avatar-thumbnail" => avatar_thumbnail_asset_path(state, path),
-        "background" => Ok(PathBuf::from(state.backgrounds.absolute_path_string(path)?)),
+        "background" => state.background_path(path),
         "font" => fonts::font_file_path(state, path),
         "gallery" => gallery_asset_path(state, path),
-        "game" => state.game_asset_path(path),
         "entity-image" => entity_image_asset_path(state, path),
         "lorebook" => {
             let response = lorebook_images::lorebook_image_file_path(state, path)?;

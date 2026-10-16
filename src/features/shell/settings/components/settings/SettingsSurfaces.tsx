@@ -56,7 +56,6 @@ import { chatBackgroundMetadataToUrl, chatBackgroundUrlToMetadata } from "../../
 import {
   backgroundFileUrlFromPath,
   displayableAssetSrc,
-  gameAssetFileUrlFromPath,
   resolveManagedAssetThumbnailFileUrl,
   resolveManagedLocalAssetUrl,
   userBackgroundUrl,
@@ -1882,7 +1881,7 @@ export function AppearanceSettings() {
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium inline-flex items-center gap-1">
             Chat Background{" "}
-            <HelpTooltip text="Import one or more custom images, or choose from your game asset backgrounds. Supports JPG, PNG, GIF, and WebP. Remove to use the default background." />
+            <HelpTooltip text="Import one or more custom images, or choose a built-in background. Supports JPG, PNG, GIF, and WebP. Remove to use the default background." />
           </span>
           {chatBackground && (
             <button
@@ -1927,7 +1926,7 @@ type BackgroundLibraryItem = {
   path?: string;
   originalName: string | null;
   tags: string[];
-  source?: "user" | "game_asset";
+  source?: "user" | "built_in";
   tag?: string;
   editable?: boolean;
   deletable?: boolean;
@@ -1944,27 +1943,10 @@ type BackgroundUploadResponse = {
 
 function BackgroundThumbnail({ item }: { item: BackgroundLibraryItem }) {
   const filename = item.filename ?? item.path ?? item.id;
-  const gameAssetPath = item.source === "game_asset" ? (item.path ?? filename) : null;
-  const [src, setSrc] = useState(() => {
-    if (gameAssetPath) return gameAssetFileUrlFromPath(gameAssetPath, item.absolutePath);
-    return filename ? backgroundFileUrlFromPath(filename, item.absolutePath) : "";
-  });
+  const [src, setSrc] = useState(() => (filename ? backgroundFileUrlFromPath(filename, item.absolutePath) : ""));
 
   useEffect(() => {
     let cancelled = false;
-    if (gameAssetPath) {
-      setSrc(gameAssetFileUrlFromPath(gameAssetPath, item.absolutePath));
-      resolveManagedAssetThumbnailFileUrl("game", gameAssetPath, 256)
-        .then((url) => {
-          if (!cancelled) setSrc(url || gameAssetFileUrlFromPath(gameAssetPath, item.absolutePath));
-        })
-        .catch(() => {
-          if (!cancelled) setSrc(gameAssetFileUrlFromPath(gameAssetPath, item.absolutePath));
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
     if (filename) {
       setSrc(backgroundFileUrlFromPath(filename, item.absolutePath));
       resolveManagedAssetThumbnailFileUrl("background", filename, 256)
@@ -1988,7 +1970,7 @@ function BackgroundThumbnail({ item }: { item: BackgroundLibraryItem }) {
     return () => {
       cancelled = true;
     };
-  }, [filename, gameAssetPath, item.absolutePath, item.url]);
+  }, [filename, item.absolutePath, item.url]);
 
   return <img src={displayableAssetSrc(src)} alt="" className="h-full w-full object-cover" loading="lazy" />;
 }
@@ -2128,14 +2110,14 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
           {backgrounds.map((bg) => {
             const itemKey = bg.id ?? bg.url;
             const isSelected = selected === bg.url;
-            const isUserBackground = bg.source !== "game_asset";
+            const isUserBackground = bg.source !== "built_in";
             const isEditable = bg.editable !== false && isUserBackground;
             const canRename = bg.renameable !== false && isUserBackground;
             const canDelete = bg.deletable !== false && isUserBackground;
             const isEditing = editingTags === itemKey;
             const isRenaming = renamingFile === itemKey;
             const title = bg.originalName ?? bg.tag ?? bg.filename;
-            const sourceLabel = bg.source === "game_asset" ? "Game asset" : "Library";
+            const sourceLabel = bg.source === "built_in" ? "Built-in" : "Library";
             return (
               <div key={itemKey} className="flex flex-col gap-1">
                 {/* Thumbnail row */}
@@ -2193,7 +2175,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
                           <span
                             className={cn(
                               "shrink-0 rounded-full px-1.5 py-0 text-[0.5625rem]",
-                              bg.source === "game_asset"
+                              bg.source === "built_in"
                                 ? "bg-[var(--primary)]/10 text-[var(--primary)]"
                                 : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
                             )}
