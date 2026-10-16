@@ -256,8 +256,11 @@ fn retire_game_rows(storage: &FileStorage) -> AppResult<()> {
 /// folder when anything was removed.
 ///
 /// Retry safety: nothing is deleted until a complete backup of everything still present is
-/// published. If a later step fails, startup runs this again; that run backs up whatever
-/// Game data is left before deleting it, so every removed record is in some backup.
+/// published. If a later step fails, the next start runs this again; that run backs up
+/// whatever Game data is left before deleting it, so every removed record is in some backup.
+/// Gallery rows whose image was already missing are kept in the backup and listed under
+/// `missingFiles`; there is no file left to save, and refusing to continue would leave the
+/// Game chats stuck forever.
 pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBuf>> {
     let data = GameModeData::load(state)?;
     if !data.needs_backup() && data.retired_category_lorebooks == 0 {
@@ -268,10 +271,12 @@ pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBu
     } else {
         None
     };
-    retire_game_rows(&state.storage)?;
+    // The chat cascade is the app's normal chat delete path. It runs first so a failure
+    // there leaves the small collections untouched; the atomic write runs only after it.
     if !data.chat_ids.is_empty() {
         delete_chats_with_messages(state, &data.chat_ids)?;
     }
+    retire_game_rows(&state.storage)?;
     if let Some(dir) = &backup {
         log::info!(
             "removed Game mode data: chats={} backup={}",
@@ -582,17 +587,27 @@ mod tests {
     fn retry_after_a_partial_run_backs_up_what_is_left() {
         let state = test_state("partial-run");
         seed(&state);
-        // Simulate an earlier run that already retired the small collections before failing.
-        retire_game_rows(&state.storage).unwrap();
+        // Simulate an earlier run whose chat cascade finished but which failed before the
+        // atomic write for checkpoints, presets, and lorebooks.
+        delete_chats_with_messages(&state, &["game-1".to_string()]).unwrap();
 
         let dir = remove_game_mode_data(&state)
             .unwrap()
-            .expect("remaining Game chats still need a backup");
+            .expect("the remaining Game rows still need a backup");
         let records: Value =
             serde_json::from_slice(&fs::read(dir.join(BACKUP_RECORDS_FILE)).unwrap()).unwrap();
-        assert_eq!(records["chats"][0]["id"], "game-1");
-        assert!(records["gameCheckpoints"].as_array().unwrap().is_empty());
-        assert!(state.storage.get("chats", "game-1").unwrap().is_none());
+        assert!(records["chats"].as_array().unwrap().is_empty());
+        assert_eq!(records["gameCheckpoints"][0]["id"], "cp-1");
+        assert_eq!(records["chatPresets"][0]["id"], "preset-game");
+        assert!(state
+            .storage
+            .list(GAME_CHECKPOINTS_COLLECTION)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            state.storage.get("lorebooks", "lb-game").unwrap().unwrap()["category"],
+            "world"
+        );
     }
 
     #[test]
