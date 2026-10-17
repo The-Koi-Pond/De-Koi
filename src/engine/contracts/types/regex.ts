@@ -2,6 +2,10 @@
 // Regex Script Types (SillyTavern-compatible)
 // ──────────────────────────────────────────────
 
+import type { RegexApplyMode } from "../../shared/regex/regex-apply-mode";
+
+export type { RegexApplyMode };
+
 /** Where a regex script is applied. */
 export type RegexPlacement = "ai_output" | "user_input";
 
@@ -24,8 +28,10 @@ export interface RegexScript {
   placement: RegexPlacement[];
   /** Regex flags (e.g. "gi", "gm") */
   flags: string;
-  /** Only apply in prompt context (not displayed text) */
+  /** Only apply in prompt context (not displayed text). Kept in step with `applyMode`. */
   promptOnly: boolean;
+  /** Where the replacement shows. Rows without one read `promptOnly`. */
+  applyMode?: RegexApplyMode;
   /** Execution order (lower = runs first) */
   order: number;
   /** Optional minimum message depth to apply (null = no limit) */

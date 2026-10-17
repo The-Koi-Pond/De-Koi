@@ -1183,7 +1183,7 @@ export const ChatMessage = memo(function ChatMessage({
   }, []);
 
   // Apply regex scripts to AI output (assistant/narrator roles)
-  const { applyToAIOutput } = useApplyRegex(chatCharacterIds);
+  const { applyToAIOutput, applyToUserDisplay } = useApplyRegex(chatCharacterIds);
   const scopedRegexMode = useChatStore((s) => {
     const meta = s.activeChat?.metadata;
     return (meta as Record<string, unknown> | undefined)?.scopedRegexMode as
@@ -1246,18 +1246,21 @@ export const ChatMessage = memo(function ChatMessage({
       characters: macroCharacters,
     };
     const resolveDisplayMacros = createMessageMacroResolver(macroContext);
-    const text =
-      isUser || isSystem
-        ? message.content
-        : applyToAIOutput(message.content, {
-            depth: messageDepth,
-            resolveMacros: resolveDisplayMacros,
-            scopedMode: scopedRegexMode,
-            characterId: message.characterId,
-          });
+    const regexOptions = {
+      depth: messageDepth,
+      resolveMacros: resolveDisplayMacros,
+      scopedMode: scopedRegexMode,
+      characterId: message.characterId,
+    };
+    const text = isSystem
+      ? message.content
+      : isUser
+        ? applyToUserDisplay(message.content, regexOptions)
+        : applyToAIOutput(message.content, regexOptions);
     return resolveDisplayMacros(text);
   }, [
     applyToAIOutput,
+    applyToUserDisplay,
     charName,
     isSystem,
     isUser,

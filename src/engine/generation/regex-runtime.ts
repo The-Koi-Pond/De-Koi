@@ -1,3 +1,4 @@
+import { regexScriptSurfaces } from "../shared/regex/regex-apply-mode";
 import { applyRegexScriptReplacement } from "../shared/regex/regex-script-application";
 import type { StorageGateway } from "../capabilities/storage";
 import { bySortOrder, boolish, readString, stringArray, type JsonRecord } from "./runtime-records";
@@ -32,8 +33,9 @@ function scriptTargetCharacterIds(script: JsonRecord): string[] {
   return characterId ? [characterId] : [];
 }
 
-function scriptPromptOnly(script: JsonRecord): boolean {
-  return boolish(script.promptOnly, false) || scriptTargetCharacterIds(script).length > 0;
+/** Only global scripts that apply to both the display and the prompt rewrite saved messages. */
+function scriptRewritesSavedMessage(script: JsonRecord): boolean {
+  return regexScriptSurfaces(script, scriptTargetCharacterIds(script).length > 0).savedMessage;
 }
 
 function scriptAppliesToScope(script: JsonRecord, options?: RuntimeRegexScopeOptions): boolean {
@@ -57,7 +59,7 @@ export function applyRuntimeRegexScriptSnapshot(
 
   for (const script of scripts) {
     if (!boolish(script.enabled, true)) continue;
-    if (scriptPromptOnly(script)) continue;
+    if (!scriptRewritesSavedMessage(script)) continue;
     if (!scriptAppliesToScope(script, options)) continue;
     if (!placements(script.placement).includes(placement)) continue;
 

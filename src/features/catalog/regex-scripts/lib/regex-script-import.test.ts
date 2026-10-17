@@ -22,7 +22,8 @@ describe("parseRegexScriptImportPayloads", () => {
     expect(payload?.targetCharacterIds).toEqual(["char-a", "char-b"]);
     expect(payload?.findRegex).toBe("secret");
     expect(payload?.flags).toBe("gi");
-    expect(payload?.promptOnly).toBe(true);
+    expect(payload?.applyMode).toBe("both");
+    expect(payload?.promptOnly).toBe(false);
     expect(
       filterRegexScriptsByCharacterIds([{ id: "script", ...payload }], ["char-b"]).map((script) => script.id),
     ).toEqual(["script"]);
@@ -38,7 +39,23 @@ describe("parseRegexScriptImportPayloads", () => {
 
     expect(payload?.characterId).toBe("char-a");
     expect(payload?.targetCharacterIds).toEqual(["char-a"]);
-    expect(payload?.promptOnly).toBe(true);
+    expect(payload?.applyMode).toBe("both");
+  });
+
+  it("reads SillyTavern's display-only and prompt-only flags", () => {
+    const payloads = parseRegexScriptImportPayloads([
+      { scriptName: "Status panel", findRegex: "/<status>/g", markdownOnly: true, placement: [2] },
+      { scriptName: "Strip notes", findRegex: "/<note>/g", promptOnly: true, placement: [2] },
+      { scriptName: "Both flags", findRegex: "/x/g", markdownOnly: true, promptOnly: true, placement: [2] },
+      { name: "De-Koi export", findRegex: "y", applyMode: "display", placement: ["ai_output"] },
+    ]);
+
+    expect(payloads.map((payload) => [payload.applyMode, payload.promptOnly])).toEqual([
+      ["display", false],
+      ["prompt", true],
+      ["both", false],
+      ["display", false],
+    ]);
   });
 
   it("validates every accepted row before callers start writing", () => {
