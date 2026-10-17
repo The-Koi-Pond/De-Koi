@@ -197,7 +197,10 @@ pub(super) fn read_zip_entry_names(bytes: &[u8]) -> AppResult<Vec<String>> {
         let file = zip_reader.by_index(index).map_err(|error| {
             AppError::invalid_input(format!("Could not read zip entry: {error}"))
         })?;
-        names.push(file.name().to_string());
+        let name = file.name().map_err(|error| {
+            AppError::invalid_input(format!("Could not read zip entry name: {error}"))
+        })?;
+        names.push(name.into_owned());
     }
     Ok(names)
 }

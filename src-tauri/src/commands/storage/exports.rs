@@ -1933,7 +1933,11 @@ mod tests {
             .decode(download["base64"].as_str().expect("base64"))
             .expect("decode");
         let archive = ZipArchive::new(Cursor::new(bytes)).expect("bulk zip");
-        assert_eq!(archive.file_names().collect::<Vec<_>>(), ["Sol.charx"]);
+        let names = archive
+            .file_names()
+            .map(|name| name.expect("zip entry name").into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Sol.charx"]);
     }
 
     #[test]

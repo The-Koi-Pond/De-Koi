@@ -1,3 +1,4 @@
+import { regexScriptSurfaces } from "../../shared/regex/regex-apply-mode";
 import { applyRegexScriptReplacement } from "../../shared/regex/regex-script-application";
 
 type RegexPlacement = "ai_output" | "user_input";
@@ -10,6 +11,7 @@ type RegexScriptLike = {
   trimStrings?: unknown;
   placement?: unknown;
   promptOnly?: unknown;
+  applyMode?: unknown;
   minDepth?: unknown;
   maxDepth?: unknown;
   characterId?: unknown;
@@ -40,16 +42,11 @@ function isEnabled(value: unknown): boolean {
   return value === true || value === "true";
 }
 
-function isPromptOnly(value: unknown): boolean {
-  return value === true || value === "true";
-}
-
-function isScopedPromptOnly(script: RegexScriptLike): boolean {
-  return (
-    isPromptOnly(script.promptOnly) ||
+function appliesToPrompt(script: RegexScriptLike): boolean {
+  const characterScoped =
     parseTargetCharacterIds(script.targetCharacterIds).length > 0 ||
-    parseTargetCharacterIds(script.characterId).length > 0
-  );
+    parseTargetCharacterIds(script.characterId).length > 0;
+  return regexScriptSurfaces(script, characterScoped).prompt;
 }
 
 function parsePlacement(value: unknown): RegexPlacement[] {
@@ -118,7 +115,7 @@ function applyRegexScriptsToPromptText(
   let result = text;
   for (const script of scripts) {
     if (!isEnabled(script.enabled)) continue;
-    if (!isScopedPromptOnly(script)) continue;
+    if (!appliesToPrompt(script)) continue;
     if (!scriptAppliesToTarget(script, options)) continue;
     if (!parsePlacement(script.placement).includes(placement)) continue;
 

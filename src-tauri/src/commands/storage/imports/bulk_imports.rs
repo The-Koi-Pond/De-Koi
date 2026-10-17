@@ -1594,19 +1594,17 @@ mod tests {
         let _ = fs::remove_dir_all(st_root);
     }
 
-    #[test]
-    fn import_st_chat_text_preserves_sillytavern_system_rows_as_hidden_from_ai() {
-        let app_root = temp_path("chat-st-system-hidden");
+    fn st_import_state(label: &str) -> (std::path::PathBuf, AppState) {
+        let app_root = temp_path(label);
         let state = AppState::from_data_dir(&app_root, Vec::new())
             .expect("test app state should initialize");
+        (app_root, state)
+    }
 
-        let result = import_st_chat_text(
-            &state,
-            concat!(
-                r#"{"is_system":true,"mes":"hidden note","character_name":"Bot"}"#,
-                "\n",
-                r#"{"is_user":true,"mes":"visible user"}"#
-            ),
+    fn st_import(state: &AppState, lines: &[&str]) -> Value {
+        import_st_chat_text(
+            state,
+            &lines.join("\n"),
             "Imported Chat".to_string(),
             None,
             StChatImportContext {
@@ -1615,32 +1613,124 @@ mod tests {
                 timestamp_overrides: None,
             },
         )
-        .expect("ST system transcript rows with content should import");
+        .expect("ST chat should import")
+    }
 
-        assert_eq!(result.get("messagesImported"), Some(&json!(2)));
+    #[test]
+    fn import_st_chat_text_keeps_hidden_messages_with_their_speaker() {
+        let (app_root, state) = st_import_state("chat-st-system-hidden");
+
+        let result = st_import(
+            &state,
+            &[
+                r#"{"is_system":true,"mes":"hidden reply","name":"Bot"}"#,
+                r#"{"is_user":true,"is_system":true,"mes":"hidden user line"}"#,
+                r#"{"is_system":true,"mes":"Welcome to SillyTavern","name":"SillyTavern System","extra":{"type":"welcome"}}"#,
+                r#"{"is_user":true,"mes":"visible user"}"#,
+            ],
+        );
+
+        assert_eq!(result.get("messagesImported"), Some(&json!(4)));
         let messages = state
             .storage
             .list("messages")
             .expect("messages should list");
-        assert_eq!(messages.len(), 2);
+        let summary: Vec<(String, Option<String>, bool)> = messages
+            .iter()
+            .map(|message| {
+                (
+                    message["role"].as_str().unwrap_or("").to_string(),
+                    message["characterId"].as_str().map(str::to_string),
+                    message["extra"]["hiddenFromAI"] == json!(true),
+                )
+            })
+            .collect();
         assert_eq!(
-            messages[0].get("content").and_then(Value::as_str),
-            Some("hidden note")
+            summary,
+            vec![
+                (
+                    "assistant".to_string(),
+                    Some("default-bot".to_string()),
+                    true
+                ),
+                ("user".to_string(), None, true),
+                ("system".to_string(), None, true),
+                ("user".to_string(), None, false),
+            ]
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
+    fn import_st_chat_text_keeps_every_swipe_with_its_reasoning() {
+        let (app_root, state) = st_import_state("chat-st-swipes");
+
+        st_import(
+            &state,
+            &[
+                r#"{"user_name":"You","character_name":"Bot","chat_metadata":{"note_prompt":"Keep it rainy.","note_depth":2}}"#,
+                r#"{"is_user":true,"mes":"Hello"}"#,
+                concat!(
+                    r#"{"name":"Bot","mes":"Second try","swipe_id":1,"send_date":"2026-01-01T10:00:07.000Z","#,
+                    r#""swipes":["First try","Second try","","Third try"],"#,
+                    r#""extra":{"reasoning":"think two"},"#,
+                    r#""swipe_info":[{"send_date":"2026-01-01T10:00:00.000Z","extra":{"reasoning":"think one"}},{"send_date":"  ","extra":{"reasoning":"think two, own"}},{"extra":{}},{"extra":{}}]}"#
+                ),
+            ],
+        );
+
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        let reply = messages
+            .iter()
+            .find(|message| message["role"] == "assistant")
+            .expect("reply should import");
+        assert_eq!(reply["content"], "Second try");
+        assert_eq!(reply["activeSwipeIndex"], 1);
+
+        let reply_id = reply["id"].as_str().unwrap();
+        let mut swipes: Vec<Value> = state
+            .storage
+            .list("message-swipes")
+            .expect("swipes should list")
+            .into_iter()
+            .filter(|swipe| swipe["messageId"] == reply_id)
+            .collect();
+        swipes.sort_by_key(|swipe| swipe["index"].as_i64().unwrap_or(0));
+        let contents: Vec<&str> = swipes
+            .iter()
+            .map(|swipe| swipe["content"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            contents,
+            vec!["First try", "Second try", "Third try"],
+            "the empty swipe is dropped"
+        );
+        assert_eq!(swipes[0]["extra"]["thinking"], "think one");
+        assert_eq!(
+            swipes[1]["extra"]["thinking"], "think two, own",
+            "the shown swipe's own swipe_info reasoning wins over the message-level copy"
         );
         assert_eq!(
-            messages[0].get("role").and_then(Value::as_str),
-            Some("system")
+            swipes[0]["extra"]["sillyTavernSendDate"],
+            "2026-01-01T10:00:00.000Z"
         );
+        assert!(swipes[2]["extra"].get("thinking").is_none());
         assert!(
-            messages[0].get("characterId").is_none_or(Value::is_null),
-            "ST system rows must not receive the default assistant character id"
+            swipes[2]["extra"].get("sillyTavernSendDate").is_none(),
+            "a swipe without its own date does not borrow the message's"
         );
-        assert_eq!(messages[0]["extra"]["hiddenFromAI"], json!(true));
-        assert_eq!(messages[0]["extra"]["hiddenFromAi"], json!(true));
         assert_eq!(
-            messages[1].get("role").and_then(Value::as_str),
-            Some("user")
+            swipes[1]["extra"]["sillyTavernSendDate"],
+            "2026-01-01T10:00:07.000Z"
         );
+
+        let chats = state.storage.list("chats").expect("chats should list");
+        assert_eq!(chats[0]["metadata"]["authorNotes"], "Keep it rainy.");
+        assert_eq!(chats[0]["metadata"]["authorNotesDepth"], 2);
 
         let _ = fs::remove_dir_all(app_root);
     }

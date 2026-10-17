@@ -654,7 +654,7 @@ mod tests {
         let mut masked_archived = false;
         for index in 0..archive.len() {
             let entry = archive.by_index(index).expect("zip entry should read");
-            let entry_name = entry.name().to_string();
+            let entry_name = entry.name().expect("zip entry name").into_owned();
             assert!(!entry_name.contains("connections.json."));
             if entry_name.ends_with("data/collections/connections.json") {
                 masked_archived = true;
@@ -788,7 +788,10 @@ mod tests {
         assert_custom_tool_webhook_redacted(&archived_collection_json);
         for index in 0..archive.len() {
             let entry = archive.by_index(index).expect("zip entry should read");
-            assert!(!entry.name().contains("custom-tools.json."));
+            assert!(!entry
+                .name()
+                .expect("zip entry name")
+                .contains("custom-tools.json."));
         }
     }
 
@@ -865,7 +868,10 @@ mod tests {
         assert_custom_tool_webhook_redacted(&collection_value);
         for index in 0..archive.len() {
             let entry = archive.by_index(index).expect("zip entry should read");
-            assert!(!entry.name().contains("custom-tools.json."));
+            assert!(!entry
+                .name()
+                .expect("zip entry name")
+                .contains("custom-tools.json."));
         }
     }
 
@@ -919,12 +925,14 @@ mod tests {
             let entry = archive.by_index(index).expect("zip entry should read");
             if entry
                 .name()
+                .expect("zip entry name")
                 .ends_with("knowledge-sources/collections/connections.json.notes")
             {
                 lookalike_archived = true;
             }
             if entry
                 .name()
+                .expect("zip entry name")
                 .ends_with("knowledge-sources/collections/custom-tools.json.notes")
             {
                 custom_tools_lookalike_archived = true;

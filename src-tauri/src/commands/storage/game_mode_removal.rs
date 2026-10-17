@@ -11,6 +11,7 @@ use crate::state::AppState;
 use marinara_core::{now_iso, now_millis, AppError, AppResult};
 use marinara_storage::{AtomicCollectionRows, FileStorage};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,10 +44,20 @@ fn canonical(path: &Path) -> AppResult<PathBuf> {
     Ok(fs::canonicalize(path)?)
 }
 
+fn file_digest(path: &Path) -> AppResult<Vec<u8>> {
+    Ok(Sha256::digest(fs::read(path)?).to_vec())
+}
+
+/// A source file the backup holds, with the content hash of the copy that was backed up.
+struct BackedUpFile {
+    path: PathBuf,
+    digest: Vec<u8>,
+}
+
 /// Copies `source` into the staged backup at its path relative to the data folder, so two
-/// files with the same name in different folders can never overwrite each other. Returns
-/// that relative path.
-fn backup_file(data_dir: &Path, staging: &Path, source: &Path) -> AppResult<String> {
+/// files with the same name in different folders can never overwrite each other. The copy
+/// must match the source byte for byte. Returns that relative path and the content hash.
+fn backup_file(data_dir: &Path, staging: &Path, source: &Path) -> AppResult<(String, Vec<u8>)> {
     let source = canonical(source)?;
     let relative = source.strip_prefix(data_dir).map_err(|_| {
         AppError::new(
@@ -59,13 +70,17 @@ fn backup_file(data_dir: &Path, staging: &Path, source: &Path) -> AppResult<Stri
         fs::create_dir_all(parent)?;
     }
     fs::copy(&source, &target)?;
-    if fs::metadata(&target)?.len() != fs::metadata(&source)?.len() {
+    let digest = file_digest(&target)?;
+    if digest != file_digest(&source)? {
         return Err(AppError::new(
             "game_mode_backup_failed",
-            format!("backup copy of {} is incomplete", source.display()),
+            format!(
+                "backup copy of {} does not match the original",
+                source.display()
+            ),
         ));
     }
-    Ok(relative.to_string_lossy().replace('\\', "/"))
+    Ok((relative.to_string_lossy().replace('\\', "/"), digest))
 }
 
 fn npc_avatar_files_for_chats(
@@ -318,7 +333,7 @@ impl RemovalPlan {
 struct PublishedBackup {
     dir: PathBuf,
     /// Image files the backup copied; removed once the records are gone.
-    source_files: Vec<PathBuf>,
+    source_files: Vec<BackedUpFile>,
 }
 
 fn write_backup(state: &AppState, plan: &RemovalPlan) -> AppResult<PublishedBackup> {
@@ -337,9 +352,9 @@ fn write_backup(state: &AppState, plan: &RemovalPlan) -> AppResult<PublishedBack
             let record = format!("gallery:{}", row_id(row).unwrap_or_default());
             match managed_record_file_path(state, "gallery", row, "filePath", "filename")? {
                 Some(path) if path.is_file() => {
-                    let relative = backup_file(&data_dir, &staging, &path)?;
+                    let (relative, digest) = backup_file(&data_dir, &staging, &path)?;
                     files.push(json!({ "record": record, "path": relative }));
-                    source_files.push(path);
+                    source_files.push(BackedUpFile { path, digest });
                 }
                 Some(path) => missing_files.push(json!({
                     "record": record,
@@ -349,9 +364,9 @@ fn write_backup(state: &AppState, plan: &RemovalPlan) -> AppResult<PublishedBack
             }
         }
         for path in npc_avatar_files_for_chats(state, &plan.chats.ids)? {
-            let relative = backup_file(&data_dir, &staging, &path)?;
+            let (relative, digest) = backup_file(&data_dir, &staging, &path)?;
             files.push(json!({ "record": "npc-avatar", "path": relative }));
-            source_files.push(path);
+            source_files.push(BackedUpFile { path, digest });
         }
         let removed_rows: serde_json::Map<String, Value> = plan
             .removed
@@ -414,6 +429,14 @@ fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> 
             atomic_rows(collections, "chats"),
             atomic_rows(collections, "messages"),
         );
+        // The Game chats must be exactly the ones the backup planned for: one that changed
+        // mode or appeared since would be skipped or removed without a backup.
+        if chats.ids != plan.chats.ids {
+            return Err(AppError::new(
+                "game_mode_backup_stale",
+                "Game chats changed after the Game mode backup was written; the removal runs again on the next start",
+            ));
+        }
         for collection in collections.iter() {
             let name = collection.collection();
             let unsaved = collection.rows().iter().any(|row| {
@@ -455,6 +478,112 @@ fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> 
     })
 }
 
+/// A free name next to `path` to move it aside under. Never an existing file.
+fn quarantine_path(path: &Path) -> Option<PathBuf> {
+    (0..16).find_map(|attempt| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(".removing-{}-{attempt}", now_millis()));
+        let candidate = PathBuf::from(name);
+        (!candidate.exists()).then_some(candidate)
+    })
+}
+
+/// Puts a quarantined file back. If something now sits at the original path, the moved file
+/// stays under its quarantine name instead of replacing it.
+fn restore_from_quarantine(aside: &Path, original: &Path, after_failed_delete: bool) {
+    if original.exists() {
+        log::warn!(
+            "left Game file at {} because {} was recreated",
+            aside.display(),
+            original.display()
+        );
+        return;
+    }
+    if let Err(error) = fs::rename(aside, original) {
+        log::warn!(
+            "could not put back Game file {} (it is at {}): {error}",
+            original.display(),
+            aside.display()
+        );
+    } else if after_failed_delete {
+        log::info!(
+            "put back Game file {} after a failed delete",
+            original.display()
+        );
+    }
+}
+
+/// Files that records surviving the removal still point at. Cleanup never deletes these,
+/// even when a Game row shared the same file.
+fn files_still_in_use(state: &AppState) -> AppResult<HashSet<PathBuf>> {
+    let mut paths = HashSet::new();
+    for row in state.storage.list("gallery")? {
+        if let Some(path) =
+            managed_record_file_path(state, "gallery", &row, "filePath", "filename")?
+        {
+            paths.insert(fs::canonicalize(&path).unwrap_or(path));
+        }
+    }
+    Ok(paths)
+}
+
+/// Removes source files the backup holds, keeping any that changed after they were copied.
+fn remove_backed_up_files(files: &[BackedUpFile], still_in_use: &HashSet<PathBuf>) {
+    for file in files {
+        let canonical_path = fs::canonicalize(&file.path).unwrap_or_else(|_| file.path.clone());
+        if still_in_use.contains(&canonical_path) {
+            log::info!(
+                "kept Game file {} because another record still uses it",
+                file.path.display()
+            );
+            continue;
+        }
+        // Move the file aside first, then check the moved bytes: what gets deleted is exactly
+        // what was hashed. A file that changed since it was backed up goes back where it was.
+        let Some(aside) = quarantine_path(&file.path) else {
+            log::warn!(
+                "kept Game file {} because no free name was found to move it aside",
+                file.path.display()
+            );
+            continue;
+        };
+        if let Err(error) = fs::rename(&file.path, &aside) {
+            log::warn!(
+                "could not remove backed-up Game file {}: {error}",
+                file.path.display()
+            );
+            continue;
+        }
+        let delete_failed = match file_digest(&aside) {
+            Ok(digest) if digest == file.digest => match fs::remove_file(&aside) {
+                Ok(()) => continue,
+                Err(error) => {
+                    log::warn!(
+                        "could not remove backed-up Game file {}: {error}",
+                        file.path.display()
+                    );
+                    true
+                }
+            },
+            Ok(_) => {
+                log::warn!(
+                    "kept Game file {} because it changed after the backup",
+                    file.path.display()
+                );
+                false
+            }
+            Err(error) => {
+                log::warn!(
+                    "could not check backed-up Game file {}: {error}",
+                    file.path.display()
+                );
+                false
+            }
+        };
+        restore_from_quarantine(&aside, &file.path, delete_failed);
+    }
+}
+
 /// Backs up, then deletes, Game chats and the rows they own, Game checkpoints, and Game
 /// chat-settings presets, and moves lorebooks out of the retired Game category. Returns
 /// the published backup folder when anything was removed.
@@ -476,13 +605,8 @@ pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBu
         None
     };
     retire_game_rows(&state.storage, &plan)?;
-    for path in backup.iter().flat_map(|backup| &backup.source_files) {
-        if let Err(error) = fs::remove_file(path) {
-            log::warn!(
-                "could not remove backed-up Game file {}: {error}",
-                path.display()
-            );
-        }
+    if let Some(backup) = &backup {
+        remove_backed_up_files(&backup.source_files, &files_still_in_use(state)?);
     }
     if let Some(backup) = &backup {
         log::info!(
@@ -938,6 +1062,114 @@ mod tests {
         let convo = state.storage.get("chats", "convo-1").unwrap().unwrap();
         assert_eq!(convo["connectedChatId"], "game-1");
         assert!(state.storage.get("chats", "game-1").unwrap().is_some());
+    }
+
+    #[test]
+    fn a_file_changed_after_the_backup_is_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "marinara-game-removal-digest-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let same = dir.join("same.png");
+        let changed = dir.join("changed.png");
+        fs::write(&same, b"aaaa").unwrap();
+        fs::write(&changed, b"bbbb").unwrap();
+        let files = vec![
+            BackedUpFile {
+                path: same.clone(),
+                digest: file_digest(&same).unwrap(),
+            },
+            BackedUpFile {
+                path: changed.clone(),
+                digest: file_digest(&changed).unwrap(),
+            },
+        ];
+        fs::write(&changed, b"cccc").unwrap();
+
+        remove_backed_up_files(&files, &HashSet::new());
+
+        assert!(!same.exists(), "an unchanged backed-up file is removed");
+        assert!(
+            changed.exists(),
+            "a file with new bytes of the same size is kept"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_another_record_still_uses_is_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "marinara-game-removal-shared-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let shared = dir.join("shared.png");
+        fs::write(&shared, b"aaaa").unwrap();
+        let files = vec![BackedUpFile {
+            path: shared.clone(),
+            digest: file_digest(&shared).unwrap(),
+        }];
+        let in_use = HashSet::from([fs::canonicalize(&shared).unwrap()]);
+
+        remove_backed_up_files(&files, &in_use);
+
+        assert!(shared.exists(), "a file a surviving record points at stays");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn removal_refuses_when_a_planned_game_chat_changed_mode() {
+        let state = test_state("game-chat-changed-mode");
+        seed(&state);
+        let plan = RemovalPlan::load(&state.storage).unwrap();
+        state
+            .storage
+            .patch("chats", "game-1", json!({ "mode": "roleplay" }))
+            .unwrap();
+
+        let error = retire_game_rows(&state.storage, &plan).unwrap_err();
+
+        assert_eq!(error.code, "game_mode_backup_stale");
+        assert!(state.storage.get("messages", "m-game").unwrap().is_some());
+    }
+
+    #[test]
+    fn quarantine_never_reuses_an_existing_name_and_restore_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!(
+            "marinara-game-removal-quarantine-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("art.png");
+        fs::write(&original, b"old").unwrap();
+        let aside = quarantine_path(&original).unwrap();
+        assert!(!aside.exists());
+        fs::rename(&original, &aside).unwrap();
+        fs::write(&original, b"new").unwrap();
+
+        restore_from_quarantine(&aside, &original, false);
+
+        assert_eq!(
+            fs::read(&original).unwrap(),
+            b"new",
+            "a recreated file is not replaced"
+        );
+        assert_eq!(
+            fs::read(&aside).unwrap(),
+            b"old",
+            "the moved file stays under its quarantine name"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

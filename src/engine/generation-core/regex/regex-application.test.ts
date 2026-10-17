@@ -96,4 +96,18 @@ describe("applyRegexScriptsToPromptMessages", () => {
 
     expect(messages[0]!.content).toBe("visible");
   });
+
+  it("keeps display-only scripts out of the prompt and applies scoped Both scripts to it", () => {
+    const messages = [{ role: "assistant", content: "secret" }];
+
+    applyRegexScriptsToPromptMessages(messages, [{ ...baseScript, promptOnly: false, applyMode: "display" }]);
+    expect(messages[0]!.content).toBe("secret");
+
+    applyRegexScriptsToPromptMessages(
+      messages,
+      [{ ...baseScript, promptOnly: false, applyMode: "both", characterId: "char-a" }],
+      { targetCharacterId: "char-a" },
+    );
+    expect(messages[0]!.content).toBe("visible");
+  });
 });
