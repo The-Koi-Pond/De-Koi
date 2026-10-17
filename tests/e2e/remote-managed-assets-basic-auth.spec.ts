@@ -4,10 +4,10 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import type { AddressInfo } from "node:net";
 
 type ProbeResult = {
-  firstGameText: string;
+  firstBackgroundText: string;
   objectUrls: Array<{ size: number; type: string; url: string }>;
-  refreshedGameRender: { height: number; name: string; width: number };
-  refreshedGameText: string;
+  refreshedBackgroundRender: { height: number; name: string; width: number };
+  refreshedBackgroundText: string;
   rendered: Array<{ height: number; name: string; width: number }>;
   resolved: Array<{ name: string; url: string }>;
   revokedObjectUrls: string[];
@@ -28,7 +28,6 @@ const EXPECTED_ASSET_PATHS = [
   "/api/assets/background/sky.svg",
   "/api/assets/font/Serif.woff2",
   "/api/assets/gallery/gallery.svg",
-  "/api/assets/game/scene/hero.svg",
   "/api/assets/lorebook/lore.svg",
   "/api/assets/sprite/character/char-1/pose.svg",
   "/api/assets/thumbnail/gallery/256/gallery.svg",
@@ -141,7 +140,6 @@ test("remote managed assets render as Basic Auth blobs and refresh after invalid
       "background",
       "font",
       "gallery",
-      "game",
       "lorebook",
       "sprite",
       "thumbnail",
@@ -154,17 +152,16 @@ test("remote managed assets render as Basic Auth blobs and refresh after invalid
         { height: 8, name: "avatar-thumbnail", width: 8 },
         { height: 8, name: "background", width: 8 },
         { height: 8, name: "gallery", width: 8 },
-        { height: 8, name: "game", width: 8 },
         { height: 8, name: "lorebook", width: 8 },
         { height: 8, name: "sprite", width: 8 },
         { height: 8, name: "thumbnail", width: 8 },
       ]),
     );
-    expect(result.refreshedGameRender).toEqual({ height: 8, name: "game-refreshed", width: 8 });
-    expect(result.firstGameText).toContain("variant-before");
-    expect(result.refreshedGameText).toContain("variant-after");
-    expect(result.revokedObjectUrls).toContain(result.resolved.find((entry) => entry.name === "game")?.url);
-    expect(result.objectUrls).toHaveLength(10);
+    expect(result.refreshedBackgroundRender).toEqual({ height: 8, name: "background-refreshed", width: 8 });
+    expect(result.firstBackgroundText).toContain("variant-before");
+    expect(result.refreshedBackgroundText).toContain("variant-after");
+    expect(result.revokedObjectUrls).toContain(result.resolved.find((entry) => entry.name === "background")?.url);
+    expect(result.objectUrls).toHaveLength(9);
 
     for (const assetPath of EXPECTED_ASSET_PATHS) {
       expect(
@@ -178,7 +175,7 @@ test("remote managed assets render as Basic Auth blobs and refresh after invalid
     expect(
       assetRequests.some((request) => {
         const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        return url.pathname === "/api/assets/game/scene/hero.svg" && url.searchParams.has("mriAssetV");
+        return url.pathname === "/api/assets/background/sky.svg" && url.searchParams.has("mriAssetV");
       }),
     ).toBe(true);
   } finally {

@@ -397,7 +397,6 @@ fn is_managed_local_binary_asset(data_dir: &Path, path: &Path) -> bool {
         "backgrounds",
         "fonts",
         "gallery",
-        "game-assets",
         "knowledge-sources",
         "lorebooks/images",
         "sprites",

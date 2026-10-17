@@ -25,7 +25,6 @@ const PROFILE_IMPORT_MANAGED_ASSET_KINDS: RemoteManagedAssetKind[] = [
   "avatar-thumbnail",
   "background",
   "gallery",
-  "game",
   "lorebook",
   "sprite",
 ];

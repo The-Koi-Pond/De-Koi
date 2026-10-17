@@ -1,7 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 export const USER_BACKGROUND_URL_PREFIX = "marinara-background:";
-export const GAME_ASSET_URL_PREFIX = "marinara-game-asset:";
 export const LOREBOOK_IMAGE_URL_PREFIX = "marinara-lorebook-image:";
 
 function hasScheme(value: string): boolean {
@@ -35,10 +34,6 @@ export function userBackgroundUrl(filename: string): string {
   return `${USER_BACKGROUND_URL_PREFIX}${encodeLocalAssetPath(filename)}`;
 }
 
-export function gameAssetUrl(path: string): string {
-  return `${GAME_ASSET_URL_PREFIX}${encodeLocalAssetPath(path)}`;
-}
-
 /**
  * `url` for an element's `src`, or undefined while it is empty or still a logical
  * asset marker. Markers must go through resolveManagedLocalAssetUrl first; the
@@ -46,7 +41,7 @@ export function gameAssetUrl(path: string): string {
  */
 export function displayableAssetSrc(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
-  const markers = [USER_BACKGROUND_URL_PREFIX, GAME_ASSET_URL_PREFIX, LOREBOOK_IMAGE_URL_PREFIX];
+  const markers = [USER_BACKGROUND_URL_PREFIX, LOREBOOK_IMAGE_URL_PREFIX];
   return markers.some((prefix) => url.startsWith(prefix)) ? undefined : url;
 }
 

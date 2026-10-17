@@ -10,8 +10,20 @@ import {
 } from "./persistence";
 
 describe("ui persistence migration", () => {
-  it("bumps the store version for the chibi visit setting removal", () => {
-    expect(UI_STORE_VERSION).toBe(11);
+  it("bumps the store version for the Game asset background retirement", () => {
+    expect(UI_STORE_VERSION).toBe(12);
+  });
+
+  it("moves a saved Game asset background onto the background library", () => {
+    expect(
+      migrateUiState({ chatBackground: "marinara-game-asset:__user_bg__%2Fcastle%20cliff.jpg" }).chatBackground,
+    ).toBe("marinara-background:castle%20cliff.jpg");
+    expect(
+      migrateUiState({ chatBackground: "marinara-game-asset:backgrounds%2Fgenerated%2Fx.png" }).chatBackground,
+    ).toBeNull();
+    expect(migrateUiState({ chatBackground: "marinara-background:sky.png" }).chatBackground).toBe(
+      "marinara-background:sky.png",
+    );
   });
 
   it("drops legacy chibi visit settings during migration", () => {

@@ -22,8 +22,6 @@ const USER_ERROR_MESSAGES = {
   exportProfile: "Couldn't export that profile. Choose a location and try again.",
   featuredCardsSave:
     "Couldn't save featured cards. Your selection is still shown here, but it may not stick. Try again.",
-  gameAssetCopy: "Couldn't copy that asset. Choose another folder or try again.",
-  gameAssetLoad: "Couldn't load game assets. Try again.",
   gameStart: "Couldn't start the game. Your setup is still here. Try again.",
   importChat: "Couldn't import that chat file. Pick another file or try again.",
   importSettings: "Couldn't import that file. Pick a supported De-Koi export and try again.",

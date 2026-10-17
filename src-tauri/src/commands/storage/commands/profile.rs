@@ -14,7 +14,6 @@ const LOCAL_BINARY_ASSET_DIRS: &[&str] = &[
     "backgrounds",
     "fonts",
     "gallery",
-    "game-assets",
     "knowledge-sources",
     "lorebooks/images",
     "sprites",

@@ -15,20 +15,6 @@ interface BackgroundAssetInfo {
   [key: string]: unknown;
 }
 
-interface GameAssetManifestEntry {
-  tag?: string | null;
-  category?: string | null;
-  subcategory?: string | null;
-  name?: string | null;
-  path?: string | null;
-  [key: string]: unknown;
-}
-
-interface GameAssetManifest {
-  byCategory?: Record<string, GameAssetManifestEntry[]>;
-  [key: string]: unknown;
-}
-
 interface VisualReferenceImageSource {
   image?: string | null;
   url?: string | null;
@@ -48,7 +34,6 @@ interface NpcAvatarUploadResult {
 export interface VisualAssetGateway {
   listSprites(ownerId: string, ownerType?: SpriteOwnerType): Promise<SpriteAssetInfo[]>;
   listBackgrounds(): Promise<BackgroundAssetInfo[]>;
-  gameAssetsManifest?(): Promise<GameAssetManifest | null>;
   resolveReferenceImage?(source: VisualReferenceImageSource): Promise<string | null>;
   uploadNpcAvatar?(chatId: string, name: string, avatar: string): Promise<NpcAvatarUploadResult>;
   /** Add a generated image (a `data:` URL) to the background library; resolves with the upload record (its `filename`). */

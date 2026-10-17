@@ -9,7 +9,6 @@ const MANAGED_THUMBNAIL_SIZES: &[u32] = &[64, 128, 256, 512];
 pub(crate) enum ManagedThumbnailKind {
     Background,
     Gallery,
-    Game,
     Lorebook,
 }
 
@@ -18,7 +17,6 @@ impl ManagedThumbnailKind {
         match value {
             "background" => Ok(Self::Background),
             "gallery" => Ok(Self::Gallery),
-            "game" => Ok(Self::Game),
             "lorebook" => Ok(Self::Lorebook),
             _ => Err(AppError::not_found("Managed thumbnail type was not found")),
         }
@@ -28,7 +26,6 @@ impl ManagedThumbnailKind {
         match self {
             Self::Background => "background",
             Self::Gallery => "gallery",
-            Self::Game => "game",
             Self::Lorebook => "lorebook",
         }
     }
@@ -37,24 +34,18 @@ impl ManagedThumbnailKind {
         match self {
             Self::Background => state.data_dir.join("backgrounds"),
             Self::Gallery => state.data_dir.join("gallery"),
-            Self::Game => state.data_dir.join("game-assets"),
             Self::Lorebook => state.data_dir.join("lorebooks").join("images"),
         }
     }
 
     fn source_roots(self, state: &AppState) -> AppResult<Vec<PathBuf>> {
         let mut roots = vec![canonical_root(state, self)?];
-        if matches!(self, Self::Game) {
-            let backgrounds = state.data_dir.join("backgrounds");
-            if backgrounds.exists() {
-                roots.push(fs::canonicalize(backgrounds)?);
-            }
+        if matches!(self, Self::Background) {
+            // Built-in backgrounds ship with the app instead of living in the data folder.
             for default_data in &state.default_data_roots {
-                for folder in ["game-assets", "backgrounds"] {
-                    let root = default_data.join(folder);
-                    if root.exists() {
-                        roots.push(fs::canonicalize(root)?);
-                    }
+                let root = default_data.join("backgrounds");
+                if root.exists() {
+                    roots.push(fs::canonicalize(root)?);
                 }
             }
         }
@@ -63,9 +54,8 @@ impl ManagedThumbnailKind {
 
     fn source(self, state: &AppState, path: &str) -> AppResult<PathBuf> {
         match self {
-            Self::Background => Ok(PathBuf::from(state.backgrounds.absolute_path_string(path)?)),
+            Self::Background => state.background_path(path),
             Self::Gallery => Ok(state.data_dir.join("gallery").join(safe_filename(path))),
-            Self::Game => state.game_asset_path(path),
             Self::Lorebook => {
                 let response = super::lorebook_images::lorebook_image_file_path(state, path)?;
                 response
@@ -324,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn game_thumbnail_can_use_bundled_default_background_without_copying_media() {
+    fn background_thumbnail_can_use_built_in_background_without_copying_media() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after unix epoch")
@@ -340,8 +330,8 @@ mod tests {
             .expect("test app state should initialize");
 
         let response =
-            managed_asset_thumbnail_file_path(&state, "game", "__user_bg__/castle.png", Some(128))
-                .expect("default background thumbnail should be created through game asset URLs");
+            managed_asset_thumbnail_file_path(&state, "background", "castle.png", Some(128))
+                .expect("built-in background thumbnail should be created");
         let thumbnail = PathBuf::from(response["path"].as_str().expect("path should be returned"));
 
         assert!(thumbnail.starts_with(state.data_dir.join(".managed-thumbnails")));

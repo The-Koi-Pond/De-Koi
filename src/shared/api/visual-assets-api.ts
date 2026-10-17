@@ -1,6 +1,5 @@
 import type { VisualAssetGateway } from "../../engine/capabilities/visual-assets";
 import { npcAvatarApi } from "./avatar-api";
-import { gameAssetsApi } from "./assets-api";
 import { spriteApi } from "./image-generation-api";
 import { resolveAvatarFileUrl } from "./local-file-api";
 import { backgroundsApi } from "./settings-assets-api";
@@ -82,7 +81,6 @@ async function loadUrlDataUrl(url: string, fallbackMimeType: string | null): Pro
 export const visualAssetsApi: VisualAssetGateway = {
   listSprites: (ownerId, ownerType = "character") => spriteApi.list(ownerId, { ownerType }),
   listBackgrounds: () => backgroundsApi.list(),
-  gameAssetsManifest: () => gameAssetsApi.manifest(),
   uploadNpcAvatar: (chatId, name, avatar) => npcAvatarApi.upload(chatId, name, avatar),
   uploadBackground: async ({ filename, dataUrl, mimeType }) => {
     const blob = await fetch(dataUrl).then((response) => response.blob());
