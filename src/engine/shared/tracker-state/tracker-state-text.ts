@@ -19,23 +19,23 @@ const GAME_STATE_TEXT_OBJECT_KEYS = [
 
 const GAME_STATE_TEXT_FIELDS = ["date", "time", "location", "weather", "temperature"] as const;
 
-export type GameStateTextField = (typeof GAME_STATE_TEXT_FIELDS)[number];
+export type TrackerStateTextField = (typeof GAME_STATE_TEXT_FIELDS)[number];
 
-function coerceGameStateTextValue(value: unknown): string | null {
-  return coerceGameStateTextValueInner(value, new WeakSet<object>());
+function coerceTrackerStateTextValue(value: unknown): string | null {
+  return coerceTrackerStateTextValueInner(value, new WeakSet<object>());
 }
 
-export function coerceGameStateTextFields(fields: Partial<Record<GameStateTextField, unknown>>) {
-  const coerced: Partial<Record<GameStateTextField, string | null>> = {};
+export function coerceTrackerStateTextFields(fields: Partial<Record<TrackerStateTextField, unknown>>) {
+  const coerced: Partial<Record<TrackerStateTextField, string | null>> = {};
   for (const field of GAME_STATE_TEXT_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(fields, field)) {
-      coerced[field] = coerceGameStateTextValue(fields[field]);
+      coerced[field] = coerceTrackerStateTextValue(fields[field]);
     }
   }
   return coerced;
 }
 
-function coerceGameStateTextValueInner(value: unknown, seen: WeakSet<object>): string | null {
+function coerceTrackerStateTextValueInner(value: unknown, seen: WeakSet<object>): string | null {
   if (value === null || value === undefined) return null;
 
   if (typeof value === "string") {
@@ -52,7 +52,7 @@ function coerceGameStateTextValueInner(value: unknown, seen: WeakSet<object>): s
 
   if (Array.isArray(value)) {
     const parts = value
-      .map((entry) => coerceGameStateTextValueInner(entry, seen))
+      .map((entry) => coerceTrackerStateTextValueInner(entry, seen))
       .filter((entry): entry is string => entry !== null);
     return parts.length > 0 ? parts.join(", ") : null;
   }
@@ -63,14 +63,14 @@ function coerceGameStateTextValueInner(value: unknown, seen: WeakSet<object>): s
 
   const record = value as Record<string, unknown>;
   for (const key of GAME_STATE_TEXT_OBJECT_KEYS) {
-    const text = coerceGameStateTextValueInner(record[key], seen);
+    const text = coerceTrackerStateTextValueInner(record[key], seen);
     if (text) return text;
   }
 
   const scalarParts = Object.entries(record)
     .map(([key, entry]) => {
       if (entry === null || entry === undefined || typeof entry === "object") return null;
-      const text = coerceGameStateTextValueInner(entry, seen);
+      const text = coerceTrackerStateTextValueInner(entry, seen);
       return text ? `${key}: ${text}` : null;
     })
     .filter((entry): entry is string => entry !== null);

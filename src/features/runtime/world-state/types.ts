@@ -1,15 +1,15 @@
 import type {
   CharacterStat,
   CustomTrackerField,
-  GameState,
+  TrackerState,
   InventoryItem,
   PlayerStats,
   PresentCharacter,
   QuestProgress,
-} from "../../../engine/contracts/types/game-state";
+} from "../../../engine/contracts/types/tracker-state";
 import type { TemperatureUnit } from "../../../shared/lib/temperature-units";
 
-export type GameStatePatchField =
+export type TrackerStatePatchField =
   | "date"
   | "time"
   | "location"
@@ -20,25 +20,25 @@ export type GameStatePatchField =
   | "personaStats";
 
 export type WorldStatePatchField = Extract<
-  GameStatePatchField,
+  TrackerStatePatchField,
   "date" | "time" | "location" | "weather" | "temperature"
 >;
 
 export type WorldTemperatureUnit = TemperatureUnit;
 
-export interface GameStatePatchValue {
-  date: GameState["date"];
-  time: GameState["time"];
-  location: GameState["location"];
-  weather: GameState["weather"];
-  temperature: GameState["temperature"];
-  presentCharacters: GameState["presentCharacters"];
-  playerStats: GameState["playerStats"];
-  personaStats: GameState["personaStats"];
+export interface TrackerStatePatchValue {
+  date: TrackerState["date"];
+  time: TrackerState["time"];
+  location: TrackerState["location"];
+  weather: TrackerState["weather"];
+  temperature: TrackerState["temperature"];
+  presentCharacters: TrackerState["presentCharacters"];
+  playerStats: TrackerState["playerStats"];
+  personaStats: TrackerState["personaStats"];
 }
 
 export interface TrackerStateSnapshot {
-  gameState: GameState | null;
+  gameState: TrackerState | null;
   playerStats: PlayerStats | null;
   personaStats: CharacterStat[];
   presentCharacters: PresentCharacter[];
@@ -48,11 +48,11 @@ export interface TrackerStateSnapshot {
 }
 
 export interface TrackerStateController extends TrackerStateSnapshot {
-  loadingGameState: boolean;
+  loadingTrackerState: boolean;
   gameStateRefreshing: boolean;
-  isLoadingGameState: boolean;
+  isLoadingTrackerState: boolean;
   getSnapshot: () => TrackerStateSnapshot;
-  patchField: <K extends GameStatePatchField>(field: K, value: GameStatePatchValue[K]) => void;
+  patchField: <K extends TrackerStatePatchField>(field: K, value: TrackerStatePatchValue[K]) => void;
   patchPlayerStats: <K extends keyof PlayerStats>(field: K, value: PlayerStats[K]) => void;
   flushPatch: () => Promise<void>;
 }

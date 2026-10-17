@@ -117,14 +117,14 @@ export interface AgentContext {
     content: string;
     characterId?: string;
     /** Committed game state snapshot for this message (if any). */
-    gameState?: import("./game-state.js").GameState | null;
+    gameState?: import("./tracker-state.js").TrackerState | null;
   }>;
   /** The main response text (available for post-processing agents) */
   mainResponse: string | null;
   /** Character that produced mainResponse, when the current turn is scoped to one character. */
   mainResponseCharacterId?: string | null;
   /** Current game state (if any) */
-  gameState: import("./game-state.js").GameState | null;
+  gameState: import("./tracker-state.js").TrackerState | null;
   /**
    * Active characters in the chat. The base shape (id/name/description) is
    * always populated. Richer card fields are optional — they're present in

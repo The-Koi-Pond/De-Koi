@@ -19,7 +19,7 @@ import {
 import { createAgentRuntimeDebug, type AgentRuntimeDebugEntry, type AgentRuntimeDebugLogger } from "../debug.js";
 import { stripAvatarPathsReplacer } from "../strip-avatar-paths";
 import { worldStatePatchFromAgentData } from "../../generation/world-state-agent-result";
-import { compactQuestProgressForContext } from "../../shared/game-state/player-stats";
+import { compactQuestProgressForContext } from "../../shared/tracker-state/player-stats";
 import { loreFieldsForAgentTypes } from "./agent-context-profile";
 
 const MAX_AGENT_CONTEXT_MESSAGES = 200;
@@ -157,7 +157,7 @@ function compactQuestPlayerStatsForAgentContext(playerStats: unknown, agentTypes
   };
 }
 
-function compactQuestGameStateForAgentContext(gameState: unknown, agentTypes: readonly string[]): unknown {
+function compactQuestTrackerStateForAgentContext(gameState: unknown, agentTypes: readonly string[]): unknown {
   if (!shouldCompactQuestContext(agentTypes) || !isJsonRecord(gameState) || !isJsonRecord(gameState.playerStats)) {
     return gameState;
   }
@@ -2409,7 +2409,7 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
   if (context.gameState) {
     parts.push(`<current_game_state>`);
     parts.push(
-      JSON.stringify(compactQuestGameStateForAgentContext(context.gameState, agentTypes), stripAvatarPathsReplacer),
+      JSON.stringify(compactQuestTrackerStateForAgentContext(context.gameState, agentTypes), stripAvatarPathsReplacer),
     );
     parts.push(`</current_game_state>`);
   }

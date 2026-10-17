@@ -7,7 +7,7 @@ import type {
   InventoryItem,
   PresentCharacter,
   QuestProgress,
-} from "../../../../engine/contracts/types/game-state";
+} from "../../../../engine/contracts/types/tracker-state";
 import type { HudPosition } from "../../../../shared/stores/ui.store";
 import { getTrackerStatPercent } from "../../../runtime/world-state/index";
 import {

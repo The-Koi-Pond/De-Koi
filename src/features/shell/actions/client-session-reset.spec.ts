@@ -2,8 +2,8 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { GameState } from "../../../engine/contracts/types/game-state";
-import { useGameStateStore } from "../../runtime/world-state";
+import type { TrackerState } from "../../../engine/contracts/types/tracker-state";
+import { useTrackerStateStore } from "../../runtime/world-state";
 import { useAgentStore } from "../../../shared/stores/agent.store";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../shared/stores/encounter.store";
@@ -15,14 +15,14 @@ describe("resetClientSessionState", () => {
     window.localStorage.clear();
     useChatStore.getState().reset();
     useAgentStore.getState().reset();
-    useGameStateStore.getState().reset();
+    useTrackerStateStore.getState().reset();
     useEncounterStore.getState().reset();
   });
 
   afterEach(() => {
     useChatStore.getState().reset();
     useAgentStore.getState().reset();
-    useGameStateStore.getState().reset();
+    useTrackerStateStore.getState().reset();
     useEncounterStore.getState().reset();
     useUIStore.getState().closeAllDetails();
     useUIStore.getState().closeModal();
@@ -37,7 +37,7 @@ describe("resetClientSessionState", () => {
 
     useChatStore.getState().setActiveChatId("chat-1");
     useAgentStore.getState().setProcessing(true);
-    useGameStateStore.getState().setGameState({ chatId: "chat-1", location: "Harbor" } as GameState);
+    useTrackerStateStore.getState().setTrackerState({ chatId: "chat-1", location: "Harbor" } as TrackerState);
     useEncounterStore.setState({ active: true, initialized: true, isProcessing: true });
     useUIStore.setState({
       modal: { type: "confirm", props: {} },
@@ -51,7 +51,7 @@ describe("resetClientSessionState", () => {
 
     expect(useChatStore.getState().activeChatId).toBeNull();
     expect(useAgentStore.getState().isProcessing).toBe(false);
-    expect(useGameStateStore.getState().current).toBeNull();
+    expect(useTrackerStateStore.getState().current).toBeNull();
     expect(useEncounterStore.getState()).toMatchObject({
       active: false,
       initialized: false,
@@ -73,7 +73,7 @@ describe("resetClientSessionState", () => {
 
     useChatStore.getState().setActiveChatId("chat-1");
     useAgentStore.getState().setProcessing(true);
-    useGameStateStore.getState().setGameState({ chatId: "chat-1", location: "Harbor" } as GameState);
+    useTrackerStateStore.getState().setTrackerState({ chatId: "chat-1", location: "Harbor" } as TrackerState);
     useEncounterStore.setState({ active: true, initialized: true, isProcessing: true });
     useUIStore.setState({
       modal: { type: "confirm", props: {} },
@@ -88,7 +88,7 @@ describe("resetClientSessionState", () => {
 
     expect(useChatStore.getState().activeChatId).toBeNull();
     expect(useAgentStore.getState().isProcessing).toBe(false);
-    expect(useGameStateStore.getState().current).toBeNull();
+    expect(useTrackerStateStore.getState().current).toBeNull();
     expect(useEncounterStore.getState()).toMatchObject({
       active: false,
       initialized: false,

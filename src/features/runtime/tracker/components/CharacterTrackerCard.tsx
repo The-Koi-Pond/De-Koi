@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Eye, HeartPulse, Maximize2, Shirt, X } from "lucide-react";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import type {
   TrackerPanelSide,
   TrackerPanelSizeProfile,

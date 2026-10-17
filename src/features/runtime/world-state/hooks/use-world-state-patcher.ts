@@ -1,21 +1,21 @@
 import { useCallback, useEffect } from "react";
-import type { GameState, PlayerStats } from "../../../../engine/contracts/types/game-state";
-import type { GameStatePatchField, GameStatePatchValue } from "../types";
+import type { TrackerState, PlayerStats } from "../../../../engine/contracts/types/tracker-state";
+import type { TrackerStatePatchField, TrackerStatePatchValue } from "../types";
 import { worldStateApi } from "../api/world-state-api";
-import { useGameStateStore } from "../stores/world-state.store";
+import { useTrackerStateStore } from "../stores/world-state.store";
 
-type GameStatePatch = Partial<GameStatePatchValue>;
-type GameStatePatchTarget = {
+type TrackerStatePatch = Partial<TrackerStatePatchValue>;
+type TrackerStatePatchTarget = {
   messageId?: string;
   swipeIndex?: number;
 };
-type QueuedGameStatePatch = {
+type QueuedTrackerStatePatch = {
   chatId: string;
-  target: GameStatePatchTarget;
-  fields: GameStatePatch;
+  target: TrackerStatePatchTarget;
+  fields: TrackerStatePatch;
   revision: number;
 };
-type InFlightGameStatePatch = {
+type InFlightTrackerStatePatch = {
   chatId: string;
   controller: AbortController;
   promise: Promise<void>;
@@ -24,10 +24,10 @@ type InFlightGameStatePatch = {
 
 const PATCH_DEBOUNCE_MS = 500;
 const PATCH_QUEUE_STORAGE_KEY = "marinara:pending-game-state-patches:v1";
-const pendingPatches = new Map<string, QueuedGameStatePatch>();
-const durablePatches = new Map<string, QueuedGameStatePatch>();
+const pendingPatches = new Map<string, QueuedTrackerStatePatch>();
+const durablePatches = new Map<string, QueuedTrackerStatePatch>();
 const patchTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const inFlightPatches = new Map<string, InFlightGameStatePatch>();
+const inFlightPatches = new Map<string, InFlightTrackerStatePatch>();
 let beforeUnloadListeners = 0;
 let restoredStoredPatches = false;
 let nextPatchRevision = 1;
@@ -43,7 +43,7 @@ function createEmptyPlayerStats(): PlayerStats {
   };
 }
 
-function createEmptyGameState(chatId: string): GameState {
+function createEmptyTrackerState(chatId: string): TrackerState {
   return {
     id: "",
     chatId,
@@ -62,12 +62,12 @@ function createEmptyGameState(chatId: string): GameState {
   };
 }
 
-function getCurrentGameStateForChat(chatId: string) {
-  const current = useGameStateStore.getState().current;
+function getCurrentTrackerStateForChat(chatId: string) {
+  const current = useTrackerStateStore.getState().current;
   return current?.chatId === chatId ? current : null;
 }
 
-function getPatchTarget(state: GameState | null): GameStatePatchTarget {
+function getPatchTarget(state: TrackerState | null): TrackerStatePatchTarget {
   if (!state) return {};
   return {
     messageId: state.messageId || undefined,
@@ -78,7 +78,7 @@ function getPatchTarget(state: GameState | null): GameStatePatchTarget {
   };
 }
 
-function getPatchKey(chatId: string, target: GameStatePatchTarget) {
+function getPatchKey(chatId: string, target: TrackerStatePatchTarget) {
   return `${chatId}\u0000${target.messageId ?? ""}\u0000${target.swipeIndex ?? ""}`;
 }
 
@@ -88,7 +88,7 @@ function getNextPatchRevision() {
   return revision;
 }
 
-function cloneQueuedPatch(queued: QueuedGameStatePatch): QueuedGameStatePatch {
+function cloneQueuedPatch(queued: QueuedTrackerStatePatch): QueuedTrackerStatePatch {
   return {
     chatId: queued.chatId,
     target: { ...queued.target },
@@ -101,7 +101,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function validateStoredPatchEntry(value: unknown): [string, QueuedGameStatePatch] | null {
+function validateStoredPatchEntry(value: unknown): [string, QueuedTrackerStatePatch] | null {
   if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string" || !isRecord(value[1])) {
     return null;
   }
@@ -174,7 +174,7 @@ function restorePendingPatchesFromStorage() {
   persistPendingPatches();
 }
 
-function requeuePatch(key: string, queued: QueuedGameStatePatch) {
+function requeuePatch(key: string, queued: QueuedTrackerStatePatch) {
   const existing = pendingPatches.get(key);
   const next = {
     chatId: queued.chatId,
@@ -190,8 +190,8 @@ function requeuePatch(key: string, queued: QueuedGameStatePatch) {
   persistPendingPatches();
 }
 
-function buildPayload(queued: QueuedGameStatePatch) {
-  const payload: GameStatePatch & GameStatePatchTarget = { ...queued.fields };
+function buildPayload(queued: QueuedTrackerStatePatch) {
+  const payload: TrackerStatePatch & TrackerStatePatchTarget = { ...queued.fields };
   if (queued.target.messageId) {
     payload.messageId = queued.target.messageId;
   }
@@ -202,8 +202,8 @@ function buildPayload(queued: QueuedGameStatePatch) {
   return payload;
 }
 
-function reconcileVisibleGameState(chatId: string, payload: GameStatePatch & GameStatePatchTarget) {
-  const store = useGameStateStore.getState();
+function reconcileVisibleTrackerState(chatId: string, payload: TrackerStatePatch & TrackerStatePatchTarget) {
+  const store = useTrackerStateStore.getState();
   const current = store.current;
   if (current?.chatId !== chatId) return;
   if (
@@ -214,18 +214,18 @@ function reconcileVisibleGameState(chatId: string, payload: GameStatePatch & Gam
     return;
   }
 
-  store.setGameState({
+  store.setTrackerState({
     ...current,
     ...payload,
     chatId,
-  } as GameState);
+  } as TrackerState);
 }
 
-function queuePatch<K extends GameStatePatchField>(
+function queuePatch<K extends TrackerStatePatchField>(
   chatId: string,
   field: K,
-  value: GameStatePatchValue[K],
-  target = getPatchTarget(getCurrentGameStateForChat(chatId)),
+  value: TrackerStatePatchValue[K],
+  target = getPatchTarget(getCurrentTrackerStateForChat(chatId)),
 ) {
   const key = getPatchKey(chatId, target);
   const existingDurable = durablePatches.get(key);
@@ -247,14 +247,14 @@ function queuePatch<K extends GameStatePatchField>(
   patchTimers.set(
     key,
     setTimeout(() => {
-      void flushGameStatePatch(chatId).catch((error) => {
+      void flushTrackerStatePatch(chatId).catch((error) => {
         console.warn("Failed to flush game-state patch", error);
       });
     }, PATCH_DEBOUNCE_MS),
   );
 }
 
-async function flushGameStatePatch(chatId?: string) {
+async function flushTrackerStatePatch(chatId?: string) {
   const errors: unknown[] = [];
   const entries = Array.from(pendingPatches.entries()).filter(([, queued]) => !chatId || queued.chatId === chatId);
 
@@ -264,7 +264,7 @@ async function flushGameStatePatch(chatId?: string) {
     patchTimers.delete(key);
 
     if (Object.keys(queued.fields).length === 0) continue;
-    const queuedSnapshot: QueuedGameStatePatch = {
+    const queuedSnapshot: QueuedTrackerStatePatch = {
       chatId: queued.chatId,
       target: { ...queued.target },
       fields: { ...queued.fields },
@@ -290,7 +290,7 @@ async function flushGameStatePatch(chatId?: string) {
     }
 
     const controller = new AbortController();
-    const inFlightEntry: InFlightGameStatePatch = {
+    const inFlightEntry: InFlightTrackerStatePatch = {
       chatId: queuedSnapshot.chatId,
       controller,
       promise: Promise.resolve(),
@@ -319,7 +319,7 @@ async function flushGameStatePatch(chatId?: string) {
       if (durable?.revision === queuedSnapshot.revision) {
         durablePatches.delete(key);
         persistPendingPatches();
-        reconcileVisibleGameState(queuedSnapshot.chatId, payload);
+        reconcileVisibleTrackerState(queuedSnapshot.chatId, payload);
       }
     } catch (error) {
       if (!inFlightEntry.canceled) errors.push(error);
@@ -338,7 +338,7 @@ async function flushGameStatePatch(chatId?: string) {
   }
 }
 
-export async function discardPendingGameStatePatch(chatId?: string) {
+export async function discardPendingTrackerStatePatch(chatId?: string) {
   const keys = new Set([
     ...Array.from(pendingPatches.entries())
       .filter(([, queued]) => !chatId || queued.chatId === chatId)
@@ -377,7 +377,7 @@ export async function discardPendingGameStatePatch(chatId?: string) {
   }
 }
 
-function flushGameStatePatchOnUnload() {
+function flushTrackerStatePatchOnUnload() {
   for (const [key, queued] of pendingPatches.entries()) {
     const timer = patchTimers.get(key);
     if (timer) clearTimeout(timer);
@@ -406,50 +406,54 @@ function flushGameStatePatchOnUnload() {
 function retainBeforeUnloadFlush() {
   restorePendingPatchesFromStorage();
   if (pendingPatches.size > 0) {
-    void flushGameStatePatch().catch((error) => {
+    void flushTrackerStatePatch().catch((error) => {
       console.warn("Failed to flush restored game-state patches", error);
     });
   }
 
   if (beforeUnloadListeners === 0) {
-    window.addEventListener("beforeunload", flushGameStatePatchOnUnload);
+    window.addEventListener("beforeunload", flushTrackerStatePatchOnUnload);
   }
   beforeUnloadListeners += 1;
 
   return () => {
     beforeUnloadListeners = Math.max(0, beforeUnloadListeners - 1);
     if (beforeUnloadListeners === 0) {
-      window.removeEventListener("beforeunload", flushGameStatePatchOnUnload);
+      window.removeEventListener("beforeunload", flushTrackerStatePatchOnUnload);
     }
   };
 }
 
-function patchGameStateField<K extends GameStatePatchField>(chatId: string, field: K, value: GameStatePatchValue[K]) {
-  const store = useGameStateStore.getState();
+function patchTrackerStateField<K extends TrackerStatePatchField>(
+  chatId: string,
+  field: K,
+  value: TrackerStatePatchValue[K],
+) {
+  const store = useTrackerStateStore.getState();
   if (store.refreshingChatId === chatId) return;
-  const prev = getCurrentGameStateForChat(chatId);
+  const prev = getCurrentTrackerStateForChat(chatId);
   const target = getPatchTarget(prev);
   const nextState = {
-    ...(prev ?? createEmptyGameState(chatId)),
+    ...(prev ?? createEmptyTrackerState(chatId)),
     [field]: value,
-  } as GameState;
-  store.setGameState(nextState);
+  } as TrackerState;
+  store.setTrackerState(nextState);
   queuePatch(chatId, field, value, target);
 }
 
 function patchPlayerStatsField<K extends keyof PlayerStats>(chatId: string, field: K, value: PlayerStats[K]) {
-  const current = getCurrentGameStateForChat(chatId)?.playerStats ?? createEmptyPlayerStats();
+  const current = getCurrentTrackerStateForChat(chatId)?.playerStats ?? createEmptyPlayerStats();
   const nextPlayerStats: PlayerStats = { ...current, [field]: value };
-  patchGameStateField(chatId, "playerStats", nextPlayerStats);
+  patchTrackerStateField(chatId, "playerStats", nextPlayerStats);
 }
 
-export function useGameStatePatcher(chatId: string | null, registrationId?: string) {
-  const registerFlushPatch = useGameStateStore((s) => s.registerFlushPatch);
+export function useTrackerStatePatcher(chatId: string | null, registrationId?: string) {
+  const registerFlushPatch = useTrackerStateStore((s) => s.registerFlushPatch);
 
   const patchField = useCallback(
-    <K extends GameStatePatchField>(field: K, value: GameStatePatchValue[K]) => {
+    <K extends TrackerStatePatchField>(field: K, value: TrackerStatePatchValue[K]) => {
       if (!chatId) return;
-      patchGameStateField(chatId, field, value);
+      patchTrackerStateField(chatId, field, value);
     },
     [chatId],
   );
@@ -464,7 +468,7 @@ export function useGameStatePatcher(chatId: string | null, registrationId?: stri
 
   const flushPatch = useCallback(async () => {
     if (!chatId) return;
-    await flushGameStatePatch(chatId);
+    await flushTrackerStatePatch(chatId);
   }, [chatId]);
 
   useEffect(() => retainBeforeUnloadFlush(), []);

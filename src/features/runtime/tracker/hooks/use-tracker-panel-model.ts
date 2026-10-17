@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import type { Message } from "../../../../engine/contracts/types/chat";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import type { Persona } from "../../../../engine/contracts/types/persona";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { parseCharacterDisplayData } from "../../../../shared/lib/character-display";
@@ -223,7 +223,7 @@ export function useTrackerPanelModel(): TrackerPanelModel {
   const hasFixedTrackerPanel = orderedTrackerSections.length > 0;
   const trackerState = useTrackerStateController(activeChatId, "tracker-data-sidebar", hasFixedTrackerPanel);
   const showTrackerSections =
-    !!activeChatId && !trackerState.isLoadingGameState && !!trackerState.gameState && hasFixedTrackerPanel;
+    !!activeChatId && !trackerState.isLoadingTrackerState && !!trackerState.gameState && hasFixedTrackerPanel;
 
   return {
     ...trackerState,

@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef } from "react";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
-import { makeManualTrackerRowId } from "../../../../engine/shared/game-state/tracker-row-ids";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
+import { makeManualTrackerRowId } from "../../../../engine/shared/tracker-state/tracker-row-ids";
 import { npcAvatarApi } from "../../../../shared/api/avatar-api";
 import { useAgentConfigs, useUpdateAgent, type AgentConfigRow } from "../../../catalog/agents/index";
 import { replaceTrackerListItem } from "../lib/tracker-state-edits";
 import { TRACKER_SECTION_AGENT_TYPES } from "../lib/tracker-state-display";
-import { useGameStateStore } from "../stores/world-state.store";
+import { useTrackerStateStore } from "../stores/world-state.store";
 
 type UseTrackerCharacterAvatarActionsOptions = {
   chatId: string | null | undefined;
@@ -79,7 +79,7 @@ export function useTrackerCharacterAvatarActions({
     async (index: number, file: File) => {
       if (!chatId) return;
 
-      const currentState = useGameStateStore.getState().current;
+      const currentState = useTrackerStateStore.getState().current;
       const currentCharacters = currentState?.chatId === chatId ? (currentState.presentCharacters ?? []) : characters;
       const character = currentCharacters[index] ?? characters[index];
       if (!character) return;
@@ -109,7 +109,7 @@ export function useTrackerCharacterAvatarActions({
         if (!isLatestUpload()) return;
         const response = await npcAvatarApi.upload(chatId, uploadCharacter.name, dataUrl);
         if (!isLatestUpload()) return;
-        const latestState = useGameStateStore.getState().current;
+        const latestState = useTrackerStateStore.getState().current;
         const latestCharacters =
           latestState?.chatId === chatId ? (latestState.presentCharacters ?? []) : currentCharactersForUpload;
         const targetIndex = latestCharacters.findIndex((candidate) => candidate.characterId === targetCharacterId);

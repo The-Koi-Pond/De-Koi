@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CustomTrackerField,
-  GameState,
+  TrackerState,
   InventoryItem,
   PresentCharacter,
   QuestProgress,
-} from "../../../../engine/contracts/types/game-state";
+} from "../../../../engine/contracts/types/tracker-state";
 import type { TrackerStateController, TrackerStateSnapshot } from "../types";
 import { worldStateApi } from "../api/world-state-api";
-import { useGameStateStore } from "../stores/world-state.store";
-import { useGameStatePatcher } from "./use-world-state-patcher";
+import { useTrackerStateStore } from "../stores/world-state.store";
+import { useTrackerStatePatcher } from "./use-world-state-patcher";
 
-function getTrackerStateSnapshot(gameState: GameState | null): TrackerStateSnapshot {
+function getTrackerStateSnapshot(gameState: TrackerState | null): TrackerStateSnapshot {
   const playerStats = gameState?.playerStats ?? null;
   return {
     gameState,
@@ -30,55 +30,57 @@ export function useTrackerStateController(
   enabled = true,
 ): TrackerStateController {
   const activeChatId = enabled ? chatId : null;
-  const gameState = useGameStateStore((s) => (activeChatId && s.current?.chatId === activeChatId ? s.current : null));
-  const gameStateRefreshing = useGameStateStore((s) => s.isRefreshing);
-  const setGameState = useGameStateStore((s) => s.setGameState);
-  const { patchField, patchPlayerStats, flushPatch } = useGameStatePatcher(activeChatId, registrationId);
-  const [loadingGameState, setLoadingGameState] = useState(false);
+  const gameState = useTrackerStateStore((s) =>
+    activeChatId && s.current?.chatId === activeChatId ? s.current : null,
+  );
+  const gameStateRefreshing = useTrackerStateStore((s) => s.isRefreshing);
+  const setTrackerState = useTrackerStateStore((s) => s.setTrackerState);
+  const { patchField, patchPlayerStats, flushPatch } = useTrackerStatePatcher(activeChatId, registrationId);
+  const [loadingTrackerState, setLoadingTrackerState] = useState(false);
   const getSnapshot = useCallback(() => {
-    const current = useGameStateStore.getState().current;
+    const current = useTrackerStateStore.getState().current;
     return getTrackerStateSnapshot(activeChatId && current?.chatId === activeChatId ? current : null);
   }, [activeChatId]);
 
   useEffect(() => {
     if (!activeChatId) {
-      setLoadingGameState(false);
+      setLoadingTrackerState(false);
       return;
     }
 
-    const existing = useGameStateStore.getState().current;
+    const existing = useTrackerStateStore.getState().current;
     if (existing?.chatId === activeChatId) {
-      setLoadingGameState(false);
+      setLoadingTrackerState(false);
       return;
     }
 
     let cancelled = false;
-    setLoadingGameState(true);
+    setLoadingTrackerState(true);
     worldStateApi
       .get(activeChatId)
       .then((state) => {
-        if (!cancelled) setGameState(state ?? null);
+        if (!cancelled) setTrackerState(state ?? null);
       })
       .catch(() => {
-        if (!cancelled) setGameState(null);
+        if (!cancelled) setTrackerState(null);
       })
       .finally(() => {
-        if (!cancelled) setLoadingGameState(false);
+        if (!cancelled) setLoadingTrackerState(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [activeChatId, setGameState]);
+  }, [activeChatId, setTrackerState]);
 
   const snapshot = useMemo(
     () => ({
-      ...getTrackerStateSnapshot(gameState as GameState | null),
-      loadingGameState,
+      ...getTrackerStateSnapshot(gameState as TrackerState | null),
+      loadingTrackerState,
       gameStateRefreshing,
-      isLoadingGameState: loadingGameState || gameStateRefreshing,
+      isLoadingTrackerState: loadingTrackerState || gameStateRefreshing,
     }),
-    [gameState, gameStateRefreshing, loadingGameState],
+    [gameState, gameStateRefreshing, loadingTrackerState],
   );
 
   return {

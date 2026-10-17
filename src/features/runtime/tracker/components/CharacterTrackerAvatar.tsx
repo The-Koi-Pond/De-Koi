@@ -1,5 +1,5 @@
 import { ImagePlus } from "lucide-react";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import { cn } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { visibleText } from "./tracker-display.helpers";

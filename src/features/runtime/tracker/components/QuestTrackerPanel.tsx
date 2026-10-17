@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { QuestProgress } from "../../../../engine/contracts/types/game-state";
+import type { QuestProgress } from "../../../../engine/contracts/types/tracker-state";
 import type { TrackerPanelSizeProfile } from "../../../../shared/stores/ui.store";
 import { TrackerReadabilityVeil } from "./tracker-data-sidebar.controls";
 import { QuestBoard } from "./quest-tracker/QuestBoard";

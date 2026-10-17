@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useGameStateStore } from "../../features/runtime/world-state/index";
+import { useTrackerStateStore } from "../../features/runtime/world-state/index";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useChatStore } from "../../shared/stores/chat.store";
 
@@ -11,7 +11,7 @@ export function useChatSwitchEffects() {
         (activeChatId, previousChatId) => {
           if (activeChatId === previousChatId) return;
           useAgentStore.getState().reset();
-          useGameStateStore.getState().setGameState(null);
+          useTrackerStateStore.getState().setTrackerState(null);
         },
       ),
     [],

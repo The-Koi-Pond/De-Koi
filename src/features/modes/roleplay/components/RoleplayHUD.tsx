@@ -11,12 +11,12 @@ import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn } from "../../../../shared/lib/utils";
 import { agentApi } from "../../../../shared/api/agent-api";
 import { roleplayTrackerApi } from "../api/roleplay-tracker-api";
-import { useGameStateStore } from "../../../runtime/world-state/index";
+import { useTrackerStateStore } from "../../../runtime/world-state/index";
 import { useAgentStore } from "../../../../shared/stores/agent.store";
 import { useAgentConfigs } from "../../../catalog/agents/index";
 import { useChat } from "../../../catalog/chats/index";
 import { useTrackerStateController } from "../../../runtime/world-state/index";
-import { discardPendingGameStatePatch } from "../../../runtime/world-state/index";
+import { discardPendingTrackerStatePatch } from "../../../runtime/world-state/index";
 import {
   mergeCharacterStatListUpdate,
   mergeCustomTrackerFieldListUpdate,
@@ -30,11 +30,11 @@ import type { Message } from "../../../../engine/contracts/types/chat";
 import type {
   CharacterStat,
   CustomTrackerField,
-  GameState,
+  TrackerState,
   InventoryItem,
   PresentCharacter,
   QuestProgress,
-} from "../../../../engine/contracts/types/game-state";
+} from "../../../../engine/contracts/types/tracker-state";
 import type { HudPosition } from "../../../../shared/stores/ui.store";
 import { ActionsGroup } from "./RoleplayHUDActionsGroup";
 import { CombinedPlayerWidget } from "./RoleplayHUDPlayerWidget";
@@ -128,7 +128,7 @@ export function RoleplayHUD({
     patchField,
     patchPlayerStats,
   } = useTrackerStateController(chatId, "roleplay-hud", trackerStateEnabled);
-  const setGameState = useGameStateStore((s) => s.setGameState);
+  const setTrackerState = useTrackerStateStore((s) => s.setTrackerState);
 
   const { data: chatForAgentsMenu } = useChat(chatId);
   const agentsMenuMetadata = useMemo(() => {
@@ -166,7 +166,7 @@ export function RoleplayHUD({
   const showMobileTrackerWidgets = showHudTrackerWidgets && !isDesktopHudLayout;
   const showDesktopTrackerWidgets = showHudTrackerWidgets && isDesktopHudLayout;
 
-  const clearGameState = useCallback(() => {
+  const clearTrackerState = useCallback(() => {
     const cleared = {
       date: null,
       time: null,
@@ -185,20 +185,20 @@ export function RoleplayHUD({
       },
       personaStats: [],
     };
-    const prev = useGameStateStore.getState().current;
+    const prev = useTrackerStateStore.getState().current;
     if (prev?.chatId === chatId) {
-      setGameState({ ...prev, ...cleared } as GameState);
+      setTrackerState({ ...prev, ...cleared } as TrackerState);
     } else {
-      setGameState({
+      setTrackerState({
         id: "",
         chatId,
         messageId: "",
         swipeIndex: 0,
         createdAt: "",
         ...cleared,
-      } as GameState);
+      } as TrackerState);
     }
-    void discardPendingGameStatePatch(chatId)
+    void discardPendingTrackerStatePatch(chatId)
       .then(() => roleplayTrackerApi.clearManualState(chatId, cleared))
       .catch((error) => {
         console.error("[RoleplayHUD] Failed to clear world state:", error);
@@ -210,7 +210,7 @@ export function RoleplayHUD({
       toast.error(toUserMessage(error, "roleplayStateClear"));
     });
     resetAgentStore();
-  }, [chatId, setGameState, resetAgentStore]);
+  }, [chatId, setTrackerState, resetAgentStore]);
 
   const date = gameState?.date ?? null;
   const time = gameState?.time ?? null;
@@ -288,7 +288,7 @@ export function RoleplayHUD({
         clearThoughtBubbles={clearThoughtBubbles}
         dismissThoughtBubble={dismissThoughtBubble}
         enabledAgentTypes={enabledAgentTypes}
-        clearGameState={clearGameState}
+        clearTrackerState={clearTrackerState}
         onRetriggerTrackers={onRetriggerTrackers}
         onRetryFailedAgents={onRetryFailedAgents}
         onRetryAgent={onRetryAgent}

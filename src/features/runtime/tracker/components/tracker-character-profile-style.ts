@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import {
   DEFAULT_TRACKER_CARD_ACCENT,
   TRACKER_CARD_NEUTRAL_LIFT,

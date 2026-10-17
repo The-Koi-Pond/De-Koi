@@ -44,7 +44,7 @@ import { resolveManagedLocalAssetUrl } from "../../../../shared/api/local-file-a
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useIsMobile } from "../../../../shared/hooks/use-is-mobile";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { useGameStateStore } from "../../../runtime/world-state/index";
+import { useTrackerStateStore } from "../../../runtime/world-state/index";
 import {
   buildSaveMomentSummaryDraft,
   ChatMessage,
@@ -147,7 +147,7 @@ const PANEL_CONTAINER =
   "relative max-h-[calc(100dvh-4rem)] w-full max-w-sm overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-2xl shadow-black/40 animate-message-in";
 
 function WeatherEffectsConnected({ chatId }: { chatId: string | null }) {
-  const gs = useGameStateStore((s) => (chatId && s.current?.chatId === chatId ? s.current : null));
+  const gs = useTrackerStateStore((s) => (chatId && s.current?.chatId === chatId ? s.current : null));
   return (
     <Suspense fallback={null}>
       <WeatherEffects weather={gs?.weather ?? null} timeOfDay={gs?.time ?? null} />

@@ -1,5 +1,5 @@
 import { Package, Plus, X } from "lucide-react";
-import type { InventoryItem } from "../../../../engine/contracts/types/game-state";
+import type { InventoryItem } from "../../../../engine/contracts/types/tracker-state";
 import { getFiniteNumberInputValue } from "../../../../shared/lib/number-input";
 import { cn } from "../../../../shared/lib/utils";
 import {

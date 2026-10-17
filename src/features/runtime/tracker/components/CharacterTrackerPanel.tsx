@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Users } from "lucide-react";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import type {
   TrackerPanelSizeProfile,
   TrackerPanelSide,

@@ -9,11 +9,11 @@ import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/ty
 import type {
   CharacterStat,
   CustomTrackerField,
-  GameState,
+  TrackerState,
   InventoryItem,
   PlayerStats,
   PresentCharacter,
-} from "../../../../engine/contracts/types/game-state";
+} from "../../../../engine/contracts/types/tracker-state";
 import { chatBackgroundMetadataToUrl } from "../../../../shared/lib/backgrounds";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { llmApi } from "../../../../shared/api/llm-api";
@@ -41,7 +41,7 @@ import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import type { AvatarCropValue } from "../../../../shared/lib/utils";
-import { useGameStateStore } from "../../world-state/index";
+import { useTrackerStateStore } from "../../world-state/index";
 import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
 import { chatKeys, sanitizeTimelineMessageRecord } from "../../../catalog/chats/index";
 import { characterKeys } from "../../../catalog/characters/index";
@@ -56,8 +56,8 @@ import {
   parseCustomTrackerField,
   parseInventoryItem,
   parseStat,
-} from "../../../../engine/shared/game-state/player-stats";
-import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/game-state/present-character-filter";
+} from "../../../../engine/shared/tracker-state/player-stats";
+import { filterPlayerPersonaPresentCharacters } from "../../../../engine/shared/tracker-state/present-character-filter";
 import type { AgentDebugEntry } from "../../../../engine/contracts/types/agent";
 import type { GenerationDiagnosticEventData } from "../../../../engine/contracts/types/generation";
 import {
@@ -914,8 +914,8 @@ export function isTrackerPatchRetryRequest(agentTypes: string[] | undefined): bo
 }
 
 function retryReturnedTrackerPatch(queryClient: QueryClient, chatId: string, results: unknown[]): boolean {
-  const store = useGameStateStore.getState();
-  const previous = store.current?.chatId === chatId ? store.current : createEmptyGameState(chatId);
+  const store = useTrackerStateStore.getState();
+  const previous = store.current?.chatId === chatId ? store.current : createEmptyTrackerState(chatId);
   const persona = cachedPersonaSnapshot(queryClient, chatId);
   return results.some((rawResult) => {
     const result = parseAgentResult(rawResult);
@@ -965,7 +965,7 @@ export async function generateAndApplyBackgroundRequest(
 }
 
 function applyQuestUpdates(rawData: unknown, autoRemoveFullyCompleted: boolean) {
-  const current = useGameStateStore.getState().current;
+  const current = useTrackerStateStore.getState().current;
   const { playerStats, changed } = applyQuestUpdatesToPlayerStats(
     current?.playerStats,
     parseMaybeRecord(rawData).updates,
@@ -973,7 +973,7 @@ function applyQuestUpdates(rawData: unknown, autoRemoveFullyCompleted: boolean) 
   );
   if (!changed) return;
 
-  useGameStateStore.getState().setGameState({
+  useTrackerStateStore.getState().setTrackerState({
     ...(current ?? ({} as never)),
     playerStats,
   } as never);
@@ -990,7 +990,7 @@ function createEmptyPlayerStats(): PlayerStats {
   };
 }
 
-function createEmptyGameState(chatId: string): GameState {
+function createEmptyTrackerState(chatId: string): TrackerState {
   return {
     id: "",
     chatId,
@@ -1029,7 +1029,10 @@ function parseManualOverrides(value: unknown): Record<string, string> | null {
   return Object.keys(overrides).length ? overrides : null;
 }
 
-function preserveManualWorldStatePatch(previous: GameState, patch: Record<string, unknown>): Record<string, unknown> {
+function preserveManualWorldStatePatch(
+  previous: TrackerState,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
   const manualOverrides = parseManualOverrides(previous.manualOverrides);
   if (!manualOverrides) return patch;
 
@@ -1069,13 +1072,13 @@ function retryRefreshTargetFromCache(
   return target ? trackerTargetFromMessagePayload(target) : null;
 }
 
-async function refreshGameStateFromStorage(chatId: string, target?: WorldStateTarget | null) {
+async function refreshTrackerStateFromStorage(chatId: string, target?: WorldStateTarget | null) {
   try {
     const state = target
       ? ((await worldStateApi.get(chatId, target)) ?? (await worldStateApi.get(chatId)))
       : await worldStateApi.get(chatId);
     if (useChatStore.getState().activeChatId === chatId) {
-      useGameStateStore.getState().setGameState(state ?? null);
+      useTrackerStateStore.getState().setTrackerState(state ?? null);
     }
   } catch (error) {
     console.warn("Failed to refresh tracker game state", error);
@@ -1124,7 +1127,7 @@ function gameStatePatchFromAgentResult(
   result: AgentResult,
   chatId: string,
   persona?: ReturnType<typeof cachedPersonaSnapshot>,
-  previousWorldState?: GameState | null,
+  previousWorldState?: TrackerState | null,
 ): Record<string, unknown> | null {
   if (result.agentType === "world-state" || result.type === "game_state_update") {
     return worldStatePatchFromAgentData(result.data, {
@@ -1142,7 +1145,7 @@ function gameStatePatchFromAgentResult(
   }
 
   if (result.agentType === "persona-stats" || result.type === "persona_stats_update") {
-    const current = useGameStateStore.getState().current;
+    const current = useTrackerStateStore.getState().current;
     const existingPlayerStats = current?.chatId === chatId ? current.playerStats : null;
     const playerStats: PlayerStats = { ...(existingPlayerStats ?? createEmptyPlayerStats()) };
     if (Object.prototype.hasOwnProperty.call(data, "status")) playerStats.status = readString(data.status).trim();
@@ -1157,7 +1160,7 @@ function gameStatePatchFromAgentResult(
   }
 
   if (result.agentType === "custom-tracker" || result.type === "custom_tracker_update") {
-    const current = useGameStateStore.getState().current;
+    const current = useTrackerStateStore.getState().current;
     const existingPlayerStats = current?.chatId === chatId ? current.playerStats : null;
     const playerStats: PlayerStats = { ...(existingPlayerStats ?? createEmptyPlayerStats()) };
     if (Array.isArray(data.fields)) {
@@ -1172,19 +1175,19 @@ function gameStatePatchFromAgentResult(
   return null;
 }
 
-async function applyTrackerResultToGameState(queryClient: QueryClient, chatId: string, result: AgentResult) {
-  const store = useGameStateStore.getState();
-  const previous = store.current?.chatId === chatId ? store.current : createEmptyGameState(chatId);
+async function applyTrackerResultToTrackerState(queryClient: QueryClient, chatId: string, result: AgentResult) {
+  const store = useTrackerStateStore.getState();
+  const previous = store.current?.chatId === chatId ? store.current : createEmptyTrackerState(chatId);
   const patch = gameStatePatchFromAgentResult(result, chatId, cachedPersonaSnapshot(queryClient, chatId), previous);
   if (!patch) return;
 
   const visiblePatch = preserveManualWorldStatePatch(previous, patch);
-  store.setGameState({ ...previous, ...visiblePatch } as GameState);
+  store.setTrackerState({ ...previous, ...visiblePatch } as TrackerState);
 
   try {
     const saved = await worldStateApi.patch(chatId, { ...patch, targetVisible: false });
-    if (useGameStateStore.getState().current?.chatId === chatId) {
-      useGameStateStore.getState().setGameState(saved);
+    if (useTrackerStateStore.getState().current?.chatId === chatId) {
+      useTrackerStateStore.getState().setTrackerState(saved);
     }
   } catch (error) {
     console.warn("Failed to sync tracker result to game state", error);
@@ -1301,7 +1304,7 @@ async function applyAgentResultEffects(
     });
   }
   if (result.agentType === "quest") applyQuestUpdates(result.data, options.autoRemoveFullyCompletedQuests === true);
-  if (!options.skipTrackerSync) await applyTrackerResultToGameState(queryClient, chatId, result);
+  if (!options.skipTrackerSync) await applyTrackerResultToTrackerState(queryClient, chatId, result);
 }
 
 export async function runGenerationWithUi(
@@ -1725,7 +1728,9 @@ export async function runGenerationWithUi(
             scheduleChatQueryRefresh(queryClient, chatId);
             await notifyOffChatAssistantMessage(queryClient, chatId, event.data);
             const trackerTarget = trackerTargetFromMessagePayload(event.data);
-            runDeferredGenerationWork("game state refresh", () => refreshGameStateFromStorage(chatId, trackerTarget));
+            runDeferredGenerationWork("game state refresh", () =>
+              refreshTrackerStateFromStorage(chatId, trackerTarget),
+            );
             const hasPendingGroupTurn = groupTurnActive && groupTurnIndex + 1 < groupTurnTotal;
             if (hasPendingGroupTurn) {
               resetLiveGenerationBuffers();
@@ -2034,7 +2039,7 @@ export function useGenerate() {
         // Flush any pending debounced game-state edits before the engine re-reads
         // storage; otherwise retryGenerationAgents reads a stale snapshot and the
         // regenerated agent result clobbers the user's just-made manual HUD edit.
-        const flushPatch = useGameStateStore.getState().flushPatch;
+        const flushPatch = useTrackerStateStore.getState().flushPatch;
         if (flushPatch) {
           try {
             await flushPatch();
@@ -2122,7 +2127,7 @@ export function useGenerate() {
           );
         }
         await runDeferredGenerationWork("agent retry refresh", async () => {
-          await refreshGameStateFromStorage(chatId, refreshTarget);
+          await refreshTrackerStateFromStorage(chatId, refreshTarget);
           await queryClient.invalidateQueries({ queryKey: ["agents"] });
         });
       } catch (error) {

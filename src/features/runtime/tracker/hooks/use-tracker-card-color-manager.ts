@@ -36,7 +36,7 @@ export function useTrackerCardColorManager() {
   } = useChat(hasActiveChatId ? activeChatId : null);
   const hasActiveChat = hasActiveChatId && activeChat?.id === activeChatId;
   const shouldLoadTargets = hasActiveChat && !isActiveChatError;
-  const { gameState: currentGameState, isLoadingGameState } = useTrackerStateController(
+  const { gameState: currentTrackerState, isLoadingTrackerState } = useTrackerStateController(
     activeChatId,
     "tracker-card-colors",
     shouldLoadTargets,
@@ -75,10 +75,10 @@ export function useTrackerCardColorManager() {
     return resolveTrackerCardColorTargets({
       activeChat,
       charactersData,
-      currentPresentCharacters: currentGameState?.presentCharacters,
+      currentPresentCharacters: currentTrackerState?.presentCharacters,
       personasData,
     });
-  }, [activeChat, charactersData, currentGameState?.presentCharacters, personasData, shouldLoadTargets]);
+  }, [activeChat, charactersData, currentTrackerState?.presentCharacters, personasData, shouldLoadTargets]);
 
   const targetKeySignature = targets.map((target) => target.key).join("|");
   const selectedTarget = targets.find((target) => target.key === selectedTargetKey) ?? null;
@@ -273,7 +273,7 @@ export function useTrackerCardColorManager() {
     hasUnsavedChanges,
     isChatUnavailable: hasActiveChatId && !isLoadingActiveChat && (isActiveChatError || !hasActiveChat),
     isLoadingChatContext: hasActiveChatId && isLoadingActiveChat,
-    isLoadingGameState,
+    isLoadingTrackerState,
     saveState,
     selectedTarget,
     selectedTargetKey,

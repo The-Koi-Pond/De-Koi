@@ -1,5 +1,5 @@
 import { Plus, Scroll } from "lucide-react";
-import type { QuestProgress } from "../../../../engine/contracts/types/game-state";
+import type { QuestProgress } from "../../../../engine/contracts/types/tracker-state";
 import { cn } from "../../../../shared/lib/utils";
 import {
   appendTrackerListItem,

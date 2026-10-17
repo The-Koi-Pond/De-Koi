@@ -3,10 +3,10 @@ import type { AgentResult } from "../contracts/types/agent";
 import type {
   CharacterStat,
   CustomTrackerField,
-  GameState,
+  TrackerState,
   InventoryItem,
   PresentCharacter,
-} from "../contracts/types/game-state";
+} from "../contracts/types/tracker-state";
 import { preserveTrackerCharacterUiFields } from "./generate-route-utils";
 import { boolish, isRecord, nowIso, parseRecord, readNonNegativeInteger, readString } from "./runtime-records";
 import { worldStatePatchFromAgentData } from "./world-state-agent-result";
@@ -17,12 +17,12 @@ import {
   parseCustomTrackerField,
   parseInventoryItem,
   parseStat,
-} from "../shared/game-state/player-stats";
-import { normalizeGameStateTrackerRows } from "../shared/game-state/tracker-row-ids";
+} from "../shared/tracker-state/player-stats";
+import { normalizeTrackerStateTrackerRows } from "../shared/tracker-state/tracker-row-ids";
 import {
   filterPlayerPersonaPresentCharacters,
   type TrackerPersonaIdentity,
-} from "../shared/game-state/present-character-filter";
+} from "../shared/tracker-state/present-character-filter";
 import { loadPersonaSnapshotForChat } from "./persona-snapshot";
 
 export interface TrackerSnapshotTurnTarget {
@@ -53,7 +53,7 @@ interface TrackerSnapshotSavedContext {
   chatId: string;
   target: TrackerSnapshotTurnTarget;
   chat: Record<string, unknown> | null;
-  snapshot: GameState;
+  snapshot: TrackerState;
   results: AgentResult[];
 }
 
@@ -61,7 +61,7 @@ export type TrackerSnapshotSavedHook = (context: TrackerSnapshotSavedContext) =>
 
 type TrackerStatePatch = Partial<
   Pick<
-    GameState,
+    TrackerState,
     | "date"
     | "time"
     | "location"
@@ -108,7 +108,7 @@ function hasManualOverrideField(patch: TrackerStatePatch, field: ManualOverrideF
   return Object.prototype.hasOwnProperty.call(patch, field);
 }
 
-function mergeWorldStatePatchWithManualOverrides(snapshot: GameState, patch: TrackerStatePatch): TrackerStatePatch {
+function mergeWorldStatePatchWithManualOverrides(snapshot: TrackerState, patch: TrackerStatePatch): TrackerStatePatch {
   const manualOverrides = parseManualOverrides(snapshot.manualOverrides);
   if (!manualOverrides) return patch;
 
@@ -166,15 +166,15 @@ function parsePresentCharacters(value: unknown, persona?: TrackerPersonaIdentity
     .filter((character): character is PresentCharacter => !!character);
 }
 
-function normalizeGameState(
+function normalizeTrackerState(
   value: unknown,
   chatId: string,
   target: TrackerSnapshotTurnTarget,
   persona?: TrackerPersonaIdentity | null,
-): GameState {
+): TrackerState {
   const record = parseRecord(value);
   const manualOverrides = parseManualOverrides(record.manualOverrides);
-  return normalizeGameStateTrackerRows({
+  return normalizeTrackerStateTrackerRows({
     id: readString(record.id),
     chatId,
     messageId: target.messageId,
@@ -235,7 +235,7 @@ function trackerTargetKey(target: TrackerSnapshotTurnTarget): string {
   return `${target.messageId}\u0000${target.swipeIndex}`;
 }
 
-export function resolveVisibleGameStateFallbackMessageIds(
+export function resolveVisibleTrackerStateFallbackMessageIds(
   messages: Array<{ role?: unknown; id?: unknown; activeSwipeIndex?: unknown; swipeIndex?: unknown }>,
 ): TrackerSnapshotTurnTarget[] {
   const targets = new Map<string, TrackerSnapshotTurnTarget>();
@@ -271,9 +271,9 @@ export async function createTrackerSnapshotReadContext(
   return { rows: await listTrackerSnapshotRows(storage, chatId) };
 }
 
-function normalizeTrackerSnapshotRow(row: Record<string, unknown>, chatId: string): GameState | null {
+function normalizeTrackerSnapshotRow(row: Record<string, unknown>, chatId: string): TrackerState | null {
   const target = trackerSnapshotTargetFromRecord(row);
-  return target ? normalizeGameState(row, chatId, target) : null;
+  return target ? normalizeTrackerState(row, chatId, target) : null;
 }
 
 function targetMatches(row: Record<string, unknown>, target: TrackerSnapshotTurnTarget): boolean {
@@ -285,7 +285,7 @@ function newestMatchingSnapshot(
   rows: Array<Record<string, unknown>>,
   chatId: string,
   predicate: (row: Record<string, unknown>) => boolean,
-): GameState | null {
+): TrackerState | null {
   for (const row of rows) {
     if (!predicate(row)) continue;
     const snapshot = normalizeTrackerSnapshotRow(row, chatId);
@@ -299,7 +299,7 @@ export async function getTrackerSnapshotForTarget(
   chatId: string,
   target: TrackerSnapshotTurnTarget | null,
   context?: TrackerSnapshotReadContext,
-): Promise<GameState | null> {
+): Promise<TrackerState | null> {
   if (!target) return null;
   if (!context && storage.getTrackerSnapshot) {
     const row = await storage.getTrackerSnapshot<Record<string, unknown>>(chatId, target);
@@ -314,7 +314,7 @@ export async function copyTrackerSnapshotsForRebasedMessages(
   sourceChatId: string,
   targetChatId: string,
   messages: readonly TrackerSnapshotMessageRebase[],
-): Promise<GameState | null> {
+): Promise<TrackerState | null> {
   if (!sourceChatId || !targetChatId || messages.length === 0) return null;
 
   const messageIdMap = new Map<string, string>();
@@ -373,7 +373,7 @@ export async function selectTrackerSnapshotForGeneration(
   chatId: string,
   options: TrackerSnapshotSelectionOptions = {},
   context?: TrackerSnapshotReadContext,
-): Promise<GameState | null> {
+): Promise<TrackerState | null> {
   if (!context && storage.selectTrackerSnapshot) {
     const row = await storage.selectTrackerSnapshot<Record<string, unknown>>(chatId, options);
     return row ? normalizeTrackerSnapshotRow(parseRecord(row), chatId) : null;
@@ -410,21 +410,21 @@ export async function commitTrackerSnapshotForTarget(
   storage: StorageGateway,
   chatId: string,
   target: TrackerSnapshotTurnTarget | null,
-): Promise<GameState | null> {
+): Promise<TrackerState | null> {
   const existing = await getTrackerSnapshotForTarget(storage, chatId, target);
   if (!existing) return null;
   if (existing.committed === true) return existing;
-  const saved = await storage.saveTrackerSnapshot<GameState>(chatId, {
+  const saved = await storage.saveTrackerSnapshot<TrackerState>(chatId, {
     ...(existing as unknown as Record<string, unknown>),
     committed: true,
   });
-  return normalizeGameState(saved, chatId, { messageId: existing.messageId, swipeIndex: existing.swipeIndex });
+  return normalizeTrackerState(saved, chatId, { messageId: existing.messageId, swipeIndex: existing.swipeIndex });
 }
 
 function gameStatePatchFromAgentResult(
   result: AgentResult,
-  snapshot: GameState,
-  previousWorldState: GameState,
+  snapshot: TrackerState,
+  previousWorldState: TrackerState,
   persona?: TrackerPersonaIdentity | null,
   sourceText?: string | null,
   autoRemoveFullyCompletedQuests = false,
@@ -495,12 +495,12 @@ export async function persistTrackerSnapshotForTurn(
   target: TrackerSnapshotTurnTarget | null,
   results: AgentResult[],
   options: {
-    baseSnapshot?: GameState | null;
+    baseSnapshot?: TrackerState | null;
     sourceText?: string | null;
     onSavedSnapshot?: TrackerSnapshotSavedHook;
     autoRemoveFullyCompletedQuests?: boolean;
   } = {},
-): Promise<GameState | null> {
+): Promise<TrackerState | null> {
   if (!target || !target.messageId || results.length === 0) return null;
   const existing = await getTrackerSnapshotForTarget(storage, chatId, target);
   const hasCharacterTrackerResult = results.some(
@@ -510,7 +510,7 @@ export async function persistTrackerSnapshotForTurn(
   const needsChat = needsChatBaseline || hasCharacterTrackerResult || !!options.onSavedSnapshot;
   const chat = needsChat ? parseRecord(await storage.get("chats", chatId).catch(() => null)) : null;
   const persona = hasCharacterTrackerResult ? await loadPersonaSnapshotForChat(storage, chat).catch(() => null) : null;
-  let snapshot = normalizeGameState(existing ?? options.baseSnapshot ?? chat?.gameState, chatId, target, persona);
+  let snapshot = normalizeTrackerState(existing ?? options.baseSnapshot ?? chat?.gameState, chatId, target, persona);
   if (!existing) {
     snapshot = { ...snapshot, id: "", committed: false, createdAt: nowIso() };
   }
@@ -527,14 +527,14 @@ export async function persistTrackerSnapshotForTurn(
       options.autoRemoveFullyCompletedQuests === true,
     );
     if (!patch) continue;
-    snapshot = normalizeGameState({ ...snapshot, ...patch }, chatId, target, persona);
+    snapshot = normalizeTrackerState({ ...snapshot, ...patch }, chatId, target, persona);
     changed = true;
   }
 
   if (!changed) return null;
 
-  const saved = await storage.saveTrackerSnapshot<GameState>(chatId, snapshot as unknown as Record<string, unknown>);
-  const savedState = normalizeGameState(saved, chatId, target);
+  const saved = await storage.saveTrackerSnapshot<TrackerState>(chatId, snapshot as unknown as Record<string, unknown>);
+  const savedState = normalizeTrackerState(saved, chatId, target);
   await storage.update("chats", chatId, { gameState: savedState as unknown as Record<string, unknown> });
   if (options.onSavedSnapshot) {
     await options.onSavedSnapshot({ chatId, target, chat, snapshot: savedState, results });

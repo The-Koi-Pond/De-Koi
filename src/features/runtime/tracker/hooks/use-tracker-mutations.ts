@@ -5,7 +5,7 @@ import type {
   InventoryItem,
   PresentCharacter,
   QuestProgress,
-} from "../../../../engine/contracts/types/game-state";
+} from "../../../../engine/contracts/types/tracker-state";
 import type { TrackerStateController } from "../../world-state/types";
 import { useTrackerCharacterAvatarActions } from "../../world-state/index";
 import {

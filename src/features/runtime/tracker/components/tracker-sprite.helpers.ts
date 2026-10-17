@@ -1,4 +1,4 @@
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import type { SpriteInfo } from "../../../catalog/sprites/index";
 import { getSpriteExpressionForCharacter as getExpressionForCharacterId } from "../../visuals/sprite-expression-lookup";
 

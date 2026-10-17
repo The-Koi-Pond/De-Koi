@@ -11,7 +11,7 @@ import {
   type GenerationPromptSnapshotMessage,
   type RoleplayQualityCorrectionExtra,
 } from "../contracts/types/chat";
-import type { GameState } from "../contracts/types/game-state";
+import type { TrackerState } from "../contracts/types/tracker-state";
 import { normalizeGeneratedImageResult } from "../contracts/generated-image";
 import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
@@ -100,11 +100,11 @@ import {
   buildUserMessageRegenerationPromptFromSource,
   buildUserMessageRegenerationSourceMessage,
   promptAttachmentsFromExtra,
-  resolveRegenerationGameStateAnchor,
-  resolveRegenerationGameStateFallbackMessageIds,
-  resolveVisibleGameStateAnchor,
+  resolveRegenerationTrackerStateAnchor,
+  resolveRegenerationTrackerStateFallbackMessageIds,
+  resolveVisibleTrackerStateAnchor,
   recommendedGenerationProfileForRequest,
-  shouldPreferLatestVisibleGameState,
+  shouldPreferLatestVisibleTrackerState,
   type PromptAttachment,
   type SimplePromptMessage,
 } from "./generate-route-utils";
@@ -193,7 +193,7 @@ import {
   createTrackerSnapshotReadContext,
   getTrackerSnapshotForTarget,
   persistTrackerSnapshotForTurn,
-  resolveVisibleGameStateFallbackMessageIds,
+  resolveVisibleTrackerStateFallbackMessageIds,
   selectTrackerSnapshotForGeneration,
   trackerSnapshotTargetFromMessage,
   type TrackerSnapshotSavedHook,
@@ -1289,7 +1289,7 @@ function addTrackerAvatarLookupEntry(lookup: Map<string, string>, character: Jso
   if (nameKey) lookup.set(nameKey, avatar);
 }
 
-function trackerAvatarLookup(snapshot?: GameState | null): Map<string, string> {
+function trackerAvatarLookup(snapshot?: TrackerState | null): Map<string, string> {
   const lookup = new Map<string, string>();
   for (const character of snapshot?.presentCharacters ?? []) {
     const record = character as unknown as JsonRecord;
@@ -1363,7 +1363,7 @@ async function generateTrackerAvatarsForResults(args: {
   deps: GenerationEngineDeps;
   chat: JsonRecord;
   results: AgentResult[];
-  baseline?: GameState | null;
+  baseline?: TrackerState | null;
   signal?: AbortSignal;
 }): Promise<AgentResult[]> {
   if (!args.deps.integrations?.image || !args.deps.visuals?.uploadNpcAvatar) return args.results;
@@ -2614,7 +2614,7 @@ async function persistTrackerSnapshotSafely(
   chatId: string,
   targetMessage: unknown,
   results: AgentResult[],
-  baseSnapshot?: GameState | null,
+  baseSnapshot?: TrackerState | null,
   sourceText?: string | null,
   onSavedSnapshot?: TrackerSnapshotSavedHook,
   autoRemoveFullyCompletedQuests = false,
@@ -4078,7 +4078,7 @@ async function commitVisibleTrackerSnapshotSafely(
   messages: JsonRecord[],
 ): Promise<void> {
   try {
-    await commitTrackerSnapshotForTarget(storage, chatId, resolveVisibleGameStateAnchor(messages));
+    await commitTrackerSnapshotForTarget(storage, chatId, resolveVisibleTrackerStateAnchor(messages));
   } catch (error) {
     console.warn("[generation] tracker snapshot commit failed", error);
   }
@@ -4090,13 +4090,13 @@ async function selectGenerationTrackerBaseline(
   input: StartGenerationInput,
   prepared: PreparedUserInput,
   storedMessages: JsonRecord[],
-): Promise<GameState | null> {
+): Promise<TrackerState | null> {
   const regenerateMessageId = readString(input.regenerateMessageId).trim();
   const visibleAnchor = regenerateMessageId
-    ? resolveRegenerationGameStateAnchor(storedMessages, regenerateMessageId)
-    : resolveVisibleGameStateAnchor(storedMessages);
+    ? resolveRegenerationTrackerStateAnchor(storedMessages, regenerateMessageId)
+    : resolveVisibleTrackerStateAnchor(storedMessages);
   return selectTrackerSnapshotForGeneration(storage, chatId, {
-    preferLatestVisible: shouldPreferLatestVisibleGameState({
+    preferLatestVisible: shouldPreferLatestVisibleTrackerState({
       attachments: prepared.attachments,
       impersonate: input.impersonate,
       regenerateMessageId,
@@ -4105,8 +4105,8 @@ async function selectGenerationTrackerBaseline(
     visibleAnchor,
     excludeMessageId: regenerateMessageId || null,
     fallbackTargets:
-      resolveRegenerationGameStateFallbackMessageIds(storedMessages, regenerateMessageId) ??
-      resolveVisibleGameStateFallbackMessageIds(storedMessages),
+      resolveRegenerationTrackerStateFallbackMessageIds(storedMessages, regenerateMessageId) ??
+      resolveVisibleTrackerStateFallbackMessageIds(storedMessages),
   });
 }
 
@@ -4133,7 +4133,10 @@ async function runGenerationAgentsForTarget(args: {
       preferLatestVisible: true,
       visibleAnchor: targetTrackerTarget,
       excludeMessageId: targetTrackerTarget?.messageId ?? null,
-      fallbackTargets: resolveRegenerationGameStateFallbackMessageIds(storedMessages, targetTrackerTarget?.messageId),
+      fallbackTargets: resolveRegenerationTrackerStateFallbackMessageIds(
+        storedMessages,
+        targetTrackerTarget?.messageId,
+      ),
     },
     trackerReadContext,
   );

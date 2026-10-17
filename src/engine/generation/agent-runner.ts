@@ -36,7 +36,7 @@ import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../contracts/t
 import type { GenerationCharacterContext, GenerationPersonaContext } from "./prompt-assembly";
 import {
   lorebookEntryPassesContextFilters,
-  type GameStateForScanning,
+  type TrackerStateForScanning,
 } from "../generation-core/lorebooks/keyword-scanner";
 import { resolveLorebookKeeperTarget } from "../generation-core/lorebooks/lorebook-keeper-target";
 import {
@@ -825,7 +825,7 @@ async function runKnowledgePreGenerationAgents(
           content: message.content,
         })),
         scanOptions: {
-          gameState: context.gameState as GameStateForScanning | null,
+          gameState: context.gameState as TrackerStateForScanning | null,
           activeCharacterIds: input.characters.map((character) => character.id),
           activeCharacterTags: input.characters.flatMap((character) => character.tags),
           generationTriggers: ["chat", context.chatMode].filter(Boolean),

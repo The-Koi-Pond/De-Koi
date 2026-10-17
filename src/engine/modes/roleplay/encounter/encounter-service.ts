@@ -178,7 +178,7 @@ async function buildEncounterContext(
   const [persona, characters, worldState, spellbook] = await Promise.all([
     buildPersonaContext(storage, chat),
     buildCharacterContext(storage, chat),
-    buildGameStateContext(storage, input.chatId, chat),
+    buildTrackerStateContext(storage, input.chatId, chat),
     loadSpellbookContext(storage, input.spellbookId),
   ]);
   const fallbackState = fallbackInitState({
@@ -269,7 +269,7 @@ async function buildCharacterContext(
   return { context: lines.join("\n\n"), fallbackMembers };
 }
 
-async function buildGameStateContext(
+async function buildTrackerStateContext(
   storage: StorageGateway,
   chatId: string,
   chat: JsonRecord,

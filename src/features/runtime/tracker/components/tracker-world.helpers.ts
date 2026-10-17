@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { GameState } from "../../../../engine/contracts/types/game-state";
+import type { TrackerState } from "../../../../engine/contracts/types/tracker-state";
 import {
   getLocationPinColor,
   getTemperatureColor,
@@ -70,7 +70,7 @@ export function getWorldDashboardGridClass(
   return hasFreeformDate ? WORLD_FREEFORM_DATE_GRID_BALANCED_CLASS : WORLD_GRID_BALANCED_CLASS;
 }
 
-export function getWorldAmbienceStyle(state: GameState | null): CSSProperties {
+export function getWorldAmbienceStyle(state: TrackerState | null): CSSProperties {
   const weather = (state?.weather ?? "").toLowerCase();
   const location = (state?.location ?? "").toLowerCase();
   const time = (state?.time ?? "").toLowerCase();

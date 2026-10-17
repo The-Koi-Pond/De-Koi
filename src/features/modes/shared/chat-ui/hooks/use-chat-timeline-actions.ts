@@ -11,7 +11,7 @@ import {
 } from "../../../../catalog/chats/index";
 import { usePeekPrompt } from "./use-peek-prompt";
 import { useGenerate } from "../../../../runtime/generation/index";
-import { useGameStateStore, worldStateApi, type WorldStateTarget } from "../../../../runtime/world-state/index";
+import { useTrackerStateStore, worldStateApi, type WorldStateTarget } from "../../../../runtime/world-state/index";
 import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";
 import { buildGuidedGenerationInstructionMessage } from "../../../../../engine/shared/text/generation-guide";
 import { buildPromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
@@ -240,7 +240,7 @@ export function useChatTimelineActions({
       try {
         const state = target ? await worldStateApi.get(activeChatId, target) : await worldStateApi.get(activeChatId);
         if (useChatStore.getState().activeChatId !== activeChatId) return;
-        useGameStateStore.getState().setGameState(state ?? null);
+        useTrackerStateStore.getState().setTrackerState(state ?? null);
       } catch {
         /* Non-critical refresh failure; the next tracker load will fetch again. */
       }
@@ -254,7 +254,7 @@ export function useChatTimelineActions({
       errorMessage: string,
       shouldReportFailure: () => boolean = () => swipeActionSeq.current === actionId,
     ) => {
-      const flushPatch = useGameStateStore.getState().flushPatch;
+      const flushPatch = useTrackerStateStore.getState().flushPatch;
       if (!flushPatch) return true;
       try {
         await flushPatch();
@@ -272,7 +272,7 @@ export function useChatTimelineActions({
   const clearRefreshingTimeline = useCallback(
     (actionId: number) => {
       if (swipeActionSeq.current === actionId) {
-        useGameStateStore.getState().clearRefreshingChat(activeChatId);
+        useTrackerStateStore.getState().clearRefreshingChat(activeChatId);
       }
     },
     [activeChatId],
@@ -283,7 +283,7 @@ export function useChatTimelineActions({
       if (!refreshWorldStateOnTimelineChange) return;
       const run = () => {
         if (swipeActionSeq.current !== actionId) return;
-        useGameStateStore.getState().setRefreshingChat(activeChatId);
+        useTrackerStateStore.getState().setRefreshingChat(activeChatId);
         void refreshVisibleWorldState(target).finally(() => clearRefreshingTimeline(actionId));
       };
       const idleWindow = window as Window & {

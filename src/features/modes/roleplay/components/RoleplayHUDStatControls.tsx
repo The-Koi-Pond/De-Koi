@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import type { CharacterStat } from "../../../../engine/contracts/types/game-state";
+import type { CharacterStat } from "../../../../engine/contracts/types/tracker-state";
 import { getFiniteNumberInputValue } from "../../../../shared/lib/number-input";
 import { getTrackerStatPercent } from "../../../runtime/world-state/index";
 import { InlineEdit } from "./RoleplayHUDInlineEdit";
