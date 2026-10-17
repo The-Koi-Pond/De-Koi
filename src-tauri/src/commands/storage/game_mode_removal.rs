@@ -477,7 +477,41 @@ fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> 
     })
 }
 
-/// Removes source files the backup holds, keeping any that changed after they were copied.
+/// A free name next to `path` to move it aside under. Never an existing file.
+fn quarantine_path(path: &Path) -> Option<PathBuf> {
+    (0..16).find_map(|attempt| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(".removing-{}-{attempt}", now_millis()));
+        let candidate = PathBuf::from(name);
+        (!candidate.exists()).then_some(candidate)
+    })
+}
+
+/// Puts a quarantined file back. If something now sits at the original path, the moved file
+/// stays under its quarantine name instead of replacing it.
+fn restore_from_quarantine(aside: &Path, original: &Path, after_failed_delete: bool) {
+    if original.exists() {
+        log::warn!(
+            "left Game file at {} because {} was recreated",
+            aside.display(),
+            original.display()
+        );
+        return;
+    }
+    if let Err(error) = fs::rename(aside, original) {
+        log::warn!(
+            "could not put back Game file {} (it is at {}): {error}",
+            original.display(),
+            aside.display()
+        );
+    } else if after_failed_delete {
+        log::info!(
+            "put back Game file {} after a failed delete",
+            original.display()
+        );
+    }
+}
+
 /// Files that records surviving the removal still point at. Cleanup never deletes these,
 /// even when a Game row shared the same file.
 fn files_still_in_use(state: &AppState) -> AppResult<HashSet<PathBuf>> {
@@ -492,6 +526,7 @@ fn files_still_in_use(state: &AppState) -> AppResult<HashSet<PathBuf>> {
     Ok(paths)
 }
 
+/// Removes source files the backup holds, keeping any that changed after they were copied.
 fn remove_backed_up_files(files: &[BackedUpFile], still_in_use: &HashSet<PathBuf>) {
     for file in files {
         let canonical_path = fs::canonicalize(&file.path).unwrap_or_else(|_| file.path.clone());
@@ -504,9 +539,13 @@ fn remove_backed_up_files(files: &[BackedUpFile], still_in_use: &HashSet<PathBuf
         }
         // Move the file aside first, then check the moved bytes: what gets deleted is exactly
         // what was hashed. A file that changed since it was backed up goes back where it was.
-        let mut aside = file.path.clone().into_os_string();
-        aside.push(".removing");
-        let aside = PathBuf::from(aside);
+        let Some(aside) = quarantine_path(&file.path) else {
+            log::warn!(
+                "kept Game file {} because no free name was found to move it aside",
+                file.path.display()
+            );
+            continue;
+        };
         if let Err(error) = fs::rename(&file.path, &aside) {
             log::warn!(
                 "could not remove backed-up Game file {}: {error}",
@@ -514,35 +553,33 @@ fn remove_backed_up_files(files: &[BackedUpFile], still_in_use: &HashSet<PathBuf
             );
             continue;
         }
-        match file_digest(&aside) {
-            Ok(digest) if digest == file.digest => {
-                if let Err(error) = fs::remove_file(&aside) {
+        let delete_failed = match file_digest(&aside) {
+            Ok(digest) if digest == file.digest => match fs::remove_file(&aside) {
+                Ok(()) => continue,
+                Err(error) => {
                     log::warn!(
                         "could not remove backed-up Game file {}: {error}",
                         file.path.display()
                     );
+                    true
                 }
+            },
+            Ok(_) => {
+                log::warn!(
+                    "kept Game file {} because it changed after the backup",
+                    file.path.display()
+                );
+                false
             }
-            outcome => {
-                if let Err(error) = &outcome {
-                    log::warn!(
-                        "could not check backed-up Game file {}: {error}",
-                        file.path.display()
-                    );
-                } else {
-                    log::warn!(
-                        "kept Game file {} because it changed after the backup",
-                        file.path.display()
-                    );
-                }
-                if let Err(error) = fs::rename(&aside, &file.path) {
-                    log::warn!(
-                        "could not put back Game file {}: {error}",
-                        file.path.display()
-                    );
-                }
+            Err(error) => {
+                log::warn!(
+                    "could not check backed-up Game file {}: {error}",
+                    file.path.display()
+                );
+                false
             }
-        }
+        };
+        restore_from_quarantine(&aside, &file.path, delete_failed);
     }
 }
 
@@ -946,6 +983,38 @@ mod tests {
 
         assert_eq!(error.code, "game_mode_backup_stale");
         assert!(state.storage.get("messages", "m-game").unwrap().is_some());
+    }
+
+    #[test]
+    fn quarantine_never_reuses_an_existing_name_and_restore_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!(
+            "marinara-game-removal-quarantine-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("art.png");
+        fs::write(&original, b"old").unwrap();
+        let aside = quarantine_path(&original).unwrap();
+        assert!(!aside.exists());
+        fs::rename(&original, &aside).unwrap();
+        fs::write(&original, b"new").unwrap();
+
+        restore_from_quarantine(&aside, &original, false);
+
+        assert_eq!(
+            fs::read(&original).unwrap(),
+            b"new",
+            "a recreated file is not replaced"
+        );
+        assert_eq!(
+            fs::read(&aside).unwrap(),
+            b"old",
+            "the moved file stays under its quarantine name"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
