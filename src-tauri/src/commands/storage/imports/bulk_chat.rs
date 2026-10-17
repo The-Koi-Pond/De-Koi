@@ -204,15 +204,14 @@ fn st_message_is_system(row: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// The `chat_metadata.deKoi` block of a file De-Koi exported, when the header names
-/// De-Koi's transcript format and a version this importer reads.
+/// The `chat_metadata.deKoi` block of a file De-Koi exported: it must sit in the header,
+/// the file's first line as in SillyTavern, and name De-Koi's transcript format and a
+/// version this importer reads.
 fn de_koi_export_header(rows: &[Value]) -> Option<&Value> {
-    rows.iter().find_map(|row| {
-        let header = row.get("chat_metadata")?.get("deKoi")?;
-        let format = header.get("format").and_then(Value::as_str)?;
-        let version = header.get("version").and_then(Value::as_i64)?;
-        (format == "de-koi-chat-transcript-jsonl" && version == 2).then_some(header)
-    })
+    let header = rows.first()?.get("chat_metadata")?.get("deKoi")?;
+    let format = header.get("format").and_then(Value::as_str)?;
+    let version = header.get("version").and_then(Value::as_i64)?;
+    (format == "de-koi-chat-transcript-jsonl" && version == 2).then_some(header)
 }
 
 fn st_message_hidden_from_ai(row: &Value, de_koi_export: bool) -> bool {
