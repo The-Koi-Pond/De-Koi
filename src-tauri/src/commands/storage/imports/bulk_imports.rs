@@ -1675,7 +1675,7 @@ mod tests {
                     r#"{"name":"Bot","mes":"Second try","swipe_id":1,"send_date":"2026-01-01T10:00:07.000Z","#,
                     r#""swipes":["First try","Second try","","Third try"],"#,
                     r#""extra":{"reasoning":"think two"},"#,
-                    r#""swipe_info":[{"send_date":"2026-01-01T10:00:00.000Z","extra":{"reasoning":"think one"}},{"extra":{}},{"extra":{}},{"extra":{}}]}"#
+                    r#""swipe_info":[{"send_date":"2026-01-01T10:00:00.000Z","extra":{"reasoning":"think one"}},{"send_date":"  ","extra":{}},{"extra":{}},{"extra":{}}]}"#
                 ),
             ],
         );

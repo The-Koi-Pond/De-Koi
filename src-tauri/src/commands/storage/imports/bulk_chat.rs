@@ -353,6 +353,8 @@ fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Val
         let send_date = info
             .and_then(|info| info.get("send_date"))
             .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|date| !date.is_empty())
             .or(if is_active { message_date } else { None });
         if is_active {
             active_index = swipes.len();
