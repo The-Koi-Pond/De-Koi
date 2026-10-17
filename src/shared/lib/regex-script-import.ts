@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { storageApi } from "../../shared/api/storage-api";
 import { createRegexScriptSchema, type CreateRegexScriptInput } from "../../engine/contracts/schemas/regex.schema";
+import { regexApplyModeFromSillyTavern } from "../../engine/shared/regex/regex-apply-mode";
 import { isPatternSafe } from "../../engine/shared/regex/regex-safety";
 
 /** Numeric placement map from ST card format to engine placement strings. */
@@ -24,6 +25,7 @@ interface STRegexScriptEntry {
   disabled?: boolean;
   flags?: string;
   promptOnly?: boolean;
+  markdownOnly?: boolean;
   runOnEdit?: boolean;
   substituteRegex?: number;
   minDepth?: number | null;
@@ -92,6 +94,7 @@ function extractEmbeddedRegexScripts(
     // ST cards can omit placement; Marinara defaults those imports to both visible directions.
     if (placements.length === 0) placements.push(...DEFAULT_PLACEMENT);
 
+    const applyMode = regexApplyModeFromSillyTavern(entry);
     results.push({
       name: scriptName,
       characterId,
@@ -102,7 +105,8 @@ function extractEmbeddedRegexScripts(
       trimStrings: Array.isArray(entry.trimStrings) ? entry.trimStrings : [],
       placement: placements,
       flags: entry.flags ?? parsedFlags ?? "gi",
-      promptOnly: entry.promptOnly === true,
+      promptOnly: applyMode === "prompt",
+      applyMode,
       order: i,
       minDepth: entry.minDepth ?? null,
       maxDepth: entry.maxDepth ?? null,

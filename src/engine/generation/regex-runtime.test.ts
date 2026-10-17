@@ -91,4 +91,16 @@ describe("applyRuntimeRegexScripts", () => {
       applyRuntimeRegexScripts(storage, "ai_output", "secret", { targetCharacterId: "char-a" }),
     ).resolves.toBe("secret");
   });
+
+  it("leaves saved messages alone for display-only and prompt-only scripts", () => {
+    const scripts = [
+      { ...baseScript, id: "display", applyMode: "display" },
+      { ...baseScript, id: "prompt", applyMode: "prompt", promptOnly: true },
+    ];
+
+    expect(applyRuntimeRegexScriptSnapshot(scripts, "ai_output", "a secret")).toBe("a secret");
+    expect(applyRuntimeRegexScriptSnapshot([{ ...baseScript, applyMode: "both" }], "ai_output", "a secret")).toBe(
+      "a visible",
+    );
+  });
 });

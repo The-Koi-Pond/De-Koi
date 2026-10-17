@@ -2,15 +2,22 @@ import {
   createRegexScriptSchema,
   type CreateRegexScriptInput,
 } from "../../../../engine/contracts/schemas/regex.schema";
+import {
+  isRegexApplyMode,
+  regexApplyModeFromSillyTavern,
+  regexScriptApplyMode,
+  type RegexApplyMode,
+} from "../../../../engine/shared/regex/regex-apply-mode";
 import { regexScriptTargetCharacterIds } from "./regex-script-filter";
 
 type RegexScriptImportComparable = Omit<
   Partial<CreateRegexScriptInput>,
-  "enabled" | "promptOnly" | "trimStrings" | "placement" | "targetCharacterIds"
+  "enabled" | "promptOnly" | "applyMode" | "trimStrings" | "placement" | "targetCharacterIds"
 > & {
   id?: string;
   enabled?: boolean | string;
   promptOnly?: boolean | string;
+  applyMode?: unknown;
   trimStrings?: unknown;
   placement?: unknown;
   targetCharacterIds?: unknown;
@@ -93,6 +100,13 @@ function importedEnabled(row: Record<string, unknown>): boolean {
   return true;
 }
 
+/** De-Koi and Marinara files carry `applyMode`; SillyTavern files carry `markdownOnly`/`promptOnly`. */
+function importedApplyMode(row: Record<string, unknown>): RegexApplyMode {
+  if (isRegexApplyMode(row.applyMode)) return row.applyMode;
+  if ("markdownOnly" in row || typeof row.scriptName === "string") return regexApplyModeFromSillyTavern(row);
+  return regexScriptApplyMode(row);
+}
+
 function toRegexScriptPayload(row: Record<string, unknown>): CreateRegexScriptInput | null {
   const name = importedRegexName(row);
   const rawFindRegex = typeof row.findRegex === "string" ? row.findRegex : "";
@@ -110,7 +124,8 @@ function toRegexScriptPayload(row: Record<string, unknown>): CreateRegexScriptIn
     trimStrings: row.trimStrings ?? [],
     placement: importedRegexPlacement(row),
     flags: delimitedFlags ?? (typeof row.flags === "string" ? row.flags : "gi"),
-    promptOnly: targetCharacterIds.length > 0 || boolish(row.promptOnly, false),
+    promptOnly: importedApplyMode(row) === "prompt",
+    applyMode: importedApplyMode(row),
     order: row.order ?? 0,
     minDepth: row.minDepth ?? null,
     maxDepth: row.maxDepth ?? null,
@@ -141,7 +156,7 @@ function regexScriptImportSignature(script: RegexScriptImportComparable): string
     trimStrings: normalizedStringArray(script.trimStrings),
     placement: normalizedPlacement(script.placement),
     flags: script.flags ?? "gi",
-    promptOnly: targetCharacterIds.length > 0 || boolish(script.promptOnly, false),
+    applyMode: regexScriptApplyMode(script),
     order: script.order ?? 0,
     minDepth: script.minDepth ?? null,
     maxDepth: script.maxDepth ?? null,
