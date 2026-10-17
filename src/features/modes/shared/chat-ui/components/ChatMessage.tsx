@@ -1167,23 +1167,7 @@ export const ChatMessage = memo(function ChatMessage({
     return () => window.removeEventListener("marinara:start-edit-message", handler);
   }, [message.id, onEdit, startEditing]);
 
-  const handleSaveEdit = useCallback(
-    async (content: string) => {
-      const nextContent = content.trim();
-      if (nextContent !== message.content) {
-        await onEdit?.(message.id, nextContent);
-      }
-      setEditing(false);
-    },
-    [message.content, message.id, onEdit],
-  );
-
-  const handleCancelEdit = useCallback(() => {
-    setEditing(false);
-  }, []);
-
-  // Apply regex scripts to AI output (assistant/narrator roles)
-  const { applyToAIOutput, applyToUserDisplay } = useApplyRegex(chatCharacterIds);
+  const { applyToAIOutput, applyToUserDisplay, applyToUserInput } = useApplyRegex(chatCharacterIds);
   const scopedRegexMode = useChatStore((s) => {
     const meta = s.activeChat?.metadata;
     return (meta as Record<string, unknown> | undefined)?.scopedRegexMode as
@@ -1192,6 +1176,24 @@ export const ChatMessage = memo(function ChatMessage({
       | "chat"
       | undefined;
   });
+
+  const handleSaveEdit = useCallback(
+    async (content: string) => {
+      // An edited user message goes through the same scripts as a sent one, so a Both
+      // script's rewrite is in the saved text and the display doesn't run it again.
+      const trimmed = content.trim();
+      const nextContent = isUser ? applyToUserInput(trimmed, { scopedMode: scopedRegexMode }) : trimmed;
+      if (nextContent !== message.content) {
+        await onEdit?.(message.id, nextContent);
+      }
+      setEditing(false);
+    },
+    [applyToUserInput, isUser, message.content, message.id, onEdit, scopedRegexMode],
+  );
+
+  const handleCancelEdit = useCallback(() => {
+    setEditing(false);
+  }, []);
 
   const scopedCharacterMap = useMemo(() => {
     if (!characterMap) return null;
