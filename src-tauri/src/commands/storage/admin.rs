@@ -54,7 +54,6 @@ fn execute_expunge_scope(
                 "story-consolidation-jobs",
                 "memory-maintenance-jobs",
                 "background-jobs",
-                "game-checkpoints",
                 "game-state-snapshots",
             ],
             cleared_collections,
@@ -598,7 +597,6 @@ mod tests {
             ("memory-capture-jobs", "memory-job-1"),
             ("story-consolidation-jobs", "story-job-1"),
             ("memory-maintenance-jobs", "maintenance-job-1"),
-            ("game-checkpoints", "checkpoint-1"),
             ("game-state-snapshots", "snapshot-1"),
             ("knowledge-sources", "knowledge-1"),
         ] {
@@ -624,7 +622,6 @@ mod tests {
                 "chat-folders",
                 "chats",
                 "gallery",
-                "game-checkpoints",
                 "game-state-snapshots",
                 "memory-capture-jobs",
                 "memory-maintenance-jobs",
@@ -644,7 +641,6 @@ mod tests {
             "memory-capture-jobs",
             "story-consolidation-jobs",
             "memory-maintenance-jobs",
-            "game-checkpoints",
             "game-state-snapshots",
         ] {
             assert!(
@@ -724,7 +720,6 @@ mod tests {
                 "connection-folders",
                 "connections",
                 "gallery",
-                "game-checkpoints",
                 "game-state-snapshots",
                 "memory-capture-jobs",
                 "memory-maintenance-jobs",

@@ -7,7 +7,6 @@ import {
   Search,
   Trash2,
   BookOpen,
-  Theater,
   GitBranch,
   AlertTriangle,
   Circle,
@@ -86,7 +85,7 @@ import {
 } from "./chat-sidebar-recovery";
 import { buildSupportReportText } from "../../shared/lib/support-report";
 type ChatSortOption = ChatSidebarSortOption;
-export type ChatSidebarTab = "conversation" | "roleplay" | "game" | "fanfic";
+export type ChatSidebarTab = "conversation" | "roleplay" | "fanfic";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
 type ChatDropTarget = { folderId: string | null } | null;
 
@@ -232,14 +231,6 @@ const MODE_CONFIG: Record<
     iconForeground: "#f4eadb",
     description: CHAT_MODES.roleplay.description,
   },
-  game: {
-    icon: <Theater size="0.75rem" />,
-    label: CHAT_MODES.game.name,
-    shortLabel: CHAT_MODES.game.name,
-    bg: "linear-gradient(135deg, #ffd78d 0%, #d9aa57 52%, #80612d 100%)",
-    iconForeground: "#130d07",
-    description: CHAT_MODES.game.description,
-  },
   fanfic: {
     icon: <Feather size="0.75rem" />,
     label: CHAT_MODES.fanfic.name,
@@ -253,7 +244,6 @@ const MODE_CONFIG: Record<
 const SIDEBAR_TAB_NOUNS: Record<ChatSidebarTab, { plural: string; newLabel: string }> = {
   conversation: { plural: "conversations", newLabel: "chat" },
   roleplay: { plural: "roleplays", newLabel: "RP" },
-  game: { plural: "games", newLabel: "game" },
   fanfic: { plural: "fics", newLabel: "fic" },
 };
 
@@ -361,13 +351,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     setTagsExpanded(false);
   }, [activeTab, exitMultiSelect]);
 
-  const modeChats = useMemo(
-    () =>
-      (chats ?? []).filter(
-        (chat) => chat.mode === activeTab && !(chat.mode === "conversation" && chat.metadata?.gameId),
-      ),
-    [chats, activeTab],
-  );
+  const modeChats = useMemo(() => (chats ?? []).filter((chat) => chat.mode === activeTab), [chats, activeTab]);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -544,7 +528,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     // 1. Tab sync — once per chat switch
     if (!s.tabSynced) {
       const chatMode = chat.mode as ChatSidebarTab;
-      if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "game" || chatMode === "fanfic") {
+      if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "fanfic") {
         onActiveTabChange(chatMode);
       }
       // Clear search so the active chat isn't hidden by a stale filter.
@@ -1221,7 +1205,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
       {/* Tabs */}
       <div className="flex items-center gap-1 px-3 pt-2">
-        {(["conversation", "roleplay", "game", "fanfic"] as const).map((tab) => {
+        {(["conversation", "roleplay", "fanfic"] as const).map((tab) => {
           const cfg = MODE_CONFIG[tab];
           const isActive = activeTab === tab;
           const tabUnread =
@@ -1412,8 +1396,6 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--secondary)]">
               {activeTab === "conversation" ? (
                 <MessageSquare size="1.25rem" className="text-[var(--muted-foreground)]" />
-              ) : activeTab === "game" ? (
-                <Theater size="1.25rem" className="text-[var(--muted-foreground)]" />
               ) : activeTab === "fanfic" ? (
                 <Feather size="1.25rem" className="text-[var(--muted-foreground)]" />
               ) : (

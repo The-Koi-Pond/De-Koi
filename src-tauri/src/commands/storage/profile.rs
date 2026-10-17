@@ -1040,6 +1040,10 @@ fn profile_collections_import_plan(
         replacements.push((message_swipes::COLLECTION, Vec::new()));
     }
     normalize_message_swipe_replacements(&mut replacements, &mut imported)?;
+    crate::storage_commands::game_mode_removal::drop_game_mode_rows_from_profile_import(
+        &mut replacements,
+        &mut imported,
+    );
     imported.insert("files".to_string(), json!(restored_assets));
     if unsupported_prompt_overrides > 0 {
         imported.insert(
@@ -2714,20 +2718,17 @@ mod tests {
             .storage
             .list("prompt-overrides")
             .expect("prompt overrides should be readable");
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["id"], "conversation.selfie");
         assert_eq!(rows[0]["key"], "conversation.selfie");
         assert_eq!(rows[0]["template"], "Selfie ${charName}");
         assert_eq!(rows[0]["enabled"], true);
-        assert_eq!(rows[1]["id"], "game.background");
-        assert_eq!(rows[1]["key"], "game.background");
-        assert_eq!(rows[1]["template"], "Background ${defaultPrompt}");
-        assert_eq!(rows[2]["id"], "sprite.portraitSingle");
-        assert_eq!(rows[2]["key"], "sprite.portraitSingle");
-        assert_eq!(rows[2]["template"], "Sprite ${defaultPrompt}");
-        assert_eq!(rows[2]["enabled"], true);
-        assert_eq!(result["imported"]["prompt-overrides"], 3);
-        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 3);
+        assert_eq!(rows[1]["id"], "sprite.portraitSingle");
+        assert_eq!(rows[1]["key"], "sprite.portraitSingle");
+        assert_eq!(rows[1]["template"], "Sprite ${defaultPrompt}");
+        assert_eq!(rows[1]["enabled"], true);
+        assert_eq!(result["imported"]["prompt-overrides"], 2);
+        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 4);
     }
 
     #[test]

@@ -17,7 +17,7 @@
 > pre-release build, or hosted network service, you should also have access to
 > the exact corresponding source code for that version.
 
-De-Koi is a local-first AI chat, roleplay, and game engine. It runs as a Tauri
+De-Koi is a local-first AI chat, roleplay, and fanfic engine. It runs as a Tauri
 desktop app with a React interface, a TypeScript product engine, and Rust
 capabilities for storage, files, providers, integrations, and optional remote
 runtime support.
@@ -57,9 +57,9 @@ Current release-build screenshots are checked in under
 web-shell setup path before a remote runtime and provider connection are
 configured.
 
-| Conversation                                                                                 | Roleplay                                                                             | Game mode                                                                         |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| ![Conversation setup in the De-Koi release build](docs/screenshots/release/conversation.png) | ![Roleplay setup in the De-Koi release build](docs/screenshots/release/roleplay.png) | ![Game setup in the De-Koi release build](docs/screenshots/release/game-mode.png) |
+| Conversation                                                                                 | Roleplay                                                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| ![Conversation setup in the De-Koi release build](docs/screenshots/release/conversation.png) | ![Roleplay setup in the De-Koi release build](docs/screenshots/release/roleplay.png) |
 
 | Settings                                                                             | Connections                                                                                |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
@@ -70,8 +70,7 @@ configured.
 - Chat with characters and direct-message style conversations.
 - Run scene-based roleplay with characters, personas, sprites, backgrounds,
   choices, and scene state.
-- Play AI game-master sessions with party state, turns, mechanics, assets, and
-  world tracking.
+- Request fanfics chapter by chapter from a fandom, ships, rating, and tropes.
 - Manage creative libraries for chats, characters, personas, lorebooks, prompt
   presets, provider connections, agents, gallery items, and knowledge sources.
 - Build prompts with presets, lorebooks, regex processing, context budgeting,

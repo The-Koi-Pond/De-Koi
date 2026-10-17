@@ -10,10 +10,6 @@ import type {
 import { LIMITS } from "../contracts/constants/defaults";
 import { processActivatedEntries, type LorebookContentResolver } from "../generation-core/lorebooks/prompt-injector";
 import {
-  resolveGameLorebookScopeExclusions,
-  type LorebookScopeExclusions,
-} from "../generation-core/lorebooks/game-lorebook-scope";
-import {
   lorebookAppliesToContext as lorebookAppliesToActiveScopeContext,
   resolveActiveLorebookScopeReason,
   type ActiveLorebookScopeReason,
@@ -106,7 +102,6 @@ interface LoadedActivatedLore {
   lorebookNamesById: Map<string, string>;
   currentMessageIndex: number;
   activeLorebookReasons: ActiveLorebookScopeReason[];
-  scopeExclusions: LorebookScopeExclusions;
   semanticStatus: LorebookSemanticScanStatus;
   previousEntryStateOverrides: Map<string, LorebookEntryStateOverride>;
 }
@@ -144,7 +139,6 @@ export interface ActiveLorebookScannerResult {
   lorebookNamesById: Map<string, string>;
   currentMessageIndex: number;
   activeLorebookReasons: ActiveLorebookScopeReason[];
-  scopeExclusions: LorebookScopeExclusions;
   semanticStatus: LorebookSemanticScanStatus;
   activationTrace: LorebookActivationTrace;
 }
@@ -1230,7 +1224,6 @@ async function resolveSemanticChatEmbedding(
 
 async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<LoadedActivatedLore> {
   const meta = parseRecord(input.chat.metadata);
-  const scopeExclusions = resolveGameLorebookScopeExclusions(readString(input.chat.mode || input.chat.chatMode), meta);
   const scopedLorebooks = (await input.storage.list<JsonRecord>("lorebooks"))
     .map((book) => ({
       book,
@@ -1238,7 +1231,6 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
         chat: input.chat,
         characters: input.characters,
         persona: input.persona,
-        scopeExclusions,
       }),
     }))
     .filter((entry): entry is { book: JsonRecord; reason: ActiveLorebookScopeReason } => !!entry.reason);
@@ -1342,7 +1334,6 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
     lorebookNamesById,
     currentMessageIndex: messages.length,
     activeLorebookReasons,
-    scopeExclusions,
     semanticStatus: semantic.status,
     activationTrace: scanned.activationTrace,
   };
@@ -1396,7 +1387,6 @@ export async function scanActiveLorebooks(input: ActiveLorebookScannerInput): Pr
     lorebookNamesById: loadedLore.lorebookNamesById,
     currentMessageIndex: loadedLore.currentMessageIndex,
     activeLorebookReasons: loadedLore.activeLorebookReasons,
-    scopeExclusions: loadedLore.scopeExclusions,
     semanticStatus: loadedLore.semanticStatus,
     activationTrace: loadedLore.activationTrace,
   };

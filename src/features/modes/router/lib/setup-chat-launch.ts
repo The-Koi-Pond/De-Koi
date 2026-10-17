@@ -78,8 +78,7 @@ interface SetupChatLaunchDependencies<TChat extends CreatedChat> {
 function modeLabel(mode: SetupJourneyMode): string {
   if (mode === "conversation") return "Conversation";
   if (mode === "roleplay") return "Roleplay";
-  if (mode === "fanfic") return "Fanfic";
-  return "Game";
+  return "Fanfic";
 }
 
 const recoveryStageOrder: Record<SetupJourneyRecoveryStage, number> = {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { IMAGE_MIME_MAP } from "../../../engine/contracts/constants/game-assets";
+import { IMAGE_MIME_MAP } from "../../../engine/contracts/constants/image-mime";
 import { MAX_IMAGE_UPLOAD_BYTES } from "../../api/file-payload";
 import { cn } from "../../lib/utils";
 

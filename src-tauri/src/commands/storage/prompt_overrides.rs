@@ -39,8 +39,6 @@ pub(crate) fn resolve_import_prompt_override_key(key: &str) -> Option<String> {
         "sprites.expressionSheet" => "sprite.expressionSheet",
         "sprites.singleFullBody" => "sprite.fullBodySingle",
         "sprites.fullBodySheet" => "sprite.fullBodySheet",
-        "game.npcPortrait" => "game.portrait",
-        "game.sceneIllustration" => "game.illustration",
         _ if is_supported_prompt_override_key(key) => key,
         _ => return None,
     };
@@ -261,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_supports_sprite_and_game_keys() {
+    fn manifest_supports_sprite_keys_and_drops_retired_game_keys() {
         for key in [
             "conversation.selfie",
             "sprite.portraitSingle",
@@ -269,13 +267,16 @@ mod tests {
             "sprite.fullBodySingle",
             "sprite.fullBodySheet",
             "sprite.fullBodyExpressionSheet",
-            "game.background",
-            "game.illustration",
-            "game.portrait",
         ] {
             assert!(
                 is_supported_prompt_override_key(key),
                 "{key} should be registered"
+            );
+        }
+        for key in ["game.background", "game.illustration", "game.portrait"] {
+            assert!(
+                !is_supported_prompt_override_key(key),
+                "{key} belonged to the removed Game mode"
             );
         }
     }
@@ -320,11 +321,11 @@ mod tests {
             .storage
             .upsert_with_id(
                 PROMPT_OVERRIDE_COLLECTION,
-                "game.background",
+                "sprite.portraitSingle",
                 json!({
-                    "id": "game.background",
-                    "key": "game.background",
-                    "template": "Custom ${label}: ${defaultPrompt}",
+                    "id": "sprite.portraitSingle",
+                    "key": "sprite.portraitSingle",
+                    "template": "Custom ${appearance}: ${defaultPrompt}",
                     "enabled": true
                 }),
             )
@@ -332,7 +333,7 @@ mod tests {
 
         let sparse_context = HashMap::from([(
             "defaultPrompt".to_string(),
-            json!("built-in background prompt"),
+            json!("built-in portrait prompt"),
         )])
         .into_iter()
         .collect();
@@ -340,11 +341,11 @@ mod tests {
         assert_eq!(
             resolve_registered_prompt_override(
                 &state,
-                "game.background",
+                "sprite.portraitSingle",
                 &sparse_context,
-                "built-in background prompt".to_string(),
+                "built-in portrait prompt".to_string(),
             ),
-            "built-in background prompt"
+            "built-in portrait prompt"
         );
     }
 }

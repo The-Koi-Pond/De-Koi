@@ -557,6 +557,7 @@ pub(super) fn import_st_chat_text(
         .to_string();
     chat.entry("mode".to_string())
         .or_insert(Value::String(exported_mode));
+    crate::storage_commands::game_mode_removal::retire_game_chat_mode(&mut chat);
     if character_ids.is_empty() {
         chat.entry("characterIds".to_string())
             .or_insert_with(|| json!([]));

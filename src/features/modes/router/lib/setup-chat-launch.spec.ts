@@ -4,7 +4,7 @@ import { createSetupChatLaunchOrchestrator } from "./setup-chat-launch";
 
 const intent = (overrides: Partial<SetupJourneyIntent> = {}): SetupJourneyIntent => ({
   journeyId: "journey-1",
-  mode: "game",
+  mode: "roleplay",
   originCharacterId: null,
   selectedConnectionId: "conn-1",
   dismissed: false,
@@ -55,7 +55,9 @@ describe("setup chat launch orchestration", () => {
     });
     const request = { intent: intent(), ready: true, usableConnectionIds: ["conn-1"] };
 
-    expect(launch.claimSetupLaunch(request)).toEqual(expect.objectContaining({ mode: "game", connectionId: "conn-1" }));
+    expect(launch.claimSetupLaunch(request)).toEqual(
+      expect.objectContaining({ mode: "roleplay", connectionId: "conn-1" }),
+    );
     expect(launch.claimSetupLaunch(request)).toBeNull();
   });
 

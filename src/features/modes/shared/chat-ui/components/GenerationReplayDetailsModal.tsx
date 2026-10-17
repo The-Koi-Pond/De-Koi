@@ -12,9 +12,6 @@ const GUIDE_SOURCE_LABELS: Record<GuideSource, string> = {
   narrator: "/guided",
   guide: "Guided regenerate",
   amend: "/amend",
-  game_start: "Game start",
-  game_turn: "Game turn",
-  game_retry: "Game retry",
   fanfic_chapter: "Fanfic chapter",
   fanfic_revise: "Fanfic rewrite",
 };

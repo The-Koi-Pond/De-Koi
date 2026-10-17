@@ -57,7 +57,7 @@ describe("roleplay workflow profile recipes", () => {
   it("rejects non-Roleplay chats at the resolver boundary", () => {
     expect(() =>
       resolveRoleplayWorkflowProfile("minimal-clean", {
-        chat: { ...chat, mode: "game" },
+        chat: { ...chat, mode: "conversation" },
         capabilities,
       }),
     ).toThrow("Roleplay workflow profiles can only be resolved for Roleplay chats");

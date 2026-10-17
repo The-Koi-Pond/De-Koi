@@ -125,29 +125,11 @@ function selectActivePersona(
   if (!personas?.length) return undefined;
 
   const chatPersonaId = typeof chat?.personaId === "string" ? chat.personaId : null;
-  const allowGlobalFallback = chat?.mode !== "game";
   const selectedPersona =
     (chatPersonaId ? personas.find((persona) => getString(persona.id) === chatPersonaId) : null) ??
-    (allowGlobalFallback ? personas.find((persona) => persona.isActive === true || persona.isActive === "true") : null);
+    personas.find((persona) => persona.isActive === true || persona.isActive === "true");
 
   return parsePersonaMacroData(selectedPersona ?? null) ?? undefined;
-}
-
-export function findCharacterByName(
-  characters: Iterable<MacroCharacterData>,
-  name: string | null | undefined,
-): MacroCharacterData | undefined {
-  if (!name) return undefined;
-  const needle = name.trim().toLowerCase();
-  if (!needle) return undefined;
-
-  for (const character of characters) {
-    if (character.name.trim().toLowerCase() === needle) {
-      return character;
-    }
-  }
-
-  return undefined;
 }
 
 export function buildMessageMacroContext({

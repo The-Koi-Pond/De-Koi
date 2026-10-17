@@ -8,7 +8,7 @@ import {
 
 describe("Discover action ownership", () => {
   it("closes only when an action replaces the center surface", () => {
-    expect(discoveryActionReplacesCenterSurface("open-showcase")).toBe(true);
+    expect(discoveryActionReplacesCenterSurface("open-chat-list")).toBe(true);
     expect(discoveryActionReplacesCenterSurface("open-deki")).toBe(true);
     expect(discoveryActionReplacesCenterSurface("open-help")).toBe(false);
     expect(discoveryActionReplacesCenterSurface("open-discover")).toBe(false);
@@ -20,7 +20,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: false,
         detailViewOpen: false,
         dekiOpen: true,
@@ -38,7 +37,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: false,
         detailViewOpen: false,
         dekiOpen: false,
@@ -56,7 +54,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: true,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: false,
         detailViewOpen: false,
         dekiOpen: true,
@@ -74,7 +71,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: true,
         detailViewOpen: false,
         dekiOpen: true,
@@ -92,7 +88,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: false,
         detailViewOpen: true,
         dekiOpen: true,
@@ -110,7 +105,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: false,
         detailViewOpen: false,
         dekiOpen: false,
@@ -124,7 +118,6 @@ describe("getAppShellCenterSurfaceState", () => {
     expect(
       getAppShellCenterSurfaceState({
         botBrowserOpen: false,
-        gameAssetsBrowserOpen: false,
         rightPanelOpen: true,
         detailViewOpen: false,
         dekiOpen: false,
@@ -150,12 +143,12 @@ describe("getSetupJourneyHost", () => {
 });
 
 describe("shouldBeginSetupJourney", () => {
-  it("bridges every pending mode, including Game, when no active journey owns it", () => {
+  it("bridges every pending mode, including Fanfic, when no active journey owns it", () => {
     expect(shouldBeginSetupJourney("conversation", null)).toBe(true);
     expect(shouldBeginSetupJourney("roleplay", null)).toBe(true);
-    expect(shouldBeginSetupJourney("game", null)).toBe(true);
-    expect(shouldBeginSetupJourney("game", { mode: "game", completed: false })).toBe(false);
-    expect(shouldBeginSetupJourney("game", { mode: "game", completed: true })).toBe(true);
+    expect(shouldBeginSetupJourney("fanfic", null)).toBe(true);
+    expect(shouldBeginSetupJourney("fanfic", { mode: "fanfic", completed: false })).toBe(false);
+    expect(shouldBeginSetupJourney("fanfic", { mode: "fanfic", completed: true })).toBe(true);
   });
 });
 

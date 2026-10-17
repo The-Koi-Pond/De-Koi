@@ -1,5 +1,3 @@
-import { resolveGameLorebookScopeExclusions, type LorebookScopeExclusions } from "./game-lorebook-scope";
-
 type ActiveLorebookScopeReasonType = "global" | "character" | "persona" | "chat" | "selected";
 export type ActiveLorebookScopeReasonLabel = "Global" | "Character" | "Persona" | "Chat";
 
@@ -48,7 +46,6 @@ export interface ActiveLorebookScopeContext {
   chat: ActiveLorebookScopeChatContext | null | undefined;
   characters: ActiveLorebookScopeCharacterContext[];
   persona: ActiveLorebookScopePersonaContext | null | undefined;
-  scopeExclusions?: LorebookScopeExclusions;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -146,12 +143,8 @@ export function resolveActiveLorebookScopeReasons(
   const lorebookId = readString(lorebook.id);
   const lorebookName = readString(lorebook.name, lorebookId || "Lorebook");
   const chatId = readString(chat.id);
-  const scopeExclusions =
-    context.scopeExclusions ?? resolveGameLorebookScopeExclusions(readString(chat.mode ?? chat.chatMode), metadata);
 
   if (!isLorebookScopeActiveForChat(lorebook.scope, chatId)) return [];
-  if (scopeExclusions.excludedLorebookIds.includes(lorebookId)) return [];
-  if (scopeExclusions.excludedSourceAgentIds.includes(readString(lorebook.sourceAgentId))) return [];
 
   const reasons: ActiveLorebookScopeReason[] = [];
   if (boolish(lorebook.isGlobal ?? lorebook.global, false)) {

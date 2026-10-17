@@ -1,12 +1,14 @@
 # Card CSS Theming Guide
 
-Give your characters a unique visual identity across Marinara's chat modes. This guide covers how to embed custom CSS in your character cards so they look and feel exactly the way you want.
+This guide describes De-Koi's current card CSS support, checked against the app: Creator Notes extraction, the Card Theming setting in Chat Settings, `@chat-mode roleplay` and `@chat-mode conversation` blocks, and the selectors below.
+
+Give your characters a unique visual identity across De-Koi's chat modes. This guide covers how to embed custom CSS in your character cards so they look and feel exactly the way you want.
 
 ---
 
 ## Quick Start
 
-Paste a `<style>` block into your character's **Creator Notes** field (in the character editor, under Advanced). That's it — Marinara extracts and applies the CSS automatically.
+Paste a `<style>` block into your character's **Creator Notes** field (in the character editor, under Advanced). That's it — De-Koi extracts and applies the CSS automatically.
 
 ```html
 <style>
@@ -19,11 +21,13 @@ Paste a `<style>` block into your character's **Creator Notes** field (in the ch
 
 This gives your character a pink accent border on their messages.
 
+The selectors in this guide keep their `mari-` prefix from Marinara Engine, which De-Koi grew out of, so card CSS written for Marinara works in De-Koi unchanged.
+
 ---
 
 ## How It Works
 
-When a character with CSS in their creator notes is active in a chat, Marinara:
+When a character with CSS in their creator notes is active in a chat, De-Koi:
 
 1. Extracts all `<style>` blocks from the creator notes
 2. Sanitizes the CSS (strips anything dangerous)
@@ -71,17 +75,10 @@ Different chat modes render content differently. Use `@chat-mode` blocks to targ
       background: rgba(0, 30, 0, 0.8);
     }
   }
-
-  /* Only in Game mode */
-  @chat-mode game {
-    [data-card-css] {
-      border: 1px solid rgba(0, 255, 0, 0.2);
-    }
-  }
 </style>
 ```
 
-CSS outside any `@chat-mode` block applies everywhere. Standard `@media` queries work normally inside `@chat-mode` blocks for responsive layouts.
+CSS outside any `@chat-mode` block applies everywhere. Standard `@media` queries work normally inside `@chat-mode` blocks for responsive layouts. Cards made for Marinara Engine may still carry `@chat-mode game { ... }` blocks; De-Koi has no Game mode, so those rules never apply.
 
 ---
 
@@ -168,7 +165,7 @@ Conversation mode renders messages as plain text with markdown — it does not r
 
 #### Typing Indicator
 
-While a character is generating a reply, Marinara shows a "_(name) is typing…_" indicator, and it's fully themeable. If the message it belongs to already has a bubble on screen (for example, during **regeneration**), the indicator renders **inside that bubble**; otherwise it appears as a **standalone row** below the messages. Both expose the same hooks:
+While a character is generating a reply, De-Koi shows a "_(name) is typing…_" indicator, and it's fully themeable. If the message it belongs to already has a bubble on screen (for example, during **regeneration**), the indicator renders **inside that bubble**; otherwise it appears as a **standalone row** below the messages. Both expose the same hooks:
 
 | Selector                                 | What it targets                                                                     |
 | ---------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -234,16 +231,6 @@ You can also **swap the avatar image itself**, per character, without any CSS: t
 - **While a message is being edited, its card CSS is turned off** so the edit box uses the app's plain style. You don't need to design for the editing state — only the normal display.
 - **A multi-paragraph reply renders as a single `.mari-message-body`**, not several stacked bubbles — so your borders, corners, and `::after` stickers wrap the whole reply cleanly. Use `[data-card-css]:not([data-grouped])` for the first message in a run and `[data-grouped]` for continuations.
 
-### Game Mode
-
-Game mode is primarily GM/narrator-driven. Currently, card CSS applies to log entries that are attributed to specific characters via `data-card-css`. The active narration/dialogue segments do not yet carry character-specific CSS attributes — this may be added in a future update.
-
-**What works in Game mode:**
-
-- Styling log entries attributed to the character
-- Terminal/info-box styled blocks (if used with shared-base CSS)
-- Background and text color changes on attributed narration
-
 ---
 
 ## What You Cannot Style
@@ -306,7 +293,7 @@ In Exclusive mode, `[data-card-css]` targets only THIS character's message wrapp
 
 4. **Keep animations subtle.** Heavy animations can slow down the chat on lower-end devices. Use `animation` sparingly and prefer `transition` for interactive effects.
 
-5. **Don't rely on specific class names for message content.** The internal class names (like Tailwind utility classes) can change between Marinara versions. Stick to the documented selectors: `[data-card-css]`, `.mari-message-name`, `.mari-message`, `p`, `span`.
+5. **Don't rely on specific class names for message content.** The internal class names (like Tailwind utility classes) can change between De-Koi versions. Stick to the documented selectors: `[data-card-css]`, `.mari-message-name`, `.mari-message`, `p`, `span`.
 
 6. **Use `@media` for mobile.** Many users chat on phones or small windows:
 
@@ -435,19 +422,6 @@ Here's a full example for a cyberpunk character that looks different in each mod
     }
     [data-card-css]:hover {
       border-color: rgba(0, 255, 0, 0.5);
-    }
-  }
-
-  /* Game: tactical styling */
-  @chat-mode game {
-    [data-card-css] {
-      border: 1px solid rgba(0, 255, 0, 0.2);
-      border-radius: 4px;
-      background: rgba(0, 20, 0, 0.4);
-    }
-    [data-card-css] p {
-      font-family: "Courier New", monospace;
-      color: #b0ffb0;
     }
   }
 </style>

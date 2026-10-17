@@ -13,16 +13,12 @@ function emitDiscoveryEvent(detail: DiscoveryAppEventDetail) {
 const DESTINATION_MODES: Partial<Record<DiscoveryChatDestination, readonly DiscoveryMode[]>> = {
   "chat-settings-workflow-profile": ["roleplay"],
   "slash-commands": ["conversation", "roleplay"],
-  "game-tutorial": ["game"],
-  "game-journal": ["game"],
-  "game-checkpoints": ["game"],
-  "game-tools": ["game"],
   "roleplay-context": ["roleplay"],
 };
 
 function modeLabel(mode: DiscoveryMode) {
   if (mode === "fanfic") return "Fanfic";
-  return mode === "roleplay" ? "Roleplay" : mode === "game" ? "Game" : "Conversation";
+  return mode === "roleplay" ? "Roleplay" : "Conversation";
 }
 
 function destinationLabel(destination: DiscoveryChatDestination) {
@@ -35,10 +31,6 @@ function destinationLabel(destination: DiscoveryChatDestination) {
     "slash-commands": "Slash Commands",
     "prompt-inspector": "Prompt Inspector",
     "message-actions": "Message Actions",
-    "game-tutorial": "Game Tutorial",
-    "game-journal": "Game Journal",
-    "game-checkpoints": "Game Checkpoints",
-    "game-tools": "Game Tools",
     "roleplay-context": "Roleplay Context",
   };
   return labels[destination] ?? "Chat destination";
@@ -69,8 +61,6 @@ export function getDiscoveryActionLabel(action: DiscoveryAction) {
       return "Choose a chat";
     case "show-active-chat":
       return "Show active chat";
-    case "open-showcase":
-      return "Explore Sample World";
   }
 }
 
@@ -156,9 +146,6 @@ export function runDiscoveryAction(action: DiscoveryAction): DiscoveryActionOutc
       break;
     case "open-chat-destination":
       emitDiscoveryEvent({ type: "open-chat-destination", destination: action.destination });
-      break;
-    case "open-showcase":
-      emitDiscoveryEvent({ type: "open-showcase", showcaseId: action.showcaseId });
       break;
   }
 

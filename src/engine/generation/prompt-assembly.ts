@@ -45,20 +45,7 @@ import {
 } from "./context-attribution";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactQuestProgressForContext } from "../shared/game-state/player-stats";
-import type {
-  GameActiveState,
-  GameCampaignPlan,
-  GameMap,
-  GameNpc,
-  HudWidget,
-  SessionSummary,
-} from "../contracts/types/game";
-import { buildGmFormatReminder, buildGmSystemPrompt, type GmPromptContext } from "../modes/game/prompts/gm-prompts";
-import { loadCharacterSprites, type CharacterSpriteSubject } from "../modes/game/prompts/sprite.service";
 import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
-import { formatMoraleContext, getMoraleTier } from "../modes/game/mechanics/morale.service";
-import { formatPerceptionHints, generatePerceptionHints } from "../modes/game/mechanics/perception.service";
-import { applyAllSegmentEdits } from "../modes/game/state/segment-edits";
 import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
 import { readFanficState } from "../modes/fanfic/request";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
@@ -310,7 +297,6 @@ interface SelectedPromptPreset {
   wrapFormat: WrapFormat | null;
 }
 
-const PARTY_NPC_ID_PREFIX = "npc:";
 const TRACKER_AGENT_IDS = new Set(
   BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker").map((agent) => agent.id),
 );
@@ -702,436 +688,13 @@ export async function loadPersona(storage: StorageGateway, chat: JsonRecord): Pr
   return active ? loadPersonaContext(active) : null;
 }
 
-function buildPartyNpcId(name: string): string {
-  return `${PARTY_NPC_ID_PREFIX}${name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")}`;
-}
-
-function isPartyNpcId(id: string): boolean {
-  return id.startsWith(PARTY_NPC_ID_PREFIX);
-}
-
-function recordArray(value: unknown): JsonRecord[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function gameCardByName(meta: JsonRecord): Map<string, JsonRecord> {
-  const cards = recordArray(meta.gameCharacterCards);
-  const byName = new Map<string, JsonRecord>();
-  for (const card of cards) {
-    const name = readString(card.name).trim().toLowerCase();
-    if (name) byName.set(name, card);
-  }
-  return byName;
-}
-
-function appendGameCardFields(parts: string[], card: JsonRecord | undefined): void {
-  if (!card) return;
-  for (const [label, value] of [
-    ["Class", readString(card.class).trim()],
-    ["Abilities", stringArray(card.abilities).join(", ")],
-    ["Strengths", stringArray(card.strengths).join(", ")],
-    ["Weaknesses", stringArray(card.weaknesses).join(", ")],
-  ]) {
-    if (value) parts.push(`${label}: ${value}`);
-  }
-  const extra = parseRecord(card.extra);
-  for (const [key, value] of Object.entries(extra)) {
-    const text = readString(value).trim();
-    if (text) parts.push(`${key}: ${text}`);
-  }
-  const rpgStats = parseRecord(card.rpgStats);
-  const attributes = recordArray(rpgStats.attributes)
-    .map((attribute) => {
-      const name = readString(attribute.name).trim();
-      const value = readNumber(attribute.value, Number.NaN);
-      return name && Number.isFinite(value) ? `${name}: ${value}` : "";
-    })
-    .filter(Boolean);
-  if (attributes.length > 0) parts.push(`RPG Attributes: ${attributes.join(", ")}`);
-  const hp = parseRecord(rpgStats.hp);
-  const hpValue = readNumber(hp.value, Number.NaN);
-  const hpMax = readNumber(hp.max, Number.NaN);
-  if (Number.isFinite(hpValue) || Number.isFinite(hpMax)) {
-    parts.push(`RPG HP: ${Number.isFinite(hpValue) ? hpValue : "?"}/${Number.isFinite(hpMax) ? hpMax : "?"}`);
-  }
-}
-
-interface GamePromptPresetCoverage {
-  characterIds: Set<string>;
-  characterFields: Set<string>;
-  sections: Set<"persona" | "worldBefore" | "worldAfter">;
-}
-
-type GameCardRenderContext = readonly [
-  coverage: GamePromptPresetCoverage,
-  macros: MacroContext,
-  groupScenarioOverride: GroupScenarioOverride,
-  emittedGroupScenarioValues: Set<string>,
-];
-
 function normalizedCharacterFieldName(fieldName: string): string {
   return fieldName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
-
-function coverGameCharacterFields(coverage: GamePromptPresetCoverage, fields: string[]): void {
-  for (const field of fields) coverage.characterFields.add(field);
-}
-
-function coverGameSection(
-  coverage: GamePromptPresetCoverage,
-  section: "persona" | "worldBefore" | "worldAfter",
-): boolean {
-  const covered = coverage.sections.has(section);
-  coverage.sections.add(section);
-  return covered;
-}
-
-function gameCardFieldCovered(
-  coverage: GamePromptPresetCoverage,
-  character: GenerationCharacterContext,
-  fieldName: string,
-): boolean {
-  return coverage.characterIds.has(character.id) && coverage.characterFields.has(fieldName);
-}
-
-function characterCardText(
-  character: GenerationCharacterContext,
-  gameCard: JsonRecord | undefined,
-  [coverage, macros, groupScenarioOverride, emittedGroupScenarioValues]: GameCardRenderContext,
-): string {
-  const parts = [`Name: ${character.name}`];
-  const addField = (fieldName: string) => {
-    if (gameCardFieldCovered(coverage, character, fieldName)) return;
-    const value =
-      fieldName === "scenario" && groupScenarioOverride.enabled
-        ? resolveMacros(
-            groupScenarioOverride.text,
-            macroContextForCharacter(macros, character, groupScenarioOverride),
-            { trimResult: false },
-          )
-        : characterMarkerFieldValue(
-            character,
-            fieldName,
-            macros,
-            groupScenarioOverride.enabled ? NO_GROUP_SCENARIO_OVERRIDE : groupScenarioOverride,
-          );
-    if (fieldName === "scenario" && groupScenarioOverride.enabled) {
-      if (emittedGroupScenarioValues.has(value)) return;
-      emittedGroupScenarioValues.add(value);
-    }
-    if (value) parts.push(`${CHARACTER_FIELD_LABELS[fieldName] ?? fieldName}: ${value}`);
-  };
-  for (const field of ["personality", "description", "backstory", "appearance", "scenario"]) addField(field);
-  if (!gameCardFieldCovered(coverage, character, "public_profile")) {
-    const rawPublicProfile = characterPublicProfileText(character.publicProfile);
-    const resolvedPublicProfile = rawPublicProfile
-      ? resolveMacros(rawPublicProfile, macroContextForCharacter(macros, character), { trimResult: false })
-      : "";
-    if (resolvedPublicProfile) parts.push(`Public Profile:\n${resolvedPublicProfile}`);
-  }
-  for (const field of ["first_mes", "mes_example", "creator_notes", "system_prompt", "post_history_instructions"]) {
-    addField(field);
-  }
-  if (!gameCardFieldCovered(coverage, character, "memories") && character.memories?.length) {
-    parts.push(`Memories:\n${character.memories.join("\n")}`);
-  }
-  appendGameCardFields(parts, gameCard);
-  return parts.join("\n");
 }
 
 function groupScenarioOverride(meta: JsonRecord): GroupScenarioOverride {
   if (!boolish(meta.groupScenarioOverride, false)) return NO_GROUP_SCENARIO_OVERRIDE;
   return { enabled: true, text: cleanPromptText(readString(meta.groupScenarioText).trim()) };
-}
-
-function personaCardText(
-  persona: GenerationPersonaContext | null,
-  gameCard: JsonRecord | undefined,
-  [coverage, macros]: GameCardRenderContext,
-): string | null {
-  if (!persona) return null;
-  const parts = [`Name: ${persona.name}`];
-  if (!coverage.sections.has("persona")) {
-    for (const field of ["description", "personality", "backstory", "appearance", "scenario"] as const) {
-      const value = persona[field];
-      const resolved = value ? resolvePromptMacros(value, macros, false) : "";
-      if (resolved) parts.push(`${CHARACTER_FIELD_LABELS[field]}: ${resolved}`);
-    }
-  }
-  appendGameCardFields(parts, gameCard);
-  return parts.join("\n");
-}
-
-function npcPartyCardText(npc: GameNpc, gameCard?: JsonRecord): string {
-  const parts = [`Name: ${npc.name}`, "Source: Tracked NPC companion, not a character-library card"];
-  if (npc.description) parts.push(`Description: ${npc.description}`);
-  if (npc.location) parts.push(`Last Known Location: ${npc.location}`);
-  if (Array.isArray(npc.notes) && npc.notes.length) parts.push(`Notes: ${npc.notes.join("; ")}`);
-  appendGameCardFields(parts, gameCard);
-  return parts.join("\n");
-}
-
-async function loadCharacterById(
-  storage: StorageGateway,
-  characterId: string,
-  existing: Map<string, GenerationCharacterContext>,
-): Promise<GenerationCharacterContext | null> {
-  const cached = existing.get(characterId);
-  if (cached) return cached;
-  const row = await storage.get<JsonRecord>("characters", characterId);
-  return isRecord(row) ? loadCharacterContext(row) : null;
-}
-
-function normalizeGameInventory(value: unknown): Array<{ name: string; quantity: number }> {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (typeof item === "string") return item.trim() ? [{ name: item.trim(), quantity: 1 }] : [];
-    if (!isRecord(item)) return [];
-    const name = readString(item.name ?? item.item).trim();
-    if (!name) return [];
-    const quantity = Math.max(1, readNumber(item.quantity ?? item.count, 1));
-    return [{ name, quantity }];
-  });
-}
-
-function latestUserContent(messages: JsonRecord[], fallback: string): string {
-  const latest = [...messages].reverse().find((message) => readString(message.role) === "user");
-  return readString(latest?.content).trim() || fallback.trim();
-}
-
-function gameAddressMode(content: string): "party" | "gm" | undefined {
-  const trimmed = content.trimStart();
-  if (trimmed.startsWith("[To the party]")) return "party";
-  if (trimmed.startsWith("[To the GM]")) return "gm";
-  return undefined;
-}
-
-function gameTimeAndWeather(chat: JsonRecord, meta: JsonRecord): { gameTime?: string; weatherContext?: string } {
-  const state = parseRecord(chat.gameState ?? meta.gameState);
-  const weather = readString(state.weather).trim();
-  const temperature = readString(state.temperature).trim();
-  const date = readString(state.date).trim();
-  const time = readString(state.time).trim();
-  return {
-    weatherContext: weather ? `Current weather: ${weather}${temperature ? `, ${temperature}` : ""}` : undefined,
-    gameTime: [date, time].filter(Boolean).join(", ") || undefined,
-  };
-}
-
-function normalizedRecordKey(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function readNormalizedNumber(record: JsonRecord, keys: string[], fallback: number): number {
-  const wanted = new Set(keys.map(normalizedRecordKey));
-  for (const [key, value] of Object.entries(record)) {
-    if (wanted.has(normalizedRecordKey(key))) {
-      return readNumber(value, fallback);
-    }
-  }
-  return fallback;
-}
-
-function readPersonaAttribute(persona: GenerationPersonaContext | null, keys: string[]): number | null {
-  const wanted = new Set(keys.map(normalizedRecordKey));
-  for (const attribute of persona?.rpgStats?.attributes ?? []) {
-    if (wanted.has(normalizedRecordKey(attribute.name))) {
-      return readNumber(attribute.value, Number.NaN);
-    }
-  }
-  return null;
-}
-
-function normalizePerceptionToken(value: unknown): string | null {
-  const raw = readString(value).trim();
-  if (!raw) return null;
-  const parenthetical = raw.match(/\(([^)]+)\)/)?.[1]?.trim();
-  return (parenthetical || raw).toLowerCase().replace(/[\s-]+/g, "_");
-}
-
-function buildGamePerceptionHints(
-  chat: JsonRecord,
-  meta: JsonRecord,
-  persona: GenerationPersonaContext | null,
-): string | undefined {
-  const state = parseRecord(chat.gameState ?? meta.gameState);
-  const playerStats = parseRecord(state.playerStats);
-  const attributes = parseRecord(playerStats.attributes);
-  const skills = parseRecord(playerStats.skills);
-  const personaWisdom = readPersonaAttribute(persona, ["wis", "wisdom"]);
-  const wisdomScore = readNormalizedNumber(attributes, ["wis", "wisdom"], personaWisdom ?? 10);
-  const dangerLevel = readNormalizedNumber(
-    state,
-    ["dangerLevel"],
-    readNormalizedNumber(meta, ["gameDangerLevel"], Number.NaN),
-  );
-  const presentNpcNames = recordArray(state.presentCharacters)
-    .map((character) => readString(character.name).trim())
-    .filter(Boolean);
-  const hints = generatePerceptionHints({
-    perceptionMod: readNormalizedNumber(skills, ["perception", "perceptionMod", "perceptionModifier"], 0),
-    wisdomScore,
-    gameState: readString(meta.gameActiveState, "exploration") || "exploration",
-    location: readString(state.location).trim() || null,
-    weather: normalizePerceptionToken(state.weather),
-    timeOfDay: normalizePerceptionToken(state.time),
-    presentNpcNames,
-    dangerLevel: Number.isFinite(dangerLevel) ? dangerLevel : undefined,
-  });
-  const block = formatPerceptionHints(hints);
-  return block || undefined;
-}
-
-function mergeGameLoreIntoPrompt(prompt: string, worldBefore: string, worldAfter: string): string {
-  const lore = [worldBefore, worldAfter].filter((part) => part.trim().length > 0).join("\n\n");
-  return lore ? `${prompt}\n\n<lore>\n${lore}\n</lore>` : prompt;
-}
-
-async function buildGamePromptMessages(
-  storage: StorageGateway,
-  input: PromptAssemblyInput,
-  characters: GenerationCharacterContext[],
-  persona: GenerationPersonaContext | null,
-  worldBefore: string,
-  worldAfter: string,
-  renderContext: GameCardRenderContext,
-): Promise<ChatMLMessage[]> {
-  const [coverage] = renderContext;
-  const meta = parseRecord(input.chat.metadata);
-  const setup = parseRecord(meta.gameSetupConfig);
-  const blueprint = parseRecord(meta.gameBlueprint);
-  const gameCardMap = gameCardByName(meta);
-  const characterById = new Map(characters.map((character) => [character.id, character]));
-  const gameNpcs = Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as unknown as GameNpc[]) : [];
-  const storedPartyIds = stringArray(meta.gamePartyCharacterIds);
-  const partyIds = storedPartyIds.length ? storedPartyIds : stringArray(input.chat.characterIds);
-  const partyNames: string[] = [];
-  const partyCards: Array<{ name: string; card: string }> = [];
-  const spriteSubjects: CharacterSpriteSubject[] = [];
-
-  for (const id of partyIds) {
-    if (isPartyNpcId(id)) {
-      const npc = gameNpcs.find((candidate) => buildPartyNpcId(readString(candidate.name)) === id);
-      if (!npc?.name) continue;
-      partyNames.push(npc.name);
-      partyCards.push({ name: npc.name, card: npcPartyCardText(npc, gameCardMap.get(npc.name.toLowerCase())) });
-      continue;
-    }
-    const character = await loadCharacterById(storage, id, characterById);
-    if (!character) continue;
-    partyNames.push(character.name);
-    spriteSubjects.push({ id: character.id, name: character.name });
-    partyCards.push({
-      name: character.name,
-      card: characterCardText(character, gameCardMap.get(character.name.toLowerCase()), renderContext),
-    });
-  }
-
-  let gmCharacterCard: string | null = null;
-  const gmCharacterId = readString(meta.gameGmCharacterId).trim();
-  if (gmCharacterId) {
-    const gmCharacter = await loadCharacterById(storage, gmCharacterId, characterById);
-    if (gmCharacter) {
-      gmCharacterCard = characterCardText(gmCharacter, gameCardMap.get(gmCharacter.name.toLowerCase()), renderContext);
-    }
-  }
-
-  const activeState = (readString(meta.gameActiveState, "exploration") || "exploration") as GameActiveState;
-  const latestUser = latestUserContent(input.storedMessages, input.latestUserInput);
-  const { gameTime, weatherContext } = gameTimeAndWeather(input.chat, meta);
-  const hudWidgets = Array.isArray(meta.gameWidgetState)
-    ? (meta.gameWidgetState as unknown as HudWidget[])
-    : Array.isArray(blueprint.hudWidgets)
-      ? (blueprint.hudWidgets as unknown as HudWidget[])
-      : undefined;
-
-  const gameMorale = meta.gameMorale == null ? null : readNumber(meta.gameMorale, 50);
-
-  const gmCtx: GmPromptContext = {
-    gameActiveState: activeState,
-    storyArc: readString(meta.gameStoryArc).trim() || null,
-    plotTwists: Array.isArray(meta.gamePlotTwists) ? (meta.gamePlotTwists as string[]) : null,
-    campaignPlan: isRecord(blueprint.campaignPlan) ? (blueprint.campaignPlan as unknown as GameCampaignPlan) : null,
-    map: isRecord(meta.gameMap) ? (meta.gameMap as unknown as GameMap) : null,
-    npcs: gameNpcs,
-    sessionSummaries: Array.isArray(meta.gamePreviousSessionSummaries)
-      ? (meta.gamePreviousSessionSummaries as unknown as SessionSummary[])
-      : [],
-    sessionNumber: readNumber(meta.gameSessionNumber, 1) || 1,
-    partyNames,
-    partyCards,
-    playerName: persona?.name || "Player",
-    playerCard: personaCardText(
-      persona,
-      persona ? gameCardMap.get(persona.name.toLowerCase()) : undefined,
-      renderContext,
-    ),
-    gmCharacterCard,
-    difficulty: readString(setup.difficulty, "normal") || "normal",
-    genre: readString(setup.genre, "fantasy") || "fantasy",
-    setting: readString(setup.setting, "original") || "original",
-    tone: readString(setup.tone, "balanced") || "balanced",
-    rating: readString(setup.rating) === "nsfw" ? "nsfw" : "sfw",
-    gameTime,
-    weatherContext,
-    playerNotes: readString(meta.gamePlayerNotes).trim() || undefined,
-    hudWidgets,
-    hasSceneModel: !!(readString(meta.gameSceneConnectionId).trim() || readString(setup.sceneConnectionId).trim()),
-    playerMoved: true,
-    turnNumber: input.storedMessages.filter((message) => readString(message.role) === "user").length + 1,
-    perceptionHints: buildGamePerceptionHints(input.chat, meta, persona),
-    moraleContext:
-      gameMorale == null ? undefined : formatMoraleContext({ value: gameMorale, tier: getMoraleTier(gameMorale) }),
-    characterSprites: await loadCharacterSprites(input.visuals, spriteSubjects),
-    playerInventory: normalizeGameInventory(meta.gameInventory),
-    language: readString(setup.language).trim() || undefined,
-    canGenerateBackgrounds:
-      boolish(meta.enableSpriteGeneration, false) &&
-      !!(readString(meta.gameImageConnectionId).trim() || readString(setup.imageConnectionId).trim()),
-    artStylePrompt: readString(setup.artStylePrompt).trim() || undefined,
-  };
-
-  let systemPrompt = buildGmSystemPrompt(gmCtx);
-  const customGmPrompt = readString(meta.customGmPrompt).trim();
-  if (customGmPrompt) systemPrompt = `${systemPrompt}\n\n${customGmPrompt}`;
-  const extraPrompt = readString(meta.gameExtraPrompt)
-    .trim()
-    .replace(/<\/?special_instructions>/gi, "");
-  if (extraPrompt) systemPrompt = `${systemPrompt}\n\n<special_instructions>\n${extraPrompt}\n</special_instructions>`;
-  systemPrompt = mergeGameLoreIntoPrompt(
-    systemPrompt,
-    coverage.sections.has("worldBefore") ? "" : worldBefore,
-    coverage.sections.has("worldAfter") ? "" : worldAfter,
-  );
-
-  const formatReminder = buildGmFormatReminder({
-    hasSceneModel: gmCtx.hasSceneModel,
-    hudWidgets: gmCtx.hudWidgets,
-    turnNumber: gmCtx.turnNumber,
-    gameActiveState: gmCtx.gameActiveState,
-    sessionNumber: gmCtx.sessionNumber,
-    gameTime: gmCtx.gameTime,
-    map: gmCtx.map,
-    partyNames: gmCtx.partyNames,
-    playerName: gmCtx.playerName,
-    characterSprites: gmCtx.characterSprites,
-    playerInventory: gmCtx.playerInventory,
-    language: gmCtx.language,
-    rating: gmCtx.rating,
-    canGenerateBackgrounds: gmCtx.canGenerateBackgrounds,
-    artStylePrompt: gmCtx.artStylePrompt,
-    addressMode: gameAddressMode(latestUser),
-    playerDiceRollSubmitted: /\[dice\b/i.test(latestUser),
-  });
-
-  return [
-    { role: "system", content: systemPrompt, contextKind: "prompt" },
-    { role: "user", content: formatReminder, contextKind: "prompt" },
-  ];
 }
 
 function promptPresetCandidates(
@@ -1243,7 +806,6 @@ async function loadSelectedPromptPreset(
     const explicitVariables = chatPromptVariables(input.chat);
     const chatPresetId = readString(input.chat.promptPresetId).trim();
     const chatChoices = chatPresetId === presetId ? (metadata.presetChoices ?? input.chat.presetChoices) : null;
-    const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
     const choiceVariables = promptChoiceVariables({
       defaultChoices: preset.defaultChoices ?? preset.default_choices,
       chatChoices,
@@ -1261,7 +823,7 @@ async function loadSelectedPromptPreset(
         ...explicitVariables,
       },
       choiceVariableNames: Object.keys(choiceVariables).filter((name) => explicitVariables[name] === undefined),
-      parameters: mode === "game" ? null : mergeStoredGenerationParameters(preset.parameters),
+      parameters: mergeStoredGenerationParameters(preset.parameters),
       wrapFormat: normalizeWrapFormat(preset.wrapFormat),
     };
   }
@@ -1678,13 +1240,9 @@ function renderCharacters(
   options: {
     compactCharacterCards?: boolean;
     conversationTargetId?: string | null;
-    omittedFields?: Set<string>;
   } = {},
 ): string {
-  const omittedFields = options.omittedFields;
-  const defaultFields = characterMarkerFields(marker, options.compactCharacterCards === true).filter(
-    (field) => !omittedFields?.has(field),
-  );
+  const defaultFields = characterMarkerFields(marker, options.compactCharacterCards === true);
   const compactTargetedConversation = !!options.conversationTargetId && !hasExplicitCharacterMarkerFields(marker);
   const characterBlocks = characters
     .map((character) => {
@@ -1699,26 +1257,14 @@ function renderCharacters(
         : defaultFields;
       const content = renderNamedFields(
         [
-          ["Name", omittedFields?.has("name") ? "" : character.name],
-          [
-            "Public Profile",
-            compactTargetedConversation || omittedFields?.has("public_profile")
-              ? ""
-              : characterPublicProfileText(character.publicProfile),
-          ],
+          ["Name", character.name],
+          ["Public Profile", compactTargetedConversation ? "" : characterPublicProfileText(character.publicProfile)],
           ...fields.map((fieldName): [string, string] => [
             CHARACTER_FIELD_LABELS[fieldName] ?? fieldName,
             characterMarkerFieldValue(character, fieldName, macros, groupScenarioOverride),
           ]),
-          [
-            "Behavioral Interpretation",
-            compactTargetedConversation || omittedFields?.has("behavioral_interpretation")
-              ? ""
-              : (character.behavioralInterpretation ?? ""),
-          ],
-          ...(fields.includes("memories") ||
-          omittedFields?.has("memories") ||
-          (compactTargetedConversation && !isConversationTarget)
+          ["Behavioral Interpretation", compactTargetedConversation ? "" : (character.behavioralInterpretation ?? "")],
+          ...(fields.includes("memories") || (compactTargetedConversation && !isConversationTarget)
             ? []
             : ([["Memories", character.memories?.join("\n") ?? ""]] as Array<[string, string]>)),
         ],
@@ -1873,12 +1419,6 @@ function renderPersona(persona: GenerationPersonaContext | null, wrapFormat: Wra
     wrapFormat,
     1,
   );
-}
-
-function renderJsonBlock(label: string, value: unknown): string {
-  const record = parseRecord(value);
-  if (Object.keys(record).length === 0) return "";
-  return `${label}:\n${JSON.stringify(record, null, 2).slice(0, 4000)}`;
 }
 
 function activeTrackerAgentIds(meta: JsonRecord, mode: unknown): string[] {
@@ -2221,24 +1761,6 @@ ${args.summary}`
         contextKind: "summary",
         displayName: "Summary",
       },
-    ]);
-  }
-
-  if (mode === "game") {
-    return finalize([
-      {
-        content:
-          "You are De-Koi's Game Master. Run the game as a structured campaign, not as a normal chat or roleplay scene.",
-        contextKind: "prompt",
-      },
-      {
-        content:
-          "Narrate clear consequences, keep party members distinct, preserve game mechanics, and emit game tags when state, inventory, quests, encounters, music, or scene assets should change.",
-        contextKind: "prompt",
-      },
-      { content: renderJsonBlock("Game setup", meta.gameSetupConfig), contextKind: "prompt" },
-      { content: renderJsonBlock("Game state", input.chat.gameState ?? meta.gameState), contextKind: "prompt" },
-      ...common,
     ]);
   }
 
@@ -2969,21 +2491,15 @@ function connectedPromptLines(notes: JsonRecord[], type: "note" | "influence", c
 }
 
 function connectedInfluenceDescription(mode: string): string {
-  if (mode === "game") {
-    return "The following out-of-character notes come from a connected conversation. They represent things the players discussed or decided outside the game. Use them to steer the next scene, NPC reactions, objectives, or world state when appropriate. Do not mention them explicitly as OOC in the narrative.";
-  }
   if (mode === "conversation") {
-    return "The following context comes from a connected game or roleplay chat. Use it to keep this conversation aware of the current situation when relevant.";
+    return "The following context comes from a connected roleplay chat. Use it to keep this conversation aware of the current situation when relevant.";
   }
   return "The following out-of-character notes come from a connected conversation. They represent things the players discussed or decided outside of the roleplay. Weave them naturally into the story. Do not mention them explicitly as OOC in the narrative.";
 }
 
 function connectedNoteDescription(mode: string): string {
-  if (mode === "game") {
-    return "Durable notes from a connected conversation. These persist across every turn until the user clears them and represent ongoing truth: character knowledge, world facts, and recurring dynamics. Use them to inform NPC behavior, world state, and scene framing without calling them notes in the narrative.";
-  }
   if (mode === "conversation") {
-    return "Durable notes from a connected game or roleplay chat. These persist across turns until the user clears them and represent ongoing context this conversation should remember.";
+    return "Durable notes from a connected roleplay chat. These persist across turns until the user clears them and represent ongoing context this conversation should remember.";
   }
   return "Durable notes from a connected conversation. These persist across every turn until the user clears them and represent things the character has been told to remember about themselves, the user, or the world. Use them to inform behavior, knowledge, and reactions naturally without calling them notes in the narrative.";
 }
@@ -2992,11 +2508,7 @@ function buildConnectedConversationBlocks(chat: JsonRecord): ChatMLMessage[] {
   const chatId = readString(chat.id).trim();
   const mode = readString(chat.mode || chat.chatMode, "conversation");
   const meta = parseRecord(chat.metadata);
-  if (
-    !chatId ||
-    (mode !== "roleplay" && mode !== "game" && mode !== "conversation") ||
-    !readString(chat.connectedChatId).trim()
-  ) {
+  if (!chatId || (mode !== "roleplay" && mode !== "conversation") || !readString(chat.connectedChatId).trim()) {
     return [];
   }
   if (readString(meta.sceneStatus) === "active") return [];
@@ -3341,7 +2853,6 @@ async function buildCrossChatAwarenessBlock(
 
 function connectedSummaryLines(chat: JsonRecord): string[] {
   const meta = parseRecord(chat.metadata);
-  const mode = modeOf(chat);
   const summaryValues = [
     meta.conversationSummary,
     meta.summary,
@@ -3351,11 +2862,7 @@ function connectedSummaryLines(chat: JsonRecord): string[] {
   ]
     .map((value) => promptSnippet(value, 900))
     .filter(Boolean);
-  const gameState = mode === "game" ? parseRecord(chat.gameState ?? meta.gameState) : {};
-  return [
-    ...summaryValues.map((summary) => `Summary: ${summary}`),
-    Object.keys(gameState).length > 0 ? `Game state: ${JSON.stringify(gameState).slice(0, 1800)}` : "",
-  ].filter(Boolean);
+  return summaryValues.map((summary) => `Summary: ${summary}`);
 }
 
 async function buildConversationLinkedChatBlock(
@@ -3369,7 +2876,7 @@ async function buildConversationLinkedChatBlock(
   if (!connectedChatId) return { block: null, connectedMode: null };
   const connected = await storage.get<JsonRecord>("chats", connectedChatId).catch(() => null);
   const connectedMode = modeOf(connected);
-  if (!connected || (connectedMode !== "roleplay" && connectedMode !== "game")) {
+  if (!connected || connectedMode !== "roleplay") {
     return { block: null, connectedMode: null };
   }
   const characterNames = characterNameLookup(characters);
@@ -3395,7 +2902,7 @@ async function buildConversationLinkedChatBlock(
           `This conversation is linked to a ${connectedMode} chat. Use the linked context when the user or character refers to that shared situation, without turning the conversation reply into a full ${connectedMode} turn unless asked.`,
           lines.join("\n"),
         ].join("\n\n"),
-        connectedMode === "game" ? "connected_game" : "connected_roleplay",
+        "connected_roleplay",
         wrapFormat,
       ),
     },
@@ -3417,7 +2924,7 @@ function buildConversationCommandBlock(
     boolish(meta.conversationSchedulesEnabled, Object.keys(schedules).length > 0) &&
     commandCapabilityEnabled(capabilities, ["scheduleUpdate", "canScheduleUpdate", "canUpdateSchedule"]);
   const hasCharacters = characters.length > 0;
-  const hasConnectedRoleplayOrGame = connectedMode === "roleplay" || connectedMode === "game";
+  const hasConnectedRoleplay = connectedMode === "roleplay";
   const canCrossPost = commandCapabilityEnabled(capabilities, ["crossPost", "canCrossPost"]);
   const canSelfie = commandCapabilityEnabled(capabilities, [
     "selfie",
@@ -3462,8 +2969,8 @@ function buildConversationCommandBlock(
     canSpotify
       ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
       : "",
-    hasConnectedRoleplayOrGame
-      ? "- Send linked-chat context with <influence>one-shot OOC steering note</influence> or <note>durable fact for the linked prompt</note> when this conversation should affect the linked roleplay/game."
+    hasConnectedRoleplay
+      ? "- Send linked-chat context with <influence>one-shot OOC steering note</influence> or <note>durable fact for the linked prompt</note> when this conversation should affect the linked roleplay."
       : "",
   ].filter(Boolean);
   if (instructions.length <= 1) return null;
@@ -4374,22 +3881,19 @@ function sectionContent(args: {
   groupScenarioOverride: GroupScenarioOverride;
   compactCharacterCards: boolean;
   conversationTargetId: string | null;
-  omittedCharacterFields?: Set<string>;
-  omitDialogueExamples?: boolean;
 }) {
   switch (args.marker?.type) {
     case "character":
       return renderCharacters(args.characters, args.wrapFormat, args.marker, args.macros, args.groupScenarioOverride, {
         compactCharacterCards: args.compactCharacterCards,
         conversationTargetId: args.conversationTargetId,
-        omittedFields: args.omittedCharacterFields,
       });
     case "persona":
       return renderPersona(args.persona, args.wrapFormat);
     case "dialogue_examples":
       return renderDialogueExamples(args.characters, {
         compactCharacterCards: args.compactCharacterCards,
-        omit: !!args.conversationTargetId || args.omitDialogueExamples === true,
+        omit: !!args.conversationTargetId,
       });
     case "chat_summary":
       return args.summary ?? "";
@@ -4414,11 +3918,10 @@ function sectionContent(args: {
 
 function lorebookIncludedPositionsForPrompt(
   selectedPreset: SelectedPromptPreset | null | undefined,
-  chatMode: string,
 ): ActiveLorebookIncludedPositions {
   const positions: ActiveLorebookIncludedPositions = {
-    worldInfoBefore: !selectedPreset || chatMode === "game",
-    worldInfoAfter: !selectedPreset || chatMode === "game",
+    worldInfoBefore: !selectedPreset,
+    worldInfoAfter: !selectedPreset,
     depth: true,
   };
   for (const section of selectedPreset?.sections ?? []) {
@@ -4498,8 +4001,6 @@ export async function assembleGenerationPrompt(
   };
   if (reusableContext) {
     input = { ...input, storedMessages: reusableContext.storedMessages };
-  } else if (chatMode === "game") {
-    input = { ...input, storedMessages: applyAllSegmentEdits(input.storedMessages, chatMeta) };
   } else if (chatMode === "fanfic") {
     input = {
       ...input,
@@ -4624,11 +4125,7 @@ export async function assembleGenerationPrompt(
   if (!canReuseSourceSensitiveContext) {
     const authoredPromptCharacters = conversationFocus?.characters ?? promptCharactersForGeneration(input, characters);
     const behavioralExampleSelection =
-      conversationFocus ||
-      chatMode === "game" ||
-      chatMode === "fanfic" ||
-      compactMergedRoleplayCards ||
-      !!targetedConversationCharacterId
+      conversationFocus || chatMode === "fanfic" || compactMergedRoleplayCards || !!targetedConversationCharacterId
         ? null
         : await selectBehavioralExamples({
             candidates: buildBehavioralExamplePool(authoredPromptCharacters),
@@ -4670,7 +4167,7 @@ export async function assembleGenerationPrompt(
       : await seedPromptVariablesFromGreeting(storage, input, macros, deferCharacterMacros);
   if (reusableContext) applyReusableGreetingPromptVariables(macros, greetingPromptVariables);
   const baseLorebookIncludedPositions =
-    reusableContext?.baseLorebookIncludedPositions ?? lorebookIncludedPositionsForPrompt(selectedPreset, chatMode);
+    reusableContext?.baseLorebookIncludedPositions ?? lorebookIncludedPositionsForPrompt(selectedPreset);
   const scanLorebooksForPositions = (includedPositions: ActiveLorebookIncludedPositions) =>
     scanActiveLorebooks({
       storage,
@@ -4871,11 +4368,6 @@ export async function assembleGenerationPrompt(
   let usedFallbackSystemPrompt = false;
   let presetDepthEntries: PromptDepthEntry[] = [];
   let hasPresetPromptContent = false;
-  const gameCoverage: GamePromptPresetCoverage = {
-    characterIds: new Set(promptCharacters.map((character) => character.id)),
-    characterFields: new Set(),
-    sections: new Set(),
-  };
 
   if (selectedPreset) {
     const groupsById = promptGroupLookup(selectedPreset.groups);
@@ -4895,46 +4387,13 @@ export async function assembleGenerationPrompt(
         insertedHistory = true;
         continue;
       }
-      let sectionPersona = persona;
-      let sectionWorldBefore = processedLore.worldInfoBefore;
-      let sectionWorldAfter = processedLore.worldInfoAfter;
-      let omittedCharacterFields: Set<string> | undefined;
-      let omitDialogueExamples = false;
-      if (chatMode === "game") {
-        switch (marker?.type) {
-          case "character": {
-            const requestedFields = characterMarkerFields(marker);
-            const supplementalFields = ["name", "public_profile", "behavioral_interpretation", "memories"];
-            omittedCharacterFields = new Set(gameCoverage.characterFields);
-            coverGameCharacterFields(gameCoverage, [...requestedFields, ...supplementalFields]);
-            break;
-          }
-          case "dialogue_examples":
-            omitDialogueExamples = gameCoverage.characterFields.has("mes_example");
-            coverGameCharacterFields(gameCoverage, ["mes_example"]);
-            break;
-          case "persona":
-            if (coverGameSection(gameCoverage, "persona")) sectionPersona = null;
-            break;
-          case "world_info_before":
-            if (coverGameSection(gameCoverage, "worldBefore")) sectionWorldBefore = "";
-            break;
-          case "world_info_after":
-            if (coverGameSection(gameCoverage, "worldAfter")) sectionWorldAfter = "";
-            break;
-          case "lorebook":
-            if (coverGameSection(gameCoverage, "worldBefore")) sectionWorldBefore = "";
-            if (coverGameSection(gameCoverage, "worldAfter")) sectionWorldAfter = "";
-            break;
-        }
-      }
       const rawContent = sectionContent({
         section,
         marker,
         characters: promptCharacters,
-        persona: sectionPersona,
-        worldBefore: sectionWorldBefore,
-        worldAfter: sectionWorldAfter,
+        persona,
+        worldBefore: processedLore.worldInfoBefore,
+        worldAfter: processedLore.worldInfoAfter,
         summary,
         agentData,
         wrapFormat,
@@ -4942,8 +4401,6 @@ export async function assembleGenerationPrompt(
         groupScenarioOverride: activeGroupScenarioOverride,
         compactCharacterCards: compactMergedRoleplayCards,
         conversationTargetId: targetedConversationCharacterId,
-        omittedCharacterFields,
-        omitDialogueExamples,
       });
       const resolvedContent =
         marker?.type === "character" ? rawContent : resolvePromptMacros(rawContent, macros, deferCharacterMacros);
@@ -5052,29 +4509,7 @@ export async function assembleGenerationPrompt(
     insertTrackerContext(messages, trackerStateBlock);
   }
 
-  if (chatMode === "game") {
-    const [gameSystem, gameReminder] = await buildGamePromptMessages(
-      storage,
-      input,
-      characters,
-      persona,
-      processedLore.worldInfoBefore,
-      processedLore.worldInfoAfter,
-      [gameCoverage, macros, activeGroupScenarioOverride, new Set()],
-    );
-    if (usedFallbackSystemPrompt) {
-      const firstSystemIndex = messages.findIndex((message) => message.role === "system");
-      if (firstSystemIndex >= 0) {
-        messages[firstSystemIndex] = gameSystem!;
-      } else {
-        messages.unshift(gameSystem!);
-      }
-      appendSummaryToSystemPrompt(messages, summary, wrapFormat);
-    } else {
-      messages.unshift(gameSystem!);
-    }
-    messages.push(gameReminder!);
-  } else if (chatMode !== "fanfic") {
+  if (chatMode !== "fanfic") {
     // Fanfic owns its whole system prompt; roleplay narrator, scene, and ensemble blocks never apply.
     const narratorStyleBlock = buildRoleplayNarratorStylePromptBlock(input.chat, wrapFormat);
     const sceneBlock = buildRoleplayScenePromptBlock(input.chat, history, wrapFormat);
@@ -5142,9 +4577,7 @@ export async function assembleGenerationPrompt(
 
   const authorNotesEntry = authorNotesDepthEntry(input.chat);
   const characterDepthEntries =
-    chatMode === "game" || chatMode === "fanfic"
-      ? []
-      : characterDepthPromptEntries(promptCharacters, macros, activeGroupScenarioOverride);
+    chatMode === "fanfic" ? [] : characterDepthPromptEntries(promptCharacters, macros, activeGroupScenarioOverride);
   messages = injectAtDepth(
     messages,
     authorNotesEntry

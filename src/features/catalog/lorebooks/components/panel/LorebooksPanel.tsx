@@ -29,12 +29,10 @@ import { useLorebooks, useDeleteLorebook, useUpdateLorebook, useUploadLorebookIm
 import { useCharacterSummariesByIds } from "../../../characters/index";
 import { usePersonaSummaries } from "../../../personas/index";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
-import { resolveGameLorebookScopeExclusions } from "../../../../../engine/generation-core/lorebooks/game-lorebook-scope";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../shared/lib/utils";
 import { exportApi } from "../../../../../shared/api/export-api";
 import { getChatCharacterIds } from "../../../../../shared/lib/chat-macros";
-import { parseChatMetadata } from "../../../../../shared/lib/chat-display";
 import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shared/components/ui/ExportFormatDialog";
 import {
   getNextUnnamedLibraryFolderName,
@@ -82,7 +80,6 @@ export function LorebooksPanel() {
       chat: activeChat,
       characters: activeCharacterIds.map((id) => ({ id })),
       persona: activeChat?.personaId ? { id: activeChat.personaId } : null,
-      scopeExclusions: resolveGameLorebookScopeExclusions(activeChat?.mode, parseChatMetadata(activeChat?.metadata)),
     }),
     [activeChat, activeCharacterIds],
   );

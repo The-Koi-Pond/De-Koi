@@ -3,7 +3,7 @@ import { enabledChatAgentIds } from "../../../../../engine/contracts/types/agent
 
 export type ChatSettingsMetadataPatch = Record<string, unknown>;
 
-export type ModePromptField = "narratorStyleInstructions" | "gameExtraPrompt" | "sceneSystemPrompt";
+export type ModePromptField = "narratorStyleInstructions" | "sceneSystemPrompt";
 
 export function chatToolSelectionMode(metadata: Record<string, unknown>, toolsEnabled: boolean): "explicit" | "all" {
   if (metadata.toolSelectionMode === "all" || metadata.toolSelectionMode === "explicit") {
@@ -44,7 +44,7 @@ export function buildModePromptMetadataPatch({
   }
 
   if (draft === stored) return null;
-  return { [field]: field === "gameExtraPrompt" ? draft || null : draft };
+  return { [field]: draft };
 }
 
 function chatActiveAgentIds(chat: Chat): string[] {

@@ -22,7 +22,6 @@ assignees: ""
 - [ ] Catalog resources: chats, characters, personas, lorebooks, presets, connections, agents, gallery, or knowledge
 - [ ] Chat mode
 - [ ] Roleplay mode
-- [ ] Game mode
 - [ ] Shared mode UI
 - [ ] Runtime systems: generation, world-state, visuals, or tracker
 - [ ] Deki-senpai or shell tools
@@ -34,7 +33,7 @@ assignees: ""
 ## Architecture considerations
 
 <!-- Note any architecture expectations, remote-runtime needs, or risky pressure points. -->
-<!-- Examples: avoid broadening ModeSurface/GameSurface, keep engine React-free, use shared API wrappers instead of raw Tauri calls. -->
+<!-- Examples: avoid broadening ModeSurface, keep engine React-free, use shared API wrappers instead of raw Tauri calls. -->
 
 ## Alternatives considered
 

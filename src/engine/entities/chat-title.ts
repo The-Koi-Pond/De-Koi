@@ -1,7 +1,6 @@
 const MODE_FALLBACK_TITLES: Record<string, string> = {
   conversation: "New Conversation",
   roleplay: "New Roleplay",
-  game: "New Game",
 };
 
 export function deriveChatTitle(mode: string | null | undefined, names: readonly string[]): string {

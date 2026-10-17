@@ -15,7 +15,7 @@ type PromptBudgetSectionKind =
   | "history"
   | "attachment"
   | "injection"
-  | "game"
+  | "tracker"
   | "other";
 
 type PromptBudgetTrimRisk = "none" | "medium" | "high";
@@ -93,7 +93,7 @@ function classifyPromptMessage(message: PromptBudgetMessage): PromptBudgetSectio
   if (/\b(character|char card|character info|character_info)\b/.test(text)) return "character";
   if (/\b(persona|user profile)\b/.test(text)) return "persona";
   if (/\b(summary|memory|notes?|recall)\b/.test(text)) return "memory";
-  if (/\b(game|gm|quest|party|morale|hud|tracker|map)\b/.test(text)) return "game";
+  if (/\b(quest|tracker|map)\b/.test(text)) return "tracker";
   if (contextKind === "prompt" || message.role === "system") return "preset";
   return "other";
 }
@@ -116,8 +116,8 @@ function sectionLabel(kind: PromptBudgetSectionKind): string {
       return "Attachments";
     case "injection":
       return "Injected Context";
-    case "game":
-      return "Game Context";
+    case "tracker":
+      return "Tracker Context";
     default:
       return "Other Context";
   }

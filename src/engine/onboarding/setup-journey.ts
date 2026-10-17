@@ -1,4 +1,4 @@
-export type SetupJourneyMode = "conversation" | "roleplay" | "game" | "fanfic";
+export type SetupJourneyMode = "conversation" | "roleplay" | "fanfic";
 
 export type SetupJourneyAction =
   | "configure-runtime"

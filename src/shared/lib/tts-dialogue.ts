@@ -55,7 +55,7 @@ function normalizeTTSCharacterBaseName(value?: string | null): string {
   return base && base.length > 0 ? base : normalized;
 }
 
-export function ttsConfigMatchesSpeaker(
+function ttsConfigMatchesSpeaker(
   _config: Pick<TTSConfig, "dialogueScope" | "dialogueCharacterName">,
   _speaker?: string | null,
 ) {
@@ -64,7 +64,7 @@ export function ttsConfigMatchesSpeaker(
 
 type TTSNpcVoiceGender = "male" | "female" | "unknown";
 
-export interface TTSNpcVoiceHint {
+interface TTSNpcVoiceHint {
   name: string;
   description?: string | null;
   gender?: string | null;
@@ -189,7 +189,7 @@ function resolveNpcDefaultVoice(
   return pool[stableTTSIndex(seed, pool.length)] ?? "";
 }
 
-export function resolveTTSVoiceForSpeaker(
+function resolveTTSVoiceForSpeaker(
   config: Pick<TTSConfig, "voice"> &
     Partial<
       Pick<

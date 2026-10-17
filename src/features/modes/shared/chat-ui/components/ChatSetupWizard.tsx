@@ -481,11 +481,6 @@ export function ChatSetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardPro
     return <ConversationQuickSetup chat={chat} onFinish={onFinish} onCancel={onCancel} />;
   }
 
-  // Game mode has its own wizard in GameSurface — skip the roleplay wizard
-  if (chatMode === "game") {
-    return null;
-  }
-
   return <RoleplaySetupWizard chat={chat} onFinish={onFinish} onCancel={onCancel} />;
 }
 

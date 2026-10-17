@@ -19,9 +19,9 @@ describe("getHomeSuggestions", () => {
     expect(getHomeSuggestions({ ...ready, needsServerSetup: true })[0]?.destination).toBe("server-setup");
   });
 
-  it("offers the sample world when no language model is connected", () => {
+  it("offers to add a model connection when no language model is connected", () => {
     expect(getHomeSuggestions({ ...ready, hasLanguageModel: false }).map((item) => item.destination)).toContain(
-      "sample-world",
+      "connect-model",
     );
   });
 

@@ -150,13 +150,6 @@ describe("chat settings actions", () => {
     ).toEqual({ narratorStyleInstructions: null });
     expect(
       buildModePromptMetadataPatch({
-        field: "gameExtraPrompt",
-        draft: "  keep spaces  ",
-        stored: "",
-      }),
-    ).toEqual({ gameExtraPrompt: "  keep spaces  " });
-    expect(
-      buildModePromptMetadataPatch({
         field: "sceneSystemPrompt",
         draft: "",
         stored: "scene",

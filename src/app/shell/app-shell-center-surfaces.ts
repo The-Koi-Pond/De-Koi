@@ -1,6 +1,5 @@
 export type AppShellCenterSurfaceInput = {
   botBrowserOpen: boolean;
-  gameAssetsBrowserOpen: boolean;
   rightPanelOpen: boolean;
   detailViewOpen: boolean;
   dekiOpen: boolean;
@@ -21,7 +20,6 @@ const DISCOVERY_CENTER_REPLACEMENT_ACTIONS = new Set([
   "open-chat-list",
   "show-active-chat",
   "open-chat-destination",
-  "open-showcase",
 ]);
 
 export function discoveryActionReplacesCenterSurface(type: string): boolean {
@@ -41,7 +39,7 @@ export function getSetupJourneyHost({
 }
 
 export function shouldBeginSetupJourney(
-  pendingMode: "conversation" | "roleplay" | "game" | "fanfic" | null,
+  pendingMode: "conversation" | "roleplay" | "fanfic" | null,
   intent: { mode: string; completed: boolean } | null,
 ): boolean {
   return !!pendingMode && (!intent || intent.mode !== pendingMode || intent.completed);
@@ -61,14 +59,13 @@ export function getAutomaticMemoryCaptureToast(
 
 export function getAppShellCenterSurfaceState({
   botBrowserOpen,
-  gameAssetsBrowserOpen,
   rightPanelOpen,
   detailViewOpen,
   dekiOpen,
   activeDekiSessionId,
   discoverOpen,
 }: AppShellCenterSurfaceInput): AppShellCenterSurfaceState {
-  const fullViewSurfaceOpen = botBrowserOpen || gameAssetsBrowserOpen;
+  const fullViewSurfaceOpen = botBrowserOpen;
   const dekiSurfaceVisible =
     Boolean(activeDekiSessionId) &&
     dekiOpen &&
