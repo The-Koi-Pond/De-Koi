@@ -1,5 +1,7 @@
 # Card CSS Theming Guide
 
+This guide describes De-Koi's current card CSS support, checked against the app: Creator Notes extraction, the Card Theming setting in Chat Settings, `@chat-mode roleplay` and `@chat-mode conversation` blocks, and the selectors below.
+
 Give your characters a unique visual identity across De-Koi's chat modes. This guide covers how to embed custom CSS in your character cards so they look and feel exactly the way you want.
 
 ---
