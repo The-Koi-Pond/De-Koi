@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Gauge,
   Headphones,
   ListOrdered,
   Search,
@@ -48,6 +49,7 @@ import {
   type FanficNarrationPlan,
 } from "../lib/narration";
 import { FanficResearchSources } from "./FanficOutlineView";
+import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
 type ReaderView = number | "all";
@@ -154,6 +156,8 @@ function WorkHeader({
   onExport,
   showOutline,
   onToggleOutline,
+  showQuality,
+  onToggleQuality,
 }: {
   state: FanficState;
   chatName: string;
@@ -162,6 +166,8 @@ function WorkHeader({
   onExport: (format: FanficExportFormat) => void;
   showOutline: boolean;
   onToggleOutline: () => void;
+  showQuality: boolean;
+  onToggleQuality: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -219,6 +225,10 @@ function WorkHeader({
             {researchOpen ? "Hide research" : "Research"}
           </FanficButton>
         )}
+        <FanficButton onClick={onToggleQuality} aria-expanded={showQuality} disabled={chapterCount === 0}>
+          <Gauge size="0.9rem" aria-hidden="true" />
+          {showQuality ? "Hide quality" : "Quality"}
+        </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
           Save as HTML
@@ -743,6 +753,7 @@ export function FanficReader({
   const chapterTexts = useMemo(() => chapters.map((chapter) => chapter.message.content), [chapters]);
   const repetitionNames = useMemo(() => fanficRepetitionNames(state.request), [state.request]);
   const [showOutline, setShowOutline] = useState(false);
+  const [showQuality, setShowQuality] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
   const writingNew = generating && !regeneratingMessageId;
@@ -818,7 +829,15 @@ export function FanficReader({
         onExport={(format) => void exportFic(format)}
         showOutline={showOutline}
         onToggleOutline={() => setShowOutline((open) => !open)}
+        showQuality={showQuality}
+        onToggleQuality={() => setShowQuality((open) => !open)}
       />
+      {/* Hidden rather than unmounted, so a check still running shows its progress (and blocks a second run) when reopened. */}
+      {chapterCount > 0 && (
+        <div hidden={!showQuality}>
+          <FanficQualityPanel chatId={chatId} chapterTexts={chapterTexts} busy={generating} />
+        </div>
+      )}
       <div ref={topRef} className="scroll-mt-4">
         <ChapterNav state={state} chapterCount={chapterCount} view={view} onChange={changeView} />
       </div>
