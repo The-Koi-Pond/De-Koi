@@ -4,6 +4,7 @@ import {
   normalizeImageStyleProfileSettings,
   type ImageStyleProfileSettings,
 } from "../../../engine/generation/image-style-profiles";
+import { decodeLocalAssetPath, userBackgroundUrl } from "../../api/managed-asset-paths";
 import { normalizeQuoteFormat } from "../../lib/dialogue-quotes";
 import { normalizeCustomNotificationSound, normalizeNotificationSoundId } from "../../lib/notification-sound";
 import { normalizeCustomTextBlipSound } from "../../lib/text-blip-sound";
@@ -27,7 +28,7 @@ import {
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 11;
+export const UI_STORE_VERSION = 12;
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -220,6 +221,25 @@ export function partializeUiState(state: UIState) {
   };
 }
 
+const RETIRED_GAME_ASSET_URL_PREFIX = "marinara-game-asset:";
+const RETIRED_USER_BACKGROUND_FOLDER = "__user_bg__/";
+
+/**
+ * The removed Game asset library listed the user's backgrounds as
+ * `marinara-game-asset:__user_bg__/<file>`. Point those at the background library; any
+ * other Game asset no longer exists, so the background is cleared.
+ */
+function retireGameAssetBackground(value: unknown): string | null | undefined {
+  if (typeof value !== "string" || !value.startsWith(RETIRED_GAME_ASSET_URL_PREFIX)) {
+    return value as string | null | undefined;
+  }
+  const path = decodeLocalAssetPath(value.slice(RETIRED_GAME_ASSET_URL_PREFIX.length));
+  const filename = path.startsWith(RETIRED_USER_BACKGROUND_FOLDER)
+    ? path.slice(RETIRED_USER_BACKGROUND_FOLDER.length)
+    : "";
+  return filename ? userBackgroundUrl(filename) : null;
+}
+
 export function migrateUiState(persistedState: unknown): Partial<UIState> {
   const persisted =
     typeof persistedState === "object" && persistedState !== null ? { ...(persistedState as PersistedUiState) } : {};
@@ -255,6 +275,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.summaryPopoverSettings = normalizeSummaryPopoverSettings(persisted.summaryPopoverSettings);
   persisted.userQuickReplyActions = normalizeUserQuickReplyActions(persisted.userQuickReplyActions);
   persisted.quoteFormat = normalizeQuoteFormat(persisted.quoteFormat);
+  persisted.chatBackground = retireGameAssetBackground(persisted.chatBackground);
   persisted.editMessagesOnDoubleClick = persisted.editMessagesOnDoubleClick !== false;
   persisted.imagePromptIncludeAppearances = persisted.imagePromptIncludeAppearances !== false;
   persisted.imagePromptFormat = persisted.imagePromptFormat === "tags" ? "tags" : "descriptive";

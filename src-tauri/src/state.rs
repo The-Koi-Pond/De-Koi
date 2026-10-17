@@ -32,7 +32,6 @@ use crate::storage_commands::{
 #[derive(Clone)]
 pub struct AppState {
     pub storage: FileStorage,
-    pub game_assets: AssetService,
     pub backgrounds: AssetService,
     pub data_dir: PathBuf,
     pub resource_dir: Option<PathBuf>,
@@ -89,11 +88,11 @@ const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
 const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
 const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
+const RETIRE_GAME_ASSET_LIBRARY_MIGRATION_KEY: &str = "retireGameAssetLibraryV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
 const BACKGROUND_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
-const USER_BACKGROUND_GAME_ASSET_PREFIX: &str = "__user_bg__/";
 
 impl AppState {
     #[cfg(feature = "desktop")]
@@ -122,13 +121,11 @@ impl AppState {
         let data_dir = data_dir.into();
         std::fs::create_dir_all(&data_dir)?;
         let storage = FileStorage::new(data_dir.join("data"))?;
-        let game_assets = AssetService::new(data_dir.join("game-assets"))?;
         let backgrounds = AssetService::new(data_dir.join("backgrounds"))?;
         let default_data_roots = existing_default_data_roots(default_data_roots);
         Self::seed_defaults(&storage, &default_data_roots)?;
         let state = Self {
             storage,
-            game_assets,
             backgrounds,
             data_dir,
             resource_dir,
@@ -248,8 +245,8 @@ impl AppState {
             CARD_REGEX_APPLY_MODE_MIGRATION_KEY,
             crate::storage_commands::startup_migrations::restore_card_regex_apply_modes,
         )?;
-        // A failed Game mode removal must not stop the app from starting: nothing is deleted
-        // before its backup is published, and the next start retries what is left.
+        // A failed Game mode or Game asset removal must not stop the app from starting:
+        // nothing is deleted before its backup is published, and the next start retries.
         if let Err(error) =
             run_startup_migration_once(&state.storage, REMOVE_GAME_MODE_MIGRATION_KEY, |_| {
                 crate::storage_commands::game_mode_removal::remove_game_mode_data(&state)
@@ -258,6 +255,20 @@ impl AppState {
         {
             log::warn!(
                 "Game mode removal remains pending: code={} message={}",
+                error.code,
+                error.message
+            );
+        }
+        if let Err(error) = run_startup_migration_once(
+            &state.storage,
+            RETIRE_GAME_ASSET_LIBRARY_MIGRATION_KEY,
+            |_| {
+                crate::storage_commands::game_mode_removal::retire_game_asset_library(&state)
+                    .map(|_| ())
+            },
+        ) {
+            log::warn!(
+                "Game asset library retirement remains pending: code={} message={}",
                 error.code,
                 error.message
             );
@@ -326,20 +337,6 @@ impl AppState {
         Ok(())
     }
 
-    pub fn game_asset_path(&self, path: &str) -> AppResult<PathBuf> {
-        if let Some(background) = path.strip_prefix(USER_BACKGROUND_GAME_ASSET_PREFIX) {
-            return self.background_path(background);
-        }
-        let managed = PathBuf::from(self.game_assets.absolute_path_string(path)?);
-        if managed.exists() {
-            return Ok(managed);
-        }
-        if let Some(default_path) = self.bundled_game_asset_path(path)? {
-            return Ok(default_path);
-        }
-        Ok(managed)
-    }
-
     pub fn background_path(&self, path: &str) -> AppResult<PathBuf> {
         let managed = PathBuf::from(self.backgrounds.absolute_path_string(path)?);
         if managed.exists() {
@@ -349,10 +346,6 @@ impl AppState {
             return Ok(default_path);
         }
         Ok(managed)
-    }
-
-    pub fn bundled_game_asset_path(&self, path: &str) -> AppResult<Option<PathBuf>> {
-        bundled_default_file_path(&self.default_data_roots, "game-assets", path)
     }
 
     pub fn bundled_background_path(&self, path: &str) -> AppResult<Option<PathBuf>> {
@@ -1726,28 +1719,15 @@ mod tests {
     fn app_state_startup_does_not_copy_bundled_media_defaults() {
         let root = temp_root("lazy-default-media");
         let defaults = temp_root("lazy-default-media-source");
-        let default_game_asset = defaults
-            .0
-            .join("game-assets")
-            .join("music")
-            .join("theme.mp3");
         let default_background = defaults.0.join("backgrounds").join("lake.jpg");
-        std::fs::create_dir_all(default_game_asset.parent().expect("asset parent"))
-            .expect("default game asset folder should be created");
         std::fs::create_dir_all(default_background.parent().expect("background parent"))
             .expect("default background folder should be created");
-        std::fs::write(&default_game_asset, b"music")
-            .expect("default game asset should be written");
         std::fs::write(&default_background, b"background")
             .expect("default background should be written");
 
         let state = AppState::from_data_dir(&root.0, vec![defaults.0.clone()])
             .expect("state should initialize");
 
-        assert!(
-            !state.game_assets.root().join("music/theme.mp3").exists(),
-            "startup should not copy bundled game media into the managed user asset root"
-        );
         assert!(
             !state.backgrounds.root().join("lake.jpg").exists(),
             "startup should not copy bundled backgrounds into the managed user background root"

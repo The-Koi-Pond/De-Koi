@@ -5,13 +5,14 @@
 //! silently. Deletion is then one atomic write that refuses to delete any row the
 //! backup does not hold.
 
+use super::backgrounds::import_background_file;
 use super::media_uploads::managed_record_file_path;
 use crate::state::AppState;
 use marinara_core::{now_iso, now_millis, AppError, AppResult};
 use marinara_storage::{AtomicCollectionRows, FileStorage};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -617,6 +618,185 @@ pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBu
     Ok(backup.map(|backup| backup.dir))
 }
 
+const GAME_ASSETS_DIR: &str = "game-assets";
+/// How chat metadata pointed at a background inside the old Game asset library.
+const GAME_ASSET_BACKGROUND_PREFIX: &str = "gameAsset:";
+/// The Game asset library listed the user's own backgrounds under this folder name.
+const USER_BACKGROUND_IN_GAME_LIBRARY: &str = "__user_bg__/";
+
+fn image_files_under(dir: &Path) -> AppResult<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(files),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        if path.is_dir() {
+            files.extend(image_files_under(&path)?);
+        } else if path.is_file() && is_background_image(&path) {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn is_background_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif"))
+}
+
+/// A `gameAsset:` path from chat metadata, resolved inside the old library folder or the
+/// bundled Game assets. Paths that try to leave those folders resolve to nothing.
+fn game_asset_source(state: &AppState, library: &Path, path: &str) -> Option<PathBuf> {
+    let relative = Path::new(path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return None;
+    }
+    std::iter::once(library.to_path_buf())
+        .chain(
+            state
+                .default_data_roots
+                .iter()
+                .map(|root| root.join(GAME_ASSETS_DIR)),
+        )
+        .map(|root| root.join(relative))
+        .find(|candidate| candidate.is_file() && is_background_image(candidate))
+}
+
+fn chat_metadata_object(row: &Value) -> Option<serde_json::Map<String, Value>> {
+    match row.get("metadata") {
+        Some(Value::Object(object)) => Some(object.clone()),
+        Some(Value::String(raw)) => serde_json::from_str::<Value>(raw)
+            .ok()
+            .and_then(|value| value.as_object().cloned()),
+        _ => None,
+    }
+}
+
+/// Retires the old Game asset library. Images the user put in its backgrounds folder are
+/// copied into the background library, chats that used a Game asset background are pointed
+/// at the matching background (or cleared when none exists), and the library folder is moved
+/// into `backups/` rather than deleted. Returns where the folder was moved.
+pub(crate) fn retire_game_asset_library(state: &AppState) -> AppResult<Option<PathBuf>> {
+    let library = state.data_dir.join(GAME_ASSETS_DIR);
+    let mut imported: HashMap<PathBuf, String> = HashMap::new();
+    let mut import = |source: PathBuf| -> AppResult<String> {
+        if let Some(filename) = imported.get(&source) {
+            return Ok(filename.clone());
+        }
+        // A background with the same name and bytes is already in the library (a built-in, or
+        // a copy from an earlier run that stopped partway), so reuse it instead of copying a
+        // suffixed duplicate. This keeps a retried migration from piling up copies.
+        let existing = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+            .filter(|name| {
+                state
+                    .background_path(name)
+                    .ok()
+                    .filter(|path| path.is_file())
+                    .is_some_and(|path| file_digest(&path).ok() == file_digest(&source).ok())
+            });
+        let filename = match existing {
+            Some(name) => name,
+            None => import_background_file(state, &source)?,
+        };
+        imported.insert(source, filename.clone());
+        Ok(filename)
+    };
+
+    for source in image_files_under(&library.join("backgrounds"))? {
+        import(source)?;
+    }
+
+    let mut background_updates: HashMap<String, Value> = HashMap::new();
+    for chat in state.storage.list("chats")? {
+        let (Some(id), Some(metadata)) = (row_id(&chat), chat_metadata_object(&chat)) else {
+            continue;
+        };
+        let Some(path) = metadata
+            .get("background")
+            .and_then(Value::as_str)
+            .and_then(|value| value.trim().strip_prefix(GAME_ASSET_BACKGROUND_PREFIX))
+            .map(|path| path.trim_start_matches('/').to_string())
+        else {
+            continue;
+        };
+        let next = match path.strip_prefix(USER_BACKGROUND_IN_GAME_LIBRARY) {
+            // Keep the name only when that background really exists; otherwise clear it.
+            Some(filename)
+                if !filename.is_empty()
+                    && state
+                        .background_path(filename)
+                        .is_ok_and(|path| path.is_file()) =>
+            {
+                json!(filename)
+            }
+            Some(_) => Value::Null,
+            None => match game_asset_source(state, &library, &path) {
+                Some(source) => json!(import(source)?),
+                None => Value::Null,
+            },
+        };
+        background_updates.insert(id, next);
+    }
+    if !background_updates.is_empty() {
+        state
+            .storage
+            .update_collections_atomically(vec!["chats"], |collections| {
+                let [chats] = collections else {
+                    return Err(AppError::new(
+                        "storage_error",
+                        "Game asset retirement expected the chats collection",
+                    ));
+                };
+                for row in chats.rows_mut() {
+                    let Some(next) = row_id(row).and_then(|id| background_updates.get(&id)) else {
+                        continue;
+                    };
+                    let Some(mut metadata) = chat_metadata_object(row) else {
+                        continue;
+                    };
+                    metadata.insert("background".to_string(), next.clone());
+                    if let Some(object) = row.as_object_mut() {
+                        object.insert("metadata".to_string(), Value::Object(metadata));
+                    }
+                }
+                Ok(())
+            })?;
+    }
+
+    let thumbnails = state.data_dir.join(".managed-thumbnails").join("game");
+    if thumbnails.exists() {
+        fs::remove_dir_all(&thumbnails)?;
+    }
+    if !library.exists() {
+        return Ok(None);
+    }
+    let backups = state.data_dir.join("backups");
+    fs::create_dir_all(&backups)?;
+    let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
+    let destination = backups.join(format!("removed-game-assets-{timestamp}-{}", now_millis()));
+    fs::rename(&library, &destination)?;
+    log::info!(
+        "retired Game asset library: imported_backgrounds={} chat_backgrounds={} moved_to={}",
+        imported.len(),
+        background_updates.len(),
+        destination.display()
+    );
+    Ok(Some(destination))
+}
+
 /// Drops Game chats, the rows they own, and Game chat-settings presets from a profile
 /// restore, unlinks kept chats from them, and moves lorebooks out of the retired Game
 /// category, so an older backup or a Marinara profile cannot bring Game mode data back.
@@ -1157,6 +1337,77 @@ mod tests {
             .join("npc")
             .join("game-1-lio.png")
             .exists());
+    }
+
+    #[test]
+    fn retiring_the_game_asset_library_keeps_backgrounds_and_moves_the_folder() {
+        let state = test_state("retire-game-assets");
+        let library = state.data_dir.join(GAME_ASSETS_DIR);
+        let custom = library.join("backgrounds").join("custom");
+        fs::create_dir_all(&custom).unwrap();
+        fs::write(custom.join("mine.png"), b"my picture").unwrap();
+        fs::create_dir_all(library.join("music")).unwrap();
+        fs::write(library.join("music").join("theme.mp3"), b"music").unwrap();
+        // A background the user already had, and a copy of `mine.png` left by an earlier run
+        // that stopped partway.
+        fs::create_dir_all(state.backgrounds.root()).unwrap();
+        fs::write(state.backgrounds.root().join("castle.jpg"), b"castle").unwrap();
+        fs::write(state.backgrounds.root().join("mine.png"), b"my picture").unwrap();
+        for (id, background) in [
+            ("chat-user-bg", "gameAsset:__user_bg__/castle.jpg"),
+            ("chat-user-bg-gone", "gameAsset:__user_bg__/gone.jpg"),
+            ("chat-custom", "gameAsset:backgrounds/custom/mine.png"),
+            ("chat-missing", "gameAsset:sprites/gone.png"),
+            ("chat-plain", "lake.jpg"),
+        ] {
+            state
+                .storage
+                .create(
+                    "chats",
+                    json!({ "id": id, "name": id, "mode": "roleplay", "characterIds": [], "metadata": { "background": background } }),
+                )
+                .unwrap();
+        }
+
+        let moved = retire_game_asset_library(&state)
+            .unwrap()
+            .expect("the old library folder should be moved into backups");
+
+        assert!(!library.exists());
+        assert!(moved.join("music").join("theme.mp3").is_file());
+        let background = |id: &str| {
+            state.storage.get("chats", id).unwrap().unwrap()["metadata"]["background"].clone()
+        };
+        assert_eq!(background("chat-user-bg"), "castle.jpg");
+        assert!(
+            background("chat-user-bg-gone").is_null(),
+            "a user background that no longer exists is cleared"
+        );
+        let imported = background("chat-custom");
+        let imported = imported
+            .as_str()
+            .expect("custom background should be imported");
+        assert_eq!(
+            fs::read(state.backgrounds.root().join(imported)).unwrap(),
+            b"my picture"
+        );
+        assert_eq!(
+            imported, "mine.png",
+            "the copy from the earlier run is reused"
+        );
+        let images = fs::read_dir(state.backgrounds.root())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| is_background_image(&entry.path()))
+            .count();
+        assert_eq!(
+            images, 2,
+            "no suffixed duplicates: castle.jpg and mine.png only"
+        );
+        assert!(background("chat-missing").is_null());
+        assert_eq!(background("chat-plain"), "lake.jpg");
+
+        assert!(retire_game_asset_library(&state).unwrap().is_none());
     }
 
     #[test]

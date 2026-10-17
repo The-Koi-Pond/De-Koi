@@ -36,7 +36,6 @@
         resolveAvatarThumbnailFileUrl,
         resolveFontFileUrl,
         resolveGalleryFileUrl,
-        resolveGameAssetFileUrl,
         resolveManagedAssetThumbnailFileUrl,
         resolveManagedLocalAssetUrl,
         resolveSpriteFileUrl,
@@ -116,11 +115,6 @@
             resolve: () => resolveGalleryFileUrl("gallery.svg"),
           },
           {
-            name: "game",
-            render: true,
-            resolve: () => resolveGameAssetFileUrl("scene/hero.svg"),
-          },
-          {
             name: "lorebook",
             render: true,
             resolve: () => resolveManagedLocalAssetUrl("marinara-lorebook-image:lore.svg"),
@@ -150,22 +144,26 @@
           }
         }
 
-        const firstGameUrl = resolved.find((entry) => entry.name === "game").url;
-        const cachedGameUrl = await resolveGameAssetFileUrl("scene/hero.svg");
-        assert(cachedGameUrl === firstGameUrl, "game asset object URL was not reused before invalidation");
+        const backgroundMarker = `${USER_BACKGROUND_URL_PREFIX}sky.svg`;
+        const firstBackgroundUrl = resolved.find((entry) => entry.name === "background").url;
+        const cachedBackgroundUrl = await resolveManagedLocalAssetUrl(backgroundMarker);
+        assert(cachedBackgroundUrl === firstBackgroundUrl, "background object URL was not reused before invalidation");
 
-        const firstGameText = await readBlobText(firstGameUrl);
-        invalidateRemoteManagedAssetObjectUrls("game", "scene/hero.svg");
-        const refreshedGameUrl = await resolveGameAssetFileUrl("scene/hero.svg");
-        assert(refreshedGameUrl !== firstGameUrl, "game asset object URL was not regenerated after invalidation");
-        const refreshedGameText = await readBlobText(refreshedGameUrl);
-        const refreshedGameRender = await renderImage("game-refreshed", refreshedGameUrl);
+        const firstBackgroundText = await readBlobText(firstBackgroundUrl);
+        invalidateRemoteManagedAssetObjectUrls("background", "sky.svg");
+        const refreshedBackgroundUrl = await resolveManagedLocalAssetUrl(backgroundMarker);
+        assert(
+          refreshedBackgroundUrl !== firstBackgroundUrl,
+          "background object URL was not regenerated after invalidation",
+        );
+        const refreshedBackgroundText = await readBlobText(refreshedBackgroundUrl);
+        const refreshedBackgroundRender = await renderImage("background-refreshed", refreshedBackgroundUrl);
 
         const result = {
-          firstGameText,
+          firstBackgroundText,
           objectUrls,
-          refreshedGameRender,
-          refreshedGameText,
+          refreshedBackgroundRender,
+          refreshedBackgroundText,
           rendered,
           resolved,
           revokedObjectUrls,
