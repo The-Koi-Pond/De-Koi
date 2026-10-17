@@ -803,14 +803,8 @@ function spotifyFallbackQuery(data: Record<string, unknown>, constraints: Record
   );
 }
 
-function spotifyFallbackDesiredCount(
-  data: Record<string, unknown>,
-  context: AgentContext | undefined,
-  constraints: Record<string, unknown> | null,
-): number {
+function spotifyFallbackDesiredCount(data: Record<string, unknown>): number {
   const requestedCount = Array.isArray(data.trackUris) ? data.trackUris.length : 0;
-  const mode = spotifyStringField(constraints, "mode") || context?.chatMode;
-  if (mode === "game") return 1;
   return Math.max(3, Math.min(5, requestedCount || 3));
 }
 
@@ -1061,7 +1055,7 @@ async function applySpotifyPlaybackFallback(
 
   let fallbackData = data;
   let uris = spotifyTrackUrisFromAgentData(fallbackData);
-  const desiredCount = spotifyFallbackDesiredCount(data, context, spotifyFallbackConstraints(context));
+  const desiredCount = spotifyFallbackDesiredCount(data);
   if (uris.length === 0) {
     const freshCandidates = await retrieveSpotifyFallbackCandidates(
       data,
@@ -1994,10 +1988,9 @@ function buildMusicDjAgentMessages(config: AgentExecConfig, template: string, co
   );
 }
 function buildSpotifyAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
-  const modeLabel = context.chatMode === "game" ? "game" : "roleplay";
   const systemParts: string[] = [];
   systemParts.push(`<role>`);
-  systemParts.push(`You are a specialized Spotify DJ agent for the current ${modeLabel} turn.`);
+  systemParts.push(`You are a specialized Spotify DJ agent for the current roleplay turn.`);
   systemParts.push(`</role>`);
   systemParts.push(``);
   systemParts.push(buildLoreBlock(context, ["spotify"]));
@@ -2037,14 +2030,14 @@ function buildSpotifyAgentMessages(config: AgentExecConfig, template: string, co
   }
 
   if (latestTurn) {
-    userParts.push(`<last_${modeLabel}_turn>`);
+    userParts.push(`<last_roleplay_turn>`);
     userParts.push(truncateAgentText(latestTurn, 5000));
-    userParts.push(`</last_${modeLabel}_turn>`);
+    userParts.push(`</last_roleplay_turn>`);
     userParts.push(``);
   }
 
   userParts.push(
-    `Pick music for this ${modeLabel} turn only. Use tools to inspect playback and fetch/search candidate tracks.`,
+    `Pick music for this roleplay turn only. Use tools to inspect playback and fetch/search candidate tracks.`,
   );
   userParts.push(`Now return the requested format.`);
 
@@ -2613,10 +2606,6 @@ const AGENT_RESULT_TYPES = new Set<AgentResultType>([
   "spotify_control",
   "cyoa_choices",
   "secret_plot",
-  "game_master_narration",
-  "party_action",
-  "game_map_update",
-  "game_state_transition",
 ]);
 
 const TEXT_RESULT_TYPES = new Set<AgentResultType>(["context_injection", "director_event"]);

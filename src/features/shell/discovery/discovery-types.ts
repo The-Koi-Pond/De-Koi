@@ -75,11 +75,6 @@ export type DiscoveryAction =
   | {
       type: "show-active-chat";
       label?: string;
-    }
-  | {
-      type: "open-showcase";
-      showcaseId: "no-model-game-v1";
-      label?: string;
     };
 
 export interface DiscoveryEntry {

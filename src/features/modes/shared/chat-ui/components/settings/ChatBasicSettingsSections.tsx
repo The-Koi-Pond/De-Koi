@@ -9,7 +9,6 @@ type TextConnection = { id: string; name: string; model?: string; capabilities?:
 export function ChatBasicSettingsSections({
   chat,
   isConversation,
-  isGame,
   sceneSystemPrompt,
   editingName,
   nameVal,
@@ -28,7 +27,6 @@ export function ChatBasicSettingsSections({
 }: {
   chat: Chat;
   isConversation: boolean;
-  isGame: boolean;
   sceneSystemPrompt: string;
   editingName: boolean;
   nameVal: string;
@@ -98,43 +96,23 @@ export function ChatBasicSettingsSections({
       <Section
         label="Connection"
         icon={<Plug size="0.875rem" />}
-        help={
-          isGame
-            ? "Separate AI models for the Game Master (narration, world, NPCs) and the Party chat (inter-character banter)."
-            : "Which AI provider and model to use for this chat. 'Random' picks a different connection each time from your random pool."
-        }
+        help="Which AI provider and model to use for this chat. 'Random' picks a different connection each time from your random pool."
       >
-        {isGame ? (
-          <div className="space-y-2">
-            <div>
-              <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-                GM / Party Model
-              </label>
-              <ConnectionSelect
-                value={chat.connectionId ?? ""}
-                connections={textConnectionsList}
-                includeModel
-                onChange={onConnectionChange}
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            <ConnectionSelect
-              value={chat.connectionId ?? ""}
-              connections={textConnectionsList}
-              onChange={onConnectionChange}
-            />
-            {chat.connectionId === "random" && (
-              <p className="mt-1.5 text-[0.625rem] text-amber-400/80">
-                Each generation will randomly pick from connections marked for the random pool.
-              </p>
-            )}
-          </>
-        )}
+        <>
+          <ConnectionSelect
+            value={chat.connectionId ?? ""}
+            connections={textConnectionsList}
+            onChange={onConnectionChange}
+          />
+          {chat.connectionId === "random" && (
+            <p className="mt-1.5 text-[0.625rem] text-amber-400/80">
+              Each generation will randomly pick from connections marked for the random pool.
+            </p>
+          )}
+        </>
       </Section>
 
-      {!isConversation && !isGame && !sceneSystemPrompt && (
+      {!isConversation && !sceneSystemPrompt && (
         <Section
           id="chat-settings-prompt-preset"
           label="Prompt Preset"

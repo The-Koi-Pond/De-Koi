@@ -207,28 +207,4 @@ describe("active lorebook scope", () => {
     );
     expect(noMatchReasons).toEqual([]);
   });
-
-  it("allows game lorebook keeper books to be selected when game keeper is enabled", () => {
-    const keeperBook = {
-      id: "keeper-book",
-      name: "Keeper Book",
-      enabled: true,
-      sourceAgentId: "game-lorebook-keeper",
-      scope: { mode: "all", chatIds: [] },
-    };
-
-    expect(
-      lorebookCanBeSelectedForContext(keeperBook, {
-        ...baseContext,
-        chat: { id: "game-chat", mode: "game", metadata: {} },
-      }),
-    ).toBe(false);
-
-    expect(
-      lorebookCanBeSelectedForContext(keeperBook, {
-        ...baseContext,
-        chat: { id: "game-chat", mode: "game", metadata: { gameLorebookKeeperEnabled: true } },
-      }),
-    ).toBe(true);
-  });
 });

@@ -24,13 +24,12 @@ type ChatSidebarRecoveryError = {
 };
 
 export type ChatSidebarRecoveryContext =
-  | { mode: "conversation" | "roleplay" | "game" | "fanfic"; state: "error" }
-  | { mode: "conversation" | "roleplay" | "game" | "fanfic"; state: "empty"; hasFilters: boolean };
+  | { mode: "conversation" | "roleplay" | "fanfic"; state: "error" }
+  | { mode: "conversation" | "roleplay" | "fanfic"; state: "empty"; hasFilters: boolean };
 
 const EMPTY_NOUNS: Record<ChatSidebarRecoveryContext["mode"], { plural: string; singular: string; create: string }> = {
   conversation: { plural: "conversations", singular: "conversation", create: "New Conversation" },
   roleplay: { plural: "roleplays", singular: "roleplay", create: "New Roleplay" },
-  game: { plural: "games", singular: "game", create: "New Game" },
   fanfic: { plural: "fics", singular: "fic", create: "New Fanfic" },
 };
 

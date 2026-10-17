@@ -12,14 +12,10 @@ import {
 import { registerAppCloseGuard, registerEditorDirtyAppCloseGuard } from "../../../shared/lib/app-close-guard";
 import { useLocalNotificationNavigation, useNavigateToChatFromShell } from "./chat-navigation";
 
-const exitGameSetup = vi.fn();
 const dialogs = vi.hoisted(() => ({
   showConfirmDialog: vi.fn(),
 }));
 
-vi.mock("../../modes/game/startup", () => ({
-  useExitGameSetupFromShell: () => exitGameSetup,
-}));
 vi.mock("../../../shared/lib/app-dialogs", () => dialogs);
 
 type NavigateToChat = (chatId: string) => void | Promise<void>;
@@ -47,7 +43,6 @@ describe("useNavigateToChatFromShell", () => {
   beforeEach(() => {
     window.localStorage.clear();
     useChatStore.getState().reset();
-    exitGameSetup.mockClear();
     dialogs.showConfirmDialog.mockReset();
     dialogs.showConfirmDialog.mockResolvedValue(true);
     useUIStore.setState({
@@ -75,12 +70,12 @@ describe("useNavigateToChatFromShell", () => {
     useUIStore.getState().closeAllDetails();
   });
 
-  it("closes shell surfaces, exits game setup, and activates the selected chat", async () => {
+  it("closes shell surfaces and activates the selected chat", async () => {
     let navigate: NavigateToChat | null = null;
 
     act(() => {
       const chat = useChatStore.getState();
-      chat.setPendingNewChatMode("game");
+      chat.setPendingNewChatMode("roleplay");
       chat.setShouldOpenSettings(true, "pending-chat");
       chat.setShouldOpenWizard(true, "pending-chat");
       chat.setShouldOpenWizardInShortcutMode(true, "pending-chat");
@@ -104,7 +99,6 @@ describe("useNavigateToChatFromShell", () => {
       shouldOpenWizardInShortcutMode: false,
     });
     expect(useChatStore.getState().chatNotifications.has("target-chat")).toBe(false);
-    expect(exitGameSetup).toHaveBeenCalledTimes(1);
     expect(dialogs.showConfirmDialog).toHaveBeenCalledWith({
       title: "Switch chats?",
       message: "An editor has unsaved changes. Continue anyway and discard them?",
@@ -133,7 +127,6 @@ describe("useNavigateToChatFromShell", () => {
     });
 
     expect(dialogs.showConfirmDialog).not.toHaveBeenCalled();
-    expect(exitGameSetup).not.toHaveBeenCalled();
     expect(useUIStore.getState()).toMatchObject({
       characterDetailId: "character-1",
       botBrowserOpen: true,
@@ -155,7 +148,6 @@ describe("useNavigateToChatFromShell", () => {
     });
 
     expect(useChatStore.getState().activeChatId).toBeNull();
-    expect(exitGameSetup).not.toHaveBeenCalled();
     expect(useUIStore.getState()).toMatchObject({
       characterDetailId: "character-1",
       botBrowserOpen: true,
@@ -193,7 +185,6 @@ describe("useNavigateToChatFromShell", () => {
       tone: "destructive",
     });
     expect(useChatStore.getState().activeChatId).toBeNull();
-    expect(exitGameSetup).not.toHaveBeenCalled();
   });
 
   it("routes notification activation through the central non-editor pending-work guard", async () => {
@@ -230,6 +221,5 @@ describe("useNavigateToChatFromShell", () => {
       tone: "destructive",
     });
     expect(useChatStore.getState().activeChatId).toBeNull();
-    expect(exitGameSetup).not.toHaveBeenCalled();
   });
 });

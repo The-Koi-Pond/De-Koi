@@ -341,9 +341,7 @@ async function connectedNoteStorageChatId(storage: StorageGateway, chat: JsonRec
   if (!sourceChatId || !connectedChatId || mode !== "conversation") return sourceChatId;
   const target = await storage.get<JsonRecord>("chats", connectedChatId).catch(() => null);
   const targetMode = readString(target?.mode || target?.chatMode);
-  return target && (targetMode === "roleplay" || targetMode === "game")
-    ? readString(target.id) || connectedChatId
-    : sourceChatId;
+  return target && targetMode === "roleplay" ? readString(target.id) || connectedChatId : sourceChatId;
 }
 
 function durableConnectedNoteTargetsChat(note: JsonRecord, chatId: string): boolean {
@@ -506,11 +504,7 @@ export async function consumePendingConnectedInfluences(storage: StorageGateway,
   const chatId = readString(chat.id).trim();
   const mode = readString(chat.mode || chat.chatMode);
   const meta = parseRecord(chat.metadata);
-  if (
-    !chatId ||
-    (mode !== "roleplay" && mode !== "game" && mode !== "conversation") ||
-    !readString(chat.connectedChatId).trim()
-  ) {
+  if (!chatId || (mode !== "roleplay" && mode !== "conversation") || !readString(chat.connectedChatId).trim()) {
     return;
   }
   if (readString(meta.sceneStatus) === "active") return;

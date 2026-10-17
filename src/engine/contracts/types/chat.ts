@@ -9,7 +9,7 @@ import type { MemoryKind, MemoryStatus } from "./memory.js";
 import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-director.js";
 
 /** The primary chat modes the engine supports. */
-export type ChatMode = "conversation" | "roleplay" | "game" | "fanfic";
+export type ChatMode = "conversation" | "roleplay" | "fanfic";
 /** Legacy persisted/imported mode name. New inputs should migrate this to "roleplay". */
 export type LegacyChatMode = "visual_novel";
 export type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
@@ -423,94 +423,9 @@ export interface ChatMetadata {
   /** Extra negative prompt/tags sent with generated conversation selfies. */
   selfieNegativePrompt?: string;
 
-  // ── Game Mode Fields ──
-  /** UUID linking all sessions of one game */
-  gameId?: string;
-  /** Session number within a game (1-based) */
-  gameSessionNumber?: number;
-  /** Current session lifecycle status */
-  gameSessionStatus?: import("./game.js").GameSessionStatus;
-  /** Whether the first game intro screen has been dismissed for this game chat. */
-  gameIntroPresented?: boolean;
-  /** Timestamp for when the current game session was created/started */
-  gameCurrentSessionStartedAt?: string;
-  /** Current game state (exploration, dialogue, combat, travel_rest) */
-  gameActiveState?: import("./game.js").GameActiveState;
-  /** Whether GM is a standalone narrator or an existing character */
-  gameGmMode?: import("./game.js").GameGmMode;
-  /** Character ID used as GM (when gameGmMode is "character") */
-  gameGmCharacterId?: string;
-  /** Party member IDs for the player's party; library character IDs or `npc:<slug>` tracked-NPC IDs. */
-  gamePartyCharacterIds?: string[];
-  /** ID of the linked party chat */
-  gamePartyChatId?: string;
-  /** Current area map */
-  gameMap?: import("./game.js").GameMap | null;
-  /** All generated/known maps for this game session/campaign. */
-  gameMaps?: import("./game.js").GameMap[];
-  /** ID of the map the party is currently on. */
-  activeGameMapId?: string | null;
-  /** Summaries of all previous sessions */
-  gamePreviousSessionSummaries?: import("./game.js").SessionSummary[];
-  /** GM-only: overarching story arc and plot (never sent to party agent) */
-  gameStoryArc?: string;
-  /** GM-only: planned plot twists (never sent to party agent) */
-  gamePlotTwists?: string[];
-  /** Active dialogue sub-scene chat ID */
-  gameDialogueChatId?: string | null;
-  /** Active combat sub-scene chat ID */
-  gameCombatChatId?: string | null;
-  /** Live combat encounter snapshot — restored on page refresh while a fight is in progress. */
-  gameCombatState?: import("./game.js").GameCombatStateSnapshot | null;
-  /** User's initial game setup preferences */
-  gameSetupConfig?: import("./game.js").GameSetupConfig | null;
+  // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */
   fanfic?: import("./fanfic.js").FanficState | null;
-  /** Image style profile chosen for this game chat. Missing uses setup config or global default profile. */
-  imageStyleProfileId?: string | null;
-  /** Tracked NPCs with reputation */
-  gameNpcs?: import("./game.js").GameNpc[];
-  /** Current-session turn number when the last rare generated scene illustration was created. */
-  gameLastIllustrationTurn?: number;
-  /** Session number where the last rare generated scene illustration was created. */
-  gameLastIllustrationSessionNumber?: number | null;
-  /** Background tag for the last rare generated scene illustration. */
-  gameLastIllustrationTag?: string;
-  /** Extra user instructions for game scene illustration prompts. */
-  gameImagePromptInstructions?: string | null;
-  /** Per-game asset browser folder exclusions. Omitted/null means every asset folder is available. */
-  gameAssetSelection?: { excludedFolders?: string[] } | null;
-  /** When true, Game Mode uses Music Player for music instead of local music assets. */
-  gameUseMusicDj?: boolean;
-  /** Default Music Player provider for Game Mode. */
-  gameMusicProvider?: "youtube" | "spotify" | "local" | string;
-  /** Recently selected provider-neutral music track IDs for Game Mode scene music de-duplication. */
-  gameRecentMusicTracks?: string[];
-  /** When true, Game Mode uses legacy Spotify DJ for music instead of local music assets. */
-  gameUseSpotifyMusic?: boolean;
-  /** Music source constraint for Spotify DJ in Game Mode. */
-  gameSpotifySourceType?: SpotifySourceType;
-  /** Spotify playlist ID used when gameSpotifySourceType is "playlist". */
-  gameSpotifyPlaylistId?: string | null;
-  /** Human-readable playlist name cached for prompts/display. */
-  gameSpotifyPlaylistName?: string | null;
-  /** Spotify artist name used when gameSpotifySourceType is "artist". */
-  gameSpotifyArtist?: string | null;
-  /** Recently selected Spotify track URIs for Game Mode scene music de-duplication. */
-  gameRecentSpotifyTracks?: string[];
-  /** Run Game Lorebook Keeper after a session is concluded. */
-  gameLorebookKeeperEnabled?: boolean;
-  /** Chat-scoped lorebook maintained by Game Lorebook Keeper. */
-  gameLorebookKeeperLorebookId?: string | null;
-  /** Status of the most recent Game Lorebook Keeper session-end run. */
-  gameLorebookKeeperLastRun?: {
-    sessionNumber: number;
-    status: "running" | "success" | "failed";
-    updatedAt: string;
-    lorebookId?: string | null;
-    entryCount?: number;
-    error?: string;
-  } | null;
 
   // ── Conversation-Mode Auto-Summarization ──
   /** Per-day auto-generated conversation summaries (key: "DD.MM.YYYY"). */

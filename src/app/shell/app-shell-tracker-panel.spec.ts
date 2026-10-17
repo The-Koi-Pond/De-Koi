@@ -9,7 +9,6 @@ describe("app shell tracker panel eligibility", () => {
 
   it("keeps the tracker panel available for tracker-backed modes", () => {
     expect(isTrackerPanelAvailableForChatMode("roleplay")).toBe(true);
-    expect(isTrackerPanelAvailableForChatMode("game")).toBe(true);
   });
 
   it("hides the tracker panel when no active chat mode is known", () => {

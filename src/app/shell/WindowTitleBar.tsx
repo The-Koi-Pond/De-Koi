@@ -72,7 +72,6 @@ export function WindowTitleBar({
       s.regexDetailId ||
       s.characterLibraryOpen ||
       s.botBrowserOpen ||
-      s.gameAssetsBrowserOpen ||
       s.rightPanelOpen,
     ),
   );

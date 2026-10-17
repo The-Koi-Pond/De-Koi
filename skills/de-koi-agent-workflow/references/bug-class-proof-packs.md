@@ -30,7 +30,7 @@ check --manifest-path src-tauri/Cargo.toml`, `pnpm check:architecture`.
   hidden-command parsing, provider requests, model capability behavior, or
   execution of advertised commands.
 - Common adjacent invariants: advertised vs parsed vs executed command parity;
-  chat/roleplay/game mode gating; provider and capability gating; no fake
+  chat/roleplay/fanfic mode gating; provider and capability gating; no fake
   success when execution fails; prompt assembly owner boundaries; focused
   regression proof for the original command or prompt shape.
 - Cheap proof rows: visible command list contains the command; parser accepts the

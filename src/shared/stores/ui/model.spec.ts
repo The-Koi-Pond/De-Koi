@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { normalizeUserQuickReplyActions } from "./model";
 
 describe("normalizeUserQuickReplyActions", () => {
-  it("keeps mode-scoped Game quick reply actions", () => {
-    const [action] = normalizeUserQuickReplyActions([
+  it("drops quick replies scoped to the removed Game mode", () => {
+    const actions = normalizeUserQuickReplyActions([
       {
         id: "game-action",
         label: "Scout",
@@ -17,10 +17,6 @@ describe("normalizeUserQuickReplyActions", () => {
       },
     ]);
 
-    expect(action).toMatchObject({
-      id: "game-action",
-      scope: "mode",
-      mode: "game",
-    });
+    expect(actions).toEqual([]);
   });
 });

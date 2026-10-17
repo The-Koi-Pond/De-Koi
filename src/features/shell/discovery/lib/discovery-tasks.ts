@@ -4,7 +4,7 @@ export const DISCOVERY_TASKS = [
   {
     id: "start",
     label: "Start chatting",
-    featureIds: ["conversation-mode", "roleplay-mode", "game-mode", "no-model-showcase"],
+    featureIds: ["conversation-mode", "roleplay-mode", "fanfic-mode"],
   },
   {
     id: "customize",

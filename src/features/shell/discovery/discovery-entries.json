@@ -1,16 +1,5 @@
 [
   {
-    "id": "no-model-showcase",
-    "title": "Sample Game Showcase",
-    "category": "Getting started",
-    "summary": "Open a curated Game world with sample party members, map, journal, lore, and messages before configuring a model.",
-    "keywords": ["showcase", "demo", "sample", "first run", "no model", "game", "journal", "map", "lore"],
-    "audience": "New or returning users who want to feel how De-Koi works before setting up a provider.",
-    "where": "Home > Explore sample world, or Discover > Sample Game Showcase.",
-    "actions": [{ "type": "open-showcase", "showcaseId": "no-model-game-v1", "label": "Explore Sample World" }],
-    "coverage": "core"
-  },
-  {
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
@@ -63,34 +52,6 @@
     "audience": "Users who want immersive scenes and creative writing rather than quick texting.",
     "where": "Home > Roleplay, then the setup wizard and Chat Settings > Roleplay Quality.",
     "actions": [{ "type": "open-mode-setup", "mode": "roleplay", "label": "Set up Roleplay" }],
-    "coverage": "core"
-  },
-  {
-    "id": "game-mode",
-    "title": "Game Mode",
-    "category": "Chat modes",
-    "summary": "A visual-novel and RPG-style mode with an AI Game Master, cancellable narration and draft translation, party, map, journal, inventory, combat, action-aware world tick recaps, and scene tools.",
-    "keywords": [
-      "game",
-      "rpg",
-      "gm",
-      "map",
-      "journal",
-      "inventory",
-      "combat",
-      "party",
-      "quest",
-      "dice",
-      "world tick",
-      "living world",
-      "advance world",
-      "time",
-      "elapsed time",
-      "action duration"
-    ],
-    "audience": "Players who want the app to help run an adventure instead of only writing dialogue.",
-    "where": "Home > Game, then the setup wizard and in-game control panel.",
-    "actions": [{ "type": "open-mode-setup", "mode": "game", "label": "Set up Game" }],
     "coverage": "core"
   },
   {
@@ -574,17 +535,6 @@
     "coverage": "core"
   },
   {
-    "id": "game-tutorial",
-    "title": "Game Tutorial",
-    "category": "Help",
-    "summary": "An on-demand spotlight tutorial for the Game map, party, controls, and narration/input area.",
-    "keywords": ["game help", "tutorial", "map", "party", "controls", "first game"],
-    "audience": "Game Mode users who need a quick orientation after setup.",
-    "where": "Discover > Game Tutorial, or the Game controls help button and More > Tutorial.",
-    "actions": [{ "type": "open-chat-destination", "destination": "game-tutorial", "label": "Open Game Tutorial" }],
-    "coverage": "advanced"
-  },
-  {
     "id": "slash-commands",
     "title": "Slash Commands",
     "category": "Advanced",
@@ -635,7 +585,7 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Set up and test image connections, Codex Subscription imagegen, and style profiles for selfies, sprites, backgrounds, NPC portraits, and Game scene illustrations.",
+    "summary": "Set up and test image connections, Codex Subscription imagegen, and style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.",
     "keywords": [
       "image",
       "images",
@@ -657,7 +607,7 @@
       "dall-e"
     ],
     "audience": "Users who want visual scenes and character art generated from chat context.",
-    "where": "Connections, Settings > General, chat settings, Game controls, and relevant agents.",
+    "where": "Connections, Settings > General, chat settings, and relevant agents.",
     "actions": [
       { "type": "open-panel", "panel": "connections", "label": "Open Connections" },
       { "type": "open-settings", "tab": "general", "destination": "image-settings", "label": "Open Image Settings" }
@@ -668,7 +618,7 @@
     "id": "trackers",
     "title": "Trackers",
     "category": "Agents",
-    "summary": "World, persona, character, quest, and custom trackers summarize structured state that can appear in Roleplay and Game surfaces.",
+    "summary": "World, persona, character, quest, and custom trackers summarize structured state that can appear in Roleplay surfaces.",
     "keywords": ["tracker", "world state", "character state", "quest", "stats", "memory", "hud"],
     "audience": "Users who want visible continuity and structured state during long scenes.",
     "where": "Enable tracker agents in chat settings, then use the tracker side panel or HUD surfaces.",
@@ -755,7 +705,7 @@
       "send"
     ],
     "audience": "Users who want faster alternate send actions during writing.",
-    "where": "Settings > General > Chat behavior, then the Conversation, Roleplay, or Game input toolbar.",
+    "where": "Settings > General > Chat behavior, then the Conversation or Roleplay input toolbar.",
     "actions": [
       { "type": "open-settings", "tab": "general", "destination": "chat-behavior", "label": "Open Chat Behavior" }
     ],
@@ -765,7 +715,7 @@
     "id": "music-dj",
     "title": "Music Player",
     "category": "Media",
-    "summary": "Enable the Music Player module for automatic scene-aware roleplay picks and visible Fresh Pick controls. Game Mode can also use its scene-music retries, while Character Music Taste supplies profile and manual character cues.",
+    "summary": "Enable the Music Player module for automatic scene-aware roleplay picks and visible Fresh Pick controls, while Character Music Taste supplies profile and manual character cues.",
     "keywords": [
       "youtube",
       "spotify legacy",
@@ -783,8 +733,8 @@
       "toolbar",
       "draggable"
     ],
-    "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats and games.",
-    "where": "Settings > Modules for automatic roleplay music and visible controls, Game settings > Agents for game music, and Character editor > Metadata > Music Taste for profile cues.",
+    "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats.",
+    "where": "Settings > Modules for automatic roleplay music and visible controls, and Character editor > Metadata > Music Taste for profile cues.",
     "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
     "coverage": "advanced"
   },
@@ -827,7 +777,7 @@
       "variables"
     ],
     "audience": "Power users checking context usage before sending or debugging why a model answered a certain way.",
-    "where": "Assistant message Peek Prompt actions, context attribution controls, replay controls, and the Game More menu.",
+    "where": "Assistant message Peek Prompt actions, context attribution controls, and replay controls.",
     "actions": [{ "type": "open-chat-destination", "destination": "prompt-inspector", "label": "Show Prompt Tools" }],
     "coverage": "advanced"
   },
@@ -857,7 +807,7 @@
     "id": "save-moment-actions",
     "title": "Message Moment Actions",
     "category": "Advanced",
-    "summary": "Start from a chat message and route it to continuity actions, including remembering the beat in chat summaries, drafting lorebook entries, or adding Game journal notes and checkpoints when supported. Use the brain action for Remember this, the adjacent branch action for branching, and the paintbrush to illustrate that exact message.",
+    "summary": "Start from a chat message and route it to continuity actions, including remembering the beat in chat summaries, or drafting lorebook entries. Use the brain action for Remember this, the adjacent branch action for branching, and the paintbrush to illustrate that exact message.",
     "keywords": [
       "save moment",
       "remember this",
@@ -877,103 +827,12 @@
       "source message",
       "branch from here",
       "clone from here",
-      "game journal",
-      "checkpoint",
       "manual save",
       "durable"
     ],
-    "audience": "Users who notice an important chat beat and want to preserve it as summary memory, lore, Game notes, checkpoints, a branch, or a targeted illustration from the message action bar.",
-    "where": "Hover or tap a message action bar in Conversation, Roleplay, or Game transcripts, then choose the brain for Remember this, the branch icon to branch, or the paintbrush to illustrate that exact message.",
+    "audience": "Users who notice an important chat beat and want to preserve it as summary memory, lore, a branch, or a targeted illustration from the message action bar.",
+    "where": "Hover or tap a message action bar in Conversation or Roleplay transcripts, then choose the brain for Remember this, the branch icon to branch, or the paintbrush to illustrate that exact message.",
     "actions": [{ "type": "open-chat-destination", "destination": "message-actions", "label": "Show Message Actions" }],
-    "coverage": "advanced"
-  },
-  {
-    "id": "game-journal",
-    "title": "Game Journal",
-    "category": "Chat modes",
-    "summary": "Browse auto-tracked Game Mode notes for events, NPCs, locations, inventory, world tick recaps, and campaign continuity.",
-    "keywords": [
-      "journal",
-      "npc log",
-      "locations",
-      "inventory log",
-      "game notes",
-      "campaign",
-      "continuity",
-      "world tick",
-      "advance world",
-      "recap"
-    ],
-    "audience": "Game Mode players who need a readable record of what has happened and what the world contains.",
-    "where": "Game Mode toolbar > Journal.",
-    "actions": [{ "type": "open-chat-destination", "destination": "game-journal", "label": "Open Game Journal" }],
-    "coverage": "advanced"
-  },
-  {
-    "id": "game-checkpoints",
-    "title": "Game Checkpoints",
-    "category": "Chat modes",
-    "summary": "Review, load, branch, and manage Game Mode checkpoints created around session boundaries and major state transitions.",
-    "keywords": [
-      "checkpoint",
-      "checkpoints",
-      "save",
-      "load",
-      "branch",
-      "alternate timeline",
-      "autosave",
-      "rollback",
-      "restore",
-      "game state"
-    ],
-    "audience": "Game Mode players who want recovery points before risky scenes, combat, or long sessions.",
-    "where": "Game Mode toolbar > Checkpoints.",
-    "actions": [{ "type": "open-chat-destination", "destination": "game-checkpoints", "label": "Open Checkpoints" }],
-    "coverage": "advanced"
-  },
-  {
-    "id": "game-gallery-assets",
-    "title": "Game Gallery And Assets",
-    "category": "Media",
-    "summary": "Use generated scene images, galleries, sprites, backgrounds, music, ambient tracks, sound effects, and managed game assets.",
-    "keywords": [
-      "game gallery",
-      "game assets",
-      "gallery",
-      "assets",
-      "sprites",
-      "backgrounds",
-      "music",
-      "ambient",
-      "sound effects",
-      "sfx"
-    ],
-    "audience": "Game Mode players and builders who want visual scenes, reusable media, and audio-backed sessions.",
-    "where": "Game Mode toolbar > Gallery or Game Assets, and Settings > General for asset scanning and image defaults.",
-    "actions": [{ "type": "open-settings", "tab": "general", "label": "Open General" }],
-    "coverage": "advanced"
-  },
-  {
-    "id": "game-combat-session-tools",
-    "title": "Game Combat And Session Tools",
-    "category": "Chat modes",
-    "summary": "Manage combat turns, combat logs, skill checks, interruptions, new sessions, session ending, and Game Mode history.",
-    "keywords": [
-      "combat",
-      "combat logs",
-      "skill check",
-      "interrupt",
-      "new session",
-      "end session",
-      "history",
-      "turns",
-      "world tick",
-      "advance world",
-      "session tick"
-    ],
-    "audience": "Game Mode players who want to understand the action tools around adventures and combat.",
-    "where": "Game Mode toolbar and Game actions menu during an active game.",
-    "actions": [{ "type": "open-chat-destination", "destination": "game-tools", "label": "Open Game Tools" }],
     "coverage": "advanced"
   },
   {
@@ -1107,18 +966,8 @@
     "id": "themes-fonts-backgrounds",
     "title": "Themes, Fonts, And Backgrounds",
     "category": "Settings",
-    "summary": "Customize visual themes, custom CSS themes, fonts, chat backgrounds, game asset backgrounds, gradient styling, and mode-specific appearance.",
-    "keywords": [
-      "theme",
-      "themes",
-      "custom css",
-      "fonts",
-      "backgrounds",
-      "game assets",
-      "appearance",
-      "gradient",
-      "visual style"
-    ],
+    "summary": "Customize visual themes, custom CSS themes, fonts, chat backgrounds, gradient styling, and mode-specific appearance.",
+    "keywords": ["theme", "themes", "custom css", "fonts", "backgrounds", "appearance", "gradient", "visual style"],
     "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",
     "actions": [{ "type": "open-settings", "tab": "appearance", "label": "Open Appearance" }],

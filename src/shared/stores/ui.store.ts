@@ -11,8 +11,6 @@ import {
   normalizeImageStyleProfileSettings,
 } from "../../engine/generation/image-style-profiles";
 import {
-  DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
-  DEFAULT_GAME_SETUP_REMEMBERED_TEXT,
   DEFAULT_SUMMARY_POPOVER_SETTINGS,
   RIGHT_PANEL_WIDTH_MAX,
   RIGHT_PANEL_WIDTH_DEFAULT,
@@ -28,11 +26,8 @@ import {
   CLEARED_DETAIL_IDS,
   clampImageDimension,
   closeDetailRouteState,
-  mergeLearnedGameSetupOptions,
   mobilePanelClosePatch,
-  normalizeLearnedGameSetupOption,
   normalizeConversationMessageStyle,
-  normalizeRememberedGameSetupText,
   normalizeSummaryPopoverSettings,
   normalizeTextBlipMode,
   normalizeUserQuickReplyActions,
@@ -47,7 +42,6 @@ import type {
   ConversationMessageStyle,
   EchoChamberSide,
   FontSize,
-  GameDialogueDisplayMode,
   HudPosition,
   ImagePromptFormat,
   Panel,
@@ -89,7 +83,6 @@ export type {
   ConversationMessageStyle,
   EchoChamberSide,
   FontSize,
-  GameDialogueDisplayMode,
   HudPosition,
   ImagePromptFormat,
   Panel,
@@ -145,7 +138,6 @@ export const useUIStore = create<UIState>()(
       personaDetailId: null,
       regexDetailId: null,
       botBrowserOpen: false,
-      gameAssetsBrowserOpen: false,
       characterLibraryOpen: false,
       editorDirty: false,
       mobileDetailOriginPanel: null,
@@ -158,11 +150,6 @@ export const useUIStore = create<UIState>()(
       enableStreaming: true,
       debugMode: false,
       streamingSpeed: 50,
-      gameInstantTextReveal: false,
-      gameMiddleMouseNav: false,
-      gameDialogueDisplayMode: "classic" as GameDialogueDisplayMode,
-      gameTextSpeed: 50,
-      gameAutoPlayDelay: 3000,
       reviewImagePromptsBeforeSend: false,
       imagePromptIncludeAppearances: true,
       imagePromptFormat: "descriptive" as ImagePromptFormat,
@@ -208,8 +195,6 @@ export const useUIStore = create<UIState>()(
       roleplayAvatarStyle: "circles" as RoleplayAvatarStyle,
       roleplayAvatarScale: 1,
       roleplaySpriteScale: 1,
-      gameAvatarScale: 1,
-      gameFullBodySpriteScale: 1.35,
       textStrokeWidth: 0.5,
       textStrokeColor: "#000000",
       visualTheme: "default" as VisualTheme,
@@ -227,16 +212,12 @@ export const useUIStore = create<UIState>()(
       automaticMemoryCaptureNotifications: true,
       customConversationPrompt: null,
       scheduleGenerationPreferences: "",
-      learnedGameSetupOptions: DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
-      rememberedGameSetupText: DEFAULT_GAME_SETUP_REMEMBERED_TEXT,
       enterToSendRP: false,
       enterToSendConvo: true,
-      enterToSendGame: true,
       weatherEffects: true,
       hudPosition: "top" as HudPosition,
       hasCompletedOnboarding: false,
       onboardingTourOpen: false,
-      gameTutorialDisabled: false,
       linkApiBannerDismissed: false,
       echoChamberOpen: false,
       echoChamberSide: "bottom-right" as EchoChamberSide,
@@ -379,20 +360,10 @@ export const useUIStore = create<UIState>()(
         set({
           ...CLEARED_DETAIL_IDS,
           botBrowserOpen: true,
-          gameAssetsBrowserOpen: false,
           characterLibraryOpen: false,
           ...mobilePanelClosePatch(),
         }),
       closeBotBrowser: () => set({ botBrowserOpen: false }),
-      openGameAssetsBrowser: () =>
-        set({
-          ...CLEARED_DETAIL_IDS,
-          gameAssetsBrowserOpen: true,
-          botBrowserOpen: false,
-          characterLibraryOpen: false,
-          ...mobilePanelClosePatch(),
-        }),
-      closeGameAssetsBrowser: () => set({ gameAssetsBrowserOpen: false }),
 
       hasAnyDetailOpen: () => {
         const s = get();
@@ -407,8 +378,7 @@ export const useUIStore = create<UIState>()(
           s.personaDetailId ||
           s.regexDetailId ||
           s.characterLibraryOpen ||
-          s.botBrowserOpen ||
-          s.gameAssetsBrowserOpen
+          s.botBrowserOpen
         );
       },
       closeAllDetails: () =>
@@ -424,7 +394,6 @@ export const useUIStore = create<UIState>()(
           regexDetailId: null,
           characterLibraryOpen: false,
           botBrowserOpen: false,
-          gameAssetsBrowserOpen: false,
           editorDirty: false,
           mobileDetailOriginPanel: null,
         }),
@@ -438,11 +407,6 @@ export const useUIStore = create<UIState>()(
       setEnableStreaming: (v) => set({ enableStreaming: v }),
       setDebugMode: (v) => set({ debugMode: v }),
       setStreamingSpeed: (v) => set({ streamingSpeed: Math.max(1, Math.min(100, v)) }),
-      setGameInstantTextReveal: (v) => set({ gameInstantTextReveal: v }),
-      setGameMiddleMouseNav: (v) => set({ gameMiddleMouseNav: v }),
-      setGameDialogueDisplayMode: (v) => set({ gameDialogueDisplayMode: v }),
-      setGameTextSpeed: (v) => set({ gameTextSpeed: Math.max(1, Math.min(100, v)) }),
-      setGameAutoPlayDelay: (v) => set({ gameAutoPlayDelay: Math.max(200, Math.min(10000, Math.round(v))) }),
       setReviewImagePromptsBeforeSend: (v) => set({ reviewImagePromptsBeforeSend: v }),
       setImagePromptIncludeAppearances: (v) => set({ imagePromptIncludeAppearances: v }),
       setImagePromptFormat: (format) => set({ imagePromptFormat: format }),
@@ -518,8 +482,6 @@ export const useUIStore = create<UIState>()(
         set({ roleplayAvatarScale: Math.max(ROLEPLAY_AVATAR_SCALE_MIN, Math.min(ROLEPLAY_AVATAR_SCALE_MAX, v)) }),
       setRoleplaySpriteScale: (v) =>
         set({ roleplaySpriteScale: Math.max(ROLEPLAY_SPRITE_SCALE_MIN, Math.min(ROLEPLAY_SPRITE_SCALE_MAX, v)) }),
-      setGameAvatarScale: (v) => set({ gameAvatarScale: Math.max(0.75, Math.min(1.75, v)) }),
-      setGameFullBodySpriteScale: (v) => set({ gameFullBodySpriteScale: Math.max(0.75, Math.min(2.75, v)) }),
       setTextStrokeWidth: (v) => set({ textStrokeWidth: Math.max(0, Math.min(5, v)) }),
       setTextStrokeColor: (v) => set({ textStrokeColor: v }),
       setCenterCompact: (v) => set({ centerCompact: v }),
@@ -542,46 +504,8 @@ export const useUIStore = create<UIState>()(
       setAutomaticMemoryCaptureNotifications: (v) => set({ automaticMemoryCaptureNotifications: v }),
       setCustomConversationPrompt: (v) => set({ customConversationPrompt: v }),
       setScheduleGenerationPreferences: (v) => set({ scheduleGenerationPreferences: v }),
-      rememberGameSetupOptions: (options, text) =>
-        set((state) => {
-          const learned = state.learnedGameSetupOptions ?? DEFAULT_GAME_SETUP_LEARNED_OPTIONS;
-          const remembered = state.rememberedGameSetupText ?? DEFAULT_GAME_SETUP_REMEMBERED_TEXT;
-          return {
-            learnedGameSetupOptions: {
-              genres: mergeLearnedGameSetupOptions(learned.genres, options.genres ?? []),
-              tones: mergeLearnedGameSetupOptions(learned.tones, options.tones ?? []),
-              settings: mergeLearnedGameSetupOptions(learned.settings, options.settings ?? []),
-              goals: mergeLearnedGameSetupOptions(learned.goals, options.goals ?? []),
-              preferences: mergeLearnedGameSetupOptions(learned.preferences, options.preferences ?? []),
-            },
-            rememberedGameSetupText: {
-              playerGoals:
-                text?.playerGoals !== undefined
-                  ? normalizeRememberedGameSetupText(text.playerGoals)
-                  : remembered.playerGoals,
-              preferences:
-                text?.preferences !== undefined
-                  ? normalizeRememberedGameSetupText(text.preferences)
-                  : remembered.preferences,
-            },
-          };
-        }),
-      forgetGameSetupOption: (group, value) =>
-        set((state) => {
-          const learned = state.learnedGameSetupOptions ?? DEFAULT_GAME_SETUP_LEARNED_OPTIONS;
-          const targetKey = normalizeLearnedGameSetupOption(value).toLowerCase();
-          if (!targetKey) return state;
-          const next = learned[group].filter(
-            (entry) => normalizeLearnedGameSetupOption(entry).toLowerCase() !== targetKey,
-          );
-          if (next.length === learned[group].length) return state;
-          return {
-            learnedGameSetupOptions: { ...learned, [group]: next },
-          };
-        }),
       setEnterToSendRP: (v) => set({ enterToSendRP: v }),
       setEnterToSendConvo: (v) => set({ enterToSendConvo: v }),
-      setEnterToSendGame: (v) => set({ enterToSendGame: v }),
       setWeatherEffects: (v) => set({ weatherEffects: v }),
       setHudPosition: (v) => set({ hudPosition: v }),
       setImpersonatePromptTemplate: (v) => set({ impersonatePromptTemplate: v }),
@@ -592,7 +516,6 @@ export const useUIStore = create<UIState>()(
       setImpersonateBlockAgents: (v) => set({ impersonateBlockAgents: v }),
       setHasCompletedOnboarding: (v) => set({ hasCompletedOnboarding: v }),
       setOnboardingTourOpen: (open) => set({ onboardingTourOpen: open }),
-      setGameTutorialDisabled: (v) => set({ gameTutorialDisabled: v }),
       dismissLinkApiBanner: () => set({ linkApiBannerDismissed: true }),
       setEchoChamberOpen: (open, chatId) =>
         set((state) => {

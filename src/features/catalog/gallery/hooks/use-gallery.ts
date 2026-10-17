@@ -32,57 +32,21 @@ function imageDimension(value: number | null | undefined, fallback: number): num
 
 function imageConnectionId(chat: Chat | null): string {
   if (!chat) return "";
-  return (
-    readTrimmed(chat.metadata?.gameImageConnectionId) ||
-    readTrimmed(chat.metadata?.imageGenConnectionId) ||
-    readTrimmed(chat.metadata?.illustrationImageConnectionId)
-  );
+  return readTrimmed(chat.metadata?.imageGenConnectionId) || readTrimmed(chat.metadata?.illustrationImageConnectionId);
 }
 
-function getGameGalleryScopeId(chat: Chat | null): string | null {
-  if (!chat || chat.mode !== "game") return null;
-  const metadataGameId =
-    typeof chat.metadata?.gameId === "string" && chat.metadata.gameId.trim() ? chat.metadata.gameId.trim() : null;
-  return metadataGameId ?? chat.groupId ?? null;
-}
-
-function getGalleryChatIds(chat: Chat | null, gameSessions: readonly Chat[] = []): string[] {
-  if (!chat) return [];
-  const gameId = getGameGalleryScopeId(chat);
-  if (!gameId) return [chat.id];
-
-  const sessionIds = gameSessions
-    .filter((session) => session.mode === "game" && getGameGalleryScopeId(session) === gameId)
-    .map((session) => session.id)
-    .filter(Boolean);
-
-  return Array.from(new Set([...sessionIds, chat.id]));
-}
-
-async function listGalleryImagesForChatIds(
-  galleryChatIds: readonly string[],
-  listByChatId: (chatId: string) => Promise<ChatImage[]> = (chatId) =>
-    storageApi.list<ChatImage>("gallery", { filters: { chatId } }),
-): Promise<ChatImage[]> {
-  const batches = await Promise.all(galleryChatIds.map((chatId) => listByChatId(chatId)));
-  const normalized = await Promise.all(batches.flat().map(normalizeGalleryImage));
+async function listGalleryImagesForChat(chatId: string): Promise<ChatImage[]> {
+  const images = await storageApi.list<ChatImage>("gallery", { filters: { chatId } });
+  const normalized = await Promise.all(images.map(normalizeGalleryImage));
   return normalized.sort((a, b) => imageCreatedAt(b) - imageCreatedAt(a));
 }
 
 export function useGalleryImages(chat: Chat | null) {
-  const gameId = getGameGalleryScopeId(chat);
-  const gameSessions = useQuery({
-    queryKey: galleryKeys.gameSessions(gameId),
-    queryFn: () => storageApi.list<Chat>("chats", { filters: { groupId: gameId } }),
-    enabled: !!gameId,
-    retry: false,
-  });
-  const galleryChatIds = getGalleryChatIds(chat, gameSessions.data ?? []);
-
+  const chatId = chat?.id ?? null;
   return useQuery({
-    queryKey: galleryKeys.images(chat?.id ?? null, galleryChatIds),
-    queryFn: () => listGalleryImagesForChatIds(galleryChatIds),
-    enabled: !!chat?.id && galleryChatIds.length > 0 && (!gameId || gameSessions.isSuccess || gameSessions.isError),
+    queryKey: galleryKeys.images(chatId),
+    queryFn: () => listGalleryImagesForChat(chatId!),
+    enabled: !!chatId,
     retry: false,
   });
 }
@@ -105,10 +69,7 @@ export function useUploadGalleryImage(chatId: string | null) {
 
 export function useRegenerateGalleryImage(chat: Chat | null) {
   const queryClient = useQueryClient();
-  const gameId = getGameGalleryScopeId(chat);
-  const gameSessions = queryClient.getQueryData<Chat[]>(galleryKeys.gameSessions(gameId)) ?? [];
-  const galleryChatIds = getGalleryChatIds(chat, gameSessions);
-  const activeGalleryQueryKey = galleryKeys.images(chat?.id ?? null, galleryChatIds);
+  const activeGalleryQueryKey = galleryKeys.images(chat?.id ?? null);
 
   return useMutation({
     mutationFn: async (image: ChatImage) => {

@@ -1,4 +1,4 @@
-export type HomeSuggestionDestination = "server-setup" | "sample-world" | "library-import" | "discover";
+export type HomeSuggestionDestination = "server-setup" | "connect-model" | "library-import" | "discover";
 
 export interface HomeSuggestion {
   destination: HomeSuggestionDestination;
@@ -19,10 +19,10 @@ const suggestions: Record<HomeSuggestionDestination, HomeSuggestion> = {
     label: "Connect to your De-Koi server",
     description: "Finish web setup so your library and chats have somewhere to live.",
   },
-  "sample-world": {
-    destination: "sample-world",
-    label: "Explore sample world",
-    description: "Tour a ready-made Game scene before connecting a model.",
+  "connect-model": {
+    destination: "connect-model",
+    label: "Add a model connection",
+    description: "Connect an AI provider or a local model so characters can reply.",
   },
   "library-import": {
     destination: "library-import",
@@ -39,7 +39,7 @@ const suggestions: Record<HomeSuggestionDestination, HomeSuggestion> = {
 export function getHomeSuggestions(context: HomeSuggestionContext): HomeSuggestion[] {
   const destinations: HomeSuggestionDestination[] = [];
   if (context.needsServerSetup) destinations.push("server-setup");
-  if (!context.hasLanguageModel) destinations.push("sample-world");
+  if (!context.hasLanguageModel) destinations.push("connect-model");
   if (context.libraryIsEmpty) destinations.push("library-import");
   if (context.hasActivity || destinations.length < 3) destinations.push("discover");
 

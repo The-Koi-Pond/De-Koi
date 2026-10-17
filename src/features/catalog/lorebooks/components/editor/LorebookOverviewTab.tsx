@@ -1,4 +1,4 @@
-import { BookOpen, Plus, Gamepad2, Globe, ToggleLeft, ToggleRight, Users, UserRound, Wand2 } from "lucide-react";
+import { BookOpen, Plus, Globe, ToggleLeft, ToggleRight, Users, UserRound, Wand2 } from "lucide-react";
 import type { LorebookCategory, LorebookEntry } from "../../../../../engine/contracts/types/lorebook";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { TagInput } from "../../../../../shared/components/ui/TagInput";
@@ -14,7 +14,6 @@ const CATEGORY_ICONS: Record<LorebookCategory, typeof Globe> = {
   character: Users,
   npc: UserRound,
   spellbook: Wand2,
-  game: Gamepad2,
   uncategorized: BookOpen,
 };
 

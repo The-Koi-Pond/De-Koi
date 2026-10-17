@@ -122,8 +122,7 @@ export function buildSummaryContextProjection(input: {
   );
   const requestedMode = textValue(input.chat.mode) || textValue(input.chat.chatMode);
   const includeSceneSummary =
-    input.includeSceneSummary ??
-    (requestedMode === "roleplay" || requestedMode === "game" || metadata.crossChatAwareness !== false);
+    input.includeSceneSummary ?? (requestedMode === "roleplay" || metadata.crossChatAwareness !== false);
   const rollingText = rollingEntries.map((entry) => entry.content.trim()).join("\n\n");
   const blocks: ProjectionBlock[] = [];
   if (rollingText) blocks.push({ text: rollingText, kind: "rolling", truncateFromEnd: true });

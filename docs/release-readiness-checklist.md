@@ -45,7 +45,6 @@ pages, or screenshots for the current desktop/runtime architecture.
 - Fresh screenshots exist for the current De-Koi UI:
   - conversation mode;
   - roleplay mode;
-  - game mode;
   - settings;
   - provider connections.
 - Captures avoid secrets, private chats, API keys, personal file paths, and

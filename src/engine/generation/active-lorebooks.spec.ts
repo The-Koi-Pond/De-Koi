@@ -64,30 +64,6 @@ describe("scanActiveLorebookEntries", () => {
     ]);
   });
 
-  it("uses the visible game-state snapshot for legacy chatMode-only game chats", async () => {
-    const rawGameState = { location: "old room" };
-    const snapshot = { location: "changed room" };
-    const visibleAnchor = { messageId: "assistant-1", swipeIndex: 0 };
-    mocks.resolveVisibleGameStateAnchor.mockReturnValue(visibleAnchor);
-    mocks.selectTrackerSnapshotForGeneration.mockResolvedValue(snapshot);
-
-    await scanActiveLorebookEntries(
-      storageWithChat({ id: "chat-1", chatMode: "game", gameState: rawGameState, metadata: {} }),
-      "chat-1",
-    );
-
-    expect(mocks.selectTrackerSnapshotForGeneration).toHaveBeenCalledWith(expect.anything(), "chat-1", {
-      preferLatestVisible: true,
-      visibleAnchor,
-    });
-    expect(mocks.scanActiveLorebooks).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chat: expect.objectContaining({ gameState: snapshot }),
-        generationTriggers: ["game", "chat"],
-      }),
-    );
-  });
-
   it("does not look up a tracker snapshot for non-game chatMode values", async () => {
     await scanActiveLorebookEntries(
       storageWithChat({ id: "chat-1", chatMode: "roleplay", gameState: { location: "raw" }, metadata: {} }),

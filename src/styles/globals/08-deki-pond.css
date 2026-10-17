@@ -1,0 +1,223 @@
+/* Deki-senpai pond pixel scene. Lazy-loaded by the Deki surface. */
+
+.deki-hero {
+  min-height: clamp(12rem, 28vh, 17rem);
+}
+
+.deki-hero[data-state="compact"] {
+  min-height: clamp(7rem, 16vh, 9rem);
+}
+
+.deki-pond-scene {
+  position: relative;
+  width: min(100%, 24rem);
+  aspect-ratio: 16 / 10;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.deki-hero[data-state="compact"] .deki-pond-scene {
+  width: min(100%, 14rem);
+}
+
+.deki-pond-aura {
+  position: absolute;
+  inset: 8% 6% 12%;
+  z-index: -4;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--border) 38%, transparent) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(84, 184, 152, 0.2), rgba(255, 203, 107, 0.13) 48%, rgba(235, 105, 136, 0.15));
+  background-size:
+    24px 24px,
+    24px 24px,
+    auto;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background) 64%, transparent);
+  clip-path: polygon(8% 0, 100% 0, 93% 100%, 0 91%);
+}
+
+.deki-pond-water {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 7%;
+  height: 42%;
+  z-index: -2;
+  overflow: hidden;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.18), transparent 24% 68%, rgba(255, 255, 255, 0.12)),
+    repeating-linear-gradient(172deg, rgba(255, 255, 255, 0.18) 0 2px, transparent 2px 16px),
+    linear-gradient(180deg, #68c7c3 0%, #277f92 100%);
+  border: 2px solid #244c57;
+  border-radius: 42% 58% 49% 51% / 54% 46% 58% 42%;
+  box-shadow:
+    inset 0 0.45rem 0 rgba(255, 255, 255, 0.18),
+    0 0.65rem 0 rgba(0, 0, 0, 0.14);
+}
+
+.deki-pond-water::before {
+  content: "";
+  position: absolute;
+  inset: 16% 7% auto;
+  height: 0.3rem;
+  background: linear-gradient(90deg, transparent, rgba(255, 242, 186, 0.68), transparent);
+  transform: rotate(-3deg);
+}
+
+.deki-pond-ripple {
+  position: absolute;
+  display: block;
+  width: 4.4rem;
+  height: 1.45rem;
+  border: 2px solid rgba(236, 255, 245, 0.42);
+  border-radius: 999px;
+  opacity: 0.48;
+  transform: scale(0.78);
+}
+
+.deki-pond-ripple-one {
+  left: 16%;
+  top: 45%;
+}
+
+.deki-pond-ripple-two {
+  right: 17%;
+  top: 30%;
+  animation-delay: 0.45s;
+}
+
+.deki-pond-ripple-three {
+  left: 47%;
+  top: 60%;
+  width: 3.2rem;
+  animation-delay: 0.9s;
+}
+
+.deki-pond-lilypad {
+  position: absolute;
+  z-index: -1;
+  width: 2.8rem;
+  height: 1.6rem;
+  background: linear-gradient(135deg, #8ccf75, #356f49);
+  border: 2px solid #234734;
+  border-radius: 54% 46% 52% 48% / 63% 47% 53% 37%;
+  box-shadow: inset 0 0.22rem 0 rgba(255, 255, 255, 0.2);
+}
+
+.deki-pond-lilypad::after {
+  content: "";
+  position: absolute;
+  right: 19%;
+  top: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  background: color-mix(in srgb, var(--background) 86%, transparent);
+  clip-path: polygon(100% 0, 0 47%, 100% 100%);
+}
+
+.deki-pond-lilypad-left {
+  left: 11%;
+  bottom: 20%;
+  transform: rotate(-8deg);
+}
+
+.deki-pond-lilypad-right {
+  right: 12%;
+  bottom: 30%;
+  width: 2.2rem;
+  height: 1.25rem;
+  transform: rotate(12deg);
+}
+
+.deki-pond-sprite {
+  position: absolute;
+  left: 50%;
+  bottom: 11%;
+  z-index: 2;
+  width: clamp(10rem, 45%, 14rem);
+  transform: translateX(-50%) translateY(0) rotate(-1deg);
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0.45rem 0.7rem 0.12rem rgba(0, 0, 0, 0.18)) drop-shadow(0 0 1.1rem rgba(255, 202, 118, 0.28));
+}
+
+.deki-pond-scene-idle .deki-pond-sprite {
+  animation: deki-pond-idle-bob 3.6s ease-in-out infinite;
+}
+
+.deki-pond-scene-idle .deki-pond-ripple {
+  animation: deki-pond-ripple 5.2s ease-out infinite;
+}
+
+.deki-pond-scene-thinking .deki-pond-sprite,
+.deki-pond-scene-responding .deki-pond-sprite {
+  animation: deki-pond-active-bob 1.45s ease-in-out infinite;
+}
+
+.deki-pond-scene-thinking .deki-pond-ripple,
+.deki-pond-scene-responding .deki-pond-ripple {
+  animation: deki-pond-ripple 2.4s ease-out infinite;
+}
+
+@media (max-width: 640px) {
+  .deki-hero {
+    min-height: clamp(10.5rem, 25vh, 13rem);
+  }
+
+  .deki-hero[data-state="compact"] {
+    min-height: clamp(6rem, 16vh, 7rem);
+  }
+
+  .deki-pond-scene {
+    width: min(100%, 20rem);
+  }
+
+  .deki-hero[data-state="compact"] .deki-pond-scene {
+    width: min(100%, 12rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deki-pond-scene-idle .deki-pond-sprite,
+  .deki-pond-scene-idle .deki-pond-ripple,
+  .deki-pond-scene-thinking .deki-pond-sprite,
+  .deki-pond-scene-thinking .deki-pond-ripple,
+  .deki-pond-scene-responding .deki-pond-sprite,
+  .deki-pond-scene-responding .deki-pond-ripple {
+    animation: none;
+  }
+}
+
+@keyframes deki-pond-idle-bob {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-0.16rem) rotate(0.25deg);
+  }
+}
+
+@keyframes deki-pond-active-bob {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-0.32rem) rotate(1.2deg);
+  }
+}
+
+@keyframes deki-pond-ripple {
+  0% {
+    opacity: 0;
+    transform: scale(0.58);
+  }
+  18% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}

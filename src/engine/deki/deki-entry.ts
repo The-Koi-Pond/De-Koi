@@ -15,7 +15,7 @@ export type DekiWorkspaceToolName =
   | "search_deki_web"
   | "read_deki_web_page";
 
-export type DekiChatAccessMode = "conversation" | "roleplay" | "game";
+export type DekiChatAccessMode = "conversation" | "roleplay";
 
 export type DekiChatAccessScope =
   | {
@@ -709,9 +709,7 @@ function normalizeDekiChatAccessScope(value: unknown): DekiChatAccessScope | nul
   }
   if (value.type === "mode") {
     const modes = Array.isArray(value.modes)
-      ? value.modes.filter(
-          (mode): mode is DekiChatAccessMode => mode === "conversation" || mode === "roleplay" || mode === "game",
-        )
+      ? value.modes.filter((mode): mode is DekiChatAccessMode => mode === "conversation" || mode === "roleplay")
       : [];
     return modes.length > 0 ? { type: "mode", modes } : null;
   }

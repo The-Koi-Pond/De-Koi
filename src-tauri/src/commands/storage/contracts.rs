@@ -119,8 +119,6 @@ const GAME_STATE_SNAPSHOT_FIELDS: &[TypedJsonField] = &[
     nullable_object("metadata"),
     nullable_array("personaStats"),
 ];
-const GAME_CHECKPOINT_FIELDS: &[TypedJsonField] =
-    &[nullable_object("snapshot"), nullable_object("metadata")];
 const CHAT_PRESET_FIELDS: &[TypedJsonField] = &[
     object("parameters"),
     object("settings"),
@@ -669,14 +667,6 @@ pub(crate) const COLLECTIONS: &[StorageCollectionContract] = &[
         true,
         EMPTY_DEFAULTS,
         GAME_STATE_SNAPSHOT_FIELDS,
-        EMPTY_CLEANUP,
-    ),
-    contract(
-        "game-checkpoints",
-        true,
-        true,
-        EMPTY_DEFAULTS,
-        GAME_CHECKPOINT_FIELDS,
         EMPTY_CLEANUP,
     ),
 ];

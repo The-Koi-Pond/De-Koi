@@ -304,11 +304,6 @@ const collectionMetadata = {
     confidence: "Type-backed",
     notes: "`chatId`, `messageId`, and `swipeIndex` identify committed tracker state for a message/swipe.",
   },
-  "game-checkpoints": {
-    model: "Game checkpoint row",
-    confidence: "Rust-normalized",
-    notes: "Stores nullable `snapshot` and `metadata` objects for game rollback/checkpoint behavior.",
-  },
 };
 
 const embeddedRows = [

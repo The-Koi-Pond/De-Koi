@@ -28,12 +28,12 @@ describe("DiscoverPanel contextual destinations", () => {
 
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      valueSetter?.call(input, "game journal");
+      valueSetter?.call(input, "roleplay panels");
       input?.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
     const openButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Open Game Journal",
+      (button) => button.textContent?.trim() === "Open Roleplay Context",
     );
     expect(openButton).toBeDefined();
     act(() => openButton?.click());
@@ -42,7 +42,7 @@ describe("DiscoverPanel contextual destinations", () => {
     expect(blockedStatus).not.toBeNull();
     expect(blockedStatus?.getAttribute("role")).toBe("alert");
     expect(blockedStatus?.textContent).toContain("Unavailable in the current context");
-    expect(blockedStatus?.textContent).toContain("Game Journal needs an active chat.");
+    expect(blockedStatus?.textContent).toContain("Roleplay Context needs an active chat.");
     expect(blockedStatus?.textContent).toContain("Choose a chat");
   });
 

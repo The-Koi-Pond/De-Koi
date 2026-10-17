@@ -33,11 +33,7 @@ export type AgentResultType =
   | "spotify_control"
   | "music_control"
   | "cyoa_choices"
-  | "secret_plot"
-  | "game_master_narration"
-  | "party_action"
-  | "game_map_update"
-  | "game_state_transition";
+  | "secret_plot";
 
 const DEFAULT_AGENT_CREDIT = "Marinara Dev Team";
 
@@ -232,7 +228,7 @@ export const BUILT_IN_AGENT_IDS = {
 const RETIRED_NARRATIVE_AGENT_IDS = ["narrative-craft", "prose-guardian", "director", "secret-plot-driver"] as const;
 
 export type AgentCategory = "writer" | "tracker" | "misc";
-export type AgentChatMode = "conversation" | "roleplay" | "game" | "visual_novel";
+export type AgentChatMode = "conversation" | "roleplay" | "visual_novel";
 
 const CONVERSATION_BUILT_IN_AGENT_IDS = [
   "schedule-planner",
@@ -243,8 +239,6 @@ const CONVERSATION_BUILT_IN_AGENT_IDS = [
 ] as const;
 
 const CONVERSATION_AGENT_PICKER_HIDDEN_IDS = new Set<string>();
-
-const GAME_BUILT_IN_AGENT_IDS = ["world-state", "quest", "expression", "combat"] as const;
 
 const ROLEPLAY_AGENT_PICKER_HIDDEN_IDS = [
   "prompt-reviewer",
@@ -418,7 +412,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     id: "music-dj",
     name: "Music Player",
     description:
-      "Analyzes conversation, roleplay, and game scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
+      "Analyzes conversation and roleplay scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
     phase: "post_processing",
     enabledByDefault: false,
     category: "misc",
@@ -503,7 +497,6 @@ const BUILT_IN_AGENT_ID_PREFIX = "builtin:";
 const BUILT_IN_AGENT_ID_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
 const RETIRED_NARRATIVE_AGENT_ID_SET = new Set<string>(RETIRED_NARRATIVE_AGENT_IDS);
 const CONVERSATION_BUILT_IN_AGENT_ID_SET = new Set<string>(CONVERSATION_BUILT_IN_AGENT_IDS);
-const GAME_BUILT_IN_AGENT_ID_SET = new Set<string>(GAME_BUILT_IN_AGENT_IDS);
 const ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET = new Set<string>(ROLEPLAY_AGENT_PICKER_HIDDEN_IDS);
 
 /** Fanfic chats are written from the request and outline alone; no built-in or custom agent runs there. */
@@ -512,7 +505,7 @@ function isAgentFreeChatMode(mode: unknown): boolean {
 }
 
 function normalizeAgentChatMode(mode: unknown): Exclude<AgentChatMode, "visual_novel"> {
-  return mode === "conversation" || mode === "game" ? mode : "roleplay";
+  return mode === "conversation" ? mode : "roleplay";
 }
 
 function metadataRecord(value: unknown): Record<string, unknown> {
@@ -570,7 +563,6 @@ export function isBuiltInAgentAvailableInChatMode(mode: unknown, agentId: string
   const chatMode = normalizeAgentChatMode(mode);
   if (meta.modeAllowlist && !modeAllowlistIncludes(chatMode, meta.modeAllowlist)) return false;
   if (chatMode === "conversation") return CONVERSATION_BUILT_IN_AGENT_ID_SET.has(id);
-  if (chatMode === "game") return GAME_BUILT_IN_AGENT_ID_SET.has(id);
   return true;
 }
 
@@ -988,8 +980,7 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
   },
   {
     name: "music_resolve_candidates",
-    description:
-      "Resolve YouTube music candidates for a roleplay, conversation, or game scene. Use this before music_play.",
+    description: "Resolve YouTube music candidates for a roleplay or conversation scene. Use this before music_play.",
     parameters: {
       type: "object",
       properties: {
@@ -1117,8 +1108,7 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
   },
   {
     name: "spotify_play",
-    description:
-      "Play one or more tracks, or a playlist, on the user's active Spotify device. In game mode, pass one best track URI so it can loop until a new scene pick.",
+    description: "Play one or more tracks, or a playlist, on the user's active Spotify device.",
     parameters: {
       type: "object",
       properties: {

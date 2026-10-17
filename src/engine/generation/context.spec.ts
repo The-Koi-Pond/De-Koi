@@ -130,8 +130,8 @@ describe("recommended generation parameter precedence", () => {
       recommendedGenerationProfileForRequest(
         connection,
         { generationProfileMode: "roleplay" },
-        { mode: "game", metadata: {} },
+        { mode: "conversation", metadata: {} },
       ).profileId,
-    ).toBe("game-grounded");
+    ).toBe("conversation-balanced");
   });
 });

@@ -14,7 +14,7 @@ const validCategories = new Set([
   "Help",
 ]);
 const validCoverage = new Set(["core", "advanced", "experimental", "needs-polish"]);
-const validModes = new Set(["conversation", "roleplay", "game", "fanfic"]);
+const validModes = new Set(["conversation", "roleplay", "fanfic"]);
 const validChatDestinations = new Set([
   "chat-settings",
   "chat-settings-continuity",
@@ -24,10 +24,6 @@ const validChatDestinations = new Set([
   "slash-commands",
   "prompt-inspector",
   "message-actions",
-  "game-tutorial",
-  "game-journal",
-  "game-checkpoints",
-  "game-tools",
   "roleplay-context",
 ]);
 const validPanels = new Set([
@@ -45,7 +41,7 @@ const validPanels = new Set([
 const coreSurfaceIds = [
   "conversation-mode",
   "roleplay-mode",
-  "game-mode",
+  "fanfic-mode",
   "characters",
   "personas",
   "lorebooks",
@@ -56,7 +52,6 @@ const coreSurfaceIds = [
   "imports",
   "bot-browser",
   "deki",
-  "no-model-showcase",
 ];
 const discoveryMetadataPaths = ["src/features/shell/discovery/"];
 
@@ -97,11 +92,6 @@ function validateAction(action, entryId, index) {
     case "open-chat-destination":
       if (!hasText(action.destination) || !validChatDestinations.has(action.destination)) {
         errors.push(`${path}.destination must target a known chat destination.`);
-      }
-      break;
-    case "open-showcase":
-      if (action.showcaseId !== "no-model-game-v1") {
-        errors.push(`${path}.showcaseId must target a known showcase.`);
       }
       break;
     default:

@@ -32,7 +32,6 @@ assignees: ""
 - [ ] Catalog resources
 - [ ] Chat mode
 - [ ] Roleplay mode
-- [ ] Game mode
 - [ ] Shared mode UI
 - [ ] Runtime systems: generation, world-state, visuals, or tracker
 - [ ] Deki-senpai or shell tools

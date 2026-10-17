@@ -404,7 +404,7 @@ export function PersonaSpritesTab({
       <div>
         <h3 className="text-sm font-semibold">Persona Sprites</h3>
         <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
-          Upload VN-style sprites for your persona. These are used in Game Mode and roleplay with the Expression Engine.
+          Upload VN-style sprites for your persona. These are used in roleplay with the Expression Engine.
         </p>
       </div>
 

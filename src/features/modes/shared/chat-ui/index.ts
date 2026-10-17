@@ -1,5 +1,4 @@
 export * from "./types";
-export * from "./ChatGalleryDrawer.lazy";
 export * from "./components/ChatBranchSelector";
 export * from "./components/ChatCommonOverlays";
 export * from "./components/ChatInput";
