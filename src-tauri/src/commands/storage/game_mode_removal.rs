@@ -428,6 +428,14 @@ fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> 
             atomic_rows(collections, "chats"),
             atomic_rows(collections, "messages"),
         );
+        // The Game chats must be exactly the ones the backup planned for: one that changed
+        // mode or appeared since would be skipped or removed without a backup.
+        if chats.ids != plan.chats.ids {
+            return Err(AppError::new(
+                "game_mode_backup_stale",
+                "Game chats changed after the Game mode backup was written; the removal runs again on the next start",
+            ));
+        }
         for collection in collections.iter() {
             let name = collection.collection();
             let unsaved = collection.rows().iter().any(|row| {
@@ -494,25 +502,46 @@ fn remove_backed_up_files(files: &[BackedUpFile], still_in_use: &HashSet<PathBuf
             );
             continue;
         }
-        // A file that changed since it was backed up is not the file the backup holds, so it
-        // stays where it is.
-        match file_digest(&file.path) {
+        // Move the file aside first, then check the moved bytes: what gets deleted is exactly
+        // what was hashed. A file that changed since it was backed up goes back where it was.
+        let mut aside = file.path.clone().into_os_string();
+        aside.push(".removing");
+        let aside = PathBuf::from(aside);
+        if let Err(error) = fs::rename(&file.path, &aside) {
+            log::warn!(
+                "could not remove backed-up Game file {}: {error}",
+                file.path.display()
+            );
+            continue;
+        }
+        match file_digest(&aside) {
             Ok(digest) if digest == file.digest => {
-                if let Err(error) = fs::remove_file(&file.path) {
+                if let Err(error) = fs::remove_file(&aside) {
                     log::warn!(
                         "could not remove backed-up Game file {}: {error}",
                         file.path.display()
                     );
                 }
             }
-            Ok(_) => log::warn!(
-                "kept Game file {} because it changed after the backup",
-                file.path.display()
-            ),
-            Err(error) => log::warn!(
-                "could not check backed-up Game file {}: {error}",
-                file.path.display()
-            ),
+            outcome => {
+                if let Err(error) = &outcome {
+                    log::warn!(
+                        "could not check backed-up Game file {}: {error}",
+                        file.path.display()
+                    );
+                } else {
+                    log::warn!(
+                        "kept Game file {} because it changed after the backup",
+                        file.path.display()
+                    );
+                }
+                if let Err(error) = fs::rename(&aside, &file.path) {
+                    log::warn!(
+                        "could not put back Game file {}: {error}",
+                        file.path.display()
+                    );
+                }
+            }
         }
     }
 }
@@ -901,6 +930,22 @@ mod tests {
 
         assert!(shared.exists(), "a file a surviving record points at stays");
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn removal_refuses_when_a_planned_game_chat_changed_mode() {
+        let state = test_state("game-chat-changed-mode");
+        seed(&state);
+        let plan = RemovalPlan::load(&state.storage).unwrap();
+        state
+            .storage
+            .patch("chats", "game-1", json!({ "mode": "roleplay" }))
+            .unwrap();
+
+        let error = retire_game_rows(&state.storage, &plan).unwrap_err();
+
+        assert_eq!(error.code, "game_mode_backup_stale");
+        assert!(state.storage.get("messages", "m-game").unwrap().is_some());
     }
 
     #[test]
