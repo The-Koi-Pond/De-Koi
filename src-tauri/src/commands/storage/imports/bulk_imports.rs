@@ -1602,18 +1602,15 @@ mod tests {
 
         import_st_chat_text(
             &state,
-            concat!(
+            &[
+                r#"{"user_name":"You","character_name":"Mira","chat_metadata":{"deKoi":{"format":"de-koi-chat-transcript-jsonl","mode":"conversation"}}}"#,
                 r#"{"name":"System","is_system":true,"role":"system","mes":"Scene moved.","extra":{"type":"comment","hiddenFromAI":false}}"#,
-                "
-",
                 r#"{"name":"You","is_user":true,"is_system":true,"role":"user","mes":"note","extra":{"hiddenFromAI":true}}"#,
-                "
-",
                 r#"{"name":"Mira","is_user":false,"is_system":true,"role":"assistant","mes":"aside","extra":{"hiddenFromAI":true}}"#,
-                "
-",
-                r#"{"name":"Narrator","is_user":false,"is_system":false,"role":"narrator","mes":"Rain falls.","extra":{"type":"narrator","hiddenFromAI":false}}"#
-            ),
+                r#"{"name":"Narrator","is_user":false,"is_system":false,"role":"narrator","mes":"Rain falls.","extra":{"type":"narrator","hiddenFromAI":false}}"#,
+                r#"{"name":"SillyTavern System","is_system":true,"mes":"Legacy note","extra":{"type":"comment","hiddenFromAI":false}}"#,
+            ]
+            .join("\n"),
             "Imported Chat".to_string(),
             None,
             StChatImportContext {
@@ -1628,19 +1625,32 @@ mod tests {
             .storage
             .list("messages")
             .expect("messages should list");
-        assert_eq!(messages[0]["role"], "system");
-        assert_ne!(messages[0]["extra"]["hiddenFromAI"], json!(true));
-        assert_eq!(messages[1]["extra"]["hiddenFromAI"], json!(true));
-        let roles: Vec<&str> = messages
+        let summary: Vec<(&str, &str, bool)> = messages
             .iter()
-            .map(|message| message["role"].as_str().unwrap())
+            .map(|message| {
+                (
+                    message["content"].as_str().unwrap(),
+                    message["role"].as_str().unwrap(),
+                    message["extra"]["hiddenFromAI"] == json!(true),
+                )
+            })
             .collect();
         assert_eq!(
-            roles,
-            vec!["system", "user", "assistant", "narrator"],
-            "hidden lines keep the role De-Koi exported"
+            summary,
+            vec![
+                ("Scene moved.", "system", false),
+                ("note", "user", true),
+                ("aside", "assistant", true),
+                ("Rain falls.", "narrator", false),
+                ("Legacy note", "system", true),
+            ],
+            "De-Koi rows keep their role and hidden flag; files without roles keep the is_system rule"
         );
-        assert_eq!(messages[2]["extra"]["hiddenFromAI"], json!(true));
+        let chats = state.storage.list("chats").expect("chats should list");
+        assert_eq!(
+            chats[0]["mode"], "conversation",
+            "the header's mode is restored"
+        );
 
         let _ = fs::remove_dir_all(app_root);
     }

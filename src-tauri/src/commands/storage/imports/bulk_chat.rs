@@ -187,14 +187,17 @@ fn st_message_is_system(row: &Value) -> bool {
 }
 
 fn st_message_hidden_from_ai(row: &Value) -> bool {
-    // De-Koi's own exports say outright whether a message is hidden, since SillyTavern's
-    // is_system also marks visible system notes.
-    if let Some(hidden) = row
-        .get("extra")
-        .and_then(|extra| extra.get("hiddenFromAI"))
-        .and_then(Value::as_bool)
-    {
-        return hidden;
+    // De-Koi's own exports (rows with an explicit role) say outright whether a message is
+    // hidden, since SillyTavern's is_system also marks visible system notes. Other files keep
+    // the is_system rule.
+    if row.get("role").and_then(Value::as_str).is_some() {
+        if let Some(hidden) = row
+            .get("extra")
+            .and_then(|extra| extra.get("hiddenFromAI"))
+            .and_then(Value::as_bool)
+        {
+            return hidden;
+        }
     }
     st_message_is_system(row)
         || bool_option(row.get("extra").and_then(|extra| extra.get("hiddenFromAI")))
@@ -401,8 +404,21 @@ pub(super) fn import_st_chat_text(
     let mut chat = ensure_object(inherited.unwrap_or_else(|| json!({})))?;
     chat.remove("id");
     chat.insert("name".to_string(), Value::String(chat_name));
+    // A De-Koi export names its chat mode in the header. Ids for characters, personas, and
+    // presets belong to the install it came from, so only the mode is restored.
+    let exported_mode = parsed_rows
+        .iter()
+        .find_map(|row| {
+            row.get("chat_metadata")?
+                .get("deKoi")?
+                .get("mode")?
+                .as_str()
+        })
+        .filter(|mode| matches!(*mode, "conversation" | "roleplay" | "fanfic"))
+        .unwrap_or("roleplay")
+        .to_string();
     chat.entry("mode".to_string())
-        .or_insert(Value::String("roleplay".to_string()));
+        .or_insert(Value::String(exported_mode));
     if character_ids.is_empty() {
         chat.entry("characterIds".to_string())
             .or_insert_with(|| json!([]));
