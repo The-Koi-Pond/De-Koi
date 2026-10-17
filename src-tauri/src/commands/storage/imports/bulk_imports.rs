@@ -1595,6 +1595,47 @@ mod tests {
     }
 
     #[test]
+    fn import_st_chat_text_ignores_de_koi_fields_without_a_de_koi_header() {
+        let app_root = temp_path("chat-no-de-koi-header");
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+
+        import_st_chat_text(
+            &state,
+            &[
+                r#"{"user_name":"You","character_name":"Mira","chat_metadata":{"deKoi":{"mode":"conversation"}}}"#,
+                r#"{"name":"SillyTavern System","is_system":true,"role":"system","mes":"Legacy note","extra":{"type":"comment","hiddenFromAI":false}}"#,
+            ]
+            .join("\n"),
+            "Imported Chat".to_string(),
+            None,
+            StChatImportContext {
+                character_lookup: HashMap::new(),
+                default_character_id: None,
+                timestamp_overrides: None,
+            },
+        )
+        .expect("SillyTavern chat should import");
+
+        let messages = state
+            .storage
+            .list("messages")
+            .expect("messages should list");
+        assert_eq!(
+            messages[0]["extra"]["hiddenFromAI"],
+            json!(true),
+            "without a valid De-Koi header, is_system keeps the row hidden"
+        );
+        let chats = state.storage.list("chats").expect("chats should list");
+        assert_eq!(
+            chats[0]["mode"], "roleplay",
+            "an unversioned header does not change the mode"
+        );
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+
+    #[test]
     fn import_st_chat_text_reads_de_koi_hidden_flag_over_is_system() {
         let app_root = temp_path("chat-de-koi-hidden-flag");
         let state = AppState::from_data_dir(&app_root, Vec::new())
@@ -1603,7 +1644,7 @@ mod tests {
         import_st_chat_text(
             &state,
             &[
-                r#"{"user_name":"You","character_name":"Mira","chat_metadata":{"deKoi":{"format":"de-koi-chat-transcript-jsonl","mode":"conversation"}}}"#,
+                r#"{"user_name":"You","character_name":"Mira","chat_metadata":{"deKoi":{"format":"de-koi-chat-transcript-jsonl","version":2,"mode":"conversation"}}}"#,
                 r#"{"name":"System","is_system":true,"role":"system","mes":"Scene moved.","extra":{"type":"comment","hiddenFromAI":false}}"#,
                 r#"{"name":"You","is_user":true,"is_system":true,"role":"user","mes":"note","extra":{"hiddenFromAI":true}}"#,
                 r#"{"name":"Mira","is_user":false,"is_system":true,"role":"assistant","mes":"aside","extra":{"hiddenFromAI":true}}"#,
