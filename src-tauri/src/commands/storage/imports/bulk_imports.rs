@@ -1771,7 +1771,7 @@ mod tests {
         st_import(
             &state,
             &[
-                r#"{"user_name":"You","character_name":"Bot","chat_metadata":{"note_prompt":"Keep it rainy.","note_depth":2}}"#,
+                r#"{"user_name":"You","character_name":"Bot","chat_metadata":{"note_prompt":"Keep it rainy.","note_depth":2,"note_interval":3,"note_role":1}}"#,
                 r#"{"is_user":true,"mes":"Hello"}"#,
                 concat!(
                     r#"{"name":"Bot","mes":"Second try","swipe_id":1,"send_date":"2026-01-01T10:00:07.000Z","#,
@@ -1833,6 +1833,8 @@ mod tests {
         let chats = state.storage.list("chats").expect("chats should list");
         assert_eq!(chats[0]["metadata"]["authorNotes"], "Keep it rainy.");
         assert_eq!(chats[0]["metadata"]["authorNotesDepth"], 2);
+        assert_eq!(chats[0]["metadata"]["authorNotesInterval"], 3);
+        assert_eq!(chats[0]["metadata"]["authorNotesRole"], "user");
 
         let _ = fs::remove_dir_all(app_root);
     }
