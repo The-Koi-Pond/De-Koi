@@ -46,3 +46,17 @@ describe("discovery search ranking", () => {
     ).toEqual(["first"]);
   });
 });
+
+describe("discovery coverage filter", () => {
+  it("shows needs-polish entries under the Experimental filter", () => {
+    const entries = [
+      entry({ id: "beta", coverage: "experimental" }),
+      entry({ id: "rough", coverage: "needs-polish" }),
+      entry({ id: "steady", coverage: "core" }),
+    ];
+
+    const experimental = filterDiscoveryEntries(entries, "", { category: "All", coverage: "experimental" });
+
+    expect(experimental.map((item) => item.id)).toEqual(["beta", "rough"]);
+  });
+});

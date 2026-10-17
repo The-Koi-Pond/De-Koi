@@ -261,7 +261,10 @@ fn zip_entry_names<R: Read + std::io::Seek>(
         let file = archive.by_index(index).map_err(|error| {
             AppError::invalid_input(format!("Could not read profile ZIP entry: {error}"))
         })?;
-        names.push(file.name().to_string());
+        let name = file.name().map_err(|error| {
+            AppError::invalid_input(format!("Could not read profile ZIP entry name: {error}"))
+        })?;
+        names.push(name.into_owned());
     }
     Ok(names)
 }

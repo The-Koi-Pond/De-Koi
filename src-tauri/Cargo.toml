@@ -74,7 +74,7 @@ tokio = { version = "1", features = ["sync", "time", "net", "io-util", "macros",
 tokio-stream = "0.1"
 unicode-normalization = "0.1"
 tower-http = { version = "0.7", features = ["cors"] }
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 marinara-core = { path = "crates/core" }
 marinara-security = { path = "crates/security" }
 marinara-storage = { path = "crates/storage" }
