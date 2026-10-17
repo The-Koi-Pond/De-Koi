@@ -34,67 +34,117 @@ const baseExtra = {
 };
 
 describe("formatChatJsonl", () => {
-  it("writes legacy-compatible transcript rows for single-chat JSONL export", () => {
-    const messages: Message[] = [
-      {
-        id: "message-1",
-        chatId: "chat-1",
-        role: "user",
-        characterId: null,
-        content: "Hello, Mira.",
-        activeSwipeIndex: 0,
-        createdAt: "2026-06-01T12:01:00.000Z",
-        extra: {
-          ...baseExtra,
-          personaSnapshot: { personaId: "persona-1", name: "Celia" },
-        },
-      },
-      {
-        id: "message-2",
-        chatId: "chat-1",
-        role: "assistant",
-        characterId: "character-1",
-        content: "Hello back.",
-        activeSwipeIndex: 0,
-        createdAt: "2026-06-01T12:02:00.000Z",
-        extra: {
-          ...baseExtra,
-          isGenerated: true,
-        },
-      },
-    ];
+  const names = { characters: { "character-1": "Mira" }, user: "Chai" };
 
-    const rows = formatChatJsonl(chat, messages)
+  function rowsOf(messages: Message[], chatPatch: Partial<Chat> = {}) {
+    return formatChatJsonl({ ...chat, ...chatPatch }, messages, names)
       .trimEnd()
       .split("\n")
       .map((row) => JSON.parse(row) as Record<string, unknown>);
+  }
+
+  it("writes SillyTavern's chat file shape: header first, then named messages", () => {
+    const rows = rowsOf(
+      [
+        {
+          id: "message-1",
+          chatId: "chat-1",
+          role: "user",
+          characterId: null,
+          content: "Hello, Mira.",
+          activeSwipeIndex: 0,
+          createdAt: "2026-06-01T12:01:00.000Z",
+          extra: { ...baseExtra, personaSnapshot: { personaId: "persona-1", name: "Chai" } },
+        },
+        {
+          id: "message-2",
+          chatId: "chat-1",
+          role: "assistant",
+          characterId: "character-1",
+          content: "Hello back.",
+          activeSwipeIndex: 0,
+          createdAt: "2026-06-01T12:02:00.000Z",
+          extra: { ...baseExtra, isGenerated: true },
+        },
+      ],
+      { metadata: { ...chat.metadata, authorNotes: "Keep it rainy.", authorNotesDepth: 2 } as Chat["metadata"] },
+    );
 
     expect(rows[0]).toMatchObject({
-      format: "marinara-chat-transcript-jsonl",
-      version: 1,
-      rowType: "format",
+      user_name: "Chai",
+      character_name: "Mira",
+      create_date: "2026-06-01@12h00m00s",
+      chat_metadata: {
+        note_prompt: "Keep it rainy.",
+        note_depth: 2,
+        deKoi: { format: "de-koi-chat-transcript-jsonl", version: 2, mode: "conversation" },
+      },
     });
-    expect(rows[1]).toMatchObject({
-      rowType: "header",
-      user_name: "You",
-      character_name: "Mira Chat",
-      create_date: "2026-06-01T12:00:00.000Z",
+    expect(rows[0]).not.toHaveProperty("mes");
+    expect(rows[1]).toMatchObject({ name: "Chai", is_user: true, is_system: false, mes: "Hello, Mira." });
+    expect(rows[2]).toMatchObject({ name: "Mira", is_user: false, is_system: false, mes: "Hello back." });
+  });
+
+  it("writes every swipe with its reasoning, and hidden messages as is_system", () => {
+    const swiped = {
+      id: "message-3",
+      chatId: "chat-1",
+      role: "assistant",
+      characterId: "character-1",
+      content: "Second try",
+      activeSwipeIndex: 1,
+      createdAt: "2026-06-01T12:03:00.000Z",
+      extra: { ...baseExtra, thinking: "think two" },
+      swipes: [
+        { content: "First try", extra: { thinking: "think one" }, createdAt: "2026-06-01T12:02:30.000Z" },
+        { content: "Second try", extra: { thinking: "think two" } },
+      ],
+    } as Message;
+    const hidden = {
+      id: "message-4",
+      chatId: "chat-1",
+      role: "user",
+      characterId: null,
+      content: "(note to self)",
+      activeSwipeIndex: 0,
+      createdAt: "2026-06-01T12:04:00.000Z",
+      extra: { ...baseExtra, hiddenFromAI: true },
+    } as Message;
+
+    const [, reply, note] = rowsOf([swiped, hidden]);
+
+    expect(reply).toMatchObject({
+      mes: "Second try",
+      swipe_id: 1,
+      swipes: ["First try", "Second try"],
+      swipe_info: [
+        { send_date: "2026-06-01T12:02:30.000Z", extra: { reasoning: "think one" } },
+        { send_date: "2026-06-01T12:03:00.000Z", extra: { reasoning: "think two" } },
+      ],
+      extra: { reasoning: "think two" },
     });
-    expect(rows[2]).toMatchObject({
-      rowType: "message",
-      name: "Celia",
-      is_user: true,
-      is_system: false,
-      mes: "Hello, Mira.",
-      send_date: "2026-06-01T12:01:00.000Z",
-    });
-    expect(rows[3]).toMatchObject({
-      rowType: "message",
-      name: "character-1",
-      is_user: false,
-      is_system: false,
-      mes: "Hello back.",
-      send_date: "2026-06-01T12:02:00.000Z",
+    expect(note).toMatchObject({ name: "Chai", is_user: true, is_system: true, extra: { hiddenFromAI: true } });
+  });
+
+  it("keeps system messages system-shaped without marking them hidden", () => {
+    const system = {
+      id: "message-5",
+      chatId: "chat-1",
+      role: "system",
+      characterId: null,
+      content: "Scene moved to the docks.",
+      activeSwipeIndex: 0,
+      createdAt: "2026-06-01T12:05:00.000Z",
+      extra: baseExtra,
+    } as Message;
+
+    const [, row] = rowsOf([system]);
+
+    expect(row).toMatchObject({
+      name: "System",
+      is_system: true,
+      role: "system",
+      extra: { type: "comment", hiddenFromAI: false },
     });
   });
 });

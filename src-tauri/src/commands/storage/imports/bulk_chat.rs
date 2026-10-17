@@ -204,7 +204,28 @@ fn st_message_is_system(row: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn st_message_hidden_from_ai(row: &Value) -> bool {
+/// The `chat_metadata.deKoi` block of a file De-Koi exported: it must sit in the header,
+/// the file's first line as in SillyTavern, and name De-Koi's transcript format and a
+/// version this importer reads.
+fn de_koi_export_header(rows: &[Value]) -> Option<&Value> {
+    let header = rows.first()?.get("chat_metadata")?.get("deKoi")?;
+    let format = header.get("format").and_then(Value::as_str)?;
+    let version = header.get("version").and_then(Value::as_i64)?;
+    (format == "de-koi-chat-transcript-jsonl" && version == 2).then_some(header)
+}
+
+fn st_message_hidden_from_ai(row: &Value, de_koi_export: bool) -> bool {
+    // De-Koi's own exports say outright whether a message is hidden, since SillyTavern's
+    // is_system also marks visible system notes. Every other file keeps the is_system rule.
+    if de_koi_export && row.get("role").and_then(Value::as_str).is_some() {
+        if let Some(hidden) = row
+            .get("extra")
+            .and_then(|extra| extra.get("hiddenFromAI"))
+            .and_then(Value::as_bool)
+        {
+            return hidden;
+        }
+    }
     st_message_is_system(row)
         || bool_option(row.get("extra").and_then(|extra| extra.get("hiddenFromAI")))
             .unwrap_or(false)
@@ -243,7 +264,7 @@ fn st_row_character_id(row: &Value, context: &StChatImportContext, role: &str) -
         .unwrap_or(Value::Null)
 }
 
-fn st_message_extra(row: &Value) -> Value {
+fn st_message_extra(row: &Value, de_koi_export: bool) -> Value {
     let mut extra = Map::new();
     if let Some(display_text) = st_message_display_text(row) {
         extra.insert("displayText".to_string(), Value::String(display_text));
@@ -266,7 +287,7 @@ fn st_message_extra(row: &Value) -> Value {
             Value::String(speaker.to_string()),
         );
     }
-    if st_message_hidden_from_ai(row) {
+    if st_message_hidden_from_ai(row, de_koi_export) {
         extra.insert("hiddenFromAI".to_string(), Value::Bool(true));
         extra.insert("hiddenFromAi".to_string(), Value::Bool(true));
     }
@@ -524,8 +545,18 @@ pub(super) fn import_st_chat_text(
     let mut chat = ensure_object(inherited.unwrap_or_else(|| json!({})))?;
     chat.remove("id");
     chat.insert("name".to_string(), Value::String(chat_name));
+    // A De-Koi export names its chat mode in the header. Ids for characters, personas, and
+    // presets belong to the install it came from, so only the mode is restored.
+    let de_koi_header = de_koi_export_header(&parsed_rows).cloned();
+    let exported_mode = de_koi_header
+        .as_ref()
+        .and_then(|header| header.get("mode"))
+        .and_then(Value::as_str)
+        .filter(|mode| matches!(*mode, "conversation" | "roleplay" | "fanfic"))
+        .unwrap_or("roleplay")
+        .to_string();
     chat.entry("mode".to_string())
-        .or_insert(Value::String("roleplay".to_string()));
+        .or_insert(Value::String(exported_mode));
     crate::storage_commands::game_mode_removal::retire_game_chat_mode(&mut chat);
     if character_ids.is_empty() {
         chat.entry("characterIds".to_string())
@@ -574,7 +605,11 @@ pub(super) fn import_st_chat_text(
             };
             let role = imported_jsonl_message_role(&row);
             let character_id = st_row_character_id(&row, &context, role);
-            let (swipes, active_swipe) = st_message_swipes(&row, &content, &st_message_extra(&row));
+            let (swipes, active_swipe) = st_message_swipes(
+                &row,
+                &content,
+                &st_message_extra(&row, de_koi_header.is_some()),
+            );
             let mut message_payload = json!({
                 "chatId": chat_id,
                 "role": role,

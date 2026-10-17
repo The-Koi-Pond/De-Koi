@@ -1,12 +1,37 @@
 import type { StorageGateway } from "../../../../engine/capabilities/storage";
 import type { Chat, Message } from "../../../../engine/contracts/types/chat";
+import type { ChatExportNames } from "./chat-transcript-export";
 
 type ChatExportStorage = Pick<StorageGateway, "get" | "list" | "listChatMessages">;
 
 export type LoadedChatExport = {
   chat: Chat;
   messages: Message[];
+  names: ChatExportNames;
 };
+
+type NamedRecord = { name?: unknown; data?: { name?: unknown } | null };
+
+function recordName(record: NamedRecord | null): string | null {
+  const name = record?.data?.name ?? record?.name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+/** Character and persona names, so exported messages carry who said them instead of ids. */
+async function loadExportNames(storage: ChatExportStorage, chat: Chat, messages: Message[]): Promise<ChatExportNames> {
+  const characterIds = new Set(chat.characterIds ?? []);
+  for (const message of messages) if (message.characterId) characterIds.add(message.characterId);
+  const characters: Record<string, string> = {};
+  await Promise.all(
+    [...characterIds].map(async (id) => {
+      // A deleted character falls back to a generic name; a failed read fails the export.
+      const name = recordName(await storage.get<NamedRecord>("characters", id));
+      if (name) characters[id] = name;
+    }),
+  );
+  const user = chat.personaId ? recordName(await storage.get<NamedRecord>("personas", chat.personaId)) : null;
+  return { characters, user };
+}
 
 export async function listChatIdsForExport(storage: ChatExportStorage): Promise<string[]> {
   const rows = await storage.list<Pick<Chat, "id">>("chats", { fields: ["id"] });
@@ -35,7 +60,7 @@ export async function loadChatsForExport(
         storage.listChatMessages<Message>(chatId),
       ]);
       if (!chat) throw new Error("Chat was not found.");
-      results[index] = { chat, messages };
+      results[index] = { chat, messages, names: await loadExportNames(storage, chat, messages) };
     }
   };
 
