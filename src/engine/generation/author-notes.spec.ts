@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { authorNotesDepthEntry } from "./prompt-assembly";
+import type { StorageEntity, StorageGateway } from "../capabilities/storage";
+import { assembleGenerationPrompt, authorNotesDepthEntry } from "./prompt-assembly";
 
 const turns = (count: number) =>
   Array.from({ length: count * 2 }, (_, index) => ({ role: index % 2 === 0 ? "user" : "assistant", content: "x" }));
@@ -26,5 +27,48 @@ describe("Author's Notes placement", () => {
     ]);
     expect(authorNotesDepthEntry(every3, turns(3))?.role).toBe("user");
     expect(authorNotesDepthEntry(off, turns(1))).toBeNull();
+  });
+});
+
+describe("Author's Notes role through prompt assembly", () => {
+  function storage(strictRoleFormatting: boolean): StorageGateway {
+    const preset = { id: "preset-1", name: "Preset", wrapFormat: "xml", parameters: { strictRoleFormatting } };
+    return {
+      async list<T>(entity: StorageEntity): Promise<T[]> {
+        return (entity === "prompts" ? [preset] : []) as T[];
+      },
+      async get<T>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "characters") return { id, name: "Mira", description: "A ranger.", tags: [] } as T;
+        if (entity === "prompts") return preset as T;
+        return null;
+      },
+    } as unknown as StorageGateway;
+  }
+
+  it("keeps the chosen role, with or without strict role formatting", async () => {
+    for (const strictRoleFormatting of [false, true]) {
+      for (const role of ["system", "user", "assistant"] as const) {
+        const prompt = await assembleGenerationPrompt(storage(strictRoleFormatting), {
+          chat: {
+            id: "chat-1",
+            mode: "roleplay",
+            characterIds: ["char-1"],
+            metadata: { authorNotes: "NOTE-MARK", authorNotesDepth: 1, authorNotesRole: role },
+          },
+          storedMessages: [
+            { role: "user", content: "u1" },
+            { role: "assistant", content: "a1" },
+            { role: "user", content: "u2" },
+            { role: "assistant", content: "a2" },
+            { role: "user", content: "u3" },
+          ],
+          connection: { provider: "openai", model: "qa-model" },
+          request: { promptPresetId: "preset-1" },
+          latestUserInput: "u3",
+        });
+        const note = prompt.messages.find((message) => message.content.includes("NOTE-MARK"));
+        expect(note?.role, `strict=${strictRoleFormatting} role=${role}`).toBe(role);
+      }
+    }
   });
 });
