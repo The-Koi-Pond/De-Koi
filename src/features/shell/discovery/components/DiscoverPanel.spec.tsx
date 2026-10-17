@@ -62,6 +62,20 @@ describe("DiscoverPanel contextual destinations", () => {
     expect(categoryOptions[1]?.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("offers each coverage filter once, and only filters that have entries", () => {
+    const coverageGroup = container.querySelector('[role="radiogroup"][aria-label="Feature coverage"]');
+    const labels = Array.from(coverageGroup?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []).map(
+      (option) => option.textContent?.trim(),
+    );
+
+    expect(new Set(labels).size).toBe(labels.length);
+    const options = Array.from(coverageGroup?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []);
+    for (const option of options.slice(1)) {
+      act(() => option.click());
+      expect(container.querySelectorAll(".de-koi-discover-row").length).toBeGreaterThan(0);
+    }
+  });
+
   it("owns vertical scrolling for the full Discover surface", () => {
     const panel = container.querySelector(".de-koi-discover");
 

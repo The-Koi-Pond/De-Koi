@@ -1,4 +1,9 @@
-import type { DiscoveryCategory, DiscoveryCoverage, DiscoveryEntry } from "../discovery-types";
+import {
+  discoveryCoverageGroup,
+  type DiscoveryCategory,
+  type DiscoveryCoverage,
+  type DiscoveryEntry,
+} from "../discovery-types";
 
 export interface DiscoveryFilters {
   category: DiscoveryCategory | "All";
@@ -45,7 +50,12 @@ function searchDiscoveryEntries(entries: readonly DiscoveryEntry[], query: strin
 export function filterDiscoveryEntries(entries: readonly DiscoveryEntry[], query: string, filters: DiscoveryFilters) {
   return searchDiscoveryEntries(entries, query).filter((entry) => {
     if (filters.category !== "All" && entry.category !== filters.category) return false;
-    if (filters.coverage !== "All" && entry.coverage !== filters.coverage) return false;
+    if (
+      filters.coverage !== "All" &&
+      discoveryCoverageGroup(entry.coverage) !== discoveryCoverageGroup(filters.coverage)
+    ) {
+      return false;
+    }
     return true;
   });
 }
