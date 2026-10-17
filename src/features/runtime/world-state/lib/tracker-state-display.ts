@@ -1,5 +1,5 @@
 import { BUILT_IN_AGENTS } from "../../../../engine/contracts/types/agent";
-import type { CharacterStat } from "../../../../engine/contracts/types/game-state";
+import type { CharacterStat } from "../../../../engine/contracts/types/tracker-state";
 
 export type TrackerPanelSection = "world" | "persona" | "characters" | "quests" | "custom";
 

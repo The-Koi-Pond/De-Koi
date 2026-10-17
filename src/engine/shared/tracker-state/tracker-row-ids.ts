@@ -1,13 +1,13 @@
 import type {
   CharacterStat,
   CustomTrackerField,
-  GameState,
+  TrackerState,
   InventoryItem,
   PlayerStats,
   PresentCharacter,
   QuestObjective,
   QuestProgress,
-} from "../../contracts/types/game-state";
+} from "../../contracts/types/tracker-state";
 
 type TrackerRowFamily =
   | "character-stat"
@@ -143,7 +143,7 @@ function normalizePresentCharacterTrackerRows(
   }));
 }
 
-export function normalizeGameStateTrackerRows(state: GameState): GameState {
+export function normalizeTrackerStateTrackerRows(state: TrackerState): TrackerState {
   return {
     ...state,
     presentCharacters: normalizePresentCharacterTrackerRows(state.presentCharacters),

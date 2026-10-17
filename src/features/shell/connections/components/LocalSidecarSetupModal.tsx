@@ -534,7 +534,7 @@ export function LocalSidecarSetupModal({
           </div>
           <div className="text-sm text-[var(--muted-foreground)]">
             <p>
-              De-Koi can run a local sidecar for trackers, scene analysis, and game-state helpers without spending
+              De-Koi can run a local sidecar for trackers, scene analysis, and other state helpers without spending
               main-model tokens.
             </p>
             <p className="mt-1.5 text-xs text-[var(--muted-foreground)]/75">

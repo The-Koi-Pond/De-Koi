@@ -2,12 +2,12 @@
 // Zustand Store: Game State Slice (RPG Companion)
 // ──────────────────────────────────────────────
 import { create } from "zustand";
-import type { GameState } from "../../../../engine/contracts/types/game-state";
-import { coerceGameStateTextFields } from "../../../../engine/shared/game-state/game-state-text";
-import { normalizeGameStateTrackerRows } from "../../../../engine/shared/game-state/tracker-row-ids";
+import type { TrackerState } from "../../../../engine/contracts/types/tracker-state";
+import { coerceTrackerStateTextFields } from "../../../../engine/shared/tracker-state/tracker-state-text";
+import { normalizeTrackerStateTrackerRows } from "../../../../engine/shared/tracker-state/tracker-row-ids";
 
-interface GameStateStore {
-  current: GameState | null;
+interface TrackerStateStore {
+  current: TrackerState | null;
   isVisible: boolean;
   isRefreshing: boolean;
   refreshingChatId: string | null;
@@ -16,7 +16,7 @@ interface GameStateStore {
   flushPatch: (() => Promise<void>) | null;
 
   // Actions
-  setGameState: (state: GameState | null) => void;
+  setTrackerState: (state: TrackerState | null) => void;
   setVisible: (visible: boolean) => void;
   setRefreshingChat: (chatId: string | null) => void;
   clearRefreshingChat: (chatId: string | null) => void;
@@ -27,11 +27,11 @@ interface GameStateStore {
 
 const flushPatchCallbacks = new Map<string, () => Promise<void>>();
 
-function normalizeGameState(state: GameState | null): GameState | null {
+function normalizeTrackerState(state: TrackerState | null): TrackerState | null {
   if (!state) return null;
-  return normalizeGameStateTrackerRows({
+  return normalizeTrackerStateTrackerRows({
     ...state,
-    ...coerceGameStateTextFields(state as unknown as Record<string, unknown>),
+    ...coerceTrackerStateTextFields(state as unknown as Record<string, unknown>),
   });
 }
 
@@ -49,7 +49,7 @@ function buildFlushPatch() {
   };
 }
 
-export const useGameStateStore = create<GameStateStore>((set) => ({
+export const useTrackerStateStore = create<TrackerStateStore>((set) => ({
   current: null,
   isVisible: true,
   isRefreshing: false,
@@ -57,9 +57,9 @@ export const useGameStateStore = create<GameStateStore>((set) => ({
   expandedSections: new Set(["location", "characters", "stats"]),
   flushPatch: null,
 
-  setGameState: (state) =>
+  setTrackerState: (state) =>
     set((currentStore) => ({
-      current: normalizeGameState(state),
+      current: normalizeTrackerState(state),
       isRefreshing: currentStore.refreshingChatId !== null && currentStore.refreshingChatId === state?.chatId,
     })),
   setVisible: (visible) => set({ isVisible: visible }),

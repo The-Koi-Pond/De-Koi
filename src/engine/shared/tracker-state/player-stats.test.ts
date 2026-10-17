@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { GameState } from "../../contracts/types/game-state";
-import { normalizeGameStateTrackerRows } from "./tracker-row-ids";
+import type { TrackerState } from "../../contracts/types/tracker-state";
+import { normalizeTrackerStateTrackerRows } from "./tracker-row-ids";
 import { applyQuestUpdatesToPlayerStats, compactQuestProgressForContext } from "./player-stats";
 
 function emptyPlayerStats() {
@@ -28,7 +28,7 @@ describe("applyQuestUpdatesToPlayerStats", () => {
       },
     ]);
 
-    const normalized = normalizeGameStateTrackerRows({
+    const normalized = normalizeTrackerStateTrackerRows({
       id: "state-1",
       chatId: "chat-1",
       messageId: "message-1",
@@ -43,7 +43,7 @@ describe("applyQuestUpdatesToPlayerStats", () => {
       playerStats: result.playerStats,
       personaStats: null,
       createdAt: "2026-06-11T00:00:00.000Z",
-    } satisfies GameState);
+    } satisfies TrackerState);
 
     expect(normalized.playerStats?.activeQuests[0]).toMatchObject({
       name: "Restore the River Shrine",

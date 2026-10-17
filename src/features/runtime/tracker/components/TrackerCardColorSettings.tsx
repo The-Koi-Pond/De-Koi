@@ -13,7 +13,7 @@ export function TrackerCardColorSettings() {
     hasUnsavedChanges,
     isChatUnavailable,
     isLoadingChatContext,
-    isLoadingGameState,
+    isLoadingTrackerState,
     saveState,
     selectedTarget,
     selectedTargetKey,
@@ -74,7 +74,7 @@ export function TrackerCardColorSettings() {
         <p className="rounded-md bg-[var(--secondary)]/42 px-2 py-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
           This chat is unavailable. Select another chat to edit tracker card colors.
         </p>
-      ) : isLoadingGameState && targets.length === 0 ? (
+      ) : isLoadingTrackerState && targets.length === 0 ? (
         <p className="rounded-md bg-[var(--secondary)]/42 px-2 py-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
           Loading current tracker cards...
         </p>

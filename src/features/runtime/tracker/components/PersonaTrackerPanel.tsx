@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { HeartPulse, Package, Sparkles } from "lucide-react";
-import type { CharacterStat, InventoryItem } from "../../../../engine/contracts/types/game-state";
+import type { CharacterStat, InventoryItem } from "../../../../engine/contracts/types/tracker-state";
 import type { Persona } from "../../../../engine/contracts/types/persona";
 import type { TrackerPanelSide, TrackerPanelSizeProfile } from "../../../../shared/stores/ui.store";
 import { usePersonaSprites, type SpriteInfo } from "../../../catalog/sprites/index";

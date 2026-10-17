@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { useGameStateStore } from "../../runtime/world-state";
+import { useTrackerStateStore } from "../../runtime/world-state";
 import { useAgentStore } from "../../../shared/stores/agent.store";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useEncounterStore } from "../../../shared/stores/encounter.store";
@@ -8,7 +8,7 @@ import { useUIStore } from "../../../shared/stores/ui.store";
 export function resetClientDataState(queryClient: Pick<QueryClient, "clear">) {
   useChatStore.getState().reset();
   useAgentStore.getState().reset();
-  useGameStateStore.getState().reset();
+  useTrackerStateStore.getState().reset();
   useEncounterStore.getState().reset();
 
   queryClient.clear();

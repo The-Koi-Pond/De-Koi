@@ -6,7 +6,7 @@ import type {
   QuestObjective,
   QuestProgress,
   RPGAttributes,
-} from "../../contracts/types/game-state";
+} from "../../contracts/types/tracker-state";
 import {
   boolish,
   isRecord,

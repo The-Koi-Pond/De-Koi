@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import { Eye, HeartPulse, Shirt } from "lucide-react";
-import type { CharacterStat, PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { CharacterStat, PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import type { TrackerPanelSizeProfile } from "../../../../shared/stores/ui.store";
 import { cn } from "../../../../shared/lib/utils";
 import type { TrackerStatDensity } from "./tracker-data-sidebar.constants";

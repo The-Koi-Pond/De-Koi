@@ -1,8 +1,8 @@
-import type { GameState } from "../../../../engine/contracts/types/game-state";
+import type { TrackerState } from "../../../../engine/contracts/types/tracker-state";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { trackerSnapshotApi, type TrackerSnapshotTarget } from "../../../../shared/api/tracker-snapshot-api";
 
-export type WorldState = GameState;
+export type WorldState = TrackerState;
 export type WorldStatePatch = Record<string, unknown>;
 export type WorldStateTarget = Partial<TrackerSnapshotTarget>;
 type ResolvedWorldStateTarget = { messageId: string; swipeIndex: number };
@@ -146,7 +146,7 @@ function targetKey(target: ResolvedWorldStateTarget) {
   return `${target.messageId}\u0000${target.swipeIndex}`;
 }
 
-function canUseChatGameStateFallback(
+function canUseChatTrackerStateFallback(
   state: WorldState | undefined,
   target: ResolvedWorldStateTarget | null,
   options: {
@@ -207,7 +207,7 @@ async function resolveVisibleTarget(chatId: string, fallback: unknown): Promise<
 // only write chat.gameState when that target is still the current visible assistant target;
 // if a newer turn has advanced the visible target during the debounce window the stale write
 // is skipped so it cannot clobber the current turn's persisted state.
-async function canPersistChatGameState(
+async function canPersistChatTrackerState(
   chatId: string,
   requestedTarget: ResolvedWorldStateTarget | null,
 ): Promise<boolean> {
@@ -240,7 +240,7 @@ async function getWorldState(
     if (snapshot) return applyManualOverrides(snapshot);
   }
   if (
-    canUseChatGameStateFallback(chat?.gameState, target, {
+    canUseChatTrackerStateFallback(chat?.gameState, target, {
       activeTargetKeys: visibleContext?.activeTargetKeys,
       hasVisibleTarget: !!visibleContext?.target,
       requestedTarget: !!requestedTarget,
@@ -300,9 +300,9 @@ export const worldStateApi: WorldStateApi = {
     // debounce window. Re-resolve the current visible target at flush time and only persist
     // chat.gameState when the requested target is still visible; otherwise keep the
     // per-message snapshot only and let the visible-read path own chat.gameState.
-    const shouldWriteChatGameState = await canPersistChatGameState(chatId, requestedTarget);
+    const shouldWriteChatTrackerState = await canPersistChatTrackerState(chatId, requestedTarget);
     throwIfAborted(init);
-    if (shouldWriteChatGameState) {
+    if (shouldWriteChatTrackerState) {
       await storageApi.update("chats", chatId, { gameState: saved ?? next });
     }
     return applyManualOverrides(saved ?? next);

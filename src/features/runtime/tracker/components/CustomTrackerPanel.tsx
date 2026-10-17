@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
-import type { CustomTrackerField } from "../../../../engine/contracts/types/game-state";
+import type { CustomTrackerField } from "../../../../engine/contracts/types/tracker-state";
 import type { TrackerPanelSizeProfile } from "../../../../shared/stores/ui.store";
 import { cn } from "../../../../shared/lib/utils";
 import {

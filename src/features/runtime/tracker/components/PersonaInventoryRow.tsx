@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import type { InventoryItem } from "../../../../engine/contracts/types/game-state";
+import type { InventoryItem } from "../../../../engine/contracts/types/tracker-state";
 import { cn } from "../../../../shared/lib/utils";
 import { visibleText } from "./tracker-display.helpers";
 import { InlineEdit, InlineNumber } from "./tracker-data-sidebar.controls";

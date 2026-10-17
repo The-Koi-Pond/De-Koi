@@ -77,7 +77,7 @@ type LorebookFilterValueContext = {
 };
 
 /** Game state fields used for condition evaluation. */
-export interface GameStateForScanning {
+export interface TrackerStateForScanning {
   location?: string | null;
   time?: string | null;
   date?: string | null;
@@ -90,12 +90,12 @@ export interface GameStateForScanning {
 /**
  * Evaluate activation conditions against game state.
  */
-function evaluateConditions(conditions: ActivationCondition[], gameState: GameStateForScanning | null): boolean {
+function evaluateConditions(conditions: ActivationCondition[], gameState: TrackerStateForScanning | null): boolean {
   if (conditions.length === 0) return true;
   if (!gameState) return true;
 
   for (const condition of conditions) {
-    const fieldValue = getGameStateValue(gameState, condition.field);
+    const fieldValue = getTrackerStateValue(gameState, condition.field);
     if (fieldValue === null) return false;
 
     switch (condition.operator) {
@@ -123,7 +123,7 @@ function evaluateConditions(conditions: ActivationCondition[], gameState: GameSt
   return true;
 }
 
-function getGameStateValue(gameState: GameStateForScanning, field: string): string | null {
+function getTrackerStateValue(gameState: TrackerStateForScanning, field: string): string | null {
   const value = gameState[field];
   if (value === undefined || value === null) return null;
   const fieldValue = String(value).trim();
@@ -145,7 +145,7 @@ function hasScheduleGate(schedule: LorebookSchedule): boolean {
 /**
  * Evaluate schedule conditions against game state.
  */
-function evaluateSchedule(schedule: LorebookSchedule | null, gameState: GameStateForScanning | null): boolean {
+function evaluateSchedule(schedule: LorebookSchedule | null, gameState: TrackerStateForScanning | null): boolean {
   if (!schedule) return true;
   if (!hasScheduleGate(schedule)) return true;
   if (!gameState) return true;
@@ -153,7 +153,7 @@ function evaluateSchedule(schedule: LorebookSchedule | null, gameState: GameStat
   // Check active times
   const activeTimes = scheduleValues(schedule.activeTimes);
   if (activeTimes.length > 0) {
-    const currentTime = getGameStateValue(gameState, "time");
+    const currentTime = getTrackerStateValue(gameState, "time");
     if (currentTime !== null) {
       const normalizedTime = currentTime.toLowerCase();
       const matches = activeTimes.some((t) => normalizedTime.includes(t.toLowerCase()));
@@ -164,7 +164,7 @@ function evaluateSchedule(schedule: LorebookSchedule | null, gameState: GameStat
   // Check active dates
   const activeDates = scheduleValues(schedule.activeDates);
   if (activeDates.length > 0) {
-    const currentDate = getGameStateValue(gameState, "date");
+    const currentDate = getTrackerStateValue(gameState, "date");
     if (currentDate !== null) {
       const normalizedDate = currentDate.toLowerCase();
       const matches = activeDates.some((d) => normalizedDate.includes(d.toLowerCase()));
@@ -175,7 +175,7 @@ function evaluateSchedule(schedule: LorebookSchedule | null, gameState: GameStat
   // Check active locations
   const activeLocations = scheduleValues(schedule.activeLocations);
   if (activeLocations.length > 0) {
-    const currentLoc = getGameStateValue(gameState, "location");
+    const currentLoc = getTrackerStateValue(gameState, "location");
     if (currentLoc !== null) {
       const normalizedLocation = currentLoc.toLowerCase();
       const matches = activeLocations.some((l) => normalizedLocation.includes(l.toLowerCase()));
@@ -405,7 +405,7 @@ export interface ScanOptions {
   /** How many messages back to scan (0 = all). */
   scanDepth?: number;
   /** Current game state for condition evaluation. */
-  gameState?: GameStateForScanning | null;
+  gameState?: TrackerStateForScanning | null;
   /** Timing state map (entryId → state). */
   timingStates?: Map<string, EntryTimingState>;
   /** Current message index for timing calculations. */
@@ -488,7 +488,7 @@ export function hintForTraceReason(reason: LorebookActivationTraceReason): strin
     case "scope_filter":
       return "Adjust character, tag, or generation-trigger filters for this context.";
     case "condition_miss":
-      return "Change the game-state condition or update the current game state.";
+      return "Change the tracker condition or update the current tracker state.";
     case "schedule_miss":
       return "Adjust the schedule or move the scene into a matching time, date, or location.";
     case "timing_blocked":
@@ -554,7 +554,7 @@ function activationGateTraceReason(
   entry: LorebookEntry,
   timingState: EntryTimingState | undefined,
   filterContext: LorebookFilterValueContext,
-  gameState: GameStateForScanning | null,
+  gameState: TrackerStateForScanning | null,
   ignoreTiming: boolean,
 ): LorebookActivationTraceReason | null {
   if (!entry.enabled) return "disabled";

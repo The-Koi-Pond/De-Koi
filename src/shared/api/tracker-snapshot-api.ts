@@ -1,4 +1,4 @@
-import type { GameState } from "../../engine/contracts/types/game-state";
+import type { TrackerState } from "../../engine/contracts/types/tracker-state";
 import type { TrackerSnapshotSelectionQuery } from "../../engine/capabilities/storage";
 import { invokeTauri } from "./tauri-client";
 
@@ -8,12 +8,12 @@ export interface TrackerSnapshotTarget {
   swipeIndex?: number;
 }
 
-export type TrackerSnapshot = GameState & {
+export type TrackerSnapshot = TrackerState & {
   kind: "tracker";
   updatedAt?: string;
 };
 
-export type TrackerSnapshotInput = Partial<GameState> & TrackerSnapshotTarget;
+export type TrackerSnapshotInput = Partial<TrackerState> & TrackerSnapshotTarget;
 
 // Mode-neutral storage bridge only. Roleplay/game rules belong in their feature-owned tracker APIs.
 export const trackerSnapshotApi = {

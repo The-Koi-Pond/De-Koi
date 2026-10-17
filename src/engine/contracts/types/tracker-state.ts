@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 
 /** Complete game state snapshot, linked to a message. */
-export interface GameState {
+export interface TrackerState {
   id: string;
   chatId: string;
   messageId: string;

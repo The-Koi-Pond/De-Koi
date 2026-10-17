@@ -1,5 +1,5 @@
 import { Plus, SlidersHorizontal, X } from "lucide-react";
-import type { CustomTrackerField } from "../../../../engine/contracts/types/game-state";
+import type { CustomTrackerField } from "../../../../engine/contracts/types/tracker-state";
 import { cn } from "../../../../shared/lib/utils";
 import {
   appendTrackerListItem,

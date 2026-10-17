@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import type { CharacterStat } from "../../../../engine/contracts/types/game-state";
+import type { CharacterStat } from "../../../../engine/contracts/types/tracker-state";
 import { cn } from "../../../../shared/lib/utils";
 import { TRACKER_BAR, TRACKER_TEXT_ROW } from "./tracker-data-sidebar.constants";
 import type { TrackerStatDensity, TrackerStatDisplayScale } from "./tracker-data-sidebar.constants";

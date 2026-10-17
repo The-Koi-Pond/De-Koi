@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { ImagePlus, Plus, Sparkles, Users, X } from "lucide-react";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import { cn } from "../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import { useTrackerCharacterAvatarActions } from "../../../runtime/world-state/index";

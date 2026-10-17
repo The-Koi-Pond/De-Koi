@@ -63,7 +63,7 @@ interface RoleplayHUDActionsMenuProps {
   echoChamberOpen: boolean;
   toggleEchoChamber: (chatId?: string | null) => void;
   echoMessageCount: number;
-  clearGameState: () => void;
+  clearTrackerState: () => void;
   onRetriggerTrackers?: () => void;
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
@@ -89,7 +89,7 @@ export function RoleplayHUDActionsMenu({
   echoChamberOpen,
   toggleEchoChamber,
   echoMessageCount,
-  clearGameState,
+  clearTrackerState,
   onRetriggerTrackers,
   onRetryFailedAgents,
   onRetryAgent,
@@ -361,7 +361,7 @@ export function RoleplayHUDActionsMenu({
           {showTrackerActions && (
             <button
               onClick={() => {
-                clearGameState();
+                clearTrackerState();
                 onClose();
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-[0.625rem] text-white/60 transition-colors hover:bg-red-500/10 hover:text-red-300"

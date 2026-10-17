@@ -41,7 +41,7 @@ export function TrackerDataSidebar({ fillHeight = false }: { fillHeight?: boolea
 
         {!model.activeChatId ? (
           <EmptySection>Select a chat to view tracker data.</EmptySection>
-        ) : model.isLoadingGameState ? (
+        ) : model.isLoadingTrackerState ? (
           <TrackerSkeleton />
         ) : !model.gameState ? (
           <EmptySection>No tracker data yet.</EmptySection>

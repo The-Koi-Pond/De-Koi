@@ -1238,8 +1238,8 @@ async function loadActivatedLore(input: ActiveLorebookScannerInput): Promise<Loa
   const activeLorebookReasons = scopedLorebooks.map((entry) => entry.reason);
   const activeCharacterIds = input.characters.map((character) => character.id);
   const activeCharacterTags = input.characters.flatMap((character) => character.tags);
-  const rawGameState = input.chat.gameState ?? meta.gameState;
-  const gameState = rawGameState == null ? null : parseRecord(rawGameState);
+  const rawTrackerState = input.chat.gameState ?? meta.gameState;
+  const gameState = rawTrackerState == null ? null : parseRecord(rawTrackerState);
   const previousTimingStates = lorebookTimingStateMap(meta.entryTimingStates);
   const previousEntryStateOverrides = lorebookEntryStateOverrideMap(meta.entryStateOverrides);
   const messages = input.storedMessages

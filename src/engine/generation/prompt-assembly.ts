@@ -44,7 +44,7 @@ import {
   attributionForMemoryRecall,
 } from "./context-attribution";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
-import { compactQuestProgressForContext } from "../shared/game-state/player-stats";
+import { compactQuestProgressForContext } from "../shared/tracker-state/player-stats";
 import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
 import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
 import { readFanficState } from "../modes/fanfic/request";

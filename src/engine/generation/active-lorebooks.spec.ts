@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   loadCharacters: vi.fn(),
   loadChatMessages: vi.fn(),
   loadPersona: vi.fn(),
-  resolveVisibleGameStateAnchor: vi.fn(),
+  resolveVisibleTrackerStateAnchor: vi.fn(),
   scanActiveLorebooks: vi.fn(),
   selectTrackerSnapshotForGeneration: vi.fn(),
 }));
@@ -29,7 +29,7 @@ vi.mock("./prompt-assembly", () => ({
 }));
 
 vi.mock("./generate-route-utils", () => ({
-  resolveVisibleGameStateAnchor: mocks.resolveVisibleGameStateAnchor,
+  resolveVisibleTrackerStateAnchor: mocks.resolveVisibleTrackerStateAnchor,
 }));
 
 vi.mock("./tracker-snapshots", () => ({
@@ -70,7 +70,7 @@ describe("scanActiveLorebookEntries", () => {
       "chat-1",
     );
 
-    expect(mocks.resolveVisibleGameStateAnchor).not.toHaveBeenCalled();
+    expect(mocks.resolveVisibleTrackerStateAnchor).not.toHaveBeenCalled();
     expect(mocks.selectTrackerSnapshotForGeneration).not.toHaveBeenCalled();
     expect(mocks.scanActiveLorebooks).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -81,18 +81,18 @@ describe("scanActiveLorebookEntries", () => {
   });
 
   it("keeps the raw game state fallback when a game chat has no visible anchor", async () => {
-    const rawGameState = { location: "fallback room" };
-    mocks.resolveVisibleGameStateAnchor.mockReturnValue(null);
+    const rawTrackerState = { location: "fallback room" };
+    mocks.resolveVisibleTrackerStateAnchor.mockReturnValue(null);
 
     await scanActiveLorebookEntries(
-      storageWithChat({ id: "chat-1", chatMode: "game", gameState: rawGameState, metadata: {} }),
+      storageWithChat({ id: "chat-1", chatMode: "game", gameState: rawTrackerState, metadata: {} }),
       "chat-1",
     );
 
     expect(mocks.selectTrackerSnapshotForGeneration).not.toHaveBeenCalled();
     expect(mocks.scanActiveLorebooks).toHaveBeenCalledWith(
       expect.objectContaining({
-        chat: expect.objectContaining({ gameState: rawGameState }),
+        chat: expect.objectContaining({ gameState: rawTrackerState }),
         generationTriggers: ["game", "chat"],
       }),
     );

@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { InventoryItem } from "../../../../engine/contracts/types/game-state";
+import type { InventoryItem } from "../../../../engine/contracts/types/tracker-state";
 import { CombinedPlayerPanel } from "./RoleplayHUDPanels";
 import { useCyclingWidgetIndex } from "./RoleplayHUDWidgetShell";
 

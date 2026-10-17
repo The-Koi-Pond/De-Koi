@@ -5,7 +5,7 @@ import type {
   InventoryItem,
   PresentCharacter,
   QuestProgress,
-} from "../../../../engine/contracts/types/game-state";
+} from "../../../../engine/contracts/types/tracker-state";
 import { CharactersTrackerSection } from "./RoleplayHUDCharactersTrackerSection";
 import { CustomTrackerSection } from "./RoleplayHUDCustomTrackerSection";
 import { InventoryTrackerSection } from "./RoleplayHUDInventoryTrackerSection";

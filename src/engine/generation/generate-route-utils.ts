@@ -52,7 +52,7 @@ function mergeCustomParameters(
   return merged;
 }
 
-export function shouldPreferLatestVisibleGameState(input: {
+export function shouldPreferLatestVisibleTrackerState(input: {
   attachments?: unknown[] | null;
   impersonate?: boolean;
   regenerateMessageId?: string | null;
@@ -62,7 +62,7 @@ export function shouldPreferLatestVisibleGameState(input: {
   return !input.userMessage?.trim() && !input.attachments?.length;
 }
 
-export function resolveVisibleGameStateAnchor(
+export function resolveVisibleTrackerStateAnchor(
   messages: Array<{ role?: unknown; id?: unknown; activeSwipeIndex?: unknown }>,
 ): { messageId: string; swipeIndex: number } | null {
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -79,17 +79,17 @@ export function resolveVisibleGameStateAnchor(
   return null;
 }
 
-export function resolveRegenerationGameStateAnchor(
+export function resolveRegenerationTrackerStateAnchor(
   messages: Array<{ role?: unknown; id?: unknown; activeSwipeIndex?: unknown }>,
   regenerateMessageId: string | null | undefined,
 ): { messageId: string; swipeIndex: number } | null {
-  if (!regenerateMessageId) return resolveVisibleGameStateAnchor(messages);
+  if (!regenerateMessageId) return resolveVisibleTrackerStateAnchor(messages);
   const targetIndex = messages.findIndex((message) => message.id === regenerateMessageId);
-  if (targetIndex < 0) return resolveVisibleGameStateAnchor(messages);
-  return resolveVisibleGameStateAnchor(messages.slice(0, targetIndex));
+  if (targetIndex < 0) return resolveVisibleTrackerStateAnchor(messages);
+  return resolveVisibleTrackerStateAnchor(messages.slice(0, targetIndex));
 }
 
-export function resolveRegenerationGameStateFallbackMessageIds(
+export function resolveRegenerationTrackerStateFallbackMessageIds(
   messages: Array<{ role?: unknown; id?: unknown; activeSwipeIndex?: unknown; swipeIndex?: unknown }>,
   regenerateMessageId: string | null | undefined,
 ): Array<{ messageId: string; swipeIndex: number }> | null {

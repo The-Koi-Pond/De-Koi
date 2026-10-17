@@ -1,4 +1,4 @@
-import type { CharacterStat } from "../../../../engine/contracts/types/game-state";
+import type { CharacterStat } from "../../../../engine/contracts/types/tracker-state";
 import { removeTrackerListItem, replaceTrackerListItem } from "../../../runtime/world-state/index";
 import { TRACKER_SECTION_AGENT_TYPES } from "../../../runtime/world-state/index";
 import { EMPTY_STATE, PersonaStatusField, TrackerSectionRefresh } from "./RoleplayHUDPanelPrimitives";

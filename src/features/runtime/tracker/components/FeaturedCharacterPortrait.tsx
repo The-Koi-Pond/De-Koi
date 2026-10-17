@@ -1,4 +1,4 @@
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import { useSprites, type SpriteInfo } from "../../../catalog/sprites/index";
 import {
   FEATURED_PORTRAIT_DEFAULT_FOCUS_X,

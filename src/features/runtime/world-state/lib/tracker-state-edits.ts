@@ -5,8 +5,8 @@ import type {
   PresentCharacter,
   QuestObjective,
   QuestProgress,
-} from "../../../../engine/contracts/types/game-state";
-import { makeManualTrackerRowId } from "../../../../engine/shared/game-state/tracker-row-ids";
+} from "../../../../engine/contracts/types/tracker-state";
+import { makeManualTrackerRowId } from "../../../../engine/shared/tracker-state/tracker-row-ids";
 
 type TrackerItemMerger<T extends object> = (previous: T | undefined, latest: T | undefined, next: T) => T;
 type TrackerItemKeyGetter<T> = (item: T | undefined) => string | null | undefined;

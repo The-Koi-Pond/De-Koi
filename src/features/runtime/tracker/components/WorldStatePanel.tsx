@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { MapPin } from "lucide-react";
-import type { GameState } from "../../../../engine/contracts/types/game-state";
+import type { TrackerState } from "../../../../engine/contracts/types/tracker-state";
 import type { TrackerPanelSizeProfile, TrackerTemperatureUnit } from "../../../../shared/stores/ui.store";
 import { cn } from "../../../../shared/lib/utils";
-import type { GameStatePatchValue, WorldStatePatchField } from "../../world-state/types";
+import type { TrackerStatePatchValue, WorldStatePatchField } from "../../world-state/types";
 import { SectionHeader } from "./tracker-data-sidebar.controls";
 import {
   WORLD_FREEFORM_DATE_GRID_BASE_CLASS,
@@ -25,11 +25,11 @@ export function WorldStatePanel({
   collapsed = false,
   onToggleCollapsed,
 }: {
-  state: GameState | null;
+  state: TrackerState | null;
   trackerPanelSizeProfile: TrackerPanelSizeProfile;
   trackerTemperatureUnit: TrackerTemperatureUnit;
   action?: ReactNode;
-  onSaveField: <K extends WorldStatePatchField>(field: K, value: GameStatePatchValue[K]) => void;
+  onSaveField: <K extends WorldStatePatchField>(field: K, value: TrackerStatePatchValue[K]) => void;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }) {

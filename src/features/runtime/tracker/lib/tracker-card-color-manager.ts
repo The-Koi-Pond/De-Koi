@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import type { Persona, TrackerCardColorConfig } from "../../../../engine/contracts/types/persona";
 import { characterKeys } from "../../../catalog/characters/index";
 import { personaKeys } from "../../../catalog/personas/index";

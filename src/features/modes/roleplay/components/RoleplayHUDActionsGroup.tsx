@@ -43,7 +43,7 @@ interface ActionsGroupProps {
   clearThoughtBubbles: () => void;
   dismissThoughtBubble: (i: number) => void;
   enabledAgentTypes: Set<string>;
-  clearGameState: () => void;
+  clearTrackerState: () => void;
   onRetriggerTrackers?: () => void;
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
@@ -65,7 +65,7 @@ export function ActionsGroup({
   clearThoughtBubbles,
   dismissThoughtBubble,
   enabledAgentTypes,
-  clearGameState,
+  clearTrackerState,
   onRetriggerTrackers,
   onRetryFailedAgents,
   onRetryAgent,
@@ -170,7 +170,7 @@ export function ActionsGroup({
             echoChamberOpen={echoChamberOpen}
             toggleEchoChamber={toggleEchoChamber}
             echoMessageCount={echoMessages.length}
-            clearGameState={clearGameState}
+            clearTrackerState={clearTrackerState}
             onRetriggerTrackers={onRetriggerTrackers}
             onRetryFailedAgents={onRetryFailedAgents}
             onRetryAgent={onRetryAgent}

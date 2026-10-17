@@ -1,4 +1,4 @@
-import type { PresentCharacter } from "../../../../engine/contracts/types/game-state";
+import type { PresentCharacter } from "../../../../engine/contracts/types/tracker-state";
 import { visibleText } from "./tracker-display.helpers";
 
 export function getCharacterPortraitFallback(character: PresentCharacter) {
