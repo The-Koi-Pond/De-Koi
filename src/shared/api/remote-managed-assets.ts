@@ -8,7 +8,6 @@ export type RemoteManagedAssetKind =
   | "entity-image"
   | "font"
   | "gallery"
-  | "game"
   | "lorebook"
   | "sprite"
   | "thumbnail";

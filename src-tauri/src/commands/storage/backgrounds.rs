@@ -1,6 +1,6 @@
 use super::shared::*;
 use super::*;
-use crate::storage_commands::images::percent_encode_component;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn backgrounds_call(
@@ -13,7 +13,7 @@ pub(crate) fn backgrounds_call(
         ("GET", []) => list_backgrounds(state),
         ("GET", ["tags"]) => background_tags(state),
         ("GET", ["file-path", encoded]) => {
-            Ok(json!({ "path": state.backgrounds.absolute_path_string(&decode_path(encoded))? }))
+            Ok(json!({ "path": state.background_path(&decode_path(encoded))?.to_string_lossy() }))
         }
         ("POST", ["upload"]) => {
             let uploaded = decode_uploaded_image_file(&body)?;
@@ -71,18 +71,15 @@ fn list_backgrounds(state: &AppState) -> AppResult<Value> {
             .unwrap_or_else(|| json!({ "filename": filename, "originalName": filename, "tags": [], "source": "user" }));
         rows.push(background_item(state, &filename, &meta)?);
     }
-    let manifest = super::game_assets::game_assets_manifest(state)?;
-    if let Some(game_backgrounds) = manifest
-        .get("byCategory")
-        .and_then(|by_category| by_category.get("backgrounds"))
-        .and_then(Value::as_array)
-    {
-        for item in game_backgrounds {
-            if let Some(row) = game_asset_background_item(item) {
-                rows.push(row);
-            }
-        }
-    }
+    let user_filenames: HashSet<String> = rows
+        .iter()
+        .filter_map(|row| {
+            row.get("filename")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
+    rows.extend(built_in_background_items(state, &user_filenames)?);
     Ok(Value::Array(rows))
 }
 
@@ -205,42 +202,78 @@ fn background_item(state: &AppState, filename: &str, meta: &Value) -> AppResult<
     }))
 }
 
-fn game_asset_background_item(item: &Value) -> Option<Value> {
-    let path = item.get("path").and_then(Value::as_str)?.trim();
-    if path.is_empty() {
-        return None;
+/// Backgrounds that ship with the app. They are read-only and listed after the user's
+/// own; a user file with the same name hides the built-in one.
+fn built_in_background_items(
+    state: &AppState,
+    user_filenames: &HashSet<String>,
+) -> AppResult<Vec<Value>> {
+    let mut seen = user_filenames.clone();
+    let mut items = Vec::new();
+    for default_data in &state.default_data_roots {
+        let dir = default_data.join("backgrounds");
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let tags = built_in_background_tags(&dir)?;
+        let mut files = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        files.sort();
+        for path in files {
+            let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if supported_background_extension(filename).is_none()
+                || !seen.insert(filename.to_string())
+            {
+                continue;
+            }
+            let metadata = fs::metadata(&path)?;
+            items.push(json!({
+                "id": filename,
+                "filename": filename,
+                "name": filename,
+                "path": filename,
+                "absolutePath": path.to_string_lossy(),
+                "url": format!("marinara-background:{filename}"),
+                "originalName": filename,
+                "tags": tags.get(filename).cloned().unwrap_or_else(|| json!([])),
+                "source": "built_in",
+                "type": "file",
+                "isDirectory": false,
+                "size": metadata.len(),
+                "editable": false,
+                "deletable": false,
+                "renameable": false
+            }));
+        }
     }
-    let name = item
-        .get("name")
-        .and_then(Value::as_str)
-        .or_else(|| path.rsplit('/').next())
-        .unwrap_or(path);
-    let tag = item.get("tag").and_then(Value::as_str);
-    let tags = item
-        .get("subcategory")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|subcategory| !subcategory.is_empty())
-        .map(|subcategory| json!([subcategory]))
-        .unwrap_or_else(|| json!([]));
-    Some(json!({
-        "id": tag.unwrap_or(path),
-        "filename": name,
-        "name": name,
-        "path": path,
-        "absolutePath": item.get("absolutePath").cloned().unwrap_or(Value::Null),
-        "url": format!("marinara-game-asset:{}", percent_encode_component(path)),
-        "originalName": name,
-        "tags": tags,
-        "source": "game_asset",
-        "tag": tag,
-        "type": "file",
-        "isDirectory": false,
-        "ext": item.get("ext").cloned().unwrap_or(Value::Null),
-        "editable": false,
-        "deletable": false,
-        "renameable": false
-    }))
+    Ok(items)
+}
+
+fn built_in_background_tags(dir: &Path) -> AppResult<Map<String, Value>> {
+    let meta_path = dir.join("meta.json");
+    if !meta_path.is_file() {
+        return Ok(Map::new());
+    }
+    let meta: Value = serde_json::from_str(&fs::read_to_string(meta_path)?)?;
+    Ok(meta
+        .as_object()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(filename, entry)| {
+                    let tags = normalize_background_tags(entry.get("tags"));
+                    (filename.clone(), json!(tags))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 fn write_background_file(state: &AppState, original_name: &str, bytes: &[u8]) -> AppResult<String> {
@@ -254,6 +287,33 @@ fn write_background_file(state: &AppState, original_name: &str, bytes: &[u8]) ->
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or(filename))
+}
+
+/// Copies an image from outside the background library into it as a user background and
+/// returns its library filename. Used when retiring the old Game asset library.
+pub(crate) fn import_background_file(state: &AppState, source: &Path) -> AppResult<String> {
+    let original_name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .ok_or_else(|| AppError::invalid_input("Background source has no file name"))?;
+    if supported_background_extension(&original_name).is_none() {
+        return Err(AppError::invalid_input(format!(
+            "{original_name} is not a supported background image"
+        )));
+    }
+    let bytes = fs::read(source)?;
+    let filename = write_background_file(state, &original_name, &bytes)?;
+    upsert_background_meta(
+        state,
+        &filename,
+        json!({
+            "filename": filename,
+            "originalName": original_name,
+            "tags": [],
+            "source": "user"
+        }),
+    )?;
+    Ok(filename)
 }
 
 fn upsert_background_meta(state: &AppState, filename: &str, value: Value) -> AppResult<Value> {
@@ -738,74 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn list_backgrounds_includes_non_editable_game_asset_backgrounds() {
-        let state = test_state("game-asset-list");
-        std::fs::write(state.backgrounds.root().join("uploaded.png"), b"user")
-            .expect("user background should be written");
-        let game_background_path = state
-            .game_assets
-            .root()
-            .join("backgrounds")
-            .join("fantasy")
-            .join("castle.png");
-        std::fs::create_dir_all(
-            game_background_path
-                .parent()
-                .expect("background has parent"),
-        )
-        .expect("game background folder should be created");
-        std::fs::write(&game_background_path, b"game").expect("game background should be written");
-        let game_music_path = state.game_assets.root().join("music").join("theme.mp3");
-        std::fs::create_dir_all(game_music_path.parent().expect("music has parent"))
-            .expect("game music folder should be created");
-        std::fs::write(&game_music_path, b"music").expect("game music should be written");
-
-        let rows = backgrounds_call(&state, "GET", &[], Value::Null)
-            .expect("background list should be returned");
-        let rows = rows.as_array().expect("background list should be an array");
-
-        let user_row = rows
-            .iter()
-            .find(|row| row.get("filename").and_then(Value::as_str) == Some("uploaded.png"))
-            .expect("user background row should still be listed");
-        assert_eq!(user_row.get("source").and_then(Value::as_str), Some("user"));
-
-        let game_row = rows
-            .iter()
-            .find(|row| {
-                row.get("path").and_then(Value::as_str) == Some("backgrounds/fantasy/castle.png")
-            })
-            .expect("game asset background row should be listed");
-        assert_eq!(
-            game_row.get("source").and_then(Value::as_str),
-            Some("game_asset")
-        );
-        assert_eq!(
-            game_row.get("editable").and_then(Value::as_bool),
-            Some(false)
-        );
-        assert_eq!(
-            game_row.get("deletable").and_then(Value::as_bool),
-            Some(false)
-        );
-        assert_eq!(
-            game_row.get("renameable").and_then(Value::as_bool),
-            Some(false)
-        );
-        assert_eq!(
-            game_row.get("url").and_then(Value::as_str),
-            Some("marinara-game-asset:backgrounds%2Ffantasy%2Fcastle.png")
-        );
-        assert_eq!(game_row.get("tags").cloned(), Some(json!(["fantasy"])));
-        assert!(
-            rows.iter()
-                .all(|row| row.get("path").and_then(Value::as_str) != Some("music/theme.mp3")),
-            "non-background game assets should not be listed as picker backgrounds"
-        );
-    }
-
-    #[test]
-    fn list_backgrounds_includes_bundled_manifest_backgrounds_without_copying_media() {
+    fn list_backgrounds_includes_read_only_built_in_backgrounds_without_copying_media() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after epoch")
@@ -813,61 +806,65 @@ mod tests {
         let root = std::env::temp_dir().join(format!("marinara-backgrounds-default-list-{nonce}"));
         let defaults =
             std::env::temp_dir().join(format!("marinara-backgrounds-default-source-{nonce}"));
-        let default_background = defaults.join("backgrounds").join("castle.jpg");
-        std::fs::create_dir_all(default_background.parent().expect("background parent"))
-            .expect("default background folder should be created");
-        std::fs::create_dir_all(defaults.join("game-assets"))
-            .expect("default game asset folder should be created");
-        std::fs::write(&default_background, b"background")
+        let default_dir = defaults.join("backgrounds");
+        std::fs::create_dir_all(&default_dir).expect("default background folder should be created");
+        std::fs::write(default_dir.join("castle.jpg"), b"background")
             .expect("default background should be written");
+        std::fs::write(default_dir.join("lake.jpg"), b"lake")
+            .expect("second default should be written");
         std::fs::write(
-            defaults.join("game-assets").join("manifest.json"),
-            serde_json::to_vec(&json!({
-                "count": 1,
-                "assets": {
-                    "backgrounds:user:castle": {
-                        "tag": "backgrounds:user:castle",
-                        "category": "backgrounds",
-                        "subcategory": "user",
-                        "name": "castle",
-                        "path": "__user_bg__/castle.jpg",
-                        "ext": ".jpg"
-                    }
-                }
-            }))
-            .expect("manifest should encode"),
+            default_dir.join("meta.json"),
+            br#"{ "castle.jpg": { "tags": ["Castle", "fantasy"] } }"#,
         )
-        .expect("default manifest should be written");
+        .expect("default meta should be written");
         let state = AppState::from_data_dir(&root, vec![defaults.clone()])
             .expect("state should initialize");
+        // A user file with a built-in's name hides the built-in copy.
+        std::fs::write(state.backgrounds.root().join("lake.jpg"), b"my lake")
+            .expect("user background should be written");
 
         let rows = backgrounds_call(&state, "GET", &[], Value::Null)
             .expect("background list should be returned");
         let rows = rows.as_array().expect("background rows should be an array");
-        let default_row = rows
+        let castle = rows
             .iter()
-            .find(|row| row.get("path").and_then(Value::as_str) == Some("__user_bg__/castle.jpg"))
-            .expect("bundled default background should be listed");
-
+            .find(|row| row.get("filename").and_then(Value::as_str) == Some("castle.jpg"))
+            .expect("built-in background should be listed");
+        assert_eq!(castle["source"], "built_in");
+        assert_eq!(castle["url"], "marinara-background:castle.jpg");
+        assert_eq!(castle["tags"], json!(["castle", "fantasy"]));
+        assert_eq!(castle["deletable"], false);
+        let built_in_castle = std::fs::canonicalize(default_dir.join("castle.jpg")).unwrap();
         assert_eq!(
-            default_row.get("source").and_then(Value::as_str),
-            Some("game_asset")
+            castle["absolutePath"]
+                .as_str()
+                .map(|path| std::fs::canonicalize(path).unwrap()),
+            Some(built_in_castle.clone())
         );
-        assert_eq!(
-            default_row
-                .get("absolutePath")
-                .and_then(Value::as_str)
-                .map(PathBuf::from),
-            Some(default_background)
-        );
+        let lakes = rows
+            .iter()
+            .filter(|row| row.get("filename").and_then(Value::as_str) == Some("lake.jpg"))
+            .collect::<Vec<_>>();
+        assert_eq!(lakes.len(), 1, "the user's lake.jpg hides the built-in one");
+        assert_eq!(lakes[0]["source"], "user");
+        assert!(rows.iter().all(|row| row["filename"] != "meta.json"));
         assert!(
             !state.backgrounds.root().join("castle.jpg").exists(),
-            "listing default backgrounds should not copy bundled media into the managed background root"
+            "listing built-in backgrounds should not copy them into the user background folder"
+        );
+        let path = backgrounds_call(&state, "GET", &["file-path", "castle.jpg"], Value::Null)
+            .expect("built-in background path should resolve");
+        assert_eq!(
+            path["path"]
+                .as_str()
+                .map(|path| std::fs::canonicalize(path).unwrap()),
+            Some(built_in_castle)
         );
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(defaults);
     }
+
     #[test]
     fn background_tag_update_rejects_missing_file_without_metadata() {
         let state = test_state("missing-tags");

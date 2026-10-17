@@ -320,7 +320,6 @@ fn clear_runtime_media(state: &AppState) -> AppResult<()> {
         state.data_dir.join("fonts"),
         state.data_dir.join("knowledge-sources"),
         state.data_dir.join("sprites"),
-        state.game_assets.root().to_path_buf(),
         state.backgrounds.root().to_path_buf(),
     ] {
         if path.exists() {
