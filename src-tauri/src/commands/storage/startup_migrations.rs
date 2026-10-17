@@ -1000,9 +1000,9 @@ pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult
             .and_then(Value::as_str)
             .unwrap_or("");
         let order = script.get("order").and_then(Value::as_u64);
-        regex_script_character_ids(script)
+        let found: Vec<(String, usize, &'static str)> = regex_script_character_ids(script)
             .iter()
-            .find_map(|character_id| {
+            .filter_map(|character_id| {
                 let candidates: Vec<(usize, &Value)> = embedded
                     .get(character_id)?
                     .iter()
@@ -1040,6 +1040,12 @@ pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult
                     st_regex_apply_mode(chosen.1),
                 ))
             })
+            .collect();
+        // A script shared by several characters must come from one card entry only.
+        match found.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        }
     };
     storage.update_collections_atomically(vec!["regex-scripts"], |collections| {
         let Some(scripts) = collections.first_mut() else {
@@ -1106,6 +1112,8 @@ mod card_regex_apply_mode_tests {
                 vec![
                     json!({ "id": "char-a", "data": { "name": "A", "extensions": { "regex_scripts": card_scripts } } }),
                     json!({ "id": "char-b", "data": serde_json::to_string(&json!({ "extensions": {} })).unwrap() }),
+                    json!({ "id": "char-c", "data": { "extensions": { "regex_scripts": [{ "scriptName": "Shared", "findRegex": "/s/g", "promptOnly": true }] } } }),
+                    json!({ "id": "char-d", "data": { "extensions": { "regex_scripts": [{ "scriptName": "Shared", "findRegex": "/s/g", "markdownOnly": true }] } } }),
                 ],
             )
             .unwrap();
@@ -1122,6 +1130,7 @@ mod card_regex_apply_mode_tests {
                     json!({ "id": "twin-a", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 3, "promptOnly": true }),
                     json!({ "id": "twin-b", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 4, "promptOnly": true }),
                     json!({ "id": "twin-c", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 9, "promptOnly": true }),
+                    json!({ "id": "shared", "name": "Shared", "findRegex": "s", "targetCharacterIds": ["char-c", "char-d"], "promptOnly": true }),
                     json!({ "id": "dup-a", "name": "Dup", "findRegex": "d", "characterId": "char-a", "promptOnly": true }),
                     json!({ "id": "dup-b", "name": "Dup", "findRegex": "d", "characterId": "char-a", "promptOnly": true }),
                 ],
@@ -1162,6 +1171,10 @@ mod card_regex_apply_mode_tests {
         assert!(
             script("twin-c").get("applyMode").is_none(),
             "an ambiguous match is left alone"
+        );
+        assert!(
+            script("shared").get("applyMode").is_none(),
+            "a script matching entries on two characters' cards is left alone"
         );
         for id in ["dup-a", "dup-b"] {
             assert!(
