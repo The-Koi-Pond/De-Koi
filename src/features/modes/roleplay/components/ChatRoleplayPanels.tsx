@@ -162,7 +162,8 @@ export function AuthorNotesPanel({
         </select>
       </div>
       <p className="mt-1 text-[0.5625rem] text-[var(--muted-foreground)]/60">
-        1 = every message, 3 = every third message, 0 = off.
+        1 = every message, 3 = every third message, 0 = off. Presets that send everything as one user message send the
+        note as part of it.
       </p>
     </>
   );

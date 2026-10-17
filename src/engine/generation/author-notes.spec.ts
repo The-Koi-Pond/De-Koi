@@ -31,8 +31,13 @@ describe("Author's Notes placement", () => {
 });
 
 describe("Author's Notes role through prompt assembly", () => {
-  function storage(strictRoleFormatting: boolean): StorageGateway {
-    const preset = { id: "preset-1", name: "Preset", wrapFormat: "xml", parameters: { strictRoleFormatting } };
+  function storage(strictRoleFormatting: boolean, singleUserMessage = false): StorageGateway {
+    const preset = {
+      id: "preset-1",
+      name: "Preset",
+      wrapFormat: "xml",
+      parameters: { strictRoleFormatting, singleUserMessage },
+    };
     return {
       async list<T>(entity: StorageEntity): Promise<T[]> {
         return (entity === "prompts" ? [preset] : []) as T[];
@@ -72,5 +77,27 @@ describe("Author's Notes role through prompt assembly", () => {
         }
       }
     }
+  });
+
+  it("sends the note inside the single user message when the preset collapses the prompt", async () => {
+    const prompt = await assembleGenerationPrompt(storage(false, true), {
+      chat: {
+        id: "chat-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: { authorNotes: "NOTE-MARK", authorNotesDepth: 1, authorNotesRole: "assistant" },
+      },
+      storedMessages: [
+        { role: "user", content: "u1" },
+        { role: "assistant", content: "a1" },
+        { role: "user", content: "u2" },
+      ],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { promptPresetId: "preset-1" },
+      latestUserInput: "u2",
+    });
+
+    expect(prompt.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(prompt.messages[0]!.content).toContain("NOTE-MARK");
   });
 });
