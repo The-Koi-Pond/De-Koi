@@ -16,6 +16,8 @@ export const createRegexScriptSchema = z.object({
   placement: z.array(regexPlacementSchema).min(1),
   flags: z.string().default("gi"),
   promptOnly: z.boolean().default(false),
+  /** Where the replacement shows. Rows without one read `promptOnly`. */
+  applyMode: z.enum(["prompt", "display", "both"]).optional(),
   order: z.number().int().default(0),
   minDepth: z.number().int().nullable().default(null),
   maxDepth: z.number().int().nullable().default(null),

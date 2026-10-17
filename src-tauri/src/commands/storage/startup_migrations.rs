@@ -919,6 +919,272 @@ mod lorebook_selective_logic_tests {
     }
 }
 
+fn json_value(value: Option<&Value>) -> Option<Value> {
+    match value? {
+        Value::String(raw) => serde_json::from_str(raw).ok(),
+        other => Some(other.clone()),
+    }
+}
+
+fn regex_script_character_ids(script: &Value) -> Vec<String> {
+    let mut ids = super::shared::string_array_from_value(script.get("targetCharacterIds"));
+    if let Some(id) = script
+        .get("characterId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+    {
+        if !id.is_empty() && !ids.iter().any(|existing| existing == id) {
+            ids.push(id.to_string());
+        }
+    }
+    ids
+}
+
+/// `/pattern/flags` -> `pattern`, the way card regex scripts were stored on import.
+fn st_regex_pattern(find_regex: &str) -> &str {
+    let Some(rest) = find_regex.strip_prefix('/') else {
+        return find_regex;
+    };
+    match rest.rfind('/') {
+        Some(end) if end > 0 && rest[end + 1..].chars().all(|flag| "gimsuy".contains(flag)) => {
+            &rest[..end]
+        }
+        _ => find_regex,
+    }
+}
+
+/// SillyTavern's `markdownOnly` ("Alter Chat Display") and `promptOnly` ("Alter Outgoing Prompt").
+fn st_regex_apply_mode(entry: &Value) -> &'static str {
+    let flag = |key: &str| entry.get(key).and_then(Value::as_bool).unwrap_or(false);
+    match (flag("markdownOnly"), flag("promptOnly")) {
+        (true, false) => "display",
+        (false, true) => "prompt",
+        _ => "both",
+    }
+}
+
+/// Character regex scripts imported from cards used to be forced to prompt-only, so a card's
+/// display scripts changed what the AI read instead of what the user saw. The card's own
+/// script list is still on the character, so each imported script gets the mode the card
+/// asked for. Scripts edited since import no longer match their card and are left alone.
+pub(crate) fn restore_card_regex_apply_modes(storage: &FileStorage) -> AppResult<()> {
+    let embedded: HashMap<String, Vec<Value>> = storage
+        .list("characters")?
+        .iter()
+        .filter_map(|character| {
+            let id = character.get("id").and_then(Value::as_str)?.to_string();
+            let data = json_value(character.get("data"))?;
+            let scripts = data
+                .get("extensions")?
+                .get("regex_scripts")?
+                .as_array()?
+                .clone();
+            Some((id, scripts))
+        })
+        .collect();
+    if embedded.is_empty() {
+        return Ok(());
+    }
+    // The card entry a stored script came from: (character id, position in the card, mode).
+    let card_entry_for = |script: &Value| -> Option<(String, usize, &'static str)> {
+        if script.get("applyMode").and_then(Value::as_str).is_some() {
+            return None;
+        }
+        let name = script.get("name").and_then(Value::as_str).unwrap_or("");
+        let find = script
+            .get("findRegex")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let replace = script
+            .get("replaceString")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let order = script.get("order").and_then(Value::as_u64);
+        let found: Vec<(String, usize, &'static str)> = regex_script_character_ids(script)
+            .iter()
+            .filter_map(|character_id| {
+                let candidates: Vec<(usize, &Value)> = embedded
+                    .get(character_id)?
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, entry)| {
+                        let entry_name = entry
+                            .get("scriptName")
+                            .and_then(Value::as_str)
+                            .filter(|name| !name.is_empty())
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("Regex {}", index + 1));
+                        let entry_find =
+                            entry.get("findRegex").and_then(Value::as_str).unwrap_or("");
+                        let entry_replace = entry
+                            .get("replaceString")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        entry_name == name
+                            && st_regex_pattern(entry_find) == find
+                            && entry_replace == replace
+                    })
+                    .collect();
+                // The card import stored each script's position as its order, which tells
+                // identical-looking scripts apart. Anything still ambiguous is left alone.
+                let chosen = match candidates.as_slice() {
+                    [only] => Some(*only),
+                    many => many
+                        .iter()
+                        .find(|(index, _)| order == Some(*index as u64))
+                        .copied(),
+                }?;
+                Some((
+                    character_id.clone(),
+                    chosen.0,
+                    st_regex_apply_mode(chosen.1),
+                ))
+            })
+            .collect();
+        // A script shared by several characters must come from one card entry only.
+        match found.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        }
+    };
+    storage.update_collections_atomically(vec!["regex-scripts"], |collections| {
+        let Some(scripts) = collections.first_mut() else {
+            return Ok(());
+        };
+        let matches: Vec<Option<(String, usize, &'static str)>> =
+            scripts.rows().iter().map(card_entry_for).collect();
+        // A card entry claimed by more than one stored script can't say which one it was,
+        // so none of them change.
+        let mut claims: HashMap<(String, usize), usize> = HashMap::new();
+        for (character_id, index, _) in matches.iter().flatten() {
+            *claims.entry((character_id.clone(), *index)).or_default() += 1;
+        }
+        let modes: Vec<Option<&'static str>> = matches
+            .into_iter()
+            .map(|found| {
+                let (character_id, index, mode) = found?;
+                (claims.get(&(character_id, index)) == Some(&1)).then_some(mode)
+            })
+            .collect();
+        if modes.iter().all(Option::is_none) {
+            return Ok(());
+        }
+        let updated_at = now_iso();
+        for (script, mode) in scripts.rows_mut().iter_mut().zip(modes) {
+            let Some(mode) = mode else {
+                continue;
+            };
+            if let Some(object) = script.as_object_mut() {
+                object.insert("applyMode".to_string(), json!(mode));
+                object.insert("promptOnly".to_string(), json!(mode == "prompt"));
+                object.insert("updatedAt".to_string(), json!(updated_at));
+            }
+        }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod card_regex_apply_mode_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn imported_card_scripts_get_the_mode_the_card_asked_for() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should follow the Unix epoch")
+            .as_nanos();
+        let storage =
+            FileStorage::new(std::env::temp_dir().join(format!("de-koi-card-regex-{nonce}")))
+                .expect("storage should initialize");
+        let card_scripts = json!([
+            { "scriptName": "Status panel", "findRegex": "/<status>(.*?)<\\/status>/gs", "markdownOnly": true },
+            { "scriptName": "Strip notes", "findRegex": "/<note>/g", "promptOnly": true },
+            { "scriptName": "", "findRegex": "/plain/g" },
+            { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "markdownOnly": true },
+            { "scriptName": "Twin", "findRegex": "/x/g", "replaceString": "y", "promptOnly": true },
+            { "scriptName": "Dup", "findRegex": "/d/g", "markdownOnly": true }
+        ]);
+        storage
+            .replace_all(
+                "characters",
+                vec![
+                    json!({ "id": "char-a", "data": { "name": "A", "extensions": { "regex_scripts": card_scripts } } }),
+                    json!({ "id": "char-b", "data": serde_json::to_string(&json!({ "extensions": {} })).unwrap() }),
+                    json!({ "id": "char-c", "data": { "extensions": { "regex_scripts": [{ "scriptName": "Shared", "findRegex": "/s/g", "promptOnly": true }] } } }),
+                    json!({ "id": "char-d", "data": { "extensions": { "regex_scripts": [{ "scriptName": "Shared", "findRegex": "/s/g", "markdownOnly": true }] } } }),
+                ],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "regex-scripts",
+                vec![
+                    json!({ "id": "status", "name": "Status panel", "findRegex": "<status>(.*?)<\\/status>", "characterId": "char-a", "targetCharacterIds": ["char-a"], "promptOnly": true }),
+                    json!({ "id": "notes", "name": "Strip notes", "findRegex": "<note>", "characterId": "char-a", "targetCharacterIds": ["char-a"], "promptOnly": true }),
+                    json!({ "id": "plain", "name": "Regex 3", "findRegex": "plain", "characterId": "char-a", "targetCharacterIds": ["char-a"], "promptOnly": true }),
+                    json!({ "id": "edited", "name": "Status panel", "findRegex": "changed", "characterId": "char-a", "promptOnly": true }),
+                    json!({ "id": "chosen", "name": "Strip notes", "findRegex": "<note>", "characterId": "char-a", "applyMode": "display", "promptOnly": false }),
+                    json!({ "id": "global", "name": "Status panel", "findRegex": "<status>(.*?)<\\/status>", "promptOnly": false }),
+                    json!({ "id": "twin-a", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 3, "promptOnly": true }),
+                    json!({ "id": "twin-b", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 4, "promptOnly": true }),
+                    json!({ "id": "twin-c", "name": "Twin", "findRegex": "x", "replaceString": "y", "characterId": "char-a", "order": 9, "promptOnly": true }),
+                    json!({ "id": "shared", "name": "Shared", "findRegex": "s", "targetCharacterIds": ["char-c", "char-d"], "promptOnly": true }),
+                    json!({ "id": "dup-a", "name": "Dup", "findRegex": "d", "characterId": "char-a", "promptOnly": true }),
+                    json!({ "id": "dup-b", "name": "Dup", "findRegex": "d", "characterId": "char-a", "promptOnly": true }),
+                ],
+            )
+            .unwrap();
+
+        restore_card_regex_apply_modes(&storage).unwrap();
+
+        let script = |id: &str| storage.get("regex-scripts", id).unwrap().unwrap();
+        assert_eq!(script("status")["applyMode"], "display");
+        assert_eq!(script("status")["promptOnly"], false);
+        assert_eq!(script("notes")["applyMode"], "prompt");
+        assert_eq!(script("notes")["promptOnly"], true);
+        assert_eq!(script("plain")["applyMode"], "both");
+        assert!(
+            script("edited").get("applyMode").is_none(),
+            "an edited script no longer matches its card"
+        );
+        assert_eq!(
+            script("chosen")["applyMode"],
+            "display",
+            "a mode already set is kept"
+        );
+        assert!(
+            script("global").get("applyMode").is_none(),
+            "global scripts are not card scripts"
+        );
+        assert_eq!(
+            script("twin-a")["applyMode"],
+            "display",
+            "position 3 is the display twin"
+        );
+        assert_eq!(
+            script("twin-b")["applyMode"],
+            "prompt",
+            "position 4 is the prompt twin"
+        );
+        assert!(
+            script("twin-c").get("applyMode").is_none(),
+            "an ambiguous match is left alone"
+        );
+        assert!(
+            script("shared").get("applyMode").is_none(),
+            "a script matching entries on two characters' cards is left alone"
+        );
+        for id in ["dup-a", "dup-b"] {
+            assert!(
+                script(id).get("applyMode").is_none(),
+                "two stored scripts claiming one card entry both stay unchanged"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod character_version_inline_media_tests {
     use super::*;

@@ -37,7 +37,16 @@ import type { RegexPlacement } from "../../../../engine/contracts/types/regex";
 import { resolveMacros, type MacroContext } from "../../../../engine/shared/macros/macro-engine";
 import { applyRegexScriptReplacement } from "../../../../engine/shared/regex/regex-script-application";
 import { useCharacterSummaries } from "../../characters/index";
-import { nextRegexScriptTargetCharacterIds, savedRegexScriptPromptOnly } from "../lib/regex-script-editor-state";
+import {
+  REGEX_APPLY_MODE_LABELS,
+  nextRegexScriptTargetCharacterIds,
+  regexApplyModeHelp,
+} from "../lib/regex-script-editor-state";
+import {
+  REGEX_APPLY_MODES,
+  regexScriptApplyMode,
+  type RegexApplyMode,
+} from "../../../../engine/shared/regex/regex-apply-mode";
 import { regexScriptTargetCharacterIds } from "../lib/regex-script-filter";
 
 // ═══════════════════════════════════════════════
@@ -120,7 +129,7 @@ export function RegexScriptEditor() {
   const [localPlacement, setLocalPlacement] = useState<RegexPlacement[]>(["ai_output"]);
   const [localTargetCharacterIds, setLocalTargetCharacterIds] = useState<string[]>([]);
   const [localFlags, setLocalFlags] = useState("gi");
-  const [localPromptOnly, setLocalPromptOnly] = useState(false);
+  const [localApplyMode, setLocalApplyMode] = useState<RegexApplyMode>("both");
   const [localOrder, setLocalOrder] = useState(0);
   const [localMinDepth, setLocalMinDepth] = useState<number | null>(null);
   const [localMaxDepth, setLocalMaxDepth] = useState<number | null>(null);
@@ -164,7 +173,7 @@ export function RegexScriptEditor() {
       }
       setLocalTargetCharacterIds(regexScriptTargetCharacterIds(dbRow));
       setLocalFlags(dbRow.flags);
-      setLocalPromptOnly(dbRow.promptOnly === true || dbRow.promptOnly === "true" || dbRow.promptOnly === "1");
+      setLocalApplyMode(regexScriptApplyMode(dbRow));
       setLocalOrder(dbRow.order);
       setLocalMinDepth(dbRow.minDepth);
       setLocalMaxDepth(dbRow.maxDepth);
@@ -178,7 +187,7 @@ export function RegexScriptEditor() {
       setLocalPlacement(["ai_output"]);
       setLocalTargetCharacterIds([]);
       setLocalFlags("gi");
-      setLocalPromptOnly(false);
+      setLocalApplyMode("both");
       setLocalOrder(0);
       setLocalMinDepth(null);
       setLocalMaxDepth(null);
@@ -222,7 +231,6 @@ export function RegexScriptEditor() {
   );
   const selectedTargetIds = useMemo(() => new Set(localTargetCharacterIds), [localTargetCharacterIds]);
   const hasCharacterScope = localTargetCharacterIds.length > 0;
-  const effectivePromptOnly = savedRegexScriptPromptOnly(localTargetCharacterIds, localPromptOnly);
 
   const handleClose = useCallback(() => {
     if (dirty) {
@@ -244,7 +252,8 @@ export function RegexScriptEditor() {
       trimStrings: localTrimStrings,
       placement: localPlacement,
       flags: localFlags,
-      promptOnly: effectivePromptOnly,
+      promptOnly: localApplyMode === "prompt",
+      applyMode: localApplyMode,
       order: localOrder,
       minDepth: localMinDepth,
       maxDepth: localMaxDepth,
@@ -277,7 +286,7 @@ export function RegexScriptEditor() {
     localPlacement,
     localTargetCharacterIds,
     localFlags,
-    effectivePromptOnly,
+    localApplyMode,
     localOrder,
     localMinDepth,
     localMaxDepth,
@@ -513,7 +522,7 @@ export function RegexScriptEditor() {
           <FieldGroup
             label="Character Scope"
             icon={<Users size="0.875rem" className="text-orange-400" />}
-            help="Leave global to run this regex in every chat, or choose one or more characters to match legacy prompt-only scoped scripts."
+            help="Leave global to run this regex in every chat, or choose characters to run it only in their chats. Character scripts never change saved messages."
           >
             <div className="space-y-2">
               <button
@@ -615,39 +624,36 @@ export function RegexScriptEditor() {
             help="Fine-tune when and how the regex runs."
           >
             <div className="space-y-3">
-              {/* Prompt Only */}
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <button
-                  type="button"
-                  disabled={hasCharacterScope}
-                  aria-pressed={effectivePromptOnly}
-                  onClick={() => {
-                    if (hasCharacterScope) return;
-                    setLocalPromptOnly((v) => !v);
-                    markDirty();
-                  }}
-                  className={cn("shrink-0", hasCharacterScope && "cursor-not-allowed opacity-70")}
-                  title={
-                    hasCharacterScope
-                      ? "Character-scoped regexes are prompt-only for legacy compatibility."
-                      : "Toggle Prompt Only"
-                  }
-                >
-                  {effectivePromptOnly ? (
-                    <ToggleRight size="1.125rem" className="text-orange-400" />
-                  ) : (
-                    <ToggleLeft size="1.125rem" className="text-[var(--muted-foreground)]" />
-                  )}
-                </button>
-                <div>
-                  <div className="text-xs font-medium">Prompt Only</div>
-                  <div className="text-[0.625rem] text-[var(--muted-foreground)]">
-                    {hasCharacterScope
-                      ? "Character-scoped scripts apply only in the prompt context sent to the AI."
-                      : "Only apply in the prompt context sent to the AI, not in the displayed message."}
-                  </div>
+              {/* Shows in */}
+              <div className="space-y-1.5">
+                <div className="text-xs font-medium" id="regex-apply-mode-label">
+                  Shows in
                 </div>
-              </label>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby="regex-apply-mode-label">
+                  {REGEX_APPLY_MODES.map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={localApplyMode === mode}
+                      onClick={() => {
+                        setLocalApplyMode(mode);
+                        markDirty();
+                      }}
+                      className={cn(
+                        "rounded-lg px-2.5 py-1 text-[0.6875rem] font-medium ring-1 ring-[var(--border)] transition-colors",
+                        localApplyMode === mode
+                          ? "bg-orange-400/20 text-orange-300 ring-orange-400/50"
+                          : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)]",
+                      )}
+                    >
+                      {REGEX_APPLY_MODE_LABELS[mode]}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[0.625rem] text-[var(--muted-foreground)]">
+                  {regexApplyModeHelp(localApplyMode, hasCharacterScope)}
+                </div>
+              </div>
 
               {/* Order */}
               <div className="flex items-center gap-3">

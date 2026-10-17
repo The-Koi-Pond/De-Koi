@@ -88,6 +88,7 @@ const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetenti
 const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
 const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
+const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
@@ -241,6 +242,11 @@ impl AppState {
             &state.storage,
             LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY,
             crate::storage_commands::startup_migrations::keep_all_secondary_keys_for_authored_lorebook_entries,
+        )?;
+        run_startup_migration_once(
+            &state.storage,
+            CARD_REGEX_APPLY_MODE_MIGRATION_KEY,
+            crate::storage_commands::startup_migrations::restore_card_regex_apply_modes,
         )?;
         // A failed Game mode removal must not stop the app from starting: nothing is deleted
         // before its backup is published, and the next start retries what is left.

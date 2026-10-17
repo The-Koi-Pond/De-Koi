@@ -1,21 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { nextRegexScriptTargetCharacterIds, savedRegexScriptPromptOnly } from "./regex-script-editor-state";
+import { nextRegexScriptTargetCharacterIds, regexApplyModeHelp } from "./regex-script-editor-state";
 
 describe("regex script editor state", () => {
-  it("forces scoped saves to prompt-only without changing the global prompt-only value", () => {
-    const globalPromptOnly = false;
-    const scopedTargetIds = nextRegexScriptTargetCharacterIds([], "char-a");
+  it("toggles a character in and out of a script's scope", () => {
+    const scoped = nextRegexScriptTargetCharacterIds([], "char-a");
 
-    expect(savedRegexScriptPromptOnly(scopedTargetIds, globalPromptOnly)).toBe(true);
-    expect(savedRegexScriptPromptOnly([], globalPromptOnly)).toBe(false);
+    expect(scoped).toEqual(["char-a"]);
+    expect(nextRegexScriptTargetCharacterIds(scoped, "char-a")).toEqual([]);
   });
 
-  it("preserves a global prompt-only choice after scope is cleared", () => {
-    const globalPromptOnly = true;
-    const scopedTargetIds = nextRegexScriptTargetCharacterIds([], "char-a");
-
-    expect(savedRegexScriptPromptOnly(scopedTargetIds, globalPromptOnly)).toBe(true);
-    expect(savedRegexScriptPromptOnly([], globalPromptOnly)).toBe(true);
+  it("says a global Both script rewrites the saved message and a scoped one does not", () => {
+    expect(regexApplyModeHelp("both", false)).toMatch(/message itself/);
+    expect(regexApplyModeHelp("both", true)).toMatch(/saved message stays/);
+    expect(regexApplyModeHelp("display", false)).toMatch(/only what you see/);
   });
 });

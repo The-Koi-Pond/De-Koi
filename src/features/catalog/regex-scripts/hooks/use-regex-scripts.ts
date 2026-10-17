@@ -31,6 +31,7 @@ export interface RegexScriptRow {
   placement: string[];
   flags: string;
   promptOnly: boolean | string;
+  applyMode?: string;
   order: number;
   minDepth: number | null;
   maxDepth: number | null;
