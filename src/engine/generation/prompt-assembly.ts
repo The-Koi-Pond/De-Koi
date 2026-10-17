@@ -1011,9 +1011,33 @@ function resolvePromptTimeZone(chat: JsonRecord, request: JsonRecord): string | 
   return resolveLiveHostTimeZone();
 }
 
+/** {{lastMessage}}, {{lastUserMessage}}, {{lastCharMessage}}, and {{idle_duration}} from the stored chat. */
+function chatHistoryMacros(
+  storedMessages: JsonRecord[],
+): Pick<MacroContext, "lastMessage" | "lastUserMessage" | "lastCharMessage" | "idleSince"> {
+  const shown = storedMessages.filter((message) => {
+    const extra = isRecord(message.extra) ? message.extra : {};
+    return readString(message.content).trim() && extra.hiddenFromAI !== true && extra.hiddenFromAi !== true;
+  });
+  const latest = (role?: string) =>
+    readString([...shown].reverse().find((message) => !role || readString(message.role) === role)?.content);
+  // SillyTavern skips the newest message, then measures from the user message before it.
+  const previousUser = shown
+    .slice(0, -1)
+    .reverse()
+    .find((message) => readString(message.role) === "user");
+  return {
+    lastMessage: latest(),
+    lastUserMessage: latest("user"),
+    lastCharMessage: latest("assistant"),
+    idleSince: readString(previousUser?.createdAt) || null,
+  };
+}
+
 function macroContext(input: {
   chat: JsonRecord;
   connection: JsonRecord;
+  storedMessages: JsonRecord[];
   characters: GenerationCharacterContext[];
   persona: GenerationPersonaContext | null;
   latestUserInput: string;
@@ -1042,6 +1066,7 @@ function macroContext(input: {
     })),
     variables: { ...(input.variables ?? chatPromptVariables(input.chat)) },
     lastInput: input.latestUserInput,
+    ...chatHistoryMacros(input.storedMessages),
     chatId: readString(input.chat.id),
     model: readString(input.connection.model),
     agentData: input.agentData,
@@ -4053,6 +4078,7 @@ export async function assembleGenerationPrompt(
   const macros = macroContext({
     chat: input.chat,
     connection: input.connection,
+    storedMessages: input.storedMessages,
     characters: promptCharacters,
     persona,
     latestUserInput: input.latestUserInput,
