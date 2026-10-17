@@ -7,7 +7,7 @@ import {
   type DiscoveryCoverage,
   type DiscoveryEntry,
 } from "../discovery-registry";
-import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE } from "../discovery-types";
+import { DISCOVERY_CATEGORIES, DISCOVERY_COVERAGE, discoveryCoverageGroup } from "../discovery-types";
 import { getDiscoveryActionLabel, runDiscoveryAction, type DiscoveryActionOutcome } from "../lib/discovery-actions";
 import { filterDiscoveryEntries } from "../lib/discovery-search";
 import { DISCOVERY_TASKS, filterEntriesForDiscoveryTask, type DiscoveryTaskId } from "../lib/discovery-tasks";
@@ -18,6 +18,16 @@ const COVERAGE_LABELS: Record<DiscoveryCoverage, string> = {
   experimental: "Experimental",
   "needs-polish": "Experimental",
 };
+
+/**
+ * One filter per label users see (Experimental covers needs-polish too), and only filters
+ * some entry uses, so no filter repeats or leads to an empty list.
+ */
+const COVERAGE_FILTERS = DISCOVERY_COVERAGE.filter(
+  (item) =>
+    discoveryCoverageGroup(item) === item &&
+    DISCOVERY_ENTRIES.some((entry) => discoveryCoverageGroup(entry.coverage) === item),
+);
 
 const COVERAGE_CLASS: Record<DiscoveryCoverage, string> = {
   core: "border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
@@ -186,7 +196,7 @@ export function DiscoverPanel({ onClose }: { onClose?: () => void } = {}) {
         </div>
 
         <div className="flex w-full min-w-0 gap-1 overflow-x-auto pb-1" role="radiogroup" aria-label="Feature coverage">
-          {(["All", ...DISCOVERY_COVERAGE] as const).map((item) => {
+          {(["All", ...COVERAGE_FILTERS] as const).map((item) => {
             const selected = coverage === item;
             return (
               <button
