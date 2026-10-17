@@ -42,9 +42,9 @@ describe("resolveManagedAssetThumbnailFileUrl", () => {
       .mockReturnValueOnce(third.promise);
 
     const resolutions = [
-      resolveManagedAssetThumbnailFileUrl("game", "one.png", 256),
-      resolveManagedAssetThumbnailFileUrl("game", "two.png", 256),
-      resolveManagedAssetThumbnailFileUrl("game", "three.png", 256),
+      resolveManagedAssetThumbnailFileUrl("background", "one.png", 256),
+      resolveManagedAssetThumbnailFileUrl("background", "two.png", 256),
+      resolveManagedAssetThumbnailFileUrl("background", "three.png", 256),
     ];
 
     await Promise.resolve();

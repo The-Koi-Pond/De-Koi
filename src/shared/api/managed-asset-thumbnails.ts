@@ -11,7 +11,7 @@ import { remoteRuntimeTarget } from "./remote-runtime";
 
 type PathResponse = { path?: string | null };
 
-export type ManagedAssetThumbnailKind = "background" | "gallery" | "game" | "lorebook";
+export type ManagedAssetThumbnailKind = "background" | "gallery" | "lorebook";
 
 const pendingAvatarThumbnailResolutions = new Map<string, Promise<string | null>>();
 const pendingManagedAssetThumbnailResolutions = new Map<string, Promise<string | null>>();

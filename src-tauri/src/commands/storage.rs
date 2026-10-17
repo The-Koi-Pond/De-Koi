@@ -51,8 +51,6 @@ pub(crate) mod exports;
 pub(crate) mod fanfic_research;
 #[path = "storage/fonts.rs"]
 pub(crate) mod fonts;
-#[path = "storage/game_assets.rs"]
-pub(crate) mod game_assets;
 #[path = "storage/game_mode_removal.rs"]
 pub(crate) mod game_mode_removal;
 #[path = "storage/game_state_snapshots.rs"]

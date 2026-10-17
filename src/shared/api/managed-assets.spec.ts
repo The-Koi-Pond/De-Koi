@@ -22,8 +22,8 @@ vi.mock("./tauri-client", () => ({
   invokeTauri: tauriClientMock.invokeTauri,
 }));
 
-import { displayableAssetSrc, gameAssetUrl, remoteManagedAssetPath, userBackgroundUrl } from "./managed-asset-paths";
-import { backgroundFileUrlFromPath, gameAssetFileUrlFromPath, resolveGalleryFileUrl } from "./managed-asset-resolvers";
+import { displayableAssetSrc, remoteManagedAssetPath, userBackgroundUrl } from "./managed-asset-paths";
+import { backgroundFileUrlFromPath, resolveGalleryFileUrl } from "./managed-asset-resolvers";
 import { managedAssetThumbnailRemotePath } from "./managed-asset-thumbnails";
 import {
   invalidateRemoteManagedAssetObjectUrls,
@@ -34,7 +34,6 @@ import {
 describe("managed asset paths", () => {
   it("normalizes local prefixes without losing encoded path separators", () => {
     expect(userBackgroundUrl("City\\Night Sky.png")).toBe("marinara-background:City%2FNight%20Sky.png");
-    expect(gameAssetUrl("maps\\level 1/bg.png")).toBe("marinara-game-asset:maps%2Flevel%201%2Fbg.png");
   });
 
   it("normalizes remote asset paths by trimming unsafe empty and traversal segments", () => {
@@ -89,8 +88,8 @@ describe("remote managed assets", () => {
   });
 
   it("constructs unauthenticated remote asset URLs with optional cache busting", () => {
-    expect(remoteManagedAssetUrl("game", "maps\\level 1/bg.png", "v=abc")).toBe(
-      "http://127.0.0.1:3080/api/assets/game/maps/level%201/bg.png?v=abc",
+    expect(remoteManagedAssetUrl("background", "maps\\level 1/bg.png", "v=abc")).toBe(
+      "http://127.0.0.1:3080/api/assets/background/maps/level%201/bg.png?v=abc",
     );
   });
 
@@ -99,12 +98,8 @@ describe("remote managed assets", () => {
     remoteRuntimeMock.target = { baseUrl: "http://127.0.0.1:3080", authorization: "Basic token" };
 
     expect(backgroundFileUrlFromPath("ancient_library.jpg", serverPath)).toBe(userBackgroundUrl("ancient_library.jpg"));
-    expect(gameAssetFileUrlFromPath("maps/bg.png", "/srv/de-koi/game-assets/maps/bg.png")).toBe(
-      gameAssetUrl("maps/bg.png"),
-    );
     // The markers resolve later through an authenticated fetch; an <img> gets no src until then.
     expect(displayableAssetSrc(backgroundFileUrlFromPath("ancient_library.jpg", serverPath))).toBeUndefined();
-    expect(displayableAssetSrc(gameAssetFileUrlFromPath("maps/bg.png", serverPath))).toBeUndefined();
   });
 
   it("keeps plain remote URLs and embedded paths displayable", () => {
@@ -247,7 +242,7 @@ describe("remote managed assets", () => {
   it("adds source invalidation versions to thumbnail routes without changing unrelated assets", () => {
     const beforeThumbnail = remoteManagedAssetUrl("thumbnail", "gallery/256/folder/image.png");
     const beforeGallery = remoteManagedAssetUrl("gallery", "folder/image.png");
-    const beforeGame = remoteManagedAssetUrl("game", "folder/image.png");
+    const beforeLorebook = remoteManagedAssetUrl("lorebook", "folder/image.png");
 
     invalidateRemoteManagedAssetObjectUrls("gallery", "folder/image.png");
 
@@ -259,6 +254,6 @@ describe("remote managed assets", () => {
     expect(remoteManagedAssetUrl("gallery", "folder/image.png")).toMatch(
       /^http:\/\/127\.0\.0\.1:3080\/api\/assets\/gallery\/folder\/image\.png\?mriAssetV=\d+$/,
     );
-    expect(remoteManagedAssetUrl("game", "folder/image.png")).toBe(beforeGame);
+    expect(remoteManagedAssetUrl("lorebook", "folder/image.png")).toBe(beforeLorebook);
   });
 });

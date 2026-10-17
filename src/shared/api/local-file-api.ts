@@ -1,9 +1,7 @@
 export {
-  GAME_ASSET_URL_PREFIX,
   USER_BACKGROUND_URL_PREFIX,
   decodeLocalAssetPath,
   displayableAssetSrc,
-  gameAssetUrl,
   userBackgroundUrl,
 } from "./managed-asset-paths";
 export {
@@ -19,13 +17,11 @@ export {
 export {
   avatarFileUrlFromPath,
   backgroundFileUrlFromPath,
-  gameAssetFileUrlFromPath,
   galleryThumbnailPath,
   resolveAvatarFileUrl,
   resolveEntityImageUrl,
   resolveFontFileUrl,
   resolveGalleryFileUrl,
-  resolveGameAssetFileUrl,
   resolveManagedAssetThumbnailFileUrl,
   resolveManagedLocalAssetThumbnailUrl,
   resolveManagedLocalAssetUrl,
