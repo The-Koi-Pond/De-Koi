@@ -393,7 +393,15 @@ fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Val
 }
 
 /// The chat's Author's Note, which SillyTavern keeps in the header's `chat_metadata`.
-fn st_author_note(rows: &[Value]) -> Option<(String, i64)> {
+struct StAuthorNote {
+    note: String,
+    depth: i64,
+    /// Insert every Nth user message; 1 = every message, 0 = never.
+    interval: i64,
+    role: &'static str,
+}
+
+fn st_author_note(rows: &[Value]) -> Option<StAuthorNote> {
     let metadata = rows.iter().find_map(|row| row.get("chat_metadata"))?;
     let note = metadata
         .get("note_prompt")
@@ -405,7 +413,23 @@ fn st_author_note(rows: &[Value]) -> Option<(String, i64)> {
         .and_then(Value::as_i64)
         .unwrap_or(4)
         .max(0);
-    Some((note.to_string(), depth))
+    let interval = metadata
+        .get("note_interval")
+        .and_then(Value::as_i64)
+        .unwrap_or(1)
+        .max(0);
+    // SillyTavern numbers roles 0 system, 1 user, 2 assistant.
+    let role = match metadata.get("note_role").and_then(Value::as_i64) {
+        Some(1) => "user",
+        Some(2) => "assistant",
+        _ => "system",
+    };
+    Some(StAuthorNote {
+        note: note.to_string(),
+        depth,
+        interval,
+        role,
+    })
 }
 
 fn st_datetime_from_rfc3339(value: &str) -> Option<DateTime<Utc>> {
@@ -572,14 +596,16 @@ pub(super) fn import_st_chat_text(
     }
     chat.entry("metadata".to_string())
         .or_insert_with(|| json!({}));
-    if let Some((note, depth)) = st_author_note(&parsed_rows) {
+    if let Some(author_note) = st_author_note(&parsed_rows) {
         if let Some(metadata) = chat.get_mut("metadata").and_then(Value::as_object_mut) {
-            metadata
-                .entry("authorNotes".to_string())
-                .or_insert(Value::String(note));
-            metadata
-                .entry("authorNotesDepth".to_string())
-                .or_insert(json!(depth));
+            for (key, value) in [
+                ("authorNotes", json!(author_note.note)),
+                ("authorNotesDepth", json!(author_note.depth)),
+                ("authorNotesInterval", json!(author_note.interval)),
+                ("authorNotesRole", json!(author_note.role)),
+            ] {
+                metadata.entry(key.to_string()).or_insert(value);
+            }
         }
     }
     if !character_name.is_empty() {

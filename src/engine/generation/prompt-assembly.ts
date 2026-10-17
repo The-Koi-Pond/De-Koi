@@ -3745,12 +3745,25 @@ function previewMessagesForPrompt(messages: ChatMLMessage[]): ChatMLMessage[] {
   return messages.map((message) => ({ ...message }));
 }
 
-function authorNotesDepthEntry(chat: JsonRecord): { content: string; role: "system"; depth: number } | null {
+/**
+ * The chat's Author's Note, as SillyTavern places it: at a depth, as a chosen role, and
+ * every Nth user message (`authorNotesInterval`: 1 = every message, 0 = never).
+ */
+export function authorNotesDepthEntry(
+  chat: JsonRecord,
+  storedMessages: JsonRecord[],
+): { content: string; role: "system" | "user" | "assistant"; depth: number } | null {
   const meta = parseRecord(chat.metadata);
   const content = cleanPromptText(readString(meta.authorNotes).trim());
   if (!content) return null;
+  const interval = Math.max(0, Math.trunc(readNumber(meta.authorNotesInterval, 1)));
+  if (interval === 0) return null;
+  const userTurns = storedMessages.filter((message) => readString(message.role) === "user").length;
+  if (interval > 1 && userTurns % interval !== 0) return null;
   const depth = Math.max(0, readNumber(meta.authorNotesDepth, 4));
-  return { content, role: "system", depth };
+  const rawRole = readString(meta.authorNotesRole);
+  const role = rawRole === "user" || rawRole === "assistant" ? rawRole : "system";
+  return { content, role, depth };
 }
 
 function macroProfileForCharacter(
@@ -4575,7 +4588,7 @@ export async function assembleGenerationPrompt(
     ...(roleplayQualityContext ? [roleplayQualityContext.message] : []),
   ]);
 
-  const authorNotesEntry = authorNotesDepthEntry(input.chat);
+  const authorNotesEntry = authorNotesDepthEntry(input.chat, input.storedMessages);
   const characterDepthEntries =
     chatMode === "fanfic" ? [] : characterDepthPromptEntries(promptCharacters, macros, activeGroupScenarioOverride);
   messages = injectAtDepth(
