@@ -470,8 +470,30 @@ fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> 
 }
 
 /// Removes source files the backup holds, keeping any that changed after they were copied.
-fn remove_backed_up_files(files: &[BackedUpFile]) {
+/// Files that records surviving the removal still point at. Cleanup never deletes these,
+/// even when a Game row shared the same file.
+fn files_still_in_use(state: &AppState) -> AppResult<HashSet<PathBuf>> {
+    let mut paths = HashSet::new();
+    for row in state.storage.list("gallery")? {
+        if let Some(path) =
+            managed_record_file_path(state, "gallery", &row, "filePath", "filename")?
+        {
+            paths.insert(fs::canonicalize(&path).unwrap_or(path));
+        }
+    }
+    Ok(paths)
+}
+
+fn remove_backed_up_files(files: &[BackedUpFile], still_in_use: &HashSet<PathBuf>) {
     for file in files {
+        let canonical_path = fs::canonicalize(&file.path).unwrap_or_else(|_| file.path.clone());
+        if still_in_use.contains(&canonical_path) {
+            log::info!(
+                "kept Game file {} because another record still uses it",
+                file.path.display()
+            );
+            continue;
+        }
         // A file that changed since it was backed up is not the file the backup holds, so it
         // stays where it is.
         match file_digest(&file.path) {
@@ -517,7 +539,7 @@ pub(crate) fn remove_game_mode_data(state: &AppState) -> AppResult<Option<PathBu
     };
     retire_game_rows(&state.storage, &plan)?;
     if let Some(backup) = &backup {
-        remove_backed_up_files(&backup.source_files);
+        remove_backed_up_files(&backup.source_files, &files_still_in_use(state)?);
     }
     if let Some(backup) = &backup {
         log::info!(
@@ -847,13 +869,37 @@ mod tests {
         ];
         fs::write(&changed, b"cccc").unwrap();
 
-        remove_backed_up_files(&files);
+        remove_backed_up_files(&files, &HashSet::new());
 
         assert!(!same.exists(), "an unchanged backed-up file is removed");
         assert!(
             changed.exists(),
             "a file with new bytes of the same size is kept"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_another_record_still_uses_is_kept() {
+        let dir = std::env::temp_dir().join(format!(
+            "marinara-game-removal-shared-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let shared = dir.join("shared.png");
+        fs::write(&shared, b"aaaa").unwrap();
+        let files = vec![BackedUpFile {
+            path: shared.clone(),
+            digest: file_digest(&shared).unwrap(),
+        }];
+        let in_use = HashSet::from([fs::canonicalize(&shared).unwrap()]);
+
+        remove_backed_up_files(&files, &in_use);
+
+        assert!(shared.exists(), "a file a surviving record points at stays");
         let _ = fs::remove_dir_all(dir);
     }
 
