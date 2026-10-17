@@ -304,7 +304,10 @@ mod tests {
         let manifest: Value =
             serde_json::from_slice(&read_entry(artifact.path(), "manifest.json")).unwrap();
         let archive = ZipArchive::new(File::open(artifact.path()).unwrap()).unwrap();
-        let names = archive.file_names().map(str::to_string).collect::<Vec<_>>();
+        let names = archive
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .collect::<Vec<_>>();
 
         assert_eq!(manifest["version"], 2);
         assert!(names.contains(&"tables/characters/000001.jsonl".to_string()));
@@ -383,7 +386,10 @@ mod tests {
         std::fs::write(state.data_dir.join("private.txt"), b"private").unwrap();
         let artifact = export_profile_v2_artifact_with_options(&state, options(&state)).unwrap();
         let archive = ZipArchive::new(File::open(artifact.path()).unwrap()).unwrap();
-        let names = archive.file_names().map(str::to_string).collect::<Vec<_>>();
+        let names = archive
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .collect::<Vec<_>>();
 
         assert!(!names.iter().any(|name| name.contains("private.txt")));
         drop(archive);

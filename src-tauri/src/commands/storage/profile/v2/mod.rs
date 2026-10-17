@@ -42,7 +42,11 @@ pub(super) fn preview_profile_v2(state: &AppState, path: &Path) -> AppResult<Val
     let payload = read_profile_v2_payload(path)?;
     let mut archive = zip::ZipArchive::new(File::open(path)?)
         .map_err(|error| marinara_core::AppError::invalid_input(error.to_string()))?;
-    let names = archive.file_names().map(str::to_string).collect::<Vec<_>>();
+    let names = archive
+        .file_names()
+        .map(|name| name.map(|name| name.into_owned()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| marinara_core::AppError::invalid_input(error.to_string()))?;
     let (asset_count, warnings) =
         preview_profile_zip_assets(&mut archive, Some(&payload.assets), &names, "assets")?;
     let result =
@@ -64,7 +68,11 @@ pub(super) fn import_profile_v2_with_progress(
     progress.prepare("assets", "Preparing profile v2 assets")?;
     let mut archive = zip::ZipArchive::new(File::open(path)?)
         .map_err(|error| marinara_core::AppError::invalid_input(error.to_string()))?;
-    let names = archive.file_names().map(str::to_string).collect::<Vec<_>>();
+    let names = archive
+        .file_names()
+        .map(|name| name.map(|name| name.into_owned()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| marinara_core::AppError::invalid_input(error.to_string()))?;
     let mut restored =
         restore_profile_zip_assets(state, &mut archive, &names, "assets", Some(&payload.assets))?;
     let restored_count = restored.restored();

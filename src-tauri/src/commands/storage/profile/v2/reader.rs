@@ -196,7 +196,10 @@ fn validate_central_directory(archive: &mut zip::ZipArchive<File>) -> AppResult<
         let entry = archive
             .by_index(index)
             .map_err(|error| invalid_archive(format!("Could not read ZIP entry: {error}")))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|error| invalid_archive(format!("Could not read ZIP entry name: {error}")))?
+            .into_owned();
         if entry.is_dir() || !is_safe_archive_path(&name) {
             return Err(invalid_archive(format!(
                 "Unsafe profile v2 ZIP path: {name}"
@@ -461,7 +464,7 @@ mod tests {
         let mut entries = Vec::new();
         for index in 0..archive.len() {
             let mut entry = archive.by_index(index).unwrap();
-            let name = entry.name().to_string();
+            let name = entry.name().unwrap().into_owned();
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes).unwrap();
             if let Some(bytes) = edit(&name, bytes) {
