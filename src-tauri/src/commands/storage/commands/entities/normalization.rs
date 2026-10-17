@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn normalize_chat_for_create(value: Value) -> Result<Value, AppError> {
     let mut object = ensure_object(value)?;
-    normalize_chat_mode_object(&mut object);
+    normalize_chat_mode_object(&mut object)?;
     normalize_chat_folder_id_object(&mut object)?;
     normalize_chat_metadata_for_create(&mut object)?;
     Ok(Value::Object(object))
@@ -13,7 +13,7 @@ pub(super) fn normalize_chat_for_update(entity: &str, patch: Value) -> Result<Va
         return Ok(patch);
     }
     let mut object = ensure_object(patch)?;
-    normalize_chat_mode_object(&mut object);
+    normalize_chat_mode_object(&mut object)?;
     normalize_chat_folder_id_object(&mut object)?;
     Ok(Value::Object(object))
 }
@@ -31,14 +31,19 @@ pub(super) fn normalize_chat_metadata_for_create(
     normalize_chat_metadata_object(metadata, &active_ids)
 }
 
-pub(super) fn normalize_chat_mode_object(object: &mut Map<String, Value>) {
-    if let Some(mode) = object
-        .get("mode")
-        .and_then(Value::as_str)
-        .and_then(canonical_chat_mode)
-    {
+pub(super) fn normalize_chat_mode_object(object: &mut Map<String, Value>) -> Result<(), AppError> {
+    let Some(raw_mode) = object.get("mode").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    if raw_mode.trim() == "game" {
+        return Err(AppError::invalid_input(
+            "Game mode was removed from De-Koi; create a Roleplay chat instead",
+        ));
+    }
+    if let Some(mode) = canonical_chat_mode(raw_mode) {
         object.insert("mode".to_string(), Value::String(mode.to_string()));
     }
+    Ok(())
 }
 
 pub(super) fn normalize_chat_folder_id_object(
@@ -1150,7 +1155,6 @@ pub(super) fn canonical_chat_mode(mode: &str) -> Option<&'static str> {
     match mode.trim() {
         "conversation" => Some("conversation"),
         "roleplay" | "visual_novel" => Some("roleplay"),
-        "game" => Some("game"),
         "fanfic" => Some("fanfic"),
         _ => None,
     }

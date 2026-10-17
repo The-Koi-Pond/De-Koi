@@ -44,37 +44,37 @@ describe("settings discovery actions", () => {
 
   it("routes an available contextual destination without replacing the active chat", () => {
     useChatStore.setState({
-      activeChatId: "game-chat",
-      activeChat: { id: "game-chat", mode: "game" } as never,
+      activeChatId: "roleplay-chat",
+      activeChat: { id: "roleplay-chat", mode: "roleplay" } as never,
     });
     const listener = vi.fn();
     window.addEventListener(DISCOVERY_APP_EVENT, listener);
 
-    expect(runDiscoveryAction({ type: "open-chat-destination", destination: "game-journal" })).toEqual({
+    expect(runDiscoveryAction({ type: "open-chat-destination", destination: "roleplay-context" })).toEqual({
       status: "handled",
     });
 
-    expect(useChatStore.getState().activeChatId).toBe("game-chat");
+    expect(useChatStore.getState().activeChatId).toBe("roleplay-chat");
     expect(listener).toHaveBeenCalledOnce();
     expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
       type: "open-chat-destination",
-      destination: "game-journal",
+      destination: "roleplay-context",
     });
     window.removeEventListener(DISCOVERY_APP_EVENT, listener);
   });
 
   it("explains a missing mode and offers setup without navigating home", () => {
     useChatStore.setState({
-      activeChatId: "roleplay-chat",
-      activeChat: { id: "roleplay-chat", mode: "roleplay" } as never,
+      activeChatId: "conversation-chat",
+      activeChat: { id: "conversation-chat", mode: "conversation" } as never,
     });
 
-    expect(resolveDiscoveryAction({ type: "open-chat-destination", destination: "game-checkpoints" })).toEqual({
+    expect(resolveDiscoveryAction({ type: "open-chat-destination", destination: "roleplay-context" })).toEqual({
       status: "blocked",
-      message: "Game Checkpoints needs an active Game chat.",
-      fallback: { type: "open-mode-setup", mode: "game", label: "Set up Game" },
+      message: "Roleplay Context needs an active Roleplay chat.",
+      fallback: { type: "open-mode-setup", mode: "roleplay", label: "Set up Roleplay" },
     });
-    expect(useChatStore.getState().activeChatId).toBe("roleplay-chat");
+    expect(useChatStore.getState().activeChatId).toBe("conversation-chat");
   });
 
   it("offers the chat list when a chat-owned destination has no active chat", () => {
@@ -87,8 +87,8 @@ describe("settings discovery actions", () => {
 
   it("does not choose an arbitrary setup mode when a destination supports multiple modes", () => {
     useChatStore.setState({
-      activeChatId: "game-chat",
-      activeChat: { id: "game-chat", mode: "game" } as never,
+      activeChatId: "fanfic-chat",
+      activeChat: { id: "fanfic-chat", mode: "fanfic" } as never,
     });
 
     expect(resolveDiscoveryAction({ type: "open-chat-destination", destination: "slash-commands" })).toEqual({

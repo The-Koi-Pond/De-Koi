@@ -13,7 +13,7 @@ type PromptOverrideVariable = {
   example?: string;
 };
 
-export type PromptOverrideKeyDef<TContext extends Record<string, string | number | undefined>> = {
+type PromptOverrideKeyDef<TContext extends Record<string, string | number | undefined>> = {
   key: string;
   description: string;
   variables: readonly PromptOverrideVariable[];
@@ -57,7 +57,7 @@ type ConversationSelfiePromptContext = Record<string, string | number | undefine
   selfieTagsBlock: string;
 };
 
-export type ImagePromptOverrideContext = Record<string, string | number | undefined> & {
+type ImagePromptOverrideContext = Record<string, string | number | undefined> & {
   defaultPrompt: string;
 };
 
@@ -114,9 +114,6 @@ const SPRITE_FULL_BODY_SHEET_PROMPT_OVERRIDE = promptOverrideDef<ImagePromptOver
 const SPRITE_FULL_BODY_EXPRESSION_SHEET_PROMPT_OVERRIDE = promptOverrideDef<ImagePromptOverrideContext>(
   "sprite.fullBodyExpressionSheet",
 );
-export const GAME_BACKGROUND_PROMPT_OVERRIDE = promptOverrideDef<ImagePromptOverrideContext>("game.background");
-export const GAME_ILLUSTRATION_PROMPT_OVERRIDE = promptOverrideDef<ImagePromptOverrideContext>("game.illustration");
-export const GAME_PORTRAIT_PROMPT_OVERRIDE = promptOverrideDef<ImagePromptOverrideContext>("game.portrait");
 
 export const PROMPT_OVERRIDE_REGISTRY = [
   CONVERSATION_SELFIE_PROMPT_OVERRIDE,
@@ -125,9 +122,6 @@ export const PROMPT_OVERRIDE_REGISTRY = [
   SPRITE_FULL_BODY_SINGLE_PROMPT_OVERRIDE,
   SPRITE_FULL_BODY_SHEET_PROMPT_OVERRIDE,
   SPRITE_FULL_BODY_EXPRESSION_SHEET_PROMPT_OVERRIDE,
-  GAME_BACKGROUND_PROMPT_OVERRIDE,
-  GAME_ILLUSTRATION_PROMPT_OVERRIDE,
-  GAME_PORTRAIT_PROMPT_OVERRIDE,
 ] as const;
 
 type RegisteredPromptOverrideDef = (typeof PROMPT_OVERRIDE_REGISTRY)[number];
@@ -193,7 +187,7 @@ export function normalizePromptOverrideRow(row: unknown, fallbackKey?: string): 
   };
 }
 
-export async function loadRegisteredPrompt<TContext extends Record<string, string | number | undefined>>(
+async function loadRegisteredPrompt<TContext extends Record<string, string | number | undefined>>(
   storage: StorageGateway,
   definition: PromptOverrideKeyDef<TContext>,
   context: TContext,

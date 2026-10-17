@@ -49,7 +49,7 @@ export interface TrackerSnapshotMessageRebase {
   swipeCount?: unknown;
 }
 
-export interface TrackerSnapshotSavedContext {
+interface TrackerSnapshotSavedContext {
   chatId: string;
   target: TrackerSnapshotTurnTarget;
   chat: Record<string, unknown> | null;

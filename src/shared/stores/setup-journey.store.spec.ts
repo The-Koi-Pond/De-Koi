@@ -30,9 +30,9 @@ describe("useSetupJourneyStore", () => {
 
   it("beginning again preserves the latest requested mode", () => {
     useSetupJourneyStore.getState().begin("conversation", "character-1");
-    useSetupJourneyStore.getState().begin("game");
+    useSetupJourneyStore.getState().begin("fanfic");
 
-    expect(useSetupJourneyStore.getState().intent).toMatchObject({ mode: "game", originCharacterId: null });
+    expect(useSetupJourneyStore.getState().intent).toMatchObject({ mode: "fanfic", originCharacterId: null });
   });
 
   it("assigns a unique identity to each journey even when launch fields are identical", () => {
@@ -61,14 +61,14 @@ describe("useSetupJourneyStore", () => {
   });
 
   it("marks the selected connection", () => {
-    useSetupJourneyStore.getState().begin("game");
+    useSetupJourneyStore.getState().begin("fanfic");
     useSetupJourneyStore.getState().markConnection("connection-1");
 
     expect(useSetupJourneyStore.getState().intent?.selectedConnectionId).toBe("connection-1");
   });
 
   it("duplicate completion is idempotent", () => {
-    useSetupJourneyStore.getState().begin("game");
+    useSetupJourneyStore.getState().begin("fanfic");
     useSetupJourneyStore.getState().markCompleted(useSetupJourneyStore.getState().intent!.journeyId);
     const completed = useSetupJourneyStore.getState().intent;
     useSetupJourneyStore.getState().markCompleted(completed!.journeyId);

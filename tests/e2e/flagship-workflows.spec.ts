@@ -324,22 +324,3 @@ test("rejected chat creation shows actionable failure UI", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("Test runtime rejected chat creation.");
   await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
 });
-
-test("game setup blocks incomplete dependent selections", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Start Game chat" }).click();
-  await expect(page.getByText("New Game Setup")).toBeVisible();
-
-  // The GM starts on the default text connection; clear it to leave the setup incomplete.
-  const gmConnection = page
-    .locator("select")
-    .filter({ has: page.locator("option", { hasText: "Select a connection…" }) });
-  while (await page.getByRole("button", { name: "Next" }).isVisible()) {
-    if (await gmConnection.first().isVisible()) await gmConnection.first().selectOption("");
-    await page.getByRole("button", { name: "Next" }).click();
-  }
-
-  const startGame = page.getByRole("button", { name: "Start Game" });
-  await expect(startGame).toBeDisabled();
-  await expect(startGame).toHaveAttribute("title", /Select a GM model/);
-});

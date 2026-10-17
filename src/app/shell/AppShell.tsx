@@ -102,9 +102,6 @@ const DiscoverPanel = lazy(() =>
 const BotBrowserView = lazy(() =>
   import("../../features/shell/bot-browser/shell").then((module) => ({ default: module.BotBrowserView })),
 );
-const GameAssetsBrowserView = lazy(() =>
-  import("../../features/modes/game-assets/shell").then((module) => ({ default: module.GameAssetsBrowserView })),
-);
 const RightPanel = lazy(() => import("./RightPanel").then((module) => ({ default: module.RightPanel })));
 const TrackerDataSidebar = lazy(() =>
   import("../../features/runtime/tracker/shell").then((module) => ({ default: module.TrackerDataSidebar })),
@@ -515,7 +512,6 @@ export function AppShell() {
   const personaDetailId = useUIStore((s) => s.personaDetailId);
   const regexDetailId = useUIStore((s) => s.regexDetailId);
   const botBrowserOpen = useUIStore((s) => s.botBrowserOpen);
-  const gameAssetsBrowserOpen = useUIStore((s) => s.gameAssetsBrowserOpen);
   const onboardingTourOpen = useUIStore((s) => s.onboardingTourOpen);
   // Shell interactivity follows the transient optional tour, not the legacy persisted completion flag.
   const hasCompletedOnboarding = !onboardingTourOpen;
@@ -701,24 +697,6 @@ export function AppShell() {
     if (!activeDekiSessionId) void refreshDekiSessions();
   }, [activeDekiSessionId, markDekiSessionRead, openDekiShell, refreshDekiSessions]);
 
-  const openNoModelShowcase = useCallback(() => {
-    void import("../../features/shell/discovery/showcase")
-      .then((module) => module.ensureNoModelGameShowcase())
-      .then(({ chatId }) => {
-        queryClient.invalidateQueries({ queryKey: chatKeys.all });
-        useChatStore.getState().setActiveChatId(chatId);
-        useUIStore.getState().closeAllDetails();
-        closeRightPanel();
-        closeDekiShell();
-        setLeftSidebarPanel(null);
-        setTrackerPanelOpen(false);
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : "Could not create the sample world.";
-        toast.error(message);
-      });
-  }, [closeDekiShell, closeRightPanel, queryClient, setLeftSidebarPanel, setTrackerPanelOpen]);
-
   const closeDiscover = useCallback(() => {
     closeDiscoverHistory(window.history, window.location.href);
     setDiscoverOpen(false);
@@ -819,23 +797,11 @@ export function AppShell() {
         }
         return;
       }
-
-      if (detail?.type === "open-showcase") {
-        openNoModelShowcase();
-      }
     };
 
     window.addEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
     return () => window.removeEventListener(DISCOVERY_APP_EVENT, handleDiscoveryAction);
-  }, [
-    closeDekiShell,
-    closeDiscover,
-    closeRightPanel,
-    openDiscover,
-    openNoModelShowcase,
-    setLeftSidebarPanel,
-    setTrackerPanelOpen,
-  ]);
+  }, [closeDekiShell, closeDiscover, closeRightPanel, openDiscover, setLeftSidebarPanel, setTrackerPanelOpen]);
 
   const closeDiscoverFromHistory = useCallback(() => setDiscoverOpen(false), []);
   useDiscoverHistoryLifecycle(discoverOpen, closeDiscoverFromHistory);
@@ -988,11 +954,10 @@ export function AppShell() {
     regexDetailId,
   });
 
-  const showAmbientDecor = !activeChatId && !detailView && !botBrowserOpen && !gameAssetsBrowserOpen && !dekiOpen;
+  const showAmbientDecor = !activeChatId && !detailView && !botBrowserOpen && !dekiOpen;
   const hasDetailView = detailView != null;
   const { discoverSurfaceVisible, dekiSurfaceVisible, mainSurfaceVisible } = getAppShellCenterSurfaceState({
     botBrowserOpen,
-    gameAssetsBrowserOpen,
     rightPanelOpen,
     detailViewOpen: hasDetailView,
     dekiOpen,
@@ -1104,7 +1069,6 @@ export function AppShell() {
     activeChat?.mode,
     activeChatId,
     botBrowserOpen,
-    gameAssetsBrowserOpen,
     centerCompact,
     isMobile,
     trackerPanelSurfaceAvailable,
@@ -1163,7 +1127,6 @@ export function AppShell() {
     activeChat?.mode,
     activeChatId,
     botBrowserOpen,
-    gameAssetsBrowserOpen,
     centerCompact,
     isMobile,
     trackerPanelAnchoredForMotion,
@@ -1597,10 +1560,6 @@ export function AppShell() {
               <MountOnceWhenOpened open={botBrowserOpen} overlay>
                 <BotBrowserView />
               </MountOnceWhenOpened>
-              {/* Game Assets Browser - kept mounted once opened so state persists across close/reopen */}
-              <MountOnceWhenOpened open={gameAssetsBrowserOpen} overlay>
-                <GameAssetsBrowserView />
-              </MountOnceWhenOpened>
               <MountOnceWhenOpened open={dekiSurfaceVisible} overlay hideOverlayWhenClosed slideFromBottom={isMobile}>
                 <DekiSurface
                   sessionId={activeDekiSessionId}
@@ -1646,7 +1605,6 @@ export function AppShell() {
                         ) : null
                       }
                       onOpenDiscover={openDiscover}
-                      onOpenNoModelShowcase={openNoModelShowcase}
                     />
                   )}
                 </Suspense>

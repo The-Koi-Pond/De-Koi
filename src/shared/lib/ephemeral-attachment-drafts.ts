@@ -1,4 +1,4 @@
-export type AttachmentDraftMode = "conversation" | "roleplay" | "game";
+export type AttachmentDraftMode = "conversation" | "roleplay";
 
 export type EphemeralAttachmentDraft = {
   type: string;

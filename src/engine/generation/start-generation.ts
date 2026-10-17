@@ -657,16 +657,6 @@ async function assistantDiscordName(args: {
   saved: unknown;
   characters: GenerationCharacterContext[];
 }): Promise<string> {
-  const mode = readString(args.chat.mode || args.chat.chatMode).trim();
-  const metadata = parseRecord(args.chat.metadata);
-  if (mode === "game") {
-    const gmCharacterId = readString(metadata.gameGmCharacterId).trim();
-    if (readString(metadata.gameGmMode).trim() === "character" && gmCharacterId) {
-      return limitedDiscordName(await characterNameById(args.storage, args.characters, gmCharacterId), "Narrator");
-    }
-    return "Narrator";
-  }
-
   const characterId = isRecord(args.saved) ? readString(args.saved.characterId).trim() : "";
   if (characterId) {
     return limitedDiscordName(await characterNameById(args.storage, args.characters, characterId), "Character");

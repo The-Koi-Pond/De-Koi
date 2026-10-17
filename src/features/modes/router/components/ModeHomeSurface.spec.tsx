@@ -56,10 +56,12 @@ vi.mock("../../../../shared/stores/chat.store", () => {
   return { useChatStore };
 });
 
+const { openRightPanel } = vi.hoisted(() => ({ openRightPanel: vi.fn() }));
 vi.mock("../../../../shared/stores/ui.store", () => {
   const state = {
     remoteRuntimeUrl: "",
     setHasCompletedOnboarding: vi.fn(),
+    openRightPanel,
   };
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
   useUIStore.getState = () => state;
@@ -174,16 +176,14 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     expect(requestIdleCallbackSpy).not.toHaveBeenCalled();
   });
 
-  it("offers a no-model showcase when no language connections exist", async () => {
-    const onOpenNoModelShowcase = vi.fn();
-
+  it("offers to add a model connection when no language connections exist", async () => {
     await act(async () => {
       root = createRoot(container!);
-      root.render(<ModeHomeSurface onOpenNoModelShowcase={onOpenNoModelShowcase} />);
+      root.render(<ModeHomeSurface />);
     });
 
     const button = Array.from(container!.querySelectorAll("button")).find((item) =>
-      item.textContent?.includes("Explore sample world"),
+      item.textContent?.includes("Add a model connection"),
     );
     expect(button).toBeTruthy();
 
@@ -191,16 +191,14 @@ describe("ModeHomeSurface quick-start prewarming", () => {
       button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(onOpenNoModelShowcase).toHaveBeenCalledTimes(1);
+    expect(openRightPanel).toHaveBeenCalledWith("connections");
   });
 
   it("renders at most three contextual journeys and opens dedicated Discover", async () => {
     const onOpenDiscover = vi.fn();
     await act(async () => {
       root = createRoot(container!);
-      root.render(
-        <ModeHomeSurface hasActivity onOpenDiscover={onOpenDiscover} onOpenNoModelShowcase={() => undefined} />,
-      );
+      root.render(<ModeHomeSurface hasActivity onOpenDiscover={onOpenDiscover} />);
     });
 
     expect(container!.querySelectorAll("[data-home-suggestion]").length).toBeLessThanOrEqual(3);

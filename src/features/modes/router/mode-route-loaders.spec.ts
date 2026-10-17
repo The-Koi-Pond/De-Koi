@@ -4,22 +4,18 @@ import type { ChatMode } from "../../../engine/contracts/types/chat";
 import { preloadModeRoute, type ModeRoutePreloaders } from "./mode-route-loaders";
 
 describe("preloadModeRoute", () => {
-  it.each(["conversation", "roleplay", "game", "fanfic"] as const)(
-    "loads only the %s route",
-    async (mode: ChatMode) => {
-      const loaders: ModeRoutePreloaders = {
-        conversation: vi.fn(async () => undefined),
-        roleplay: vi.fn(async () => undefined),
-        game: vi.fn(async () => undefined),
-        fanfic: vi.fn(async () => undefined),
-      };
+  it.each(["conversation", "roleplay", "fanfic"] as const)("loads only the %s route", async (mode: ChatMode) => {
+    const loaders: ModeRoutePreloaders = {
+      conversation: vi.fn(async () => undefined),
+      roleplay: vi.fn(async () => undefined),
+      fanfic: vi.fn(async () => undefined),
+    };
 
-      await preloadModeRoute(mode, loaders);
+    await preloadModeRoute(mode, loaders);
 
-      expect(loaders[mode]).toHaveBeenCalledOnce();
-      for (const otherMode of ["conversation", "roleplay", "game", "fanfic"] as const) {
-        if (otherMode !== mode) expect(loaders[otherMode]).not.toHaveBeenCalled();
-      }
-    },
-  );
+    expect(loaders[mode]).toHaveBeenCalledOnce();
+    for (const otherMode of ["conversation", "roleplay", "fanfic"] as const) {
+      if (otherMode !== mode) expect(loaders[otherMode]).not.toHaveBeenCalled();
+    }
+  });
 });

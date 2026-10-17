@@ -34,11 +34,10 @@ type TrackerPanelSectionOrder = TrackerDataPanelSection[];
 export type EchoChamberSide = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export type UserStatus = "active" | "idle" | "dnd";
 export type RoleplayAvatarStyle = "none" | "circles" | "rectangles" | "panel";
-export type GameDialogueDisplayMode = "classic" | "stacked";
 export type ConversationMessageStyle = "classic" | "bubble";
 export type SummaryPopoverSourceMode = "all" | "last" | "range";
 export type QuickReplyActionScope = "global" | "mode" | "chat";
-export type QuickReplyModeScope = "conversation" | "roleplay" | "game";
+export type QuickReplyModeScope = "conversation" | "roleplay";
 export const QUICK_REPLY_ICON_IDS = [
   "file-text",
   "wand",
@@ -84,19 +83,6 @@ export const CONVERSATION_MESSAGE_STYLE_OPTIONS: Array<{
   { id: "bubble", label: "Bubbles", description: "Messenger-style bubbles" },
 ];
 
-interface GameSetupLearnedOptions {
-  genres: string[];
-  tones: string[];
-  settings: string[];
-  goals: string[];
-  preferences: string[];
-}
-
-interface GameSetupRememberedText {
-  playerGoals: string;
-  preferences: string;
-}
-
 export const SIDEBAR_WIDTH_DEFAULT = 320;
 export const RIGHT_PANEL_WIDTH_DEFAULT = 320;
 export const SIDEBAR_WIDTH_MIN = 280;
@@ -113,7 +99,6 @@ const TRACKER_PANEL_WIDTH_MIN = TRACKER_PANEL_SIZE_PROFILE_WIDTHS.compact;
 const TRACKER_PANEL_WIDTH_MAX = TRACKER_PANEL_SIZE_PROFILE_WIDTHS.expanded;
 export const IMAGE_DIMENSION_MIN = 64;
 export const IMAGE_DIMENSION_MAX = 4096;
-const GAME_SETUP_LEARNED_LIMIT = 60;
 const USER_QUICK_REPLY_LIMIT = 24;
 const USER_QUICK_REPLY_LABEL_LIMIT = 24;
 const USER_QUICK_REPLY_TEMPLATE_LIMIT = 500;
@@ -129,18 +114,6 @@ export const ROLEPLAY_AVATAR_SCALE_MAX = 2.5;
 export const ROLEPLAY_SPRITE_SCALE_MIN = 0.5;
 export const ROLEPLAY_SPRITE_SCALE_MAX = 1.75;
 
-export const DEFAULT_GAME_SETUP_LEARNED_OPTIONS: GameSetupLearnedOptions = {
-  genres: [],
-  tones: [],
-  settings: [],
-  goals: [],
-  preferences: [],
-};
-
-export const DEFAULT_GAME_SETUP_REMEMBERED_TEXT: GameSetupRememberedText = {
-  playerGoals: "",
-  preferences: "",
-};
 export const DEFAULT_SUMMARY_POPOVER_SETTINGS: SummaryPopoverSettings = {
   sourceMode: "all",
   contextSize: null,
@@ -237,16 +210,6 @@ export function normalizeSummaryPopoverSettings(value: unknown): SummaryPopoverS
   };
 }
 
-export function normalizeLearnedGameSetupOption(value: unknown) {
-  if (typeof value !== "string") return "";
-  return value.replace(/\s+/g, " ").trim().slice(0, 160);
-}
-
-export function normalizeRememberedGameSetupText(value: unknown) {
-  if (typeof value !== "string") return "";
-  return value.trim().slice(0, 2000);
-}
-
 export function normalizeUserQuickReplyActions(value: unknown): UserQuickReplyActionConfig[] {
   if (!Array.isArray(value)) return [];
 
@@ -269,7 +232,7 @@ export function normalizeUserQuickReplyActions(value: unknown): UserQuickReplyAc
       raw.scope === "mode" || raw.scope === "chat" || raw.scope === "global"
         ? (raw.scope as QuickReplyActionScope)
         : "global";
-    const mode = raw.mode === "conversation" || raw.mode === "roleplay" || raw.mode === "game" ? raw.mode : undefined;
+    const mode = raw.mode === "conversation" || raw.mode === "roleplay" ? raw.mode : undefined;
     const chatId = typeof raw.chatId === "string" ? raw.chatId.trim() : undefined;
 
     if (!id || seenIds.has(id) || !label || !commandTemplate) continue;
@@ -295,24 +258,6 @@ export function normalizeUserQuickReplyActions(value: unknown): UserQuickReplyAc
   return normalized;
 }
 
-export function mergeLearnedGameSetupOptions(existing: string[] | undefined, incoming: unknown[]) {
-  const byKey = new Map<string, string>();
-
-  for (const value of existing ?? []) {
-    const normalized = normalizeLearnedGameSetupOption(value);
-    if (normalized) byKey.set(normalized.toLowerCase(), normalized);
-  }
-
-  for (const value of [...incoming].reverse()) {
-    const normalized = normalizeLearnedGameSetupOption(value);
-    if (!normalized) continue;
-    byKey.delete(normalized.toLowerCase());
-    byKey.set(normalized.toLowerCase(), normalized);
-  }
-
-  return [...byKey.values()].reverse().slice(0, GAME_SETUP_LEARNED_LIMIT);
-}
-
 export type FullPageRoutePatch = Partial<
   Pick<
     UIState,
@@ -327,7 +272,6 @@ export type FullPageRoutePatch = Partial<
     | "regexDetailId"
     | "characterLibraryOpen"
     | "botBrowserOpen"
-    | "gameAssetsBrowserOpen"
     | "rightPanelOpen"
     | "rightPanel"
     | "editorDirty"
@@ -432,8 +376,6 @@ export interface UIState {
   regexDetailId: string | null;
   /** When true, the main area shows the browser */
   botBrowserOpen: boolean;
-  /** When true, the main area shows the game assets browser */
-  gameAssetsBrowserOpen: boolean;
   /** When true, the main area shows the full-page character library */
   characterLibraryOpen: boolean;
   /** True when any open detail editor has unsaved changes */
@@ -452,22 +394,7 @@ export interface UIState {
   debugMode: boolean;
   /** Typewriter speed: 1 (very slow) to 100 (instant). Controls how fast streaming tokens appear. */
   streamingSpeed: number;
-  /** When true, Game mode narration segments are revealed in full as soon as they become active. */
-  gameInstantTextReveal: boolean;
-  /**
-   * When true, the mouse wheel skips through past assistant turns in Game mode (up = back,
-   * down = forward) and clicking the scene background acts like the Next button. While
-   * scrolled into the past, the Next button changes to "Return" so the player can jump back
-   * to where they were reading.
-   */
-  gameMiddleMouseNav: boolean;
-  /** Game mode dialogue layout: classic VN box or a VN box with a scrollable segment history above it. */
-  gameDialogueDisplayMode: GameDialogueDisplayMode;
-  /** Game narration text speed: 1 (very slow) to 100 (instant). Controls the typewriter in game mode. */
-  gameTextSpeed: number;
-  /** Delay in ms between auto-advancing narration segments when auto-play is enabled. */
-  gameAutoPlayDelay: number;
-  /** When true, generated game image prompts are shown for review before provider calls are sent. */
+  /** When true, generated image prompts are shown for review before provider calls are sent. */
   reviewImagePromptsBeforeSend: boolean;
   /** When true, character/persona appearance text is allowed into generated image prompts. */
   imagePromptIncludeAppearances: boolean;
@@ -539,10 +466,6 @@ export interface UIState {
   roleplayAvatarScale: number;
   /** Default scale multiplier for Roleplay full-body sprites. */
   roleplaySpriteScale: number;
-  /** Scale multiplier for Game mode VN dialogue portraits. */
-  gameAvatarScale: number;
-  /** Scale multiplier for Game mode center full-body sprites. */
-  gameFullBodySpriteScale: number;
   /** Text outline/stroke width in px (0 = off) */
   textStrokeWidth: number;
   /** Text outline/stroke color */
@@ -564,7 +487,7 @@ export interface UIState {
   notificationSound: NotificationSoundId;
   /** Optional browser-readable audio data URL for custom notification pings. */
   customNotificationSound: CustomNotificationSound | null;
-  /** Text reveal blip mode for generated Conversation, Roleplay, and Game text. */
+  /** Text reveal blip mode for generated Conversation and Roleplay text. */
   textBlipMode: TextBlipMode;
   /** Optional locally persisted custom blip sound, stored as a small data URL. */
   customTextBlipSound: CustomTextBlipSound | null;
@@ -580,15 +503,10 @@ export interface UIState {
   // ── Schedule Generation Preferences ──
   /** Free-form user guidance injected into the conversation-mode schedule generation prompt (empty = unset). */
   scheduleGenerationPreferences: string;
-  /** Custom Game setup chips learned from previous games. */
-  learnedGameSetupOptions: GameSetupLearnedOptions;
-  /** Last submitted free-text Game setup fields. */
-  rememberedGameSetupText: GameSetupRememberedText;
 
   // ── Input ──
   enterToSendRP: boolean;
   enterToSendConvo: boolean;
-  enterToSendGame: boolean;
 
   // ── Roleplay Effects ──
   weatherEffects: boolean;
@@ -600,8 +518,6 @@ export interface UIState {
   hasCompletedOnboarding: boolean;
   /** Transient explicit request for the optional spotlight tour. */
   onboardingTourOpen: boolean;
-  /** True once the user has permanently disabled the in-game tutorial (? icon still re-opens). */
-  gameTutorialDisabled: boolean;
 
   // ── Dismissals ──
   linkApiBannerDismissed: boolean;
@@ -690,8 +606,6 @@ export interface UIState {
   closeCharacterLibrary: () => void;
   openBotBrowser: () => void;
   closeBotBrowser: () => void;
-  openGameAssetsBrowser: () => void;
-  closeGameAssetsBrowser: () => void;
 
   /** Returns true if any full-page detail editor is currently open */
   hasAnyDetailOpen: () => boolean;
@@ -708,11 +622,6 @@ export interface UIState {
   setEnableStreaming: (v: boolean) => void;
   setDebugMode: (v: boolean) => void;
   setStreamingSpeed: (v: number) => void;
-  setGameInstantTextReveal: (v: boolean) => void;
-  setGameMiddleMouseNav: (v: boolean) => void;
-  setGameDialogueDisplayMode: (v: GameDialogueDisplayMode) => void;
-  setGameTextSpeed: (v: number) => void;
-  setGameAutoPlayDelay: (v: number) => void;
   setReviewImagePromptsBeforeSend: (v: boolean) => void;
   setImagePromptIncludeAppearances: (v: boolean) => void;
   setImagePromptFormat: (format: ImagePromptFormat) => void;
@@ -756,8 +665,6 @@ export interface UIState {
   setRoleplayAvatarStyle: (v: RoleplayAvatarStyle) => void;
   setRoleplayAvatarScale: (v: number) => void;
   setRoleplaySpriteScale: (v: number) => void;
-  setGameAvatarScale: (v: number) => void;
-  setGameFullBodySpriteScale: (v: number) => void;
   setTextStrokeWidth: (v: number) => void;
   setTextStrokeColor: (v: string) => void;
   setCenterCompact: (v: boolean) => void;
@@ -774,14 +681,8 @@ export interface UIState {
   setAutomaticMemoryCaptureNotifications: (v: boolean) => void;
   setCustomConversationPrompt: (v: string | null) => void;
   setScheduleGenerationPreferences: (v: string) => void;
-  rememberGameSetupOptions: (
-    options: Partial<GameSetupLearnedOptions>,
-    text?: Partial<GameSetupRememberedText>,
-  ) => void;
-  forgetGameSetupOption: (group: keyof GameSetupLearnedOptions, value: string) => void;
   setEnterToSendRP: (v: boolean) => void;
   setEnterToSendConvo: (v: boolean) => void;
-  setEnterToSendGame: (v: boolean) => void;
   setWeatherEffects: (v: boolean) => void;
   setHudPosition: (v: HudPosition) => void;
 
@@ -795,7 +696,6 @@ export interface UIState {
 
   setHasCompletedOnboarding: (v: boolean) => void;
   setOnboardingTourOpen: (open: boolean) => void;
-  setGameTutorialDisabled: (v: boolean) => void;
   dismissLinkApiBanner: () => void;
   setEchoChamberOpen: (open: boolean, chatId?: string | null) => void;
   toggleEchoChamber: (chatId?: string | null) => void;

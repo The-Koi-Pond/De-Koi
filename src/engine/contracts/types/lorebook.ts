@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 
 /** Top-level lorebook categories. */
-export type LorebookCategory = "world" | "character" | "npc" | "spellbook" | "game" | "uncategorized";
+export type LorebookCategory = "world" | "character" | "npc" | "spellbook" | "uncategorized";
 
 /**
  * How secondary keys gate an entry, matching SillyTavern's four modes:

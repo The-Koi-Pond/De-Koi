@@ -8,7 +8,6 @@ import { ModeHomeSurface } from "./ModeHomeSurface";
 
 const ConversationModeRoute = lazy(MODE_ROUTE_LOADERS.conversation);
 const RoleplayModeRoute = lazy(MODE_ROUTE_LOADERS.roleplay);
-const GameModeRoute = lazy(MODE_ROUTE_LOADERS.game);
 const FanficModeRoute = lazy(MODE_ROUTE_LOADERS.fanfic);
 
 function RestoringChatState({ error, onBack }: { error?: string | null; onBack: () => void }) {
@@ -38,11 +37,9 @@ function RestoringChatState({ error, onBack }: { error?: string | null; onBack: 
 }
 
 export function ModeSurface({
-  onOpenNoModelShowcase,
   onOpenDiscover,
   readinessSurface = null,
 }: {
-  onOpenNoModelShowcase?: () => void;
   onOpenDiscover?: () => void;
   readinessSurface?: ReactNode;
 }) {
@@ -69,7 +66,6 @@ export function ModeSurface({
         readinessSurface={readinessSurface}
         hasActivity={Boolean(chatSummaries?.length)}
         onOpenDiscover={onOpenDiscover}
-        onOpenNoModelShowcase={onOpenNoModelShowcase}
       />
     );
 
@@ -93,16 +89,13 @@ export function ModeSurface({
         readinessSurface={readinessSurface}
         hasActivity={Boolean(chatSummaries?.length)}
         onOpenDiscover={onOpenDiscover}
-        onOpenNoModelShowcase={onOpenNoModelShowcase}
       />
     );
   }
 
   return (
     <Suspense fallback={fallback}>
-      {chatMode === "game" ? (
-        <GameModeRoute key={activeChatId} activeChatId={activeChatId} />
-      ) : chatMode === "fanfic" ? (
+      {chatMode === "fanfic" ? (
         <FanficModeRoute key={activeChatId} activeChatId={activeChatId} />
       ) : chatMode === "conversation" ? (
         <ConversationModeRoute activeChatId={activeChatId} />

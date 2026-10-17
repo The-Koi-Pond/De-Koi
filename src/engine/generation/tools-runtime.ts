@@ -906,8 +906,6 @@ export async function executeBuiltInTool(
       const trackUris = uris.filter((candidate) => candidate.startsWith("spotify:track:"));
       if (trackUris.length > 0) body.uris = trackUris;
       else body.contextUri = uris[0];
-      const chatMode = readString(input.chat.mode || input.chat.chatMode).trim();
-      if (chatMode === "game") body.repeatAfterPlay = "track";
       const result = await integrations.spotify.play(body);
       const playedTrackUris = spotifyPlaybackAppliedTrackUris(result, trackUris);
       await rememberSpotifyPlayedTracks(storage, input, playedTrackUris);

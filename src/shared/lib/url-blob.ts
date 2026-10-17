@@ -21,10 +21,6 @@ function dataUrlToBlob(url: string, fallbackMimeType = "application/octet-stream
   return new Blob([bytesToArrayBuffer(base64ToBytes(data))], { type: mimeType });
 }
 
-function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
-  return blob.arrayBuffer();
-}
-
 async function loadRemoteBlob(url: string, fallbackMimeType: string): Promise<Blob> {
   return urlBinaryApi.load(url, fallbackMimeType);
 }
@@ -42,13 +38,6 @@ export async function loadUrlBlob(
   } catch (error) {
     throw new Error(options.errorMessage ?? (error instanceof Error ? error.message : `Failed to load ${url}`));
   }
-}
-
-export async function loadUrlArrayBuffer(
-  url: string,
-  options: { init?: RequestInit; errorMessage?: string } = {},
-): Promise<ArrayBuffer> {
-  return blobToArrayBuffer(await loadUrlBlob(url, options));
 }
 
 export async function blobToDataUrl(blob: Blob, errorMessage = "Failed to convert file."): Promise<string> {

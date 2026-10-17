@@ -21,14 +21,14 @@ Forbidden:
 
 - `src/engine/**` importing React, Zustand stores, `@tauri-apps/api`, or `src/features/**`.
 - `src/engine/**` importing concrete `src/shared/api/**` adapters.
-- `engine/modes/chat` importing `engine/modes/roleplay` or `engine/modes/game`.
-- `engine/modes/roleplay` importing `engine/modes/chat` or `engine/modes/game`.
-- `engine/modes/game` importing `engine/modes/chat` or `engine/modes/roleplay`.
+- `engine/modes/chat` importing `engine/modes/roleplay` or `engine/modes/fanfic`.
+- `engine/modes/roleplay` importing `engine/modes/chat` or `engine/modes/fanfic`.
+- `engine/modes/fanfic` importing `engine/modes/chat` or `engine/modes/roleplay`.
 - `src/shared/**` importing `src/features/**`.
 - `features/catalog/**` importing `features/runtime/**`, `features/modes/**`, or `features/shell/**`.
 - `features/runtime/**` importing `features/modes/**` or `features/shell/**`.
 - `features/modes/**` importing `features/shell/**`.
-- Concrete feature modes importing each other directly: `features/modes/conversation`, `features/modes/roleplay`, and `features/modes/game` are composed only by `features/modes/router`.
+- Concrete feature modes importing each other directly: `features/modes/conversation`, `features/modes/roleplay`, and `features/modes/fanfic` are composed only by `features/modes/router`.
 - `features/modes/shared/**` importing concrete mode packages.
 - Feature code importing another package's private `components`, `hooks`, `stores`, `state`, `lib`, `api`, or `encounter` folders.
 - New or touched feature code importing `src/shared/api/tauri-client` or `@tauri-apps/api` directly instead of a focused shared API wrapper.

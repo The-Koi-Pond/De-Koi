@@ -13,7 +13,7 @@ Use this skill to reach shared understanding before implementation. Ask one ques
 - `PRODUCT.md` and `DESIGN.md` when product or UI intent matters
 - `skills/de-koi-agent-workflow/SKILL.md`
 - `skills/de-koi-architecture-guard/SKILL.md` for ownership, imports, shared APIs, Tauri, Rust, storage, providers, or runtime behavior
-- `skills/de-koi-mode-separation/SKILL.md` for chat, roleplay, game, prompt, generation, or mode UI behavior
+- `skills/de-koi-mode-separation/SKILL.md` for chat, roleplay, fanfic, prompt, generation, or mode UI behavior
 
 ## Session Loop
 
@@ -29,7 +29,7 @@ Use this skill to reach shared understanding before implementation. Ask one ques
 ## What To Challenge
 
 - owner confusion between `src/engine`, `src/features`, `src/shared/api`, and `src-tauri`
-- chat, roleplay, and game mode mixing
+- chat, roleplay, and fanfic mode mixing
 - UI-only fixes for engine/storage/provider contract bugs
 - hidden persistence, migration, import/export, prompt, provider, or security risk
 - vague words such as "sync", "memory", "agent", "runtime", "profile", or "state" when multiple De-Koi meanings exist

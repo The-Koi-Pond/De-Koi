@@ -62,7 +62,7 @@ The main branch is layered by ownership:
 - `src/app` owns React bootstrap, app shell, providers, and startup effects.
 - `src/features` owns user-facing React workflows.
 - `src/features/shell` owns settings, imports, onboarding, Deki-senpai, and integrations surfaces.
-- `src/features/modes` owns chat, roleplay, game, shared transcript UI, and the mode router.
+- `src/features/modes` owns chat, roleplay, fanfic, shared transcript UI, and the mode router.
 - `src/features/runtime` owns shared runtime systems such as generation, world-state, visuals, and tracker.
 - `src/features/catalog` owns resource-library UI and hooks for chats, characters, personas, sprites, lorebooks, presets, connections, agents, gallery, and knowledge sources.
 - `src/shared` owns feature-neutral frontend components, hooks, stores, types, and browser helpers.
@@ -82,15 +82,14 @@ Hard boundaries:
 - Engine code must not import React, Zustand stores, `@tauri-apps/api`, feature internals, or concrete `src/shared/api` adapters.
 - New or touched feature code should use focused shared API wrappers, not raw `invokeTauri` imports or raw remote-runtime `fetch`.
 - Remote-capable behavior must use the explicit path through `src/shared/api`, `remote-runtime.ts`, `src-tauri/src/http_server.rs`, and `src-tauri/src/http_dispatch.rs`.
-- Chat, roleplay, and game remain separate mode owners. Put reusable mode UI in shared mode UI, not in another concrete mode.
+- Chat, roleplay, and fanfic remain separate mode owners. Put reusable mode UI in shared mode UI, not in another concrete mode.
 - `src/shared` must stay feature-neutral and must not import from `src/features` or `src/app`.
 - Tauri commands should stay thin. Durable behavior belongs in focused Rust modules or crates.
 
 Known pressure points:
 
 - `src/features/modes/router/components/ModeSurface.tsx` is still broad. Avoid adding unrelated orchestration there when a mode, runtime, or catalog owner fits better.
-- `src/features/modes/game/components/GameSurface.tsx` is the largest UI orchestrator. Prefer extracting focused game-owned helpers or controllers when adding substantial behavior.
-- Some shared mode UI files are large. Keep them mode-neutral rather than using them as a place for concrete chat, roleplay, or game rules.
+- Some shared mode UI files are large. Keep them mode-neutral rather than using them as a place for concrete chat, roleplay, or fanfic rules.
 - `src-tauri/src/lib.rs` still has a broad command registration list. Add commands deliberately and keep implementation outside the registry.
 - Import workflows are split, but dense modules remain. Trace storage, asset, security, and payload paths before changing imports.
 

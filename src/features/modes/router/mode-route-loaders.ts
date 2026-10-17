@@ -9,10 +9,6 @@ export const MODE_ROUTE_LOADERS = {
     const module = await import("../roleplay/index");
     return { default: module.RoleplayModeRoute };
   },
-  game: async () => {
-    const module = await import("../game/index");
-    return { default: module.GameModeRoute };
-  },
   fanfic: async () => {
     const module = await import("../fanfic/index");
     return { default: module.FanficModeRoute };

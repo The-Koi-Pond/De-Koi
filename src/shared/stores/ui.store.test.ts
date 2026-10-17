@@ -25,7 +25,6 @@ function resetUiDetails() {
     regexDetailId: null,
     characterLibraryOpen: false,
     botBrowserOpen: false,
-    gameAssetsBrowserOpen: false,
     editorDirty: false,
     mobileDetailOriginPanel: null,
   });

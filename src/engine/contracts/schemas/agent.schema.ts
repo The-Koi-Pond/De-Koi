@@ -32,10 +32,6 @@ const agentResultTypeSchema = z.enum([
   "spotify_control",
   "cyoa_choices",
   "secret_plot",
-  "game_master_narration",
-  "party_action",
-  "game_map_update",
-  "game_state_transition",
 ]);
 
 const customAgentActivationSettingsSchema = z

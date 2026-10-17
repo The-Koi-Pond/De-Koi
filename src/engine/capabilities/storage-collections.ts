@@ -212,7 +212,6 @@ const STORAGE_COLLECTIONS = {
   },
   "knowledge-sources": { genericApi: true },
   "game-state-snapshots": { genericApi: true },
-  "game-checkpoints": { genericApi: true },
 } as const satisfies Record<string, StorageCollectionMetadata>;
 
 type StorageCollectionName = keyof typeof STORAGE_COLLECTIONS;

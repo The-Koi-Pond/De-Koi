@@ -9,7 +9,6 @@ import {
   TRACKER_PANEL_SIZE_PROFILES,
   getTrackerPanelWidthForProfile,
   useUIStore,
-  type GameDialogueDisplayMode,
   type QuoteFormat,
   type RoleplayAvatarStyle,
   type TrackerDataPanelSection,
@@ -40,7 +39,6 @@ import {
 } from "../../hooks/use-extensions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../../shared/hooks/use-mutation";
-import { gameAssetsApi } from "../../../../../shared/api/assets-api";
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
 import { importApi } from "../../../../../shared/api/import-api";
 import { CHARACTER_IMPORT_SIZE_ERROR, MAX_CHARACTER_IMPORT_UPLOAD_BYTES } from "../../../../../shared/api/file-payload";
@@ -70,7 +68,6 @@ import {
 } from "../../../../../shared/api/remote-runtime";
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import { AUDIO_MIME_MAP, IMAGE_MIME_MAP } from "../../../../../engine/contracts/constants/game-assets";
 import {
   findImageStyleProfile,
   normalizeImageStyleProfileSettings,
@@ -134,11 +131,9 @@ import {
   MessageCircle,
   RefreshCw,
   RotateCcw,
-  ScrollText,
 } from "lucide-react";
 import { useUpdateChatMetadata } from "../../../../catalog/chats";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
-import { useGameAssetStore } from "../../../../modes/game/index";
 import { chatKeys } from "../../../../catalog/chats";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { TrackerPanelIcon } from "../../../../../shared/components/ui/TrackerPanelIcon";
@@ -183,19 +178,6 @@ const ROLEPLAY_AVATAR_STYLE_OPTIONS: Array<{ id: RoleplayAvatarStyle; label: str
     id: "panel",
     label: "Glued Side Panel",
     desc: "A taller portrait strip fused into the message bubble.",
-  },
-];
-
-const GAME_DIALOGUE_DISPLAY_OPTIONS: Array<{ id: GameDialogueDisplayMode; label: string; desc: string }> = [
-  {
-    id: "classic",
-    label: "Classic VN",
-    desc: "One active segment in the VN box, with logs available from the Logs button.",
-  },
-  {
-    id: "stacked",
-    label: "History Above VN",
-    desc: "Shows prior segments above the VN box and keeps the full session scrollable there.",
   },
 ];
 
@@ -294,56 +276,6 @@ const TRACKER_PANEL_CARD_OPTIONS: Record<TrackerDataPanelSection, { label: strin
     desc: "Extra tracker fields from custom tracker agents.",
   },
 };
-
-const GAME_AUDIO_ASSET_EXTENSIONS = Object.keys(AUDIO_MIME_MAP);
-const GAME_AUDIO_ASSET_MIME_TYPES = Array.from(new Set(Object.values(AUDIO_MIME_MAP)));
-const GAME_AUDIO_ASSET_ACCEPT = [...GAME_AUDIO_ASSET_MIME_TYPES, ...GAME_AUDIO_ASSET_EXTENSIONS].join(",");
-const GAME_RASTER_IMAGE_ASSET_EXTENSIONS = Object.keys(IMAGE_MIME_MAP).filter((extension) => extension !== ".svg");
-const GAME_SPRITE_IMAGE_ASSET_EXTENSIONS = Object.keys(IMAGE_MIME_MAP);
-const GAME_RASTER_IMAGE_ASSET_ACCEPT = [
-  ...new Set(GAME_RASTER_IMAGE_ASSET_EXTENSIONS.map((extension) => IMAGE_MIME_MAP[extension])),
-  ...GAME_RASTER_IMAGE_ASSET_EXTENSIONS,
-].join(",");
-const GAME_SPRITE_IMAGE_ASSET_ACCEPT = [
-  ...new Set(GAME_SPRITE_IMAGE_ASSET_EXTENSIONS.map((extension) => IMAGE_MIME_MAP[extension])),
-  ...GAME_SPRITE_IMAGE_ASSET_EXTENSIONS,
-].join(",");
-
-const GAME_ASSET_CATEGORIES = [
-  {
-    id: "music",
-    label: "Music",
-    defaultFolder: "exploration/fantasy/calm",
-    accept: GAME_AUDIO_ASSET_ACCEPT,
-  },
-  {
-    id: "ambient",
-    label: "Ambient",
-    defaultFolder: "nature",
-    accept: GAME_AUDIO_ASSET_ACCEPT,
-  },
-  {
-    id: "sfx",
-    label: "Sound Effects",
-    defaultFolder: "exploration",
-    accept: GAME_AUDIO_ASSET_ACCEPT,
-  },
-  {
-    id: "sprites",
-    label: "Sprites",
-    defaultFolder: "generic-fantasy",
-    accept: GAME_SPRITE_IMAGE_ASSET_ACCEPT,
-  },
-  {
-    id: "backgrounds",
-    label: "Backgrounds",
-    defaultFolder: "custom",
-    accept: GAME_RASTER_IMAGE_ASSET_ACCEPT,
-  },
-] as const;
-
-type GameAssetCategoryId = (typeof GAME_ASSET_CATEGORIES)[number]["id"];
-const GAME_ASSET_CATEGORY_BY_ID = new Map(GAME_ASSET_CATEGORIES.map((category) => [category.id, category]));
 
 function ImageDimensionRow({
   label,
@@ -728,14 +660,6 @@ export function GeneralSettings() {
   const setEnableStreaming = useUIStore((s) => s.setEnableStreaming);
   const streamingSpeed = useUIStore((s) => s.streamingSpeed);
   const setStreamingSpeed = useUIStore((s) => s.setStreamingSpeed);
-  const gameInstantTextReveal = useUIStore((s) => s.gameInstantTextReveal);
-  const setGameInstantTextReveal = useUIStore((s) => s.setGameInstantTextReveal);
-  const gameMiddleMouseNav = useUIStore((s) => s.gameMiddleMouseNav);
-  const setGameMiddleMouseNav = useUIStore((s) => s.setGameMiddleMouseNav);
-  const gameTextSpeed = useUIStore((s) => s.gameTextSpeed);
-  const setGameTextSpeed = useUIStore((s) => s.setGameTextSpeed);
-  const gameAutoPlayDelay = useUIStore((s) => s.gameAutoPlayDelay);
-  const setGameAutoPlayDelay = useUIStore((s) => s.setGameAutoPlayDelay);
   const reviewImagePromptsBeforeSend = useUIStore((s) => s.reviewImagePromptsBeforeSend);
   const setReviewImagePromptsBeforeSend = useUIStore((s) => s.setReviewImagePromptsBeforeSend);
   const imagePromptIncludeAppearances = useUIStore((s) => s.imagePromptIncludeAppearances);
@@ -758,8 +682,6 @@ export function GeneralSettings() {
   const setEnterToSendRP = useUIStore((s) => s.setEnterToSendRP);
   const enterToSendConvo = useUIStore((s) => s.enterToSendConvo);
   const setEnterToSendConvo = useUIStore((s) => s.setEnterToSendConvo);
-  const enterToSendGame = useUIStore((s) => s.enterToSendGame);
-  const setEnterToSendGame = useUIStore((s) => s.setEnterToSendGame);
   const confirmBeforeDelete = useUIStore((s) => s.confirmBeforeDelete);
   const setConfirmBeforeDelete = useUIStore((s) => s.setConfirmBeforeDelete);
   const messagesPerPage = useUIStore((s) => s.messagesPerPage);
@@ -779,15 +701,6 @@ export function GeneralSettings() {
   const setEditLastMessageOnArrowUp = useUIStore((s) => s.setEditLastMessageOnArrowUp);
   const editMessagesOnDoubleClick = useUIStore((s) => s.editMessagesOnDoubleClick);
   const setEditMessagesOnDoubleClick = useUIStore((s) => s.setEditMessagesOnDoubleClick);
-  const rescanGameAssets = useGameAssetStore((s) => s.rescanAssets);
-  const assetFileRef = useRef<HTMLInputElement>(null);
-  const [assetCategory, setAssetCategory] = useState<GameAssetCategoryId>("backgrounds");
-  const [assetSubcategory, setAssetSubcategory] = useState<string>(
-    GAME_ASSET_CATEGORY_BY_ID.get("backgrounds")?.defaultFolder ?? "custom",
-  );
-  const [assetFiles, setAssetFiles] = useState<File[]>([]);
-  const [assetUploading, setAssetUploading] = useState(false);
-  const assetCategoryMeta = GAME_ASSET_CATEGORY_BY_ID.get(assetCategory) ?? GAME_ASSET_CATEGORIES[0];
   const selectedImageStyleProfile = findImageStyleProfile(imageStyleProfiles, imageStyleProfiles.defaultProfileId);
   const imageStyleProfileIsCustom = selectedImageStyleProfile.builtIn !== true;
 
@@ -832,63 +745,6 @@ export function GeneralSettings() {
 
   const resetImageStyleProfiles = () => {
     setImageStyleProfiles(normalizeImageStyleProfileSettings(null));
-  };
-
-  const handleAssetCategoryChange = (nextCategory: GameAssetCategoryId) => {
-    setAssetCategory(nextCategory);
-    setAssetSubcategory(GAME_ASSET_CATEGORY_BY_ID.get(nextCategory)?.defaultFolder ?? "custom");
-    setAssetFiles([]);
-    if (assetFileRef.current) assetFileRef.current.value = "";
-  };
-
-  const handleGameAssetUpload = async () => {
-    if (assetUploading) return;
-    if (assetFiles.length === 0) {
-      toast.error("Choose at least one asset file first.");
-      return;
-    }
-    const folder = assetSubcategory.trim().replace(/^\/+|\/+$/g, "") || assetCategoryMeta.defaultFolder;
-    if (folder.includes("..") || folder.includes("\\") || folder.startsWith("/")) {
-      toast.error("Folder names cannot contain path traversal.");
-      return;
-    }
-
-    const tooLarge = assetFiles.find((file) => file.size > 50 * 1024 * 1024);
-    if (tooLarge) {
-      toast.error(`${tooLarge.name} is too large. Game assets are limited to 50 MB each.`);
-      return;
-    }
-
-    setAssetUploading(true);
-    try {
-      const uploads = await Promise.allSettled(
-        assetFiles.map((file) =>
-          gameAssetsApi.upload({
-            file,
-            category: assetCategory,
-            subcategory: folder,
-          }),
-        ),
-      );
-      const succeeded = uploads.filter((result) => result.status === "fulfilled").length;
-      const failed = uploads.length - succeeded;
-      await rescanGameAssets();
-      if (succeeded > 0) {
-        toast.success(`Uploaded ${succeeded} game asset${succeeded === 1 ? "" : "s"}.`);
-      }
-      if (failed > 0) {
-        const reason = uploads.find((result) => result.status === "rejected");
-        toast.error(
-          reason?.status === "rejected" && reason.reason instanceof Error
-            ? toUserMessage(reason.reason, { fallback: `${failed} asset upload${failed === 1 ? "" : "s"} failed.` })
-            : `${failed} asset upload${failed === 1 ? "" : "s"} failed.`,
-        );
-      }
-      setAssetFiles([]);
-      if (assetFileRef.current) assetFileRef.current.value = "";
-    } finally {
-      setAssetUploading(false);
-    }
   };
 
   return (
@@ -952,68 +808,6 @@ export function GeneralSettings() {
         </div>
       </label>
 
-      <ToggleSetting
-        label="Instantly reveal game text"
-        checked={gameInstantTextReveal}
-        onChange={setGameInstantTextReveal}
-        help="When enabled, Game mode narration segments appear fully as soon as you enter them. This skips the typewriter effect and hides the narration speed control."
-      />
-
-      <ToggleSetting
-        label="Mouse-wheel + click navigation"
-        checked={gameMiddleMouseNav}
-        onChange={setGameMiddleMouseNav}
-        help="In Game mode, scroll the mouse wheel up to step back through past assistant turns and down to step forward. Clicking the scene background acts like the Next button. While reviewing the past, Next becomes Return â€” clicking the background or pressing Return jumps you back to where you were reading."
-      />
-
-      {/* Game Narration Text Speed */}
-      {!gameInstantTextReveal && (
-        <label className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
-          <div className="flex items-center gap-2">
-            <span className="text-xs">Game narration speed</span>
-            <span className="text-xs tabular-nums text-[var(--muted-foreground)]">{gameTextSpeed}</span>
-            <HelpTooltip text="How fast the typewriter effect displays narration text in Game mode. Lower values give a slower cinematic reveal. Higher values show text almost instantly." />
-          </div>
-          <input
-            type="range"
-            min={1}
-            max={100}
-            step={1}
-            value={gameTextSpeed}
-            onChange={(e) => setGameTextSpeed(Number(e.target.value))}
-            className="w-full accent-[var(--primary)]"
-          />
-          <div className="flex justify-between text-[0.625rem] text-[var(--muted-foreground)]">
-            <span>Slow</span>
-            <span>Fast</span>
-          </div>
-        </label>
-      )}
-
-      {/* Game Auto-Play Delay */}
-      <label className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
-        <div className="flex items-center gap-2">
-          <span className="text-xs">Game auto-play segment delay</span>
-          <span className="text-xs tabular-nums text-[var(--muted-foreground)]">
-            {(gameAutoPlayDelay / 1000).toFixed(1)}s
-          </span>
-          <HelpTooltip text="Pause between each narration segment when auto-play is enabled in Game mode. Enable auto-play via the â–¶ button next to Next." />
-        </div>
-        <input
-          type="range"
-          min={200}
-          max={5000}
-          step={100}
-          value={gameAutoPlayDelay}
-          onChange={(e) => setGameAutoPlayDelay(Number(e.target.value))}
-          className="w-full accent-[var(--primary)]"
-        />
-        <div className="flex justify-between text-[0.625rem] text-[var(--muted-foreground)]">
-          <span>Short</span>
-          <span>Long</span>
-        </div>
-      </label>
-
       {/* Send on Enter â€” inline toggles per mode */}
       <div className="flex flex-col gap-1.5 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]/50">
         <div className="flex items-center gap-2">
@@ -1042,17 +836,6 @@ export function GeneralSettings() {
             )}
           >
             Conversations
-          </button>
-          <button
-            onClick={() => setEnterToSendGame(!enterToSendGame)}
-            className={cn(
-              "rounded-md px-2 py-1 text-[0.625rem] font-medium transition-all",
-              enterToSendGame
-                ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
-            )}
-          >
-            Game
           </button>
         </div>
       </div>
@@ -1157,7 +940,7 @@ export function GeneralSettings() {
         <div className="mb-3 flex flex-col gap-1">
           <div className="text-xs font-semibold text-[var(--foreground)]">Image Generation</div>
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-            Review generated prompts before Game mode sends them, and set default canvases for generated assets.
+            Review generated prompts before they are sent, and set default canvases for generated images.
           </p>
         </div>
 
@@ -1166,7 +949,7 @@ export function GeneralSettings() {
             label="Expose image prompts before sending"
             checked={reviewImagePromptsBeforeSend}
             onChange={setReviewImagePromptsBeforeSend}
-            help="Shows generated image prompts for review before sending Game assets, character or persona avatars, sprites, chat selfies, and Roleplay Illustrator images to the image provider."
+            help="Shows generated image prompts for review before sending character or persona avatars, sprites, chat selfies, and Roleplay Illustrator images to the image provider."
           />
           <ToggleSetting
             label="Include card appearances"
@@ -1327,7 +1110,7 @@ export function GeneralSettings() {
 
           <ImageDimensionRow
             label="Backgrounds"
-            help="Used for Game mode generated backgrounds and special scene illustrations."
+            help="Used for generated chat backgrounds and special scene illustrations."
             width={imageBackgroundWidth}
             height={imageBackgroundHeight}
             onCommit={setImageBackgroundDimensions}
@@ -1347,117 +1130,6 @@ export function GeneralSettings() {
             onCommit={setImageSelfieDimensions}
           />
         </div>
-      </div>
-
-      {/* Game Assets Folders */}
-      <div className="rounded-xl bg-[var(--secondary)]/50 p-4 ring-1 ring-[var(--border)]">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="text-xs font-semibold text-[var(--foreground)]">Game Assets</div>
-          <button
-            onClick={() => {
-              rescanGameAssets()
-                .then(() => toast.success("Game assets rescanned."))
-                .catch(() => toast.error("Failed to rescan game assets."));
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            <RefreshCw size="0.75rem" />
-            Rescan
-          </button>
-        </div>
-        {gameAssetsApi.canOpenFolder() ? (
-          <div className="flex flex-wrap gap-2">
-            {GAME_ASSET_CATEGORIES.map((folder) => (
-              <button
-                key={folder.id}
-                onClick={() =>
-                  gameAssetsApi
-                    .openFolder(folder.id)
-                    .catch((error) =>
-                      toast.error(toUserMessage(error, { fallback: `Couldn't open the ${folder.id} folder.` })),
-                    )
-                }
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-1.5 text-[0.6875rem] font-medium capitalize text-[var(--muted-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-              >
-                <FolderOpen size="0.75rem" />
-                {folder.id}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-            Game asset folders live with the De-Koi server, so they can't be opened from here. Use Upload below to add
-            files.
-          </p>
-        )}
-
-        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <label className="flex min-w-0 flex-col gap-1">
-            <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Type</span>
-            <select
-              value={assetCategory}
-              onChange={(e) => handleAssetCategoryChange(e.target.value as GameAssetCategoryId)}
-              className="w-full rounded-lg bg-[var(--background)] px-3 py-2 text-xs text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] focus:ring-[var(--primary)]"
-            >
-              {GAME_ASSET_CATEGORIES.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1">
-            <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Folder</span>
-            <input
-              value={assetSubcategory}
-              onChange={(e) => setAssetSubcategory(e.target.value)}
-              placeholder={assetCategoryMeta.defaultFolder}
-              className="w-full rounded-lg bg-[var(--background)] px-3 py-2 text-xs text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] focus:ring-[var(--primary)]"
-            />
-          </label>
-        </div>
-
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <input
-            ref={assetFileRef}
-            type="file"
-            multiple
-            accept={assetCategoryMeta.accept}
-            className="hidden"
-            onChange={(e) => setAssetFiles(Array.from(e.target.files ?? []))}
-          />
-          <button
-            onClick={() => assetFileRef.current?.click()}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)]"
-          >
-            <Upload size="0.875rem" />
-            Choose Files
-          </button>
-          <button
-            onClick={handleGameAssetUpload}
-            disabled={assetUploading || assetFiles.length === 0}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ring-1 transition-all",
-              assetUploading || assetFiles.length === 0
-                ? "cursor-not-allowed bg-[var(--muted)] text-[var(--muted-foreground)] ring-[var(--border)]"
-                : "bg-[var(--primary)]/15 text-[var(--primary)] ring-[var(--primary)]/30 hover:bg-[var(--primary)]/20",
-            )}
-          >
-            {assetUploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
-            Upload to App Data
-          </button>
-          {assetFiles.length > 0 && (
-            <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
-              {assetFiles.length === 1 ? assetFiles[0]?.name : `${assetFiles.length} files selected`}
-            </span>
-          )}
-        </div>
-
-        <p className="mt-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-          On desktop, folder buttons open the local app asset folders. Use upload to copy files into De-Koi's managed
-          data directory. Audio supports MP3, OGG, WAV, FLAC, M4A, AAC, WebM, and Opus; images support PNG, JPG, GIF,
-          WebP, AVIF, and SVG for sprites. Music folders use state/genre/intensity, such as exploration/fantasy/calm.
-        </p>
       </div>
     </div>
   );
@@ -1534,12 +1206,6 @@ export function AppearanceSettings() {
   const setRoleplayAvatarScale = useUIStore((s) => s.setRoleplayAvatarScale);
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
   const setRoleplaySpriteScale = useUIStore((s) => s.setRoleplaySpriteScale);
-  const gameDialogueDisplayMode = useUIStore((s) => s.gameDialogueDisplayMode);
-  const setGameDialogueDisplayMode = useUIStore((s) => s.setGameDialogueDisplayMode);
-  const gameAvatarScale = useUIStore((s) => s.gameAvatarScale);
-  const setGameAvatarScale = useUIStore((s) => s.setGameAvatarScale);
-  const gameFullBodySpriteScale = useUIStore((s) => s.gameFullBodySpriteScale);
-  const setGameFullBodySpriteScale = useUIStore((s) => s.setGameFullBodySpriteScale);
   const textStrokeWidth = useUIStore((s) => s.textStrokeWidth);
   const setTextStrokeWidth = useUIStore((s) => s.setTextStrokeWidth);
   const textStrokeColor = useUIStore((s) => s.textStrokeColor);
@@ -2082,96 +1748,6 @@ export function AppearanceSettings() {
         </p>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5">
-          <Image size="0.75rem" className="text-[var(--muted-foreground)]" />
-          <span className="text-xs font-medium">Game VN Art</span>
-          <HelpTooltip text="Scales Game mode dialogue portraits separately from the center full-body sprites. Oversized art is still clamped per viewport." />
-        </div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex h-20 w-full shrink-0 items-end justify-center gap-3 overflow-hidden rounded-md bg-black/30 ring-1 ring-[var(--border)]/70 sm:w-28">
-              <div
-                className="mb-1 rounded-lg border border-white/20 bg-gradient-to-b from-sky-300/80 via-cyan-200/65 to-slate-800/90 shadow-lg transition-all"
-                style={{
-                  width: `${Math.min(3.5, 2.25 * gameAvatarScale)}rem`,
-                  height: `${Math.min(3.9, 2.6 * gameAvatarScale)}rem`,
-                }}
-              />
-              <div
-                className="mb-1 rounded-full border border-white/20 bg-gradient-to-b from-rose-200/85 via-fuchsia-200/70 to-slate-900/95 shadow-lg transition-all"
-                style={{
-                  width: `${Math.min(2.2, 0.9 * gameFullBodySpriteScale)}rem`,
-                  height: `${Math.min(4.8, 3.4 * gameFullBodySpriteScale)}rem`,
-                }}
-              />
-            </div>
-            <div className="grid min-w-0 flex-1 gap-3">
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[0.6875rem] font-medium text-[var(--foreground)]">Dialogue portrait scale</span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0.75}
-                    max={1.75}
-                    step={0.05}
-                    value={gameAvatarScale}
-                    onChange={(e) => setGameAvatarScale(Number(e.target.value))}
-                    className="min-w-0 flex-1 accent-[var(--primary)]"
-                  />
-                  <span className="w-12 text-right text-xs tabular-nums text-[var(--muted-foreground)]">
-                    {Math.round(gameAvatarScale * 100)}%
-                  </span>
-                </div>
-              </label>
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[0.6875rem] font-medium text-[var(--foreground)]">Full-body sprite scale</span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0.75}
-                    max={2.75}
-                    step={0.05}
-                    value={gameFullBodySpriteScale}
-                    onChange={(e) => setGameFullBodySpriteScale(Number(e.target.value))}
-                    className="min-w-0 flex-1 accent-[var(--primary)]"
-                  />
-                  <span className="w-12 text-right text-xs tabular-nums text-[var(--muted-foreground)]">
-                    {Math.round(gameFullBodySpriteScale * 100)}%
-                  </span>
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5">
-          <ScrollText size="0.75rem" className="text-[var(--muted-foreground)]" />
-          <span className="text-xs font-medium">Game Dialogue Display</span>
-          <HelpTooltip text="Choose whether Game mode uses the classic VN box or shows a scrollable segment history directly above it." />
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {GAME_DIALOGUE_DISPLAY_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setGameDialogueDisplayMode(opt.id)}
-              className={cn(
-                "flex flex-col items-start gap-1 rounded-lg border p-3 text-left text-xs transition-all",
-                gameDialogueDisplayMode === opt.id
-                  ? "border-[var(--primary)] bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]"
-                  : "border-[var(--border)] hover:border-[var(--primary)]/40",
-              )}
-            >
-              <span className="font-semibold">{opt.label}</span>
-              <span className="text-[0.625rem] leading-tight text-[var(--muted-foreground)]">{opt.desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* â”€â”€ Effects â”€â”€ */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
@@ -2423,7 +1999,6 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
   const [tagInput, setTagInput] = useState("");
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState("");
-  const refreshGameAssetManifest = useGameAssetStore((s) => s.fetchManifest);
   const qc = useQueryClient();
 
   const { data: backgrounds } = useQuery({
@@ -2500,7 +2075,6 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
       if (successfulUploads.length > 0) {
         qc.invalidateQueries({ queryKey: ["backgrounds"] });
         qc.invalidateQueries({ queryKey: ["background-tags"] });
-        void refreshGameAssetManifest().catch(() => undefined);
         onSelect(successfulUploads[successfulUploads.length - 1]!.url);
         toast.success(`Imported ${successfulUploads.length} background${successfulUploads.length === 1 ? "" : "s"}.`);
       }

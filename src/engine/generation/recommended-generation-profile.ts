@@ -2,7 +2,7 @@ import type { GenerationParameters } from "../contracts/types/prompt";
 
 const RECOMMENDED_GENERATION_PROFILE_VERSION = 1 as const;
 
-type RecommendedGenerationMode = "conversation" | "roleplay" | "visual_novel" | "game" | "structured" | "agent";
+type RecommendedGenerationMode = "conversation" | "roleplay" | "visual_novel" | "structured" | "agent";
 
 type RecommendedGenerationProfileSource = "recommended" | "provider-neutral-fallback";
 
@@ -21,7 +21,6 @@ export interface RecommendedGenerationProfile {
   profileId:
     | "conversation-balanced"
     | "roleplay-expressive"
-    | "game-grounded"
     | "structured-efficient"
     | "small-local-constrained"
     | "provider-neutral-fallback";
@@ -321,25 +320,6 @@ export function resolveRecommendedGenerationProfile(
           temperature: 1,
           topP: 0.95,
           maxTokens: boundedOutputTokens(isNanoGlm52(input) ? 2048 : 4096, maxContext),
-          verbosity: "medium",
-        },
-        input,
-      ),
-      promptBudgetGuidance: {},
-    };
-  }
-
-  if (mode === "game") {
-    return {
-      profileId: "game-grounded",
-      profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
-      source: "recommended",
-      rationale: "Balances grounded game-state continuity with room for descriptive output.",
-      parameters: withReasoning(
-        {
-          temperature: 0.6,
-          topP: 0.9,
-          maxTokens: boundedOutputTokens(3072, maxContext),
           verbosity: "medium",
         },
         input,

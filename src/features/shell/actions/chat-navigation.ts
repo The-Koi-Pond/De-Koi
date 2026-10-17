@@ -1,5 +1,4 @@
 import { useCallback, useEffect } from "react";
-import { useExitGameSetupFromShell } from "../../modes/game/startup";
 import { useChatStore } from "../../../shared/stores/chat.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
 import { confirmDiscardPendingAppWork } from "../../../shared/lib/app-close-guard";
@@ -15,7 +14,6 @@ export function useNavigateToChatFromShell() {
   const setShouldOpenWizardInShortcutMode = useChatStore((state) => state.setShouldOpenWizardInShortcutMode);
   const setPendingNewChatMode = useChatStore((state) => state.setPendingNewChatMode);
   const closeAllDetails = useUIStore((state) => state.closeAllDetails);
-  const exitGameSetup = useExitGameSetupFromShell();
 
   return useCallback(
     async (chatId: string) => {
@@ -34,12 +32,10 @@ export function useNavigateToChatFromShell() {
       setShouldOpenSettings(false);
       setShouldOpenWizard(false);
       setShouldOpenWizardInShortcutMode(false);
-      exitGameSetup();
       setActiveChatId(chatId);
     },
     [
       closeAllDetails,
-      exitGameSetup,
       setActiveChatId,
       setPendingNewChatMode,
       setShouldOpenSettings,

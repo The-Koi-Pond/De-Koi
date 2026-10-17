@@ -36,7 +36,6 @@ type LorebookAssignmentSectionProps = {
 const MODE_LABELS: Record<ChatMode, string> = {
   conversation: "Conversation",
   roleplay: "Roleplay",
-  game: "Game",
   fanfic: "Fanfic",
 };
 

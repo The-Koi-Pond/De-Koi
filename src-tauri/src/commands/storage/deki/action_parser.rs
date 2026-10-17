@@ -932,12 +932,12 @@ fn normalize_deki_chat_access_scope(scope: Option<&Value>) -> AppResult<Value> {
                 .flatten()
                 .filter_map(Value::as_str)
                 .map(str::trim)
-                .filter(|value| matches!(*value, "conversation" | "roleplay" | "game"))
+                .filter(|value| matches!(*value, "conversation" | "roleplay"))
                 .collect::<Vec<_>>();
             if modes.is_empty() {
                 return Err(AppError::new(
                     "deki_action_invalid",
-                    "Deki-senpai mode chat access requires conversation, roleplay, or game.",
+                    "Deki-senpai mode chat access requires conversation or roleplay.",
                 ));
             }
             Ok(json!({ "type": "mode", "modes": modes }))

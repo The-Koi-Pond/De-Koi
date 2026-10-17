@@ -57,7 +57,6 @@ const LEGACY_PROFILE_TABLES: &[(&str, &str)] = &[
     ("background_metadata", "background-metadata"),
     ("knowledge_sources", "knowledge-sources"),
     ("game_state_snapshots", "game-state-snapshots"),
-    ("game_checkpoints", "game-checkpoints"),
 ];
 
 const LEGACY_PROFILE_AUXILIARY_TABLES: &[&str] = &[
@@ -605,6 +604,10 @@ fn legacy_profile_import_plan(
         replacements.push((message_swipes::COLLECTION, Vec::new()));
     }
     super::normalize_message_swipe_replacements(&mut replacements, &mut imported)?;
+    crate::storage_commands::game_mode_removal::drop_game_mode_rows_from_profile_import(
+        &mut replacements,
+        &mut imported,
+    );
     imported.insert("files".to_string(), json!(restored_assets));
     if unsupported_prompt_overrides > 0 {
         imported.insert(
@@ -1806,24 +1809,23 @@ mod tests {
             .storage
             .list("prompt-overrides")
             .expect("prompt overrides should be readable");
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["id"], "conversation.selfie");
         assert_eq!(rows[0]["key"], "conversation.selfie");
         assert_eq!(rows[0]["template"], "Selfie ${charName}");
         assert_eq!(rows[0]["enabled"], true);
-        assert_eq!(rows[1]["id"], "game.background");
-        assert_eq!(rows[1]["key"], "game.background");
-        assert_eq!(rows[1]["template"], "Background ${defaultPrompt}");
-        assert!(state
-            .storage
-            .get("prompt-overrides", "game.unknown")
-            .expect("unsupported prompt override lookup should not fail")
-            .is_none());
-        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 2);
+        for retired in ["game.background", "game.unknown"] {
+            assert!(state
+                .storage
+                .get("prompt-overrides", retired)
+                .expect("unsupported prompt override lookup should not fail")
+                .is_none());
+        }
+        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 3);
     }
 
     #[test]
-    fn legacy_prompt_overrides_import_remaps_renamed_sprite_and_game_keys() {
+    fn legacy_prompt_overrides_import_remaps_renamed_sprite_keys_and_drops_game_keys() {
         let state = test_state("prompt-overrides-renamed-keys");
         let mut tables = Map::new();
         tables.insert(
@@ -1886,16 +1888,12 @@ mod tests {
                 "sprite.expressionSheet",
                 "sprite.fullBodySingle",
                 "sprite.fullBodySheet",
-                "game.portrait",
-                "game.illustration",
             ]
         );
         assert_eq!(rows[0]["id"], "sprite.portraitSingle");
         assert_eq!(rows[0]["template"], "Portrait ${defaultPrompt}");
-        assert_eq!(rows[4]["id"], "game.portrait");
-        assert_eq!(rows[4]["template"], "NPC ${defaultPrompt}");
-        assert_eq!(result["imported"]["prompt-overrides"], 6);
-        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 1);
+        assert_eq!(result["imported"]["prompt-overrides"], 4);
+        assert_eq!(result["imported"]["unsupportedPromptOverrides"], 3);
     }
 
     #[test]

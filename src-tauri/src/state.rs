@@ -86,7 +86,9 @@ const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV3";
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
+const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
+const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
@@ -241,6 +243,25 @@ impl AppState {
             LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY,
             crate::storage_commands::startup_migrations::keep_all_secondary_keys_for_authored_lorebook_entries,
         )?;
+        run_startup_migration_once(
+            &state.storage,
+            CARD_REGEX_APPLY_MODE_MIGRATION_KEY,
+            crate::storage_commands::startup_migrations::restore_card_regex_apply_modes,
+        )?;
+        // A failed Game mode removal must not stop the app from starting: nothing is deleted
+        // before its backup is published, and the next start retries what is left.
+        if let Err(error) =
+            run_startup_migration_once(&state.storage, REMOVE_GAME_MODE_MIGRATION_KEY, |_| {
+                crate::storage_commands::game_mode_removal::remove_game_mode_data(&state)
+                    .map(|_| ())
+            })
+        {
+            log::warn!(
+                "Game mode removal remains pending: code={} message={}",
+                error.code,
+                error.message
+            );
+        }
 
         Ok(state)
     }
@@ -2454,15 +2475,46 @@ mod tests {
     }
 
     #[test]
-    fn app_state_startup_persists_inline_game_avatar_state() {
-        let root = temp_root("inline-game-avatar-repair");
+    fn app_state_starts_when_game_mode_removal_cannot_finish() {
+        let root = temp_root("game-removal-pending");
+        let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
+        storage
+            .create(
+                "chats",
+                json!({ "id": "game-1", "name": "Quest", "mode": "game", "characterIds": [] }),
+            )
+            .expect("game chat should be inserted");
+        persist_fixture_storage(&storage);
+        // A plain file where the backups folder belongs makes the backup impossible.
+        std::fs::write(root.0.join("backups"), b"not a folder").expect("blocker should be written");
+
+        let state = AppState::from_data_dir(&root.0, Vec::new())
+            .expect("startup should continue when Game mode removal cannot finish");
+        assert!(
+            state.storage.get("chats", "game-1").unwrap().is_some(),
+            "nothing is deleted without a published backup"
+        );
+        assert!(
+            !startup_migration_applied(&state.storage, REMOVE_GAME_MODE_MIGRATION_KEY).unwrap()
+        );
+
+        std::fs::remove_file(root.0.join("backups")).expect("blocker should be removed");
+        drop(state);
+        let state = AppState::from_data_dir(&root.0, Vec::new()).expect("state should restart");
+        assert!(state.storage.get("chats", "game-1").unwrap().is_none());
+        assert!(startup_migration_applied(&state.storage, REMOVE_GAME_MODE_MIGRATION_KEY).unwrap());
+    }
+
+    #[test]
+    fn app_state_startup_persists_inline_tracker_avatar_state() {
+        let root = temp_root("inline-tracker-avatar-repair");
         let storage = FileStorage::new(root.0.join("data")).expect("storage should initialize");
         storage
             .create(
                 "chats",
                 json!({
                     "id": "chat-1",
-                    "mode": "game",
+                    "mode": "roleplay",
                     "characterIds": [],
                     "gameState": {
                         "presentCharacters": [
