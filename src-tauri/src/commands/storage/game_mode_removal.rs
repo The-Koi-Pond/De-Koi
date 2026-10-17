@@ -693,7 +693,24 @@ pub(crate) fn retire_game_asset_library(state: &AppState) -> AppResult<Option<Pa
         if let Some(filename) = imported.get(&source) {
             return Ok(filename.clone());
         }
-        let filename = import_background_file(state, &source)?;
+        // A background with the same name and bytes is already in the library (a built-in, or
+        // a copy from an earlier run that stopped partway), so reuse it instead of copying a
+        // suffixed duplicate. This keeps a retried migration from piling up copies.
+        let existing = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+            .filter(|name| {
+                state
+                    .background_path(name)
+                    .ok()
+                    .filter(|path| path.is_file())
+                    .is_some_and(|path| file_digest(&path).ok() == file_digest(&source).ok())
+            });
+        let filename = match existing {
+            Some(name) => name,
+            None => import_background_file(state, &source)?,
+        };
         imported.insert(source, filename.clone());
         Ok(filename)
     };
@@ -716,7 +733,15 @@ pub(crate) fn retire_game_asset_library(state: &AppState) -> AppResult<Option<Pa
             continue;
         };
         let next = match path.strip_prefix(USER_BACKGROUND_IN_GAME_LIBRARY) {
-            Some(filename) if !filename.is_empty() => json!(filename),
+            // Keep the name only when that background really exists; otherwise clear it.
+            Some(filename)
+                if !filename.is_empty()
+                    && state
+                        .background_path(filename)
+                        .is_ok_and(|path| path.is_file()) =>
+            {
+                json!(filename)
+            }
             Some(_) => Value::Null,
             None => match game_asset_source(state, &library, &path) {
                 Some(source) => json!(import(source)?),
@@ -1323,8 +1348,14 @@ mod tests {
         fs::write(custom.join("mine.png"), b"my picture").unwrap();
         fs::create_dir_all(library.join("music")).unwrap();
         fs::write(library.join("music").join("theme.mp3"), b"music").unwrap();
+        // A background the user already had, and a copy of `mine.png` left by an earlier run
+        // that stopped partway.
+        fs::create_dir_all(state.backgrounds.root()).unwrap();
+        fs::write(state.backgrounds.root().join("castle.jpg"), b"castle").unwrap();
+        fs::write(state.backgrounds.root().join("mine.png"), b"my picture").unwrap();
         for (id, background) in [
             ("chat-user-bg", "gameAsset:__user_bg__/castle.jpg"),
+            ("chat-user-bg-gone", "gameAsset:__user_bg__/gone.jpg"),
             ("chat-custom", "gameAsset:backgrounds/custom/mine.png"),
             ("chat-missing", "gameAsset:sprites/gone.png"),
             ("chat-plain", "lake.jpg"),
@@ -1348,6 +1379,10 @@ mod tests {
             state.storage.get("chats", id).unwrap().unwrap()["metadata"]["background"].clone()
         };
         assert_eq!(background("chat-user-bg"), "castle.jpg");
+        assert!(
+            background("chat-user-bg-gone").is_null(),
+            "a user background that no longer exists is cleared"
+        );
         let imported = background("chat-custom");
         let imported = imported
             .as_str()
@@ -1357,9 +1392,17 @@ mod tests {
             b"my picture"
         );
         assert_eq!(
-            fs::read_dir(state.backgrounds.root()).unwrap().count(),
-            1,
-            "an image referenced by a chat and found in the folder is imported once"
+            imported, "mine.png",
+            "the copy from the earlier run is reused"
+        );
+        let images = fs::read_dir(state.backgrounds.root())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| is_background_image(&entry.path()))
+            .count();
+        assert_eq!(
+            images, 2,
+            "no suffixed duplicates: castle.jpg and mine.png only"
         );
         assert!(background("chat-missing").is_null());
         assert_eq!(background("chat-plain"), "lake.jpg");
