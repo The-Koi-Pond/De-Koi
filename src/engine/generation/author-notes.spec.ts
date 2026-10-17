@@ -79,25 +79,28 @@ describe("Author's Notes role through prompt assembly", () => {
     }
   });
 
-  it("sends the note inside the single user message when the preset collapses the prompt", async () => {
-    const prompt = await assembleGenerationPrompt(storage(false, true), {
-      chat: {
-        id: "chat-1",
-        mode: "roleplay",
-        characterIds: ["char-1"],
-        metadata: { authorNotes: "NOTE-MARK", authorNotesDepth: 1, authorNotesRole: "assistant" },
-      },
-      storedMessages: [
-        { role: "user", content: "u1" },
-        { role: "assistant", content: "a1" },
-        { role: "user", content: "u2" },
-      ],
-      connection: { provider: "openai", model: "qa-model" },
-      request: { promptPresetId: "preset-1" },
-      latestUserInput: "u2",
-    });
+  it("labels the note with its role inside the single user message when the preset collapses the prompt", async () => {
+    const labels = { system: "[SYSTEM]\nNOTE-MARK", user: "NOTE-MARK", assistant: "[ASSISTANT]\nNOTE-MARK" };
+    for (const role of ["system", "user", "assistant"] as const) {
+      const prompt = await assembleGenerationPrompt(storage(false, true), {
+        chat: {
+          id: "chat-1",
+          mode: "roleplay",
+          characterIds: ["char-1"],
+          metadata: { authorNotes: "NOTE-MARK", authorNotesDepth: 1, authorNotesRole: role },
+        },
+        storedMessages: [
+          { role: "user", content: "u1" },
+          { role: "assistant", content: "a1" },
+          { role: "user", content: "u2" },
+        ],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "u2",
+      });
 
-    expect(prompt.messages.map((message) => message.role)).toEqual(["user"]);
-    expect(prompt.messages[0]!.content).toContain("NOTE-MARK");
+      expect(prompt.messages.map((message) => message.role)).toEqual(["user"]);
+      expect(prompt.messages[0]!.content, role).toContain(labels[role]);
+    }
   });
 });
