@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { chatKeys, useChat, useChatMessages, useUpdateChat } from "../../../catalog/chats/index";
@@ -10,6 +10,11 @@ import {
   type FanficGenerationKind,
   type StartFanficGenerationInput,
 } from "../../../../engine/modes/fanfic/chapters";
+import {
+  deleteFanficQualityRun,
+  runFanficQualityCheck,
+  type FanficQualityPhase,
+} from "../../../../engine/modes/fanfic/quality";
 import { readFanficState } from "../../../../engine/modes/fanfic/request";
 import { planFanfic, type FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
 import { saveFanficRequest, type SaveFanficRequestInput } from "../../../../engine/modes/fanfic/request-save";
@@ -144,4 +149,40 @@ export function useFanficOutline(chatId: string) {
     },
   });
   return { ...mutation, phase };
+}
+
+/** Runs a quality check on the fic, reporting the step, and lets the requester stop it or drop old runs. */
+export function useFanficQuality(chatId: string) {
+  const queryClient = useQueryClient();
+  const [phase, setPhase] = useState<FanficQualityPhase | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+  const run = useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: ({ connectionId, label }: { connectionId: string | null; label: string }) => {
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      return runFanficQualityCheck(
+        { storage: storageApi, llm: llmApi },
+        { chatId, connectionId, label },
+        { signal: controller.signal, onPhase: setPhase },
+      ).finally(() => {
+        setPhase(null);
+        if (controllerRef.current === controller) controllerRef.current = null;
+      });
+    },
+    onSuccess: refresh,
+    onError: (error) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast.error(error instanceof Error ? error.message : "The quality check could not finish.");
+    },
+  });
+  const remove = useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (runId: string) => deleteFanficQualityRun(storageApi, chatId, runId),
+    onSettled: refresh,
+    onError: (error) => toast.error(error instanceof Error ? error.message : "The run could not be deleted."),
+  });
+  const stop = useCallback(() => controllerRef.current?.abort(), []);
+  return { run, remove, phase, stop };
 }

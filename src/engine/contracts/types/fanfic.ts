@@ -85,3 +85,95 @@ export interface FanficState {
   /** Present once research ran for this fic. */
   research: FanficResearch | null;
 }
+
+// ── Quality check ───────────────────────────────
+
+export type FanficQualityGroupId = "creativity" | "coherence" | "character" | "prose";
+
+export type FanficQualityCriterionId =
+  | "compelling_plot"
+  | "world_building"
+  | "earned_tone"
+  | "uncreative"
+  | "coherent"
+  | "pacing"
+  | "faithful"
+  | "unearned_transformations"
+  | "believable_actions"
+  | "nuanced_characters"
+  | "emotionally_engaging"
+  | "weak_dialogue"
+  | "tell_dont_show"
+  | "purple_prose"
+  | "forced_poetry"
+  | "amateurish";
+
+/** ConStory-Bench's five contradiction categories. */
+export const FANFIC_CONTINUITY_CATEGORIES = ["timeline", "character", "world", "detail", "narrative"] as const;
+export type FanficContinuityCategory = (typeof FANFIC_CONTINUITY_CATEGORIES)[number];
+
+/** Two passages that can't both be true, each quoted from the fic. */
+export interface FanficContinuityIssue {
+  category: FanficContinuityCategory;
+  subtype: string;
+  earlierChapter: number;
+  earlierQuote: string;
+  laterChapter: number;
+  laterQuote: string;
+  explanation: string;
+}
+
+export interface FanficQualityMechanics {
+  words: number;
+  aiTellHits: number;
+  aiTellsPer1k: number;
+  topTells: Array<{ label: string; count: number }>;
+  /** Uses of the pet names, details, and phrases the whole fic overuses. */
+  repeatUses: number;
+  repeatUsesPer1k: number;
+  repeats: Array<{ kind: "pet_name" | "detail" | "phrase"; term: string; count: number }>;
+}
+
+export interface FanficQualityRun {
+  id: string;
+  createdAt: string;
+  label: string;
+  /** Runs with different judge versions or models aren't directly comparable. */
+  judgeVersion: number;
+  judge: { connectionId: string; connectionName: string; model: string };
+  chapterCount: number;
+  /** Fingerprint of the chapter text that was scored. */
+  textKey: string;
+  mechanics: FanficQualityMechanics;
+  rubric: {
+    /** Raw 0-20 judge scores; fault criteria are higher-is-worse. */
+    criteria: Record<FanficQualityCriterionId, number>;
+    /** 0-10, faults inverted. */
+    groups: Record<FanficQualityGroupId, number>;
+    overall: number;
+    analysis: string;
+    /** Judge reads averaged into these scores. */
+    passes: number;
+    /** Gap between the reads' overall scores: changes smaller than this are noise. */
+    spread: number;
+  };
+  continuity: {
+    /** Confirmed contradictions. */
+    issues: FanficContinuityIssue[];
+    /** What the first pass listed. */
+    candidates: number;
+    /** Listed with quotes that aren't in the fic. */
+    ungrounded: number;
+    /** Quoted correctly but the second read found no contradiction. */
+    rejected: number;
+    /** The same contradiction as another note, reported again. */
+    merged: number;
+    /** Confirmed contradictions per 10,000 words. */
+    per10k: number;
+  };
+}
+
+/** Stored on the chat as `metadata.fanficQuality`, apart from `metadata.fanfic` so fic edits never drop it. */
+export interface FanficQualityStore {
+  runs: FanficQualityRun[];
+}

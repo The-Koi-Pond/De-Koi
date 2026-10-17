@@ -58,7 +58,7 @@
     "id": "fanfic-mode",
     "title": "Fanfic Mode",
     "category": "Chat modes",
-    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. It can look up the canon and any real-world topics online first, then plan from what it finds. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, and save the fic as HTML or Markdown.",
+    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. It can look up the canon and any real-world topics online first, then plan from what it finds. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, score it with a quality check (AI-sounding habits, repeats, continuity slips with quotes, and a critic's rubric) that keeps every run so you can compare before and after rewrites, and save the fic as HTML or Markdown.",
     "keywords": [
       "fanfic",
       "fanfiction",
@@ -79,9 +79,10 @@
       "listen",
       "read aloud",
       "audiobook",
-      "research",
-      "canon",
-      "wiki"
+      "quality",
+      "score",
+      "continuity",
+      "plot holes"
     ],
     "audience": "Readers who want a story written for them rather than a scene to play in.",
     "where": "Home > Fanfic, then the request form, outline, and chapter reader.",

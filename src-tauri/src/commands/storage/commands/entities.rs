@@ -928,6 +928,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                             | "agentRunIntervalOverrides"
                             | "enableAgents"
                             | "enableMemoryRecall"
+                            | "fanficQuality"
                             | "roleplayContinuityDirector"
                             | "roleplayWorkflowApplication"
                     ) {
@@ -2154,6 +2155,47 @@ mod tests {
             .expect("chat reads")
             .expect("chat exists");
         assert_eq!(stored["metadata"]["background"], json!("rainy-harbor.png"));
+    }
+
+    #[test]
+    fn conditional_chat_fanfic_quality_runs_append_only_against_the_runs_read() {
+        let state = test_state("conditional-chat-fanfic-quality");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "mode": "fanfic",
+                    "metadata": { "fanfic": { "version": 1 }, "fanficQuality": { "runs": [{ "id": "a" }] } }
+                }),
+            )
+            .expect("chat should seed");
+        let read = json!({ "metadata": { "fanficQuality": { "runs": [{ "id": "a" }] } } });
+
+        let first = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            read.clone(),
+            json!({ "metadata": { "fanficQuality": { "runs": [{ "id": "a" }, { "id": "b" }] } } }),
+        )
+        .expect("the first save applies");
+        assert_eq!(first["updated"], json!(true));
+        assert_eq!(first["chat"]["metadata"]["fanfic"], json!({ "version": 1 }));
+
+        // A second tab that read the same runs loses instead of dropping run "b".
+        let second = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            read,
+            json!({ "metadata": { "fanficQuality": { "runs": [{ "id": "a" }, { "id": "c" }] } } }),
+        )
+        .expect("the stale save reports the current chat");
+        assert_eq!(second["updated"], json!(false));
+        assert_eq!(
+            second["chat"]["metadata"]["fanficQuality"]["runs"],
+            json!([{ "id": "a" }, { "id": "b" }])
+        );
     }
 
     #[test]
