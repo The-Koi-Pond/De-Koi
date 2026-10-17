@@ -565,7 +565,7 @@ function samePassage(left: string, right: string): boolean {
 /**
  * Keeps only issues whose quotes are really in the fic, fixing a misnumbered chapter when the quote is found
  * elsewhere. Models paraphrase "quotes"; an issue nobody can find in the text isn't evidence. Only an exact repeat
- * (both passages the same) is dropped here; the second read folds repeats quoted with different lines.
+ * (same category, both passages the same) is dropped here; the second read folds repeats quoted with different lines.
  */
 export function groundFanficContinuityIssues(
   issues: FanficContinuityIssue[],
@@ -592,6 +592,7 @@ export function groundFanficContinuityIssues(
           };
     const duplicate = grounded.some(
       (kept) =>
+        kept.category === issue.category &&
         kept.earlierChapter === ordered.earlierChapter &&
         kept.laterChapter === ordered.laterChapter &&
         samePassage(kept.earlierQuote, ordered.earlierQuote) &&
@@ -631,6 +632,7 @@ export function averageFanficRubrics(
 
 // ── Storage ────────────────────────────────────
 
+const REPEAT_KINDS: readonly unknown[] = ["pet_name", "detail", "phrase"];
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const isString = (value: unknown): value is string => typeof value === "string";
 
@@ -663,8 +665,12 @@ function isQualityRun(value: unknown): value is FanficQualityRun {
       mechanics.repeatUsesPer1k,
     ].every(isNumber) &&
     Array.isArray(mechanics.topTells) &&
+    mechanics.topTells.every((tell) => isRecord(tell) && isString(tell.label) && isNumber(tell.count)) &&
     Array.isArray(mechanics.repeats) &&
-    mechanics.repeats.every((repeat) => isRecord(repeat) && isString(repeat.term) && isNumber(repeat.count)) &&
+    mechanics.repeats.every(
+      (repeat) =>
+        isRecord(repeat) && REPEAT_KINDS.includes(repeat.kind) && isString(repeat.term) && isNumber(repeat.count),
+    ) &&
     isRecord(rubric) &&
     isRecord(rubric.criteria) &&
     FANFIC_QUALITY_CRITERIA.every((criterion) => isNumber((rubric.criteria as JsonRecord)[criterion.id])) &&

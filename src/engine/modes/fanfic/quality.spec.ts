@@ -251,6 +251,11 @@ describe("continuity grounding", () => {
       chapters,
     );
     expect(grounded.map((issue) => issue.subtype)).toEqual(["injury vanishes", "knife hand catches"]);
+    // The same two passages read as a different kind of contradiction is a separate note.
+    const otherKind: FanficContinuityIssue = { ...(injuryIssue as FanficContinuityIssue), category: "timeline" };
+    expect(
+      groundFanficContinuityIssues([injuryIssue as FanficContinuityIssue, otherKind], chapters).grounded,
+    ).toHaveLength(2);
   });
 
   it("parses the editor's issues and refuses broken entries so the reply is retried", () => {
@@ -485,7 +490,14 @@ describe("runFanficQualityCheck", () => {
   it("skips stored runs missing fields the panel reads", () => {
     const broken = { ...savedRun("broken"), judge: { connectionId: "conn-1" } };
     const noGroups = { ...savedRun("no-groups"), rubric: { ...savedRun("x").rubric, groups: {} } };
-    const metadata = { fanficQuality: { runs: [savedRun("good"), broken, noGroups, { id: "bare" }] } };
+    const nullTell = { ...savedRun("null-tell"), mechanics: { ...savedRun("x").mechanics, topTells: [null] } };
+    const kindless = {
+      ...savedRun("kindless"),
+      mechanics: { ...savedRun("x").mechanics, repeats: [{ term: "Bells", count: 48 }] },
+    };
+    const metadata = {
+      fanficQuality: { runs: [savedRun("good"), broken, noGroups, nullTell, kindless, { id: "bare" }] },
+    };
     expect(readFanficQualityStore(metadata).runs.map((saved) => saved.id)).toEqual(["good"]);
   });
 
