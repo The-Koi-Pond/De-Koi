@@ -342,7 +342,8 @@ export function buildFanficContinuityVerifyMessages(args: {
   const system = [
     "You double-check a continuity editor's notes on a fic. For each numbered note, reread the fic around both passages and decide whether they truly contradict each other.",
     "A note is a real contradiction only when both passages cannot be true in the story as written. It is not one when the fic explains it elsewhere, when time passes enough to account for it, when a character lies or misremembers on purpose, or when the note misreads the passage.",
-    'Reply with JSON only: {"verdicts": [{"note": number, "reason": string, "contradiction": boolean}]}, one entry per note. Write reason first: one sentence on what the fic actually says around both passages. Then decide.',
+    'Reply with JSON only: {"verdicts": [{"note": number, "reason": string, "contradiction": boolean, "sameAs": number | null}]}, exactly one entry per note. Write reason first: one sentence on what the fic actually says around both passages. Then decide.',
+    "Two notes can describe the same contradiction while quoting different lines. When a note repeats an earlier note's contradiction, set sameAs to that earlier note's number; otherwise sameAs is null.",
     `## The notes\n${candidates}`,
   ].join("\n\n");
   return [
@@ -446,31 +447,86 @@ function readQuote(value: unknown): string {
     .slice(0, 400);
 }
 
-/** The continuity editor's candidates, before their quotes are checked against the text. */
+/**
+ * The continuity editor's candidates, before their quotes are checked against the text. Every entry needs both quotes
+ * and an explanation; a reply with a broken entry is a bad reply (retried), never a clean result.
+ */
 export function parseFanficContinuityReply(raw: string): FanficContinuityIssue[] {
   const parsed = parseJsonReply(raw);
   if (!parsed || !Array.isArray(parsed.issues)) throw new FanficQualityParseError("continuity", raw);
-  return parsed.issues.filter(isRecord).map((issue) => ({
-    category: readCategory(issue.category),
-    subtype: readString(issue.subtype).trim().slice(0, 80),
-    earlierChapter: readChapter(issue.earlierChapter),
-    earlierQuote: readQuote(issue.earlierQuote),
-    laterChapter: readChapter(issue.laterChapter),
-    laterQuote: readQuote(issue.laterQuote),
-    explanation: readString(issue.explanation).trim().slice(0, 400),
-  }));
+  return parsed.issues.map((issue) => {
+    if (!isRecord(issue)) throw new FanficQualityParseError("continuity", raw);
+    const entry: FanficContinuityIssue = {
+      category: readCategory(issue.category),
+      subtype: readString(issue.subtype).trim().slice(0, 80),
+      earlierChapter: readChapter(issue.earlierChapter),
+      earlierQuote: readQuote(issue.earlierQuote),
+      laterChapter: readChapter(issue.laterChapter),
+      laterQuote: readQuote(issue.laterQuote),
+      explanation: readString(issue.explanation).trim().slice(0, 400),
+    };
+    if (!entry.earlierQuote || !entry.laterQuote || !entry.explanation) {
+      throw new FanficQualityParseError("continuity", raw);
+    }
+    return entry;
+  });
 }
 
-/** Notes numbers the verifier confirmed as contradictions. */
-export function parseFanficContinuityVerdicts(raw: string, noteCount: number): Set<number> {
+export interface FanficContinuityVerdicts {
+  /** Notes the second read confirmed. */
+  confirmed: Set<number>;
+  /** Note number -> the earlier note it repeats. */
+  sameAs: Map<number, number>;
+}
+
+/**
+ * The second read's verdicts. It must rule on every note: an omitted note was never checked, so a partial reply is a
+ * bad reply (retried) rather than a quiet rejection.
+ */
+export function parseFanficContinuityVerdicts(raw: string, noteCount: number): FanficContinuityVerdicts {
   const parsed = parseJsonReply(raw);
   if (!parsed || !Array.isArray(parsed.verdicts)) throw new FanficQualityParseError("continuity check", raw);
   const confirmed = new Set<number>();
-  for (const verdict of parsed.verdicts.filter(isRecord)) {
-    const note = Math.trunc(Number(verdict.note));
-    if (note >= 1 && note <= noteCount && verdict.contradiction === true) confirmed.add(note);
+  const sameAs = new Map<number, number>();
+  const ruled = new Set<number>();
+  for (const verdict of parsed.verdicts) {
+    if (!isRecord(verdict) || typeof verdict.contradiction !== "boolean") {
+      throw new FanficQualityParseError("continuity check", raw);
+    }
+    const note = Number(verdict.note);
+    if (!Number.isInteger(note) || note < 1 || note > noteCount || ruled.has(note)) {
+      throw new FanficQualityParseError("continuity check", raw);
+    }
+    ruled.add(note);
+    if (verdict.contradiction) confirmed.add(note);
+    const earlier = Number(verdict.sameAs);
+    if (Number.isInteger(earlier) && earlier >= 1 && earlier < note) sameAs.set(note, earlier);
   }
-  return confirmed;
+  if (ruled.size !== noteCount) throw new FanficQualityParseError("continuity check", raw);
+  return { confirmed, sameAs };
+}
+
+/**
+ * Confirmed notes, minus repeats: a note counts once even when quoted two ways, and a repeat only folds into an
+ * earlier note the second read also confirmed (otherwise the repeat stands on its own).
+ */
+export function confirmedFanficContinuityIssues(
+  issues: FanficContinuityIssue[],
+  verdicts: FanficContinuityVerdicts,
+): { confirmed: FanficContinuityIssue[]; merged: number } {
+  const confirmed: FanficContinuityIssue[] = [];
+  let merged = 0;
+  issues.forEach((issue, index) => {
+    const note = index + 1;
+    if (!verdicts.confirmed.has(note)) return;
+    const earlier = verdicts.sameAs.get(note);
+    if (earlier !== undefined && verdicts.confirmed.has(earlier)) {
+      merged += 1;
+      return;
+    }
+    confirmed.push(issue);
+  });
+  return { confirmed, merged };
 }
 
 // ── Grounding ──────────────────────────────────
@@ -508,15 +564,16 @@ function samePassage(left: string, right: string): boolean {
 
 /**
  * Keeps only issues whose quotes are really in the fic, fixing a misnumbered chapter when the quote is found
- * elsewhere, and drops a contradiction reported twice (same chapters, a passage in common). Models paraphrase "quotes"; an issue nobody can find
- * in the text isn't evidence.
+ * elsewhere. Models paraphrase "quotes"; an issue nobody can find in the text isn't evidence. Only an exact repeat
+ * (both passages the same) is dropped here; the second read folds repeats quoted with different lines.
  */
 export function groundFanficContinuityIssues(
   issues: FanficContinuityIssue[],
   chapters: string[],
-): { grounded: FanficContinuityIssue[]; dropped: number } {
+): { grounded: FanficContinuityIssue[]; dropped: number; repeats: number } {
   const grounded: FanficContinuityIssue[] = [];
   let dropped = 0;
+  let repeats = 0;
   for (const issue of issues) {
     const earlierChapter = chapterHolding(issue.earlierQuote, chapters, issue.earlierChapter);
     const laterChapter = chapterHolding(issue.laterQuote, chapters, issue.laterChapter);
@@ -537,12 +594,16 @@ export function groundFanficContinuityIssues(
       (kept) =>
         kept.earlierChapter === ordered.earlierChapter &&
         kept.laterChapter === ordered.laterChapter &&
-        (samePassage(kept.earlierQuote, ordered.earlierQuote) || samePassage(kept.laterQuote, ordered.laterQuote)),
+        samePassage(kept.earlierQuote, ordered.earlierQuote) &&
+        samePassage(kept.laterQuote, ordered.laterQuote),
     );
-    if (duplicate) continue;
+    if (duplicate) {
+      repeats += 1;
+      continue;
+    }
     grounded.push({ ...issue, ...ordered });
   }
-  return { grounded, dropped };
+  return { grounded, dropped, repeats };
 }
 
 /**
@@ -570,17 +631,93 @@ export function averageFanficRubrics(
 
 // ── Storage ────────────────────────────────────
 
-function readRuns(metadata: unknown): FanficQualityRun[] {
-  const raw = parseJsonObject(metadata).fanficQuality;
-  if (!isRecord(raw) || !Array.isArray(raw.runs)) return [];
-  return raw.runs.filter(
-    (run): run is FanficQualityRun =>
-      isRecord(run) &&
-      typeof run.id === "string" &&
-      isRecord(run.mechanics) &&
-      isRecord(run.rubric) &&
-      isRecord(run.continuity),
+const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const isString = (value: unknown): value is string => typeof value === "string";
+
+function isContinuityIssue(value: unknown): value is FanficContinuityIssue {
+  return (
+    isRecord(value) &&
+    (FANFIC_CONTINUITY_CATEGORIES as readonly unknown[]).includes(value.category) &&
+    [value.subtype, value.earlierQuote, value.laterQuote, value.explanation].every(isString) &&
+    isNumber(value.earlierChapter) &&
+    isNumber(value.laterChapter)
   );
+}
+
+/** A stored run with every field the panel reads; anything else (hand-edited, from another version) is skipped. */
+function isQualityRun(value: unknown): value is FanficQualityRun {
+  if (!isRecord(value)) return false;
+  const { judge, mechanics, rubric, continuity } = value;
+  return (
+    [value.id, value.createdAt, value.label, value.textKey].every(isString) &&
+    isNumber(value.judgeVersion) &&
+    isNumber(value.chapterCount) &&
+    isRecord(judge) &&
+    [judge.connectionId, judge.connectionName, judge.model].every(isString) &&
+    isRecord(mechanics) &&
+    [
+      mechanics.words,
+      mechanics.aiTellHits,
+      mechanics.aiTellsPer1k,
+      mechanics.repeatUses,
+      mechanics.repeatUsesPer1k,
+    ].every(isNumber) &&
+    Array.isArray(mechanics.topTells) &&
+    Array.isArray(mechanics.repeats) &&
+    mechanics.repeats.every((repeat) => isRecord(repeat) && isString(repeat.term) && isNumber(repeat.count)) &&
+    isRecord(rubric) &&
+    isRecord(rubric.criteria) &&
+    FANFIC_QUALITY_CRITERIA.every((criterion) => isNumber((rubric.criteria as JsonRecord)[criterion.id])) &&
+    isRecord(rubric.groups) &&
+    (Object.keys(FANFIC_QUALITY_GROUP_LABELS) as FanficQualityGroupId[]).every((group) =>
+      isNumber((rubric.groups as JsonRecord)[group]),
+    ) &&
+    [rubric.overall, rubric.passes, rubric.spread].every(isNumber) &&
+    isString(rubric.analysis) &&
+    isRecord(continuity) &&
+    Array.isArray(continuity.issues) &&
+    continuity.issues.every(isContinuityIssue) &&
+    [continuity.candidates, continuity.ungrounded, continuity.rejected, continuity.merged, continuity.per10k].every(
+      isNumber,
+    )
+  );
+}
+
+function rawStore(metadata: unknown): unknown {
+  return parseJsonObject(metadata).fanficQuality ?? null;
+}
+
+function readRuns(metadata: unknown): FanficQualityRun[] {
+  const raw = rawStore(metadata);
+  if (!isRecord(raw) || !Array.isArray(raw.runs)) return [];
+  return raw.runs.filter(isQualityRun);
+}
+
+const STORE_WRITE_ATTEMPTS = 5;
+
+/**
+ * Rewrites the saved runs as a compare-and-set on `metadata.fanficQuality`, retrying against the latest value, so a
+ * run saved or deleted from another tab at the same moment is never overwritten.
+ */
+async function updateRuns(
+  storage: StorageGateway,
+  chatId: string,
+  change: (runs: FanficQualityRun[]) => FanficQualityRun[],
+): Promise<void> {
+  const updateChatIfUnchanged = storage.updateChatIfUnchanged;
+  if (!updateChatIfUnchanged) throw new Error("This runtime can't save quality runs safely.");
+  for (let attempt = 0; attempt < STORE_WRITE_ATTEMPTS; attempt += 1) {
+    const chat = await storage.get("chats", chatId);
+    if (!isRecord(chat)) throw new Error("Chat was not found.");
+    const { updated } = await updateChatIfUnchanged.call(
+      storage,
+      chatId,
+      { metadata: { fanficQuality: rawStore(chat.metadata) } },
+      { metadata: { fanficQuality: { runs: change(readRuns(chat.metadata)) } } },
+    );
+    if (updated) return;
+  }
+  throw new Error("The quality runs kept changing while saving. Try again.");
 }
 
 /** Saved runs, oldest first. */
@@ -605,10 +742,7 @@ function newRunId(): string {
 
 /** Drops one saved run. */
 export async function deleteFanficQualityRun(storage: StorageGateway, chatId: string, runId: string): Promise<void> {
-  const chat = await storage.get("chats", chatId);
-  if (!isRecord(chat)) throw new Error("Chat was not found.");
-  const runs = readRuns(chat.metadata).filter((run) => run.id !== runId);
-  await storage.patchChatMetadata(chatId, { fanficQuality: { runs } });
+  await updateRuns(storage, chatId, (runs) => runs.filter((run) => run.id !== runId));
 }
 
 // ── Running ────────────────────────────────────
@@ -743,8 +877,10 @@ export async function runFanficQualityCheck(
       ),
     );
     const candidates = sweeps.flat();
-    const { grounded, dropped } = groundFanficContinuityIssues(candidates, chapters);
-    if (grounded.length === 0) return { candidates, grounded, dropped, confirmed: [] as FanficContinuityIssue[] };
+    const { grounded, dropped, repeats } = groundFanficContinuityIssues(candidates, chapters);
+    if (grounded.length === 0) {
+      return { candidates, grounded, dropped, repeats, confirmed: [] as FanficContinuityIssue[], merged: 0 };
+    }
     onPhase?.("verifying_continuity");
     const verdicts = await judge(
       deps.llm,
@@ -756,9 +892,12 @@ export async function runFanficQualityCheck(
       (raw) => parseFanficContinuityVerdicts(raw, grounded.length),
       signal,
     );
-    return { candidates, grounded, dropped, confirmed: grounded.filter((_, index) => verdicts.has(index + 1)) };
+    return { candidates, grounded, dropped, repeats, ...confirmedFanficContinuityIssues(grounded, verdicts) };
   })();
-  const [rubric, { candidates, grounded, dropped, confirmed }] = await Promise.all([rubricPromise, continuityPromise]);
+  const [rubric, { candidates, grounded, dropped, repeats, confirmed, merged }] = await Promise.all([
+    rubricPromise,
+    continuityPromise,
+  ]);
 
   const summary = summarizeFanficRubric(rubric.criteria);
   const run: FanficQualityRun = {
@@ -786,14 +925,13 @@ export async function runFanficQualityCheck(
       issues: confirmed,
       candidates: candidates.length,
       ungrounded: dropped,
-      rejected: grounded.length - confirmed.length,
+      rejected: grounded.length - confirmed.length - merged,
+      // Exact repeats dropped before the second read, plus repeats it folded: candidates now add up.
+      merged: merged + repeats,
       per10k: mechanics.words > 0 ? Math.round((confirmed.length / mechanics.words) * 100_000) / 10 : 0,
     },
   };
 
-  // Re-read before saving so a run deleted meanwhile, or one saved from another tab, isn't lost.
-  const latest = await deps.storage.get("chats", input.chatId);
-  const runs = [...readRuns(isRecord(latest) ? latest.metadata : chat.metadata), run].slice(-FANFIC_QUALITY_MAX_RUNS);
-  await deps.storage.patchChatMetadata(input.chatId, { fanficQuality: { runs } });
+  await updateRuns(deps.storage, input.chatId, (runs) => [...runs, run].slice(-FANFIC_QUALITY_MAX_RUNS));
   return run;
 }

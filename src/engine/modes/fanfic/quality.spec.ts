@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
-import type { FanficContinuityIssue, FanficQualityCriterionId } from "../../contracts/types/fanfic";
+import type { FanficContinuityIssue, FanficQualityCriterionId, FanficQualityRun } from "../../contracts/types/fanfic";
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import {
   averageFanficRubrics,
   buildFanficContinuityMessages,
   buildFanficRubricMessages,
+  confirmedFanficContinuityIssues,
   deleteFanficQualityRun,
   FANFIC_CONTINUITY_SWEEPS,
   FANFIC_QUALITY_CRITERIA,
@@ -84,8 +85,59 @@ function storageWith(chapters: string[], metadata: Record<string, unknown> = {})
       records[chatId] = { ...records[chatId], metadata: { ...(records[chatId]?.metadata as object), ...patch } };
       return records[chatId] as T;
     },
+    // Compare-and-set on metadata keys, like the runtime's chat_matches_expected_values.
+    async updateChatIfUnchanged<T = unknown>(
+      chatId: string,
+      expected: { metadata: Record<string, unknown> },
+      patch: { metadata: Record<string, unknown> },
+    ): Promise<{ updated: boolean; chat: T }> {
+      beforeWrite?.();
+      const current = records[chatId].metadata as Record<string, unknown>;
+      const same = Object.entries(expected.metadata).every(
+        ([key, value]) => JSON.stringify(current[key] ?? null) === JSON.stringify(value),
+      );
+      if (same) records[chatId] = { ...records[chatId], metadata: { ...current, ...patch.metadata } };
+      return { updated: same, chat: records[chatId] as T };
+    },
   } as unknown as StorageGateway;
-  return { storage, records };
+  let beforeWrite: (() => void) | undefined;
+  return {
+    storage,
+    records,
+    /** Runs once before the next compare-and-set, to simulate another tab writing in between. */
+    interfere(write: () => void) {
+      beforeWrite = () => {
+        beforeWrite = undefined;
+        write();
+      };
+    },
+  };
+}
+
+function savedRun(id: string, overrides: Partial<FanficQualityRun> = {}): FanficQualityRun {
+  return {
+    id,
+    createdAt: "2026-10-17T00:00:00.000Z",
+    label: "",
+    judgeVersion: 1,
+    judge: { connectionId: "conn-1", connectionName: "Claude", model: "claude-opus-5-5" },
+    chapterCount: 1,
+    textKey: "1-x",
+    mechanics: scoreFanficMechanics([chapterOne], []),
+    rubric: {
+      criteria: Object.fromEntries(FANFIC_QUALITY_CRITERIA.map((criterion) => [criterion.id, 10])) as Record<
+        FanficQualityCriterionId,
+        number
+      >,
+      groups: { creativity: 5, coherence: 5, character: 5, prose: 5 },
+      overall: 5,
+      analysis: "",
+      passes: 2,
+      spread: 0,
+    },
+    continuity: { issues: [], candidates: 0, ungrounded: 0, rejected: 0, merged: 0, per10k: 0 },
+    ...overrides,
+  };
 }
 
 /** Answers each judge prompt by its opening line, so parallel calls can't be mixed up. */
@@ -181,44 +233,100 @@ describe("continuity grounding", () => {
     });
   });
 
-  it("merges one contradiction quoted two ways, but keeps different ones between the same chapters", () => {
-    const shorterSpan: FanficContinuityIssue = {
+  it("drops an exact repeat, but keeps slips that share only one passage", () => {
+    const sameBothSides: FanficContinuityIssue = {
       ...(injuryIssue as FanficContinuityIssue),
       subtype: "hand heals overnight",
-      earlierQuote: "Pierrot set the red ball on the windowsill and left it there. His left hand was bandaged",
+      earlierQuote: "His left hand was bandaged from the knife",
+      laterQuote: "neither of them hurt",
     };
-    const differentPair: FanficContinuityIssue = {
+    // Same earlier passage, different later evidence: a separate contradiction that must survive.
+    const sharedEarlierOnly: FanficContinuityIssue = {
       ...(injuryIssue as FanficContinuityIssue),
-      subtype: "ball color",
-      earlierQuote: "set the red ball on the windowsill",
-      laterQuote: "tossed the blue ball to Harlequin",
+      subtype: "knife hand catches",
+      laterQuote: "who caught it without looking",
     };
     const { grounded } = groundFanficContinuityIssues(
-      [injuryIssue as FanficContinuityIssue, shorterSpan, differentPair],
+      [injuryIssue as FanficContinuityIssue, sameBothSides, sharedEarlierOnly],
       chapters,
     );
-    expect(grounded.map((issue) => issue.subtype)).toEqual(["injury vanishes", "ball color"]);
+    expect(grounded.map((issue) => issue.subtype)).toEqual(["injury vanishes", "knife hand catches"]);
   });
 
-  it("parses the editor's issues and the checker's verdicts", () => {
+  it("parses the editor's issues and refuses broken entries so the reply is retried", () => {
     const issues = parseFanficContinuityReply(
       "```json\n" +
         JSON.stringify({ issues: [{ ...injuryIssue, category: "made-up", laterQuote: '“"I only have two."”' }] }) +
         "\n```",
     );
     expect(issues[0]).toMatchObject({ category: "detail", earlierChapter: 1, laterQuote: "I only have two." });
-    expect(() => parseFanficContinuityReply("no issues found")).toThrow(FanficQualityParseError);
+    expect(parseFanficContinuityReply('{"issues": []}')).toEqual([]);
+    for (const broken of [
+      "no issues found",
+      '{"issues": [{}]}',
+      '{"issues": ["a slip"]}',
+      JSON.stringify({ issues: [{ ...injuryIssue, laterQuote: "" }] }),
+      JSON.stringify({ issues: [{ ...injuryIssue, explanation: " " }] }),
+    ]) {
+      expect(() => parseFanficContinuityReply(broken), broken).toThrow(FanficQualityParseError);
+    }
+  });
+
+  it("needs a verdict on every note, and folds a confirmed repeat into the note it repeats", () => {
     const verdicts = parseFanficContinuityVerdicts(
       JSON.stringify({
         verdicts: [
-          { note: 1, contradiction: true },
-          { note: 2, contradiction: false },
-          { note: 9, contradiction: true },
+          { note: 1, reason: "r", contradiction: true, sameAs: null },
+          { note: 2, reason: "r", contradiction: false, sameAs: null },
+          { note: 3, reason: "r", contradiction: true, sameAs: 1 },
+        ],
+      }),
+      3,
+    );
+    expect([...verdicts.confirmed]).toEqual([1, 3]);
+    expect(verdicts.sameAs.get(3)).toBe(1);
+    const notes = ["a", "b", "c"].map((subtype) => ({ ...(injuryIssue as FanficContinuityIssue), subtype }));
+    expect(confirmedFanficContinuityIssues(notes, verdicts)).toMatchObject({
+      confirmed: [{ subtype: "a" }],
+      merged: 1,
+    });
+    // A repeat of a rejected note stands on its own.
+    const repeatOfRejected = parseFanficContinuityVerdicts(
+      JSON.stringify({
+        verdicts: [
+          { note: 1, contradiction: false },
+          { note: 2, contradiction: true, sameAs: 1 },
         ],
       }),
       2,
     );
-    expect([...verdicts]).toEqual([1]);
+    expect(confirmedFanficContinuityIssues(notes.slice(0, 2), repeatOfRejected).confirmed).toHaveLength(1);
+
+    for (const partial of [
+      { verdicts: [{ note: 1, contradiction: true }] },
+      {
+        verdicts: [
+          { note: 1, contradiction: true },
+          { note: 1, contradiction: false },
+        ],
+      },
+      {
+        verdicts: [
+          { note: 1, contradiction: true },
+          { note: 9, contradiction: true },
+        ],
+      },
+      {
+        verdicts: [
+          { note: 1, contradiction: "yes" },
+          { note: 2, contradiction: true },
+        ],
+      },
+    ]) {
+      expect(() => parseFanficContinuityVerdicts(JSON.stringify(partial), 2), JSON.stringify(partial)).toThrow(
+        FanficQualityParseError,
+      );
+    }
   });
 });
 
@@ -317,7 +425,8 @@ describe("runFanficQualityCheck", () => {
       createdAt: "2026-10-17T12:00:00.000Z",
       chapterCount: 2,
       judge: { connectionId: "conn-1", model: "claude-opus-5-5" },
-      continuity: { candidates: 4, ungrounded: 1, rejected: 1 },
+      // Every candidate is accounted for: 1 confirmed + 1 ungrounded + 1 rejected + 1 repeat.
+      continuity: { candidates: 4, ungrounded: 1, rejected: 1, merged: 1 },
     });
     expect(run.continuity.issues.map((issue) => issue.subtype)).toEqual(["injury vanishes"]);
     expect(run.rubric).toMatchObject({ passes: 2 });
@@ -332,12 +441,7 @@ describe("runFanficQualityCheck", () => {
   });
 
   it("retries a malformed judge reply once, skips verification with nothing to verify, and caps the history", async () => {
-    const old = Array.from({ length: FANFIC_QUALITY_MAX_RUNS }, (_, index) => ({
-      id: `old-${index}`,
-      mechanics: {},
-      rubric: {},
-      continuity: {},
-    }));
+    const old = Array.from({ length: FANFIC_QUALITY_MAX_RUNS }, (_, index) => savedRun(`old-${index}`));
     const { storage, records } = storageWith([chapterOne], { fanficQuality: { runs: old } });
     const llm = judgeLlm({
       rubric: ["I liked it!", rubricReply, rubricReply],
@@ -354,6 +458,35 @@ describe("runFanficQualityCheck", () => {
 
     await deleteFanficQualityRun(storage, "chat-1", run.id);
     expect(readFanficQualityStore(records["chat-1"].metadata).runs.map((saved) => saved.id)).not.toContain(run.id);
+  });
+
+  it("keeps a run another tab saved while this one was saving", async () => {
+    const harness = storageWith([chapterOne], { fanficQuality: { runs: [savedRun("first")] } });
+    harness.interfere(() => {
+      const metadata = harness.records["chat-1"].metadata as Record<string, unknown>;
+      harness.records["chat-1"].metadata = {
+        ...metadata,
+        fanficQuality: { runs: [savedRun("first"), savedRun("other-tab")] },
+      };
+    });
+    const llm = judgeLlm({
+      rubric: [rubricReply, rubricReply],
+      continuity: ['{"issues": []}', '{"issues": []}'],
+      verify: [],
+    });
+    const run = await runFanficQualityCheck({ storage: harness.storage, llm }, { chatId: "chat-1" });
+    expect(readFanficQualityStore(harness.records["chat-1"].metadata).runs.map((saved) => saved.id)).toEqual([
+      "first",
+      "other-tab",
+      run.id,
+    ]);
+  });
+
+  it("skips stored runs missing fields the panel reads", () => {
+    const broken = { ...savedRun("broken"), judge: { connectionId: "conn-1" } };
+    const noGroups = { ...savedRun("no-groups"), rubric: { ...savedRun("x").rubric, groups: {} } };
+    const metadata = { fanficQuality: { runs: [savedRun("good"), broken, noGroups, { id: "bare" }] } };
+    expect(readFanficQualityStore(metadata).runs.map((saved) => saved.id)).toEqual(["good"]);
   });
 
   it("stops at once on abort even when the gateway can't cancel, and saves nothing", async () => {

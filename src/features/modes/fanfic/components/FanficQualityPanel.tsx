@@ -129,11 +129,14 @@ function Tile({
 function RunDetails({ run, prior }: { run: FanficQualityRun; prior: FanficQualityRun | null }) {
   const [open, setOpen] = useState<"notes" | "scores" | null>(null);
   const { mechanics, rubric, continuity } = run;
-  const notCounted = continuity.ungrounded + continuity.rejected;
-  // Older runs saved before averaging have no spread; treat them as exact.
+  const notCounted = [
+    continuity.ungrounded > 0 && `${continuity.ungrounded} quoting lines that aren't in the fic`,
+    continuity.rejected > 0 && `${continuity.rejected} that didn't hold up on a second read`,
+    continuity.merged > 0 && `${continuity.merged} repeating another slip`,
+  ].filter(Boolean);
   // With the same text, any change is the judge reading it differently. Otherwise use how far its own reads disagreed.
   const sameText = Boolean(prior && prior.textKey === run.textKey);
-  const noise = sameText ? Number.POSITIVE_INFINITY : Math.max(rubric.spread ?? 0, prior?.rubric.spread ?? 0);
+  const noise = sameText ? Number.POSITIVE_INFINITY : Math.max(rubric.spread, prior?.rubric.spread ?? 0);
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-[var(--muted-foreground)]">
@@ -220,12 +223,8 @@ function RunDetails({ run, prior }: { run: FanficQualityRun; prior: FanficQualit
           ))}
         </ol>
       )}
-      {notCounted > 0 && (
-        <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-          Not counted: {continuity.ungrounded > 0 && `${continuity.ungrounded} quoted lines that aren't in the fic`}
-          {continuity.ungrounded > 0 && continuity.rejected > 0 && ", "}
-          {continuity.rejected > 0 && `${continuity.rejected} that didn't hold up on a second read`}.
-        </p>
+      {notCounted.length > 0 && (
+        <p className="text-[0.6875rem] text-[var(--muted-foreground)]">Not counted: {notCounted.join(", ")}.</p>
       )}
 
       <div className="flex flex-wrap gap-2">

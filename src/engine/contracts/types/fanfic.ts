@@ -166,6 +166,8 @@ export interface FanficQualityRun {
     ungrounded: number;
     /** Quoted correctly but the second read found no contradiction. */
     rejected: number;
+    /** The same contradiction as another note, reported again. */
+    merged: number;
     /** Confirmed contradictions per 10,000 words. */
     per10k: number;
   };
