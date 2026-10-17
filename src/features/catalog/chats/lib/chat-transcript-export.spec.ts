@@ -77,7 +77,7 @@ describe("formatChatJsonl", () => {
       chat_metadata: {
         note_prompt: "Keep it rainy.",
         note_depth: 2,
-        deKoi: { format: "de-koi-chat-transcript-jsonl", chatId: "chat-1", mode: "conversation" },
+        deKoi: { format: "de-koi-chat-transcript-jsonl", version: 2, mode: "conversation" },
       },
     });
     expect(rows[0]).not.toHaveProperty("mes");

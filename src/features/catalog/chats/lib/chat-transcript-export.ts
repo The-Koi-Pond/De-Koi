@@ -29,18 +29,12 @@ type ChatTranscriptHeaderRow = {
   chat_metadata: {
     note_prompt?: string;
     note_depth?: number;
+    /** What De-Koi reads back when the file is imported again (the chat mode). Ids of
+     * characters, personas, and presets belong to this install, so they are not written. */
     deKoi: {
       format: "de-koi-chat-transcript-jsonl";
       version: 2;
-      chatId: string;
-      chatName: string;
       mode: Chat["mode"];
-      groupId: string | null;
-      characterIds: string[];
-      personaId: string | null;
-      connectionId: string | null;
-      promptPresetId: string | null;
-      branchName: string | null;
     };
   };
 };
@@ -142,15 +136,7 @@ function chatTranscriptHeaderRow(chat: Chat, messages: Message[], names: ChatExp
       deKoi: {
         format: "de-koi-chat-transcript-jsonl",
         version: 2,
-        chatId: chat.id,
-        chatName: chat.name,
         mode: chat.mode,
-        groupId: chat.groupId,
-        characterIds: chat.characterIds,
-        personaId: chat.personaId,
-        connectionId: chat.connectionId,
-        promptPresetId: chat.promptPresetId,
-        branchName: getBranchName(chat),
       },
     },
   };
