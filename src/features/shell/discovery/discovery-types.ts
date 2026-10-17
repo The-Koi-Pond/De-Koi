@@ -19,6 +19,11 @@ export const DISCOVERY_COVERAGE = ["core", "advanced", "experimental", "needs-po
 
 export type DiscoveryCategory = (typeof DISCOVERY_CATEGORIES)[number];
 export type DiscoveryCoverage = (typeof DISCOVERY_COVERAGE)[number];
+
+/** What users see: `needs-polish` is a maintenance note and shows as Experimental. */
+export function discoveryCoverageGroup(coverage: DiscoveryCoverage): DiscoveryCoverage {
+  return coverage === "needs-polish" ? "experimental" : coverage;
+}
 export type DiscoveryPanelTarget = Exclude<Panel, "chat">;
 
 export type DiscoveryAction =
