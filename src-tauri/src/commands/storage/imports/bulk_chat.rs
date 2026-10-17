@@ -344,11 +344,15 @@ fn st_message_swipes(row: &Value, content: &str, base_extra: &Value) -> (Vec<Val
             continue;
         }
         let info = infos.and_then(|infos| infos.get(index));
-        let reasoning = if is_active {
-            message_reasoning.clone()
-        } else {
-            st_reasoning(info.and_then(|info| info.get("extra")))
-        };
+        // Each swipe's own swipe_info comes first; the shown swipe falls back to the
+        // message-level reasoning when its swipe_info has none.
+        let reasoning = st_reasoning(info.and_then(|info| info.get("extra"))).or_else(|| {
+            if is_active {
+                message_reasoning.clone()
+            } else {
+                None
+            }
+        });
         // The shown swipe falls back to the message's date when its swipe_info has none.
         let send_date = info
             .and_then(|info| info.get("send_date"))

@@ -1675,7 +1675,7 @@ mod tests {
                     r#"{"name":"Bot","mes":"Second try","swipe_id":1,"send_date":"2026-01-01T10:00:07.000Z","#,
                     r#""swipes":["First try","Second try","","Third try"],"#,
                     r#""extra":{"reasoning":"think two"},"#,
-                    r#""swipe_info":[{"send_date":"2026-01-01T10:00:00.000Z","extra":{"reasoning":"think one"}},{"send_date":"  ","extra":{}},{"extra":{}},{"extra":{}}]}"#
+                    r#""swipe_info":[{"send_date":"2026-01-01T10:00:00.000Z","extra":{"reasoning":"think one"}},{"send_date":"  ","extra":{"reasoning":"think two, own"}},{"extra":{}},{"extra":{}}]}"#
                 ),
             ],
         );
@@ -1710,7 +1710,10 @@ mod tests {
             "the empty swipe is dropped"
         );
         assert_eq!(swipes[0]["extra"]["thinking"], "think one");
-        assert_eq!(swipes[1]["extra"]["thinking"], "think two");
+        assert_eq!(
+            swipes[1]["extra"]["thinking"], "think two, own",
+            "the shown swipe's own swipe_info reasoning wins over the message-level copy"
+        );
         assert_eq!(
             swipes[0]["extra"]["sillyTavernSendDate"],
             "2026-01-01T10:00:00.000Z"
