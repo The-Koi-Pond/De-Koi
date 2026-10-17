@@ -235,6 +235,9 @@ fn retire_lorebook_category(row: &mut Value, updated_at: Option<&str>) {
     }
 }
 
+/// Fingerprint namespace for kept chats the removal edits.
+const EDITED_CHATS: &str = "chats:edited";
+
 /// Identifies a backed-up row by its full contents, so a row that changed after the backup
 /// was written does not match.
 fn fingerprint(collection: &str, row: &Value) -> String {
@@ -295,10 +298,16 @@ impl RemovalPlan {
         rows_named(&self.removed, collection)
     }
 
+    /// Every row the backup holds: removed rows, and kept chats as they were before the edit.
     fn fingerprints(&self) -> HashSet<String> {
         self.removed
             .iter()
             .flat_map(|(name, rows)| rows.iter().map(|row| fingerprint(name, row)))
+            .chain(
+                self.edited_chats
+                    .iter()
+                    .map(|chat| fingerprint(EDITED_CHATS, chat)),
+            )
             .collect()
     }
 }
@@ -407,10 +416,12 @@ fn retire_game_rows(storage: &FileStorage, plan: &RemovalPlan) -> AppResult<()> 
         );
         for collection in collections.iter() {
             let name = collection.collection();
-            let unsaved = collection
-                .rows()
-                .iter()
-                .any(|row| chats.removes(name, row) && !backed_up.contains(&fingerprint(name, row)));
+            let unsaved = collection.rows().iter().any(|row| {
+                (chats.removes(name, row) && !backed_up.contains(&fingerprint(name, row)))
+                    || (name == "chats"
+                        && chats.edits_kept_chat(row)
+                        && !backed_up.contains(&fingerprint(EDITED_CHATS, row)))
+            });
             if unsaved {
                 return Err(AppError::new(
                     "game_mode_backup_stale",
@@ -902,6 +913,31 @@ mod tests {
         assert!(state.storage.get("chats", "game-1").unwrap().is_some());
         assert!(state.storage.get("messages", "m-late").unwrap().is_some());
         assert!(state.storage.get("messages", "m-game").unwrap().is_some());
+    }
+
+    #[test]
+    fn removal_refuses_a_kept_chat_edited_after_the_backup() {
+        let state = test_state("stale-kept-chat");
+        seed(&state);
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "convo-1", "name": "OOC", "mode": "conversation", "characterIds": [], "connectedChatId": "game-1" }),
+            )
+            .unwrap();
+        let plan = RemovalPlan::load(&state.storage).unwrap();
+        state
+            .storage
+            .patch("chats", "convo-1", json!({ "name": "OOC renamed" }))
+            .unwrap();
+
+        let error = retire_game_rows(&state.storage, &plan).unwrap_err();
+
+        assert_eq!(error.code, "game_mode_backup_stale");
+        let convo = state.storage.get("chats", "convo-1").unwrap().unwrap();
+        assert_eq!(convo["connectedChatId"], "game-1");
+        assert!(state.storage.get("chats", "game-1").unwrap().is_some());
     }
 
     #[test]

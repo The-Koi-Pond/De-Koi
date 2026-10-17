@@ -860,6 +860,11 @@ fn compatible_lorebook_export(lorebook: &Value, entries: &Value) -> Value {
                 "role": st_role(entry.get("role")),
                 "group": entry.get("group").and_then(Value::as_str).unwrap_or(""),
                 "groupWeight": entry.get("groupWeight").cloned().unwrap_or(Value::Null),
+                "groupOverride": entry.get("groupOverride").and_then(Value::as_bool).unwrap_or(false),
+                "useGroupScoring": entry.get("useGroupScoring").and_then(Value::as_bool).unwrap_or(false),
+                "preventRecursion": entry.get("preventRecursion").and_then(Value::as_bool).unwrap_or(false),
+                "excludeRecursion": entry.get("excludeRecursion").and_then(Value::as_bool).unwrap_or(false),
+                "delayUntilRecursion": entry.get("delayUntilRecursion").and_then(Value::as_bool).unwrap_or(false),
                 "sticky": entry.get("sticky").cloned().unwrap_or(Value::Null),
                 "cooldown": entry.get("cooldown").cloned().unwrap_or(Value::Null),
                 "delay": entry.get("delay").cloned().unwrap_or(Value::Null)
@@ -1306,10 +1311,12 @@ fn numeric_value(value: Option<&Value>, fallback: i64) -> i64 {
         .unwrap_or(fallback)
 }
 
+/// SillyTavern numbers: 0 AND ANY, 1 NOT ALL, 2 NOT ANY, 3 AND ALL.
 fn st_selective_logic(value: Option<&Value>) -> i64 {
     match value.and_then(Value::as_str) {
-        Some("or") => 1,
+        Some("not_all") => 1,
         Some("not") => 2,
+        Some("and_all") => 3,
         _ => 0,
     }
 }
@@ -1975,6 +1982,26 @@ mod tests {
     }
 
     #[test]
+    fn lorebook_export_writes_sillytavern_selective_logic_numbers() {
+        let entries = json!([
+            { "name": "any", "selectiveLogic": "and" },
+            { "name": "alias", "selectiveLogic": "or" },
+            { "name": "not all", "selectiveLogic": "not_all" },
+            { "name": "not any", "selectiveLogic": "not" },
+            { "name": "all", "selectiveLogic": "and_all" }
+        ]);
+        let exported = compatible_lorebook_export(&json!({ "name": "Book" }), &entries);
+        let logic: Vec<i64> = (0..5)
+            .map(|index| {
+                exported["entries"][index.to_string()]["selectiveLogic"]
+                    .as_i64()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(logic, vec![0, 0, 1, 2, 3]);
+    }
+
+    #[test]
     fn bulk_lorebook_exports_reject_when_no_requested_records_match() {
         let state = test_state("lorebooks-empty-bulk");
         let error = export_lorebooks(&state, json!({ "ids": ["missing-lorebook"] }))
@@ -2467,6 +2494,11 @@ mod tests {
                                     "group": "memory",
                                     "groupWeight": 6,
                                     "excludeRecursion": true,
+                                    "extensions": {
+                                        "group_override": true,
+                                        "use_group_scoring": true,
+                                        "delay_until_recursion": 1
+                                    },
                                     "locked": true
                                 },
                                 {
@@ -2515,7 +2547,14 @@ mod tests {
         assert_eq!(entry["ephemeral"], 5);
         assert_eq!(entry["group"], "memory");
         assert_eq!(entry["groupWeight"], 6);
-        assert_eq!(entry["preventRecursion"], true);
+        assert_eq!(entry["groupOverride"], true);
+        assert_eq!(entry["useGroupScoring"], true);
+        assert_eq!(entry["excludeRecursion"], true);
+        assert_eq!(
+            entry["preventRecursion"], false,
+            "Non-recursable is not Prevent further recursion"
+        );
+        assert_eq!(entry["delayUntilRecursion"], true);
         assert_eq!(entry["locked"], true);
 
         let camel_case_entry = entries

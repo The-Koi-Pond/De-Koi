@@ -95,17 +95,30 @@ fn created_prompt_from_import_result(state: &AppState, result: &Value) -> Value 
 
 #[test]
 fn normalizes_sillytavern_selective_logic_numbers() {
-    let entry = normalize_lorebook_entry(
-        "book-1",
-        &json!({
-            "content": "Lore",
-            "key": ["moon"],
-            "selectiveLogic": 1
-        }),
-        0,
-    );
+    for (logic, expected) in [
+        (json!(0), "and"),
+        (json!(1), "not_all"),
+        (json!(2), "not"),
+        (json!(3), "and_all"),
+        (json!("or"), "and"),
+        (json!("and_all"), "and_all"),
+        (json!("not_all"), "not_all"),
+    ] {
+        let entry = normalize_lorebook_entry(
+            "book-1",
+            &json!({
+                "content": "Lore",
+                "key": ["moon"],
+                "selectiveLogic": logic
+            }),
+            0,
+        );
 
-    assert_eq!(entry["selectiveLogic"], "or");
+        assert_eq!(
+            entry["selectiveLogic"], expected,
+            "SillyTavern logic {logic}"
+        );
+    }
 }
 
 #[test]
@@ -781,6 +794,41 @@ fn import_st_preset_keeps_reasoning_effort_auto_unset_and_keeps_fallbacks() {
         let preset = created_prompt_from_import_result(&state, &result);
         assert_eq!(preset["parameters"]["reasoningEffort"], expected_effort);
         assert_eq!(preset["parameters"]["serviceTier"], Value::Null);
+
+        let _ = fs::remove_dir_all(app_root);
+    }
+}
+
+#[test]
+fn import_st_preset_keeps_assistant_prefill_and_a_fixed_seed() {
+    for (label, seed, expected_seed) in [
+        ("fixed", json!(1234), json!(1234)),
+        ("random", json!(-1), Value::Null),
+    ] {
+        let app_root = temp_path(&format!("st-preset-prefill-{label}"));
+        let state = AppState::from_data_dir(&app_root, Vec::new())
+            .expect("test app state should initialize");
+        let result = import_call(
+            &state,
+            &["st-preset"],
+            json!({
+                "name": format!("Prefill {label}"),
+                "assistant_prefill": "Mira:",
+                "seed": seed,
+                "prompts": []
+            }),
+        )
+        .expect("ST preset import should succeed");
+
+        let preset = created_prompt_from_import_result(&state, &result);
+        assert_eq!(preset["parameters"]["assistantPrefill"], "Mira:");
+        assert_eq!(
+            preset["parameters"]
+                .get("seed")
+                .cloned()
+                .unwrap_or(Value::Null),
+            expected_seed
+        );
 
         let _ = fs::remove_dir_all(app_root);
     }

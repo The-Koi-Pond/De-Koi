@@ -40,9 +40,44 @@ describe("lorebook keyword matching", () => {
       caseSensitive: false,
     });
 
-    await expect(testPreparedSecondaryKeysAsync(matcher, "silver moon rises", "and", {})).resolves.toBe(false);
-    await expect(testPreparedSecondaryKeysAsync(matcher, "silver moon and red crown", "and", {})).resolves.toBe(true);
+    await expect(testPreparedSecondaryKeysAsync(matcher, "silver moon rises", "and_all", {})).resolves.toBe(false);
+    await expect(testPreparedSecondaryKeysAsync(matcher, "silver moon and red crown", "and_all", {})).resolves.toBe(
+      true,
+    );
     await expect(testPreparedSecondaryKeysAsync(matcher, "silver moon rises", "or", {})).resolves.toBe(true);
     await expect(testPreparedSecondaryKeysAsync(matcher, "quiet lake", "not", {})).resolves.toBe(true);
+  });
+
+  it("matches SillyTavern's four secondary-key modes", async () => {
+    const matcher = prepareKeywordMatcher(["moon", "crown"], {
+      useRegex: false,
+      matchWholeWords: true,
+      caseSensitive: false,
+    });
+    const verdicts = async (text: string) => ({
+      andAny: await testPreparedSecondaryKeysAsync(matcher, text, "and", {}),
+      andAll: await testPreparedSecondaryKeysAsync(matcher, text, "and_all", {}),
+      notAny: await testPreparedSecondaryKeysAsync(matcher, text, "not", {}),
+      notAll: await testPreparedSecondaryKeysAsync(matcher, text, "not_all", {}),
+    });
+
+    await expect(verdicts("the moon rises")).resolves.toEqual({
+      andAny: true,
+      andAll: false,
+      notAny: false,
+      notAll: true,
+    });
+    await expect(verdicts("moon and crown")).resolves.toEqual({
+      andAny: true,
+      andAll: true,
+      notAny: false,
+      notAll: false,
+    });
+    await expect(verdicts("a quiet lake")).resolves.toEqual({
+      andAny: false,
+      andAll: false,
+      notAny: true,
+      notAll: true,
+    });
   });
 });

@@ -86,6 +86,7 @@ const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInli
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
 const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
+const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
 const RETIRE_GAME_ASSET_LIBRARY_MIGRATION_KEY: &str = "retireGameAssetLibraryV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
@@ -232,6 +233,11 @@ impl AppState {
             |storage| {
                 crate::storage_commands::chats::prune_orphaned_memory_jobs(storage).map(|_| ())
             },
+        )?;
+        run_startup_migration_once(
+            &state.storage,
+            LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY,
+            crate::storage_commands::startup_migrations::keep_all_secondary_keys_for_authored_lorebook_entries,
         )?;
         // A failed Game mode or Game asset removal must not stop the app from starting:
         // nothing is deleted before its backup is published, and the next start retries.

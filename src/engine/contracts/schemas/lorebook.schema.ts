@@ -7,7 +7,7 @@ export const lorebookCategorySchema = z.enum(["world", "character", "npc", "spel
 
 const lorebookGeneratedBySchema = z.enum(["user", "agent", "import", "lorebook-maker", "game-session"]);
 
-const selectiveLogicSchema = z.enum(["and", "or", "not"]);
+const selectiveLogicSchema = z.enum(["and", "and_all", "or", "not", "not_all"]);
 
 const lorebookFilterModeSchema = z.enum(["any", "include", "exclude"]);
 
@@ -199,6 +199,10 @@ export const createLorebookEntrySchema = z.object({
   /** Optional folder this entry belongs to. Null/omitted = root level. */
   folderId: z.string().nullable().default(null),
   preventRecursion: z.boolean().default(false),
+  excludeRecursion: z.boolean().default(false),
+  delayUntilRecursion: z.boolean().default(false),
+  groupOverride: z.boolean().default(false),
+  useGroupScoring: z.boolean().default(false),
   locked: z.boolean().default(false),
   tag: z.string().default(""),
   relationships: z.record(z.string()).default({}),
@@ -251,6 +255,10 @@ export const updateLorebookEntrySchema = z.object({
   groupWeight: z.number().nullable().optional(),
   folderId: z.string().nullable().optional(),
   preventRecursion: z.boolean().optional(),
+  excludeRecursion: z.boolean().optional(),
+  delayUntilRecursion: z.boolean().optional(),
+  groupOverride: z.boolean().optional(),
+  useGroupScoring: z.boolean().optional(),
   locked: z.boolean().optional(),
   tag: z.string().optional(),
   relationships: z.record(z.string()).optional(),

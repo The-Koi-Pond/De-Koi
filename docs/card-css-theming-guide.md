@@ -1,12 +1,12 @@
 # Card CSS Theming Guide
 
-Give your characters a unique visual identity across Marinara's chat modes. This guide covers how to embed custom CSS in your character cards so they look and feel exactly the way you want.
+Give your characters a unique visual identity across De-Koi's chat modes. This guide covers how to embed custom CSS in your character cards so they look and feel exactly the way you want.
 
 ---
 
 ## Quick Start
 
-Paste a `<style>` block into your character's **Creator Notes** field (in the character editor, under Advanced). That's it — Marinara extracts and applies the CSS automatically.
+Paste a `<style>` block into your character's **Creator Notes** field (in the character editor, under Advanced). That's it — De-Koi extracts and applies the CSS automatically.
 
 ```html
 <style>
@@ -19,11 +19,13 @@ Paste a `<style>` block into your character's **Creator Notes** field (in the ch
 
 This gives your character a pink accent border on their messages.
 
+The selectors in this guide keep their `mari-` prefix from Marinara Engine, which De-Koi grew out of, so card CSS written for Marinara works in De-Koi unchanged.
+
 ---
 
 ## How It Works
 
-When a character with CSS in their creator notes is active in a chat, Marinara:
+When a character with CSS in their creator notes is active in a chat, De-Koi:
 
 1. Extracts all `<style>` blocks from the creator notes
 2. Sanitizes the CSS (strips anything dangerous)
@@ -161,7 +163,7 @@ Conversation mode renders messages as plain text with markdown — it does not r
 
 #### Typing Indicator
 
-While a character is generating a reply, Marinara shows a "_(name) is typing…_" indicator, and it's fully themeable. If the message it belongs to already has a bubble on screen (for example, during **regeneration**), the indicator renders **inside that bubble**; otherwise it appears as a **standalone row** below the messages. Both expose the same hooks:
+While a character is generating a reply, De-Koi shows a "_(name) is typing…_" indicator, and it's fully themeable. If the message it belongs to already has a bubble on screen (for example, during **regeneration**), the indicator renders **inside that bubble**; otherwise it appears as a **standalone row** below the messages. Both expose the same hooks:
 
 | Selector                                 | What it targets                                                                     |
 | ---------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -289,7 +291,7 @@ In Exclusive mode, `[data-card-css]` targets only THIS character's message wrapp
 
 4. **Keep animations subtle.** Heavy animations can slow down the chat on lower-end devices. Use `animation` sparingly and prefer `transition` for interactive effects.
 
-5. **Don't rely on specific class names for message content.** The internal class names (like Tailwind utility classes) can change between Marinara versions. Stick to the documented selectors: `[data-card-css]`, `.mari-message-name`, `.mari-message`, `p`, `span`.
+5. **Don't rely on specific class names for message content.** The internal class names (like Tailwind utility classes) can change between De-Koi versions. Stick to the documented selectors: `[data-card-css]`, `.mari-message-name`, `.mari-message`, `p`, `span`.
 
 6. **Use `@media` for mobile.** Many users chat on phones or small windows:
 
