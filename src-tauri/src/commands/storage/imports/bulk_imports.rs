@@ -1606,7 +1606,13 @@ mod tests {
                 r#"{"name":"System","is_system":true,"role":"system","mes":"Scene moved.","extra":{"type":"comment","hiddenFromAI":false}}"#,
                 "
 ",
-                r#"{"name":"You","is_user":true,"is_system":true,"mes":"note","extra":{"hiddenFromAI":true}}"#
+                r#"{"name":"You","is_user":true,"is_system":true,"role":"user","mes":"note","extra":{"hiddenFromAI":true}}"#,
+                "
+",
+                r#"{"name":"Mira","is_user":false,"is_system":true,"role":"assistant","mes":"aside","extra":{"hiddenFromAI":true}}"#,
+                "
+",
+                r#"{"name":"Narrator","is_user":false,"is_system":false,"role":"narrator","mes":"Rain falls.","extra":{"type":"narrator","hiddenFromAI":false}}"#
             ),
             "Imported Chat".to_string(),
             None,
@@ -1625,6 +1631,16 @@ mod tests {
         assert_eq!(messages[0]["role"], "system");
         assert_ne!(messages[0]["extra"]["hiddenFromAI"], json!(true));
         assert_eq!(messages[1]["extra"]["hiddenFromAI"], json!(true));
+        let roles: Vec<&str> = messages
+            .iter()
+            .map(|message| message["role"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            roles,
+            vec!["system", "user", "assistant", "narrator"],
+            "hidden lines keep the role De-Koi exported"
+        );
+        assert_eq!(messages[2]["extra"]["hiddenFromAI"], json!(true));
 
         let _ = fs::remove_dir_all(app_root);
     }
