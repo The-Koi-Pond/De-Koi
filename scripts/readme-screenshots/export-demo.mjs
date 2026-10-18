@@ -2,6 +2,7 @@
 // be retaken later without a model. Only for re-recording the demo; the capture script reads the saved file.
 //   node scripts/readme-screenshots/export-demo.mjs --runtime http://127.0.0.1:8787 --chats "Wren,The Halcyon"
 import { writeFile } from "node:fs/promises";
+import { format } from "prettier";
 import { DEMO_CHARACTERS } from "./cast.mjs";
 import { runtimeClient } from "./runtime.mjs";
 
@@ -69,7 +70,8 @@ for (const name of names) {
     }),
   });
 }
-await writeFile("docs/screenshots/demo/chats.json", `${JSON.stringify(exported, null, 2)}\n`);
+// Format like the rest of the repo so `pnpm format:check` stays green.
+await writeFile("docs/screenshots/demo/chats.json", await format(JSON.stringify(exported), { parser: "json" }));
 console.log(
   `Saved ${exported.length} chats (${exported.reduce((sum, chat) => sum + chat.messages.length, 0)} messages).`,
 );

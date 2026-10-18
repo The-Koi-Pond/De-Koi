@@ -40,6 +40,9 @@ at full size before committing: a dialog, toast, or error state in a screenshot 
   node scripts/readme-screenshots/export-demo.mjs --runtime http://127.0.0.1:8787 --chats "Wren,Aunt Vera,The Halcyon,Before the Lamps Are Lit"
   ```
 
+  Keep each roleplay short enough that its whole last exchange fits the 1440x1300 shot: the saved Halcyon chat is
+  just the opening, one player turn, and one reply. A longer chat puts a wall of text over the background.
+
 ## Rules
 
 - Demo data only. Never capture real chats, provider keys, account names, file paths, or private server URLs.

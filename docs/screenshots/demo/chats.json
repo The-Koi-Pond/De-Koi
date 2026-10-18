@@ -3,9 +3,7 @@
     "id": "7e769535-a5da-425d-a92e-7326e9d6ad97",
     "name": "Wren",
     "mode": "conversation",
-    "characters": [
-      "wren"
-    ],
+    "characters": ["wren"],
     "personaId": "demo-persona-ada",
     "promptPresetId": null,
     "metadata": {
@@ -48,9 +46,7 @@
     "id": "70712f10-ce60-40c5-9fb4-a04114a360db",
     "name": "Aunt Vera",
     "mode": "conversation",
-    "characters": [
-      "vera"
-    ],
+    "characters": ["vera"],
     "personaId": "demo-persona-ada",
     "promptPresetId": null,
     "metadata": {
@@ -93,9 +89,7 @@
     "id": "456adcb2-543c-458b-a387-ff147d93b3e8",
     "name": "The Halcyon",
     "mode": "roleplay",
-    "characters": [
-      "marr"
-    ],
+    "characters": ["marr"],
     "personaId": "demo-persona-ada",
     "promptPresetId": "preset_universal_v2",
     "metadata": {
@@ -173,26 +167,19 @@
         "request": {
           "adultsConfirmed": false,
           "chapterCount": 3,
-          "characters": [
-            "Mrs. Hudson"
-          ],
+          "characters": ["Mrs. Hudson"],
           "fandom": "Sherlock Holmes (Arthur Conan Doyle)",
           "pov": "third_limited",
           "povCharacter": "John Watson",
           "prompt": "A fog so thick it swallows Baker Street. A client arrives who cannot remember why she came, only that she must not go home before the lamps are lit. Holmes is delighted by the puzzle. Watson is worried about her, and about the soup going cold. Gentle, clever, and a little eerie, ending warm.",
           "rating": "general",
-          "relationships": [
-            "Sherlock Holmes & John Watson"
-          ],
+          "relationships": ["Sherlock Holmes & John Watson"],
           "research": true,
           "reviewOutline": true,
           "setting": "canon",
           "settingNotes": "",
           "styleNotes": "Watson's warm, dry first-hand narration. Brisk dialogue. Period flavor but easy to read.",
-          "tags": [
-            "Case Fic",
-            "Friendship"
-          ],
+          "tags": ["Case Fic", "Friendship"],
           "tense": "past",
           "warnings": [],
           "wordsPerChapter": 2000
