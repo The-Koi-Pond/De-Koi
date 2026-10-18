@@ -266,17 +266,34 @@ function groundFanficChapterIssues(
 // ── Fixes ───────────────────────────────────────
 
 /** Letters and digits in any script. An apostrophe between two of them (he's, don’t) is inside the word. */
-const WORD_CHAR = /[\p{L}\p{N}]/u;
+const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u;
 const APOSTROPHE = /['’]/;
 const isWord = (char: string | undefined) => WORD_CHAR.test(char ?? "");
 
-/** The span neither starts in the middle of a word nor ends in one. */
+/** The whole character (code point) that starts at `index`, or "" outside the text. */
+function charFrom(text: string, index: number): string {
+  const code = index >= 0 ? text.codePointAt(index) : undefined;
+  return code === undefined ? "" : String.fromCodePoint(code);
+}
+
+/** The whole character (code point) that ends just before `index`, and where it starts. */
+function charBefore(text: string, index: number): { char: string; at: number } {
+  if (index <= 0) return { char: "", at: 0 };
+  const low = text.charCodeAt(index - 1);
+  const at = low >= 0xdc00 && low <= 0xdfff && index >= 2 ? index - 2 : index - 1;
+  return { char: charFrom(text, at), at };
+}
+
+/** The span neither starts in the middle of a word nor ends in one. Works in code points, so astral letters count. */
 function wholeWordsAt(text: string, start: number, end: number): boolean {
+  const before = charBefore(text, start);
   const cutsStart =
-    isWord(text[start]) &&
-    (isWord(text[start - 1]) || (APOSTROPHE.test(text[start - 1] ?? "") && isWord(text[start - 2])));
+    isWord(charFrom(text, start)) &&
+    (isWord(before.char) || (APOSTROPHE.test(before.char) && isWord(charBefore(text, before.at).char)));
+  const after = charFrom(text, end);
   const cutsEnd =
-    isWord(text[end - 1]) && (isWord(text[end]) || (APOSTROPHE.test(text[end] ?? "") && isWord(text[end + 1])));
+    isWord(charBefore(text, end).char) &&
+    (isWord(after) || (APOSTROPHE.test(after) && isWord(charFrom(text, end + after.length))));
   return !cutsStart && !cutsEnd;
 }
 
@@ -296,12 +313,13 @@ export function locateFanficPassage(text: string, find: string): { start: number
   }
   if (exact.length > 1) return null;
   if (exact.length === 1) return { start: exact[0]!, end: exact[0]! + find.length };
-  const words = find.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu);
+  const words = find.match(/[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*/gu);
   if (!words || words.length < 3) return null;
   // Whole words only: the first and last word can't be the tail or head of a longer one (contractions included).
-  const pattern = `(?<![\\p{L}\\p{N}]|[\\p{L}\\p{N}]['’])${words
+  // Combining marks (an accent typed as its own character) belong to the letter before them.
+  const pattern = `(?<![\\p{L}\\p{M}\\p{N}]|[\\p{L}\\p{M}\\p{N}]['’])${words
     .map((word) => escapeRegex(word).replace(/['’]/g, "['’]"))
-    .join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}]|['’][\\p{L}\\p{N}])`;
+    .join("[^\\p{L}\\p{M}\\p{N}]+")}(?![\\p{L}\\p{M}\\p{N}]|['’][\\p{L}\\p{M}\\p{N}])`;
   const matches = [...text.matchAll(new RegExp(pattern, "giu"))];
   if (matches.length !== 1) return null;
   const match = matches[0]!;

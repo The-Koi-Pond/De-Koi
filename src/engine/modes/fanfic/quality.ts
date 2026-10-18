@@ -524,7 +524,7 @@ export function fanficSearchableText(text: string): string {
   return text
     .toLowerCase()
     .replace(/[’‘]/g, "'")
-    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}']+/gu, " ")
     .trim();
 }
 
