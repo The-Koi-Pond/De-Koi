@@ -42,11 +42,11 @@ pages, or screenshots for the current desktop/runtime architecture.
 
 ## Screenshots
 
-- Fresh screenshots exist for the current De-Koi UI:
+- Fresh README screenshots exist for the current De-Koi UI (`pnpm docs:readme-screenshots`):
   - conversation mode;
   - roleplay mode;
-  - settings;
-  - provider connections.
+  - the fanfic request form and chapter reader;
+  - the phone layout.
 - Captures avoid secrets, private chats, API keys, personal file paths, and
   unreleased user data.
 - Screenshots match the release build or the exact source commit used for the

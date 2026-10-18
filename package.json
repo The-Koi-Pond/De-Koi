@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "node scripts/run-vite.mjs",
     "docs:dev": "node scripts/run-vite.mjs docs/developer --host 127.0.0.1 --port 4174",
+    "docs:readme-features": "node scripts/generate-readme-features.mjs",
+    "docs:readme-screenshots": "node scripts/readme-screenshots/capture.mjs",
     "docs:schema": "node scripts/generate-storage-schema.mjs",
     "docs:schema:legacy": "node scripts/generate-legacy-storage-schema.mjs",
     "docs:schema:all": "pnpm docs:schema && pnpm docs:schema:legacy",
@@ -31,7 +33,8 @@
     "check:rust:advisory-boundaries": "node scripts/check-rust-advisory-boundaries.mjs",
     "check:rust:deny": "cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml check",
     "check:rust:deps": "cargo machete src-tauri",
-    "check:docs": "node scripts/check-docs.mjs && pnpm check:pi-containers && pnpm check:bunny-review",
+    "check:docs": "node scripts/check-docs.mjs && pnpm check:readme-features && pnpm check:pi-containers && pnpm check:bunny-review",
+    "check:readme-features": "node scripts/generate-readme-features.mjs --check",
     "check:pi-containers": "node scripts/check-pi-container-distribution.mjs",
     "check:bunny-review": "node .github/bunny-review/run_guidance_check.mjs --self-test && node .github/bunny-review/run_guidance_check.mjs",
     "check:storage-contracts": "node scripts/check-storage-contracts.mjs",
