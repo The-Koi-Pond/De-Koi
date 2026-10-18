@@ -7,6 +7,7 @@ import type {
   FanficContinuityCategory,
   FanficContinuityIssue,
   FanficLedger,
+  FanficLedgerEntry,
   FanficRequest,
 } from "../../contracts/types/fanfic";
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
@@ -20,7 +21,14 @@ import {
   renderFanficLedgerState,
   updateFanficLedger,
 } from "./ledger";
-import { completeFanficJson, fanficCallBudget, parseFanficJsonReply, type FanficCallBudget } from "./llm-json";
+import {
+  completeFanficJson,
+  fanficCallBudget,
+  fanficMessageChars,
+  FanficWindowTooSmallError,
+  parseFanficJsonReply,
+  type FanficCallBudget,
+} from "./llm-json";
 import { renderFanficRequestForPrompt, stripFanficChapterHeading } from "./prompts";
 import {
   confirmedFanficContinuityIssues,
@@ -257,6 +265,15 @@ function groundFanficChapterIssues(
 
 // ── Fixes ───────────────────────────────────────
 
+const WORD_CHAR = /[A-Za-z0-9]/;
+
+/** The span neither starts in the middle of a word nor ends in one. */
+function wholeWordsAt(text: string, start: number, end: number): boolean {
+  const cutsStart = WORD_CHAR.test(text[start] ?? "") && WORD_CHAR.test(text[start - 1] ?? "");
+  const cutsEnd = WORD_CHAR.test(text[end - 1] ?? "") && WORD_CHAR.test(text[end] ?? "");
+  return !cutsStart && !cutsEnd;
+}
+
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -266,8 +283,13 @@ function escapeRegex(text: string): string {
  * occurs exactly once, so a fix never lands on the wrong passage.
  */
 export function locateFanficPassage(text: string, find: string): { start: number; end: number } | null {
-  const exact = text.indexOf(find);
-  if (exact >= 0 && text.indexOf(find, exact + 1) < 0) return { start: exact, end: exact + find.length };
+  if (!find) return null;
+  const exact: number[] = [];
+  for (let at = text.indexOf(find); at >= 0; at = text.indexOf(find, at + 1)) {
+    if (wholeWordsAt(text, at, at + find.length)) exact.push(at);
+  }
+  if (exact.length > 1) return null;
+  if (exact.length === 1) return { start: exact[0]!, end: exact[0]! + find.length };
   const words = find.match(/[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)*/g);
   if (!words || words.length < 3) return null;
   // Whole words only: the first and last word can't be the tail or head of a longer one.
@@ -349,17 +371,35 @@ export async function applyFanficContinuityFixesToChapter(
 
 // ── Running ─────────────────────────────────────
 
-/** Instructions and the request, in tokens; the checked chapter is added on top. */
-const CHECK_OVERHEAD_TOKENS = 3000;
+/** Section headings and the ledger's framing line around the earlier text. */
+const STORY_FRAME_CHARS = 400;
+/** The double-check also lists every note (at most MAX_ISSUES, each a few quoted lines). */
+const VERIFY_NOTES_CHARS = MAX_ISSUES * 700;
 
-/** Room for earlier chapters beside the instructions, the checked chapter, and the reply. */
-function checkBudget(connection: JsonRecord, target: FanficChapterRef): FanficCallBudget {
+/**
+ * Room for earlier chapters (or the ledger) beside everything else the check sends: its instructions and the request,
+ * measured from the real prompt, the checked chapter, the double-check's notes, and the reply.
+ */
+function checkBudget(connection: JsonRecord, request: FanficRequest, target: FanficChapterRef): FanficCallBudget {
+  const frame = buildFanficChapterContinuityMessages({
+    request,
+    context: { target, earlier: [], ledgerNote: "", ledgerThrough: 0 },
+  });
   return fanficCallBudget(effectiveMaxContext(connection, {}), {
     maxReplyTokens: SWEEP_MAX_TOKENS,
-    overheadTokens: CHECK_OVERHEAD_TOKENS + Math.ceil(target.content.length / 3),
+    fixedChars: fanficMessageChars(frame) + STORY_FRAME_CHARS + VERIFY_NOTES_CHARS,
     defaultChars: MAX_EARLIER_CHARS,
     maxChars: MAX_EARLIER_CHARS,
+    what: `checking chapter ${target.number}`,
   });
+}
+
+function ledgerNoteThrough(fresh: readonly FanficLedgerEntry[], through: number): string {
+  const summaries = fresh
+    .slice(0, through)
+    .map((item) => `Chapter ${item.chapter}: ${item.summary}`)
+    .join("\n");
+  return `${renderFanficLedgerState(fresh[through - 1]!)}\n\n${summaries}`;
 }
 
 function contextFor(
@@ -367,28 +407,21 @@ function contextFor(
   target: FanficChapterRef,
   ledger: FanficLedger,
   budget: number,
-): CheckContext | "needs_ledger" {
+): CheckContext | "needs_ledger" | "too_small" {
   const earlier = chapters.slice(0, target.number - 1);
-  const total = earlier.reduce((sum, chapter) => sum + chapter.content.length, 0);
-  if (total <= budget) return { target, earlier, ledgerNote: "", ledgerThrough: 0 };
-  let recent = earlier.slice(-RECENT_CHAPTERS);
-  while (recent.length > 0 && recent.reduce((sum, chapter) => sum + chapter.content.length, 0) > budget) {
-    recent = recent.slice(1);
-  }
-  const through = target.number - 1 - recent.length;
+  const size = (list: readonly FanficChapterRef[]) => list.reduce((sum, chapter) => sum + chapter.content.length, 0);
+  if (size(earlier) <= budget) return { target, earlier, ledgerNote: "", ledgerThrough: 0 };
   const fresh = fanficLedgerStatus(ledger, chapters).fresh;
-  const entry = fresh[through - 1];
-  if (!entry) return "needs_ledger";
-  const summaries = fresh
-    .slice(0, through)
-    .map((item) => `Chapter ${item.chapter}: ${item.summary}`)
-    .join("\n");
-  return {
-    target,
-    earlier: recent,
-    ledgerNote: `${renderFanficLedgerState(entry)}\n\n${summaries}`,
-    ledgerThrough: through,
-  };
+  // As many recent chapters in full as fit beside the ledger note for the rest, fewest-ledger first.
+  for (let count = Math.min(RECENT_CHAPTERS, earlier.length - 1); count >= 0; count -= 1) {
+    const through = earlier.length - count;
+    if (!fresh[through - 1]) return "needs_ledger";
+    const recent = earlier.slice(through);
+    const ledgerNote = ledgerNoteThrough(fresh, through);
+    if (size(recent) + ledgerNote.length <= budget)
+      return { target, earlier: recent, ledgerNote, ledgerThrough: through };
+  }
+  return "too_small";
 }
 
 export interface CheckFanficChapterContinuityInput {
@@ -425,13 +458,16 @@ export async function checkFanficChapterContinuity(
   if (!target) throw new Error("That chapter is no longer in this fic.");
   if (target.number === 1) throw new Error("Chapter 1 has nothing before it to contradict.");
 
-  const budget = checkBudget(connection, target);
+  const budget = checkBudget(connection, state.request, target);
   let context = contextFor(chapters, target, readFanficLedger(chat.metadata), budget.proseChars);
   if (context === "needs_ledger") {
     onPhase?.("updating_ledger");
     const ledger = await updateFanficLedger(deps, { chatId: input.chatId, connectionId }, { signal });
     context = contextFor(chapters, target, ledger, budget.proseChars);
     if (context === "needs_ledger") throw new Error("The story ledger couldn't cover the earlier chapters.");
+  }
+  if (context === "too_small") {
+    throw new FanficWindowTooSmallError(`checking chapter ${target.number} against the story ledger`);
   }
   const checkContext = context;
 

@@ -146,6 +146,9 @@ describe("fanfic continuity fixes", () => {
     // "he left the room" only occurs inside "Bathe left the room" and "the left the room".
     expect(locateFanficPassage(text, "he left the room")).toBeNull();
     expect(locateFanficPassage("She said he left the room early.", "he left the room")).toMatchObject({ start: 9 });
+    // The exact-text path checks word edges too.
+    expect(locateFanficPassage("Bathe left the room.", "athe left the room")).toBeNull();
+    expect(locateFanficPassage("Then he left the room.", "he left the room.")).toMatchObject({ start: 5 });
     // A near match elsewhere doesn't make the exact one ambiguous.
     expect(locateFanficPassage("Theo left the room. Then he left the room.", "he left the room")).toMatchObject({
       start: 25,
@@ -283,6 +286,15 @@ describe("checkFanficChapterContinuity", () => {
     expect(user).toContain("### Chapter 3\n");
     expect(check).toMatchObject({ basis: "ledger", chaptersRead: [3] });
     expect(check.issues[0]).toMatchObject({ earlierChapter: 0 });
+  });
+
+  it("refuses a window too small for the instructions and the chapter, before calling the model", async () => {
+    const { storage } = storageWith([chapterOne, chapterTwo, chapterThree], { connection: { maxContext: 1500 } });
+    const { llm, requests } = judgeLlm({});
+    await expect(checkFanficChapterContinuity({ storage, llm }, { chatId: "chat-1", messageId: "m3" })).rejects.toThrow(
+      /context window is too small for checking chapter 3/,
+    );
+    expect(requests).toHaveLength(0);
   });
 
   it("refuses chapter 1 and chats that aren't fanfic", async () => {

@@ -387,20 +387,18 @@ describe("updateFanficLedger", () => {
 });
 
 describe("fanficCallBudget", () => {
-  it("keeps the reply and the prose inside a small window", () => {
-    const budget = fanficCallBudget(4000, { maxReplyTokens: 8000, overheadTokens: 3000, defaultChars: 100_000 });
-    expect(budget.replyTokens).toBe(1000);
-    expect(budget.proseChars).toBe(0);
-    const roomy = fanficCallBudget(200_000, {
-      maxReplyTokens: 8000,
-      overheadTokens: 3000,
-      defaultChars: 100_000,
-      maxChars: 100_000,
-    });
-    expect(roomy).toEqual({ replyTokens: 8000, proseChars: 100_000 });
-    expect(fanficCallBudget(0, { maxReplyTokens: 8000, overheadTokens: 3000, defaultChars: 100_000 })).toEqual({
+  const base = { maxReplyTokens: 8000, defaultChars: 100_000, what: "the story ledger" };
+  it("measures the fixed prompt, caps the reply to what is left, and refuses windows that cannot fit", () => {
+    // 9,000 fixed characters is 3,000 tokens; a 4,000-token window leaves 1,000: all of it reply, no prose.
+    expect(fanficCallBudget(4000, { ...base, fixedChars: 9000 })).toEqual({ replyTokens: 1000, proseChars: 0 });
+    // A 3,000-token window is used up by the fixed text alone.
+    expect(() => fanficCallBudget(3000, { ...base, fixedChars: 9000 })).toThrow(
+      /context window is too small for the story ledger/,
+    );
+    expect(fanficCallBudget(200_000, { ...base, fixedChars: 9000, maxChars: 100_000 })).toEqual({
       replyTokens: 8000,
       proseChars: 100_000,
     });
+    expect(fanficCallBudget(0, { ...base, fixedChars: 9000 })).toEqual({ replyTokens: 8000, proseChars: 100_000 });
   });
 });

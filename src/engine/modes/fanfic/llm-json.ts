@@ -43,18 +43,40 @@ export interface FanficCallBudget {
   proseChars: number;
 }
 
+/** Characters per token when sizing prompts: on the low side, so estimates err toward fitting. */
+const CHARS_PER_TOKEN = 3;
+/** Below this there's no room for a useful reply. */
+const MIN_REPLY_TOKENS = 256;
+
+/** The connection's window can't hold the instructions, the text that must go in, and a reply. */
+export class FanficWindowTooSmallError extends Error {
+  constructor(what: string) {
+    super(`This connection's context window is too small for ${what}. Pick a connection with a larger window.`);
+    this.name = "FanficWindowTooSmallError";
+  }
+}
+
 /**
- * How much story text one helper call can carry in a connection's context window, after the reply and the fixed
- * instructions. Counts about 3 characters a token to stay on the safe side. An unknown window (0) gets the defaults.
+ * How much more story text one helper call can carry in a connection's window, after the prompt text that always goes
+ * in (`fixedChars`, measured from the real prompt) and the reply. The reply gets the job's cap or a quarter of the
+ * window, whichever is smaller, and never more than what's left. Throws when even the fixed text and a minimal reply
+ * don't fit. An unknown window (0) gets the defaults.
  */
 export function fanficCallBudget(
   window: number,
-  options: { maxReplyTokens: number; overheadTokens: number; defaultChars: number; maxChars?: number },
+  options: { maxReplyTokens: number; fixedChars: number; defaultChars: number; maxChars?: number; what: string },
 ): FanficCallBudget {
   if (!(window > 0)) return { replyTokens: options.maxReplyTokens, proseChars: options.defaultChars };
-  const replyTokens = Math.min(options.maxReplyTokens, Math.max(512, Math.floor(window / 4)));
-  const proseChars = Math.max(0, (window - replyTokens - options.overheadTokens) * 3);
+  const free = window - Math.ceil(options.fixedChars / CHARS_PER_TOKEN);
+  const replyTokens = Math.min(options.maxReplyTokens, Math.floor(window / 4), free);
+  if (replyTokens < MIN_REPLY_TOKENS) throw new FanficWindowTooSmallError(options.what);
+  const proseChars = Math.max(0, (free - replyTokens) * CHARS_PER_TOKEN);
   return { replyTokens, proseChars: Math.min(options.maxChars ?? Infinity, proseChars) };
+}
+
+/** Total characters across a call's messages. */
+export function fanficMessageChars(messages: readonly LlmMessage[]): number {
+  return messages.reduce((sum, message) => sum + (typeof message.content === "string" ? message.content.length : 0), 0);
 }
 
 function abortError(): DOMException {

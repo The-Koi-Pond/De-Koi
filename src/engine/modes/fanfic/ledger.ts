@@ -11,7 +11,9 @@ import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
 import {
   completeFanficJson,
   fanficCallBudget,
+  fanficMessageChars,
   FanficReplyParseError,
+  FanficWindowTooSmallError,
   parseFanficJsonReply,
   type FanficCallBudget,
 } from "./llm-json";
@@ -273,15 +275,22 @@ export interface FanficLedgerProgress {
   total: number;
 }
 
-/** Instructions, the request, and the previous entry, in tokens. */
-const LEDGER_OVERHEAD_TOKENS = 3000;
+/** Chapter headings and spacing per chapter in a ledger call, on top of the prose. */
+const PER_CHAPTER_FRAME_CHARS = 40;
 
-function ledgerBudget(connection: JsonRecord): FanficCallBudget {
+/** What the next ledger call can carry: measured from the real prompt with this call's previous entry. */
+function ledgerBudget(
+  connection: JsonRecord,
+  request: FanficRequest,
+  previous: FanficLedgerEntry | null,
+): FanficCallBudget {
+  const frame = buildFanficLedgerMessages({ request, previous, chapters: [] });
   return fanficCallBudget(effectiveMaxContext(connection, {}), {
     maxReplyTokens: LEDGER_MAX_TOKENS,
-    overheadTokens: LEDGER_OVERHEAD_TOKENS,
+    fixedChars: fanficMessageChars(frame) + MAX_CHAPTERS_PER_CALL * PER_CHAPTER_FRAME_CHARS,
     defaultChars: DEFAULT_CHARS_PER_CALL,
     maxChars: DEFAULT_CHARS_PER_CALL,
+    what: "the story ledger",
   });
 }
 
@@ -375,13 +384,18 @@ export async function updateFanficLedger(
     if (input.onlyIfInUse && !fanficLedgerInUse(saved, chapters, connection)) return ledger;
 
     const toRead = chapters.slice(status.fresh.length);
-    // A chapter longer than the budget still goes in a call of its own; there's no smaller unit to send.
-    const budget = ledgerBudget(connection);
-    const calls = planFanficLedgerCalls(toRead, budget.proseChars);
+    const window = effectiveMaxContext(connection, {});
     let done = 0;
     let conflicted = false;
     onProgress?.({ done, total: toRead.length });
-    for (const call of calls) {
+    while (done < toRead.length) {
+      // Sized per call: each call carries the entry before it, which grows as the story does.
+      const budget = ledgerBudget(connection, state.request, ledger.entries[ledger.entries.length - 1] ?? null);
+      const call = planFanficLedgerCalls(toRead.slice(done), budget.proseChars)[0]!;
+      if (window > 0 && call[0]!.content.length > budget.proseChars) {
+        // Entries saved so far stay; only this chapter can't be read on this connection.
+        throw new FanficWindowTooSmallError(`chapter ${call[0]!.number} of this fic`);
+      }
       const drafts = await completeFanficJson(
         deps.llm,
         {
