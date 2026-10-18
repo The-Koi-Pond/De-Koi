@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
-import type { FanficOutline, FanficState } from "../../../../engine/contracts/types/fanfic";
+import type { FanficOutline, FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
+import { fanficVoiceCharacters, withFanficVoices } from "../../../../engine/modes/fanfic/voices";
 import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
@@ -11,12 +12,14 @@ import {
   useFanficChat,
   useFanficGenerationState,
   useFanficLedger,
+  useFanficVoices,
   useFanficOutline,
   useFanficRequestSave,
   useFanficWriter,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
+import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficReader } from "./FanficReader";
 import { FanficRequestForm, type FanficRequestSubmit } from "./FanficRequestForm";
 
@@ -40,6 +43,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const write = useFanficWriter(activeChatId, connectionId);
   const ledger = useFanficLedger(activeChatId, connectionId);
   const { update: updateLedger } = ledger;
+  const voices = useFanficVoices(activeChatId, connectionId);
   const [editingRequest, setEditingRequest] = useState(false);
   const outlineAbort = useRef<AbortController | null>(null);
   const lastWrite = useRef<FanficWriteArgs>({ kind: "chapter" });
@@ -144,6 +148,16 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     if (chapters.length === 0) runWrite({ kind: "chapter" });
   };
 
+  const saveVoices = async (sheets: FanficVoiceSheet[]) => {
+    if (!state) return;
+    try {
+      await saveState(withFanficVoices(state, sheets));
+      toast.success("Voice sheets saved. The next chapter uses them.");
+    } catch (error) {
+      toast.error(errorText(error) ?? "The voice sheets could not be saved.");
+    }
+  };
+
   const replan = () => {
     outline.reset();
     startOutline(connectionId);
@@ -199,6 +213,15 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           key={JSON.stringify(state.outline)}
           outline={state.outline}
           research={state.research}
+          voicesPanel={
+            <FanficVoicesPanel
+              voices={state.voices ?? []}
+              controller={voices}
+              canBuild={fanficVoiceCharacters(state.request).length > 0}
+              busy={updateMetadata.isPending}
+              onSave={saveVoices}
+            />
+          }
           saving={updateMetadata.isPending}
           onApprove={(approved, notes) => void approveOutline(approved, notes)}
           onReplan={replan}
@@ -218,6 +241,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           onRetry={() => runWrite(lastWrite.current)}
           onStop={generation.stop}
           ledger={ledger}
+          voices={voices}
+          onSaveVoices={saveVoices}
         />
       )}
     </div>

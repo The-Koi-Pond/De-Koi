@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Download,
   Gauge,
+  MessageSquareQuote,
   Headphones,
   ListOrdered,
   Search,
@@ -23,7 +24,8 @@ import {
 } from "lucide-react";
 import { useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
-import type { FanficState } from "../../../../engine/contracts/types/fanfic";
+import type { FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
+import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
 import {
   buildFanficAiIsmCleanupNotes,
   detectFanficAiIsms,
@@ -44,9 +46,12 @@ import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
 import {
   useFanficContinuity,
+  useFanficVoiceCheck,
   type FanficChapterView,
   type FanficContinuityController,
   type FanficLedgerController,
+  type FanficVoiceCheckController,
+  type FanficVoicesController,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { useFanficNarration, type FanficNarrationStatus } from "../hooks/use-fanfic-narration";
@@ -59,6 +64,8 @@ import {
 import { FanficResearchSources } from "./FanficOutlineView";
 import { FanficContinuityProgress, FanficContinuityResult } from "./FanficContinuityResult";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
+import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
+import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
@@ -77,6 +84,8 @@ interface FanficReaderProps {
   onRetry: () => void;
   onStop: () => void;
   ledger: FanficLedgerController;
+  voices: FanficVoicesController;
+  onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
 }
 
 function wordCount(text: string): number {
@@ -171,6 +180,8 @@ function WorkHeader({
   onToggleQuality,
   showLedger,
   onToggleLedger,
+  showVoices,
+  onToggleVoices,
 }: {
   state: FanficState;
   chatName: string;
@@ -183,6 +194,8 @@ function WorkHeader({
   onToggleQuality: () => void;
   showLedger: boolean;
   onToggleLedger: () => void;
+  showVoices: boolean;
+  onToggleVoices: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -247,6 +260,10 @@ function WorkHeader({
         <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
           <BookMarked size="0.9rem" aria-hidden="true" />
           {showLedger ? "Hide ledger" : "Ledger"}
+        </FanficButton>
+        <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
+          <MessageSquareQuote size="0.9rem" aria-hidden="true" />
+          {showVoices ? "Hide voices" : "Voices"}
         </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
@@ -442,6 +459,8 @@ function ChapterTools({
   busy,
   onWrite,
   continuity,
+  voiceCheck,
+  hasVoices,
 }: {
   chatId: string;
   chapter: FanficChapterView;
@@ -451,6 +470,8 @@ function ChapterTools({
   busy: boolean;
   onWrite: (args: FanficWriteArgs) => void;
   continuity: FanficContinuityController;
+  voiceCheck: FanficVoiceCheckController;
+  hasVoices: boolean;
 }) {
   const [mode, setMode] = useState<"idle" | "revise" | "edit">("idle");
   const [notes, setNotes] = useState("");
@@ -462,6 +483,7 @@ function ChapterTools({
   const versions = Math.max(1, message.swipeCount ?? 1);
   const version = Math.min(versions, (message.activeSwipeIndex ?? 0) + 1);
   const continuityCheck = continuity.results[message.id];
+  const voiceResult = voiceCheck.results[message.id];
 
   const deleteChapter = async () => {
     const confirmed = await showConfirmDialog({
@@ -555,6 +577,16 @@ function ChapterTools({
             Check continuity
           </FanficButton>
         )}
+        {hasVoices && (
+          <FanficButton
+            disabled={busy || voiceCheck.running !== null || voiceCheck.fixing}
+            onClick={() => voiceCheck.check(message.id)}
+            title="Check every line against the voice sheets"
+          >
+            <MessageSquareQuote size="0.9rem" aria-hidden="true" />
+            Check voice
+          </FanficButton>
+        )}
         {isLast && (
           <FanficButton tone="danger" disabled={busy || deleteMessage.isPending} onClick={() => void deleteChapter()}>
             <Trash2 size="0.9rem" aria-hidden="true" />
@@ -578,6 +610,22 @@ function ChapterTools({
           }
           onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
           onDismiss={() => continuity.dismiss(message.id)}
+        />
+      )}
+      {voiceCheck.running === message.id && <FanficVoiceProgress phase={voiceCheck.phase} onStop={voiceCheck.stop} />}
+      {mode === "idle" && voiceResult && (
+        <FanficVoiceResult
+          check={voiceResult}
+          chapterText={stripFanficChapterHeading(message.content)}
+          busy={busy || voiceCheck.fixing}
+          onFix={(issues) =>
+            void voiceCheck.applyFixes(
+              voiceResult,
+              issues.flatMap((issue) => (issue.fix ? [issue.fix] : [])),
+            )
+          }
+          onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
+          onDismiss={() => voiceCheck.dismiss(message.id)}
         />
       )}
       {mode === "idle" && (
@@ -798,6 +846,8 @@ export function FanficReader({
   onRetry,
   onStop,
   ledger,
+  voices,
+  onSaveVoices,
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
@@ -806,7 +856,9 @@ export function FanficReader({
   const [showOutline, setShowOutline] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
+  const [showVoices, setShowVoices] = useState(false);
   const continuity = useFanficContinuity(chatId, null);
+  const voiceCheck = useFanficVoiceCheck(chatId, null);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
   const writingNew = generating && !regeneratingMessageId;
@@ -886,9 +938,20 @@ export function FanficReader({
         onToggleQuality={() => setShowQuality((open) => !open)}
         showLedger={showLedger}
         onToggleLedger={() => setShowLedger((open) => !open)}
+        showVoices={showVoices}
+        onToggleVoices={() => setShowVoices((open) => !open)}
       />
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={chapters} ledger={ledger} busy={generating} />
+      )}
+      {showVoices && (
+        <FanficVoicesPanel
+          voices={state.voices ?? []}
+          controller={voices}
+          canBuild={fanficVoiceCharacters(state.request).length > 0}
+          busy={generating}
+          onSave={onSaveVoices}
+        />
       )}
       {/* Hidden rather than unmounted, so a check still running shows its progress (and blocks a second run) when reopened. */}
       {chapterCount > 0 && (
@@ -960,6 +1023,8 @@ export function FanficReader({
                 busy={generating}
                 onWrite={onWrite}
                 continuity={continuity}
+                voiceCheck={voiceCheck}
+                hasVoices={(state.voices?.length ?? 0) > 0}
               />
             </div>
           </article>
