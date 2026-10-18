@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
+import { applyFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { fanficVoiceCharacters, withFanficVoices } from "../../../../engine/modes/fanfic/voices";
 import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
@@ -13,6 +14,7 @@ import {
   useFanficGenerationState,
   useFanficEditor,
   useFanficLedger,
+  useFanficPlan,
   useFanficVoices,
   useFanficOutline,
   useFanficRequestSave,
@@ -46,6 +48,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const { update: updateLedger } = ledger;
   const voices = useFanficVoices(activeChatId, connectionId);
   const editor = useFanficEditor(activeChatId, connectionId);
+  const plan = useFanficPlan(activeChatId, connectionId);
+  const { propose: proposePlan } = plan;
   const [editingRequest, setEditingRequest] = useState(false);
   const outlineAbort = useRef<AbortController | null>(null);
   const lastWrite = useRef<FanficWriteArgs>({ kind: "chapter" });
@@ -65,10 +69,13 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       lastWrite.current = args;
       // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
       void write(args).then((written) => {
-        if (written) updateLedger({ quiet: true });
+        if (!written) return;
+        updateLedger({ quiet: true });
+        // Living outline: after each new chapter, check the rest of the plan against what was written.
+        if (args.kind === "chapter") proposePlan({ quiet: true });
       });
     },
-    [updateLedger, write],
+    [proposePlan, updateLedger, write],
   );
 
   const chapterCount = useRef(chapters.length);
@@ -160,6 +167,17 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     }
   };
 
+  const applyPlanProposal = async (proposal: FanficPlanProposal) => {
+    if (!state) return;
+    try {
+      await saveState(applyFanficPlan(state, proposal));
+      await plan.dismiss();
+      toast.success("The outline is updated. The next chapter follows the new plan.");
+    } catch (error) {
+      toast.error(errorText(error) ?? "The new plan could not be saved.");
+    }
+  };
+
   const replan = () => {
     outline.reset();
     startOutline(connectionId);
@@ -246,6 +264,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           voices={voices}
           onSaveVoices={saveVoices}
           editor={editor}
+          plan={plan}
+          onUsePlan={applyPlanProposal}
         />
       )}
     </div>
