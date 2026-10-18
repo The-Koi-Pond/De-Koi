@@ -153,6 +153,9 @@ describe("fanfic continuity fixes", () => {
       start: 10,
     });
     expect(locateFanficPassage("Then he’s gone, and then he left.", "he’s gone, and")).toMatchObject({ start: 5 });
+    // Letters outside the basic plane (surrogate pairs) are word characters too.
+    expect(locateFanficPassage("𝔸he left the hall.", "he left the")).toBeNull();
+    expect(locateFanficPassage("The 𠮷𠮷 left the hall.", "𠮷 left the")).toBeNull();
     // The exact-text path checks word edges too.
     expect(locateFanficPassage("Bathe left the room.", "athe left the room")).toBeNull();
     expect(locateFanficPassage("Then he left the room.", "he left the room.")).toMatchObject({ start: 5 });

@@ -270,13 +270,30 @@ const WORD_CHAR = /[\p{L}\p{N}]/u;
 const APOSTROPHE = /['’]/;
 const isWord = (char: string | undefined) => WORD_CHAR.test(char ?? "");
 
-/** The span neither starts in the middle of a word nor ends in one. */
+/** The whole character (code point) that starts at `index`, or "" outside the text. */
+function charFrom(text: string, index: number): string {
+  const code = index >= 0 ? text.codePointAt(index) : undefined;
+  return code === undefined ? "" : String.fromCodePoint(code);
+}
+
+/** The whole character (code point) that ends just before `index`, and where it starts. */
+function charBefore(text: string, index: number): { char: string; at: number } {
+  if (index <= 0) return { char: "", at: 0 };
+  const low = text.charCodeAt(index - 1);
+  const at = low >= 0xdc00 && low <= 0xdfff && index >= 2 ? index - 2 : index - 1;
+  return { char: charFrom(text, at), at };
+}
+
+/** The span neither starts in the middle of a word nor ends in one. Works in code points, so astral letters count. */
 function wholeWordsAt(text: string, start: number, end: number): boolean {
+  const before = charBefore(text, start);
   const cutsStart =
-    isWord(text[start]) &&
-    (isWord(text[start - 1]) || (APOSTROPHE.test(text[start - 1] ?? "") && isWord(text[start - 2])));
+    isWord(charFrom(text, start)) &&
+    (isWord(before.char) || (APOSTROPHE.test(before.char) && isWord(charBefore(text, before.at).char)));
+  const after = charFrom(text, end);
   const cutsEnd =
-    isWord(text[end - 1]) && (isWord(text[end]) || (APOSTROPHE.test(text[end] ?? "") && isWord(text[end + 1])));
+    isWord(charBefore(text, end).char) &&
+    (isWord(after) || (APOSTROPHE.test(after) && isWord(charFrom(text, end + after.length))));
   return !cutsStart && !cutsEnd;
 }
 
