@@ -89,13 +89,13 @@ it.
 <details>
 <summary><b>Chat modes</b> (7)</summary>
 
-- **Conversation Mode**: Casual character messaging with group chats, per-character bubble styling, schedules, statuses, autonomous replies, commands, cancellable message and draft translation, freshness guardrails, and familiar chat controls.
-- **Roleplay Mode**: Long-form story writing with configurable narration style, local repetition guidance, conservative strict-agency correction, cancellable message and draft translation, character narration, scene lifecycle controls, sprites, backgrounds, lorebooks, trackers, and optional agents.
-- **Fanfic Mode**: Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. It can look up the canon and any real-world topics online first, then plan from what it finds. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, score it with a quality check (AI-sounding habits, repeats, continuity slips with quotes, and a critic's rubric) that keeps every run so you can compare before and after rewrites, check a chapter for continuity slips against the ones before it and fix them in one tap, keep a story ledger of who knows what so long fics stay consistent, keep a voice sheet per character with real canon lines (edit it in outline review) and check a chapter for lines a character would never say, run an editor pass that scores each chapter on stakes, side plots, hard choices, theme, and exposition and rewrites only the scenes that need it, keep the outline living (after each chapter it re-plans the chapters still to come from what was written, or suggests the next one past the end, and you can steer it), select any passage and say what is wrong to get rewrites of just that passage (keep asking for versions, then pick one), ban phrases on local models (they back up and rewrite the spot instead of writing them), and save the fic as HTML or Markdown.
-- **Roleplay workflow profiles**: Choose Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visual presentation matters, or Local Helpers when your local sidecar is ready. Preview what each setup adds and its model use before applying it without replacing your writer connection.
+- **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.
+- **Roleplay Mode**: Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character, and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.
+- **Fanfic Mode**: Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. De-Koi can look up the canon online first, shows an outline you can edit or skip, then writes it chapter by chapter. Steer or rewrite chapters with notes, listen to them read aloud, and run quality, continuity, and in-character checks with one-tap fixes. A story ledger of who knows what and per-character voice sheets with real canon lines keep long fics consistent. An editor pass rewrites only the weak scenes, the outline re-plans itself after each chapter, you can rewrite any passage you select and pick from versions, and local models can ban phrases outright. Save it as HTML or Markdown.
+- **Roleplay workflow profiles**: Choose a setup for your roleplay: Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visuals matter, or Local Helpers once your local model is ready. Before applying one, you see what it adds and how many extra model calls it makes. Your main writing connection stays as it is.
 - **Roleplay Context Panels**: Use roleplay helper panels for author notes, context injections, active world info, sprites, and HUD state.
-- **Roleplay Continuity Director**: Applying and confirming Long-Running Story makes one immediate background Director planning call only when it newly enables Director and no saved plan exists. Director cadence then makes one non-blocking planning call every 10 assistant replies. Keep arcs and open threads visible while new beats remain proposed and reviewable until you approve them for future prompts; a pending-review badge points you back to Director. The director proposes structure while the writer model owns prose and player agency.
-- **Character Web Research**: Let characters decide when current facts need public-web research. Keep the process in the background or allow in-character narration, with permission prompts and collapsed final sources.
+- **Roleplay Continuity Director**: Plans a long roleplay as a story: arcs, open threads, and upcoming beats you can see. Apply and confirm the Long-Running Story profile to turn it on. If that newly turns on the Director and there's no saved plan yet, it makes one extra planning call to your model right away; after that it makes one more in the background every 10 replies, without holding up the chat. New beats stay proposed until you approve them, and a badge shows when some are waiting. The Director only plans: your writer model still writes, and your character's choices stay yours.
+- **Character Web Research**: Let characters look things up on the public web when they need current facts. The research can stay in the background or show up as in-character narration; De-Koi asks your permission first and lists the sources, collapsed, at the end.
 
 </details>
 
@@ -111,12 +111,12 @@ it.
 <details>
 <summary><b>Library</b> (9)</summary>
 
-- **Characters**: Create, import, organize into groups, edit character cards, manage version history and character-level memories, optionally include sanitized character memories in De-Koi Native exports, export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, choose cross-chat continuity, inspect automatic evidence-backed behavior for sparse cards, generate concrete card fields, tune Public Profile details, and save Music Taste for visible Listening To flavor, play cues, and shuffled profile music.
+- **Characters**: Create, import, group, and edit character cards, with version history and per-character memories. Export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, or De-Koi's own format with cleaned-up memories if you want them. Choose whether a character remembers across chats, generate missing card fields, and set a public profile and music taste (shown as what they're listening to, with songs you can play). When a card is thin, De-Koi quietly infers a few tendencies from how the character actually behaves in chats; what you wrote always wins.
 - **Improved Opening Alternatives**: Generate one reviewable opening alternative that preserves the original first message, user agency, card premise, formatting, and macros until you explicitly save it as an alternate greeting.
 - **Conversation Avatar**: Override a character's avatar in Conversation mode — show an emoji, one of its sprites, a gallery image, or hide it entirely.
 - **Personas**: Manage who you play as, including persona descriptions, avatars, and groups that chats can use for context.
 - **Lorebooks**: Store, organize, test, and inspect world info, setting details, rules, backstory, and keyword-triggered context assigned to chats, characters, or personas.
-- **Prompt Presets**: Control and organize prompt structure, sections, variables, context attribution, and generation behavior for different chat styles.
+- **Prompt Presets**: Control how prompts are built for different chat styles: sections, variables, generation settings, and where each piece of context comes from.
 - **Bot Browser**: Browse downloadable character cards and related community resources from inside De-Koi.
 - **Character Gallery**: Store and review character-specific images separately from chat gallery images and generated scene attachments.
 - **Gallery**: Keep a profile-wide image library organized into folders, reusable across the whole app and independent of any chat.
@@ -126,8 +126,8 @@ it.
 <details>
 <summary><b>Agents</b> (2)</summary>
 
-- **Agents**: Optional helpers and custom functions that can be named, credited with editable author metadata, enabled or disabled globally, imported, exported, track world state, review or write lorebooks, create images, run custom behavior, and enrich generation.
-- **Trackers**: World, persona, character, quest, and custom trackers summarize structured state that can appear in Roleplay surfaces.
+- **Agents**: Optional helpers that run alongside your chats: track the state of the world, review or write lorebooks, create images, or run your own custom behavior. Turn each one on or off everywhere, rename it, edit its credits, and import or export it.
+- **Trackers**: Keep track of the world, your persona, characters, quests, or anything custom. Trackers show that state alongside your Roleplay chats.
 
 </details>
 
@@ -135,8 +135,8 @@ it.
 <summary><b>Media</b> (3)</summary>
 
 - **Text-to-Speech**: Configure voice providers and let chats, narration, or characters speak with assigned voices.
-- **Image Generation**: Set up and test image connections, Codex Subscription imagegen, and style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.
-- **Music Player**: Enable the Music Player module for automatic scene-aware roleplay picks and visible Fresh Pick controls, while Character Music Taste supplies profile and manual character cues.
+- **Image Generation**: Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.
+- **Music Player**: Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.
 
 </details>
 
@@ -145,13 +145,13 @@ it.
 
 - **Settings**: Global controls for appearance, chat behavior, sound preferences, imports, themes, extensions, backups, updates, and advanced runtime options.
 - **Privacy And Data Controls**: Review how De-Koi stores and sends data, export or back up your library, erase selected categories, or perform a typed-confirmation complete wipe of De-Koi-managed data.
-- **Health And Diagnostics**: Review setup readiness, runtime health, Local Model status, provider probes, storage reachability, recent client diagnostics, and a redacted troubleshooting packet.
+- **Health And Diagnostics**: Check that setup is complete and everything is working: the local model, your providers, storage, and recent errors. Copy a troubleshooting report with private details removed.
 - **Notification Sounds**: Choose the Frog default, the Legacy ding, or a small custom audio file for local chat alerts.
 - **Modules**: Enable or disable bundled modules like ME Notes and Music Player without importing custom extension files.
 - **Extensions**: Install CSS, JavaScript, or package manifest extensions, then enable, disable, and manage local behavior without editing core source.
-- **Extension Device Access**: Review compatibility and requested helpers, then activate CSS or trusted page-level JavaScript only on this runtime and device.
+- **Extension Device Access**: Before an extension runs, check that it's compatible and see what it asks for, then turn on its CSS or trusted page-level JavaScript on this device and this De-Koi install only.
 - **Themes, Fonts, And Backgrounds**: Customize visual themes, custom CSS themes, fonts, chat backgrounds, gradient styling, and mode-specific appearance.
-- **Custom Font Upload**: Install validated TTF, OTF, WOFF, or WOFF2 fonts from Settings; remote runtimes upload while embedded apps can open the managed folder.
+- **Custom Font Upload**: Install your own fonts (TTF, OTF, WOFF, or WOFF2) from Settings. On a self-hosted server you upload the file; in the desktop app you can also open the fonts folder.
 
 </details>
 
@@ -169,7 +169,7 @@ it.
 - **Prompt Inspector**: Inspect advanced prompt details including budget estimates, context attribution, section token counts, warnings, assembled prompt sections, roles, variables, generation parameters, and replay details before or after generation.
 - **Swipes And Rerolls**: Move between alternate generations, regenerate replies, amend the latest response with a targeted instruction, and optionally use your draft as guidance for the next retry.
 - **Message Moment Actions**: Start from a chat message and route it to continuity actions, including remembering the beat in chat summaries, or drafting lorebook entries. Use the brain action for Remember this, the adjacent branch action for branching, and the paintbrush to illustrate that exact message.
-- **Chat Continuity Overview**: See what can carry forward and manually add chat-local memories in the Memory Console or character-wide memories in Character Editor. Memory scope controls where a memory persists; Who knows this? assignments control which characters, personas, or groups may use a canonical memory in Roleplay, while world truth never grants character knowledge. In Roleplay, Story Continuity also builds source-linked episodes and four-episode arcs in the background, with an explicit existing-story build, exact source inspection, and edit, regenerate, pin, supersede, and retry controls. De-Koi automatically rejects low-value captures and quietly combines or removes stored memories in the background. Manual, pinned, edited, imported, corrected, and tool-created memories use the same hygiene policy. Open Memory Console or Character Editor > Memories to inspect active memories, manage knowledge assignments, or undo the latest automatic maintenance batch. The advanced Repair from chat history action recreates automatic transcript memories without AI; it is separate from automatic memory hygiene and is not a summary. When deleting chats, choose whether De-Koi also removes memories learned only from those chats; shared memories supported elsewhere stay intact. Review speaker-labeled exchanges, typed consequences, automatic capture status and partial-capture warnings, and embeddings that rank matches alongside summaries, world info, tracker agents, and non-authoritative story projections.
+- **Chat Continuity Overview**: See what your characters will remember, and manually add your own memories: chat-local ones in the Memory Console, or character-wide ones in the Character Editor. "Who knows this?" decides which characters, personas, or groups may use a memory in Roleplay; facts about the world never count as a character knowing them. In Roleplay, De-Koi also groups the story into episodes and four-episode arcs in the background, each linked to its source, which you can inspect, edit, regenerate, pin, or retry, or build for a story you already have. De-Koi automatically rejects low-value memories and quietly combines or removes stored ones in the background (automatic memory hygiene); pinned, edited, and hand-written memories follow the same rules, and you can undo the latest cleanup. Repair from chat history rebuilds automatic memories without AI. When you delete a chat, choose whether memories learned only from it go too. It keeps speaker-labeled exchanges, and matching memories are ranked by relevance next to summaries, world info, and trackers.
 
 </details>
 
@@ -179,7 +179,7 @@ it.
 - **Help Hub**: A central Help surface for diagnostics, bug reports, onboarding replay, shortcut reference, and app version details.
 - **Show Me Around**: Replay the short five-step orientation tour for Chats, workspace navigation, and the main workspace. Use the readiness checklist to resume setup without changing your library or settings.
 - **Report A Bug**: Copy a short support report and open the configured GitHub issue form.
-- **Deki-senpai**: A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts, library edits and cleanups you approve with a preview that lists everything a delete also removes or changes, live step-by-step work you can stop, scoped memory review, and durable retryable sessions separate from active chats.
+- **Deki-senpai**: Deki-senpai, De-Koi's built-in assistant. Ask about the app or its code, have it draft characters and other library items, or let it edit and tidy your library. Every change waits for your approval, with a preview that lists everything a delete would also remove or change. Watch it work step by step and stop it at any time, review the memories it can see, and come back to its sessions later, separate from your chats.
 - **Customization Safe Mode**: Recover from a broken theme or extension without loading customizations by opening De-Koi with ?safe-mode=customizations.
 
 </details>
