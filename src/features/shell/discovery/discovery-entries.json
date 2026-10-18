@@ -3,7 +3,7 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Casual character messaging with group chats, per-character bubble styling, schedules, statuses, autonomous replies, commands, cancellable message and draft translation, freshness guardrails, and familiar chat controls.",
+    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
     "keywords": [
       "dm",
       "chat",
@@ -21,14 +21,20 @@
     ],
     "audience": "Users who want companion-style chats, quick conversations, or character group messages.",
     "where": "Home > Conversation, then the chat setup wizard and chat settings drawer.",
-    "actions": [{ "type": "open-mode-setup", "mode": "conversation", "label": "Set up Conversation" }],
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "conversation",
+        "label": "Set up Conversation"
+      }
+    ],
     "coverage": "core"
   },
   {
     "id": "roleplay-mode",
     "title": "Roleplay Mode",
     "category": "Chat modes",
-    "summary": "Long-form story writing with configurable narration style, local repetition guidance, conservative strict-agency correction, cancellable message and draft translation, character narration, scene lifecycle controls, sprites, backgrounds, lorebooks, trackers, and optional agents.",
+    "summary": "Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character, and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.",
     "keywords": [
       "rp",
       "story",
@@ -51,14 +57,20 @@
     ],
     "audience": "Users who want immersive scenes and creative writing rather than quick texting.",
     "where": "Home > Roleplay, then the setup wizard and Chat Settings > Roleplay Quality.",
-    "actions": [{ "type": "open-mode-setup", "mode": "roleplay", "label": "Set up Roleplay" }],
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "roleplay",
+        "label": "Set up Roleplay"
+      }
+    ],
     "coverage": "core"
   },
   {
     "id": "fanfic-mode",
     "title": "Fanfic Mode",
     "category": "Chat modes",
-    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. It can look up the canon and any real-world topics online first, then plan from what it finds. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, score it with a quality check (AI-sounding habits, repeats, continuity slips with quotes, and a critic's rubric) that keeps every run so you can compare before and after rewrites, check a chapter for continuity slips against the ones before it and fix them in one tap, keep a story ledger of who knows what so long fics stay consistent, keep a voice sheet per character with real canon lines (edit it in outline review) and check a chapter for lines a character would never say, run an editor pass that scores each chapter on stakes, side plots, hard choices, theme, and exposition and rewrites only the scenes that need it, keep the outline living (after each chapter it re-plans the chapters still to come from what was written, or suggests the next one past the end, and you can steer it), select any passage and say what is wrong to get rewrites of just that passage (keep asking for versions, then pick one), ban phrases on local models (they back up and rewrite the spot instead of writing them), and save the fic as HTML or Markdown.",
+    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. De-Koi can look up the canon online first, shows an outline you can edit or skip, then writes it chapter by chapter. Steer or rewrite chapters with notes, listen to them read aloud, and run quality, continuity, and in-character checks with one-tap fixes. A story ledger of who knows what and per-character voice sheets with real canon lines keep long fics consistent. An editor pass rewrites only the weak scenes, the outline re-plans itself after each chapter, you can rewrite any passage you select and pick from versions, and local models can ban phrases outright. Save it as HTML or Markdown.",
     "keywords": [
       "fanfic",
       "fanfiction",
@@ -100,14 +112,20 @@
     ],
     "audience": "Readers who want a story written for them rather than a scene to play in.",
     "where": "Home > Fanfic, then the request form, outline, and chapter reader.",
-    "actions": [{ "type": "open-mode-setup", "mode": "fanfic", "label": "Request a fic" }],
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "fanfic",
+        "label": "Request a fic"
+      }
+    ],
     "coverage": "core"
   },
   {
     "id": "roleplay-workflow-profiles",
     "title": "Roleplay workflow profiles",
     "category": "Chat modes",
-    "summary": "Choose Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visual presentation matters, or Local Helpers when your local sidecar is ready. Preview what each setup adds and its model use before applying it without replacing your writer connection.",
+    "summary": "Choose a setup for your roleplay: Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visuals matter, or Local Helpers once your local model is ready. Before applying one, you see what it adds and how many extra model calls it makes. Your main writing connection stays as it is.",
     "keywords": [
       "roleplay workflow",
       "workflow profile",
@@ -133,7 +151,7 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, organize into groups, edit character cards, manage version history and character-level memories, optionally include sanitized character memories in De-Koi Native exports, export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, choose cross-chat continuity, inspect automatic evidence-backed behavior for sparse cards, generate concrete card fields, tune Public Profile details, and save Music Taste for visible Listening To flavor, play cues, and shuffled profile music.",
+    "summary": "Create, import, group, and edit character cards, with version history and per-character memories. Export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, or De-Koi's own format with cleaned-up memories if you want them. Choose whether a character remembers across chats, generate missing card fields, and set a public profile and music taste (shown as what they're listening to, with songs you can play). When a card is thin, De-Koi quietly infers a few tendencies from how the character actually behaves in chats; what you wrote always wins.",
     "keywords": [
       "card",
       "character",
@@ -178,7 +196,13 @@
     ],
     "audience": "Users building or collecting characters to chat or roleplay with.",
     "where": "Title bar > Characters; open a character, then use Behavior for automatic sparse-card interpretation, Memories for cross-chat continuity, version history for saved card versions, or Export to choose De-Koi Native (optionally with sanitized character memories), V2 JSON, PNG, Character Card V3, or CHARX.",
-    "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "characters",
+        "label": "Open Characters"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -201,7 +225,13 @@
     ],
     "audience": "Character authors who want a stronger actionable Roleplay opening without replacing their authored greeting.",
     "where": "Character editor > Dialogue > Generate improved alternate.",
-    "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "characters",
+        "label": "Open Characters"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -222,7 +252,13 @@
     ],
     "audience": "Users theming how a character looks next to their messages in Conversation mode.",
     "where": "Character editor > Colors tab > Conversation Avatar.",
-    "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "characters",
+        "label": "Open Characters"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -233,7 +269,13 @@
     "keywords": ["persona", "user", "player", "avatar", "self", "profile", "play as", "groups", "drag and drop"],
     "audience": "Users who want different identities or player characters for different chats.",
     "where": "Title bar > Personas, or chat settings for per-chat persona choices.",
-    "actions": [{ "type": "open-panel", "panel": "personas", "label": "Open Personas" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "personas",
+        "label": "Open Personas"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -261,14 +303,20 @@
     ],
     "audience": "Users with worlds, settings, factions, or recurring facts too large for a character card.",
     "where": "Title bar > Lorebooks for the test panel, or the chat Active World Info button for the inspector.",
-    "actions": [{ "type": "open-panel", "panel": "lorebooks", "label": "Open Lorebooks" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "lorebooks",
+        "label": "Open Lorebooks"
+      }
+    ],
     "coverage": "core"
   },
   {
     "id": "presets",
     "title": "Prompt Presets",
     "category": "Library",
-    "summary": "Control and organize prompt structure, sections, variables, context attribution, and generation behavior for different chat styles.",
+    "summary": "Control how prompts are built for different chat styles: sections, variables, generation settings, and where each piece of context comes from.",
     "keywords": [
       "preset",
       "prompt",
@@ -284,7 +332,13 @@
     ],
     "audience": "Power users tuning how models receive instructions and context.",
     "where": "Title bar > Presets, plus per-chat settings.",
-    "actions": [{ "type": "open-panel", "panel": "presets", "label": "Open Presets" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "presets",
+        "label": "Open Presets"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -306,7 +360,13 @@
     ],
     "audience": "Power users importing scoped scripts from cards or customizing text before it is sent, displayed, or assembled into prompts.",
     "where": "Title bar > Presets > Regexes, plus scoped regex controls in per-chat settings.",
-    "actions": [{ "type": "open-panel", "panel": "presets", "label": "Open Regexes" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "presets",
+        "label": "Open Regexes"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -338,14 +398,20 @@
     ],
     "audience": "Users setting up De-Koi, running a local model, grouping providers, or switching which model powers chats and agents.",
     "where": "Title bar > Connections, including connection folders and the Local Model card; choose a chat-specific Vision / Image Input Connection in Chat Settings.",
-    "actions": [{ "type": "open-panel", "panel": "connections", "label": "Open Connections" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "connections",
+        "label": "Open Connections"
+      }
+    ],
     "coverage": "core"
   },
   {
     "id": "agents",
     "title": "Agents",
     "category": "Agents",
-    "summary": "Optional helpers and custom functions that can be named, credited with editable author metadata, enabled or disabled globally, imported, exported, track world state, review or write lorebooks, create images, run custom behavior, and enrich generation.",
+    "summary": "Optional helpers that run alongside your chats: track the state of the world, review or write lorebooks, create images, or run your own custom behavior. Turn each one on or off everywhere, rename it, edit its credits, and import or export it.",
     "keywords": [
       "agent",
       "automation",
@@ -369,7 +435,13 @@
     ],
     "audience": "Users who want extra systems layered on top of their main chat.",
     "where": "Title bar > Agents, Title bar > Presets > Functions, and each chat settings drawer.",
-    "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "agents",
+        "label": "Open Agents"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -391,7 +463,13 @@
     ],
     "audience": "Everyone configuring how the app looks, behaves, imports data, or connects to runtimes.",
     "where": "Title bar > Settings.",
-    "actions": [{ "type": "open-panel", "panel": "settings", "label": "Open Settings" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "settings",
+        "label": "Open Settings"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -414,7 +492,12 @@
     "audience": "Users who want to understand De-Koi's data handling, remove selected data, or permanently erase every De-Koi-managed copy.",
     "where": "Settings > Privacy & Data.",
     "actions": [
-      { "type": "open-settings", "tab": "privacy", "destination": "privacy-data", "label": "Open Privacy & Data" }
+      {
+        "type": "open-settings",
+        "tab": "privacy",
+        "destination": "privacy-data",
+        "label": "Open Privacy & Data"
+      }
     ],
     "coverage": "core"
   },
@@ -422,7 +505,7 @@
     "id": "health-diagnostics",
     "title": "Health And Diagnostics",
     "category": "Settings",
-    "summary": "Review setup readiness, runtime health, Local Model status, provider probes, storage reachability, recent client diagnostics, and a redacted troubleshooting packet.",
+    "summary": "Check that setup is complete and everything is working: the local model, your providers, storage, and recent errors. Copy a troubleshooting report with private details removed.",
     "keywords": [
       "health",
       "diagnostics",
@@ -438,7 +521,12 @@
     "audience": "Users checking first-run setup or collecting safe troubleshooting details for support.",
     "where": "Settings > Health.",
     "actions": [
-      { "type": "open-settings", "tab": "health", "destination": "health-diagnostics", "label": "Open Health" }
+      {
+        "type": "open-settings",
+        "tab": "health",
+        "destination": "health-diagnostics",
+        "label": "Open Health"
+      }
     ],
     "coverage": "core"
   },
@@ -468,7 +556,14 @@
     "keywords": ["import", "sillytavern", "json", "profile", "migration", "cards", "backup"],
     "audience": "Users migrating from another frontend or restoring existing Marinara data.",
     "where": "Settings > Import.",
-    "actions": [{ "type": "open-settings", "tab": "import", "destination": "profile-import", "label": "Open Import" }],
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "import",
+        "destination": "profile-import",
+        "label": "Open Import"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -479,7 +574,13 @@
     "keywords": ["browser", "bots", "download", "community", "cards", "search"],
     "audience": "Users looking for characters and resources to start with.",
     "where": "Title bar > Browser.",
-    "actions": [{ "type": "open-panel", "panel": "bot-browser", "label": "Open Browser" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "bot-browser",
+        "label": "Open Browser"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -490,7 +591,12 @@
     "keywords": ["help", "support", "about", "version", "shortcuts", "question mark", "diagnostics", "getting started"],
     "audience": "Users who are stuck, confused, or want one place to find recovery actions.",
     "where": "Title bar Help button, mobile chat Help button, or press ? outside text inputs.",
-    "actions": [{ "type": "open-help", "label": "Open Help" }],
+    "actions": [
+      {
+        "type": "open-help",
+        "label": "Open Help"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -501,7 +607,12 @@
     "keywords": ["onboarding", "tutorial", "first run", "getting started", "walkthrough", "replay"],
     "audience": "Users who skipped onboarding or want the initial orientation again.",
     "where": "Discover > Show Me Around, or Help > Show me around.",
-    "actions": [{ "type": "replay-onboarding", "label": "Show me around" }],
+    "actions": [
+      {
+        "type": "replay-onboarding",
+        "label": "Show me around"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -512,14 +623,19 @@
     "keywords": ["bug", "report bug", "issue", "github", "support", "error", "crash", "diagnostics"],
     "audience": "Users who hit an error or need to send maintainers useful troubleshooting context.",
     "where": "Crash screen, Settings > Health, Help Hub, or Discover > Report A Bug.",
-    "actions": [{ "type": "report-bug", "label": "Report Bug" }],
+    "actions": [
+      {
+        "type": "report-bug",
+        "label": "Report Bug"
+      }
+    ],
     "coverage": "core"
   },
   {
     "id": "deki",
     "title": "Deki-senpai",
     "category": "Help",
-    "summary": "A dedicated Deki-senpai surface for app questions, codebase help, creative-library drafts, library edits and cleanups you approve with a preview that lists everything a delete also removes or changes, live step-by-step work you can stop, scoped memory review, and durable retryable sessions separate from active chats.",
+    "summary": "Deki-senpai, De-Koi's built-in assistant. Ask about the app or its code, have it draft characters and other library items, or let it edit and tidy your library. Every change waits for your approval, with a preview that lists everything a delete would also remove or change. Watch it work step by step and stop it at any time, review the memories it can see, and come back to its sessions later, separate from your chats.",
     "keywords": [
       "help",
       "assistant",
@@ -546,7 +662,12 @@
     ],
     "audience": "Users who want help understanding or customizing De-Koi, drafting library records, or reviewing character and approved chat memories without interrupting a chat.",
     "where": "Deki-senpai button in the title bar or mobile top bar, with conversation history in the dedicated left sidebar.",
-    "actions": [{ "type": "open-deki", "label": "Open Deki-senpai" }],
+    "actions": [
+      {
+        "type": "open-deki",
+        "label": "Open Deki-senpai"
+      }
+    ],
     "coverage": "core"
   },
   {
@@ -571,7 +692,13 @@
     ],
     "audience": "Users who prefer quick typed actions instead of hunting through menus.",
     "where": "Conversation and Roleplay chat input; type / to open autocomplete.",
-    "actions": [{ "type": "open-chat-destination", "destination": "slash-commands", "label": "Open Slash Commands" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "slash-commands",
+        "label": "Open Slash Commands"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -593,14 +720,20 @@
     ],
     "audience": "Users who want voiced messages, narration, or more immersive scenes.",
     "where": "Settings and connection/provider configuration, with chat-specific voice options where available.",
-    "actions": [{ "type": "open-panel", "panel": "settings", "label": "Open Settings" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "settings",
+        "label": "Open Settings"
+      }
+    ],
     "coverage": "advanced"
   },
   {
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Set up and test image connections, Codex Subscription imagegen, and style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.",
+    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.",
     "keywords": [
       "image",
       "images",
@@ -624,8 +757,17 @@
     "audience": "Users who want visual scenes and character art generated from chat context.",
     "where": "Connections, Settings > General, chat settings, and relevant agents.",
     "actions": [
-      { "type": "open-panel", "panel": "connections", "label": "Open Connections" },
-      { "type": "open-settings", "tab": "general", "destination": "image-settings", "label": "Open Image Settings" }
+      {
+        "type": "open-panel",
+        "panel": "connections",
+        "label": "Open Connections"
+      },
+      {
+        "type": "open-settings",
+        "tab": "general",
+        "destination": "image-settings",
+        "label": "Open Image Settings"
+      }
     ],
     "coverage": "advanced"
   },
@@ -633,11 +775,17 @@
     "id": "trackers",
     "title": "Trackers",
     "category": "Agents",
-    "summary": "World, persona, character, quest, and custom trackers summarize structured state that can appear in Roleplay surfaces.",
+    "summary": "Keep track of the world, your persona, characters, quests, or anything custom. Trackers show that state alongside your Roleplay chats.",
     "keywords": ["tracker", "world state", "character state", "quest", "stats", "memory", "hud"],
     "audience": "Users who want visible continuity and structured state during long scenes.",
     "where": "Enable tracker agents in chat settings, then use the tracker side panel or HUD surfaces.",
-    "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "agents",
+        "label": "Open Agents"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -648,7 +796,13 @@
     "keywords": ["discord", "webhook", "mirror", "share", "channel", "broadcast"],
     "audience": "Users who want to archive or share chat output outside De-Koi.",
     "where": "Per-chat settings drawer.",
-    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings",
+        "label": "Open Chat Settings"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -659,7 +813,13 @@
     "keywords": ["reasoning", "thinking", "thoughts", "model reasoning", "view thoughts", "chat messages"],
     "audience": "Users who want to inspect reasoning data that their selected model and provider make available.",
     "where": "Open a Conversation or Roleplay chat, then Chat Settings > Reasoning.",
-    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings",
+        "label": "Open Chat Settings"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -680,8 +840,16 @@
     "audience": "Users who want reliable model settings automatically, with optional per-chat or per-connection tuning.",
     "where": "Chat Settings > Advanced Parameters, or Connections > Generation Profile.",
     "actions": [
-      { "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" },
-      { "type": "open-panel", "panel": "connections", "label": "Open Connections" }
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings",
+        "label": "Open Chat Settings"
+      },
+      {
+        "type": "open-panel",
+        "panel": "connections",
+        "label": "Open Connections"
+      }
     ],
     "coverage": "advanced"
   },
@@ -722,7 +890,12 @@
     "audience": "Users who want faster alternate send actions during writing.",
     "where": "Settings > General > Chat behavior, then the Conversation or Roleplay input toolbar.",
     "actions": [
-      { "type": "open-settings", "tab": "general", "destination": "chat-behavior", "label": "Open Chat Behavior" }
+      {
+        "type": "open-settings",
+        "tab": "general",
+        "destination": "chat-behavior",
+        "label": "Open Chat Behavior"
+      }
     ],
     "coverage": "advanced"
   },
@@ -730,7 +903,7 @@
     "id": "music-dj",
     "title": "Music Player",
     "category": "Media",
-    "summary": "Enable the Music Player module for automatic scene-aware roleplay picks and visible Fresh Pick controls, while Character Music Taste supplies profile and manual character cues.",
+    "summary": "Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.",
     "keywords": [
       "youtube",
       "spotify legacy",
@@ -750,7 +923,13 @@
     ],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats.",
     "where": "Settings > Modules for automatic roleplay music and visible controls, and Character editor > Metadata > Music Taste for profile cues.",
-    "actions": [{ "type": "open-panel", "panel": "agents", "label": "Open Agents" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "agents",
+        "label": "Open Agents"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -768,7 +947,13 @@
     ],
     "audience": "Users who regularly create similar chats and want setup choices to carry across sessions.",
     "where": "Open a chat > Chat Settings > preset controls at the top of the drawer.",
-    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Preset Controls" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings",
+        "label": "Open Preset Controls"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -793,7 +978,13 @@
     ],
     "audience": "Power users checking context usage before sending or debugging why a model answered a certain way.",
     "where": "Assistant message Peek Prompt actions, context attribution controls, and replay controls.",
-    "actions": [{ "type": "open-chat-destination", "destination": "prompt-inspector", "label": "Show Prompt Tools" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "prompt-inspector",
+        "label": "Show Prompt Tools"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -815,7 +1006,13 @@
     ],
     "audience": "Writers who compare alternate responses or steer a regeneration without changing the whole chat setup.",
     "where": "Assistant messages in Conversation and Roleplay chats, with related controls in Settings > General and Settings > Advanced.",
-    "actions": [{ "type": "open-settings", "tab": "general", "label": "Open General" }],
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "general",
+        "label": "Open General"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -847,7 +1044,13 @@
     ],
     "audience": "Users who notice an important chat beat and want to preserve it as summary memory, lore, a branch, or a targeted illustration from the message action bar.",
     "where": "Hover or tap a message action bar in Conversation or Roleplay transcripts, then choose the brain for Remember this, the branch icon to branch, or the paintbrush to illustrate that exact message.",
-    "actions": [{ "type": "open-chat-destination", "destination": "message-actions", "label": "Show Message Actions" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "message-actions",
+        "label": "Show Message Actions"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -858,7 +1061,13 @@
     "keywords": ["character gallery", "gallery", "character images", "portraits", "reference images", "image gallery"],
     "audience": "Users who keep multiple reference images, portraits, or art variants for the same character.",
     "where": "Characters > open a character > Gallery.",
-    "actions": [{ "type": "open-panel", "panel": "characters", "label": "Open Characters" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "characters",
+        "label": "Open Characters"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -869,7 +1078,13 @@
     "keywords": ["gallery", "global gallery", "image library", "images", "media", "folders", "pictures", "library"],
     "audience": "Users who want a central place to collect and organize images instead of scattering them across chats.",
     "where": "Gallery button in the right-side panel navigation.",
-    "actions": [{ "type": "open-panel", "panel": "gallery", "label": "Open Gallery" }],
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "gallery",
+        "label": "Open Gallery"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -893,7 +1108,14 @@
     ],
     "audience": "Users who want opt-in De-Koi features that are shipped with the app and can be toggled safely.",
     "where": "Settings > Modules.",
-    "actions": [{ "type": "open-settings", "tab": "plugins", "destination": "modules", "label": "Open Modules" }],
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "plugins",
+        "destination": "modules",
+        "label": "Open Modules"
+      }
+    ],
     "coverage": "advanced"
   },
   {
@@ -917,7 +1139,12 @@
     "audience": "Users customizing De-Koi with optional behavior that should stay outside core app code.",
     "where": "Settings > Extensions.",
     "actions": [
-      { "type": "open-settings", "tab": "extensions", "destination": "extensions", "label": "Open Extensions" }
+      {
+        "type": "open-settings",
+        "tab": "extensions",
+        "destination": "extensions",
+        "label": "Open Extensions"
+      }
     ],
     "coverage": "advanced"
   },
@@ -925,7 +1152,7 @@
     "id": "extension-device-activation",
     "title": "Extension Device Access",
     "category": "Settings",
-    "summary": "Review compatibility and requested helpers, then activate CSS or trusted page-level JavaScript only on this runtime and device.",
+    "summary": "Before an extension runs, check that it's compatible and see what it asks for, then turn on its CSS or trusted page-level JavaScript on this device and this De-Koi install only.",
     "keywords": [
       "extension consent",
       "device activation",
@@ -938,7 +1165,12 @@
     "audience": "Users reviewing whether an installed extension should run on this device.",
     "where": "Settings > Extensions > Device access.",
     "actions": [
-      { "type": "open-settings", "tab": "extensions", "destination": "extensions", "label": "Review Device Access" }
+      {
+        "type": "open-settings",
+        "tab": "extensions",
+        "destination": "extensions",
+        "label": "Review Device Access"
+      }
     ],
     "coverage": "advanced"
   },
@@ -951,7 +1183,12 @@
     "audience": "Users whose custom CSS or extension made the normal interface difficult to use.",
     "where": "Append ?safe-mode=customizations to the De-Koi URL, or review Settings > Themes before a problem occurs.",
     "actions": [
-      { "type": "open-settings", "tab": "themes", "destination": "themes", "label": "Open Theme Safety Controls" }
+      {
+        "type": "open-settings",
+        "tab": "themes",
+        "destination": "themes",
+        "label": "Open Theme Safety Controls"
+      }
     ],
     "coverage": "advanced"
   },
@@ -973,7 +1210,12 @@
     "audience": "Users moving devices, testing risky changes, or keeping recovery copies of local data.",
     "where": "Settings > Import for profile import, Settings > Privacy & Data for the privacy overview, and Settings > Advanced for backup and profile export controls.",
     "actions": [
-      { "type": "open-settings", "tab": "privacy", "destination": "backups", "label": "Open Backups And Export" }
+      {
+        "type": "open-settings",
+        "tab": "privacy",
+        "destination": "backups",
+        "label": "Open Backups And Export"
+      }
     ],
     "coverage": "advanced"
   },
@@ -985,19 +1227,30 @@
     "keywords": ["theme", "themes", "custom css", "fonts", "backgrounds", "appearance", "gradient", "visual style"],
     "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",
-    "actions": [{ "type": "open-settings", "tab": "appearance", "label": "Open Appearance" }],
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "label": "Open Appearance"
+      }
+    ],
     "coverage": "advanced"
   },
   {
     "id": "custom-font-upload",
     "title": "Custom Font Upload",
     "category": "Settings",
-    "summary": "Install validated TTF, OTF, WOFF, or WOFF2 fonts from Settings; remote runtimes upload while embedded apps can open the managed folder.",
+    "summary": "Install your own fonts (TTF, OTF, WOFF, or WOFF2) from Settings. On a self-hosted server you upload the file; in the desktop app you can also open the fonts folder.",
     "keywords": ["font upload", "remote font", "ttf", "otf", "woff", "woff2", "managed fonts"],
     "audience": "Users tailoring typography on embedded or remote De-Koi runtimes.",
     "where": "Settings > Appearance > Font.",
     "actions": [
-      { "type": "open-settings", "tab": "appearance", "destination": "fonts", "label": "Manage Custom Fonts" }
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "destination": "fonts",
+        "label": "Manage Custom Fonts"
+      }
     ],
     "coverage": "advanced"
   },
@@ -1018,7 +1271,11 @@
     "audience": "Roleplay users who want more control over hidden context, visible state, and scene presentation.",
     "where": "Roleplay chat HUD, chat settings, and agent-enabled roleplay panels.",
     "actions": [
-      { "type": "open-chat-destination", "destination": "roleplay-context", "label": "Open Roleplay Context" }
+      {
+        "type": "open-chat-destination",
+        "destination": "roleplay-context",
+        "label": "Open Roleplay Context"
+      }
     ],
     "coverage": "advanced"
   },
@@ -1026,7 +1283,7 @@
     "id": "chat-memory-summaries",
     "title": "Chat Continuity Overview",
     "category": "Advanced",
-    "summary": "See what can carry forward and manually add chat-local memories in the Memory Console or character-wide memories in Character Editor. Memory scope controls where a memory persists; Who knows this? assignments control which characters, personas, or groups may use a canonical memory in Roleplay, while world truth never grants character knowledge. In Roleplay, Story Continuity also builds source-linked episodes and four-episode arcs in the background, with an explicit existing-story build, exact source inspection, and edit, regenerate, pin, supersede, and retry controls. De-Koi automatically rejects low-value captures and quietly combines or removes stored memories in the background. Manual, pinned, edited, imported, corrected, and tool-created memories use the same hygiene policy. Open Memory Console or Character Editor > Memories to inspect active memories, manage knowledge assignments, or undo the latest automatic maintenance batch. The advanced Repair from chat history action recreates automatic transcript memories without AI; it is separate from automatic memory hygiene and is not a summary. When deleting chats, choose whether De-Koi also removes memories learned only from those chats; shared memories supported elsewhere stay intact. Review speaker-labeled exchanges, typed consequences, automatic capture status and partial-capture warnings, and embeddings that rank matches alongside summaries, world info, tracker agents, and non-authoritative story projections.",
+    "summary": "See what your characters will remember, and manually add your own memories: chat-local ones in the Memory Console, or character-wide ones in the Character Editor. \"Who knows this?\" decides which characters, personas, or groups may use a memory in Roleplay; facts about the world never count as a character knowing them. In Roleplay, De-Koi also groups the story into episodes and four-episode arcs in the background, each linked to its source, which you can inspect, edit, regenerate, pin, or retry, or build for a story you already have. De-Koi automatically rejects low-value memories and quietly combines or removes stored ones in the background (automatic memory hygiene); pinned, edited, and hand-written memories follow the same rules, and you can undo the latest cleanup. Repair from chat history rebuilds automatic memories without AI. When you delete a chat, choose whether memories learned only from it go too. It keeps speaker-labeled exchanges, and matching memories are ranked by relevance next to summaries, world info, and trackers.",
     "keywords": [
       "continuity",
       "continuity overview",
@@ -1070,7 +1327,11 @@
     "audience": "Users running long conversations, roleplays, or campaigns who want to know what context can carry forward.",
     "where": "Open a chat > Chat Settings > Continuity. In Roleplay, open Story for episodes, arcs, sources, background jobs, and backfill; use the Roleplay HUD actions menu to close an episode. Open Memory Recall > Memory Console or Character Editor > Memories to inspect canonical memories and open Who knows this? Character-wide memories and optional undo live in Character Editor > Memories. Use any user-facing chat delete action to choose whether memories learned only from the selected chat or chats are also removed.",
     "actions": [
-      { "type": "open-chat-destination", "destination": "chat-settings-continuity", "label": "Open Chat Continuity" },
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings-continuity",
+        "label": "Open Chat Continuity"
+      },
       {
         "type": "open-settings",
         "tab": "appearance",
@@ -1084,7 +1345,7 @@
     "id": "roleplay-continuity-director",
     "title": "Roleplay Continuity Director",
     "category": "Chat modes",
-    "summary": "Applying and confirming Long-Running Story makes one immediate background Director planning call only when it newly enables Director and no saved plan exists. Director cadence then makes one non-blocking planning call every 10 assistant replies. Keep arcs and open threads visible while new beats remain proposed and reviewable until you approve them for future prompts; a pending-review badge points you back to Director. The director proposes structure while the writer model owns prose and player agency.",
+    "summary": "Plans a long roleplay as a story: arcs, open threads, and upcoming beats you can see. Apply and confirm the Long-Running Story profile to turn it on. If that newly turns on the Director and there's no saved plan yet, it makes one extra planning call to your model right away; after that it makes one more in the background every 10 replies, without holding up the chat. New beats stay proposed until you approve them, and a badge shows when some are waiting. The Director only plans: your writer model still writes, and your character's choices stay yours.",
     "keywords": [
       "director",
       "continuity director",
@@ -1111,7 +1372,7 @@
     "id": "character-web-research",
     "title": "Character Web Research",
     "category": "Chat modes",
-    "summary": "Let characters decide when current facts need public-web research. Keep the process in the background or allow in-character narration, with permission prompts and collapsed final sources.",
+    "summary": "Let characters look things up on the public web when they need current facts. The research can stay in the background or show up as in-character narration; De-Koi asks your permission first and lists the sources, collapsed, at the end.",
     "keywords": [
       "internet",
       "web",
@@ -1127,7 +1388,13 @@
     ],
     "audience": "Conversation and roleplay users who want characters to check current public information.",
     "where": "Open a Conversation or Roleplay chat > Chat Settings > Character Web Research.",
-    "actions": [{ "type": "open-chat-destination", "destination": "chat-settings", "label": "Open Chat Settings" }],
+    "actions": [
+      {
+        "type": "open-chat-destination",
+        "destination": "chat-settings",
+        "label": "Open Chat Settings"
+      }
+    ],
     "coverage": "advanced"
   }
 ]

@@ -69,11 +69,11 @@ describe("discovery showcase registry", () => {
     expect(entry?.title).toBe("Roleplay Continuity Director");
     expect(entry?.keywords).toEqual(expect.arrayContaining(["story beats", "approve beats", "director"]));
     const summary = entry?.summary ?? "";
-    expect(summary).toContain("Applying and confirming Long-Running Story");
-    expect(summary).toContain(
-      "makes one immediate background Director planning call only when it newly enables Director and no saved plan exists",
-    );
-    expect(summary).toContain("Director cadence then makes one non-blocking planning call every 10 assistant replies");
+    // Users should know when the Director costs extra model calls: once on enable (only without a saved plan), then every 10 replies.
+    expect(summary).toContain("Apply and confirm the Long-Running Story profile");
+    expect(summary).toContain("newly turns on the Director and there's no saved plan yet");
+    expect(summary).toContain("one extra planning call");
+    expect(summary).toContain("every 10 replies, without holding up the chat");
     expect(summary).not.toContain("Choosing Long-Running Story enables");
     expect(summary.toLowerCase()).toContain("proposed");
     expect(summary.toLowerCase()).toContain("badge");
