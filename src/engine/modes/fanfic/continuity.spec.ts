@@ -146,6 +146,13 @@ describe("fanfic continuity fixes", () => {
     // "he left the room" only occurs inside "Bathe left the room" and "the left the room".
     expect(locateFanficPassage(text, "he left the room")).toBeNull();
     expect(locateFanficPassage("She said he left the room early.", "he left the room")).toMatchObject({ start: 9 });
+    // Contractions and accented letters are inside the word.
+    expect(locateFanficPassage("Then he's gone.", "Then he")).toBeNull();
+    expect(locateFanficPassage("She drank her café slowly that night.", "drank her caf")).toBeNull();
+    expect(locateFanficPassage("She drank her café slowly that night.", "her café slowly")).toMatchObject({
+      start: 10,
+    });
+    expect(locateFanficPassage("Then he’s gone, and then he left.", "he’s gone, and")).toMatchObject({ start: 5 });
     // The exact-text path checks word edges too.
     expect(locateFanficPassage("Bathe left the room.", "athe left the room")).toBeNull();
     expect(locateFanficPassage("Then he left the room.", "he left the room.")).toMatchObject({ start: 5 });
