@@ -20,10 +20,6 @@ dist-ssr
 .pnpm-store/
 .claude/settings.local.json
 
-# Bunny Review local output artifacts
-/inline-comments.json
-/review.json
-/review.md
 
 # Local environment and app/runtime data
 .env

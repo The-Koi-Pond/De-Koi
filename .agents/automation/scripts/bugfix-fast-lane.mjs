@@ -306,7 +306,6 @@ ${markdownList(manualBlockers, "- None recorded.")}
 
 - PR: ${ledger.pr?.url || ledger.pr?.number || "Not recorded."}
 - Checks: ${ledger.pr?.checksStatus || ledger.checks?.ciStatus || "not_recorded"}
-- Bunny Review: ${ledger.pr?.bunnyReviewStatus || ledger.checks?.bunnyReviewStatus || ledger.pr?.coderabbitStatus || ledger.checks?.coderabbitStatus || "not_recorded"}
 - Health gate: ${ledger.pr?.healthStatus || ledger.checks?.prHealthStatus || "not_recorded"}
 - Merged: ${ledger.pr?.merged ? `yes${ledger.pr?.mergeCommit ? ` (${ledger.pr.mergeCommit})` : ""}` : "no"}
 

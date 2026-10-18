@@ -15,14 +15,7 @@ const WORKFLOW_POLICY = {
   teamBranchPreferred: true,
   protectedBranches: ["main"],
 };
-const WORKFLOW_POLICY_SCAN_ROOTS = [
-  "AGENTS.md",
-  "CONTRIBUTING.md",
-  ".github/agents",
-  ".github/bunny-review",
-  "skills",
-  ".agents/automation",
-];
+const WORKFLOW_POLICY_SCAN_ROOTS = ["AGENTS.md", "CONTRIBUTING.md", ".github/agents", "skills", ".agents/automation"];
 const STALE_BRANCH_GUIDANCE = [
   {
     pattern: new RegExp(String.raw`\bupstream/` + "stag" + String.raw`ing\b`, "i"),
@@ -44,7 +37,7 @@ const STALE_BRANCH_GUIDANCE = [
   {
     pattern: /\b(?:CodeRabbit\b.{0,80}\b(?:required|gate|blocking)|(?:required|gate|blocking)\b.{0,80}\bCodeRabbit)\b/i,
     message:
-      "stale reviewer guidance treats CodeRabbit as a required gate; De-Koi uses Bunny Review unless a maintainer explicitly asks for CodeRabbit",
+      "stale reviewer guidance treats CodeRabbit as a required gate; De-Koi doesn't use CodeRabbit unless a maintainer explicitly asks for it",
   },
   {
     pattern: new RegExp(
@@ -162,29 +155,6 @@ function checkRuns(statusCheckRollup) {
   }
 
   return { total, passed, pending, failed, skipped };
-}
-
-function bunnyReviewState(statusCheckRollup) {
-  const checks = (statusCheckRollup ?? []).filter((check) => /^Bunny Review$/i.test(checkName(check)));
-  if (checks.length === 0) return "missing";
-  if (
-    checks.some(
-      (check) =>
-        check.state === "PENDING" || check.state === "EXPECTED" || (check.status && check.status !== "COMPLETED"),
-    )
-  ) {
-    return "pending";
-  }
-  if (
-    checks.some(
-      (check) =>
-        (check.state && !["SUCCESS", "NEUTRAL"].includes(check.state)) ||
-        (check.conclusion && !["SUCCESS", "NEUTRAL"].includes(check.conclusion)),
-    )
-  ) {
-    return "failed";
-  }
-  return "success";
 }
 
 function textMentionsLocalScratchPath(body) {
@@ -420,10 +390,7 @@ function draftPullRequests(repo, warnings) {
       mergeable: pr.mergeable ?? null,
       mergeStateStatus: pr.mergeStateStatus ?? null,
       reviewDecision: pr.reviewDecision ?? null,
-      checks: {
-        ...checks,
-        bunnyReview: bunnyReviewState(pr.statusCheckRollup),
-      },
+      checks,
       reviewThreads: reviewThreads(repo, pr.number, warnings),
       linkedIssues,
       evidenceRisks: evidenceRisks(pr),
@@ -593,7 +560,7 @@ function printText(report) {
         ? `${pr.reviewThreads.unresolved}/${pr.reviewThreads.total} unresolved threads`
         : "review threads unavailable";
       console.log(`- #${pr.number} ${pr.title} (${pr.headRefName} -> ${pr.baseRefName}) ${pr.url}`);
-      console.log(`  checks: ${checkState}; Bunny Review: ${pr.checks.bunnyReview}; ${threadState}`);
+      console.log(`  checks: ${checkState}; ${threadState}`);
       if (pr.linkedIssues.length > 0) {
         const issues = pr.linkedIssues
           .map((issue) =>

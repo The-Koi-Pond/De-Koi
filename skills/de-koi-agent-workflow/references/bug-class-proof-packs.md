@@ -1,6 +1,6 @@
 # Bug Class Proof Packs
 
-Use these packs for risky or boundary bugfixes before Bunny/PR handoff. They are
+Use these packs for risky or boundary bugfixes before PR handoff. They are
 adjacent-invariant prompts, not a new process: pick the matching pack, add only
 the proof rows that could contradict the fix, and keep tiny local bugs on the
 fast path.
