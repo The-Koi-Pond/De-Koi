@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  Ban,
   BookMarked,
   BookOpen,
   Compass,
@@ -37,6 +38,8 @@ import {
 } from "../../../../engine/modes/fanfic/ai-isms";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
+import { fanficBannedPhrases } from "../../../../engine/modes/fanfic/passage";
+import { findFanficBannedPhrases } from "../../../../engine/modes/fanfic/phrase-bans";
 import { fanficPlanNotes, readFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
@@ -57,6 +60,7 @@ import {
   type FanficChapterView,
   type FanficContinuityController,
   type FanficEditorController,
+  type FanficPhraseBanController,
   type FanficPlanController,
   type FanficLedgerController,
   type FanficVoiceCheckController,
@@ -76,6 +80,7 @@ import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
 import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
+import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
@@ -99,6 +104,9 @@ interface FanficReaderProps {
   voices: FanficVoicesController;
   editor: FanficEditorController;
   plan: FanficPlanController;
+  phraseBans: FanficPhraseBanController;
+  /** null goes back to the default list. */
+  onSaveBannedPhrases: (phrases: string[] | null) => Promise<void>;
   /** Uses a re-plan of the remaining chapters (the outline changes). */
   onUsePlan: (proposal: FanficPlanProposal) => Promise<void>;
   onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
@@ -394,6 +402,53 @@ function repeatLabel(repeat: FanficRepeat): string {
  * Flags a chapter that leans on machine-sounding habits or keeps reusing the same pet name, detail, or phrase, and
  * offers a targeted clean-up rewrite.
  */
+/** On a local model: the chapter's banned phrases, and a way to take them out. */
+function BannedPhraseNotice({
+  text,
+  phrases,
+  busy,
+  running,
+  onRemove,
+}: {
+  text: string;
+  phrases: string[];
+  busy: boolean;
+  running: boolean;
+  onRemove: () => void;
+}) {
+  const hits = useMemo(() => findFanficBannedPhrases(text, phrases), [phrases, text]);
+  if (hits.length === 0 && !running) return null;
+  const shown = [...new Set(hits.map((hit) => hit.match.toLowerCase()))].slice(0, 4);
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3 text-xs"
+    >
+      <p className="min-w-0 flex-1 text-[var(--muted-foreground)]">
+        {running ? (
+          <>
+            <Loader2 size="0.85rem" className="mr-1 inline animate-spin" aria-hidden="true" />
+            Taking banned phrases out…
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-[var(--foreground)]">
+              {hits.length} banned {hits.length === 1 ? "phrase" : "phrases"}:
+            </span>{" "}
+            {shown.map((phrase) => `“${phrase}”`).join(", ")}
+          </>
+        )}
+      </p>
+      {!running && (
+        <FanficButton disabled={busy} onClick={onRemove}>
+          <Ban size="0.85rem" aria-hidden="true" />
+          Remove them
+        </FanficButton>
+      )}
+    </div>
+  );
+}
+
 function ProseCheckNotice({
   chapterTexts,
   chapterIndex,
@@ -487,6 +542,8 @@ function ChapterTools({
   hasVoices,
   selection,
   onClearSelection,
+  bannedPhrases,
+  phraseBans,
 }: {
   chatId: string;
   chapter: FanficChapterView;
@@ -501,6 +558,8 @@ function ChapterTools({
   /** Text the requester selected in this chapter, if any. */
   selection: string | null;
   onClearSelection: () => void;
+  bannedPhrases: string[];
+  phraseBans: FanficPhraseBanController;
 }) {
   const [mode, setMode] = useState<"idle" | "revise" | "edit" | "passage">("idle");
   const [passage, setPassage] = useState("");
@@ -698,6 +757,15 @@ function ChapterTools({
           }
           onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
           onDismiss={() => voiceCheck.dismiss(message.id)}
+        />
+      )}
+      {mode === "idle" && phraseBans.supported && (
+        <BannedPhraseNotice
+          text={stripFanficChapterHeading(message.content)}
+          phrases={bannedPhrases}
+          busy={busy || phraseBans.running !== null}
+          running={phraseBans.running === message.id}
+          onRemove={() => phraseBans.remove({ messageId: message.id })}
         />
       )}
       {mode === "idle" && (
@@ -935,6 +1003,8 @@ export function FanficReader({
   editor,
   plan,
   onUsePlan,
+  phraseBans,
+  onSaveBannedPhrases,
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
@@ -946,6 +1016,7 @@ export function FanficReader({
   const [showVoices, setShowVoices] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [nextNotes, setNextNotes] = useState("");
+  const bannedPhrases = useMemo(() => fanficBannedPhrases(state), [state]);
   const [selection, setSelection] = useState<{ messageId: string; text: string } | null>(null);
   // A selection inside a chapter's prose offers a passage rewrite. It stays offered after the selection collapses
   // (tapping the button on a phone clears it) until it's used, dismissed, or replaced.
@@ -1069,6 +1140,14 @@ export function FanficReader({
           }}
         />
       )}
+      {showEditor && (
+        <FanficBannedPhrasesPanel
+          phrases={fanficBannedPhrases(state)}
+          customized={state.bannedPhrases !== undefined}
+          supported={phraseBans.supported}
+          onSave={onSaveBannedPhrases}
+        />
+      )}
       {showVoices && (
         <FanficVoicesPanel
           voices={state.voices ?? []}
@@ -1154,6 +1233,8 @@ export function FanficReader({
                 hasVoices={(state.voices?.length ?? 0) > 0}
                 selection={selection?.messageId === chapter.message.id ? selection.text : null}
                 onClearSelection={() => setSelection(null)}
+                bannedPhrases={bannedPhrases}
+                phraseBans={phraseBans}
               />
             </div>
           </article>

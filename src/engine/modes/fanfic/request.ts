@@ -18,6 +18,7 @@ import {
   type FanficWarning,
 } from "../../contracts/types/fanfic";
 import { parseJsonObject } from "../../core/json";
+import { normalizeFanficBannedPhrases } from "./phrase-bans";
 
 const FANFIC_MIN_CHAPTERS = 1;
 export const FANFIC_MAX_CHAPTERS = 30;
@@ -261,6 +262,7 @@ export function readFanficState(metadata: unknown): FanficState | null {
     outlineApproved: !!outline && raw.outlineApproved === true,
     research: normalizeFanficResearch(raw.research),
     voices: normalizeFanficVoices(raw.voices),
+    ...(Array.isArray(raw.bannedPhrases) ? { bannedPhrases: normalizeFanficBannedPhrases(raw.bannedPhrases) } : {}),
   };
 }
 

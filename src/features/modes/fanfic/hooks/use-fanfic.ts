@@ -19,6 +19,10 @@ import {
 } from "../../../../engine/modes/fanfic/continuity";
 import { updateFanficLedger, type FanficLedgerProgress } from "../../../../engine/modes/fanfic/ledger";
 import { clearFanficPlan, proposeFanficPlan } from "../../../../engine/modes/fanfic/plan";
+import { removeFanficBannedPhrasesFrom } from "../../../../engine/modes/fanfic/passage";
+import { fanficConnectionSupportsPhraseBans } from "../../../../engine/modes/fanfic/phrase-bans";
+import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
+import { useConnection } from "../../../catalog/connections/index";
 import {
   rewriteFanficFlaggedScenes,
   runFanficEditorPass,
@@ -593,4 +597,70 @@ export function useFanficPlan(chatId: string, connectionId: string | null): Fanf
     await queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
   }, [chatId, queryClient]);
   return { propose, stop, running, dismiss };
+}
+
+/** Whether the fic's connection can keep banned phrases out (the built-in local model or a llama.cpp server here). */
+export function useFanficPhraseBanSupport(connectionId: string | null): boolean {
+  const { data } = useConnection(connectionId);
+  if (connectionId === LOCAL_SIDECAR_CONNECTION_ID) return true;
+  return fanficConnectionSupportsPhraseBans(data ?? null);
+}
+
+export interface FanficPhraseBanController {
+  supported: boolean;
+  /** Takes banned phrases out of a chapter (default: the last one); `quiet` only speaks up when it changed something. */
+  remove: (options?: { messageId?: string | null; quiet?: boolean }) => void;
+  /** The chapter being cleaned, or "latest" while cleaning the newest one. */
+  running: string | null;
+  stop: () => void;
+}
+
+/** Phrase bans for local models: after each chapter, and on request per chapter. */
+export function useFanficPhraseBans(chatId: string, connectionId: string | null): FanficPhraseBanController {
+  const queryClient = useQueryClient();
+  const supported = useFanficPhraseBanSupport(connectionId);
+  const [running, setRunning] = useState<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const remove = useCallback(
+    ({ messageId = null, quiet = false }: { messageId?: string | null; quiet?: boolean } = {}) => {
+      if (controllerRef.current || !supported) return;
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      setRunning(messageId ?? "latest");
+      void removeFanficBannedPhrasesFrom(
+        { storage: storageApi, llm: llmApi },
+        { chatId, messageId, connectionId },
+        { signal: controller.signal },
+      )
+        .then(({ chapter, repaired, remaining }) => {
+          const left = remaining ? ` ${remaining} couldn't be rewritten around.` : "";
+          if (repaired > 0) {
+            toast.success(
+              `Kept ${repaired} banned ${repaired === 1 ? "phrase" : "phrases"} out of chapter ${chapter}. Saved as a new version.${left}`,
+            );
+          } else if (!quiet) {
+            toast.message(
+              remaining
+                ? `Chapter ${chapter}: nothing could be changed.${left}`
+                : `Chapter ${chapter} has no banned phrases.`,
+            );
+          }
+        })
+        .catch((error: unknown) => {
+          if (isAbort(error)) return;
+          const message = error instanceof Error ? error.message : "Banned phrases could not be removed.";
+          if (quiet) toast.warning(`Banned phrases not removed: ${message}`);
+          else toast.error(message);
+        })
+        .finally(() => {
+          if (controllerRef.current === controller) controllerRef.current = null;
+          setRunning(null);
+          void queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        });
+    },
+    [chatId, connectionId, queryClient, supported],
+  );
+  const stop = useCallback(() => controllerRef.current?.abort(), []);
+  useEffect(() => () => controllerRef.current?.abort(), [chatId]);
+  return { supported, remove, running, stop };
 }

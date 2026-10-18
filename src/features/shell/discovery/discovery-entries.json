@@ -58,7 +58,7 @@
     "id": "fanfic-mode",
     "title": "Fanfic Mode",
     "category": "Chat modes",
-    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. It can look up the canon and any real-world topics online first, then plan from what it finds. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, score it with a quality check (AI-sounding habits, repeats, continuity slips with quotes, and a critic's rubric) that keeps every run so you can compare before and after rewrites, check a chapter for continuity slips against the ones before it and fix them in one tap, keep a story ledger of who knows what so long fics stay consistent, keep a voice sheet per character with real canon lines (edit it in outline review) and check a chapter for lines a character would never say, run an editor pass that scores each chapter on stakes, side plots, hard choices, theme, and exposition and rewrites only the scenes that need it, keep the outline living (after each chapter it re-plans the chapters still to come from what was written, or suggests the next one past the end, and you can steer it), select any passage and say what is wrong to get rewrites of just that passage (keep asking for versions, then pick one), and save the fic as HTML or Markdown.",
+    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. It can look up the canon and any real-world topics online first, then plan from what it finds. Review or skip the outline, then read it chapter by chapter, steer the next chapter with notes, rewrite a chapter with notes, listen to it read aloud with your Text-to-Speech voice, score it with a quality check (AI-sounding habits, repeats, continuity slips with quotes, and a critic's rubric) that keeps every run so you can compare before and after rewrites, check a chapter for continuity slips against the ones before it and fix them in one tap, keep a story ledger of who knows what so long fics stay consistent, keep a voice sheet per character with real canon lines (edit it in outline review) and check a chapter for lines a character would never say, run an editor pass that scores each chapter on stakes, side plots, hard choices, theme, and exposition and rewrites only the scenes that need it, keep the outline living (after each chapter it re-plans the chapters still to come from what was written, or suggests the next one past the end, and you can steer it), select any passage and say what is wrong to get rewrites of just that passage (keep asking for versions, then pick one), ban phrases on local models (they back up and rewrite the spot instead of writing them), and save the fic as HTML or Markdown.",
     "keywords": [
       "fanfic",
       "fanfiction",
@@ -94,7 +94,9 @@
       "re-plan",
       "living outline",
       "passage",
-      "rewrite selection"
+      "rewrite selection",
+      "banned phrases",
+      "antislop"
     ],
     "audience": "Readers who want a story written for them rather than a scene to play in.",
     "where": "Home > Fanfic, then the request form, outline, and chapter reader.",

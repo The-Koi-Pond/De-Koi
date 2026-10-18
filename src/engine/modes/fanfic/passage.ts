@@ -5,6 +5,7 @@ import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
 import { effectiveMaxContext } from "../../generation/context-window";
+import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
 import { locateFanficPassage } from "./continuity";
@@ -15,14 +16,24 @@ import {
   fanficMessageChars,
   FanficWindowTooSmallError,
   untilAborted,
+  loadFanficConnection,
 } from "./llm-json";
 import {
+  buildFanficChapterGuide,
+  buildFanficSystemSegments,
   FANFIC_PROSE_RULES,
   fanficContentRules,
+  renderFanficCastCards,
   renderFanficRequestForPrompt,
   renderFanficVoiceSheets,
   stripFanficChapterHeading,
 } from "./prompts";
+import {
+  completeWithFanficPhraseBans,
+  FANFIC_DEFAULT_BANNED_PHRASES,
+  fanficConnectionSupportsPhraseBans,
+  repairFanficBannedPhrases,
+} from "./phrase-bans";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { readFanficState } from "./request";
 
@@ -102,8 +113,15 @@ export interface FanficChapterForEdit {
   ledgerState: string;
   ledgerAfter: string;
   overused: string;
+  /** The fic's banned phrases when the connection can keep them out while writing (a local model); else empty. */
+  phraseBans: string[];
   connectionId: string;
   window: number;
+}
+
+/** The phrases a fic bans: its own list, or the defaults until the requester edits it. */
+export function fanficBannedPhrases(state: FanficState): string[] {
+  return state.bannedPhrases ?? [...FANFIC_DEFAULT_BANNED_PHRASES];
 }
 
 /** Loads a chapter for editing and checks it is still the text the caller looked at. */
@@ -118,7 +136,7 @@ export async function loadFanficChapterForEdit(
   if (!state) throw new Error("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw new Error("Pick a connection for this fic first.");
-  const connection = await storage.get("connections", connectionId);
+  const connection = await loadFanficConnection(storage, connectionId);
   if (!isRecord(connection)) throw new Error("The connection was not found.");
   const messages = (await storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
   const message = messages.find((entry) => readString(entry.id) === input.messageId);
@@ -150,6 +168,7 @@ export async function loadFanficChapterForEdit(
         { names: fanficRepetitionNames(state.request) },
       ),
     ),
+    phraseBans: fanficConnectionSupportsPhraseBans(connection) ? fanficBannedPhrases(state) : [],
     connectionId,
     window: effectiveMaxContext(connection, {}),
   };
@@ -196,18 +215,28 @@ export async function rewriteFanficPassageText(
   if (target.window > 0 && budget.replyTokens * 3 < passage.length) {
     throw new FanficWindowTooSmallError("rewriting a passage this long");
   }
-  // Settles on Stop even when the gateway can't cancel a request already sent.
-  const raw = await untilAborted(
-    llm.complete(
-      {
-        connectionId: target.connectionId,
-        messages,
-        parameters: { maxTokens: budget.replyTokens, temperature: 0.9 },
-      },
-      signal,
-    ),
-    signal,
-  );
+  // On a local model the fic's banned phrases are kept out while it writes (backtrack and resample).
+  const raw = target.phraseBans.length
+    ? (
+        await completeWithFanficPhraseBans(
+          llm,
+          { connectionId: target.connectionId, messages, maxTokens: budget.replyTokens, temperature: 0.9 },
+          target.phraseBans,
+          { signal },
+        )
+      ).text
+    : // Settles on Stop even when the gateway can't cancel a request already sent.
+      await untilAborted(
+        llm.complete(
+          {
+            connectionId: target.connectionId,
+            messages,
+            parameters: { maxTokens: budget.replyTokens, temperature: 0.9 },
+          },
+          signal,
+        ),
+        signal,
+      );
   const rewritten = cleanFanficPassageReply(raw);
   if (!rewritten) throw new Error("The rewrite came back empty. Try again.");
   return rewritten;
@@ -328,4 +357,77 @@ export async function applyFanficPassageRewrite(
     throw new Error("The chapter changed since this version was written. Select the passage again.");
   }
   return saveFanficPassageEdits(storage, { chatId: input.chatId, target, edits: [{ start, end, text }] });
+}
+
+// ── Phrase bans on a finished chapter (local models) ──
+
+/**
+ * Takes the fic's banned phrases out of a chapter on a local model: each one is backed up to, resampled with its
+ * opening banned, and only that sentence changes. Runs on the chapter's own prompt (author rules, request, outline,
+ * voice sheets) and saves a new version when anything changed.
+ */
+export async function removeFanficBannedPhrases(
+  deps: { storage: StorageGateway; llm: LlmGateway },
+  input: { chatId: string; messageId: string; textKey: string; connectionId?: string | null },
+  options: { signal?: AbortSignal } = {},
+): Promise<{ repaired: number; remaining: number; textKey: string }> {
+  const target = await loadFanficChapterForEdit(deps.storage, input);
+  if (target.phraseBans.length === 0) {
+    throw new Error("Phrase bans work on a local model connection (the built-in local model or a llama.cpp server).");
+  }
+  const chat = await deps.storage.get("chats", input.chatId);
+  const castCards = renderFanficCastCards(
+    isRecord(chat) ? await loadCharacters(deps.storage, chat) : [],
+    target.state.voices,
+  );
+  const system = buildFanficSystemSegments({ state: target.state, castCards, worldInfo: "" })
+    .map((segment) => segment.content)
+    .join("\n\n");
+  const messages: LlmMessage[] = [
+    {
+      role: "system",
+      content: target.ledgerState
+        ? `${system}\n\n## Where things stand going into this chapter\n${target.ledgerState}`
+        : system,
+    },
+    { role: "user", content: buildFanficChapterGuide(target.state, target.chapter.number) },
+  ];
+  const result = await repairFanficBannedPhrases(
+    deps.llm,
+    { connectionId: target.connectionId, messages, maxTokens: 4096, temperature: 0.9 },
+    target.chapter.content,
+    target.phraseBans,
+    { signal: options.signal },
+  );
+  if (result.repaired === 0) return { repaired: 0, remaining: result.remaining.length, textKey: input.textKey };
+  const { textKey } = await saveFanficPassageEdits(deps.storage, {
+    chatId: input.chatId,
+    target,
+    edits: [{ start: 0, end: target.chapter.content.length, text: result.text }],
+  });
+  return { repaired: result.repaired, remaining: result.remaining.length, textKey };
+}
+
+/** Phrase bans on a chapter by message id (default: the last chapter), reading its current text first. */
+export async function removeFanficBannedPhrasesFrom(
+  deps: { storage: StorageGateway; llm: LlmGateway },
+  input: { chatId: string; messageId?: string | null; connectionId?: string | null },
+  options: { signal?: AbortSignal } = {},
+): Promise<{ chapter: number; repaired: number; remaining: number }> {
+  const chapters = fanficChapterRefs((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
+  const chapter = input.messageId
+    ? chapters.find((entry) => entry.messageId === input.messageId)
+    : chapters[chapters.length - 1];
+  if (!chapter) throw new Error("That chapter is no longer in this fic.");
+  const result = await removeFanficBannedPhrases(
+    deps,
+    {
+      chatId: input.chatId,
+      messageId: chapter.messageId,
+      textKey: fanficChapterTextKey(chapter.content),
+      connectionId: input.connectionId,
+    },
+    options,
+  );
+  return { chapter: chapter.number, repaired: result.repaired, remaining: result.remaining };
 }

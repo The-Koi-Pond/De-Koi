@@ -13,6 +13,7 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
+  loadFanficConnection,
 } from "./llm-json";
 import { renderFanficCastCards, renderFanficRequestForPrompt } from "./prompts";
 import { fanficSearchableText } from "./quality";
@@ -223,7 +224,7 @@ export async function buildFanficVoiceSheets(
   const castCards = renderFanficCastCards(cards);
   const researchNotes = state.research?.notes ?? "";
   // Pages go in whole, in the order read, while they fit the connection's window.
-  const connection = await deps.storage.get("connections", connectionId);
+  const connection = await loadFanficConnection(deps.storage, connectionId);
   const frame = buildFanficVoiceMessages({ request: state.request, characters, castCards, researchNotes, sources: [] });
   const budget = fanficCallBudget(isRecord(connection) ? effectiveMaxContext(connection, {}) : 0, {
     maxReplyTokens: VOICES_MAX_TOKENS,

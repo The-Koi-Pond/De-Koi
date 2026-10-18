@@ -15,6 +15,7 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
+  loadFanficConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { fanficSamePassage, fanficSearchableText } from "./quality";
@@ -273,7 +274,7 @@ export async function checkFanficChapterVoice(
   if (voices.length === 0) throw new Error("Build the voice sheets first (Voices, at the top of the fic).");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw new Error("Pick a connection for the voice check.");
-  const connection = await deps.storage.get("connections", connectionId);
+  const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection)) throw new Error("The connection was not found.");
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
