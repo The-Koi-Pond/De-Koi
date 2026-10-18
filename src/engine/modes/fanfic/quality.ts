@@ -14,11 +14,10 @@ import type {
   FanficRequest,
 } from "../../contracts/types/fanfic";
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
-import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
 import { parseJsonObject } from "../../core/json";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { parseGameJsonish } from "../../shared/parsing-jsonish";
 import { detectFanficAiIsms } from "./ai-isms";
+import { cleanFanficReply, completeFanficJson, FanficReplyParseError, parseFanficJsonReply } from "./llm-json";
 import { fanficChapterRefs } from "./chapters";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { detectFanficRepetition, fanficRepetitionNames } from "./repetition";
@@ -178,7 +177,7 @@ export const FANFIC_CONTINUITY_CATEGORY_LABELS: Record<FanficContinuityCategory,
   narrative: "Narrative & style",
 };
 
-const CONTINUITY_SUBTYPES: Record<FanficContinuityCategory, string> = {
+export const FANFIC_CONTINUITY_SUBTYPES: Record<FanficContinuityCategory, string> = {
   timeline:
     "absolute time, durations, things happening at once that can't, effects without causes, broken cause and effect, plot threads dropped without a word",
   character:
@@ -191,7 +190,7 @@ const CONTINUITY_SUBTYPES: Record<FanficContinuityCategory, string> = {
 
 export type FanficQualityPhase = "counting" | "judging" | "verifying_continuity";
 
-export class FanficQualityParseError extends Error {
+export class FanficQualityParseError extends FanficReplyParseError {
   readonly raw: string;
 
   constructor(part: string, raw: string) {
@@ -259,7 +258,7 @@ function requestBlock(request: FanficRequest, chapterCount: number): string {
   });
 }
 
-function ratingNote(request: FanficRequest): string {
+export function fanficQualityRatingNote(request: FanficRequest): string {
   return `The requester asked for a ${FANFIC_RATING_LABELS[request.rating]} fic for their own reading. Judge the craft; content within that rating is not a fault.`;
 }
 
@@ -267,7 +266,7 @@ export function buildFanficRubricMessages(args: { request: FanficRequest; chapte
   const negatives = FANFIC_QUALITY_CRITERIA.filter((criterion) => criterion.negative);
   const system = [
     "You are a demanding fiction editor scoring a finished piece of fan fiction. Be critical: a 20 is a masterpiece a professional editor would publish untouched, 10 is competent but forgettable, and most model-written fiction lands well below the top of the scale.",
-    ratingNote(args.request),
+    fanficQualityRatingNote(args.request),
     "Pay particular attention to consistency across chapters, whether stakes actually build, whether characters stay themselves, and whether the prose sounds like a person wrote it.",
     "## Criteria (each scored 0-20)",
     FANFIC_QUALITY_CRITERIA.map((criterion) => `- ${criterion.name}: ${criterion.looksFor}`).join("\n"),
@@ -299,12 +298,13 @@ export function buildFanficContinuityMessages(args: {
   const focus = args.categories?.length ? args.categories : FANFIC_CONTINUITY_CATEGORIES;
   const categories = focus
     .map(
-      (category) => `- ${category} (${FANFIC_CONTINUITY_CATEGORY_LABELS[category]}): ${CONTINUITY_SUBTYPES[category]}`,
+      (category) =>
+        `- ${category} (${FANFIC_CONTINUITY_CATEGORY_LABELS[category]}): ${FANFIC_CONTINUITY_SUBTYPES[category]}`,
     )
     .join("\n");
   const system = [
     "You are a continuity editor. Find places where this fic contradicts itself: two passages that cannot both be true in the story as written. Read every chapter closely and track the facts as you go; the middle chapters are where slips usually hide.",
-    ratingNote(args.request),
+    fanficQualityRatingNote(args.request),
     focus.length < FANFIC_CONTINUITY_CATEGORIES.length
       ? "## What counts (this pass looks only for these; another pass covers the rest)"
       : "## What counts",
@@ -354,27 +354,6 @@ export function buildFanficContinuityVerifyMessages(args: {
 
 // ── Parsing ────────────────────────────────────
 
-function cleanReply(raw: string): string {
-  return extractLeadingThinkingBlocks(raw).cleanText;
-}
-
-function jsonCandidate(text: string): string {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1];
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
-}
-
-function parseJsonReply(raw: string): JsonRecord | null {
-  try {
-    const parsed = parseGameJsonish(jsonCandidate(cleanReply(raw)));
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function criterionKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z]/g, "");
 }
@@ -386,7 +365,7 @@ export interface FanficRubricResult {
 
 /** Reads `Criterion: N` lines; every criterion must be present, or the run would compare unlike things. */
 export function parseFanficRubricReply(raw: string): FanficRubricResult {
-  const text = cleanReply(raw).replace(/\*\*/g, "");
+  const text = cleanFanficReply(raw).replace(/\*\*/g, "");
   const byKey = new Map(FANFIC_QUALITY_CRITERIA.map((criterion) => [criterionKey(criterion.name), criterion.id]));
   const scoresStart = text.search(/^#*\s*Scores\b/im);
   const scoreText = scoresStart >= 0 ? text.slice(scoresStart) : text;
@@ -452,24 +431,27 @@ function readQuote(value: unknown): string {
  * and an explanation; a reply with a broken entry is a bad reply (retried), never a clean result.
  */
 export function parseFanficContinuityReply(raw: string): FanficContinuityIssue[] {
-  const parsed = parseJsonReply(raw);
+  const parsed = parseFanficJsonReply(raw);
   if (!parsed || !Array.isArray(parsed.issues)) throw new FanficQualityParseError("continuity", raw);
-  return parsed.issues.map((issue) => {
-    if (!isRecord(issue)) throw new FanficQualityParseError("continuity", raw);
-    const entry: FanficContinuityIssue = {
-      category: readCategory(issue.category),
-      subtype: readString(issue.subtype).trim().slice(0, 80),
-      earlierChapter: readChapter(issue.earlierChapter),
-      earlierQuote: readQuote(issue.earlierQuote),
-      laterChapter: readChapter(issue.laterChapter),
-      laterQuote: readQuote(issue.laterQuote),
-      explanation: readString(issue.explanation).trim().slice(0, 400),
-    };
-    if (!entry.earlierQuote || !entry.laterQuote || !entry.explanation) {
-      throw new FanficQualityParseError("continuity", raw);
-    }
-    return entry;
-  });
+  return parsed.issues.map((issue) => readFanficContinuityIssue(issue, raw));
+}
+
+/** One candidate from a continuity reply; a broken entry makes the whole reply a bad reply. */
+export function readFanficContinuityIssue(issue: unknown, raw: string): FanficContinuityIssue {
+  if (!isRecord(issue)) throw new FanficQualityParseError("continuity", raw);
+  const entry: FanficContinuityIssue = {
+    category: readCategory(issue.category),
+    subtype: readString(issue.subtype).trim().slice(0, 80),
+    earlierChapter: readChapter(issue.earlierChapter),
+    earlierQuote: readQuote(issue.earlierQuote),
+    laterChapter: readChapter(issue.laterChapter),
+    laterQuote: readQuote(issue.laterQuote),
+    explanation: readString(issue.explanation).trim().slice(0, 400),
+  };
+  if (!entry.earlierQuote || !entry.laterQuote || !entry.explanation) {
+    throw new FanficQualityParseError("continuity", raw);
+  }
+  return entry;
 }
 
 export interface FanficContinuityVerdicts {
@@ -484,7 +466,7 @@ export interface FanficContinuityVerdicts {
  * bad reply (retried) rather than a quiet rejection.
  */
 export function parseFanficContinuityVerdicts(raw: string, noteCount: number): FanficContinuityVerdicts {
-  const parsed = parseJsonReply(raw);
+  const parsed = parseFanficJsonReply(raw);
   if (!parsed || !Array.isArray(parsed.verdicts)) throw new FanficQualityParseError("continuity check", raw);
   const confirmed = new Set<number>();
   const sameAs = new Map<number, number>();
@@ -510,11 +492,11 @@ export function parseFanficContinuityVerdicts(raw: string, noteCount: number): F
  * Confirmed notes, minus repeats: a note counts once even when quoted two ways, and a repeat only folds into an
  * earlier note the second read also confirmed (otherwise the repeat stands on its own).
  */
-export function confirmedFanficContinuityIssues(
-  issues: FanficContinuityIssue[],
+export function confirmedFanficContinuityIssues<T extends FanficContinuityIssue>(
+  issues: T[],
   verdicts: FanficContinuityVerdicts,
-): { confirmed: FanficContinuityIssue[]; merged: number } {
-  const confirmed: FanficContinuityIssue[] = [];
+): { confirmed: T[]; merged: number } {
+  const confirmed: T[] = [];
   let merged = 0;
   issues.forEach((issue, index) => {
     const note = index + 1;
@@ -532,7 +514,7 @@ export function confirmedFanficContinuityIssues(
 // ── Grounding ──────────────────────────────────
 
 /** Lowercased words only, so curly quotes, italics markers, and line breaks never hide a real quote. */
-function searchable(text: string): string {
+export function fanficSearchableText(text: string): string {
   return text
     .toLowerCase()
     .replace(/[’‘]/g, "'")
@@ -541,19 +523,20 @@ function searchable(text: string): string {
 }
 
 function chapterHolding(quote: string, chapters: string[], claimed: number): number {
-  const needle = searchable(quote);
+  const needle = fanficSearchableText(quote);
   if (needle.split(" ").length < 3) return 0;
-  if (claimed >= 1 && claimed <= chapters.length && searchable(chapters[claimed - 1]).includes(needle)) return claimed;
-  const found = chapters.findIndex((chapter) => searchable(chapter).includes(needle));
+  if (claimed >= 1 && claimed <= chapters.length && fanficSearchableText(chapters[claimed - 1]).includes(needle))
+    return claimed;
+  const found = chapters.findIndex((chapter) => fanficSearchableText(chapter).includes(needle));
   return found + 1;
 }
 
 const SHARED_RUN = 6;
 
 /** Two quotes of the same passage: one holds the other, or they share a run of six words. */
-function samePassage(left: string, right: string): boolean {
-  const a = searchable(left);
-  const b = searchable(right);
+export function fanficSamePassage(left: string, right: string): boolean {
+  const a = fanficSearchableText(left);
+  const b = fanficSearchableText(right);
   if (a.includes(b) || b.includes(a)) return true;
   const words = a.split(" ");
   for (let start = 0; start + SHARED_RUN <= words.length; start += 1) {
@@ -577,7 +560,11 @@ export function groundFanficContinuityIssues(
   for (const issue of issues) {
     const earlierChapter = chapterHolding(issue.earlierQuote, chapters, issue.earlierChapter);
     const laterChapter = chapterHolding(issue.laterQuote, chapters, issue.laterChapter);
-    if (!earlierChapter || !laterChapter || searchable(issue.earlierQuote) === searchable(issue.laterQuote)) {
+    if (
+      !earlierChapter ||
+      !laterChapter ||
+      fanficSearchableText(issue.earlierQuote) === fanficSearchableText(issue.laterQuote)
+    ) {
       dropped += 1;
       continue;
     }
@@ -595,8 +582,8 @@ export function groundFanficContinuityIssues(
         kept.category === issue.category &&
         kept.earlierChapter === ordered.earlierChapter &&
         kept.laterChapter === ordered.laterChapter &&
-        samePassage(kept.earlierQuote, ordered.earlierQuote) &&
-        samePassage(kept.laterQuote, ordered.laterQuote),
+        fanficSamePassage(kept.earlierQuote, ordered.earlierQuote) &&
+        fanficSamePassage(kept.laterQuote, ordered.laterQuote),
     );
     if (duplicate) {
       repeats += 1;
@@ -766,61 +753,6 @@ export interface RunFanficQualityInput {
   label?: string;
 }
 
-function abortError(): DOMException {
-  return new DOMException("The operation was aborted.", "AbortError");
-}
-
-/**
- * Settles as soon as the signal aborts, even when the gateway ignores it (the app gateway's complete() can't cancel a
- * request already sent), so Stop ends the check right away and the late reply is dropped.
- */
-function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return work;
-  if (signal.aborted) return Promise.reject(abortError());
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(abortError());
-    signal.addEventListener("abort", onAbort, { once: true });
-    work.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        if (signal.aborted) reject(abortError());
-        else resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
-  });
-}
-
-async function judge<T>(
-  llm: LlmGateway,
-  request: { connectionId: string; messages: LlmMessage[]; maxTokens: number },
-  parse: (raw: string) => T,
-  signal?: AbortSignal,
-): Promise<T> {
-  // One retry: a judge occasionally drifts from the reply format, and the whole run shouldn't fail on that.
-  for (let attempt = 0; ; attempt += 1) {
-    const raw = await untilAborted(
-      llm.complete(
-        {
-          connectionId: request.connectionId,
-          messages: request.messages,
-          parameters: { maxTokens: request.maxTokens, temperature: 0 },
-        },
-        signal,
-      ),
-      signal,
-    );
-    try {
-      return parse(raw);
-    } catch (error) {
-      if (attempt >= 1 || !(error instanceof FanficQualityParseError)) throw error;
-    }
-  }
-}
-
 /**
  * Scores the fic as it reads now (each chapter's chosen version): detector counts, a critic's rubric, and a
  * continuity sweep whose findings are checked twice (quotes must exist, then a second read must confirm). The run is
@@ -858,7 +790,7 @@ export async function runFanficQualityCheck(
   const rubricMessages = buildFanficRubricMessages({ request: state.request, chapters });
   const rubricPromise = Promise.all(
     Array.from({ length: FANFIC_QUALITY_RUBRIC_PASSES }, () =>
-      judge(
+      completeFanficJson(
         deps.llm,
         { connectionId, messages: rubricMessages, maxTokens: RUBRIC_MAX_TOKENS },
         parseFanficRubricReply,
@@ -870,7 +802,7 @@ export async function runFanficQualityCheck(
   const continuityPromise = (async () => {
     const sweeps = await Promise.all(
       FANFIC_CONTINUITY_SWEEPS.map((categories) =>
-        judge(
+        completeFanficJson(
           deps.llm,
           {
             connectionId,
@@ -888,7 +820,7 @@ export async function runFanficQualityCheck(
       return { candidates, grounded, dropped, repeats, confirmed: [] as FanficContinuityIssue[], merged: 0 };
     }
     onPhase?.("verifying_continuity");
-    const verdicts = await judge(
+    const verdicts = await completeFanficJson(
       deps.llm,
       {
         connectionId,

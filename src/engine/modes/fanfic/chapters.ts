@@ -2,29 +2,12 @@ import type { FanficState } from "../../contracts/types/fanfic";
 import type { GenerationEngineDeps, StartGenerationInput } from "../../generation/start-generation";
 import { startGeneration } from "../../generation/start-generation";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { buildFanficChapterGuide, buildFanficRevisionGuide, stripFanficChapterHeading } from "./prompts";
+import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { buildFanficChapterGuide, buildFanficRevisionGuide } from "./prompts";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { fanficChapterMaxTokens, fanficStage, readFanficState } from "./request";
 
-export interface FanficChapterRef {
-  number: number;
-  messageId: string;
-  content: string;
-}
-
-/** Chapters are the chat's assistant messages, in order. */
-export function fanficChapterRefs(messages: readonly JsonRecord[]): FanficChapterRef[] {
-  const chapters: FanficChapterRef[] = [];
-  for (const message of messages) {
-    if (readString(message.role) !== "assistant") continue;
-    chapters.push({
-      number: chapters.length + 1,
-      messageId: readString(message.id),
-      content: stripFanficChapterHeading(readString(message.content)),
-    });
-  }
-  return chapters;
-}
+export { fanficChapterRefs, type FanficChapterRef };
 
 export function fanficChapterTitle(state: FanficState | null, chapterNumber: number): string {
   return state?.outline?.chapters.find((chapter) => chapter.number === chapterNumber)?.title ?? "";

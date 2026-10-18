@@ -177,3 +177,37 @@ export interface FanficQualityRun {
 export interface FanficQualityStore {
   runs: FanficQualityRun[];
 }
+
+// ── Story ledger ────────────────────────────────
+
+/** One fact in the ledger: who or what it is about, and what is true. */
+export interface FanficLedgerFact {
+  subject: string;
+  detail: string;
+}
+
+/** What a writer must keep straight, as of the end of one chapter. */
+export interface FanficLedgerEntry {
+  chapter: number;
+  /** The chapter message and the exact text this entry was built from; a rewrite makes it stale. */
+  messageId: string;
+  textKey: string;
+  /** What happens in this chapter. */
+  summary: string;
+  /** When the chapter ends, relative to the story's start and the chapter before. */
+  timeline: string;
+  /** Secrets, names, plans: who knows what, and who doesn't know yet. */
+  knowledge: FanficLedgerFact[];
+  /** Injuries, clothing, objects (who has what, where), and where people are. */
+  conditions: FanficLedgerFact[];
+  /** Pairs and where they stand. */
+  relationships: FanficLedgerFact[];
+  /** Promises, questions, and plans the story hasn't resolved. */
+  openThreads: string[];
+}
+
+/** Stored on the chat as `metadata.fanficLedger`, one entry per chapter in order. */
+export interface FanficLedger {
+  version: 1;
+  entries: FanficLedgerEntry[];
+}

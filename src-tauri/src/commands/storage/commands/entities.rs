@@ -928,6 +928,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                             | "agentRunIntervalOverrides"
                             | "enableAgents"
                             | "enableMemoryRecall"
+                            | "fanficLedger"
                             | "fanficQuality"
                             | "roleplayContinuityDirector"
                             | "roleplayWorkflowApplication"
@@ -2195,6 +2196,43 @@ mod tests {
         assert_eq!(
             second["chat"]["metadata"]["fanficQuality"]["runs"],
             json!([{ "id": "a" }, { "id": "b" }])
+        );
+    }
+
+    #[test]
+    fn conditional_chat_fanfic_ledger_first_write_and_stale_write() {
+        let state = test_state("conditional-chat-fanfic-ledger");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "mode": "fanfic", "metadata": { "fanfic": { "version": 1 } } }),
+            )
+            .expect("chat should seed");
+        let unread = json!({ "metadata": { "fanficLedger": null } });
+
+        let first = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unread.clone(),
+            json!({ "metadata": { "fanficLedger": { "version": 1, "entries": [{ "chapter": 1 }] } } }),
+        )
+        .expect("the first ledger save applies");
+        assert_eq!(first["updated"], json!(true));
+        assert_eq!(first["chat"]["metadata"]["fanfic"], json!({ "version": 1 }));
+
+        // A second tab that also saw no ledger loses instead of overwriting chapter 1's entry.
+        let second = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unread,
+            json!({ "metadata": { "fanficLedger": { "version": 1, "entries": [{ "chapter": 9 }] } } }),
+        )
+        .expect("the stale save reports the current chat");
+        assert_eq!(second["updated"], json!(false));
+        assert_eq!(
+            second["chat"]["metadata"]["fanficLedger"]["entries"],
+            json!([{ "chapter": 1 }])
         );
     }
 
