@@ -105,6 +105,8 @@ export interface FanficState {
   research: FanficResearch | null;
   /** Voice sheets, one per named character, once built. The requester can edit them. */
   voices?: FanficVoiceSheet[];
+  /** Phrases local models are kept from writing (see phrase-bans.ts); unset means the default list. */
+  bannedPhrases?: string[];
 }
 
 // ── Quality check ───────────────────────────────

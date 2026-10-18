@@ -3,6 +3,8 @@
 // ──────────────────────────────────────────────
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
+import type { StorageGateway } from "../../capabilities/storage";
+import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../../contracts/types/sidecar";
 import { isRecord, type JsonRecord } from "../../generation/runtime-records";
 import { parseGameJsonish } from "../../shared/parsing-jsonish";
 
@@ -135,4 +137,15 @@ export async function completeFanficJson<T>(
       if (attempt >= 1 || !(error instanceof FanficReplyParseError)) throw error;
     }
   }
+}
+
+/**
+ * The connection a fanfic helper call runs on: the stored one, or the built-in local model, which isn't stored (the
+ * server resolves it at call time). Its window isn't known here, so helpers size its calls with the defaults.
+ */
+export async function loadFanficConnection(storage: StorageGateway, connectionId: string): Promise<JsonRecord | null> {
+  const stored = await storage.get("connections", connectionId);
+  if (isRecord(stored)) return stored;
+  if (connectionId !== LOCAL_SIDECAR_CONNECTION_ID) return null;
+  return { id: LOCAL_SIDECAR_CONNECTION_ID, name: "Local Model", provider: "sidecar", model: LOCAL_SIDECAR_MODEL };
 }

@@ -17,7 +17,13 @@ import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import { parseJsonObject } from "../../core/json";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { detectFanficAiIsms } from "./ai-isms";
-import { cleanFanficReply, completeFanficJson, FanficReplyParseError, parseFanficJsonReply } from "./llm-json";
+import {
+  cleanFanficReply,
+  completeFanficJson,
+  FanficReplyParseError,
+  loadFanficConnection,
+  parseFanficJsonReply,
+} from "./llm-json";
 import { fanficChapterRefs } from "./chapters";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { detectFanficRepetition, fanficRepetitionNames } from "./repetition";
@@ -776,7 +782,7 @@ export async function runFanficQualityCheck(
   if (!state) throw new Error("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw new Error("Pick a connection to judge with.");
-  const connection = await deps.storage.get("connections", connectionId);
+  const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection)) throw new Error("The judge connection was not found.");
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);

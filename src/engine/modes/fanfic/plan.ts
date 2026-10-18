@@ -15,6 +15,7 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
+  loadFanficConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { readFanficState } from "./request";
@@ -262,7 +263,7 @@ export async function proposeFanficPlan(
   if (!state?.outline || !state.outlineApproved) throw new Error("Approve the outline first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw new Error("Pick a connection for this fic first.");
-  const connection = await deps.storage.get("connections", connectionId);
+  const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection)) throw new Error("The connection was not found.");
   const chapters = fanficChapterRefs((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
   if (chapters.length === 0) throw new Error("Write the first chapter before re-planning.");

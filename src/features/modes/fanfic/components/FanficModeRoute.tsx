@@ -14,6 +14,7 @@ import {
   useFanficGenerationState,
   useFanficEditor,
   useFanficLedger,
+  useFanficPhraseBans,
   useFanficPlan,
   useFanficVoices,
   useFanficOutline,
@@ -50,6 +51,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const editor = useFanficEditor(activeChatId, connectionId);
   const plan = useFanficPlan(activeChatId, connectionId);
   const { propose: proposePlan } = plan;
+  const phraseBans = useFanficPhraseBans(activeChatId, connectionId);
+  const { remove: removeBannedPhrases, supported: bansSupported } = phraseBans;
   const [editingRequest, setEditingRequest] = useState(false);
   const outlineAbort = useRef<AbortController | null>(null);
   const lastWrite = useRef<FanficWriteArgs>({ kind: "chapter" });
@@ -70,12 +73,15 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
       void write(args).then((written) => {
         if (!written) return;
+        // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
+        if (bansSupported)
+          removeBannedPhrases({ messageId: args.kind === "chapter" ? null : args.messageId, quiet: true });
         updateLedger({ quiet: true });
         // Living outline: after each new chapter, check the rest of the plan against what was written.
         if (args.kind === "chapter") proposePlan({ quiet: true });
       });
     },
-    [proposePlan, updateLedger, write],
+    [bansSupported, proposePlan, removeBannedPhrases, updateLedger, write],
   );
 
   const chapterCount = useRef(chapters.length);
@@ -178,6 +184,17 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     }
   };
 
+  const saveBannedPhrases = async (phrases: string[] | null) => {
+    if (!state) return;
+    const { bannedPhrases: _previous, ...rest } = state;
+    try {
+      await saveState(phrases ? { ...rest, bannedPhrases: phrases } : rest);
+      toast.success(phrases ? "Banned phrases saved." : "Back to the default banned phrases.");
+    } catch (error) {
+      toast.error(errorText(error) ?? "The banned phrases could not be saved.");
+    }
+  };
+
   const replan = () => {
     outline.reset();
     startOutline(connectionId);
@@ -265,6 +282,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           onSaveVoices={saveVoices}
           editor={editor}
           plan={plan}
+          phraseBans={phraseBans}
+          onSaveBannedPhrases={saveBannedPhrases}
           onUsePlan={applyPlanProposal}
         />
       )}
