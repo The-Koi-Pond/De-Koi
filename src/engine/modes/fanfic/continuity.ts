@@ -20,7 +20,7 @@ import {
   renderFanficLedgerState,
   updateFanficLedger,
 } from "./ledger";
-import { completeFanficJson, parseFanficJsonReply } from "./llm-json";
+import { completeFanficJson, fanficCallBudget, parseFanficJsonReply, type FanficCallBudget } from "./llm-json";
 import { renderFanficRequestForPrompt, stripFanficChapterHeading } from "./prompts";
 import {
   confirmedFanficContinuityIssues,
@@ -31,6 +31,7 @@ import {
   fanficQualityRatingNote,
   fanficSamePassage,
   fanficSearchableText,
+  fanficTextHolds,
   parseFanficContinuityVerdicts,
   readFanficContinuityIssue,
 } from "./quality";
@@ -202,8 +203,7 @@ export function parseFanficChapterContinuityReply(raw: string, chapter: number):
 // ── Grounding ───────────────────────────────────
 
 function holds(text: string, quote: string): boolean {
-  const needle = fanficSearchableText(quote);
-  return needle.split(" ").length >= 3 && fanficSearchableText(text).includes(needle);
+  return fanficSearchableText(quote).split(" ").length >= 3 && fanficTextHolds(text, quote);
 }
 
 /**
@@ -270,7 +270,10 @@ export function locateFanficPassage(text: string, find: string): { start: number
   if (exact >= 0 && text.indexOf(find, exact + 1) < 0) return { start: exact, end: exact + find.length };
   const words = find.match(/[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)*/g);
   if (!words || words.length < 3) return null;
-  const pattern = words.map((word) => escapeRegex(word).replace(/['’]/g, "['’]")).join("[^A-Za-z0-9]+");
+  // Whole words only: the first and last word can't be the tail or head of a longer one.
+  const pattern = `(?<![A-Za-z0-9])${words
+    .map((word) => escapeRegex(word).replace(/['’]/g, "['’]"))
+    .join("[^A-Za-z0-9]+")}(?![A-Za-z0-9])`;
   const matches = [...text.matchAll(new RegExp(pattern, "gi"))];
   if (matches.length !== 1) return null;
   const match = matches[0]!;
@@ -346,10 +349,17 @@ export async function applyFanficContinuityFixesToChapter(
 
 // ── Running ─────────────────────────────────────
 
-function earlierBudget(connection: JsonRecord): number {
-  const window = effectiveMaxContext(connection, {});
-  // About 4 characters a token; keep half the window for instructions, the chapter itself, and the reply.
-  return window > 0 ? Math.min(MAX_EARLIER_CHARS, window * 2) : MAX_EARLIER_CHARS;
+/** Instructions and the request, in tokens; the checked chapter is added on top. */
+const CHECK_OVERHEAD_TOKENS = 3000;
+
+/** Room for earlier chapters beside the instructions, the checked chapter, and the reply. */
+function checkBudget(connection: JsonRecord, target: FanficChapterRef): FanficCallBudget {
+  return fanficCallBudget(effectiveMaxContext(connection, {}), {
+    maxReplyTokens: SWEEP_MAX_TOKENS,
+    overheadTokens: CHECK_OVERHEAD_TOKENS + Math.ceil(target.content.length / 3),
+    defaultChars: MAX_EARLIER_CHARS,
+    maxChars: MAX_EARLIER_CHARS,
+  });
 }
 
 function contextFor(
@@ -415,12 +425,12 @@ export async function checkFanficChapterContinuity(
   if (!target) throw new Error("That chapter is no longer in this fic.");
   if (target.number === 1) throw new Error("Chapter 1 has nothing before it to contradict.");
 
-  const budget = earlierBudget(connection);
-  let context = contextFor(chapters, target, readFanficLedger(chat.metadata), budget);
+  const budget = checkBudget(connection, target);
+  let context = contextFor(chapters, target, readFanficLedger(chat.metadata), budget.proseChars);
   if (context === "needs_ledger") {
     onPhase?.("updating_ledger");
     const ledger = await updateFanficLedger(deps, { chatId: input.chatId, connectionId }, { signal });
-    context = contextFor(chapters, target, ledger, budget);
+    context = contextFor(chapters, target, ledger, budget.proseChars);
     if (context === "needs_ledger") throw new Error("The story ledger couldn't cover the earlier chapters.");
   }
   const checkContext = context;
@@ -433,7 +443,7 @@ export async function checkFanficChapterContinuity(
         {
           connectionId,
           messages: buildFanficChapterContinuityMessages({ request: state.request, context: checkContext, categories }),
-          maxTokens: SWEEP_MAX_TOKENS,
+          maxTokens: budget.replyTokens,
         },
         (raw) => parseFanficChapterContinuityReply(raw, target.number),
         signal,
@@ -451,7 +461,7 @@ export async function checkFanficChapterContinuity(
       {
         connectionId,
         messages: buildFanficChapterVerifyMessages({ request: state.request, context: checkContext, issues: grounded }),
-        maxTokens: VERIFY_MAX_TOKENS,
+        maxTokens: Math.min(VERIFY_MAX_TOKENS, budget.replyTokens),
       },
       (raw) => parseFanficContinuityVerdicts(raw, grounded.length),
       signal,

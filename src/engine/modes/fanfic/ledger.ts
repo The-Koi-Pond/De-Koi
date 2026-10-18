@@ -8,7 +8,13 @@ import { parseJsonObject } from "../../core/json";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { effectiveMaxContext } from "../../generation/context-window";
 import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
-import { completeFanficJson, FanficReplyParseError, parseFanficJsonReply } from "./llm-json";
+import {
+  completeFanficJson,
+  fanficCallBudget,
+  FanficReplyParseError,
+  parseFanficJsonReply,
+  type FanficCallBudget,
+} from "./llm-json";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { readFanficState } from "./request";
 
@@ -267,10 +273,16 @@ export interface FanficLedgerProgress {
   total: number;
 }
 
-function charsPerCall(connection: JsonRecord): number {
-  const window = effectiveMaxContext(connection, {});
-  // About 4 characters a token; leave half the window for instructions, the previous entry, and the reply.
-  return window > 0 ? Math.max(8_000, Math.min(DEFAULT_CHARS_PER_CALL, window * 2)) : DEFAULT_CHARS_PER_CALL;
+/** Instructions, the request, and the previous entry, in tokens. */
+const LEDGER_OVERHEAD_TOKENS = 3000;
+
+function ledgerBudget(connection: JsonRecord): FanficCallBudget {
+  return fanficCallBudget(effectiveMaxContext(connection, {}), {
+    maxReplyTokens: LEDGER_MAX_TOKENS,
+    overheadTokens: LEDGER_OVERHEAD_TOKENS,
+    defaultChars: DEFAULT_CHARS_PER_CALL,
+    maxChars: DEFAULT_CHARS_PER_CALL,
+  });
 }
 
 /** Splits the chapters to read into calls: at most MAX_CHAPTERS_PER_CALL, and within the prose budget. */
@@ -363,7 +375,9 @@ export async function updateFanficLedger(
     if (input.onlyIfInUse && !fanficLedgerInUse(saved, chapters, connection)) return ledger;
 
     const toRead = chapters.slice(status.fresh.length);
-    const calls = planFanficLedgerCalls(toRead, charsPerCall(connection));
+    // A chapter longer than the budget still goes in a call of its own; there's no smaller unit to send.
+    const budget = ledgerBudget(connection);
+    const calls = planFanficLedgerCalls(toRead, budget.proseChars);
     let done = 0;
     let conflicted = false;
     onProgress?.({ done, total: toRead.length });
@@ -377,7 +391,7 @@ export async function updateFanficLedger(
             previous: ledger.entries[ledger.entries.length - 1] ?? null,
             chapters: call,
           }),
-          maxTokens: LEDGER_MAX_TOKENS,
+          maxTokens: budget.replyTokens,
         },
         (raw) =>
           parseFanficLedgerReply(

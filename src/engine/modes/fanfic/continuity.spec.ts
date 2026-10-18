@@ -141,6 +141,17 @@ describe("fanfic chapter continuity parsing", () => {
 });
 
 describe("fanfic continuity fixes", () => {
+  it("matches whole words only, so a fix never lands inside a longer word", () => {
+    const text = "Bathe left the room at noon. Later, the left the room joke landed.";
+    // "he left the room" only occurs inside "Bathe left the room" and "the left the room".
+    expect(locateFanficPassage(text, "he left the room")).toBeNull();
+    expect(locateFanficPassage("She said he left the room early.", "he left the room")).toMatchObject({ start: 9 });
+    // A near match elsewhere doesn't make the exact one ambiguous.
+    expect(locateFanficPassage("Theo left the room. Then he left the room.", "he left the room")).toMatchObject({
+      start: 25,
+    });
+  });
+
   it("finds a passage through curly quotes, italics, and line breaks, but only when it occurs once", () => {
     const text = "He said, “I don’t *know*,\nreally.” Then he left. Then he left.";
     expect(locateFanficPassage(text, 'He said, "I don\'t know, really."')).toMatchObject({ start: 0 });
@@ -258,7 +269,7 @@ describe("checkFanficChapterContinuity", () => {
     });
     const { storage } = storageWith(chapters, {
       metadata: { fanficLedger: { version: 1, entries: [entry(1), entry(2), entry(3)] } },
-      connection: { maxContext: 8000 },
+      connection: { maxContext: 12000 },
     });
     const fromLedger = { ...handIssue, earlierChapter: 0, earlierQuote: "Left hand cut and bandaged since day 1" };
     const { llm, requests } = judgeLlm({ detail: [fromLedger] });

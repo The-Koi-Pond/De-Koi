@@ -514,6 +514,12 @@ export function confirmedFanficContinuityIssues<T extends FanficContinuityIssue>
 // ── Grounding ──────────────────────────────────
 
 /** Lowercased words only, so curly quotes, italics markers, and line breaks never hide a real quote. */
+/** Whether the quote's words appear in the text as whole words, in order (punctuation, case, and quote marks aside). */
+export function fanficTextHolds(text: string, quote: string): boolean {
+  const needle = fanficSearchableText(quote);
+  return needle.length > 0 && ` ${fanficSearchableText(text)} `.includes(` ${needle} `);
+}
+
 export function fanficSearchableText(text: string): string {
   return text
     .toLowerCase()
@@ -525,9 +531,8 @@ export function fanficSearchableText(text: string): string {
 function chapterHolding(quote: string, chapters: string[], claimed: number): number {
   const needle = fanficSearchableText(quote);
   if (needle.split(" ").length < 3) return 0;
-  if (claimed >= 1 && claimed <= chapters.length && fanficSearchableText(chapters[claimed - 1]).includes(needle))
-    return claimed;
-  const found = chapters.findIndex((chapter) => fanficSearchableText(chapter).includes(needle));
+  if (claimed >= 1 && claimed <= chapters.length && fanficTextHolds(chapters[claimed - 1]!, quote)) return claimed;
+  const found = chapters.findIndex((chapter) => fanficTextHolds(chapter, quote));
   return found + 1;
 }
 

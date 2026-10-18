@@ -1,3 +1,4 @@
+import { fanficCallBudget } from "./llm-json";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
@@ -382,5 +383,24 @@ describe("updateFanficLedger", () => {
     await expect(updateFanficLedger({ storage, llm }, { chatId: "chat-1" })).rejects.toThrow(/Pick a connection/);
     records["chat-1"]!.mode = "roleplay";
     await expect(updateFanficLedger({ storage, llm }, { chatId: "chat-1" })).rejects.toThrow(/only kept for fanfic/);
+  });
+});
+
+describe("fanficCallBudget", () => {
+  it("keeps the reply and the prose inside a small window", () => {
+    const budget = fanficCallBudget(4000, { maxReplyTokens: 8000, overheadTokens: 3000, defaultChars: 100_000 });
+    expect(budget.replyTokens).toBe(1000);
+    expect(budget.proseChars).toBe(0);
+    const roomy = fanficCallBudget(200_000, {
+      maxReplyTokens: 8000,
+      overheadTokens: 3000,
+      defaultChars: 100_000,
+      maxChars: 100_000,
+    });
+    expect(roomy).toEqual({ replyTokens: 8000, proseChars: 100_000 });
+    expect(fanficCallBudget(0, { maxReplyTokens: 8000, overheadTokens: 3000, defaultChars: 100_000 })).toEqual({
+      replyTokens: 8000,
+      proseChars: 100_000,
+    });
   });
 });

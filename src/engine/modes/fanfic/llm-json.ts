@@ -36,6 +36,27 @@ export function parseFanficJsonReply(raw: string): JsonRecord | null {
   }
 }
 
+export interface FanficCallBudget {
+  /** Reply tokens to ask for: the job's cap, or a quarter of a small window. */
+  replyTokens: number;
+  /** Characters of story text that fit beside the instructions and the reply. */
+  proseChars: number;
+}
+
+/**
+ * How much story text one helper call can carry in a connection's context window, after the reply and the fixed
+ * instructions. Counts about 3 characters a token to stay on the safe side. An unknown window (0) gets the defaults.
+ */
+export function fanficCallBudget(
+  window: number,
+  options: { maxReplyTokens: number; overheadTokens: number; defaultChars: number; maxChars?: number },
+): FanficCallBudget {
+  if (!(window > 0)) return { replyTokens: options.maxReplyTokens, proseChars: options.defaultChars };
+  const replyTokens = Math.min(options.maxReplyTokens, Math.max(512, Math.floor(window / 4)));
+  const proseChars = Math.max(0, (window - replyTokens - options.overheadTokens) * 3);
+  return { replyTokens, proseChars: Math.min(options.maxChars ?? Infinity, proseChars) };
+}
+
 function abortError(): DOMException {
   return new DOMException("The operation was aborted.", "AbortError");
 }
