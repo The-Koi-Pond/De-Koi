@@ -7,7 +7,7 @@ Use these files when a task should be automated safely.
 For De-Koi workflow users, a terse bug request such as "fix this bug",
 "look for the smallest bug and fix it", "go", or a pasted bug screenshot means a
 local fix and verification loop by default. Do not turn ordinary bugfix language
-into commit, push, draft PR creation, Bunny Review, CI polling, PR health,
+into commit, push, draft PR creation, CI polling, PR health,
 or ready-for-review work. Those are shipping actions and start only when the user
 explicitly asks to ship, push, open a PR, or mark ready.
 
@@ -26,7 +26,7 @@ unrelated dirty files that would ship, or an unprovable core claim.
 - `scripts/bugfix-fast-lane.mjs` checks whether a bugfix still qualifies for the fast lane and generates a PR proof block from the ledger.
 - `scripts/risk-classifier.mjs` keeps risky-work detection shared across workflow health, PR health, and proof health.
 - `scripts/proof-health.mjs` checks whether risky work records the contract lane gate, proves the claim boundary, contradiction rows, owned facts, user-data copy instructions, and reviewer dispositions.
-- `scripts/pr-health.mjs` checks PR mergeability, CI, Bunny Review, unresolved review threads, and proof-link hygiene.
+- `scripts/pr-health.mjs` checks PR mergeability, CI, unresolved review threads, and proof-link hygiene.
 - `scripts/publish-evidence.mjs` records uploaded GitHub/gist evidence URLs in the proof ledger. Keep temporary screenshots under `scratch/`; do not commit PR proof images under `docs/pr-evidence/` unless they are intentional docs/reference assets.
 - `scripts/workflow-health.mjs` summarizes open draft PR health and active vault task overlap before work starts.
 
@@ -92,13 +92,9 @@ node .agents/automation/scripts/workflow-health.mjs --json
 `main`, PR target `The-Koi-Pond/De-Koi:main`, comparison base `origin/main`, and
 whether stale workflow docs still reference an older branch target.
 
-If GitHub checks or Bunny Review are still running after an explicit PR/shipping
+If GitHub checks are still running after an explicit PR/shipping
 action, keep polling without asking for another "okay". Report back only when
 the PR is clean, a real blocker appears, or the normal wait budget is exhausted.
-
-In repo-shared automation, Bunny Review is the trusted GitHub workflow/status
-implemented by `.github/bunny-review/`. A personal Bunny skill may run a local
-maintainer-style pass, but the portable PR gate is the repository status.
 
 For UI/runtime verification, name the runtime being proven: `Chrome web shell`,
 `Chrome + Remote Runtime`, `Tauri dev app`, or `scratch/backend harness`. Use the
@@ -123,7 +119,7 @@ When preparing a portable Fable or external workflow audit packet, include the
 repo-shared workflow surface that affects agent behavior:
 
 - `AGENTS.md`, `CONTRIBUTING.md`, `.github/agents/`, and `.github/pull_request_template.md`
-- `.github/ISSUE_TEMPLATE/` and `.github/bunny-review/`
+- `.github/ISSUE_TEMPLATE/`
 - `skills/de-koi-agent-workflow/`, `skills/de-koi-architecture-guard/`,
   `skills/de-koi-mode-separation/`, and `skills/de-koi-bugfix-discipline/`
 - `.agents/automation/`, root validation scripts such as
@@ -146,8 +142,7 @@ focused repro still passes, and GitHub validation passes on the new head. Record
 initial fix or for risky scope changes.
 
 After an explicit shipping request opens a draft PR or pushes a PR-affecting
-commit, wait for Bunny Review only when the current head is believed final and
-has not been reviewed, then batch any PR body edits so Auto-label/checks only
+commit, wait for CI on the current head, then batch any PR body edits so Auto-label/checks only
 restart once.
 
 For UI/runtime bugfix screenshots that start under `scratch/`, publish them before using them in a PR body:

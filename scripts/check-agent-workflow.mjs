@@ -319,10 +319,7 @@ writeFileSync(
       isDraft: false,
       mergeable: "MERGEABLE",
       mergeStateStatus: "CLEAN",
-      statusCheckRollup: [
-        { name: "Bunny Review", status: "COMPLETED", conclusion: "SUCCESS" },
-        { name: "pnpm check:agent-workflow", status: "COMPLETED", conclusion: "SUCCESS" },
-      ],
+      statusCheckRollup: [{ name: "pnpm check:agent-workflow", status: "COMPLETED", conclusion: "SUCCESS" }],
       reviewDecision: "",
       labels: [],
       files: [{ path: "docs/workflow-fixture.md" }],

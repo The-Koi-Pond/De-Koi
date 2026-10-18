@@ -42,7 +42,7 @@ PR-affecting. Reserve workflow-health style checks for nontrivial work, PR work,
 issue selection, and risky workflow changes unless repo policy or visible risk
 requires them.
 
-When a helper is missing or unsuitable for the current claim, use equivalent direct checks: `git status`, `git remote -v`, existing test output, temporary uncommitted tests or harnesses, `pnpm typecheck`, `pnpm build`, `cargo check --manifest-path src-tauri/Cargo.toml`, `pnpm check:docs`, GitHub CLI/API checks, browser automation, or manual verification scripts. Ordinary bugfix language still means local fix and verification; GitHub PR creation, Bunny Review, CI polling, ready marking, and merge require an explicit shipping request.
+When a helper is missing or unsuitable for the current claim, use equivalent direct checks: `git status`, `git remote -v`, existing test output, temporary uncommitted tests or harnesses, `pnpm typecheck`, `pnpm build`, `cargo check --manifest-path src-tauri/Cargo.toml`, `pnpm check:docs`, GitHub CLI/API checks, browser automation, or manual verification scripts. Ordinary bugfix language still means local fix and verification; GitHub PR creation, CI polling, ready marking, and merge require an explicit shipping request.
 
 Do not treat missing pack automation as a blocker. Treat it as a reason to make the evidence explicit in the final report.
 

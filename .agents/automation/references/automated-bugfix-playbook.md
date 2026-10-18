@@ -7,7 +7,7 @@ In Marinara's repo workflow, ordinary bugfix language defaults to local fix and
 verification only. A request like "fix this bug", "go", "look for the smallest
 bug and fix it", or a pasted bug screenshot with little text is enough to run
 the local portions of this playbook for a small, machine-provable bug. Commit,
-push, draft PR, Bunny Review, CI polling, ready marking, and merge require an
+push, draft PR, CI polling, ready marking, and merge require an
 explicit shipping request such as "ship it", "open a PR", "push this", or
 "ready for review".
 
@@ -29,7 +29,7 @@ guardrail using `scope.riskFlags`, `notes`, or `trace`.
 
 For `tiny-local` and `small-local`, stop after the local fix, focused
 verification, matching validation command, and maintainer-equivalent
-self-review. Do not commit, push, open a draft PR, wait on Bunny Review, poll CI,
+self-review. Do not commit, push, open a draft PR, poll CI,
 mark ready, upload screenshots, or merge. For `ship-requested`, external-text
 approval is granted only for the PR title/body when the user explicitly asked
 for PR creation and the body is generated from the repo template, links the
@@ -116,7 +116,7 @@ pnpm typecheck
 Full local `pnpm check` is for PR boundaries, risky changes, cross-lane changes,
 or cases where the narrow proof does not cover the claim. The time-saving fast
 path applies only after the original fix already passed the relevant validation:
-for a tiny Bunny Review or human convention follow-up, re-run the focused repro and
+for a tiny human-review convention follow-up, re-run the focused repro and
 a relevant narrow command if one exists, then rely on GitHub validation before
 merge. Record this as:
 
@@ -168,19 +168,17 @@ checkboxes do not read like skipped procedure.
 ## 5. PR Gate
 
 For `ship-requested`, the PR gate includes the shipping actions. Commit the
-focused fix, push only to `origin`, open the initial PR as a draft, wait for
-Bunny Review only when the current head is believed final and has not been
-reviewed, poll CI, then mark the PR ready only when the user explicitly asked
+focused fix, push only to `origin`, open the initial PR as a draft, poll CI, then mark the PR ready only when the user explicitly asked
 for ready marking and `pr-health.mjs` is clean with no blocking manual
 verification. Merging always requires an explicit merge request.
 
 Batch PR body edits. Build the final body from the template, proof pack,
 published evidence links, validation notes, and docs/release impact in one edit
-before posting. After Bunny Review follow-up commits, update the PR body once with
+before posting. After review follow-up commits, update the PR body once with
 all new proof/status changes instead of repeatedly touching it and restarting
 Auto-label or other checks.
 
-If any PR-affecting action restarts CI, Auto-label, Bunny Review, or another
+If any PR-affecting action restarts CI, Auto-label, or another
 routine GitHub check, keep polling automatically. Do not report back only to say
 that a routine check is running unless the wait budget is exhausted or a real
 blocker appears.

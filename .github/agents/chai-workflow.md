@@ -27,7 +27,7 @@ security, or risky-work boundaries.
 - Name the core claim being proven.
 - Verify the user-facing claim before saying the work is done.
 - Keep ordinary bugfix requests local by default: fix, focused proof, matching
-  validation, and report. Commit/push/PR/Bunny Review/CI work starts only after an
+  validation, and report. Commit/push/PR/CI work starts only after an
   explicit shipping request.
 - Use high/adaptive reasoning for coding and review quality; save credits by
   avoiding unnecessary agents, browser proof, and PR loops rather than weakening
@@ -130,7 +130,7 @@ Use this for code reviews, PR preparation, PR iteration, and ready-for-review ga
 - Never push directly to protected branches without explicit maintainer direction.
 - Do not auto-check PR validation boxes. Treat them as human verification tasks.
 - After pushing, inspect CI and review feedback when asked to ship or ready a PR.
-  Do not start PR polling or Bunny Review loops for local-fix-only work.
+  Do not start PR polling loops for local-fix-only work.
 
 Maintainer-equivalent self-review questions:
 
@@ -163,7 +163,7 @@ Risky work needs explicit claim-boundary proof:
 - Ground-truth facts used
 - Manual blockers
 
-Before Bunny/PR handoff, use
+Before PR handoff, use
 `skills/de-koi-agent-workflow/references/bug-class-proof-packs.md` to choose the
 few adjacent proof rows that match the bug class.
 

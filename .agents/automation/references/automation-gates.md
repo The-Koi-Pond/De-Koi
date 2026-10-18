@@ -19,15 +19,10 @@ of these as standing approval for local fix and verification only: "fix this
 bug", "fix this", "go", "look for the smallest bug and fix it", a pasted bug
 screenshot with minimal text, or any equivalent request.
 
-Do not commit, push to `origin`, open the initial draft PR, wait on
-Bunny Review, poll checks, mark the PR ready, or merge unless
+Do not commit, push to `origin`, open the initial draft PR, poll checks, mark the PR ready, or merge unless
 the user explicitly asks to ship, push, open a PR, mark ready, or merge. Those
 actions are shipping lane work, not default local-fix work. Still stop for the
 hard stops listed below.
-
-For these gates, Bunny Review means the trusted GitHub workflow/status provided
-by `.github/bunny-review/`. A personal Bunny skill can help prepare or interpret
-the review, but it is not required for the repo-shared automation contract.
 
 ## Autonomy Table
 
@@ -44,8 +39,8 @@ the review, but it is not required for the repo-shared automation contract.
 | Commit                                  | Ask first unless shipping was explicitly requested                                 | Allowed only inside explicit shipping flow                                        | Stop on unrelated dirty files or unclear branch base                                                                                                                                                                                                               |
 | Push                                    | Ask first unless shipping was explicitly requested                                 | Allowed only to `origin` inside explicit shipping flow                            | Never push to `official-upstream`; never force-push without explicit approval                                                                                                                                                                                      |
 | Open PR                                 | Draft only, after exact-text approval unless user explicitly requested PR creation | Initial draft PR title/body may be prepared only inside explicit shipping flow    | Stop if PR body would omit proof, cite only local screenshot paths for UI evidence, or include unrelated files                                                                                                                                                     |
-| Mark PR ready                           | Ask after human/manual verification unless explicitly authorized                   | Allowed only when the shipping request includes ready marking and health is clean | Stop if CI/Bunny Review/manual blocker remains                                                                                                                                                                                                                     |
-| Post issue/PR comments                  | Exact-text approval required                                                       | Bunny Review status updates are handled by the trusted workflow                   | Never post arbitrary external replies without approval                                                                                                                                                                                                             |
+| Mark PR ready                           | Ask after human/manual verification unless explicitly authorized                   | Allowed only when the shipping request includes ready marking and health is clean | Stop if a CI or manual blocker remains                                                                                                                                                                                                                             |
+| Post issue/PR comments                  | Exact-text approval required                                                       | No exception                                                                      | Never post arbitrary external replies without approval                                                                                                                                                                                                             |
 | Merge PR                                | Ask first                                                                          | No ordinary bugfix-language exception                                             | Never merge broad/risky PRs, PRs opened by others, PRs with failed/pending checks, force-push requirements, unresolved actionable threads, or unproven core claims                                                                                                 |
 
 ## Batch Automation
@@ -70,7 +65,6 @@ The gate must pass before automated work can be called complete. It checks:
 
 - mergeability is `MERGEABLE` and merge state is `CLEAN`
 - no failed or pending checks
-- Bunny Review status is `SUCCESS`
 - no unresolved, non-outdated review threads
 - any checked checklist item is backed by concrete proof in the PR body; agent-authored PRs should leave human validation checkboxes unchecked
 - PR body does not cite local `scratch/` evidence paths
@@ -149,17 +143,17 @@ pipeline, release, or cross-cutting refactor changes.
 ## PR Body Churn Rule
 
 Build one complete PR-body update from the template, proof pack, validation
-notes, published evidence links, docs/release impact, Bunny Review status, and CI
-status before posting it. Avoid repeated cosmetic edits that restart Auto-label,
-Bunny Review, or other checks. After a follow-up commit, batch all status/proof
+notes, published evidence links, docs/release impact, and CI
+status before posting it. Avoid repeated cosmetic edits that restart Auto-label
+or other checks. After a follow-up commit, batch all status/proof
 changes into one update, then start the wait loop.
 
 ## Waiting Ownership
 
 When an explicit shipping action starts or restarts GitHub work, such as opening a PR,
-pushing a commit, waiting on Bunny Review, marking ready, or editing the
+pushing a commit, marking ready, or editing the
 PR body, the assistant owns the wait loop. Do not report back with only
-"checks are running" while routine CI or Bunny Review work is still in progress.
+"checks are running" while routine CI work is still in progress.
 Start polling automatically and continue until the PR reaches a terminal state:
 
 - `clean`: report completion.
