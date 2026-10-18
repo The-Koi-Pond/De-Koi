@@ -21,7 +21,7 @@
 
 - Preserve coding quality: use high/adaptive reasoning for code edits, reviews, risky debugging, and architecture. Save credits by avoiding unnecessary agents, browser proof, and PR loops rather than weakening coding reasoning.
 - Default to brief unless precision requires detail. Expand for proof, risk, exact external text, approval gates, repo boundaries, or user-facing tone.
-- Ordinary bugfix language means local fix and verification by default. Commit, push, draft PR creation, Bunny Review, CI polling, ready marking, and merge require an explicit shipping request such as "ship it", "open a PR", "push this", or "ready for review".
+- Ordinary bugfix language means local fix and verification by default. Commit, push, draft PR creation, CI polling, ready marking, and merge require an explicit shipping request such as "ship it", "open a PR", "push this", or "ready for review".
 - For shipping, prefer `gh`-authenticated HTTPS publishing over raw SSH pushes. If an SSH remote push fails, use the authenticated GitHub CLI path, such as `gh auth setup-git` followed by an HTTPS `git push` to `origin`.
 - Use the tiny local bug path for narrow, low-risk, machine-provable fixes: no full ledger by default, just a short claim/proof/validation/files/risk/vault receipt. Escalate to the full workflow as soon as the bug is nontrivial, PR-affecting, cross-boundary, storage/import/export/prompt/provider/security-sensitive, browser-evidence-dependent, or uncertain.
 - Before local bugfix edits, name only the cheap gate: core claim, likely owner/lane, risk level, and proof target. Broaden the gate only after a hypothesis is falsified or a risk boundary appears.
@@ -102,10 +102,8 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src-tauri/crates/sidecar`: Local Model sidecar capability implementation, including config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and smoke-test helpers. The Tauri command module stays as the app-state adapter.
 - `docs/uml/Refactor`: PlantUML architecture diagrams for current refactor-era boundaries, hotspots, and decision context; consult these for architecture-sensitive changes. The `Refactor` name reflects De-Koi's origin as a Marinara Engine refactor.
 - `public/koi-mark.svg`, `public/koi-mark-192.png`, `public/koi-mark-512.png`, and `public/koi-bg.svg`: De-Koi brand and pond marks used by the shell, Deki pond, onboarding helpers, notifications, and app metadata.
-- `.github/workflows/bunny-review.yml`, `.github/workflows/bunny-review-auto.yml`, `.github/workflows/bunny-review-command.yml`, `.github/bunny-review`: Bunny Review PR comment automation, trusted auto and slash-command dispatchers, review packet builder, CI dependencies, path rules, and model reviewer prompt.
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.
 - `skills/impeccable`: Repo-local frontend design, critique, polish, accessibility, responsive, and live-iteration workflow for UI craft passes.
-- `skills/bunny-style-review`: Repo-local branch and PR review workflow for failure-path review and actionable nitpicks.
 - `skills/de-koi-bugfix-discipline`: Root-cause bugfix and feedback-loop-first diagnosis workflow for regressions, failing checks, storage, provider, import/export, generation, mode, and runtime bugs.
 - `skills/de-koi-architecture-guard`: Architecture guardrails for placement, import direction, and remote-capable command routing.
 - `skills/de-koi-agent-workflow`: Agent workflow references, source maps, handoff formats, and verification discipline.

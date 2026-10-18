@@ -60,7 +60,6 @@ The ledger lives under `scratch/` and should not be committed unless chai explic
     "versionCheckStatus": "not_applicable",
     "dbPushStatus": "not_applicable",
     "ciStatus": "not_applicable",
-    "bunnyReviewStatus": "not_applicable",
     "prHealthStatus": "not_applicable"
   },
   "manualBlockers": [],
@@ -100,7 +99,6 @@ The ledger lives under `scratch/` and should not be committed unless chai explic
     "headRefName": "",
     "baseRefName": "",
     "healthStatus": "not_applicable",
-    "bunnyReviewStatus": "not_applicable",
     "checksStatus": "not_applicable",
     "merged": false,
     "mergeCommit": ""
@@ -116,7 +114,6 @@ The ledger lives under `scratch/` and should not be committed unless chai explic
   "finalDoneGate": {
     "bugfixComplete": false,
     "prClean": false,
-    "bunnyReviewClean": false,
     "requiredChecksPassed": false,
     "readyOrMerged": false,
     "noBlockingManualVerification": false,
@@ -172,9 +169,9 @@ For bugfixes, `coreClaim` is the one-sentence behavior claim that must be proven
 
 Use `verification.originalReproPassed=true` after the original reproduction passes against the fixed code. Use `verification.focusedReproPassed=true` for any narrower scratch, targeted, jsdom/component, route/module, or Playwright harness that directly exercises the bug. Use `verification.baselinePassed=true` only when the baseline command named in `verification.baselineCommand` has passed locally. The baseline command should be the root `AGENTS.md` matching validation command for the changed lane; full `pnpm check` is for PR boundaries, risky changes, cross-lane changes, or when narrow proof does not cover the claim.
 
-The only exception is `verification.reviewIterationFastPath=true`: after the initial bugfix already ran matching local validation, a tiny Bunny Review/human follow-up that only changes convention, copy, or a narrow implementation detail may skip another full local validation run if the focused repro still passes and GitHub validation for the current head passes. Record that with `githubValidationPassed=true` and cite the check name in `baselineEvidence`. Do not use this fast path for the initial fix, dependency/schema/version/auth/storage/prompt-pipeline changes, or any follow-up that changes the core behavior.
+The only exception is `verification.reviewIterationFastPath=true`: after the initial bugfix already ran matching local validation, a tiny human-review follow-up that only changes convention, copy, or a narrow implementation detail may skip another full local validation run if the focused repro still passes and GitHub validation for the current head passes. Record that with `githubValidationPassed=true` and cite the check name in `baselineEvidence`. Do not use this fast path for the initial fix, dependency/schema/version/auth/storage/prompt-pipeline changes, or any follow-up that changes the core behavior.
 
-`pr` mirrors the ship-it health checker output. Fill it only inside explicit shipping or PR iteration work, and keep it current after opening a draft PR, after every push, after Bunny Review, after marking ready, and after an approved merge.
+`pr` mirrors the ship-it health checker output. Fill it only inside explicit shipping or PR iteration work, and keep it current after opening a draft PR, after every push, after marking ready, and after an approved merge.
 
 ## Claim-Proof Quality
 
@@ -245,7 +242,7 @@ Before saying automated work is done, the ledger must show:
 - `finalGate.noUnapprovedExternalText=true`.
 - `finalGate.readyToReportDone=true`.
 - For local bugfixes, `finalDoneGate.bugfixComplete=true` means local proof, matching validation, and maintainer-equivalent self-review are complete.
-- For shipped bugfix PRs, `prClean=true`, `bunnyReviewClean=true`, `requiredChecksPassed=true`, and `noBlockingManualVerification=true` are required before PR completion.
+- For shipped bugfix PRs, `prClean=true`, `requiredChecksPassed=true`, and `noBlockingManualVerification=true` are required before PR completion.
 - Merges are never implied by ordinary bugfix language. If the user explicitly approved a merge and the PR is clean, `finalDoneGate.readyOrMerged=true` should mean the PR is either ready or already merged. Record the merge under `pr.merged` and `pr.mergeCommit`.
 
 If any required field is missing, report `not complete yet` and name the blocker.

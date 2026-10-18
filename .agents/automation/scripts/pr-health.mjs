@@ -28,7 +28,7 @@ Options:
   --json                    Accepted for consistency; output is always JSON
   -h, --help                Show this help
 
-Checks mergeability, CI, Bunny Review, unresolved review threads, focused PR text,
+Checks mergeability, CI, unresolved review threads, focused PR text,
 template shape, and evidence-link hygiene for one pull request.`);
 }
 
@@ -133,15 +133,6 @@ function checkSucceeded(statusCheckRollup, pattern) {
     if (check.__typename === "StatusContext") return ["SUCCESS", "NEUTRAL"].includes(check.state);
     return ["SUCCESS", "NEUTRAL"].includes(check.conclusion);
   });
-}
-
-function hasBunnyReviewSuccess(statusCheckRollup) {
-  return (statusCheckRollup ?? []).some(
-    (check) =>
-      /^Bunny Review$/i.test(checkName(check)) &&
-      ((check.__typename === "StatusContext" && check.state === "SUCCESS") ||
-        (check.conclusion && ["SUCCESS", "NEUTRAL"].includes(check.conclusion))),
-  );
 }
 
 function localScratchPaths(body) {
@@ -336,7 +327,6 @@ if (!pr) {
         failed: [],
         pending: [],
         skipped: [],
-        bunnyReviewSuccess: false,
         available: false,
       },
       reviewThreads: {
@@ -421,7 +411,6 @@ if (pr.state === "OPEN" && (pr.mergeable !== "MERGEABLE" || pr.mergeStateStatus 
 const checks = checkRuns(pr.statusCheckRollup);
 for (const check of checks.failed) fail(`check failed: ${check}`);
 for (const check of checks.pending) fail(`check pending: ${check}`);
-if (!hasBunnyReviewSuccess(pr.statusCheckRollup)) fail("Bunny Review status is not SUCCESS");
 
 if (unresolvedThreads.length > 0) {
   for (const thread of unresolvedThreads) {
@@ -604,7 +593,6 @@ const output = {
     failed: checks.failed,
     pending: checks.pending,
     skipped: checks.skipped,
-    bunnyReviewSuccess: hasBunnyReviewSuccess(pr.statusCheckRollup),
   },
   reviewThreads: {
     available: Boolean(reviewThreads),

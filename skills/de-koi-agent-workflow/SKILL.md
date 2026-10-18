@@ -49,7 +49,7 @@ Use `references/de-koi-overrides.md` when auditing a source-pack assumption or d
 
 Read `references/proof-templates.md` as the template index when a task needs a risk matrix, PR proof block, reviewer thread ledger, manual verification script, debt note, or final done shape. The concrete pack-derived templates live under `references/templates/`. Use tracked repo tooling in `.agents/automation/scripts/proof-health.mjs` and `.agents/automation/scripts/automation-ledger.mjs` for proof gates that must work for every contributor.
 
-Read `references/bug-class-proof-packs.md` before Bunny/PR handoff for risky
+Read `references/bug-class-proof-packs.md` before PR handoff for risky
 bugfixes so the focused proof includes the few adjacent invariants that match
 the bug class.
 
@@ -91,7 +91,7 @@ reviews, risky debugging, and architecture; save credits by avoiding unnecessary
 agents, browser proof, and PR/CI loops.
 
 Ordinary bugfix language means local fix and verification by default. Do not
-commit, push, open or update PRs, trigger Bunny Review, poll CI, mark ready, upload
+commit, push, open or update PRs, poll CI, mark ready, upload
 screenshots, or merge unless the user explicitly asks to ship, push, open a PR,
 or ready the work.
 
@@ -101,11 +101,6 @@ validation command after editing, and a compact final receipt. Upgrade to the
 full workflow as soon as the bug is nontrivial, PR-affecting, cross-boundary,
 storage/import/export/prompt/provider/security-sensitive,
 browser-evidence-dependent, or uncertain.
-
-For repo-shared workflow guidance, Bunny Review means the trusted GitHub status
-and tools under `.github/bunny-review/`, not a required personal/global agent
-skill. Personal Bunny skills can be convenient wrappers, but the repo-owned
-status is the PR gate every contributor can rely on.
 
 Use a proof ladder before browser automation: static inspection, existing test
 output, temporary uncommitted tests or harnesses, route/module repros, and
@@ -153,7 +148,7 @@ Treat these as risky: storage, migrations, import/export, installers, user data,
 Risky work needs claim-boundary proof: core claim, entrypoints, current and legacy paths, positive rows, negative controls, ground-truth facts, user-facing copy when relevant, manual blockers, and untested paths.
 
 Use `references/bug-class-proof-packs.md` to choose the smallest class-specific
-proof rows that could contradict a risky bugfix before Bunny/PR handoff.
+proof rows that could contradict a risky bugfix before PR handoff.
 
 Ground-truth facts for app-owned behavior must come from the app, artifact, fresh build/install, code path, or focused harness. Use external docs only for outside behavior such as third-party APIs, operating-system semantics, or tool behavior.
 

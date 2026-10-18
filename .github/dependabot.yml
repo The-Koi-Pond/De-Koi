@@ -46,12 +46,3 @@ updates:
       - "*"
     cooldown:
       default-days: 7
-
-  # Python tooling for bunny-review
-  - package-ecosystem: "pip"
-    directory: "/.github/bunny-review"
-    multi-ecosystem-group: "routine-dependencies"
-    patterns:
-      - "*"
-    cooldown:
-      default-days: 7
