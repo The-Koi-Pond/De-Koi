@@ -1750,7 +1750,7 @@ function fallbackSystemPrompt(
     return finalize([
       ...buildFanficSystemSegments({
         state,
-        castCards: renderFanficCastCards(args.characters),
+        castCards: renderFanficCastCards(args.characters, state.voices),
         worldInfo: "",
       }).map((segment) => ({ ...segment, contextKind: "prompt" as const })),
       { content: args.worldBefore, contextKind: "lorebook", displayName: "World Info Before" },

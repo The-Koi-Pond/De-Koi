@@ -27,6 +27,16 @@ import type { FanficChapterRef } from "../../../../engine/modes/fanfic/chapter-r
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
 import { readFanficState } from "../../../../engine/modes/fanfic/request";
 import { planFanfic, type FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
+import {
+  checkFanficChapterVoice,
+  type FanficChapterVoiceCheck,
+  type FanficVoiceCheckPhase,
+} from "../../../../engine/modes/fanfic/voice-check";
+import {
+  buildFanficVoiceSheets,
+  type FanficVoicePhase,
+  type FanficVoicesResult,
+} from "../../../../engine/modes/fanfic/voices";
 import { saveFanficRequest, type SaveFanficRequestInput } from "../../../../engine/modes/fanfic/request-save";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { fanficResearchApi } from "../../../../shared/api/fanfic-research-api";
@@ -152,7 +162,7 @@ export function useFanficOutline(chatId: string) {
       planFanfic(
         { storage: storageApi, llm: llmApi, web: fanficResearchApi },
         { chatId, connectionId },
-        { signal, onPhase: setPhase },
+        { signal, onPhase: setPhase, onWarning: (message) => toast.warning(message) },
       ).finally(() => setPhase(null)),
     onSuccess: async (state: FanficState) => {
       await queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
@@ -258,26 +268,43 @@ export function useFanficLedger(chatId: string, connectionId: string | null): Fa
   return { update, stop, running, progress };
 }
 
-export interface FanficContinuityController {
+interface FanficChapterCheckResult {
+  messageId: string;
+  textKey: string;
+  issues: Array<{ fix: FanficContinuityFix | null }>;
+}
+
+export interface FanficChapterCheckController<Result extends FanficChapterCheckResult, Phase extends string> {
   check: (messageId: string) => void;
   stop: () => void;
   /** The chapter being checked, if any. */
   running: string | null;
-  phase: FanficContinuityPhase | null;
-  results: Record<string, FanficChapterContinuityCheck>;
+  phase: Phase | null;
+  results: Record<string, Result>;
   dismiss: (messageId: string) => void;
-  applyFixes: (check: FanficChapterContinuityCheck, fixes: FanficContinuityFix[]) => Promise<void>;
+  applyFixes: (check: Result, fixes: FanficContinuityFix[]) => Promise<void>;
   fixing: boolean;
 }
 
-/** Per-chapter continuity checks for the open fic, kept while the reader is open. */
-export function useFanficContinuity(chatId: string, connectionId: string | null): FanficContinuityController {
+/**
+ * Per-chapter checks for the open fic (continuity, voice), kept while the reader is open. Fixes save a new version;
+ * fixed issues leave the list and the rest stay fixable against the new text.
+ */
+function useFanficChapterCheck<Result extends FanficChapterCheckResult, Phase extends string>(
+  chatId: string,
+  runCheck: (messageId: string, signal: AbortSignal, onPhase: (phase: Phase) => void) => Promise<Result>,
+  copy: { failed: string; one: string; many: string },
+): FanficChapterCheckController<Result, Phase> {
   const queryClient = useQueryClient();
   const [running, setRunning] = useState<string | null>(null);
-  const [phase, setPhase] = useState<FanficContinuityPhase | null>(null);
-  const [results, setResults] = useState<Record<string, FanficChapterContinuityCheck>>({});
+  const [phase, setPhase] = useState<Phase | null>(null);
+  const [results, setResults] = useState<Record<string, Result>>({});
   const [fixing, setFixing] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const runRef = useRef(runCheck);
+  useEffect(() => {
+    runRef.current = runCheck;
+  }, [runCheck]);
 
   const check = useCallback(
     (messageId: string) => {
@@ -285,24 +312,21 @@ export function useFanficContinuity(chatId: string, connectionId: string | null)
       const controller = new AbortController();
       controllerRef.current = controller;
       setRunning(messageId);
-      void checkFanficChapterContinuity(
-        { storage: storageApi, llm: llmApi },
-        { chatId, messageId, connectionId },
-        { signal: controller.signal, onPhase: setPhase },
-      )
+      void runRef
+        .current(messageId, controller.signal, setPhase)
         .then((result) => setResults((current) => ({ ...current, [messageId]: result })))
         .catch((error: unknown) => {
-          if (!isAbort(error)) toast.error(error instanceof Error ? error.message : "The continuity check failed.");
+          if (!isAbort(error)) toast.error(error instanceof Error ? error.message : copy.failed);
         })
         .finally(() => {
           if (controllerRef.current === controller) controllerRef.current = null;
           setRunning(null);
           setPhase(null);
-          // A check can update the ledger first.
+          // A continuity check can update the ledger first.
           void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
         });
     },
-    [chatId, connectionId, queryClient],
+    [chatId, copy.failed, queryClient],
   );
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   useEffect(() => () => controllerRef.current?.abort(), [chatId]);
@@ -314,7 +338,7 @@ export function useFanficContinuity(chatId: string, connectionId: string | null)
     });
   }, []);
   const applyFixes = useCallback(
-    async (result: FanficChapterContinuityCheck, fixes: FanficContinuityFix[]) => {
+    async (result: Result, fixes: FanficContinuityFix[]) => {
       setFixing(true);
       try {
         const { applied, skipped, appliedIndexes, textKey } = await applyFanficContinuityFixesToChapter(storageApi, {
@@ -322,7 +346,6 @@ export function useFanficContinuity(chatId: string, connectionId: string | null)
           check: result,
           fixes,
         });
-        // Fixed slips leave the list; the rest stay fixable against the new version.
         const fixed = new Set(appliedIndexes.map((index) => fixes[index]));
         setResults((current) => {
           const shown = current[result.messageId];
@@ -334,16 +357,102 @@ export function useFanficContinuity(chatId: string, connectionId: string | null)
           return next;
         });
         await queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
-        toast.success(
-          `Fixed ${applied} ${applied === 1 ? "slip" : "slips"}${skipped ? ` (${skipped} couldn't be placed)` : ""}. Saved as a new version, so the old one is one tap back.`,
-        );
+        const noun = applied === 1 ? copy.one : copy.many;
+        const unplaced = skipped ? ` (${skipped} couldn't be placed)` : "";
+        toast.success(`Fixed ${applied} ${noun}${unplaced}. Saved as a new version, so the old one is one tap back.`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "The fix could not be saved.");
       } finally {
         setFixing(false);
       }
     },
-    [chatId, queryClient],
+    [chatId, copy.many, copy.one, queryClient],
   );
   return { check, stop, running, phase, results, dismiss, applyFixes, fixing };
+}
+
+export type FanficContinuityController = FanficChapterCheckController<
+  FanficChapterContinuityCheck,
+  FanficContinuityPhase
+>;
+
+const CONTINUITY_COPY = { failed: "The continuity check failed.", one: "slip", many: "slips" };
+const VOICE_COPY = { failed: "The voice check failed.", one: "line", many: "lines" };
+
+/** Per-chapter continuity checks for the open fic, kept while the reader is open. */
+export function useFanficContinuity(chatId: string, connectionId: string | null): FanficContinuityController {
+  const run = useCallback(
+    (messageId: string, signal: AbortSignal, onPhase: (phase: FanficContinuityPhase) => void) =>
+      checkFanficChapterContinuity(
+        { storage: storageApi, llm: llmApi },
+        { chatId, messageId, connectionId },
+        { signal, onPhase },
+      ),
+    [chatId, connectionId],
+  );
+  return useFanficChapterCheck(chatId, run, CONTINUITY_COPY);
+}
+
+export type FanficVoiceCheckController = FanficChapterCheckController<FanficChapterVoiceCheck, FanficVoiceCheckPhase>;
+
+/** Per-chapter out-of-character checks against the fic's voice sheets. */
+export function useFanficVoiceCheck(chatId: string, connectionId: string | null): FanficVoiceCheckController {
+  const run = useCallback(
+    (messageId: string, signal: AbortSignal, onPhase: (phase: FanficVoiceCheckPhase) => void) =>
+      checkFanficChapterVoice(
+        { storage: storageApi, llm: llmApi },
+        { chatId, messageId, connectionId },
+        { signal, onPhase },
+      ),
+    [chatId, connectionId],
+  );
+  return useFanficChapterCheck(chatId, run, VOICE_COPY);
+}
+
+function voicesReadyMessage(result: FanficVoicesResult): string {
+  const quotes = (result.state.voices ?? []).reduce((sum, sheet) => sum + sheet.quotes.length, 0);
+  if (!result.state.request.research) return "Voice sheets ready. Turn on research in the request to add canon lines.";
+  if (result.pagesRead === 0) return "Voice sheets ready. No pages could be read, so there are no canon lines.";
+  const left = result.droppedQuotes ? ` (${result.droppedQuotes} left out: not found on the pages)` : "";
+  return `Voice sheets ready: ${quotes} canon ${quotes === 1 ? "line" : "lines"} from ${result.pagesRead} ${result.pagesRead === 1 ? "page" : "pages"}${left}.`;
+}
+
+export interface FanficVoicesController {
+  build: () => void;
+  stop: () => void;
+  running: boolean;
+  phase: FanficVoicePhase | null;
+}
+
+/** Builds (or rebuilds) the fic's voice sheets, reporting the step. */
+export function useFanficVoices(chatId: string, connectionId: string | null): FanficVoicesController {
+  const queryClient = useQueryClient();
+  const [phase, setPhase] = useState<FanficVoicePhase | null>(null);
+  const [running, setRunning] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const build = useCallback(() => {
+    if (controllerRef.current) return;
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setRunning(true);
+    void buildFanficVoiceSheets(
+      { storage: storageApi, llm: llmApi, web: fanficResearchApi },
+      { chatId, connectionId },
+      { signal: controller.signal, onPhase: setPhase },
+    )
+      .then((result) => toast.success(voicesReadyMessage(result)))
+      .catch((error: unknown) => {
+        if (!isAbort(error))
+          toast.error(error instanceof Error ? error.message : "The voice sheets could not be written.");
+      })
+      .finally(() => {
+        if (controllerRef.current === controller) controllerRef.current = null;
+        setRunning(false);
+        setPhase(null);
+        void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+      });
+  }, [chatId, connectionId, queryClient]);
+  const stop = useCallback(() => controllerRef.current?.abort(), []);
+  useEffect(() => () => controllerRef.current?.abort(), [chatId]);
+  return { build, stop, running, phase };
 }
