@@ -24,7 +24,7 @@ const CONTRADICTION_REQUIRED = [
 
 const LEGACY_REQUIRED = ["installer", "upgrade", "legacy", "migration", "storage", "compatibility"];
 const USER_ACTION_REQUIRED = ["destructive", "delete", "backup", "user-data", "data-loss", "migration", "storage"];
-const REVIEWER_ACTION_WORDS = ["bunny", "review", "reviewer", "deci", "thread", "comment"];
+const REVIEWER_ACTION_WORDS = ["review", "reviewer", "deci", "thread", "comment"];
 const FACT_SOURCE_TYPES = new Set(["measured", "derived", "artifact-derived", "harness-proven"]);
 const OWNER_LANES = new Set([
   "src/engine",

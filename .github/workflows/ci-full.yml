@@ -135,7 +135,7 @@ jobs:
             browser=true
           fi
 
-          if matches '^(AGENTS\.md$|CONTRIBUTING\.md$|README\.md$|docs/|skills/|\.agents/|\.github/agents/|\.github/bunny-review/|\.github/pull_request_template\.md$|scripts/check-(docs|agent-workflow|discovery-metadata|workflow-names|scratch-clean|line-endings)\.mjs$)'; then
+          if matches '^(AGENTS\.md$|CONTRIBUTING\.md$|README\.md$|docs/|skills/|\.agents/|\.github/agents/|\.github/pull_request_template\.md$|scripts/check-(docs|agent-workflow|discovery-metadata|workflow-names|scratch-clean|line-endings)\.mjs$)'; then
             docs=true
           fi
 

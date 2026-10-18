@@ -53,7 +53,6 @@ const template = {
     versionCheckStatus: "not_applicable",
     dbPushStatus: "not_applicable",
     ciStatus: "not_applicable",
-    bunnyReviewStatus: "not_applicable",
     prHealthStatus: "not_applicable",
   },
   manualBlockers: [],
@@ -93,7 +92,6 @@ const template = {
     headRefName: "",
     baseRefName: "",
     healthStatus: "not_applicable",
-    bunnyReviewStatus: "not_applicable",
     checksStatus: "not_applicable",
     merged: false,
     mergeCommit: "",
@@ -109,7 +107,6 @@ const template = {
   finalDoneGate: {
     bugfixComplete: false,
     prClean: false,
-    bunnyReviewClean: false,
     requiredChecksPassed: false,
     readyOrMerged: false,
     noBlockingManualVerification: false,
