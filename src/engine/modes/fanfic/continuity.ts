@@ -266,7 +266,7 @@ function groundFanficChapterIssues(
 // ── Fixes ───────────────────────────────────────
 
 /** Letters and digits in any script. An apostrophe between two of them (he's, don’t) is inside the word. */
-const WORD_CHAR = /[\p{L}\p{N}]/u;
+const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u;
 const APOSTROPHE = /['’]/;
 const isWord = (char: string | undefined) => WORD_CHAR.test(char ?? "");
 
@@ -313,12 +313,13 @@ export function locateFanficPassage(text: string, find: string): { start: number
   }
   if (exact.length > 1) return null;
   if (exact.length === 1) return { start: exact[0]!, end: exact[0]! + find.length };
-  const words = find.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu);
+  const words = find.match(/[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*/gu);
   if (!words || words.length < 3) return null;
   // Whole words only: the first and last word can't be the tail or head of a longer one (contractions included).
-  const pattern = `(?<![\\p{L}\\p{N}]|[\\p{L}\\p{N}]['’])${words
+  // Combining marks (an accent typed as its own character) belong to the letter before them.
+  const pattern = `(?<![\\p{L}\\p{M}\\p{N}]|[\\p{L}\\p{M}\\p{N}]['’])${words
     .map((word) => escapeRegex(word).replace(/['’]/g, "['’]"))
-    .join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}]|['’][\\p{L}\\p{N}])`;
+    .join("[^\\p{L}\\p{M}\\p{N}]+")}(?![\\p{L}\\p{M}\\p{N}]|['’][\\p{L}\\p{M}\\p{N}])`;
   const matches = [...text.matchAll(new RegExp(pattern, "giu"))];
   if (matches.length !== 1) return null;
   const match = matches[0]!;
