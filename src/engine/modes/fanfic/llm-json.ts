@@ -87,7 +87,7 @@ function abortError(): DOMException {
  * Settles as soon as the signal aborts, even when the gateway ignores it (the app gateway's complete() can't cancel a
  * request already sent), so Stop ends the work right away and the late reply is dropped.
  */
-function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+export function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return work;
   if (signal.aborted) return Promise.reject(abortError());
   return new Promise<T>((resolve, reject) => {

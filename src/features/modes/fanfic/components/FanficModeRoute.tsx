@@ -11,6 +11,7 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import {
   useFanficChat,
   useFanficGenerationState,
+  useFanficEditor,
   useFanficLedger,
   useFanficVoices,
   useFanficOutline,
@@ -44,6 +45,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const ledger = useFanficLedger(activeChatId, connectionId);
   const { update: updateLedger } = ledger;
   const voices = useFanficVoices(activeChatId, connectionId);
+  const editor = useFanficEditor(activeChatId, connectionId);
   const [editingRequest, setEditingRequest] = useState(false);
   const outlineAbort = useRef<AbortController | null>(null);
   const lastWrite = useRef<FanficWriteArgs>({ kind: "chapter" });
@@ -243,6 +245,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           ledger={ledger}
           voices={voices}
           onSaveVoices={saveVoices}
+          editor={editor}
         />
       )}
     </div>

@@ -928,6 +928,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                             | "agentRunIntervalOverrides"
                             | "enableAgents"
                             | "enableMemoryRecall"
+                            | "fanficEditor"
                             | "fanficLedger"
                             | "fanficQuality"
                             | "roleplayContinuityDirector"
@@ -2232,6 +2233,40 @@ mod tests {
         assert_eq!(second["updated"], json!(false));
         assert_eq!(
             second["chat"]["metadata"]["fanficLedger"]["entries"],
+            json!([{ "chapter": 1 }])
+        );
+    }
+
+    #[test]
+    fn conditional_chat_fanfic_editor_reports_save_against_the_reports_read() {
+        let state = test_state("conditional-chat-fanfic-editor");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "mode": "fanfic", "metadata": { "fanfic": { "version": 1 } } }),
+            )
+            .expect("chat should seed");
+        let unread = json!({ "metadata": { "fanficEditor": null } });
+        let first = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unread.clone(),
+            json!({ "metadata": { "fanficEditor": { "version": 1, "reports": [{ "chapter": 1 }] } } }),
+        )
+        .expect("the first editor save applies");
+        assert_eq!(first["updated"], json!(true));
+
+        let second = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unread,
+            json!({ "metadata": { "fanficEditor": { "version": 1, "reports": [{ "chapter": 2 }] } } }),
+        )
+        .expect("the stale save reports the current chat");
+        assert_eq!(second["updated"], json!(false));
+        assert_eq!(
+            second["chat"]["metadata"]["fanficEditor"]["reports"],
             json!([{ "chapter": 1 }])
         );
     }
