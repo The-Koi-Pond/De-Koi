@@ -75,6 +75,25 @@ export interface FanficResearch {
   fromWeb: boolean;
 }
 
+/** A canon line, copied word for word from a page research read. */
+export interface FanficVoiceQuote {
+  text: string;
+  source: string;
+  url: string;
+}
+
+/** How one character talks, kept so the chapters (and the voice check) hold them to it. */
+export interface FanficVoiceSheet {
+  name: string;
+  /** Rhythm, register, verbal habits, what they call people. */
+  speech: string;
+  /** Words, phrases, and registers they would never use. */
+  neverSays: string[];
+  /** What drives their choices in canon, so their lines come from the right place. */
+  motives: string;
+  quotes: FanficVoiceQuote[];
+}
+
 /** Stored on the chat as `metadata.fanfic`. */
 export interface FanficState {
   version: 1;
@@ -84,6 +103,10 @@ export interface FanficState {
   outlineApproved: boolean;
   /** Present once research ran for this fic. */
   research: FanficResearch | null;
+  /** Voice sheets, one per named character, once built. The requester can edit them. */
+  voices?: FanficVoiceSheet[];
+  /** Phrases local models are kept from writing (see phrase-bans.ts); unset means the default list. */
+  bannedPhrases?: string[];
 }
 
 // ── Quality check ───────────────────────────────

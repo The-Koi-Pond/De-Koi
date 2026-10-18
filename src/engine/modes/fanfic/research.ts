@@ -11,29 +11,15 @@ import { parseGameJsonish } from "../../shared/parsing-jsonish";
 import { generateFanficOutline } from "./outline";
 import { renderFanficCastCards, renderFanficRequestForPrompt } from "./prompts";
 import { FANFIC_RESEARCH_NOTES_MAX, readFanficState } from "./request";
+import type { FanficWebResearchGateway, FanficWebSource } from "./web-research";
+import { buildFanficVoiceSheets, fanficVoiceCharacters, type FanficVoicePhase } from "./voices";
 
 const MAX_QUERIES = 5;
 const QUERY_MAX_TOKENS = 1200;
 const NOTES_MAX_TOKENS = 4000;
 const SOURCE_TEXT_CHARS = 4000;
 
-export interface FanficWebSource {
-  query: string;
-  title: string;
-  url: string;
-  snippet: string;
-  text: string;
-}
-
-export interface FanficWebResearchResult {
-  sources: FanficWebSource[];
-  failures: unknown[];
-}
-
-/** Server-side search plus page reading for one fic; the server checks the fic opted in. */
-export interface FanficWebResearchGateway {
-  research(input: { chatId: string; queries: string[] }): Promise<FanficWebResearchResult>;
-}
+export type { FanficWebResearchGateway, FanficWebResearchResult, FanficWebSource } from "./web-research";
 
 export type FanficResearchPhase = "choosing_searches" | "searching" | "writing_notes";
 
@@ -209,21 +195,36 @@ export async function runFanficResearch(
   return next;
 }
 
-export type FanficPlanningPhase = FanficResearchPhase | "outlining";
+export type FanficPlanningPhase = FanficResearchPhase | FanficVoicePhase | "outlining";
 
 /**
- * Plans a fic: researches first when the requester asked for it and no notes exist yet, then outlines.
- * Re-planning reuses the stored notes.
+ * Plans a fic: researches first when the requester asked for it and no notes exist yet, writes voice sheets for the
+ * named characters when there are none, then outlines. Re-planning reuses stored notes and sheets. Voice sheets are
+ * extras: when they fail, planning carries on and `onWarning` says why, so they can be built later from the reader.
  */
 export async function planFanfic(
   deps: { storage: StorageGateway; llm: LlmGateway; web: FanficWebResearchGateway },
   input: RunFanficResearchInput,
-  options: { signal?: AbortSignal; onPhase?: (phase: FanficPlanningPhase) => void } = {},
+  options: {
+    signal?: AbortSignal;
+    onPhase?: (phase: FanficPlanningPhase) => void;
+    onWarning?: (message: string) => void;
+  } = {},
 ): Promise<FanficState> {
   const chat = await deps.storage.get("chats", input.chatId);
   const state = isRecord(chat) ? readFanficState(parseRecord(chat.metadata)) : null;
   if (state?.request.research && !state.research) {
     await runFanficResearch(deps, input, options);
+  }
+  if (state && !state.voices?.length && fanficVoiceCharacters(state.request).length > 0) {
+    try {
+      await buildFanficVoiceSheets(deps, input, { signal: options.signal, onPhase: options.onPhase });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      options.onWarning?.(
+        `Voice sheets weren't written (${error instanceof Error ? error.message : String(error)}). Build them from the reader's Voices panel.`,
+      );
+    }
   }
   options.onPhase?.("outlining");
   return generateFanficOutline({ storage: deps.storage, llm: deps.llm }, input, options.signal);

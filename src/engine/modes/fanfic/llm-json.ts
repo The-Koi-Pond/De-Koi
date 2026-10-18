@@ -3,6 +3,8 @@
 // ──────────────────────────────────────────────
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
+import type { StorageGateway } from "../../capabilities/storage";
+import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../../contracts/types/sidecar";
 import { isRecord, type JsonRecord } from "../../generation/runtime-records";
 import { parseGameJsonish } from "../../shared/parsing-jsonish";
 
@@ -87,7 +89,7 @@ function abortError(): DOMException {
  * Settles as soon as the signal aborts, even when the gateway ignores it (the app gateway's complete() can't cancel a
  * request already sent), so Stop ends the work right away and the late reply is dropped.
  */
-function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+export function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return work;
   if (signal.aborted) return Promise.reject(abortError());
   return new Promise<T>((resolve, reject) => {
@@ -135,4 +137,15 @@ export async function completeFanficJson<T>(
       if (attempt >= 1 || !(error instanceof FanficReplyParseError)) throw error;
     }
   }
+}
+
+/**
+ * The connection a fanfic helper call runs on: the stored one, or the built-in local model, which isn't stored (the
+ * server resolves it at call time). Its window isn't known here, so helpers size its calls with the defaults.
+ */
+export async function loadFanficConnection(storage: StorageGateway, connectionId: string): Promise<JsonRecord | null> {
+  const stored = await storage.get("connections", connectionId);
+  if (isRecord(stored)) return stored;
+  if (connectionId !== LOCAL_SIDECAR_CONNECTION_ID) return null;
+  return { id: LOCAL_SIDECAR_CONNECTION_ID, name: "Local Model", provider: "sidecar", model: LOCAL_SIDECAR_MODEL };
 }

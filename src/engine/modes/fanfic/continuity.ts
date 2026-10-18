@@ -28,6 +28,7 @@ import {
   FanficWindowTooSmallError,
   parseFanficJsonReply,
   type FanficCallBudget,
+  loadFanficConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, stripFanficChapterHeading } from "./prompts";
 import {
@@ -473,7 +474,7 @@ export async function checkFanficChapterContinuity(
   if (!state) throw new Error("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw new Error("Pick a connection for the continuity check.");
-  const connection = await deps.storage.get("connections", connectionId);
+  const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection)) throw new Error("The connection was not found.");
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);

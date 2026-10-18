@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowLeft, Loader2, PenLine, RefreshCw } from "lucide-react";
 import type { FanficOutline, FanficResearch } from "../../../../engine/contracts/types/fanfic";
 import type { FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
@@ -9,6 +9,8 @@ const PLANNING_PHASE_TEXT: Record<FanficPlanningPhase, { title: string; detail: 
   choosing_searches: { title: "Looking things up…", detail: "Working out what to check about the canon." },
   searching: { title: "Reading sources…", detail: "Searching fan wikis and other references." },
   writing_notes: { title: "Writing research notes…", detail: "Pulling out what the story has to get right." },
+  finding_quotes: { title: "Finding canon lines…", detail: "Reading pages that quote the characters." },
+  writing_sheets: { title: "Writing voice sheets…", detail: "How each character talks, and what they'd never say." },
   outlining: { title: "Planning your fic…", detail: "Working out the title, summary, and chapter beats." },
 };
 
@@ -133,6 +135,7 @@ function ResearchNotesEditor({
 export function FanficOutlineReview({
   outline,
   research,
+  voicesPanel,
   saving,
   onApprove,
   onReplan,
@@ -140,6 +143,8 @@ export function FanficOutlineReview({
 }: {
   outline: FanficOutline;
   research: FanficResearch | null;
+  /** The fic's voice sheets, editable here before chapter 1. */
+  voicesPanel?: ReactNode;
   saving: boolean;
   onApprove: (outline: FanficOutline, researchNotes: string | null) => void;
   onReplan: () => void;
@@ -188,6 +193,8 @@ export function FanficOutlineReview({
       </FanficSection>
 
       {research && <ResearchNotesEditor research={research} notes={notes} onChange={setNotes} />}
+
+      {voicesPanel}
 
       <ol className="flex flex-col gap-2">
         {draft.chapters.map((chapter, index) => (

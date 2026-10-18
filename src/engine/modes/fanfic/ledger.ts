@@ -16,6 +16,7 @@ import {
   FanficWindowTooSmallError,
   parseFanficJsonReply,
   type FanficCallBudget,
+  loadFanficConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { readFanficState } from "./request";
@@ -379,7 +380,7 @@ export async function updateFanficLedger(
       if (input.onlyIfInUse) return ledger;
       throw new Error("Pick a connection for the story ledger.");
     }
-    const connection = await deps.storage.get("connections", connectionId);
+    const connection = await loadFanficConnection(deps.storage, connectionId);
     if (!isRecord(connection)) throw new Error("The ledger connection was not found.");
     if (input.onlyIfInUse && !fanficLedgerInUse(saved, chapters, connection)) return ledger;
 

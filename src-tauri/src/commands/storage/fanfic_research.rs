@@ -21,6 +21,8 @@ const PAGES_PER_QUERY: usize = 2;
 const MAX_PAGES: usize = 6;
 const PAGE_MAX_BYTES: usize = 1024 * 1024;
 const PAGE_TEXT_CHARS: usize = 6000;
+/// Text kept from a page's Quotes section when reading for character voice.
+const QUOTES_TEXT_CHARS: usize = 8000;
 const REQUEST_TIMEOUT_SECS: u64 = 12;
 const USER_AGENT: &str = "De-Koi fanfic research/1.0";
 
@@ -29,6 +31,23 @@ const USER_AGENT: &str = "De-Koi fanfic research/1.0";
 struct ResearchRequest {
     chat_id: String,
     queries: Vec<String>,
+    /// "voice" reads each page's Quotes section (canon lines for voice sheets) instead of its opening.
+    #[serde(default)]
+    focus: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadFocus {
+    Facts,
+    Voice,
+}
+
+fn read_focus(raw: Option<&str>) -> AppResult<ReadFocus> {
+    match raw.map(str::trim) {
+        None | Some("") | Some("facts") => Ok(ReadFocus::Facts),
+        Some("voice") => Ok(ReadFocus::Voice),
+        Some(_) => Err(AppError::invalid_input("Unknown fanfic research focus.")),
+    }
 }
 
 pub(crate) async fn research(state: &AppState, body: Value) -> AppResult<Value> {
@@ -38,6 +57,7 @@ pub(crate) async fn research(state: &AppState, body: Value) -> AppResult<Value> 
     let chat = get_required(state, "chats", request.chat_id.trim())?;
     ensure_research_enabled(&chat)?;
     let queries = clean_queries(&request.queries)?;
+    let focus = read_focus(request.focus.as_deref())?;
 
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
@@ -61,7 +81,7 @@ pub(crate) async fn research(state: &AppState, body: Value) -> AppResult<Value> 
             if !seen.insert(result.url.clone()) {
                 continue;
             }
-            match read_page(&result.url).await {
+            match read_page(&result.url, focus).await {
                 Ok(text) => {
                     picked += 1;
                     sources.push(json!({
@@ -215,7 +235,7 @@ async fn read_capped(mut response: reqwest::Response, cap: usize) -> AppResult<V
     Ok(body)
 }
 
-async fn read_page(raw_url: &str) -> AppResult<String> {
+async fn read_page(raw_url: &str, focus: ReadFocus) -> AppResult<String> {
     let url = page_url(raw_url)?;
     let addrs = resolve_public_addrs(&url).await?;
     // The request connects only to the addresses just checked, so DNS cannot swap in a private one.
@@ -232,13 +252,13 @@ async fn read_page(raw_url: &str) -> AppResult<String> {
     if let Some(api_url) = mediawiki_parse_url(&url) {
         let bytes = fetch_capped(&client, api_url).await;
         if let Some(html) = bytes.ok().and_then(|bytes| mediawiki_parse_html(&bytes)) {
-            if let Ok(text) = article_text(&html) {
+            if let Ok(text) = article_text(&html, focus) {
                 return Ok(text);
             }
         }
     }
     let bytes = fetch_capped(&client, url).await?;
-    article_text(&String::from_utf8_lossy(&bytes))
+    article_text(&String::from_utf8_lossy(&bytes), focus)
 }
 
 async fn fetch_capped(client: &reqwest::Client, url: reqwest::Url) -> AppResult<Vec<u8>> {
@@ -252,8 +272,15 @@ async fn fetch_capped(client: &reqwest::Client, url: reqwest::Url) -> AppResult<
     read_capped(response, PAGE_MAX_BYTES).await
 }
 
-fn article_text(html: &str) -> AppResult<String> {
-    let text = readable_text(html, PAGE_TEXT_CHARS);
+fn article_text(html: &str, focus: ReadFocus) -> AppResult<String> {
+    let quotes = match focus {
+        ReadFocus::Voice => quotes_section(html),
+        ReadFocus::Facts => None,
+    };
+    let text = match quotes {
+        Some(section) => readable_text(section, QUOTES_TEXT_CHARS),
+        None => readable_text(html, PAGE_TEXT_CHARS),
+    };
     if text.chars().count() < 200 {
         return Err(AppError::new(
             "fanfic_research_page_empty",
@@ -261,6 +288,16 @@ fn article_text(html: &str) -> AppResult<String> {
         ));
     }
     Ok(text)
+}
+
+/// The page from its "Quotes" heading on (wiki character pages keep canon lines there), when it has one.
+fn quotes_section(html: &str) -> Option<&str> {
+    let lower = html.to_ascii_lowercase();
+    let anchor = ["id=\"quotes\"", "id='quotes'"]
+        .iter()
+        .find_map(|marker| lower.find(marker))?;
+    let heading = lower[..anchor].rfind("<h")?;
+    Some(&html[heading..])
 }
 
 /// The MediaWiki `action=parse` URL for a fandom.com or wiki.gg article, on the same host.
@@ -395,7 +432,8 @@ mod tests {
     use super::super::web_search::WebSearchResult;
     use super::{
         clean_queries, ensure_research_enabled, mediawiki_parse_html, mediawiki_parse_url,
-        page_url, percent_decode, rank_results, read_capped, readable_text,
+        page_url, percent_decode, quotes_section, rank_results, read_capped, read_focus,
+        readable_text, ReadFocus,
     };
     use serde_json::json;
     use std::net::IpAddr;
@@ -476,6 +514,21 @@ mod tests {
             text,
             "Pierrot is a clown & performer. Eyes Gold He cooks brigadeiros."
         );
+    }
+
+    #[test]
+    fn voice_focus_reads_the_quotes_section() {
+        let html = r#"<div class="mw-parser-output"><p>Harlequin wears a mask.</p>
+            <h2><span class="mw-headline" id="Quotes">Quotes</span></h2><ul><li>&quot;I'm the Harlequin, dear one.&quot; - Day 1</li></ul></div>"#;
+        let section = quotes_section(html).expect("quotes heading");
+        assert_eq!(
+            readable_text(section, 500),
+            "Quotes \"I'm the Harlequin, dear one.\" - Day 1"
+        );
+        assert!(quotes_section("<p>No quotes heading here.</p>").is_none());
+        assert_eq!(read_focus(None).ok(), Some(ReadFocus::Facts));
+        assert_eq!(read_focus(Some("voice")).ok(), Some(ReadFocus::Voice));
+        assert!(read_focus(Some("secrets")).is_err());
     }
 
     #[test]

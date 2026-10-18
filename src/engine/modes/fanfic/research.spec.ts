@@ -154,35 +154,81 @@ describe("runFanficResearch", () => {
   });
 });
 
+const voicesReply = JSON.stringify({
+  voices: [
+    {
+      name: "Pierrot",
+      speech: "Courtly and earnest.",
+      neverSays: ["bro"],
+      motives: "Wants to be chosen.",
+      quotes: [{ text: "a jester-like performer with golden eyes", source: 1 }],
+    },
+    { name: "Harlequin", speech: "Purring and theatrical.", neverSays: [], motives: "Competition.", quotes: [] },
+  ],
+});
+
 describe("planFanfic", () => {
-  it("researches once, then outlines with the notes in the planning prompt", async () => {
+  it("researches once, writes voice sheets, then outlines with the notes in the planning prompt", async () => {
     const { storage } = storageWith(createFanficState(request));
-    const llm = scriptedLlm(['{"queries": ["q"]}', "## Characters\n- Pierrot: golden eyes.", outlineReply]);
+    const llm = scriptedLlm([
+      '{"queries": ["q"]}',
+      "## Characters\n- Pierrot: golden eyes.",
+      voicesReply,
+      outlineReply,
+    ]);
     const web: FanficWebResearchGateway = { research: vi.fn(async () => ({ sources: [source], failures: [] })) };
 
     const planned = await planFanfic({ storage, llm, web }, { chatId: "chat-1" });
 
     expect(planned.outline?.title).toBe("Pierrot.exe");
     expect(planned.research?.fromWeb).toBe(true);
-    expect(llm.requests[2]!.messages[0]!.content).toContain("## Research notes");
-    expect(llm.requests[2]!.messages[0]!.content).toContain("Pierrot: golden eyes.");
+    expect(planned.voices?.map((sheet) => sheet.name)).toEqual(["Pierrot", "Harlequin"]);
+    expect(planned.voices?.[0]?.quotes).toEqual([
+      { text: "a jester-like performer with golden eyes", source: source.title, url: source.url },
+    ]);
+    expect(web.research).toHaveBeenLastCalledWith({
+      chatId: "chat-1",
+      queries: ["The Freak Circus Pierrot quotes", "The Freak Circus Harlequin quotes"],
+      focus: "voice",
+    });
+    expect(llm.requests[3]!.messages[0]!.content).toContain("## Research notes");
+    expect(llm.requests[3]!.messages[0]!.content).toContain("Pierrot: golden eyes.");
 
-    // Re-planning reuses the stored notes instead of searching again.
+    // Re-planning reuses the stored notes and sheets instead of searching again.
     const replanLlm = scriptedLlm([outlineReply]);
     await planFanfic({ storage, llm: replanLlm, web }, { chatId: "chat-1" });
-    expect(web.research).toHaveBeenCalledTimes(1);
+    expect(web.research).toHaveBeenCalledTimes(2);
     expect(replanLlm.requests).toHaveLength(1);
+  });
+
+  it("carries on to the outline with a warning when the voice sheets fail", async () => {
+    const { storage } = storageWith(createFanficState({ ...request, research: false }));
+    const llm = scriptedLlm(["not json", "still not json", outlineReply]);
+    const web: FanficWebResearchGateway = { research: vi.fn() };
+    const warnings: string[] = [];
+
+    const planned = await planFanfic(
+      { storage, llm, web },
+      { chatId: "chat-1" },
+      { onWarning: (m) => warnings.push(m) },
+    );
+
+    expect(planned.outline?.title).toBe("Pierrot.exe");
+    expect(planned.voices).toEqual([]);
+    expect(warnings).toEqual([expect.stringMatching(/Voice sheets weren't written .*Voices panel/)]);
   });
 
   it("goes straight to the outline when research is off", async () => {
     const { storage } = storageWith(createFanficState({ ...request, research: false }));
-    const llm = scriptedLlm([outlineReply]);
+    const llm = scriptedLlm([voicesReply, outlineReply]);
     const web: FanficWebResearchGateway = { research: vi.fn() };
 
     const planned = await planFanfic({ storage, llm, web }, { chatId: "chat-1" });
 
     expect(planned.research).toBeNull();
     expect(web.research).not.toHaveBeenCalled();
+    // Without research the sheets come from canon knowledge alone, so no quote can be checked: none are kept.
+    expect(planned.voices?.[0]?.quotes).toEqual([]);
   });
 });
 

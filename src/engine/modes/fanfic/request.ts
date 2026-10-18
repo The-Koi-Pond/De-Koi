@@ -14,9 +14,11 @@ import {
   type FanficSetting,
   type FanficState,
   type FanficTense,
+  type FanficVoiceSheet,
   type FanficWarning,
 } from "../../contracts/types/fanfic";
 import { parseJsonObject } from "../../core/json";
+import { normalizeFanficBannedPhrases } from "./phrase-bans";
 
 const FANFIC_MIN_CHAPTERS = 1;
 export const FANFIC_MAX_CHAPTERS = 30;
@@ -201,6 +203,53 @@ export function normalizeFanficResearch(raw: unknown): FanficResearch | null {
   return { notes, sources, fromWeb: raw.fromWeb === true && sources.length > 0 };
 }
 
+export const FANFIC_VOICE_LIMITS = {
+  sheets: 8,
+  name: 80,
+  speech: 1200,
+  motives: 800,
+  /** What the model is asked for; the requester can add more, up to neverSays. */
+  askNeverSays: 12,
+  neverSays: 30,
+  neverSaysItem: 120,
+  quotes: 6,
+  quote: 400,
+} as const;
+
+/** Stored voice sheets, cleaned; sheets without a name are dropped. */
+export function normalizeFanficVoices(raw: unknown): FanficVoiceSheet[] {
+  if (!Array.isArray(raw)) return [];
+  const L = FANFIC_VOICE_LIMITS;
+  const seen = new Set<string>();
+  const sheets: FanficVoiceSheet[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const name = text(entry.name, L.name);
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    sheets.push({
+      name,
+      speech: text(entry.speech, L.speech),
+      neverSays: (Array.isArray(entry.neverSays) ? entry.neverSays : [])
+        .map((item) => text(item, L.neverSaysItem))
+        .filter(Boolean)
+        .slice(0, L.neverSays),
+      motives: text(entry.motives, L.motives),
+      quotes: (Array.isArray(entry.quotes) ? entry.quotes : [])
+        .filter(isRecord)
+        .map((quote) => ({
+          text: text(quote.text, L.quote),
+          source: text(quote.source, 300),
+          url: text(quote.url, 2000),
+        }))
+        .filter((quote) => quote.text && /^https?:\/\//i.test(quote.url))
+        .slice(0, L.quotes),
+    });
+    if (sheets.length >= L.sheets) break;
+  }
+  return sheets;
+}
+
 /** Reads `metadata.fanfic`; null until a request has been saved. */
 export function readFanficState(metadata: unknown): FanficState | null {
   const raw = parseJsonObject(metadata).fanfic;
@@ -212,6 +261,8 @@ export function readFanficState(metadata: unknown): FanficState | null {
     outline,
     outlineApproved: !!outline && raw.outlineApproved === true,
     research: normalizeFanficResearch(raw.research),
+    voices: normalizeFanficVoices(raw.voices),
+    ...(Array.isArray(raw.bannedPhrases) ? { bannedPhrases: normalizeFanficBannedPhrases(raw.bannedPhrases) } : {}),
   };
 }
 

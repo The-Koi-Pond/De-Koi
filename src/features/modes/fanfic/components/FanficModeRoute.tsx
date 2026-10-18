@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
-import type { FanficOutline, FanficState } from "../../../../engine/contracts/types/fanfic";
+import type { FanficOutline, FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
+import { applyFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
+import { fanficVoiceCharacters, withFanficVoices } from "../../../../engine/modes/fanfic/voices";
 import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
@@ -10,13 +12,18 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import {
   useFanficChat,
   useFanficGenerationState,
+  useFanficEditor,
   useFanficLedger,
+  useFanficPhraseBans,
+  useFanficPlan,
+  useFanficVoices,
   useFanficOutline,
   useFanficRequestSave,
   useFanficWriter,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
+import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficReader } from "./FanficReader";
 import { FanficRequestForm, type FanficRequestSubmit } from "./FanficRequestForm";
 
@@ -40,6 +47,12 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const write = useFanficWriter(activeChatId, connectionId);
   const ledger = useFanficLedger(activeChatId, connectionId);
   const { update: updateLedger } = ledger;
+  const voices = useFanficVoices(activeChatId, connectionId);
+  const editor = useFanficEditor(activeChatId, connectionId);
+  const plan = useFanficPlan(activeChatId, connectionId);
+  const { propose: proposePlan } = plan;
+  const phraseBans = useFanficPhraseBans(activeChatId, connectionId);
+  const { remove: removeBannedPhrases, supported: bansSupported } = phraseBans;
   const [editingRequest, setEditingRequest] = useState(false);
   const outlineAbort = useRef<AbortController | null>(null);
   const lastWrite = useRef<FanficWriteArgs>({ kind: "chapter" });
@@ -59,10 +72,16 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       lastWrite.current = args;
       // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
       void write(args).then((written) => {
-        if (written) updateLedger({ quiet: true });
+        if (!written) return;
+        // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
+        if (bansSupported)
+          removeBannedPhrases({ messageId: args.kind === "chapter" ? null : args.messageId, quiet: true });
+        updateLedger({ quiet: true });
+        // Living outline: after each new chapter, check the rest of the plan against what was written.
+        if (args.kind === "chapter") proposePlan({ quiet: true });
       });
     },
-    [updateLedger, write],
+    [bansSupported, proposePlan, removeBannedPhrases, updateLedger, write],
   );
 
   const chapterCount = useRef(chapters.length);
@@ -144,6 +163,38 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     if (chapters.length === 0) runWrite({ kind: "chapter" });
   };
 
+  const saveVoices = async (sheets: FanficVoiceSheet[]) => {
+    if (!state) return;
+    try {
+      await saveState(withFanficVoices(state, sheets));
+      toast.success("Voice sheets saved. The next chapter uses them.");
+    } catch (error) {
+      toast.error(errorText(error) ?? "The voice sheets could not be saved.");
+    }
+  };
+
+  const applyPlanProposal = async (proposal: FanficPlanProposal) => {
+    if (!state) return;
+    try {
+      await saveState(applyFanficPlan(state, proposal));
+      await plan.dismiss();
+      toast.success("The outline is updated. The next chapter follows the new plan.");
+    } catch (error) {
+      toast.error(errorText(error) ?? "The new plan could not be saved.");
+    }
+  };
+
+  const saveBannedPhrases = async (phrases: string[] | null) => {
+    if (!state) return;
+    const { bannedPhrases: _previous, ...rest } = state;
+    try {
+      await saveState(phrases ? { ...rest, bannedPhrases: phrases } : rest);
+      toast.success(phrases ? "Banned phrases saved." : "Back to the default banned phrases.");
+    } catch (error) {
+      toast.error(errorText(error) ?? "The banned phrases could not be saved.");
+    }
+  };
+
   const replan = () => {
     outline.reset();
     startOutline(connectionId);
@@ -199,6 +250,15 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           key={JSON.stringify(state.outline)}
           outline={state.outline}
           research={state.research}
+          voicesPanel={
+            <FanficVoicesPanel
+              voices={state.voices ?? []}
+              controller={voices}
+              canBuild={fanficVoiceCharacters(state.request).length > 0}
+              busy={updateMetadata.isPending}
+              onSave={saveVoices}
+            />
+          }
           saving={updateMetadata.isPending}
           onApprove={(approved, notes) => void approveOutline(approved, notes)}
           onReplan={replan}
@@ -218,6 +278,13 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           onRetry={() => runWrite(lastWrite.current)}
           onStop={generation.stop}
           ledger={ledger}
+          voices={voices}
+          onSaveVoices={saveVoices}
+          editor={editor}
+          plan={plan}
+          phraseBans={phraseBans}
+          onSaveBannedPhrases={saveBannedPhrases}
+          onUsePlan={applyPlanProposal}
         />
       )}
     </div>

@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  Ban,
   BookMarked,
   BookOpen,
+  Compass,
   ChevronLeft,
   ChevronRight,
   Download,
   Gauge,
+  MessageSquareQuote,
+  PenTool,
   Headphones,
   ListOrdered,
   Search,
@@ -18,12 +22,15 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  TextSelect,
+  X,
   Trash2,
   Wand2,
 } from "lucide-react";
-import { useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
+import { useChat, useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
-import type { FanficState } from "../../../../engine/contracts/types/fanfic";
+import type { FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
+import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
 import {
   buildFanficAiIsmCleanupNotes,
   detectFanficAiIsms,
@@ -31,6 +38,10 @@ import {
 } from "../../../../engine/modes/fanfic/ai-isms";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
+import { fanficBannedPhrases } from "../../../../engine/modes/fanfic/passage";
+import { findFanficBannedPhrases } from "../../../../engine/modes/fanfic/phrase-bans";
+import { fanficPlanNotes, readFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
+import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
 import {
   detectFanficRepetition,
@@ -43,10 +54,17 @@ import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
 import {
+  fanficChapterViewRefs,
   useFanficContinuity,
+  useFanficVoiceCheck,
   type FanficChapterView,
   type FanficContinuityController,
+  type FanficEditorController,
+  type FanficPhraseBanController,
+  type FanficPlanController,
   type FanficLedgerController,
+  type FanficVoiceCheckController,
+  type FanficVoicesController,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { useFanficNarration, type FanficNarrationStatus } from "../hooks/use-fanfic-narration";
@@ -58,7 +76,13 @@ import {
 } from "../lib/narration";
 import { FanficResearchSources } from "./FanficOutlineView";
 import { FanficContinuityProgress, FanficContinuityResult } from "./FanficContinuityResult";
+import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
+import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
+import { FanficVoicesPanel } from "./FanficVoicesPanel";
+import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
+import { FanficPassageEditor } from "./FanficPassageEditor";
+import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
@@ -77,6 +101,15 @@ interface FanficReaderProps {
   onRetry: () => void;
   onStop: () => void;
   ledger: FanficLedgerController;
+  voices: FanficVoicesController;
+  editor: FanficEditorController;
+  plan: FanficPlanController;
+  phraseBans: FanficPhraseBanController;
+  /** null goes back to the default list. */
+  onSaveBannedPhrases: (phrases: string[] | null) => Promise<void>;
+  /** Uses a re-plan of the remaining chapters (the outline changes). */
+  onUsePlan: (proposal: FanficPlanProposal) => Promise<void>;
+  onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
 }
 
 function wordCount(text: string): number {
@@ -171,6 +204,10 @@ function WorkHeader({
   onToggleQuality,
   showLedger,
   onToggleLedger,
+  showVoices,
+  onToggleVoices,
+  showEditor,
+  onToggleEditor,
 }: {
   state: FanficState;
   chatName: string;
@@ -183,6 +220,10 @@ function WorkHeader({
   onToggleQuality: () => void;
   showLedger: boolean;
   onToggleLedger: () => void;
+  showVoices: boolean;
+  onToggleVoices: () => void;
+  showEditor: boolean;
+  onToggleEditor: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -247,6 +288,14 @@ function WorkHeader({
         <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
           <BookMarked size="0.9rem" aria-hidden="true" />
           {showLedger ? "Hide ledger" : "Ledger"}
+        </FanficButton>
+        <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
+          <MessageSquareQuote size="0.9rem" aria-hidden="true" />
+          {showVoices ? "Hide voices" : "Voices"}
+        </FanficButton>
+        <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
+          <PenTool size="0.9rem" aria-hidden="true" />
+          {showEditor ? "Hide editor" : "Editor"}
         </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
@@ -353,6 +402,53 @@ function repeatLabel(repeat: FanficRepeat): string {
  * Flags a chapter that leans on machine-sounding habits or keeps reusing the same pet name, detail, or phrase, and
  * offers a targeted clean-up rewrite.
  */
+/** On a local model: the chapter's banned phrases, and a way to take them out. */
+function BannedPhraseNotice({
+  text,
+  phrases,
+  busy,
+  running,
+  onRemove,
+}: {
+  text: string;
+  phrases: string[];
+  busy: boolean;
+  running: boolean;
+  onRemove: () => void;
+}) {
+  const hits = useMemo(() => findFanficBannedPhrases(text, phrases), [phrases, text]);
+  if (hits.length === 0 && !running) return null;
+  const shown = [...new Set(hits.map((hit) => hit.match.toLowerCase()))].slice(0, 4);
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3 text-xs"
+    >
+      <p className="min-w-0 flex-1 text-[var(--muted-foreground)]">
+        {running ? (
+          <>
+            <Loader2 size="0.85rem" className="mr-1 inline animate-spin" aria-hidden="true" />
+            Taking banned phrases out…
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-[var(--foreground)]">
+              {hits.length} banned {hits.length === 1 ? "phrase" : "phrases"}:
+            </span>{" "}
+            {shown.map((phrase) => `“${phrase}”`).join(", ")}
+          </>
+        )}
+      </p>
+      {!running && (
+        <FanficButton disabled={busy} onClick={onRemove}>
+          <Ban size="0.85rem" aria-hidden="true" />
+          Remove them
+        </FanficButton>
+      )}
+    </div>
+  );
+}
+
 function ProseCheckNotice({
   chapterTexts,
   chapterIndex,
@@ -442,6 +538,12 @@ function ChapterTools({
   busy,
   onWrite,
   continuity,
+  voiceCheck,
+  hasVoices,
+  selection,
+  onClearSelection,
+  bannedPhrases,
+  phraseBans,
 }: {
   chatId: string;
   chapter: FanficChapterView;
@@ -451,8 +553,16 @@ function ChapterTools({
   busy: boolean;
   onWrite: (args: FanficWriteArgs) => void;
   continuity: FanficContinuityController;
+  voiceCheck: FanficVoiceCheckController;
+  hasVoices: boolean;
+  /** Text the requester selected in this chapter, if any. */
+  selection: string | null;
+  onClearSelection: () => void;
+  bannedPhrases: string[];
+  phraseBans: FanficPhraseBanController;
 }) {
-  const [mode, setMode] = useState<"idle" | "revise" | "edit">("idle");
+  const [mode, setMode] = useState<"idle" | "revise" | "edit" | "passage">("idle");
+  const [passage, setPassage] = useState("");
   const [notes, setNotes] = useState("");
   const [editText, setEditText] = useState("");
   const setActiveSwipe = useSetActiveSwipe(chatId);
@@ -462,6 +572,7 @@ function ChapterTools({
   const versions = Math.max(1, message.swipeCount ?? 1);
   const version = Math.min(versions, (message.activeSwipeIndex ?? 0) + 1);
   const continuityCheck = continuity.results[message.id];
+  const voiceResult = voiceCheck.results[message.id];
 
   const deleteChapter = async () => {
     const confirmed = await showConfirmDialog({
@@ -555,6 +666,16 @@ function ChapterTools({
             Check continuity
           </FanficButton>
         )}
+        {hasVoices && (
+          <FanficButton
+            disabled={busy || voiceCheck.running !== null || voiceCheck.fixing}
+            onClick={() => voiceCheck.check(message.id)}
+            title="Check every line against the voice sheets"
+          >
+            <MessageSquareQuote size="0.9rem" aria-hidden="true" />
+            Check voice
+          </FanficButton>
+        )}
         {isLast && (
           <FanficButton tone="danger" disabled={busy || deleteMessage.isPending} onClick={() => void deleteChapter()}>
             <Trash2 size="0.9rem" aria-hidden="true" />
@@ -562,6 +683,48 @@ function ChapterTools({
           </FanficButton>
         )}
       </div>
+      {mode === "idle" && selection && (
+        <div
+          role="group"
+          aria-label="Selected passage"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--primary)]/40 bg-[var(--primary)]/8 p-2.5 text-xs"
+        >
+          <p className="min-w-0 flex-1 truncate text-[var(--muted-foreground)]">
+            <span className="font-semibold text-[var(--foreground)]">Selected:</span> “{selection}”
+          </p>
+          <FanficButton
+            tone="primary"
+            disabled={busy}
+            onClick={() => {
+              setPassage(selection);
+              setMode("passage");
+              onClearSelection();
+            }}
+          >
+            <TextSelect size="0.85rem" aria-hidden="true" />
+            Rewrite this passage
+          </FanficButton>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            aria-label="Clear the selection"
+            className="rounded-md p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          >
+            <X size="0.85rem" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {mode === "passage" && (
+        <FanficPassageEditor
+          chatId={chatId}
+          messageId={message.id}
+          chapterNumber={chapter.number}
+          textKey={fanficChapterTextKey(stripFanficChapterHeading(message.content))}
+          selected={passage}
+          busy={busy}
+          onClose={() => setMode("idle")}
+        />
+      )}
       {continuity.running === message.id && (
         <FanficContinuityProgress phase={continuity.phase} onStop={continuity.stop} />
       )}
@@ -578,6 +741,31 @@ function ChapterTools({
           }
           onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
           onDismiss={() => continuity.dismiss(message.id)}
+        />
+      )}
+      {voiceCheck.running === message.id && <FanficVoiceProgress phase={voiceCheck.phase} onStop={voiceCheck.stop} />}
+      {mode === "idle" && voiceResult && (
+        <FanficVoiceResult
+          check={voiceResult}
+          chapterText={stripFanficChapterHeading(message.content)}
+          busy={busy || voiceCheck.fixing}
+          onFix={(issues) =>
+            void voiceCheck.applyFixes(
+              voiceResult,
+              issues.flatMap((issue) => (issue.fix ? [issue.fix] : [])),
+            )
+          }
+          onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
+          onDismiss={() => voiceCheck.dismiss(message.id)}
+        />
+      )}
+      {mode === "idle" && phraseBans.supported && (
+        <BannedPhraseNotice
+          text={stripFanficChapterHeading(message.content)}
+          phrases={bannedPhrases}
+          busy={busy || phraseBans.running !== null}
+          running={phraseBans.running === message.id}
+          onRemove={() => phraseBans.remove({ messageId: message.id })}
         />
       )}
       {mode === "idle" && (
@@ -735,13 +923,21 @@ function NextChapterPanel({
   nextNumber,
   busy,
   onWrite,
+  notes,
+  setNotes,
+  onPlanAhead,
+  planning,
 }: {
   state: FanficState;
   nextNumber: number;
   busy: boolean;
   onWrite: (args: FanficWriteArgs) => void;
+  notes: string;
+  setNotes: (notes: string) => void;
+  /** Re-plans the rest (or suggests the next chapter) from what's written. */
+  onPlanAhead: () => void;
+  planning: boolean;
 }) {
-  const [notes, setNotes] = useState("");
   const planned = fanficPlannedChapterCount(state);
   const complete = nextNumber > planned;
   const title = fanficChapterTitle(state, nextNumber);
@@ -767,7 +963,11 @@ function NextChapterPanel({
         onChange={(event) => setNotes(event.target.value)}
         placeholder={complete ? "An epilogue five years later…" : "Give Aziraphale a bigger moment here."}
       />
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        <FanficButton disabled={busy || planning} onClick={onPlanAhead}>
+          <Compass size="0.9rem" aria-hidden="true" />
+          {complete ? "Suggest what's next" : "Re-plan the rest"}
+        </FanficButton>
         <FanficButton
           tone="primary"
           disabled={busy}
@@ -798,6 +998,13 @@ export function FanficReader({
   onRetry,
   onStop,
   ledger,
+  voices,
+  onSaveVoices,
+  editor,
+  plan,
+  onUsePlan,
+  phraseBans,
+  onSaveBannedPhrases,
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
@@ -806,7 +1013,33 @@ export function FanficReader({
   const [showOutline, setShowOutline] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
+  const [showVoices, setShowVoices] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+  const [nextNotes, setNextNotes] = useState("");
+  const bannedPhrases = useMemo(() => fanficBannedPhrases(state), [state]);
+  const [selection, setSelection] = useState<{ messageId: string; text: string } | null>(null);
+  // A selection inside a chapter's prose offers a passage rewrite. It stays offered after the selection collapses
+  // (tapping the button on a phone clears it) until it's used, dismissed, or replaced.
+  useEffect(() => {
+    const onChange = () => {
+      const current = window.getSelection();
+      if (!current || current.isCollapsed) return;
+      const text = current.toString().replace(/\s+/g, " ").trim();
+      if (text.split(" ").length < 3) return;
+      const hostOf = (node: Node | null) =>
+        (node instanceof Element ? node : node?.parentElement)?.closest("[data-fanfic-prose]") ?? null;
+      const host = hostOf(current.anchorNode);
+      if (!host || host !== hostOf(current.focusNode)) return;
+      setSelection({ messageId: host.getAttribute("data-fanfic-prose") ?? "", text });
+    };
+    document.addEventListener("selectionchange", onChange);
+    return () => document.removeEventListener("selectionchange", onChange);
+  }, []);
+  const { data: chat } = useChat(chatId);
+  const chapterRefs = useMemo(() => fanficChapterViewRefs(chapters), [chapters]);
+  const proposal = useMemo(() => readFanficPlan(chat?.metadata, chapterRefs), [chat?.metadata, chapterRefs]);
   const continuity = useFanficContinuity(chatId, null);
+  const voiceCheck = useFanficVoiceCheck(chatId, null);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
   const writingNew = generating && !regeneratingMessageId;
@@ -886,9 +1119,43 @@ export function FanficReader({
         onToggleQuality={() => setShowQuality((open) => !open)}
         showLedger={showLedger}
         onToggleLedger={() => setShowLedger((open) => !open)}
+        showVoices={showVoices}
+        onToggleVoices={() => setShowVoices((open) => !open)}
+        showEditor={showEditor}
+        onToggleEditor={() => setShowEditor((open) => !open)}
       />
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={chapters} ledger={ledger} busy={generating} />
+      )}
+      {showEditor && chapterCount > 0 && (
+        <FanficEditorPanel
+          chatId={chatId}
+          chapters={chapters}
+          controller={editor}
+          busy={generating}
+          onRewritten={(report) => {
+            // Open the rewritten chapter and check it against the story, so a slip the rewrite made is caught.
+            changeView(report.chapter);
+            continuity.check(report.messageId);
+          }}
+        />
+      )}
+      {showEditor && (
+        <FanficBannedPhrasesPanel
+          phrases={fanficBannedPhrases(state)}
+          customized={state.bannedPhrases !== undefined}
+          supported={phraseBans.supported}
+          onSave={onSaveBannedPhrases}
+        />
+      )}
+      {showVoices && (
+        <FanficVoicesPanel
+          voices={state.voices ?? []}
+          controller={voices}
+          canBuild={fanficVoiceCharacters(state.request).length > 0}
+          busy={generating}
+          onSave={onSaveVoices}
+        />
       )}
       {/* Hidden rather than unmounted, so a check still running shows its progress (and blocks a second run) when reopened. */}
       {chapterCount > 0 && (
@@ -945,11 +1212,13 @@ export function FanficReader({
             <h3 id={`fanfic-ch-${chapter.number}`} className="text-lg font-bold text-[var(--foreground)]">
               {heading}
             </h3>
-            <Prose
-              text={chapter.message.content}
-              keyBase={`fanfic-${chapter.message.id}`}
-              activeBlock={narratedPart?.chapterNumber === chapter.number ? narratedPart.block : null}
-            />
+            <div data-fanfic-prose={chapter.message.id}>
+              <Prose
+                text={chapter.message.content}
+                keyBase={`fanfic-${chapter.message.id}`}
+                activeBlock={narratedPart?.chapterNumber === chapter.number ? narratedPart.block : null}
+              />
+            </div>
             <div className="border-t border-[var(--border)] pt-3">
               <ChapterTools
                 chatId={chatId}
@@ -960,6 +1229,12 @@ export function FanficReader({
                 busy={generating}
                 onWrite={onWrite}
                 continuity={continuity}
+                voiceCheck={voiceCheck}
+                hasVoices={(state.voices?.length ?? 0) > 0}
+                selection={selection?.messageId === chapter.message.id ? selection.text : null}
+                onClearSelection={() => setSelection(null)}
+                bannedPhrases={bannedPhrases}
+                phraseBans={phraseBans}
               />
             </div>
           </article>
@@ -977,8 +1252,33 @@ export function FanficReader({
 
       <GenerationFailureNotice chatId={chatId} onRetry={onRetry} />
 
+      {viewingLast && !generating && (proposal || plan.running) && (
+        <FanficPlanPanel
+          proposal={proposal}
+          controller={plan}
+          busy={generating}
+          onUse={async (used) => {
+            if (used.mode === "next") {
+              setNextNotes(fanficPlanNotes(used));
+              await plan.dismiss();
+              toast.success(
+                `Chapter ${used.chapters[0]?.number}'s notes are filled in below. Change anything before writing.`,
+              );
+            } else await onUsePlan(used);
+          }}
+        />
+      )}
       {viewingLast && !generating && (
-        <NextChapterPanel state={state} nextNumber={chapterCount + 1} busy={generating} onWrite={onWrite} />
+        <NextChapterPanel
+          state={state}
+          nextNumber={chapterCount + 1}
+          busy={generating}
+          onWrite={onWrite}
+          notes={nextNotes}
+          setNotes={setNextNotes}
+          onPlanAhead={() => plan.propose()}
+          planning={plan.running}
+        />
       )}
     </div>
   );
