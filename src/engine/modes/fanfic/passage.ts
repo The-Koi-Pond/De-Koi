@@ -7,6 +7,7 @@ import type { FanficState } from "../../contracts/types/fanfic";
 import { effectiveMaxContext } from "../../generation/context-window";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { locateFanficPassage } from "./continuity";
 import { fanficChapterTextKey, fanficLedgerStatus, readFanficLedger, renderFanficLedgerState } from "./ledger";
 import {
   cleanFanficReply,
@@ -22,6 +23,7 @@ import {
   renderFanficVoiceSheets,
   stripFanficChapterHeading,
 } from "./prompts";
+import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { readFanficState } from "./request";
 
 /** The chapter around the passage, sent whole when it fits: the rewrite must keep every fact it sets up. */
@@ -42,6 +44,8 @@ export function buildFanficPassageRewriteMessages(args: {
   ledgerState: string;
   /** The story's facts as of the end of this chapter as first written, and what later chapters do with them. */
   ledgerAfter?: string;
+  /** What the fic already overuses (pet names, details, phrases), from the repetition detector. */
+  overused?: string;
   before: string;
   passage: string;
   after: string;
@@ -60,6 +64,7 @@ export function buildFanficPassageRewriteMessages(args: {
     args.ledgerAfter?.trim()
       ? `## Facts that must still hold\nAs of the end of this chapter, and what the chapters after it build on. The rewrite can't contradict these.\n${args.ledgerAfter.trim()}`
       : "",
+    args.overused?.trim() ?? "",
     "## Keep the story straight\nKeep every fact the rest of the chapter and the story set up: injuries and bandages, clothing, objects, who knows what, what is scheduled or cancelled, the time of day. A new complication must fit those facts and not start anything later chapters would contradict or have to follow up: let it play out inside the passage, or keep it small enough that the story as written still works.",
   ]
     .filter(Boolean)
@@ -96,6 +101,7 @@ export interface FanficChapterForEdit {
   offset: number;
   ledgerState: string;
   ledgerAfter: string;
+  overused: string;
   connectionId: string;
   window: number;
 }
@@ -138,6 +144,12 @@ export async function loadFanficChapterForEdit(
     ]
       .filter(Boolean)
       .join("\n\n"),
+    overused: buildFanficRepetitionGuide(
+      detectFanficRepetition(
+        fanficChapterRefs(messages).map((entry) => entry.content),
+        { names: fanficRepetitionNames(state.request) },
+      ),
+    ),
     connectionId,
     window: effectiveMaxContext(connection, {}),
   };
@@ -165,6 +177,7 @@ export async function rewriteFanficPassageText(
       chapterNumber: target.chapter.number,
       ledgerState: target.ledgerState,
       ledgerAfter: target.ledgerAfter,
+      overused: target.overused,
       before: text.slice(Math.max(0, span.start - before), span.start),
       passage,
       after: text.slice(span.end, span.end + after),
@@ -219,4 +232,100 @@ export async function saveFanficPassageEdits(
   const content = `${target.raw.slice(0, target.offset)}${text}`;
   await storage.addChatMessageSwipe(input.chatId, target.chapter.messageId, content, { activate: true });
   return { textKey: fanficChapterTextKey(stripFanficChapterHeading(content)) };
+}
+
+// ── Paragraph edits: a passage the requester selected ──
+
+/** Where the requester's selection sits in the chapter; it has to be found exactly once (whole words). */
+export function locateFanficSelection(text: string, selected: string): FanficPassageSpan {
+  const trimmed = selected.trim();
+  if (trimmed.split(/\s+/).length < 3) throw new Error("Select at least a few words to rewrite.");
+  const span = locateFanficPassage(text, trimmed);
+  if (!span) {
+    throw new Error("That passage couldn't be pinned down in the chapter (it may appear twice). Select a little more.");
+  }
+  return withSelectedPunctuation(text, trimmed, span);
+}
+
+const QUOTE_FOLD: Record<string, string> = { "“": '"', "”": '"', "‘": "'", "’": "'" };
+const fold = (char: string | undefined) => (char === undefined ? "" : (QUOTE_FOLD[char] ?? char));
+
+/**
+ * Word matching leaves out the punctuation at either end of a selection (a closing period, an opening quote mark);
+ * take it back in where the chapter has it, so a rewrite doesn't leave a stray mark behind.
+ */
+function withSelectedPunctuation(text: string, selected: string, span: FanficPassageSpan): FanficPassageSpan {
+  const lead = selected.match(/^[^\p{L}\p{N}]+/u)?.[0] ?? "";
+  const trail = selected.match(/[^\p{L}\p{N}]+$/u)?.[0] ?? "";
+  let { start, end } = span;
+  for (let index = lead.length - 1; index >= 0 && start > 0; index -= 1) {
+    if (/\s/.test(lead[index]!) || fold(text[start - 1]) !== fold(lead[index])) break;
+    start -= 1;
+  }
+  for (const char of trail) {
+    if (/\s/.test(char) || fold(text[end]) !== fold(char)) break;
+    end += 1;
+  }
+  return { start, end };
+}
+
+/** Earlier tries go along so another try comes out different. */
+function withEarlierTries(instruction: string, tries: readonly string[]): string {
+  const earlier = tries.filter((entry) => entry.trim()).slice(-3);
+  if (earlier.length === 0) return instruction;
+  return `${instruction.trim()}\n\nEarlier tries the requester passed on (write something different from these):\n${earlier
+    .map((entry, index) => `${index + 1}. """${entry.trim()}"""`)
+    .join("\n")}`;
+}
+
+export interface FanficPassageSuggestion extends FanficPassageSpan {
+  /** The passage as it reads in the chapter now. */
+  original: string;
+  text: string;
+}
+
+/**
+ * A rewrite of the passage the requester selected, following their note. Nothing is saved: the requester can ask for
+ * more versions and pick one (applyFanficPassageRewrite).
+ */
+export async function suggestFanficPassageRewrite(
+  deps: { storage: StorageGateway; llm: LlmGateway },
+  input: {
+    chatId: string;
+    messageId: string;
+    /** The chapter text the selection was made in. */
+    textKey: string;
+    selected: string;
+    instruction: string;
+    /** Versions already offered for this passage. */
+    earlierTries?: string[];
+    connectionId?: string | null;
+  },
+  options: { signal?: AbortSignal } = {},
+): Promise<FanficPassageSuggestion> {
+  const target = await loadFanficChapterForEdit(deps.storage, input);
+  const text = target.chapter.content;
+  const span = locateFanficSelection(text, input.selected);
+  const rewritten = await rewriteFanficPassageText(
+    deps.llm,
+    target,
+    text,
+    span,
+    withEarlierTries(input.instruction, input.earlierTries ?? []),
+    options.signal,
+  );
+  return { ...span, original: text.slice(span.start, span.end), text: rewritten };
+}
+
+/** Puts the chosen version in place and saves the chapter as a new version (the current one stays one tap back). */
+export async function applyFanficPassageRewrite(
+  storage: StorageGateway,
+  input: { chatId: string; messageId: string; textKey: string; suggestion: FanficPassageSuggestion },
+): Promise<{ textKey: string }> {
+  const target = await loadFanficChapterForEdit(storage, input);
+  const { start, end, original, text } = input.suggestion;
+  if (target.chapter.content.slice(start, end) !== original) {
+    throw new Error("The chapter changed since this version was written. Select the passage again.");
+  }
+  return saveFanficPassageEdits(storage, { chatId: input.chatId, target, edits: [{ start, end, text }] });
 }
