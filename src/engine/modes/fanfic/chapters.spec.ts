@@ -6,6 +6,7 @@ import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
 import type { GenerationEvent } from "../../generation/generation-events";
 import { startFanficGeneration } from "./chapters";
+import { fanficChapterTextKey } from "./ledger";
 import { FanficOutlineCountError, generateFanficOutline } from "./outline";
 import { defaultFanficRequest, normalizeFanficRequest } from "./request";
 import { saveFanficRequest } from "./request-save";
@@ -306,6 +307,49 @@ describe("startFanficGeneration", () => {
     expect(prompt).toContain('Previous draft:\n"""\nDraft one.\n"""');
     expect(prompt).toContain("Make Crowley snarkier.");
     expect(prompt).not.toContain("[assistant] Draft one.");
+  });
+
+  it("keeps the story ledger when a small window drops the oldest chapter's prose", async () => {
+    const { storage, messages, records } = fanficStorage();
+    const prose = (n: number) => `Chapter ${n} marker. ${"The snow kept falling on Soho. ".repeat(260)}`;
+    for (const n of [1, 2, 3]) await storage.createChatMessage("chat-1", { role: "assistant", content: prose(n) });
+    const entry = (n: number) => ({
+      chapter: n,
+      messageId: messages[n - 1]!.id,
+      textKey: fanficChapterTextKey(prose(n)),
+      summary: `Ledger summary of chapter ${n}.`,
+      timeline: `Night ${n}`,
+      knowledge: [{ subject: "The bookshop key", detail: "Only Crowley knows it's under the mat." }],
+      conditions: [],
+      relationships: [],
+      openThreads: [],
+    });
+    records["conn-1"] = { ...records["conn-1"], maxContext: 11_500 };
+    const write = async () => {
+      const llm = proseLlm(["Chapter four."]);
+      await drain(
+        startFanficGeneration(
+          { storage, llm, integrations: {} as IntegrationGateway },
+          { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" },
+        ),
+      );
+      messages.pop();
+      return promptText(llm.requests[0]);
+    };
+
+    const without = await write();
+    expect(without).not.toContain("Chapter 1 marker.");
+    expect(without).not.toContain("Story ledger");
+
+    const metadata = records["chat-1"]!.metadata as Record<string, unknown>;
+    metadata.fanficLedger = { version: 1, entries: [entry(1), entry(2), entry(3)] };
+    const withLedger = await write();
+    expect(withLedger).not.toContain("Chapter 1 marker.");
+    expect(withLedger).toContain("Chapter 3 marker.");
+    expect(withLedger).toContain("## Story ledger");
+    expect(withLedger).toContain("### Where things stand after chapter 3");
+    expect(withLedger).toContain("- The bookshop key: Only Crowley knows it's under the mat.");
+    expect(withLedger).toContain("Chapter 1: Ledger summary of chapter 1.");
   });
 
   it("refuses to write before the outline is approved", async () => {

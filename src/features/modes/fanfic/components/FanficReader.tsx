@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  BookMarked,
   BookOpen,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
   Square,
   Trash2,
@@ -40,7 +42,13 @@ import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/file-
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
-import type { FanficChapterView, FanficWriteArgs } from "../hooks/use-fanfic";
+import {
+  useFanficContinuity,
+  type FanficChapterView,
+  type FanficContinuityController,
+  type FanficLedgerController,
+  type FanficWriteArgs,
+} from "../hooks/use-fanfic";
 import { useFanficNarration, type FanficNarrationStatus } from "../hooks/use-fanfic-narration";
 import {
   buildFanficNarration,
@@ -49,6 +57,8 @@ import {
   type FanficNarrationPlan,
 } from "../lib/narration";
 import { FanficResearchSources } from "./FanficOutlineView";
+import { FanficContinuityProgress, FanficContinuityResult } from "./FanficContinuityResult";
+import { FanficLedgerPanel } from "./FanficLedgerPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
@@ -66,6 +76,7 @@ interface FanficReaderProps {
   onWrite: (args: FanficWriteArgs) => void;
   onRetry: () => void;
   onStop: () => void;
+  ledger: FanficLedgerController;
 }
 
 function wordCount(text: string): number {
@@ -158,6 +169,8 @@ function WorkHeader({
   onToggleOutline,
   showQuality,
   onToggleQuality,
+  showLedger,
+  onToggleLedger,
 }: {
   state: FanficState;
   chatName: string;
@@ -168,6 +181,8 @@ function WorkHeader({
   onToggleOutline: () => void;
   showQuality: boolean;
   onToggleQuality: () => void;
+  showLedger: boolean;
+  onToggleLedger: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -228,6 +243,10 @@ function WorkHeader({
         <FanficButton onClick={onToggleQuality} aria-expanded={showQuality} disabled={chapterCount === 0}>
           <Gauge size="0.9rem" aria-hidden="true" />
           {showQuality ? "Hide quality" : "Quality"}
+        </FanficButton>
+        <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
+          <BookMarked size="0.9rem" aria-hidden="true" />
+          {showLedger ? "Hide ledger" : "Ledger"}
         </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
@@ -422,6 +441,7 @@ function ChapterTools({
   isLast,
   busy,
   onWrite,
+  continuity,
 }: {
   chatId: string;
   chapter: FanficChapterView;
@@ -430,6 +450,7 @@ function ChapterTools({
   isLast: boolean;
   busy: boolean;
   onWrite: (args: FanficWriteArgs) => void;
+  continuity: FanficContinuityController;
 }) {
   const [mode, setMode] = useState<"idle" | "revise" | "edit">("idle");
   const [notes, setNotes] = useState("");
@@ -440,6 +461,7 @@ function ChapterTools({
   const { message } = chapter;
   const versions = Math.max(1, message.swipeCount ?? 1);
   const version = Math.min(versions, (message.activeSwipeIndex ?? 0) + 1);
+  const continuityCheck = continuity.results[message.id];
 
   const deleteChapter = async () => {
     const confirmed = await showConfirmDialog({
@@ -523,6 +545,16 @@ function ChapterTools({
           <Pencil size="0.9rem" aria-hidden="true" />
           Edit
         </FanficButton>
+        {chapter.number > 1 && (
+          <FanficButton
+            disabled={busy || continuity.running !== null || continuity.fixing}
+            onClick={() => continuity.check(message.id)}
+            title="Check this chapter against the ones before it"
+          >
+            <ShieldCheck size="0.9rem" aria-hidden="true" />
+            Check continuity
+          </FanficButton>
+        )}
         {isLast && (
           <FanficButton tone="danger" disabled={busy || deleteMessage.isPending} onClick={() => void deleteChapter()}>
             <Trash2 size="0.9rem" aria-hidden="true" />
@@ -530,6 +562,24 @@ function ChapterTools({
           </FanficButton>
         )}
       </div>
+      {continuity.running === message.id && (
+        <FanficContinuityProgress phase={continuity.phase} onStop={continuity.stop} />
+      )}
+      {mode === "idle" && continuityCheck && (
+        <FanficContinuityResult
+          check={continuityCheck}
+          chapterText={stripFanficChapterHeading(message.content)}
+          busy={busy || continuity.fixing}
+          onFix={(issues) =>
+            void continuity.applyFixes(
+              continuityCheck,
+              issues.flatMap((issue) => (issue.fix ? [issue.fix] : [])),
+            )
+          }
+          onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
+          onDismiss={() => continuity.dismiss(message.id)}
+        />
+      )}
       {mode === "idle" && (
         <ProseCheckNotice
           chapterTexts={chapterTexts}
@@ -747,6 +797,7 @@ export function FanficReader({
   onWrite,
   onRetry,
   onStop,
+  ledger,
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
@@ -754,6 +805,8 @@ export function FanficReader({
   const repetitionNames = useMemo(() => fanficRepetitionNames(state.request), [state.request]);
   const [showOutline, setShowOutline] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
+  const [showLedger, setShowLedger] = useState(false);
+  const continuity = useFanficContinuity(chatId, null);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
   const writingNew = generating && !regeneratingMessageId;
@@ -831,7 +884,12 @@ export function FanficReader({
         onToggleOutline={() => setShowOutline((open) => !open)}
         showQuality={showQuality}
         onToggleQuality={() => setShowQuality((open) => !open)}
+        showLedger={showLedger}
+        onToggleLedger={() => setShowLedger((open) => !open)}
       />
+      {showLedger && chapterCount > 0 && (
+        <FanficLedgerPanel chatId={chatId} chapters={chapters} ledger={ledger} busy={generating} />
+      )}
       {/* Hidden rather than unmounted, so a check still running shows its progress (and blocks a second run) when reopened. */}
       {chapterCount > 0 && (
         <div hidden={!showQuality}>
@@ -901,6 +959,7 @@ export function FanficReader({
                 isLast={chapter.number === chapterCount}
                 busy={generating}
                 onWrite={onWrite}
+                continuity={continuity}
               />
             </div>
           </article>

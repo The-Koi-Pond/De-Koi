@@ -5,6 +5,7 @@ import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficContinuityIssue, FanficQualityCriterionId, FanficQualityRun } from "../../contracts/types/fanfic";
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import {
+  fanficTextHolds,
   averageFanficRubrics,
   buildFanficContinuityMessages,
   buildFanficRubricMessages,
@@ -526,5 +527,15 @@ describe("runFanficQualityCheck", () => {
       ),
     ).rejects.toThrow("Pick a connection");
     expect(llm.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe("fanficTextHolds", () => {
+  it("finds quotes as whole words, through punctuation and curly quotes", () => {
+    expect(fanficTextHolds("“Don’t,” he said. He left the room.", "don't he said")).toBe(true);
+    expect(fanficTextHolds("Bathe left the room.", "he left the room")).toBe(false);
+    expect(fanficTextHolds("A caféhe left the room.", "he left the room")).toBe(false);
+    expect(fanficTextHolds("He left the rooms.", "he left the room")).toBe(false);
+    expect(fanficTextHolds("anything", "")).toBe(false);
   });
 });

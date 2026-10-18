@@ -10,6 +10,7 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import {
   useFanficChat,
   useFanficGenerationState,
+  useFanficLedger,
   useFanficOutline,
   useFanficRequestSave,
   useFanficWriter,
@@ -37,6 +38,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const outline = useFanficOutline(activeChatId);
   const connectionId = chat?.connectionId ?? null;
   const write = useFanficWriter(activeChatId, connectionId);
+  const ledger = useFanficLedger(activeChatId, connectionId);
+  const { update: updateLedger } = ledger;
   const [editingRequest, setEditingRequest] = useState(false);
   const outlineAbort = useRef<AbortController | null>(null);
   const lastWrite = useRef<FanficWriteArgs>({ kind: "chapter" });
@@ -54,9 +57,12 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const runWrite = useCallback(
     (args: FanficWriteArgs) => {
       lastWrite.current = args;
-      void write(args);
+      // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
+      void write(args).then((written) => {
+        if (written) updateLedger({ quiet: true });
+      });
     },
-    [write],
+    [updateLedger, write],
   );
 
   const chapterCount = useRef(chapters.length);
@@ -211,6 +217,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           onWrite={runWrite}
           onRetry={() => runWrite(lastWrite.current)}
           onStop={generation.stop}
+          ledger={ledger}
         />
       )}
     </div>

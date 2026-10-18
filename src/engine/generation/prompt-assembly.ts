@@ -46,6 +46,8 @@ import {
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactQuestProgressForContext } from "../shared/tracker-state/player-stats";
 import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
+import { fanficChapterRefs } from "../modes/fanfic/chapter-refs";
+import { readFanficLedger, renderFanficLedgerForPrompt } from "../modes/fanfic/ledger";
 import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
 import { readFanficState } from "../modes/fanfic/request";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
@@ -1753,6 +1755,12 @@ function fallbackSystemPrompt(
       }).map((segment) => ({ ...segment, contextKind: "prompt" as const })),
       { content: args.worldBefore, contextKind: "lorebook", displayName: "World Info Before" },
       { content: args.worldAfter, contextKind: "lorebook", displayName: "World Info After" },
+      {
+        // Ranked as a summary: the window drops old chapter prose before it drops the ledger.
+        content: renderFanficLedgerForPrompt(readFanficLedger(meta), fanficChapterRefs(input.storedMessages)),
+        contextKind: "summary",
+        displayName: "Story Ledger",
+      },
       {
         content: args.summary
           ? `Story so far:
