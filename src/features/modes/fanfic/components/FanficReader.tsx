@@ -8,6 +8,7 @@ import {
   Download,
   Gauge,
   MessageSquareQuote,
+  PenTool,
   Headphones,
   ListOrdered,
   Search,
@@ -49,6 +50,7 @@ import {
   useFanficVoiceCheck,
   type FanficChapterView,
   type FanficContinuityController,
+  type FanficEditorController,
   type FanficLedgerController,
   type FanficVoiceCheckController,
   type FanficVoicesController,
@@ -63,6 +65,7 @@ import {
 } from "../lib/narration";
 import { FanficResearchSources } from "./FanficOutlineView";
 import { FanficContinuityProgress, FanficContinuityResult } from "./FanficContinuityResult";
+import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
 import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
@@ -85,6 +88,7 @@ interface FanficReaderProps {
   onStop: () => void;
   ledger: FanficLedgerController;
   voices: FanficVoicesController;
+  editor: FanficEditorController;
   onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
 }
 
@@ -182,6 +186,8 @@ function WorkHeader({
   onToggleLedger,
   showVoices,
   onToggleVoices,
+  showEditor,
+  onToggleEditor,
 }: {
   state: FanficState;
   chatName: string;
@@ -196,6 +202,8 @@ function WorkHeader({
   onToggleLedger: () => void;
   showVoices: boolean;
   onToggleVoices: () => void;
+  showEditor: boolean;
+  onToggleEditor: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -264,6 +272,10 @@ function WorkHeader({
         <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
           <MessageSquareQuote size="0.9rem" aria-hidden="true" />
           {showVoices ? "Hide voices" : "Voices"}
+        </FanficButton>
+        <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
+          <PenTool size="0.9rem" aria-hidden="true" />
+          {showEditor ? "Hide editor" : "Editor"}
         </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
@@ -848,6 +860,7 @@ export function FanficReader({
   ledger,
   voices,
   onSaveVoices,
+  editor,
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
@@ -857,6 +870,7 @@ export function FanficReader({
   const [showQuality, setShowQuality] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
   const continuity = useFanficContinuity(chatId, null);
   const voiceCheck = useFanficVoiceCheck(chatId, null);
   const topRef = useRef<HTMLDivElement>(null);
@@ -940,9 +954,24 @@ export function FanficReader({
         onToggleLedger={() => setShowLedger((open) => !open)}
         showVoices={showVoices}
         onToggleVoices={() => setShowVoices((open) => !open)}
+        showEditor={showEditor}
+        onToggleEditor={() => setShowEditor((open) => !open)}
       />
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={chapters} ledger={ledger} busy={generating} />
+      )}
+      {showEditor && chapterCount > 0 && (
+        <FanficEditorPanel
+          chatId={chatId}
+          chapters={chapters}
+          controller={editor}
+          busy={generating}
+          onRewritten={(report) => {
+            // Open the rewritten chapter and check it against the story, so a slip the rewrite made is caught.
+            changeView(report.chapter);
+            continuity.check(report.messageId);
+          }}
+        />
       )}
       {showVoices && (
         <FanficVoicesPanel

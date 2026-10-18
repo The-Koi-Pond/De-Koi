@@ -19,6 +19,11 @@ import {
 } from "../../../../engine/modes/fanfic/continuity";
 import { updateFanficLedger, type FanficLedgerProgress } from "../../../../engine/modes/fanfic/ledger";
 import {
+  rewriteFanficFlaggedScenes,
+  runFanficEditorPass,
+  type FanficEditorReport,
+} from "../../../../engine/modes/fanfic/editor";
+import {
   deleteFanficQualityRun,
   runFanficQualityCheck,
   type FanficQualityPhase,
@@ -455,4 +460,88 @@ export function useFanficVoices(chatId: string, connectionId: string | null): Fa
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   useEffect(() => () => controllerRef.current?.abort(), [chatId]);
   return { build, stop, running, phase };
+}
+
+export interface FanficEditorController {
+  /** Scores chapters without a current report, or the ones named. */
+  run: (messageIds?: string[]) => void;
+  /** `onDone` runs after the new version is saved (the reader then checks its continuity). */
+  rewrite: (report: FanficEditorReport, onDone?: () => void) => void;
+  stop: () => void;
+  /** "pass" while scoring, the chapter's message id while rewriting it. */
+  running: "pass" | string | null;
+  progress: FanficLedgerProgress | null;
+}
+
+/** The editor pass and its scene rewrites for the open fic; one job at a time. */
+export function useFanficEditor(chatId: string, connectionId: string | null): FanficEditorController {
+  const queryClient = useQueryClient();
+  const [running, setRunning] = useState<"pass" | string | null>(null);
+  const [progress, setProgress] = useState<FanficLedgerProgress | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  const start = useCallback(
+    (label: "pass" | string, job: (signal: AbortSignal) => Promise<string | null>, failed: string) => {
+      if (controllerRef.current) return;
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      setRunning(label);
+      void job(controller.signal)
+        .then((message) => {
+          if (message) toast.success(message);
+        })
+        .catch((error: unknown) => {
+          if (!isAbort(error)) toast.error(error instanceof Error ? error.message : failed);
+        })
+        .finally(() => {
+          if (controllerRef.current === controller) controllerRef.current = null;
+          setRunning(null);
+          setProgress(null);
+          void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+          void queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        });
+    },
+    [chatId, queryClient],
+  );
+
+  const run = useCallback(
+    (messageIds?: string[]) =>
+      start(
+        "pass",
+        async (signal) => {
+          await runFanficEditorPass(
+            { storage: storageApi, llm: llmApi },
+            { chatId, connectionId, messageIds },
+            { signal, onProgress: setProgress },
+          );
+          return null;
+        },
+        "The editor pass failed.",
+      ),
+    [chatId, connectionId, start],
+  );
+
+  const rewrite = useCallback(
+    (report: FanficEditorReport, onDone?: () => void) =>
+      start(
+        report.messageId,
+        async (signal) => {
+          const { rewritten, skipped } = await rewriteFanficFlaggedScenes(
+            { storage: storageApi, llm: llmApi },
+            { chatId, report, connectionId },
+            { signal, onProgress: setProgress },
+          );
+          await queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+          onDone?.();
+          const left = skipped ? ` (${skipped} couldn't be found)` : "";
+          return `Rewrote ${rewritten} ${rewritten === 1 ? "scene" : "scenes"} in chapter ${report.chapter}${left}. Saved as a new version; checking it against the rest of the story now.`;
+        },
+        "The rewrite failed.",
+      ),
+    [chatId, connectionId, queryClient, start],
+  );
+
+  const stop = useCallback(() => controllerRef.current?.abort(), []);
+  useEffect(() => () => controllerRef.current?.abort(), [chatId]);
+  return { run, rewrite, stop, running, progress };
 }
