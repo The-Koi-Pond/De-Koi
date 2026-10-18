@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  TextSelect,
+  X,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -36,6 +38,7 @@ import {
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
 import { fanficPlanNotes, readFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
+import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
 import {
   detectFanficRepetition,
@@ -73,6 +76,7 @@ import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
 import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
+import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
@@ -481,6 +485,8 @@ function ChapterTools({
   continuity,
   voiceCheck,
   hasVoices,
+  selection,
+  onClearSelection,
 }: {
   chatId: string;
   chapter: FanficChapterView;
@@ -492,8 +498,12 @@ function ChapterTools({
   continuity: FanficContinuityController;
   voiceCheck: FanficVoiceCheckController;
   hasVoices: boolean;
+  /** Text the requester selected in this chapter, if any. */
+  selection: string | null;
+  onClearSelection: () => void;
 }) {
-  const [mode, setMode] = useState<"idle" | "revise" | "edit">("idle");
+  const [mode, setMode] = useState<"idle" | "revise" | "edit" | "passage">("idle");
+  const [passage, setPassage] = useState("");
   const [notes, setNotes] = useState("");
   const [editText, setEditText] = useState("");
   const setActiveSwipe = useSetActiveSwipe(chatId);
@@ -614,6 +624,48 @@ function ChapterTools({
           </FanficButton>
         )}
       </div>
+      {mode === "idle" && selection && (
+        <div
+          role="group"
+          aria-label="Selected passage"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--primary)]/40 bg-[var(--primary)]/8 p-2.5 text-xs"
+        >
+          <p className="min-w-0 flex-1 truncate text-[var(--muted-foreground)]">
+            <span className="font-semibold text-[var(--foreground)]">Selected:</span> “{selection}”
+          </p>
+          <FanficButton
+            tone="primary"
+            disabled={busy}
+            onClick={() => {
+              setPassage(selection);
+              setMode("passage");
+              onClearSelection();
+            }}
+          >
+            <TextSelect size="0.85rem" aria-hidden="true" />
+            Rewrite this passage
+          </FanficButton>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            aria-label="Clear the selection"
+            className="rounded-md p-1 text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          >
+            <X size="0.85rem" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {mode === "passage" && (
+        <FanficPassageEditor
+          chatId={chatId}
+          messageId={message.id}
+          chapterNumber={chapter.number}
+          textKey={fanficChapterTextKey(stripFanficChapterHeading(message.content))}
+          selected={passage}
+          busy={busy}
+          onClose={() => setMode("idle")}
+        />
+      )}
       {continuity.running === message.id && (
         <FanficContinuityProgress phase={continuity.phase} onStop={continuity.stop} />
       )}
@@ -894,6 +946,24 @@ export function FanficReader({
   const [showVoices, setShowVoices] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [nextNotes, setNextNotes] = useState("");
+  const [selection, setSelection] = useState<{ messageId: string; text: string } | null>(null);
+  // A selection inside a chapter's prose offers a passage rewrite. It stays offered after the selection collapses
+  // (tapping the button on a phone clears it) until it's used, dismissed, or replaced.
+  useEffect(() => {
+    const onChange = () => {
+      const current = window.getSelection();
+      if (!current || current.isCollapsed) return;
+      const text = current.toString().replace(/\s+/g, " ").trim();
+      if (text.split(" ").length < 3) return;
+      const hostOf = (node: Node | null) =>
+        (node instanceof Element ? node : node?.parentElement)?.closest("[data-fanfic-prose]") ?? null;
+      const host = hostOf(current.anchorNode);
+      if (!host || host !== hostOf(current.focusNode)) return;
+      setSelection({ messageId: host.getAttribute("data-fanfic-prose") ?? "", text });
+    };
+    document.addEventListener("selectionchange", onChange);
+    return () => document.removeEventListener("selectionchange", onChange);
+  }, []);
   const { data: chat } = useChat(chatId);
   const chapterRefs = useMemo(() => fanficChapterViewRefs(chapters), [chapters]);
   const proposal = useMemo(() => readFanficPlan(chat?.metadata, chapterRefs), [chat?.metadata, chapterRefs]);
@@ -1063,11 +1133,13 @@ export function FanficReader({
             <h3 id={`fanfic-ch-${chapter.number}`} className="text-lg font-bold text-[var(--foreground)]">
               {heading}
             </h3>
-            <Prose
-              text={chapter.message.content}
-              keyBase={`fanfic-${chapter.message.id}`}
-              activeBlock={narratedPart?.chapterNumber === chapter.number ? narratedPart.block : null}
-            />
+            <div data-fanfic-prose={chapter.message.id}>
+              <Prose
+                text={chapter.message.content}
+                keyBase={`fanfic-${chapter.message.id}`}
+                activeBlock={narratedPart?.chapterNumber === chapter.number ? narratedPart.block : null}
+              />
+            </div>
             <div className="border-t border-[var(--border)] pt-3">
               <ChapterTools
                 chatId={chatId}
@@ -1080,6 +1152,8 @@ export function FanficReader({
                 continuity={continuity}
                 voiceCheck={voiceCheck}
                 hasVoices={(state.voices?.length ?? 0) > 0}
+                selection={selection?.messageId === chapter.message.id ? selection.text : null}
+                onClearSelection={() => setSelection(null)}
               />
             </div>
           </article>
