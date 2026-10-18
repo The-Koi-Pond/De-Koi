@@ -1,0 +1,257 @@
+[
+  {
+    "id": "7e769535-a5da-425d-a92e-7326e9d6ad97",
+    "name": "Wren",
+    "mode": "conversation",
+    "characters": ["wren"],
+    "personaId": "demo-persona-ada",
+    "promptPresetId": null,
+    "metadata": {
+      "autonomousMessages": false,
+      "chatParameters": null,
+      "conversationSchedulesEnabled": false
+    },
+    "messages": [
+      {
+        "id": "a4594059-a0af-4926-b08a-7ec8e8944e6c",
+        "role": "user",
+        "character": null,
+        "content": "the tide tables disagree with me again. they say low water at 9, the marsh says absolutely not",
+        "secondsIn": 0
+      },
+      {
+        "id": "db46bc3b-33fb-4206-96a7-7d5bc412e7ad",
+        "role": "assistant",
+        "character": "wren",
+        "content": "marsh is right. wind's been onshore since last night, it's stacking water up against the whole point. tables don't know about wind\n\ni'd add a good half hour and a foot. maybe more if it keeps backing east\n\nwhere are you mapping today",
+        "secondsIn": 5
+      },
+      {
+        "id": "2c3ff203-930b-4eaf-b539-5b323bee302e",
+        "role": "user",
+        "character": null,
+        "content": "be honest. storm night or quiet night?",
+        "secondsIn": 25
+      },
+      {
+        "id": "484ea020-d436-4335-88ae-3cdf7416cdb2",
+        "role": "assistant",
+        "character": "wren",
+        "content": "storm night. not a big one, but the glass has been dropping since breakfast and the wind backing east like that is never a good sign out here\n\ni'd say rain by eight, gusty after midnight. the gulls already went inland which is rude of them honestly\n\ndon't be on the marsh after dark",
+        "secondsIn": 33
+      }
+    ]
+  },
+  {
+    "id": "70712f10-ce60-40c5-9fb4-a04114a360db",
+    "name": "Aunt Vera",
+    "mode": "conversation",
+    "characters": ["vera"],
+    "personaId": "demo-persona-ada",
+    "promptPresetId": null,
+    "metadata": {
+      "autonomousMessages": false,
+      "chatParameters": null,
+      "conversationSchedulesEnabled": false
+    },
+    "messages": [
+      {
+        "id": "5332dd13-167e-4d70-b6a6-8804adbf5687",
+        "role": "user",
+        "character": null,
+        "content": "Aunt Vera, a bell that only rings on Thursdays is not a map feature",
+        "secondsIn": 0
+      },
+      {
+        "id": "90f14e05-6d5e-47e5-981a-4a61a00571f7",
+        "role": "assistant",
+        "character": "vera",
+        "content": "Darling, everything is a map feature if you're brave enough. You put little anchors on wrecks, I've seen you do it.\n\nBesides, the bell is sitting on something. Old Mr. Pell at the bait shop swears there's a whole chapel down there, steeple and all, and that the sandbar shifted after the '38 hurricane. That sounds like your department to me.\n\nCome Thursday. I'll make soup.",
+        "secondsIn": 8
+      },
+      {
+        "id": "f1602ad1-c323-4a77-87ee-b2d616be3152",
+        "role": "user",
+        "character": null,
+        "content": "fine. which bay. and please no stage directions this time",
+        "secondsIn": 44
+      },
+      {
+        "id": "98c66b76-c8dc-42b1-81e2-30d7fed40ed4",
+        "role": "assistant",
+        "character": "vera",
+        "content": "No stage directions. I'm wounded, but fine, I can be plain when I have to.\n\nGullet Bay, the little one just north of Wrenhaven harbor. You park by the bait shop and walk out past the breakwater. Mr. Pell says you can hear it best at low tide, and low tide on Thursday is around four.\n\nBring the good boots. The ones you wore last time were a tragedy.",
+        "secondsIn": 50
+      }
+    ]
+  },
+  {
+    "id": "456adcb2-543c-458b-a387-ff147d93b3e8",
+    "name": "The Halcyon",
+    "mode": "roleplay",
+    "characters": ["marr"],
+    "personaId": "demo-persona-ada",
+    "promptPresetId": "preset_universal_v2",
+    "metadata": {
+      "background": "ninth-wave.jpg",
+      "chatParameters": null,
+      "presetChoices": {
+        "agencyStrictness": "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions. You may describe only involuntary reactions, immediate sensory perception, and consequences of choices the user already made.",
+        "contentBoundary": "Keep sexual content non-explicit or fade to black. This setting does not limit genre, danger, violence, emotional intensity, character morality, or consequences.",
+        "eroticTone": "no erotic tone preference: follow the selected content boundary, story context, and character voice; do not add explicit erotic diction or dirty talk just because this selector exists",
+        "language": "English",
+        "length": "150 to 300 words with a clear scene beat and a natural stopping point",
+        "mode": "an excellent roleplayer focused on portraying {{char}} and any relevant supporting cast with distinct voices, consistent motives, and responsive emotion while leaving {{user}}'s choices to the user",
+        "narration": "second-person",
+        "pacing": "balanced pacing: favor one clean scene beat, one pressure shift, and a natural stop; let dialogue breathe, keep action concrete, and avoid padding when the scene already has a useful decision point",
+        "pov": "limited narration from {{user}}'s perspective, filtered through what {{user}} notices, feels, believes, misreads, or can reasonably infer",
+        "styleFlavor": "grounded prose: specific, tactile, and plain when possible; use imagery only when it changes action, knowledge, tension, or choice",
+        "tense": "present"
+      }
+    },
+    "messages": [
+      {
+        "id": "54816e22-e21a-43e9-b37f-d1db7617c617",
+        "role": "assistant",
+        "character": "marr",
+        "content": "*The lantern swings hard on its hook as the Halcyon climbs a wall of black water. Captain Marr stands in the chart room doorway, rain running off his coat, and looks from you to the map pinned under your hands.*\n\n\"You've drawn the reef wrong,\" he says. \"Everyone does, the first night.\"",
+        "secondsIn": 0
+      },
+      {
+        "id": "951fc25b-5bf1-4a09-bad7-e395e43cd998",
+        "role": "user",
+        "character": null,
+        "content": "*I keep my hand flat on the chart so it will not slide.* \"Then show me where the reef really is, Captain. I did not climb into a crate for a bad map.\"",
+        "secondsIn": 709
+      },
+      {
+        "id": "0f9e8569-e59f-4372-972e-62b5672ae202",
+        "role": "assistant",
+        "character": "marr",
+        "content": "Marr crosses the room in three steps, timing each one to the roll of the deck, and plants a wet glove beside your hand. Rain beads on your linework and starts to blur the coast.\n\n\"A crate of salt pork,\" he says. \"Mr. Abernethy will want to know why the pork smelled of graphite.\" He plucks the pencil from behind your ear. \"May I?\"\n\nHe doesn't wait for permission. He drags a line well south of yours, then hooks it east so it curls back on itself like a fishhook. \"The reef sits here. It drifts about a cable's length north every night, as if it's following us. Three nights ago it was there.\" He taps a blank stretch of paper. \"Tonight, if I'm right, it's here.\"\n\nThe ship drops. Your stomach goes with it, and the lantern cracks against the beam overhead. Marr braces one hand on the table edge and keeps his eyes on the chart.\n\n\"Write that down,\" he says. \"By morning you won't remember a word of it. Nobody does.\" He lays your pencil back on the chart, square to the margin. \"Except me, apparently. And I've been wrong forty-one times.\"\n\nAbove you a bell rings twice, fast. Boots hammer the planks. Marr straightens and looks at you properly for the first time, and his tired face goes very still.\n\n\"You came aboard carrying a map of a storm no one told you about,\" he says quietly. \"In forty-one nights, nobody new has ever been on this ship.\" He steps back toward the companionway and holds the door against the next roll. \"The reef breaks the surface in about ten minutes. I'd like you on deck when it does. Bring the chart.\"",
+        "secondsIn": 726
+      }
+    ]
+  },
+  {
+    "id": "f94b9a51-7012-42c9-9b8a-18d8f5cf0508",
+    "name": "Before the Lamps Are Lit",
+    "mode": "fanfic",
+    "characters": [],
+    "personaId": null,
+    "promptPresetId": null,
+    "metadata": {
+      "fanfic": {
+        "outline": {
+          "chapters": [
+            {
+              "number": 1,
+              "summary": "Yellow fog has buried Baker Street for two days and Holmes is pacing like a caged thing when Mrs. Hudson brings up a tray of mulligatawny along with a dazed young woman, Miss Clara Ashby, who cannot say why she has come or where she lives, only that she must not go home before the lamps are lit. While Holmes, visibly brightening, reads her callused fingertips, her boots and a pawn ticket tucked in her glove, Watson finds a bruise beneath her hat, judges it a mild concussion from a fall in the fog, and watches the soup cool untouched. The chapter ends with a man's voice at the street door asking after her, and when Watson hurries down there is no one, only fog and the faint tap of something long and wooden on the railings.",
+              "title": "A London Particular"
+            },
+            {
+              "number": 2,
+              "summary": "Holmes leaves Miss Ashby by the fire in Mrs. Hudson's firm care, and he and Watson set out into the near-dark, where the pawnbroker tells them her pledge was a piano, redeemed only that morning by a young man who paid in coins. Watson grows uneasy, suspecting someone is stripping the house of a confused woman, and the feeling sharpens as Holmes reasons their way to her street and they glimpse figures hauling something heavy through a doorway while footsteps shadow them through the murk. At the corner the follower steps out to confront them, a young man carrying a lamplighter's pole, who demands to know whether they have seen his sister.",
+              "title": "The Man in the Fog"
+            },
+            {
+              "number": 3,
+              "summary": "The lamplighter is Tom Ashby, frantic since Clara never reached the friend's house where she was meant to spend the afternoon, and he explains that he and her music pupils have bought back the piano she pawned to cover his debts, telling her to stay away until he lit the lamp at their door as a signal. Holmes and Watson bring Clara home at dusk, where Tom lights the lamp, she sits at the piano, and the music draws her memory back by degrees while Watson quietly declares her well enough. Holmes and Watson walk home as the fog thins, Holmes grudgingly allowing that a puzzle may be worth solving even when no one is a villain, and they find that Mrs. Hudson has kept the soup hot, so the evening ends with two full bowls by the fire.",
+              "title": "The Lamp Outside the Door"
+            }
+          ],
+          "summary": "A fog so thick it swallows Baker Street brings a young woman to Holmes's door who cannot remember why she came, only that she must not go home before the lamps are lit. Holmes is delighted by the puzzle. Watson is worried about the lady, and about the soup going cold.",
+          "title": "Before the Lamps Are Lit"
+        },
+        "outlineApproved": true,
+        "request": {
+          "adultsConfirmed": false,
+          "chapterCount": 3,
+          "characters": ["Mrs. Hudson"],
+          "fandom": "Sherlock Holmes (Arthur Conan Doyle)",
+          "pov": "third_limited",
+          "povCharacter": "John Watson",
+          "prompt": "A fog so thick it swallows Baker Street. A client arrives who cannot remember why she came, only that she must not go home before the lamps are lit. Holmes is delighted by the puzzle. Watson is worried about her, and about the soup going cold. Gentle, clever, and a little eerie, ending warm.",
+          "rating": "general",
+          "relationships": ["Sherlock Holmes & John Watson"],
+          "research": true,
+          "reviewOutline": true,
+          "setting": "canon",
+          "settingNotes": "",
+          "styleNotes": "Watson's warm, dry first-hand narration. Brisk dialogue. Period flavor but easy to read.",
+          "tags": ["Case Fic", "Friendship"],
+          "tense": "past",
+          "warnings": [],
+          "wordsPerChapter": 2000
+        },
+        "research": {
+          "fromWeb": false,
+          "notes": "## Characters\n\n**Sherlock Holmes**\n- Tall (over six feet), very lean, with a thin hawk-like nose, sharp piercing eyes, and a prominent chin. He is often in a dressing gown at home and smokes a pipe.\n- Speech is precise and quick, sometimes lecturing. He calls Watson \"my dear Watson\" or \"my dear fellow.\"\n- Canon lines he could echo:\n  - \"Data! data! data! I cannot make bricks without clay.\"\n  - \"You see, but you do not observe.\"\n  - \"The game is afoot.\"\n- \"Elementary, my dear Watson\" never appears in canon. Avoid it.\n- He reads small details on a person's clothes, hands, boots and mud, then explains his reasoning afterwards, often dismissively.\n- He hates idleness. Fog and inactivity make him restless. A strange problem delights him, and he may rub his hands or brighten visibly.\n- He is cool with clients but not cruel, and is capable of real gentleness.\n- He plays the violin and keeps chemical apparatus in the sitting room.\n- He is a famously untidy lodger: tobacco in a Persian slipper, unanswered letters pinned to the mantelpiece with a jack-knife.\n- He relies on Watson and is quietly, sometimes visibly, fond of him.\n\n**Dr. John H. Watson**\n- Former army surgeon who was wounded in the Afghan campaign. He has a moustache and a soldierly bearing.\n- He narrates in a warm, plainspoken style that is modest about himself and admiring of Holmes, with dry humour at Holmes's habits.\n- He is practical and kind, and the person who notices whether a client is cold, frightened or hungry. Holmes treats women's feelings as \"your department.\"\n- As a doctor he would check pulse and colour and suggest brandy or rest.\n- He owns an old service revolver.\n- He is loyal and occasionally exasperated. He is often baffled by the deductions until they are explained, though he is not a fool.\n\n**Mrs. Hudson**\n- Landlady of 221B Baker Street. Canon gives almost no physical description.\n- She is long-suffering about her lodgers' odd hours, visitors and mess, but loyal, and fond of Holmes.\n- She sends up meals on trays. Holmes once praised her for having \"as good an idea of breakfast as a Scotchwoman.\"\n- She has few lines in canon, so her voice is open: brisk, motherly, practical.\n\n**Holmes & Watson**\n- They have shared rooms since *A Study in Scarlet*. Holmes values Watson as a companion and sounding board.\n- Their affection is shown through action and teasing more than declarations.\n\n## Setting and terms\n\n- **221B Baker Street:** sitting room on the first floor up seventeen steps, with two broad windows onto the street. Furnishings include a fireplace and mantelpiece, armchairs, Holmes's chemistry table, and a gasogene (a soda-water siphon). The bedrooms open off the sitting room.\n- **Light and heat:** gas lighting indoors and a coal fire.\n- **Transport:** hansom cabs (fast two-wheelers) and \"four-wheelers\" or \"growlers.\"\n- **Communication:** telegrams for quick messages. Visitors announced by the bell and by Mrs. Hudson.\n- **Fog:** Doyle describes London fog as yellow, greasy and dun-coloured. It can be so thick that houses across the street are invisible (*The Bruce-Partington Plans* opens this way, with Holmes restless).\n- **Period slang:** \"pea-souper\" and \"London particular\" for a thick fog.\n- **Vocabulary:** client, consulting detective, the Yard (Scotland Yard), lodgings, the agony columns (personal ads in newspapers).\n\n## Real-world details\n\n- **Period:** roughly the 1880s–1890s, late Victorian London.\n- **Fog:** caused mainly by coal smoke mixing with natural fog. It was yellowish-brown, smelled of soot, stung the eyes and throat, and could make midday nearly dark. Sound was muffled and people could get lost within a few streets.\n- **Street lamps:** gas lamps lit at dusk by lamplighters, who carried a long pole to reach the burner.\n- **Medical language:** shock and memory loss were described as \"nervous shock,\" \"brain fever,\" \"hysteria\" or \"nervous prostration.\" Treatment was rest, warmth, brandy, and sometimes sal volatile (smelling salts).\n- **Food:** soups such as mulligatawny, oxtail or pea soup fit the period. A tray with a covered dish would be ordinary.\n\n## Unsure\n\n- **Watson's wound:** canon is inconsistent about where it is (shoulder in *A Study in Scarlet*, leg in *The Sign of Four*). Keep it vague.\n- **Watson's living situation:** it varies with when in canon the story falls (living at Baker Street, or married and visiting). Pick an unstated period or keep it neutral.\n- **Mrs. Hudson's appearance, age and first name:** not in canon.\n- **Watson's middle name:** \"Hamish\" is fan theory only.\n- **Lamplighting in fog:** whether street lamps were lit early during heavy fog in this exact period is unconfirmed. Avoid stating it as routine.\n- **Precise room layout of 221B:** beyond the seventeen steps, two windows and bedrooms off the sitting room, canon is inconsistent.\n- **Cocaine:** Holmes's canon cocaine use exists. Best left out for General Audiences.",
+          "sources": []
+        },
+        "version": 1,
+        "voices": [
+          {
+            "motives": "She keeps a respectable, orderly house and has made her peace with Mr. Holmes's chaos because she is genuinely fond and protective of him and of the Doctor. In canon she is loyal and dependable, and she takes risks for Holmes when he needs her. Her instinct with any visitor is to warm and feed them first and leave the questions to the gentlemen upstairs.",
+            "name": "Mrs. Hudson",
+            "neverSays": [
+              "Sherlock",
+              "John",
+              "darling",
+              "sweetie",
+              "dearie",
+              "my boys",
+              "I'm not your housekeeper",
+              "okay",
+              "trauma",
+              "boundaries",
+              "Oh my goodness gracious me",
+              "gushing speeches about how much she loves her lodgers"
+            ],
+            "quotes": [],
+            "speech": "Mrs. Hudson speaks briefly and practically. She usually appears at the door to announce someone or deliver something and then goes again, so her lines tend to be one or two plain sentences: who has come, what is on the tray, what the weather is doing to her stair carpet. She calls her lodgers 'Mr. Holmes' and 'Doctor' (or 'Dr. Watson'), never their first names, and addresses a female client as 'ma'am' or 'miss' with a respectable landlady's courtesy. Her care shows as orders and food rather than sentiment: 'You'll have this while it's hot,' 'Sit nearer the fire.' Her complaints are mild and long-suffering, aimed at the hour, the visitors, the tobacco smoke or the soot the fog brings in. She sounds resigned and fond rather than truly cross. When she is worried, especially for Holmes's safety or a frightened visitor, she gets quieter and more direct, but she never becomes dramatic or chatty. She is a respectable London landlady, not a stage comic. Canon gives her very few lines, so this voice is a reasonable extrapolation from her role and should stay understated."
+          }
+        ]
+      },
+      "fanficPlan": {
+        "afterChapter": 2,
+        "chapters": [
+          {
+            "changed": true,
+            "number": 3,
+            "previous": {
+              "summary": "The lamplighter is Tom Ashby, frantic since Clara never reached the friend's house where she was meant to spend the afternoon, and he explains that he and her music pupils have bought back the piano she pawned to cover his debts, telling her to stay away until he lit the lamp at their door as a signal. Holmes and Watson bring Clara home at dusk, where Tom lights the lamp, she sits at the piano, and the music draws her memory back by degrees while Watson quietly declares her well enough. Holmes and Watson walk home as the fog thins, Holmes grudgingly allowing that a puzzle may be worth solving even when no one is a villain, and they find that Mrs. Hudson has kept the soup hot, so the evening ends with two full bowls by the fire.",
+              "title": "The Lamp Outside the Door"
+            },
+            "reason": "Clara was left at Baker Street, so they must fetch her before taking her home, and the written chapters raised loose ends (Tom's flight, the false declaration, the second doorway, Watson's suspicion) that the old plan did not resolve.",
+            "summary": "Under the unlit corner lamp the follower proves to be Tom Ashby, the lamplighter, who has abandoned his round to search for Clara. He confesses everything. She pawned the piano for his debts, and he signed a declaration of loss believing her ticket gone. He and her pupils' families paid it back in collected coppers, and the neighbours were only carrying back the furniture they had stored to make room. He had told her to keep away until he lit the lamp at their door, and he fled the Baker Street step in a panic at a detective's name over a false declaration. Holmes and Watson go back through the dusk to fetch Clara from Mrs. Hudson's fire, and Tom stays behind to finish his lamps, knowing his post may already be lost for leaving them dark so long. He lights the one at their white step last, and inside Clara sits at the piano while the music brings back her pupils, her brother and her morning by degrees. Watson quietly pronounces her well, and Holmes hands back the ticket and keeps the matter of the declaration to himself. The two walk home as the fog thins, Holmes grudgingly allowing that a puzzle may be worth solving even when nobody is a villain, and they find Mrs. Hudson has kept the soup hot, so the evening ends with two full bowls by the fire.",
+            "title": "The Lamp Outside the Door"
+          }
+        ],
+        "createdAt": "2026-10-18T17:59:41.969Z",
+        "lastTextKey": "12158-mc1a27",
+        "mode": "replan",
+        "note": "Chapter 3 is revised but keeps its beats and warm ending. The written chapters leave Clara at Baker Street with Mrs. Hudson rather than with Holmes and Watson, and they raise loose ends the old plan didn't cover: Tom vanishing from the doorstep, the false declaration of loss, the second doorway, and Watson's suspicion and revolver. The revision makes Holmes and Watson fetch Clara before taking her home, and gives Tom a costly choice.",
+        "outlineKey": "2199-1ces5vw",
+        "steer": "",
+        "version": 1
+      }
+    },
+    "messages": [
+      {
+        "id": "802f514c-a9ec-4913-9d65-1166a24ff3e2",
+        "role": "assistant",
+        "character": null,
+        "content": "By the second afternoon the fog had stopped being weather and become a sort of lodger. It pressed its yellow face to both windows of the sitting room, found its way down the chimney and under the door, and hung about the gas so that the jets burned in a brown halo at noon. Watson could taste coal on his teeth. Across Baker Street the houses had gone. He knew they were there; he had seen them on Monday.\n\nHolmes had not seen anything since Monday either, and he was taking it badly.\n\nHe had been round the room eleven times since luncheon. Watson had counted over the top of the *British Medical Journal*, because the article on gout was not holding him. Holmes went from the window to the mantelpiece, where the morning's letters hung unopened under his jack-knife; from the mantelpiece to the chemical table, where he lifted a test tube, sniffed it, and set it down with an air of personal injury; from the table to the violin case, which he opened, looked into, and shut. Back to the window.\n\n\"You'll wear through Mrs. Hudson's carpet,\" Watson said.\n\n\"Mrs. Hudson's carpet was worn through in the reign of William the Fourth. Look out there, Watson.\" He flung a hand at the glass. \"Somewhere in that, a man is picking a lock he could not pick in daylight. Somewhere a body lies in a doorway that nobody will trip over until Thursday. The criminal classes of London have been handed a gift, and do they bring a single interesting thing to my door?\"\n\n\"Perhaps they can't find it.\"\n\nHolmes turned and gave him a look of such reproach that Watson raised the *Journal* to hide his face.\n\n\"Read me something,\" Holmes said. \"The agony column. Your gout.\"\n\n\"It isn't my gout.\"\n\n\"It will be, if you keep sitting in that chair.\"\n\nThere were footsteps on the stair, Mrs. Hudson's, slower than usual, and a lighter pair with them. Holmes went still with his head up, like a pointer.\n\nMrs. Hudson came in first with a tray: a covered tureen, two bowls, bread, the good spoons. The smell of mulligatawny went through the room and put the coal smoke briefly to rout. Behind her, holding on to the door frame, stood a young woman in a grey coat.\n\n\"I found this lady on the step, Mr. Holmes,\" said Mrs. Hudson. \"She'd rung the bell and then sat down.\" She moved a rack of test tubes to make room for the tray without being asked, and turned. \"Come in to the fire, miss. Doctor, she's cold through.\"\n\nWatson was already up. The young woman let him take her elbow. She was perhaps four or five and twenty, neatly and plainly dressed, with damp brown hair coming loose under a felt hat, and the fog had beaded on her coat like dew on a web. Her eyes went round the room with a slow, polite bewilderment, as though she had been shown into the wrong house at a party and did not like to say so.\n\nHe put her in the basket chair nearest the fire. Her hand on his sleeve was icy.\n\n\"Thank you,\" she said. \"I'm so sorry. I don't believe I've been here before.\"\n\n\"You're very welcome,\" said Watson. \"Mrs. Hudson, might we have a little brandy?\"\n\n\"I'll bring it.\" Mrs. Hudson looked at the young woman, then at Holmes, a look that told him to mind his manners, and went.\n\nHolmes had crossed the room in three strides and stood on the hearthrug with his hands behind him. The caged look had left him entirely. He had the air of a man who hears a key turn in a lock.\n\n\"I am Sherlock Holmes,\" he said. \"This is my friend Dr. Watson. You rang at my door, madam. May I ask why?\"\n\nShe looked up at him and her brow creased. \"I was hoping,\" she said slowly, \"that you might tell me.\"\n\nHolmes's eyebrows rose and stayed there. He drew the other armchair forward and sat, elbows on his knees, fingertips together. \"Capital,\" he said softly. \"Your name, at least?\"\n\n\"Clara Ashby.\" That came readily, and seemed to relieve her. \"Miss Ashby.\"\n\n\"And your address, Miss Ashby?\"\n\nShe opened her mouth, and Watson watched her search for it the way a man pats his pockets for a watch he is sure he had a minute ago. Her hands tightened in her lap.\n\n\"I ought to know,\" she said. \"I know I ought to. But I mustn't go home.\" She looked from one to the other of them, suddenly urgent. \"That's the one thing I'm sure of. I must not go home before the lamps are lit.\"\n\n\"Which lamps?\" said Holmes.\n\n\"I don't know.\"\n\n\"Who told you so?\"\n\n\"I don't know that either.\" Her voice wavered. \"Only that I mustn't. It's very important. I think I've been walking about all day so as not to.\"\n\n\"Holmes,\" said Watson.\n\n\"Yes, yes.\" Holmes waved a hand without taking his eyes off her. \"Nobody here will send you anywhere, Miss Ashby. Give me your hands, if you would be so kind.\"\n\nShe gave them to him, surprised into it. He turned them palm up in the firelight, then over, and ran his thumb across the pads of her fingers with the care Watson had seen him use on old documents.\n\n\"You play,\" he said. \"The piano, I fancy. The hardening is even across both hands, and there's no groove from a string on the left. You play a great deal, several hours a day and for years, and the nails are kept shorter than vanity would like.\" He laid her hands back in her lap and glanced down. \"Your boots. No, don't trouble to move. The heel is worn on the outside and was resoled not long ago by a cheap cobbler, so you walk the same streets often and far. There's fresh mud on the welt and older dried mud beneath it of a different colour. You've come a long way today, through more than one sort of street.\" He leaned back. \"You teach music, Miss Ashby, and you go to your pupils' houses rather than having them come to you.\"\n\nShe stared at him. \"Do I?\"\n\n\"I should be very much surprised if you did not.\"\n\n\"I think...\" She looked at her own hands as if they belonged to a stranger she rather liked. \"Yes. I think that's right. There's a little girl who will never count the rests.\" A faint smile came and went. \"I can't think of her name.\"\n\n\"It will come,\" said Watson. He had gone round behind her chair. \"Miss Ashby, would you let me take your hat? I'd like to have a look at you. I'm a doctor.\"\n\n\"Oh. Yes, of course.\"\n\nThe pin came out easily, but when he lifted the hat she winced, and he saw why. High on the right temple, half hidden by her hair, was a bruise the size of a florin, purple going green at the edges, the skin grazed and a little swollen. A thread of grey wool was caught in the graze.\n\n\"Did you fall?\" he asked.\n\n\"Did I?\" She put up her fingers, and he moved them gently away. \"I don't remember.\"\n\nHe took her wrist. The pulse was a shade quick but steady. He had her follow his finger from side to side and turned her face to the fire to watch her pupils narrow, which they did, both of them, evenly. No sickness, she said, when he asked. A headache, yes, now she came to think of it.\n\n\"Well?\" said Holmes.\n\n\"A knock on the head, and not a bad one. She's taken a tumble in the fog; there are railings and kerbstones out there you can't see until you're on top of them. A mild concussion. The memory often goes patchy after a blow like that, especially about the time of it, and it generally comes back.\"\n\n\"Generally,\" said Holmes.\n\n\"Generally.\" Watson tucked a cushion behind her head. \"What she wants is warmth, quiet, and something inside her. Which brings me to the soup.\"\n\nMrs. Hudson had come back while he talked and set a small glass of brandy at Miss Ashby's elbow. Now she ladled out a bowl and settled it on a tray across the young woman's knees with a spoon and a piece of bread. \"You'll have this while it's hot, miss,\" she said, and gave Watson a look on her way out that made him responsible for it.\n\nMiss Ashby said thank you and picked up the spoon and held it over the bowl. Watson sat opposite with his own bowl, to set an example, and it was very good. Holmes had not served himself and showed no sign of meaning to.\n\n\"You've no recollection of the morning?\" Holmes said. \"Breakfast? Anything you saw?\"\n\n\"Fog,\" she said. \"Only fog.\"\n\n\"Your gloves. May I?\"\n\nShe had laid them on the arm of the chair, grey knitted things darned at the fingertips. Holmes picked up the left one and turned back the cuff. Something crackled. He drew out a square of pasteboard, folded twice, and smoothed it on his knee.\n\n\"A pawn ticket,\" he said. His voice had dropped, as it did when he was most pleased. \"Number four hundred and twelve, dated the eleventh of last month, from a shop off the Edgware Road. Miss Ashby, what did you pledge?\"\n\nHer spoon sank back into the bowl. She looked at the ticket and went white, and one hand came up to her throat.\n\n\"I don't know,\" she said. \"Please. I don't want to think about it.\"\n\n\"Holmes,\" said Watson, more sharply.\n\nHolmes folded the ticket into his waistcoat pocket. \"Forgive me,\" he said, and to Watson's surprise he sounded as though he meant it. \"There's no need for you to think about it. We shall do the thinking. That is what we are for.\"\n\nShe nodded and swallowed and looked into the fire. Her soup steamed less and less. A little golden rim of fat was gathering at the edge of the bowl, and Watson thought, with an unprofessional sinking of the heart, that in another five minutes it would be past saving and that the girl had very likely eaten nothing since morning.\n\n\"Try a little,\" he said. \"A spoonful or two, for my sake. Mrs. Hudson will never speak to me again otherwise.\"\n\nThat won another small smile. She raised the spoon, and it was halfway to her mouth when the street bell rang below.\n\nAll three of them looked at the window, though there was nothing to see but yellow. They heard the street door open, Mrs. Hudson's voice, and then a man's, young and hoarse and breathless, as if he had been running.\n\n\"...a young lady, ma'am? Brown hair, grey coat? Has she come here? Miss Ashby...\"\n\nThe spoon rattled against the bowl. Miss Ashby's face had gone the colour of the tablecloth.\n\n\"Stay with her,\" Watson said, and was down the seventeen steps before Holmes could answer.\n\nMrs. Hudson stood in the open street door with one hand on the latch. Fog rolled in past her skirts and across the hall floor, thick enough to lie on.\n\n\"Where is he?\"\n\n\"He was here, Doctor.\" She sounded, for the first time that day, uncertain. \"On the step. I said I'd fetch you down, and I turned round, and he'd gone.\"\n\nWatson pushed past her. The fog took him at once, wet and cold and stinking of soot. He could make out the area railings in front of him and nothing beyond them, no pavement, no kerb, no light in any window. The street might have been a cliff edge.\n\n\"Hullo!\" he called. \"You were asking after Miss Ashby. She's safe here. Come back!\"\n\nThe fog swallowed his voice before it had gone a dozen feet. Somewhere far off a cab wheel ground on the cobbles and stopped. Nearer, to his left, came another sound: a light, hollow tapping of wood against iron, at a steady walking pace. Something long and wooden was being drawn along the railings, house after house, going away from him down Baker Street.\n\nHe took two steps after it and stopped, because he could no longer see the door he had come out of. The tapping grew fainter and was gone.\n\n\"Watson.\"\n\nHolmes stood in the doorway, a lean dark shape against the gaslight of the hall. Watson found the step again by feel and went up to him.\n\n\"He knew her name,\" Watson said. \"He was running. And there was something, a stick or a pole, knocking along the railings as he went. Towards Portman Square, I think, but I couldn't swear to it in this.\"\n\nHolmes looked out past him into the yellow nothing for a while, listening, though there was nothing left to hear.\n\n\"Then he knows exactly where she is,\" he said, \"and we haven't the faintest idea where he is. I find I dislike that arrangement extremely. Come upstairs. She's asking for you, and I am not, it appears, the person one wants at a time like this.\"",
+        "secondsIn": 0
+      },
+      {
+        "id": "b94d4deb-4201-4fb3-9915-80a5833e1bf4",
+        "role": "assistant",
+        "character": null,
+        "content": "Mrs. Hudson took the news that her lodgers were going out into it with the expression of a woman who has been told the cistern has burst again.\n\n\"In this, Mr. Holmes?\"\n\n\"In this, Mrs. Hudson. Miss Ashby will stay with you. She is to have the fire, the sofa, and anything she likes to eat, and she is to open the door to nobody at all.\"\n\n\"I don't open the door to nobody at all as it is,\" said Mrs. Hudson. She looked across at the basket chair, where Miss Ashby sat with Watson's rug round her shoulders and the soup bowl, a third emptied, on her knees. \"She'll finish that, and then she'll lie down. I'll sit with her.\"\n\n\"You're very kind,\" said Miss Ashby. She had got some colour back. When Watson knelt to check her pulse again it was slower and stronger, and she watched him count with the docile interest of a child at the dentist's. \"Dr. Watson, you will be careful? It's so dark.\"\n\n\"We shan't be long.\"\n\n\"You don't know that,\" she said, which was perfectly true. Then she frowned and put a hand to the bruise. \"Tom will be so cross with me.\"\n\nHolmes stopped with one arm in his coat. \"Who is Tom?\"\n\nShe looked up at him, and Watson saw her reach for it and find nothing there.\n\n\"I don't know,\" she said. \"I don't know why I said it.\"\n\nHolmes finished putting on his coat. \"Never mind. Watson, your hat.\"\n\nOn the landing Watson hesitated, went back into his bedroom, and came out again with the revolver in his overcoat pocket. Holmes, waiting at the top of the stairs, glanced at the pocket and then at him.\n\n\"A man who runs off when he's offered the very thing he came for,\" said Watson, \"and a girl who's afraid of somebody called Tom. I'd rather have it and not want it.\"\n\n\"I have no objection in the world,\" said Holmes. \"Only don't shoot a cab-horse. You'll never find it again.\"\n\nIt was not yet four o'clock, and it might have been midnight. Outside the door the fog closed over them like cold water. Holmes turned up his collar, took Watson's arm without ceremony, and set off south at a pace Watson would have called reckless on a clear day. He seemed to steer by some inner chart of every kerb and lamp-post in Marylebone. Twice he stopped, and Watson found a railing under his free hand where a second before there had been nothing. Once a man went by close enough to touch, a dark lump with a muffler over his mouth, coughing, and was gone again before Watson had properly seen him. The noises of London came in odd pieces: a cab-whip, a dog, a woman calling a name over and over somewhere behind them, all of it muffled as if heard through a blanket.\n\n\"How do you know where we are?\" Watson said.\n\n\"By counting. Turn here.\"\n\nThe shop, when they reached it, announced itself first by its three brass balls, which hung above them in the murk like a dim, dull planet and its moons. Below them a gas jet burned in the window, lighting a jumble of clocks, a sword, a stuffed owl and a great many pairs of boots. A bell clanged as Holmes opened the door.\n\nThe pawnbroker was a stout, pale man in a velvet skull-cap with the patient face of someone who has been lied to every day for thirty years and has stopped minding. He looked at Holmes's coat, then at Watson's, and estimated both to the shilling.\n\n\"Gentlemen.\"\n\nHolmes laid the ticket on the counter. \"Four hundred and twelve. The eleventh of last month.\"\n\nThe pawnbroker picked it up, held it to the gas, and put it down again. He looked from it to Holmes with the first sign of interest Watson had seen.\n\n\"That's a funny thing,\" he said. \"That's a very funny thing. That's been redeemed.\"\n\n\"When?\"\n\n\"This morning. Gone nine.\" He reached under the counter for a thick ledger, wetted a thumb and turned the pages. \"Here. Four-one-two. One upright pianoforte, walnut case, maker's name inside the lid, candle sconces wanting. Lent four pound ten.\" He tapped the line. \"Redeemed today, principal and interest. Young chap came in with a barrow and two men to carry.\"\n\n\"Without the ticket,\" said Holmes.\n\n\"With a paper.\" The pawnbroker turned another page and drew out a folded sheet pinned in at the back. \"Declaration of loss. Ticket lost, all signed and witnessed, quite in order. I don't like 'em, but I can't refuse 'em.\" He looked at the ticket again and his mouth turned down. \"Lost. It don't look very lost to me.\"\n\nWatson felt his neck grow cold, and it had nothing to do with the fog in his collar. A piano. He thought of the girl upstairs looking at her own hands as if they belonged to someone else.\n\n\"May I?\" said Holmes, and had the declaration turned towards him before the pawnbroker could decide. He read it in one glance and pushed it back. \"What did he look like, this young man?\"\n\n\"Thin. Twenty, twenty-two. Cap, old frieze coat. Hands black as your boot.\" The pawnbroker considered. \"Civil enough. In a hurry. Paid in coin.\"\n\n\"What sort of coin?\"\n\n\"All sorts. That's what I noticed. He had it in a bag, like a cloth for pudding, and he tipped it out there and counted it, and I counted it after him.\" He nodded at the counter as if the coins were still lying on it. \"Half-crowns, a few. Shillings. Sixpences, threepenny bits, a heap of coppers. Took us the best part of a quarter of an hour. My boy went out with the barrow to see 'em off the premises, because it was my barrow and I wanted it back.\"\n\n\"Is your boy here?\"\n\nThe boy was in the back, eating bread and dripping. He was about twelve, with a cold, and when Holmes put a shilling on the counter he became extremely helpful. They'd gone up Lisson Grove and round two corners, and then into a street he named, and halfway along they'd stopped and taken it off.\n\n\"Which house?\"\n\nThe boy wiped his nose on his sleeve. \"Couldn't see, sir. It were thick as anything. Had a step that was whited, I know that, 'cause I kicked it. And there was a lady's voice inside asking were they being careful of the paint.\"\n\n\"A lady's voice,\" Watson said, when they were out on the pavement again. \"Not Miss Ashby's, if she was wandering about all morning with that bruise on her head.\"\n\n\"No.\"\n\n\"Holmes, I don't like this at all.\" He kept his voice low, though there was nobody near enough to hear, or if there was, nobody he could see. \"Look at it. She pawns her piano last month, that's the living she earns by, she must have been desperate to do it. Then this morning she's out in the fog with a crack on the head and no idea of her own address, and the same morning some young fellow with black hands turns up swearing she's lost her ticket and walks off with the piano. Paying for it with a bag of loose change he may have taken out of her own drawer, for all we know. And a woman in her house, giving orders. And this Tom she's afraid of.\"\n\n\"You think they mean to rob her.\"\n\n\"I think somebody has been taking that house to pieces while she can't stop them. A girl living alone, nobody to look out for her...\"\n\n\"We don't know that she lives alone.\"\n\n\"We don't know that she doesn't.\" Watson heard his own voice sharpen. \"She was told not to go home before the lamps are lit. You heard her. Somebody wanted her out of the way for the day, and she's been walking the streets in this since morning to oblige them.\"\n\nHolmes was quiet. They had begun to walk again, his hand back on Watson's arm, and Watson could feel through the sleeve that he was thinking hard.\n\n\"The declaration was signed T. Ashby,\" Holmes said at last.\n\n\"Then he's a relation.\"\n\n\"Or he gave her name to the pawnbroker because it was the name on the pledge. A relation, I grant you, would know the ticket was not lost. Unless he believed it was.\" Holmes's grip tightened briefly. \"And there is the matter of the coin.\"\n\n\"What about it?\"\n\n\"Threepenny bits, Watson. A heap of coppers. How many thieves have you known who rob a house by first going round it collecting the halfpence?\" Before Watson could answer he said, \"Here is Lisson Grove. Mind the step.\"\n\nWatson minded it. He was trying to make the coins come out the way Holmes seemed to want them, and they would not. A man who had pawned his sister's piano and was buying it back by dribs and drabs from somewhere... He let it go. Ahead of them the fog had taken on a curious brown thickness, almost solid, and the gas in the shop windows they passed made smeared amber patches in it and lit nothing.\n\nThey turned one corner, and then another. Holmes slowed.\n\n\"This is the street?\"\n\n\"If the boy can count, and I believe he can.\"\n\nIt was a narrow street of small, flat-fronted houses, the sort where clerks and music-mistresses and widows on two hundred a year took the parlour floor. Watson could see three doorways at a time, if that, each with its step and its scraper. Holmes went along close to the railings, stopping now and then to stoop over a doorstep with his face nearly on the stone.\n\n\"Grey,\" he said, of one. \"Grey. Hearthstoned, but not this week.\" And of the next: \"Here.\"\n\nThe step was white even in that light, freshly done, with a black scuff on the edge where a small boot had kicked it. The house above it showed a faint glow behind the ground-floor blind.\n\nBefore Watson could speak there was a bump and a scrape further along the street, and a man's voice said, \"Steady, steady, your end's dropping.\" Watson turned. Two doors down, or three, a door stood open, and in the yellow light that fell out of it he could make out shapes, two men at least, bent double, walking backwards up the step with something long and dark and heavy between them. A woman's voice inside said, \"Mind the frame!\" The shapes heaved, and lurched, and went in. The door shut. The light went out of the fog as though it had never been.\n\n\"That was the wrong house,\" Watson said. \"That's not the step. Holmes, they're taking things out of the wrong...\" He stopped. He had no idea whether they had been carrying it in or out. He had no idea of anything, except that the white step was here and the open door had been there and whatever he had seen did not fit together. \"Shall I knock?\"\n\n\"Not yet.\"\n\n\"Holmes, if they're...\"\n\n\"Watson.\" Holmes had not raised his voice; he had lowered it, almost to nothing. \"Stand still and listen.\"\n\nWatson listened. There was a drip from a gutter somewhere. There was a cab, very far away. And there, behind them, in the direction they had come, there were footsteps. They had stopped when Holmes stopped. As Watson held his breath they came on again, two or three paces, quick and light, and stopped once more.\n\n\"How long?\" he breathed.\n\n\"Since the pawnshop. Possibly before.\" Holmes was smiling; Watson could hear it. \"He is very bad at it. He has no notion that sound carries better in fog than sight does. Walk on with me, at an ordinary pace, to the corner, and keep your hand where it is.\"\n\nWatson's hand was in his coat pocket on the butt of the revolver. He had not noticed putting it there.\n\nThey walked. Behind them the footsteps came on, matching theirs. And with them came the other sound, the one Watson had heard on Baker Street, a hollow, wooden tap against each railing as it passed, tap, and a pause, and tap. He felt the skin of his back crawl. Holmes's arm was quite relaxed in his.\n\nThe corner arrived as corners did that day, all at once: a lamp-post loomed up beside them, unlit, its glass a dim grey box overhead, and the pavement ran out into the open of a crossing. Holmes stopped under the lamp and turned round.\n\nThe footsteps stopped too, very close. For a second there was only the fog between them, moving a little, like breath. Then it tore, and a young man came out of it at them.\n\nHe was thin and bareheaded, his cap crushed in one hand, his coat dark with wet, and over his shoulder he carried a pole a good deal longer than he was, with a brass hook and some small fitting at the top of it. His face was white and blotched with cold, and his eyes went from Holmes to Watson and back with a wild, exhausted fury.\n\n\"You've been in Freeman's shop,\" he said, \"asking after her ticket. I heard you. I've been after you since Baker Street.\" His voice cracked. He gripped the pole in both hands and planted the foot of it on the pavement, hard, as if it was the only thing holding him up. \"Who are you? Have you seen her? Have you seen my sister?\"",
+        "secondsIn": 149
+      }
+    ]
+  }
+]
