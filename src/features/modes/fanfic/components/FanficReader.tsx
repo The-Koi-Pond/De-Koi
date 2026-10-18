@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   BookMarked,
   BookOpen,
+  Compass,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -23,7 +24,7 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
-import { useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
+import { useChat, useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
 import type { FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
 import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
@@ -34,6 +35,7 @@ import {
 } from "../../../../engine/modes/fanfic/ai-isms";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import { buildFanficExport, type FanficExportFormat } from "../../../../engine/modes/fanfic/export";
+import { fanficPlanNotes, readFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
 import {
   detectFanficRepetition,
@@ -46,11 +48,13 @@ import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
 import {
+  fanficChapterViewRefs,
   useFanficContinuity,
   useFanficVoiceCheck,
   type FanficChapterView,
   type FanficContinuityController,
   type FanficEditorController,
+  type FanficPlanController,
   type FanficLedgerController,
   type FanficVoiceCheckController,
   type FanficVoicesController,
@@ -69,6 +73,7 @@ import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
 import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
+import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
 
@@ -89,6 +94,9 @@ interface FanficReaderProps {
   ledger: FanficLedgerController;
   voices: FanficVoicesController;
   editor: FanficEditorController;
+  plan: FanficPlanController;
+  /** Uses a re-plan of the remaining chapters (the outline changes). */
+  onUsePlan: (proposal: FanficPlanProposal) => Promise<void>;
   onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
 }
 
@@ -795,13 +803,21 @@ function NextChapterPanel({
   nextNumber,
   busy,
   onWrite,
+  notes,
+  setNotes,
+  onPlanAhead,
+  planning,
 }: {
   state: FanficState;
   nextNumber: number;
   busy: boolean;
   onWrite: (args: FanficWriteArgs) => void;
+  notes: string;
+  setNotes: (notes: string) => void;
+  /** Re-plans the rest (or suggests the next chapter) from what's written. */
+  onPlanAhead: () => void;
+  planning: boolean;
 }) {
-  const [notes, setNotes] = useState("");
   const planned = fanficPlannedChapterCount(state);
   const complete = nextNumber > planned;
   const title = fanficChapterTitle(state, nextNumber);
@@ -827,7 +843,11 @@ function NextChapterPanel({
         onChange={(event) => setNotes(event.target.value)}
         placeholder={complete ? "An epilogue five years later…" : "Give Aziraphale a bigger moment here."}
       />
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        <FanficButton disabled={busy || planning} onClick={onPlanAhead}>
+          <Compass size="0.9rem" aria-hidden="true" />
+          {complete ? "Suggest what's next" : "Re-plan the rest"}
+        </FanficButton>
         <FanficButton
           tone="primary"
           disabled={busy}
@@ -861,6 +881,8 @@ export function FanficReader({
   voices,
   onSaveVoices,
   editor,
+  plan,
+  onUsePlan,
 }: FanficReaderProps) {
   const chapterCount = chapters.length;
   const [view, setView] = useState<ReaderView>(Math.max(1, chapterCount));
@@ -871,6 +893,10 @@ export function FanficReader({
   const [showLedger, setShowLedger] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [nextNotes, setNextNotes] = useState("");
+  const { data: chat } = useChat(chatId);
+  const chapterRefs = useMemo(() => fanficChapterViewRefs(chapters), [chapters]);
+  const proposal = useMemo(() => readFanficPlan(chat?.metadata, chapterRefs), [chat?.metadata, chapterRefs]);
   const continuity = useFanficContinuity(chatId, null);
   const voiceCheck = useFanficVoiceCheck(chatId, null);
   const topRef = useRef<HTMLDivElement>(null);
@@ -1071,8 +1097,33 @@ export function FanficReader({
 
       <GenerationFailureNotice chatId={chatId} onRetry={onRetry} />
 
+      {viewingLast && !generating && (proposal || plan.running) && (
+        <FanficPlanPanel
+          proposal={proposal}
+          controller={plan}
+          busy={generating}
+          onUse={async (used) => {
+            if (used.mode === "next") {
+              setNextNotes(fanficPlanNotes(used));
+              await plan.dismiss();
+              toast.success(
+                `Chapter ${used.chapters[0]?.number}'s notes are filled in below. Change anything before writing.`,
+              );
+            } else await onUsePlan(used);
+          }}
+        />
+      )}
       {viewingLast && !generating && (
-        <NextChapterPanel state={state} nextNumber={chapterCount + 1} busy={generating} onWrite={onWrite} />
+        <NextChapterPanel
+          state={state}
+          nextNumber={chapterCount + 1}
+          busy={generating}
+          onWrite={onWrite}
+          notes={nextNotes}
+          setNotes={setNextNotes}
+          onPlanAhead={() => plan.propose()}
+          planning={plan.running}
+        />
       )}
     </div>
   );

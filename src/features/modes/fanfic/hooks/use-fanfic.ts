@@ -18,6 +18,7 @@ import {
   type FanficContinuityPhase,
 } from "../../../../engine/modes/fanfic/continuity";
 import { updateFanficLedger, type FanficLedgerProgress } from "../../../../engine/modes/fanfic/ledger";
+import { clearFanficPlan, proposeFanficPlan } from "../../../../engine/modes/fanfic/plan";
 import {
   rewriteFanficFlaggedScenes,
   runFanficEditorPass,
@@ -544,4 +545,52 @@ export function useFanficEditor(chatId: string, connectionId: string | null): Fa
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   useEffect(() => () => controllerRef.current?.abort(), [chatId]);
   return { run, rewrite, stop, running, progress };
+}
+
+export interface FanficPlanController {
+  /** Re-plans from what's written; `quiet` (after each chapter) reports failures as a warning. */
+  propose: (options?: { steer?: string; quiet?: boolean }) => void;
+  stop: () => void;
+  running: boolean;
+  /** Drops the stored suggestion. */
+  dismiss: () => Promise<void>;
+}
+
+/** The living outline: suggestions for the rest of the plan, made after each chapter or on request. */
+export function useFanficPlan(chatId: string, connectionId: string | null): FanficPlanController {
+  const queryClient = useQueryClient();
+  const [running, setRunning] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const propose = useCallback(
+    ({ steer = "", quiet = false }: { steer?: string; quiet?: boolean } = {}) => {
+      if (controllerRef.current) return;
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      setRunning(true);
+      void proposeFanficPlan(
+        { storage: storageApi, llm: llmApi },
+        { chatId, connectionId, steer },
+        { signal: controller.signal },
+      )
+        .catch((error: unknown) => {
+          if (isAbort(error)) return;
+          const message = error instanceof Error ? error.message : "The plan could not be updated.";
+          if (quiet) toast.warning(`Plan not updated: ${message}`);
+          else toast.error(message);
+        })
+        .finally(() => {
+          if (controllerRef.current === controller) controllerRef.current = null;
+          setRunning(false);
+          void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+        });
+    },
+    [chatId, connectionId, queryClient],
+  );
+  const stop = useCallback(() => controllerRef.current?.abort(), []);
+  useEffect(() => () => controllerRef.current?.abort(), [chatId]);
+  const dismiss = useCallback(async () => {
+    await clearFanficPlan(storageApi, chatId);
+    await queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+  }, [chatId, queryClient]);
+  return { propose, stop, running, dismiss };
 }
