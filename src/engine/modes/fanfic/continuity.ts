@@ -265,12 +265,18 @@ function groundFanficChapterIssues(
 
 // ── Fixes ───────────────────────────────────────
 
-const WORD_CHAR = /[A-Za-z0-9]/;
+/** Letters and digits in any script. An apostrophe between two of them (he's, don’t) is inside the word. */
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const APOSTROPHE = /['’]/;
+const isWord = (char: string | undefined) => WORD_CHAR.test(char ?? "");
 
 /** The span neither starts in the middle of a word nor ends in one. */
 function wholeWordsAt(text: string, start: number, end: number): boolean {
-  const cutsStart = WORD_CHAR.test(text[start] ?? "") && WORD_CHAR.test(text[start - 1] ?? "");
-  const cutsEnd = WORD_CHAR.test(text[end - 1] ?? "") && WORD_CHAR.test(text[end] ?? "");
+  const cutsStart =
+    isWord(text[start]) &&
+    (isWord(text[start - 1]) || (APOSTROPHE.test(text[start - 1] ?? "") && isWord(text[start - 2])));
+  const cutsEnd =
+    isWord(text[end - 1]) && (isWord(text[end]) || (APOSTROPHE.test(text[end] ?? "") && isWord(text[end + 1])));
   return !cutsStart && !cutsEnd;
 }
 
@@ -290,13 +296,13 @@ export function locateFanficPassage(text: string, find: string): { start: number
   }
   if (exact.length > 1) return null;
   if (exact.length === 1) return { start: exact[0]!, end: exact[0]! + find.length };
-  const words = find.match(/[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)*/g);
+  const words = find.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu);
   if (!words || words.length < 3) return null;
-  // Whole words only: the first and last word can't be the tail or head of a longer one.
-  const pattern = `(?<![A-Za-z0-9])${words
+  // Whole words only: the first and last word can't be the tail or head of a longer one (contractions included).
+  const pattern = `(?<![\\p{L}\\p{N}]|[\\p{L}\\p{N}]['’])${words
     .map((word) => escapeRegex(word).replace(/['’]/g, "['’]"))
-    .join("[^A-Za-z0-9]+")}(?![A-Za-z0-9])`;
-  const matches = [...text.matchAll(new RegExp(pattern, "gi"))];
+    .join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}]|['’][\\p{L}\\p{N}])`;
+  const matches = [...text.matchAll(new RegExp(pattern, "giu"))];
   if (matches.length !== 1) return null;
   const match = matches[0]!;
   return { start: match.index!, end: match.index! + match[0].length };
