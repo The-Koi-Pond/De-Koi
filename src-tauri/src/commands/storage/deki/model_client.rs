@@ -7,6 +7,8 @@ use std::time::Duration;
 pub(super) struct DekiModelMessage {
     role: &'static str,
     content: String,
+    /// Image data URLs sent with this message.
+    images: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,7 @@ impl DekiModelMessage {
         Self {
             role: "system",
             content: content.into(),
+            images: Vec::new(),
         }
     }
 
@@ -32,13 +35,20 @@ impl DekiModelMessage {
         Self {
             role: "user",
             content: content.into(),
+            images: Vec::new(),
         }
+    }
+
+    pub(super) fn with_images(mut self, images: Vec<String>) -> Self {
+        self.images = images;
+        self
     }
 
     pub(super) fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: "assistant",
             content: content.into(),
+            images: Vec::new(),
         }
     }
 }
@@ -68,7 +78,7 @@ impl DekiModelClient {
                     role: message.role.to_string(),
                     content: message.content.clone(),
                     name: None,
-                    images: Vec::new(),
+                    images: message.images.clone(),
                     tool_call_id: None,
                     tool_calls: None,
                     provider_metadata: None,

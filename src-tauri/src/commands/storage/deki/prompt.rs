@@ -12,6 +12,72 @@ const DEKI_ATTACHMENT_TOTAL_MAX_CHARS: usize = 48 * 1024;
 const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "csv", "json", "jsonl", "log", "md", "markdown", "txt", "xml", "yaml", "yml",
 ];
+/// Per-image limit, the size image-capable providers accept.
+const DEKI_IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
+const DEKI_IMAGE_MAX_COUNT: usize = 4;
+
+/// Which image attachments go to the model, and why any others do not.
+pub(super) struct DekiImagePlan {
+    /// Data URLs sent with the latest user message, in attachment order.
+    pub(super) images: Vec<String>,
+    /// Per attachment index: `None` for a text file or a sent image, the reason for an image
+    /// that was not sent.
+    problems: Vec<Option<String>>,
+}
+
+pub(super) fn plan_image_attachments(attachments: &[DekiAttachment]) -> DekiImagePlan {
+    let mut images = Vec::new();
+    let problems = attachments
+        .iter()
+        .map(|attachment| {
+            if !is_image_attachment(attachment) {
+                return None;
+            }
+            let problem = image_attachment_problem(attachment).or_else(|| {
+                (images.len() >= DEKI_IMAGE_MAX_COUNT).then(|| {
+                    format!("Deki-senpai takes up to {DEKI_IMAGE_MAX_COUNT} images per message")
+                })
+            });
+            if problem.is_none() {
+                images.push(attachment.content.trim().to_string());
+            }
+            problem
+        })
+        .collect();
+    DekiImagePlan { images, problems }
+}
+
+fn is_image_attachment(attachment: &DekiAttachment) -> bool {
+    attachment
+        .r#type
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("image/")
+}
+
+fn image_attachment_problem(attachment: &DekiAttachment) -> Option<String> {
+    let content = attachment.content.trim();
+    if content.is_empty() && attachment.size as usize > DEKI_IMAGE_MAX_BYTES {
+        return Some(format!(
+            "image is larger than {} MB",
+            DEKI_IMAGE_MAX_BYTES / (1024 * 1024)
+        ));
+    }
+    let Some((meta, data)) = content.split_once(',') else {
+        return Some("the image could not be read".to_string());
+    };
+    let meta = meta.to_ascii_lowercase();
+    if !meta.starts_with("data:image/") || !meta.ends_with(";base64") || data.is_empty() {
+        return Some("the image could not be read".to_string());
+    }
+    if data.len() / 4 * 3 > DEKI_IMAGE_MAX_BYTES {
+        return Some(format!(
+            "image is larger than {} MB",
+            DEKI_IMAGE_MAX_BYTES / (1024 * 1024)
+        ));
+    }
+    None
+}
 
 pub(super) fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
     let mut parts = vec![
@@ -108,13 +174,17 @@ pub(super) fn build_task_prompt(
         sections.push(format!("Conversation history:\n{history}"));
     }
     if !input.attachments.is_empty() {
+        let image_plan = plan_image_attachments(&input.attachments);
         let mut remaining_attachment_chars = DEKI_ATTACHMENT_TOTAL_MAX_CHARS;
         let mut attachment_blocks = input
             .attachments
             .iter()
+            .enumerate()
             .take(DEKI_ATTACHMENT_MAX_COUNT)
-            .filter_map(|attachment| {
-                attachment_context_block(attachment, &mut remaining_attachment_chars)
+            .filter_map(|(index, attachment)| {
+                let image =
+                    is_image_attachment(attachment).then(|| image_plan.problems[index].as_deref());
+                attachment_context_block(attachment, image, &mut remaining_attachment_chars)
             })
             .collect::<Vec<_>>();
         let omitted_count = input
@@ -204,8 +274,11 @@ pub(super) fn build_task_prompt(
     sections.join("\n\n")
 }
 
+/// One attachment's prompt block. `image` is `None` for a text file, and for an image
+/// `Some(None)` when it is sent with the message or `Some(Some(reason))` when it is not.
 fn attachment_context_block(
     attachment: &DekiAttachment,
+    image: Option<Option<&str>>,
     remaining_chars: &mut usize,
 ) -> Option<String> {
     let name = attachment.name.trim();
@@ -227,7 +300,29 @@ fn attachment_context_block(
     .into_iter()
     .flatten()
     .collect::<Vec<_>>();
-    let content_block = match attachment_omission_reason(attachment, content) {
+    let content_block = match image {
+        Some(None) => "[Image sent with this message; look at it directly.]".to_string(),
+        Some(Some(reason)) => format!("[Image not sent: {reason}.]"),
+        None => text_attachment_content(attachment, content, remaining_chars),
+    };
+    let mut block = format!(
+        "File: {name}\nType: {mime_type}\nSize: {}\nContent:\n{content_block}",
+        attachment.size
+    );
+    if !metadata_notes.is_empty() {
+        block.push_str("\n\n[Attachment metadata truncated: ");
+        block.push_str(&metadata_notes.join(", "));
+        block.push_str(".]");
+    }
+    take_attachment_budget(&block, remaining_chars)
+}
+
+fn text_attachment_content(
+    attachment: &DekiAttachment,
+    content: &str,
+    remaining_chars: &mut usize,
+) -> String {
+    match attachment_omission_reason(attachment, content) {
         Some(reason) => format!("[Attachment omitted: {reason}]"),
         None if content.is_empty() => {
             "[Attachment omitted: no readable text content was provided.]".to_string()
@@ -248,17 +343,7 @@ fn attachment_context_block(
                 snippet
             }
         }
-    };
-    let mut block = format!(
-        "File: {name}\nType: {mime_type}\nSize: {}\nContent:\n{content_block}",
-        attachment.size
-    );
-    if !metadata_notes.is_empty() {
-        block.push_str("\n\n[Attachment metadata truncated: ");
-        block.push_str(&metadata_notes.join(", "));
-        block.push_str(".]");
     }
-    take_attachment_budget(&block, remaining_chars)
 }
 
 fn take_attachment_budget(value: &str, remaining_chars: &mut usize) -> Option<String> {
@@ -272,12 +357,6 @@ fn take_attachment_budget(value: &str, remaining_chars: &mut usize) -> Option<St
 
 fn attachment_omission_reason(attachment: &DekiAttachment, content: &str) -> Option<String> {
     let mime_type = attachment.r#type.trim().to_ascii_lowercase();
-    if mime_type.starts_with("image/") {
-        return Some(
-            "image attachments are not sent as raw base64 to Deki-senpai; describe the image or attach text instead"
-                .to_string(),
-        );
-    }
     if !is_readable_deki_attachment(attachment) {
         return Some(format!("{mime_type} is not a readable text attachment"));
     }
