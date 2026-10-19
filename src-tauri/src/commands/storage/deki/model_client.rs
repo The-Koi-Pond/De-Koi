@@ -33,6 +33,8 @@ pub(super) struct DekiModelClient {
 pub(super) struct DekiModelResponse {
     pub(super) content: String,
     pub(super) usage: Option<serde_json::Value>,
+    /// The caller stopped the reply before the model finished it.
+    pub(super) cut_short: bool,
 }
 
 impl DekiModelMessage {
@@ -74,14 +76,15 @@ impl DekiModelClient {
     /// Runs one model call as a stream, handing each piece of text to
     /// `on_text` as it arrives, and returns the whole reply. When the provider
     /// starts the reply over, `on_text` gets a restart and the text before it
-    /// is not part of the returned reply.
+    /// is not part of the returned reply. When `on_text` returns false the call
+    /// is stopped there and the reply so far comes back with `cut_short` set.
     pub(super) async fn complete(
         &self,
         messages: &[DekiModelMessage],
         max_tokens: u64,
         timeout_for: Duration,
         cancellation: &DekiRuntimeCancellation,
-        mut on_text: impl FnMut(DekiModelText<'_>) + Send,
+        mut on_text: impl FnMut(DekiModelText<'_>) -> bool + Send,
     ) -> AppResult<DekiModelResponse> {
         let timeout_for = if timeout_for.is_zero() {
             Duration::from_millis(1)
@@ -112,40 +115,63 @@ impl DekiModelClient {
         };
         let mut content = String::new();
         let mut usage = None;
-        {
+        let mut cut_short = false;
+        let outcome = {
             let stream = marinara_llm::stream_events_with_restarts(request, |event| {
-                match event.get("type").and_then(Value::as_str) {
-                    Some("token") => {
-                        if let Some(text) = event.get("text").and_then(Value::as_str) {
+                let keep_going = match event.get("type").and_then(Value::as_str) {
+                    Some("token") => match event.get("text").and_then(Value::as_str) {
+                        Some(text) => {
                             content.push_str(text);
-                            on_text(DekiModelText::Delta(text));
+                            on_text(DekiModelText::Delta(text))
                         }
-                    }
+                        None => true,
+                    },
                     Some("text_reset") => {
                         content.clear();
-                        on_text(DekiModelText::Restart);
+                        on_text(DekiModelText::Restart)
                     }
-                    Some("usage") => usage = event.get("data").cloned(),
-                    _ => {}
+                    Some("usage") => {
+                        usage = event.get("data").cloned();
+                        true
+                    }
+                    _ => true,
+                };
+                if keep_going {
+                    Ok(())
+                } else {
+                    // Ending the stream drops the provider call (for Claude Code, its process).
+                    cut_short = true;
+                    Err(AppError::new(
+                        "deki_model_cut_short",
+                        "Deki-senpai stopped this model reply early.",
+                    ))
                 }
-                Ok(())
             });
             let completion = tokio::time::timeout(timeout_for, stream);
             tokio::select! {
                 result = completion => result.map_err(|_| {
-                        AppError::new(
-                            "deki_model_timeout",
-                            "Deki-senpai's selected model did not finish before the workspace time limit.",
-                        )
-                    })??,
+                    AppError::new(
+                        "deki_model_timeout",
+                        "Deki-senpai's selected model did not finish before the workspace time limit.",
+                    )
+                })?,
                 _ = cancellation.cancelled() => {
                     return Err(AppError::new(
                         "deki_workspace_aborted",
                         "Deki-senpai's workspace run was cancelled.",
                     ));
                 }
-            };
+            }
+        };
+        if let Err(error) = outcome {
+            if !cut_short {
+                return Err(error);
+            }
         }
-        Ok(DekiModelResponse { content, usage })
+        Ok(DekiModelResponse {
+            content,
+            usage,
+            cut_short,
+        })
     }
 }
