@@ -43,7 +43,7 @@ export function RoleplayQualityCorrectionNotice({
   const edits = correction.edits ?? [];
   const canRestore = original !== null && !!onEdit;
   return (
-    <div className="mt-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/60 px-2.5 py-1.5 text-xs text-[var(--muted-foreground)]">
+    <div className="mt-2 w-fit max-w-full rounded-md border border-[var(--border)] bg-[var(--secondary)]/60 px-2.5 py-1.5 text-xs text-[var(--muted-foreground)]">
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"

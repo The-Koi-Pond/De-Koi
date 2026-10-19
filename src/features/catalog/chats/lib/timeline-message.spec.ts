@@ -21,6 +21,7 @@ describe("timelineMessageProjection", () => {
     const projection = timelineMessageProjection();
 
     expect(projection.fieldSelections?.extra).toContain("generationInterrupted");
+    expect(projection.fieldSelections?.extra).toContain("roleplayQualityCorrection");
   });
 
   it("requests memory capture metadata needed for persisted timeline feedback", () => {
