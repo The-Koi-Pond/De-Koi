@@ -3438,6 +3438,20 @@ function assistantMessageCharacterId(chat: JsonRecord, input: StartGenerationInp
       : null;
 }
 
+/**
+ * The user message version a Conversation reply answers: the active swipe of the user message directly before
+ * the reply. Null when the reply doesn't directly follow a user message (texting first, a second group reply).
+ */
+function answeredUserVersion(chat: JsonRecord, messages: JsonRecord[]): { messageId: string; index: number } | null {
+  if (readString(chat.mode || chat.chatMode) !== "conversation") return null;
+  const latest = [...messages].reverse().find((message) => readString(message.role) !== "system");
+  if (!latest || readString(latest.role) !== "user") return null;
+  const messageId = readString(latest.id).trim();
+  if (!messageId || messageId.startsWith("dry-run-")) return null;
+  const index = Number(latest.activeSwipeIndex ?? 0);
+  return { messageId, index: Number.isInteger(index) && index >= 0 ? index : 0 };
+}
+
 async function saveAssistantMessage(args: {
   storage: StorageGateway;
   chat: JsonRecord;
@@ -3468,6 +3482,8 @@ async function saveAssistantMessage(args: {
   } | null;
   /** This turn's held post-reply-agents job; the reply carries it until the turn marks it done. */
   postReplyAgentsTurnId?: string | null;
+  /** Which version (swipe) of the user's message this reply answers, so switching versions can switch replies. */
+  answersUserVersion?: { messageId: string; index: number } | null;
 }): Promise<unknown | null> {
   const regenerateMessageId = readString(args.input.regenerateMessageId).trim();
   const regenerationTargetRole = readString(args.regenerationTarget?.role).trim();
@@ -3500,6 +3516,7 @@ async function saveAssistantMessage(args: {
     ...(args.postReplyAgentsTurnId
       ? { postReplyAgents: postReplyAgentsMarker(args.postReplyAgentsTurnId, "pending") }
       : {}),
+    ...(args.answersUserVersion ? { answersUserVersion: args.answersUserVersion } : {}),
   };
   const generationInfo = {
     connectionId: readString(args.connection.id) || null,
@@ -5813,6 +5830,7 @@ async function* startGenerationImpl(
           webResearchSources,
           roleplayQualityCorrection: roleplayQuality.correction,
           postReplyAgentsTurnId,
+          answersUserVersion: isUserMessageRegeneration ? null : answeredUserVersion(chat, generationMessages),
         }).catch(async (error: unknown) => {
           finishHelperWrites();
           await postReplyJobs?.release(false);
@@ -6224,6 +6242,7 @@ async function* startGenerationImpl(
         webResearchSources: webResearchSourcesDirect,
         roleplayQualityCorrection: roleplayQualityDirect.correction,
         contextInjections: isUserMessageRegeneration ? null : agentInjectionOverrides,
+        answersUserVersion: isUserMessageRegeneration ? null : answeredUserVersion(chat, generationMessages),
       }).catch(async (error: unknown) => {
         await postReplyJobs?.release(false);
         throw error;

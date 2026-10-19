@@ -54,6 +54,7 @@ function areConversationMessagePropsEqual(prev: ConversationMessageProps, next: 
     prev.onDelete === next.onDelete &&
     prev.onRegenerate === next.onRegenerate &&
     prev.onEdit === next.onEdit &&
+    prev.onEditAndResend === next.onEditAndResend &&
     prev.onSetActiveSwipe === next.onSetActiveSwipe &&
     prev.onPeekPrompt === next.onPeekPrompt &&
     prev.onToggleHiddenFromAI === next.onToggleHiddenFromAI &&
@@ -99,6 +100,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   onDelete,
   onRegenerate,
   onEdit,
+  onEditAndResend,
   onSetActiveSwipe,
   onPeekPrompt,
   onToggleHiddenFromAI,
@@ -511,6 +513,22 @@ export const ConversationMessage = memo(function ConversationMessage({
     }
   }, [editSaving, editSourceContent, message.id, onEdit, quoteFormat]);
 
+  const handleSaveAndResend = useCallback(async () => {
+    if (editSaving || !onEditAndResend) return;
+    const val = formatTextQuotes(editValueRef.current.trim(), quoteFormat);
+    if (!val) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await onEditAndResend(message.id, val);
+      setEditing(false);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Could not resend.");
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editSaving, message.id, onEditAndResend, quoteFormat]);
+
   const handleTranslate = useCallback(
     (content: string) => {
       void translate(message.id, content, message.chatId);
@@ -580,6 +598,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     setEditValue,
     onCancelEdit: () => setEditing(false),
     onSaveEdit: handleSaveEdit,
+    onSaveAndResend: message.role === "user" && onEditAndResend ? handleSaveAndResend : undefined,
     messageTextStyle,
     displayName,
     nameColor,

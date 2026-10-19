@@ -146,6 +146,7 @@ interface ConversationViewProps {
   onDelete: (messageId: string) => void;
   onRegenerate: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onEdit: (messageId: string, content: string) => void | Promise<void>;
+  onEditAndResend?: (messageId: string, content: string) => Promise<void>;
   onSetActiveSwipe: (messageId: string, index: number) => void;
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
@@ -369,6 +370,7 @@ export function ConversationView({
   onDelete,
   onRegenerate,
   onEdit,
+  onEditAndResend,
   onSetActiveSwipe,
   onPeekPrompt,
   onToggleHiddenFromAI,
@@ -1592,6 +1594,7 @@ export function ConversationView({
                         onDelete={onDelete}
                         onRegenerate={onRegenerate}
                         onEdit={onEdit}
+                        onEditAndResend={onEditAndResend}
                         onSetActiveSwipe={onSetActiveSwipe}
                         onPeekPrompt={onPeekPrompt}
                         onToggleHiddenFromAI={onToggleHiddenFromAI}
