@@ -40,6 +40,47 @@ pub(crate) struct ClaudeSubscriptionPrompt {
     pub(crate) prompt: String,
     pub(crate) session_id: Option<String>,
     pub(crate) prompt_shape: &'static str,
+    /// Images from the request's messages, in order. When any are present the prompt goes to
+    /// Claude Code as one stream-json user message with image blocks before the text.
+    pub(crate) images: Vec<ClaudeSubscriptionImage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClaudeSubscriptionImage {
+    pub(crate) media_type: String,
+    pub(crate) data: String,
+}
+
+impl ClaudeSubscriptionPrompt {
+    /// What Claude Code reads on stdin: the plain prompt, or with images one stream-json user
+    /// message (which needs `--input-format stream-json` and stream-json output).
+    pub(crate) fn stdin_payload(&self) -> Vec<u8> {
+        if self.images.is_empty() {
+            return self.prompt.clone().into_bytes();
+        }
+        let mut content = self
+            .images
+            .iter()
+            .map(|image| {
+                json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.media_type,
+                        "data": image.data,
+                    },
+                })
+            })
+            .collect::<Vec<_>>();
+        content.push(json!({ "type": "text", "text": self.prompt }));
+        let mut line = json!({
+            "type": "user",
+            "message": { "role": "user", "content": content },
+        })
+        .to_string();
+        line.push('\n');
+        line.into_bytes()
+    }
 }
 
 pub(crate) fn disabled_env_flag(value: &str) -> bool {
@@ -104,27 +145,26 @@ pub(crate) fn claude_subscription_visible_message_text(message: &LlmMessage) -> 
     None
 }
 
-pub(crate) fn claude_subscription_image_attachment_count(messages: &[LlmMessage]) -> usize {
-    messages.iter().map(|message| message.images.len()).sum()
-}
-
-pub(crate) fn ensure_claude_subscription_supports_messages(
+/// The request's images as base64 blocks. Claude Code only takes embedded images, so a linked
+/// or non-image attachment is refused with the reason instead of being dropped.
+pub(crate) fn claude_subscription_images(
     messages: &[LlmMessage],
-) -> AppResult<()> {
-    let count = claude_subscription_image_attachment_count(messages);
-    if count == 0 {
-        return Ok(());
+) -> AppResult<Vec<ClaudeSubscriptionImage>> {
+    let mut images = Vec::new();
+    for image in messages.iter().flat_map(|message| message.images.iter()) {
+        let Some((media_type, data)) = data_url_image(image) else {
+            return Err(AppError::with_details(
+                "claude_subscription_unsupported_capability",
+                "Claude subscription can only send images embedded in the message (base64 data URLs). One attachment is a link or not an image; attach the image file instead.",
+                json!({ "capability": "image_attachments" }),
+            ));
+        };
+        images.push(ClaudeSubscriptionImage {
+            media_type: media_type.to_string(),
+            data: data.to_string(),
+        });
     }
-    Err(AppError::with_details(
-        "claude_subscription_unsupported_capability",
-        format!(
-            "Claude subscription cannot send {count} image attachment(s) through the current Claude Code CLI prompt path. Remove the attachment(s) or use an image-capable provider such as Anthropic API."
-        ),
-        json!({
-            "capability": "image_attachments",
-            "imageAttachmentCount": count
-        }),
-    ))
+    Ok(images)
 }
 
 pub(crate) fn render_claude_subscription_history_turn(message: &LlmMessage) -> Option<String> {
@@ -223,7 +263,7 @@ pub(crate) fn claude_subscription_prompt(
     request: &LlmRequest,
 ) -> AppResult<ClaudeSubscriptionPrompt> {
     let messages = request_messages(request);
-    ensure_claude_subscription_supports_messages(&messages)?;
+    let images = claude_subscription_images(&messages)?;
     if claude_subscription_should_use_session(&request.parameters) {
         if let Some(chat_id) = claude_subscription_chat_id(&request.parameters) {
             let (system_prompt, prompt, prompt_shape) =
@@ -233,6 +273,7 @@ pub(crate) fn claude_subscription_prompt(
                 prompt,
                 session_id: Some(claude_subscription_session_id(&chat_id)),
                 prompt_shape,
+                images,
             });
         }
     }
@@ -242,6 +283,7 @@ pub(crate) fn claude_subscription_prompt(
         prompt,
         session_id: None,
         prompt_shape: "transcript-fold",
+        images,
     })
 }
 
@@ -447,6 +489,11 @@ pub(crate) enum ClaudeSubscriptionOutput {
     /// Newline-delimited events, including the reply text as the model writes it.
     Stream,
 }
+
+/// Reads the prompt as stream-json messages, the only stdin form that carries image blocks.
+/// Claude Code requires stream-json output with it.
+pub(crate) const CLAUDE_SUBSCRIPTION_STREAM_INPUT_ARGS: &[&str] =
+    &["--input-format", "stream-json"];
 
 pub(crate) fn claude_subscription_output_args(
     output: ClaudeSubscriptionOutput,
@@ -1238,13 +1285,23 @@ pub(crate) async fn complete_claude_subscription_rich(
     let model_selection = claude_subscription_model_selection(&request.connection.model);
     // Every prompt already carries the chat history, so the command never persists a session:
     // reusing a fixed --session-id fails with "Session ID ... is already in use" from the second turn on.
+    // Images go in as a stream-json user message, which Claude Code only accepts with stream-json
+    // output; the final `result` line then carries the same completion as the json output.
+    let with_images = !prompt_selection.images.is_empty();
     let (mut command, workspace) = claude_subscription_isolated_command(
         request.connection.claude_fast_mode,
         &model_selection,
         prompt_selection.system_prompt.as_deref(),
-        ClaudeSubscriptionOutput::Json,
+        if with_images {
+            ClaudeSubscriptionOutput::Stream
+        } else {
+            ClaudeSubscriptionOutput::Json
+        },
         claude_subscription_effort(&request.connection.model, &request.parameters),
     )?;
+    if with_images {
+        command.args(CLAUDE_SUBSCRIPTION_STREAM_INPUT_ARGS);
+    }
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
     }
@@ -1256,7 +1313,8 @@ pub(crate) async fn complete_claude_subscription_rich(
             "model": model_selection.cli_model.clone(),
             "configuredModel": model_selection.configured_model.clone(),
             "longContextBeta": model_selection.long_context_beta,
-            "outputFormat": "json",
+            "outputFormat": if with_images { "stream-json" } else { "json" },
+            "images": prompt_selection.images.len(),
             "fastMode": request.connection.claude_fast_mode,
             "sessionId": prompt_selection.session_id.as_deref(),
             "promptShape": prompt_selection.prompt_shape
@@ -1277,7 +1335,7 @@ pub(crate) async fn complete_claude_subscription_rich(
     // timeouts and Stop, and dropping it kills Claude Code instead of letting the call run on.
     let mut running = ClaudeSubscriptionStreamingChild::start(
         child,
-        prompt_selection.prompt.into_bytes(),
+        prompt_selection.stdin_payload(),
         Some(workspace),
     )?;
     let mut stdout = String::new();
@@ -1298,7 +1356,23 @@ pub(crate) async fn complete_claude_subscription_rich(
             })),
         ));
     }
-    parse_claude_subscription_output_rich(&stdout, &model_selection.cli_model)
+    // Stream-json output repeats the reply in partial events and the assistant message; only the
+    // final `result` line is the completion the json output would have returned.
+    let output = if with_images {
+        claude_subscription_stream_result_line(&stdout).unwrap_or(&stdout)
+    } else {
+        &stdout
+    };
+    parse_claude_subscription_output_rich(output, &model_selection.cli_model)
+}
+
+/// The last `{"type":"result",...}` line of stream-json output.
+pub(crate) fn claude_subscription_stream_result_line(stdout: &str) -> Option<&str> {
+    stdout.lines().rev().map(str::trim).find(|line| {
+        serde_json::from_str::<Value>(line)
+            .ok()
+            .is_some_and(|value| value.get("type").and_then(Value::as_str) == Some("result"))
+    })
 }
 
 /// Streams a reply from Claude Code as the model writes it. Cancelling the returned future (Stop, or
@@ -1316,6 +1390,9 @@ pub(crate) async fn stream_claude_subscription(
         ClaudeSubscriptionOutput::Stream,
         claude_subscription_effort(&request.connection.model, &request.parameters),
     )?;
+    if !prompt_selection.images.is_empty() {
+        command.args(CLAUDE_SUBSCRIPTION_STREAM_INPUT_ARGS);
+    }
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
     }
@@ -1328,6 +1405,7 @@ pub(crate) async fn stream_claude_subscription(
             "configuredModel": model_selection.configured_model.clone(),
             "longContextBeta": model_selection.long_context_beta,
             "outputFormat": "stream-json",
+            "images": prompt_selection.images.len(),
             "fastMode": request.connection.claude_fast_mode,
             "sessionId": prompt_selection.session_id.as_deref(),
             "promptShape": prompt_selection.prompt_shape
@@ -1344,7 +1422,7 @@ pub(crate) async fn stream_claude_subscription(
     drop(command);
     let mut stream = ClaudeSubscriptionStreamingChild::start(
         child,
-        prompt_selection.prompt.into_bytes(),
+        prompt_selection.stdin_payload(),
         Some(workspace),
     )?;
     let mut state = ClaudeSubscriptionStreamState::default();
