@@ -2692,31 +2692,25 @@ function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat:
   };
 }
 
-function buildRoleplayQualityContext(
-  input: PromptAssemblyInput,
-  wrapFormat: WrapFormat,
-): { message: ChatMLMessage; attribution: GenerationContextAttributionItem } | null {
+interface RoleplayQualityContext {
+  note: string;
+  attribution: GenerationContextAttributionItem;
+}
+
+export const ROLEPLAY_HABITS_NOTE_HEADER =
+  "[Habits to avoid in this reply, do not mention it] Recent replies in this chat keep falling back on these. Explicit user steering wins over this note.";
+
+function buildRoleplayQualityContext(input: PromptAssemblyInput): RoleplayQualityContext | null {
   const mode = modeOf(input.chat);
   if (mode !== "roleplay" && mode !== "visual_novel") return null;
+  if (input.request.impersonate === true) return null;
   const result = analyzeRoleplayHistory({
     messages: input.storedMessages,
     latestUserInput: input.latestUserInput,
   });
   if (!result.guidance) return null;
   return {
-    message: {
-      role: "system",
-      contextKind: "agent",
-      displayName: "Roleplay quality",
-      content: wrapContent(
-        [
-          "Use this compact local quality note only to vary the next reply. Do not mention it, and let explicit user steering win.",
-          result.guidance,
-        ].join("\n"),
-        "roleplay_quality",
-        wrapFormat,
-      ),
-    },
+    note: [ROLEPLAY_HABITS_NOTE_HEADER, result.guidance].join("\n"),
     attribution: {
       kind: "agent_injection",
       label: "Roleplay quality",
@@ -2746,11 +2740,20 @@ export const PROSE_STYLE_NOTE = [
 // Style guidance buried in a long system prompt loses to the card's voice and to past replies the
 // model copies. The same note after the latest user turn is followed far more reliably, and system
 // messages cannot carry it there: some providers (Claude subscription) fold every system message into
-// the system prompt.
-function appendProseStyleNoteToLatestUserTurn(input: PromptAssemblyInput, messages: ChatMLMessage[]): ChatMLMessage[] {
+// the system prompt. The roleplay habit note goes in the same place for the same reason.
+function appendReplyNotesToLatestUserTurn(
+  input: PromptAssemblyInput,
+  messages: ChatMLMessage[],
+  roleplayQuality: RoleplayQualityContext | null,
+  wrapFormat: WrapFormat,
+): ChatMLMessage[] {
   const mode = modeOf(input.chat);
-  if (mode !== "roleplay" && mode !== "visual_novel" && mode !== "conversation") return messages;
-  if (input.request.impersonate === true) return messages;
+  const styleNote =
+    input.request.impersonate !== true && (mode === "roleplay" || mode === "visual_novel" || mode === "conversation")
+      ? PROSE_STYLE_NOTE
+      : "";
+  const notes = [styleNote, roleplayQuality?.note ?? ""].filter(Boolean);
+  if (notes.length === 0) return messages;
   let latestTurnIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]!.role !== "system") {
@@ -2758,10 +2761,23 @@ function appendProseStyleNoteToLatestUserTurn(input: PromptAssemblyInput, messag
       break;
     }
   }
-  if (latestTurnIndex < 0 || messages[latestTurnIndex]!.role !== "user") return messages;
+  if (latestTurnIndex < 0 || messages[latestTurnIndex]!.role !== "user") {
+    // Continuing a reply has no user turn to carry the notes; the habit note still goes in as context.
+    if (!roleplayQuality) return messages;
+    const withHabits = [...messages];
+    insertBeforeLastUser(withHabits, [
+      {
+        role: "system",
+        contextKind: "agent",
+        displayName: "Roleplay quality",
+        content: wrapContent(roleplayQuality.note, "roleplay_quality", wrapFormat),
+      },
+    ]);
+    return withHabits;
+  }
   return messages.map((message, index) =>
     index === latestTurnIndex
-      ? transformPromptMessageContent(message, (content) => `${content}\n\n${PROSE_STYLE_NOTE}`)
+      ? transformPromptMessageContent(message, (content) => [content, ...notes].join("\n\n"))
       : message,
   );
 }
@@ -4577,7 +4593,7 @@ export async function assembleGenerationPrompt(
     });
   }
 
-  const roleplayQualityContext = buildRoleplayQualityContext(input, wrapFormat);
+  const roleplayQualityContext = buildRoleplayQualityContext(input);
   insertBeforeLastUser(messages, [
     ...(continuityDirectorContext
       ? [
@@ -4593,7 +4609,6 @@ export async function assembleGenerationPrompt(
     ...conversationContextBlocks,
     ...buildConnectedConversationBlocks(input.chat),
     ...buildRoleplayDirectMessageCommandReminder(input.chat),
-    ...(roleplayQualityContext ? [roleplayQualityContext.message] : []),
   ]);
 
   const authorNotesEntry = authorNotesDepthEntry(input.chat, input.storedMessages);
@@ -4647,7 +4662,7 @@ export async function assembleGenerationPrompt(
   if (messages.some((message) => hasDeferredCharacterMacros(message.content))) {
     throw new Error("Deferred character macro placeholder remained before prompt handoff");
   }
-  messages = appendProseStyleNoteToLatestUserTurn(input, messages);
+  messages = appendReplyNotesToLatestUserTurn(input, messages, roleplayQualityContext, wrapFormat);
   const previewMessages = previewMessagesForPrompt(messages);
   const shouldEnforceStrictRoles = boolish(promptParameters?.strictRoleFormatting, true) && !individualGroupTarget;
   messages = shouldEnforceStrictRoles ? enforceStrictRoles(messages) : mergeAdjacentMessages(messages);

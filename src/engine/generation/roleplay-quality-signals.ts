@@ -5,6 +5,8 @@ export type RoleplayQualitySignalKind =
   | "repeated_opening"
   | "repeated_closing"
   | "repeated_gesture"
+  | "negation_beat"
+  | "ambient_sound"
   | "user_echo"
   | "rhetorical_repetition"
   | "cast_saturation"
@@ -56,11 +58,48 @@ export interface RoleplayResponseQualityResult {
 }
 
 const RECENT_ASSISTANT_LIMIT = 8;
-const MAX_GUIDANCE_LINES = 4;
+const MAX_GUIDANCE_LINES = 5;
+/** Negation beats are counted over the latest few replies; past about one a reply they read as a tic. */
+const NEGATION_WINDOW = 4;
+const NEGATION_BEAT_MINIMUM = 5;
+/** A noise, body beat, or reused line has to come back in this many of the recent replies. */
+const RECURRING_BEAT_MINIMUM = 3;
+const COPIED_LINE_WORDS = 6;
+const SOUND_CUE_MAX_WORDS = 12;
+const NEGATION_BEAT_PATTERN =
+  /\b(?:did not|didn't|does not|doesn't|do not|don't|had not|hadn't|has not|hasn't|was not|wasn't|is not|isn't|are not|aren't|could not|couldn't|would not|wouldn't|will not|won't|cannot|can't)\b/i;
+/** Grouped by the noise itself: "the heater ticks", "the seals give their small wet tick" and "the frame ticks" are one habit. */
+const SOUND_CUE_PATTERN =
+  /\b(knock|tick|bang|creak|groan|hum|rattle|hiss|click|drip|buzz|whine|thump|clank|chime|ping|howl|whistle|patter|sputter|clatter|squeal|rumble|thrum|wheeze)(?:s|es|ed|ing|med|ped|ged)?\b/i;
+/** A clause led by a person ("He knocks on the door", "Marr knocks") is someone acting, not the room. */
+const PERSON_LEAD_PATTERN = /^(?:he|she|they|you|i|we|someone|somebody|nobody|everyone)\b/i;
+const SCENE_LEAD_PATTERN =
+  /^(?:the|a|an|its|their|his|her|somewhere|outside|overhead|below|above|behind|downstairs|upstairs|then|now|again|still|in|on|at|from|across)\b/i;
+const BODY_PART_WORDS =
+  "hand|hands|finger|fingers|thumb|thumbs|knuckle|knuckles|knee|knees|jaw|shoulder|shoulders|mouth|eye|eyes|brow|brows|lip|lips|chin|throat|fist|fists|palm|palms|grip|voice|gaze";
+const BODY_BEAT_PATTERN = new RegExp(
+  `\\b(?:[Hh]is|[Hh]er|[Tt]heir|[A-Z][a-z]+['’]s)\\s+(?:[a-z]+\\s+)?(${BODY_PART_WORDS})\\s+([a-z]+)`,
+  "g",
+);
+const BODY_BEAT_STOPWORDS = new Set(
+  "a an the and or but of to in on at by for with from into onto over under against around off up down out as is are was were be has had have that this which who when while than then so if its his her their your my our still".split(
+    " ",
+  ),
+);
+const STOCK_PHRASE_PATTERNS = [
+  /\b(?:for )?a long moment\b/i,
+  /\ba beat\b(?! (?:of|in|on|up))/i,
+  /\bsomething (?:shifts|shifted|changes|changed) (?:in|between)\b/i,
+  /\bthe ghost of a (?:smile|laugh|grin)\b/i,
+  /\ba flicker of\b/i,
+  /\b(?:lets|let|letting) out a breath\b/i,
+  /\bcouldn't help but\b/i,
+  /\bdespite (?:himself|herself|themselves)\b/i,
+  /\bin that moment\b/i,
+  /\bthe air (?:is |was )?(?:thick|heavy) with\b/i,
+];
 const MAX_EVIDENCE_LENGTH = 240;
 const QUESTION_REQUEST_PATTERN = /\b(ask me|questions?|interview me|quiz me|keep asking)\b/i;
-const GESTURE_PATTERN =
-  /\b(?:tilt(?:ed|s|ing)?|nod(?:ded|s|ding)?|shrug(?:ged|s|ging)?|smirk(?:ed|s|ing)?|sigh(?:ed|s|ing)?|cross(?:ed|es|ing)?|fold(?:ed|s|ing)?|clench(?:ed|es|ing)?|grip(?:ped|s|ping)?)\b/i;
 const SECOND_PERSON_DELIBERATE_PATTERN =
   /\byou\s+(?:say|said|ask|asked|reply|replied|agree|agreed|decide|decided|choose|chose|believe|believed|think|thought|want|wanted|intend|intended|promise|promised|cross|crossed|walk|walked|open|opened|take|took|grab|grabbed|grip|gripped|lean|leaned|nod|nodded|shake|shook|sign|signed|accept|accepted|betray|betrayed)\b/gi;
 const PERSONA_DELIBERATE_VERB_PATTERN =
@@ -137,14 +176,6 @@ function repeatedNgrams(messages: string[]): Array<[string, number]> {
   return [...counts.entries()].filter(([, count]) => count >= 3);
 }
 
-function longestRepeatedNgram(entries: Array<[string, number]>): string | null {
-  return (
-    entries.sort(
-      ([left], [right]) => right.split(" ").length - left.split(" ").length || right.length - left.length,
-    )[0]?.[0] ?? null
-  );
-}
-
 function sentenceOpening(message: string): string {
   return normalizeText(message.split(/[.!?]/, 1)[0] ?? "")
     .split(" ")
@@ -172,27 +203,261 @@ function signal(
   };
 }
 
+/** Narration with quoted dialogue blanked out: "I don't know" in speech is a voice, not a narrator's habit. */
+function narrationOf(message: string): string {
+  return message.replace(/["“][^"”]{0,1000}["”]/g, " ");
+}
+
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/(?<=[.!?…])\s+|\n+/)
+    .map((sentence) => sentence.replace(/^[\s*_]+|[\s*_]+$/g, "").trim())
+    .filter((sentence) => /\p{L}/u.test(sentence));
+}
+
+function clipExample(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length <= 90 ? compact : `${compact.slice(0, 89).trimEnd()}…`;
+}
+
+function quotedExamples(examples: string[], limit = 2): string {
+  return examples
+    .slice(0, limit)
+    .map((example) => `"${clipExample(example)}"`)
+    .join("; ");
+}
+
+/** "He doesn't answer." Short sentences about what someone does not do, used as a pause or a reaction. */
+function negationBeats(message: string): string[] {
+  return sentencesOf(narrationOf(message)).filter(
+    (sentence) => NEGATION_BEAT_PATTERN.test(sentence) && wordCount(sentence) <= 10,
+  );
+}
+
+interface RecurringBeat {
+  key: string;
+  replies: number;
+  /** Newest first. */
+  examples: string[];
+}
+
+/** Keys that come back in at least `minimum` different replies, most widespread first. */
+function recurringBeats(
+  messages: string[],
+  keysOf: (message: string) => Array<[string, string]>,
+  minimum: number,
+): RecurringBeat[] {
+  const found = new Map<string, RecurringBeat>();
+  for (const message of messages) {
+    const seen = new Set<string>();
+    for (const [key, example] of keysOf(message)) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const entry = found.get(key) ?? { key, replies: 0, examples: [] };
+      entry.replies += 1;
+      entry.examples.unshift(example);
+      found.set(key, entry);
+    }
+  }
+  return [...found.values()]
+    .filter((entry) => entry.replies >= minimum)
+    .sort((left, right) => right.replies - left.replies);
+}
+
+function singular(word: string): string {
+  return word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+}
+
+function verbStem(word: string): string {
+  return word.length >= 4 ? word.replace(/(?:ing|ed|es|s)$/, "") : word;
+}
+
+const SOUND_ING: Record<string, string> = {
+  hum: "humming",
+  drip: "dripping",
+  thrum: "thrumming",
+  whine: "whining",
+  wheeze: "wheezing",
+  rumble: "rumbling",
+  whistle: "whistling",
+  rattle: "rattling",
+  chime: "chiming",
+};
+
+function soundingWord(sound: string): string {
+  return SOUND_ING[sound] ?? `${sound}ing`;
+}
+
+/** Background noises used as punctuation: "The radiator in the back knocks again." Grouped by what makes the noise. */
+function soundCues(message: string): Array<[string, string]> {
+  const cues: Array<[string, string]> = [];
+  for (const sentence of sentencesOf(narrationOf(message))) {
+    // Filler noises are short sentences ("The heater ticks under the floor."); a long one is usually the plot.
+    if (wordCount(sentence) > SOUND_CUE_MAX_WORDS) continue;
+    for (const clause of sentence.split(/[,;:]\s+|\s+(?:and|while|as)\s+/)) {
+      const sound = clause.match(SOUND_CUE_PATTERN);
+      if (!sound || sound.index === undefined) continue;
+      const before = clause.slice(0, sound.index).trimStart();
+      if (PERSON_LEAD_PATTERN.test(before)) continue;
+      if (/^[A-Z]/.test(before) && !SCENE_LEAD_PATTERN.test(before)) continue;
+      cues.push([sound[1]!.toLowerCase(), sentence]);
+    }
+  }
+  return cues;
+}
+
+/** A character's go-to body beat: "his fingers dig into your shoulder", "Sal's knees crack". */
+function bodyBeats(message: string): Array<[string, string]> {
+  const beats: Array<[string, string]> = [];
+  for (const sentence of sentencesOf(narrationOf(message))) {
+    for (const match of sentence.matchAll(BODY_BEAT_PATTERN)) {
+      const next = match[2]!.toLowerCase();
+      if (BODY_BEAT_STOPWORDS.has(next)) continue;
+      beats.push([`${singular(match[1]!.toLowerCase())} ${verbStem(next)}`, sentence]);
+    }
+  }
+  return beats;
+}
+
+function stockPhrases(message: string): Array<[string, string]> {
+  const hits: Array<[string, string]> = [];
+  for (const sentence of sentencesOf(message)) {
+    for (const pattern of STOCK_PHRASE_PATTERNS) {
+      const match = sentence.match(pattern);
+      if (match) hits.push([match[0].toLowerCase(), sentence]);
+    }
+  }
+  return hits;
+}
+
+function copiedLines(message: string): Array<[string, string]> {
+  const words = normalizeText(message).split(" ").filter(Boolean);
+  const grams: Array<[string, string]> = [];
+  for (let index = 0; index + COPIED_LINE_WORDS <= words.length; index += 1) {
+    const gram = words.slice(index, index + COPIED_LINE_WORDS).join(" ");
+    grams.push([gram, gram]);
+  }
+  return grams;
+}
+
+function overlapsByShift(left: string[], right: string[]): boolean {
+  for (let shift = 1; shift < left.length; shift += 1) {
+    if (left.slice(shift).join(" ") === right.slice(0, -shift).join(" ")) return true;
+  }
+  return false;
+}
+
+/** One copied line shows up as many overlapping six-word windows; keep one window per line. */
+function distinctCopiedLines(entries: RecurringBeat[]): RecurringBeat[] {
+  const kept: RecurringBeat[] = [];
+  for (const entry of entries) {
+    const words = entry.key.split(" ");
+    const overlaps = kept.some((other) => {
+      const otherWords = other.key.split(" ");
+      return overlapsByShift(words, otherWords) || overlapsByShift(otherWords, words);
+    });
+    if (!overlaps) kept.push(entry);
+  }
+  return kept;
+}
+
+/**
+ * Habits the recent replies keep falling back on, as steering for the next reply: negation beats, background noises
+ * used as pauses, a go-to body beat, the same opening, stock phrases, whole lines reused, question endings. It never
+ * flags the scene's own nouns ("the generator room"), which a story is supposed to repeat.
+ */
 export function analyzeRoleplayHistory(input: RoleplayHistoryQualityInput): RoleplayHistoryQualityResult {
   const messages = recentAssistantMessages(input.messages);
   if (messages.length < 3) return { signals: [], guidance: "" };
 
   const signals: RoleplayQualitySignal[] = [];
-  const repeated = repeatedNgrams(messages);
-  const phrase = longestRepeatedNgram([...repeated]);
-  if (phrase) {
-    signals.push(signal("repeated_phrase", phrase, `Avoid repeating the recent phrase "${phrase}" in the next reply.`));
-  }
-  const gesture = longestRepeatedNgram(repeated.filter(([entry]) => GESTURE_PATTERN.test(entry)));
-  if (gesture) {
+  const latest = messages.slice(-NEGATION_WINDOW);
+  const negations = latest.flatMap(negationBeats);
+  if (negations.length >= NEGATION_BEAT_MINIMUM) {
     signals.push(
-      signal("repeated_gesture", gesture, `Use a different physical beat instead of repeating "${gesture}".`),
+      signal(
+        "negation_beat",
+        negations.slice(-3).join(" | "),
+        `- Short "X doesn't Y" beats: ${negations.length} in the last ${latest.length} replies (${quotedExamples(negations.slice(-2).reverse())}). Show what people do or say instead. At most one in this reply.`,
+        "minor",
+        negations.length,
+      ),
+    );
+  }
+
+  for (const sound of recurringBeats(messages, soundCues, RECURRING_BEAT_MINIMUM).slice(0, 2)) {
+    signals.push(
+      signal(
+        "ambient_sound",
+        sound.examples[0]!,
+        `- Something ${soundingWord(sound.key)} in the background fills a pause in ${sound.replies} of the last ${messages.length} replies (${quotedExamples(sound.examples, 1)}). Leave that noise out of this reply, and don't swap in another one.`,
+        "minor",
+        sound.replies,
+      ),
+    );
+  }
+
+  const body = recurringBeats(messages, bodyBeats, RECURRING_BEAT_MINIMUM)[0];
+  if (body) {
+    signals.push(
+      signal(
+        "repeated_gesture",
+        body.examples[0]!,
+        `- The same body beat keeps coming back, in ${body.replies} recent replies (${quotedExamples(body.examples)}). Use a different reaction, or none.`,
+        "minor",
+        body.replies,
+      ),
     );
   }
 
   const opening = repeatedValue(messages.map(sentenceOpening));
-  if (opening) {
+  // "Sal doesn't nod." / "Sal doesn't laugh this time." differ word by word but are the same move.
+  const negationOpeners = messages
+    .map((message) => sentencesOf(narrationOf(message))[0] ?? "")
+    .filter((sentence) => NEGATION_BEAT_PATTERN.test(sentence) && wordCount(sentence) <= 10);
+  if (negationOpeners.length >= RECURRING_BEAT_MINIMUM) {
     signals.push(
-      signal("repeated_opening", opening, `Vary the next sentence opening instead of starting with "${opening}".`),
+      signal(
+        "repeated_opening",
+        negationOpeners.slice(-2).join(" | "),
+        `- ${negationOpeners.length} of the last ${messages.length} replies open on what someone doesn't do (${quotedExamples(negationOpeners.slice(-2).reverse())}). Open this one on something that happens.`,
+        "minor",
+        negationOpeners.length,
+      ),
+    );
+  } else if (opening) {
+    signals.push(
+      signal(
+        "repeated_opening",
+        opening,
+        `- Several recent replies open with "${opening}". Open this one differently.`,
+      ),
+    );
+  }
+
+  const stock = recurringBeats(messages, stockPhrases, 2)[0];
+  if (stock) {
+    signals.push(
+      signal(
+        "repeated_phrase",
+        stock.key,
+        `- The stock phrase "${stock.key}" is in ${stock.replies} recent replies. Don't use it again.`,
+        "minor",
+        stock.replies,
+      ),
+    );
+  }
+
+  const copied = distinctCopiedLines(recurringBeats(messages, copiedLines, RECURRING_BEAT_MINIMUM))[0];
+  if (copied) {
+    signals.push(
+      signal(
+        "repeated_phrase",
+        copied.key,
+        `- "${copied.key}" is reused word for word in ${copied.replies} recent replies. Don't reuse it.`,
+        "minor",
+        copied.replies,
+      ),
     );
   }
 
@@ -202,7 +467,7 @@ export function analyzeRoleplayHistory(input: RoleplayHistoryQualityInput): Role
       signal(
         "repeated_closing",
         `${questionCount} recent replies ended with questions`,
-        "Do not end the next reply with another question unless the scene genuinely requires an answer.",
+        "- Don't end this reply with another question unless the scene needs an answer.",
       ),
     );
   }

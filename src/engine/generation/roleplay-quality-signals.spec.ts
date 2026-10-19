@@ -29,12 +29,12 @@ describe("roleplay quality history signals", () => {
     );
   });
 
-  it("distinguishes repeated sentence openings, question closings, and gesture spans", () => {
+  it("distinguishes repeated sentence openings, question closings, and go-to body beats", () => {
     const result = analyzeRoleplayHistory({
       messages: [
-        assistant("Without looking away, Mira tilted her head. Do you understand?"),
-        assistant("Without looking away, she tilted her head. Will you answer?"),
-        assistant("Without looking away, Mira tilted her head again. Are you listening?"),
+        assistant("Without looking away, Mira sets the ledger down. Her eyes go to the door. Do you understand?"),
+        assistant("Without looking away, she counts the coins. Her eyes go to the window. Will you answer?"),
+        assistant("Without looking away, Mira waits. Her eyes go to your hands. Are you listening?"),
       ],
       latestUserInput: "I stay silent.",
     });
@@ -42,7 +42,84 @@ describe("roleplay quality history signals", () => {
     expect(result.signals.map((signal) => signal.kind)).toEqual(
       expect.arrayContaining(["repeated_opening", "repeated_closing", "repeated_gesture"]),
     );
-    expect(result.guidance.split("\n").length).toBeLessThanOrEqual(4);
+    expect(result.guidance.split("\n").length).toBeLessThanOrEqual(5);
+  });
+
+  it("counts short negation beats in narration but not in dialogue", () => {
+    const narrated = analyzeRoleplayHistory({
+      messages: [
+        assistant("Marr doesn't answer. He checks the glass. He doesn't look at you."),
+        assistant("The wheel kicks. He doesn't let go. Gale doesn't argue."),
+        assistant("Marr doesn't take the paper. He reads it over your shoulder instead."),
+      ],
+      latestUserInput: "I wait.",
+    });
+    const spoken = analyzeRoleplayHistory({
+      messages: [
+        assistant("\"I don't know. I can't say.\" Marr checks the glass."),
+        assistant("\"It doesn't matter. Don't ask.\" The wheel kicks."),
+        assistant('"I won\'t." He reads it over your shoulder.'),
+      ],
+      latestUserInput: "I wait.",
+    });
+
+    expect(narrated.signals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "negation_beat", occurrences: 5 })]),
+    );
+    expect(narrated.guidance).toContain('"Marr doesn\'t take the paper."');
+    expect(spoken.signals.some((signal) => signal.kind === "negation_beat")).toBe(false);
+  });
+
+  it("flags a background noise used as filler, not a long plot sentence or someone knocking", () => {
+    const filler = analyzeRoleplayHistory({
+      messages: [
+        assistant("Sal counts the bills. The heater ticks under the floor."),
+        assistant("Nell steps back. The wall clock ticks."),
+        assistant("Sal shrugs. Somewhere in the back, a pipe ticks twice."),
+      ],
+      latestUserInput: "I wait.",
+    });
+    const story = analyzeRoleplayHistory({
+      messages: [
+        assistant(
+          "He knocks on the hull. The compass needle ticks east through the brass and into your palm and keeps going.",
+        ),
+        assistant(
+          "Marr knocks twice. The ticking climbs up through the binnacle and into the spokes until the wheel hums with it.",
+        ),
+        assistant("You knock the lid shut, and the ticking in your palm goes soft and far away under the brass."),
+      ],
+      latestUserInput: "I wait.",
+    });
+
+    expect(filler.signals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "ambient_sound", occurrences: 3 })]),
+    );
+    expect(filler.guidance).toContain("ticking in the background");
+    expect(story.signals.some((signal) => signal.kind === "ambient_sound")).toBe(false);
+  });
+
+  it("leaves the scene's own nouns alone but catches a line reused word for word", () => {
+    const sceneNouns = analyzeRoleplayHistory({
+      messages: [
+        assistant("Kaul checks the generator room door and comes back."),
+        assistant("Pell wants to see the generator room before dark."),
+        assistant("Mags locks the generator room behind her."),
+      ],
+      latestUserInput: "I follow.",
+    });
+    const copied = analyzeRoleplayHistory({
+      messages: [
+        assistant("Kaul nods. Somewhere below, the bilge pump coughs twice and goes quiet."),
+        assistant("Pell laughs. Somewhere below, the bilge pump coughs twice and goes quiet."),
+        assistant("Mags turns. Somewhere below, the bilge pump coughs twice and goes quiet."),
+      ],
+      latestUserInput: "I follow.",
+    });
+
+    expect(sceneNouns).toEqual({ signals: [], guidance: "" });
+    expect(copied.signals.filter((signal) => signal.kind === "repeated_phrase")).toHaveLength(1);
+    expect(copied.guidance).toContain("reused word for word in 3 recent replies");
   });
 
   it("keeps similar ordinary prose clean and ignores hidden assistant messages", () => {

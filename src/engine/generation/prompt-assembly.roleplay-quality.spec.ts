@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import { assembleGenerationPrompt } from "./prompt-assembly";
+import { assembleGenerationPrompt, ROLEPLAY_HABITS_NOTE_HEADER } from "./prompt-assembly";
 import { withModeProseShapeGuidance } from "./prose-shape-guidance";
 
 const CHARACTER_FIRST_MESSAGE = "MIRA_FIRST_MESSAGE_SENTINEL: The archive doors complain before Mira does.";
@@ -175,8 +175,14 @@ describe("Roleplay quality prompt guidance", () => {
       latestUserInput: "I wait.",
     });
 
-    expect(promptText(result)).toContain("<roleplay_quality>");
-    expect(promptText(result)).toContain("Avoid repeating the recent phrase");
+    // The habit note rides on the latest user turn, where it is followed; a system block would be folded into the
+    // system prompt by some providers, far behind the history.
+    const latestUser = result.messages.filter((message) => message.role === "user").at(-1);
+    expect(latestUser?.content).toContain(ROLEPLAY_HABITS_NOTE_HEADER);
+    expect(latestUser?.content).toContain('The stock phrase "for a long moment"');
+    expect(
+      result.messages.filter((message) => message.role === "system" && message.content.includes("Habits to avoid")),
+    ).toEqual([]);
     expect(result.contextAttributionItems).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -199,6 +205,7 @@ describe("Roleplay quality prompt guidance", () => {
       latestUserInput: "I wait.",
     });
 
+    expect(promptText(result)).not.toContain(ROLEPLAY_HABITS_NOTE_HEADER);
     expect(promptText(result)).not.toContain("roleplay_quality");
     expect(result.contextAttributionItems).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ sourceId: "core-roleplay-quality" })]),
@@ -215,7 +222,7 @@ describe("Roleplay quality prompt guidance", () => {
     });
 
     const text = promptText(result);
-    expect(text).toContain("Avoid repeating the recent phrase");
-    expect(text).not.toContain("Do not end the next reply with another question");
+    expect(text).toContain('The stock phrase "for a long moment"');
+    expect(text).not.toContain("Don't end this reply with another question");
   });
 });
