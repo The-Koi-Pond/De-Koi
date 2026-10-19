@@ -1369,6 +1369,16 @@ impl fmt::Debug for DekiAgent {
     }
 }
 
+/// The connection's context window in tokens (`maxContext`, a number or a
+/// numeric string), when it records one.
+fn deki_connection_max_context(connection: &Value) -> Option<u64> {
+    match connection.get("maxContext")? {
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.trim().parse().ok(),
+        _ => None,
+    }
+}
+
 pub(crate) async fn deki_prompt(
     state: &AppState,
     body: Value,
@@ -1461,6 +1471,7 @@ pub(crate) async fn deki_prompt_with_events(
             system_prompt,
             task_prompt,
             requires_repository_evidence: needs_repo_guidance,
+            max_context_tokens: deki_connection_max_context(&connection_value),
             chat_access_grants: input.chat_access_grants.clone(),
             web_research_grants: input.web_research_grants.clone(),
             cancellation: runtime_guard.cancellation(),
@@ -1486,6 +1497,7 @@ pub(crate) async fn deki_prompt_with_events(
             "usage": usage,
             "workspaceTrace": response.workspace_trace,
             "pendingApprovals": response.pending_approvals,
+            "incomplete": response.incomplete.map(command_loop::DekiFinalReason::code),
         }));
     }
 
