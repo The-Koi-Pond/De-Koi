@@ -70,6 +70,19 @@ impl DekiEventSink {
         );
     }
 
+    /// Answer text that just became visible while the final answer streams.
+    pub(super) fn answer_token(&self, text: &str) {
+        if !text.is_empty() {
+            self.emit("answer_delta", json!(text));
+        }
+    }
+
+    /// The streamed answer was abandoned (the round continued after all), so
+    /// the client clears what it showed.
+    pub(super) fn answer_reset(&self) {
+        self.emit("answer_reset", json!({}));
+    }
+
     pub(super) fn approval_pending(&self, approval: &Value) {
         self.emit("approval_pending", approval.clone());
     }

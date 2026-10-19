@@ -13,6 +13,7 @@
 // - <memory: target="CharName", summary="description of the memory"> (Conversation-only compatibility form)
 // - [scene: scenario="...", background="...", plan="..."] (initiate a mini-roleplay scene)
 // - [spotify: title="Song title", artist="Artist"] (play a song on the user's active Spotify player)
+// - [react: emoji="😂"] or [react: 😂] (Conversation: tapback on the user's latest message)
 // - <influence>text</influence> (OOC influence for connected roleplay, one-shot)
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
 // - [dm: character="CharName", message="text"] (Roleplay-only: open a direct-message conversation)
@@ -91,6 +92,12 @@ export interface DirectMessageCommand {
   resolvedCharacterId?: string;
   /** Resolved target character name, set by connected-command execution. */
   resolvedCharacterName?: string;
+}
+
+export interface ReactCommand {
+  type: "react";
+  /** One emoji, already validated by parseReactionEmoji. */
+  emoji: string;
 }
 
 interface SpotifyCommand {
@@ -307,6 +314,7 @@ export type CharacterCommand =
   | NoteCommand
   | DirectMessageCommand
   | SpotifyCommand
+  | ReactCommand
   | AssistantCommand;
 
 // Param block matcher: any char that isn't `"` or `]`, OR a complete
@@ -326,6 +334,16 @@ const ANGLE_MEMORY_RE = /<memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)">/gi
 const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
+const REACT_RE = /\[react:\s*(?:emoji="([^"\]]{1,32})"|"([^"\]]{1,32})"|([^\]\r\n"]{1,32}))\s*\]/gi;
+// One emoji: a pictograph or flag, with optional variation selector, keycap, skin tone, or ZWJ-joined pictographs.
+const SINGLE_EMOJI_RE =
+  /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2}|[0-9#*]\u{FE0F}?\u{20E3})(?:\u{FE0F}|\p{Emoji_Modifier}|\u{200D}\p{Extended_Pictographic}\u{FE0F}?)*$/u;
+
+/** Returns the value when it is exactly one emoji (skin tones, ZWJ sequences and flags included), otherwise null. */
+export function parseReactionEmoji(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed && SINGLE_EMOJI_RE.test(trimmed) ? trimmed : null;
+}
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const INFLUENCE_RE = /<influence>([\s\S]*?)<\/influence>/gi;
 const NOTE_RE = /<note>([\s\S]*?)<\/note>/gi;
@@ -923,6 +941,12 @@ export function parseCharacterCommands(
     }
   }
 
+  // Parse reaction (tapback) commands
+  for (const match of content.matchAll(REACT_RE)) {
+    const emoji = parseReactionEmoji(match[1] ?? match[2] ?? match[3] ?? "");
+    if (emoji) commands.push({ type: "react", emoji });
+  }
+
   // Parse assistant commands (Deki-senpai)
   for (const match of content.matchAll(CREATE_PERSONA_RE)) {
     const params = match[1]!;
@@ -1053,6 +1077,7 @@ export function parseCharacterCommands(
     .replace(BARE_MEMORY_RE, "")
     .replace(SCENE_RE, "")
     .replace(SPOTIFY_RE, "")
+    .replace(REACT_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")
     .replace(CREATE_PERSONA_RE, "")

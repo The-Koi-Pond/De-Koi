@@ -14,3 +14,4 @@ export {
 export type { BulkChatExportFormat } from "./lib/chat-transcript-export";
 export type { ChatListItem } from "./hooks/use-chat-summaries";
 export { confirmChatDeletion } from "./lib/chat-delete-confirmation";
+export { MESSAGE_SEARCH_MIN_CHARS, useMessageSearch } from "./hooks/use-message-search";

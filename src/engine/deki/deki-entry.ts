@@ -3,6 +3,7 @@ export type DekiWorkspaceToolName =
   | "grep"
   | "find"
   | "ls"
+  | "outline"
   | "deki_data"
   | "deki_code"
   | "read_deki_library"
@@ -13,7 +14,9 @@ export type DekiWorkspaceToolName =
   | "read_deki_chat_messages"
   | "read_deki_memories"
   | "search_deki_web"
-  | "read_deki_web_page";
+  | "read_deki_web_page"
+  | "edit_file"
+  | "edit_memory";
 
 export type DekiChatAccessMode = "conversation" | "roleplay";
 
@@ -166,6 +169,8 @@ export type DekiWorkspacePromptEvent =
   | { type: "tool_end"; data: { id?: string; name?: DekiWorkspaceToolName; isError?: boolean; output?: string } }
   | { type: "approval_pending"; data: DekiWorkspacePendingApproval }
   | { type: "metadata"; data: Record<string, unknown> }
+  | { type: "answer_delta"; data: string }
+  | { type: "answer_reset" }
   | { type: "done"; data?: unknown }
   | { type: "error"; data: string };
 
@@ -367,7 +372,7 @@ export async function runDekiEntry(
     onEvent && gateway.promptEvents ? await gateway.promptEvents(request, onEvent) : await gateway.prompt(request);
   const content = typeof response.content === "string" ? response.content : "";
   if (!content.trim()) {
-    throw new Error("Deki-senpai returned an empty response. Try again or select a different tool-capable connection.");
+    throw new Error("Deki-senpai returned an empty response. Try again or select a different connection.");
   }
   return {
     ...response,

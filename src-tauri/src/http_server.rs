@@ -1181,6 +1181,7 @@ async fn deki_prompt_stream(
         let events = deki::DekiEventSink::new(move |event| {
             let _ = event_tx.try_send(Ok(Event::default().data(event.to_string())));
         });
+        let session = json!({ "sessionId": request.get("sessionId").cloned() });
         let result =
             deki::deki_prompt_with_events(&state.app, request, &runtime_owner, events).await;
         let payload = match result {
@@ -1189,7 +1190,27 @@ async fn deki_prompt_stream(
                     "deki_prompt_stream ok in {}ms",
                     started.elapsed().as_millis()
                 ));
-                json!({ "type": "done", "data": response })
+                let done = json!({ "type": "done", "data": response });
+                if tx
+                    .send(Ok(Event::default().data(done.to_string())))
+                    .await
+                    .is_err()
+                {
+                    // The client left before the reply finished (tab closed,
+                    // connection dropped): save the reply so it is there when
+                    // the user comes back.
+                    let app = state.app.clone();
+                    let reply = done["data"].clone();
+                    let saved = tokio::task::spawn_blocking(move || {
+                        deki::persist_detached_reply(&app, &session, &reply)
+                    })
+                    .await;
+                    request_log(format!(
+                        "deki_prompt_stream client gone; reply saved={}",
+                        matches!(saved, Ok(Ok(true)))
+                    ));
+                }
+                return;
             }
             Err(error) => {
                 request_log(format!(

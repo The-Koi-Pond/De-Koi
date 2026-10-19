@@ -1,7 +1,13 @@
 use super::status::DekiRuntimeCancellation;
 use marinara_core::{AppError, AppResult};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::time::Duration;
+
+/// Reasoning effort for every Deki model call. On Claude Subscription with Opus 5.5,
+/// medium answered Deki's codebase questions as well as leaving it unset (judge 9.1 vs
+/// 9.0 of 10 on a fixed task set) in about three quarters of the time. Providers without
+/// an effort setting ignore it.
+const DEKI_REASONING_EFFORT: &str = "medium";
 
 #[derive(Debug, Clone)]
 pub(super) struct DekiModelMessage {
@@ -12,6 +18,13 @@ pub(super) struct DekiModelMessage {
 }
 
 #[derive(Debug, Clone)]
+/// Streamed model output: more reply text, or a restart that throws away the
+/// text so far because the provider started the reply over.
+pub(super) enum DekiModelText<'a> {
+    Delta(&'a str),
+    Restart,
+}
+
 pub(super) struct DekiModelClient {
     connection: marinara_llm::LlmConnection,
 }
@@ -58,12 +71,17 @@ impl DekiModelClient {
         Self { connection }
     }
 
+    /// Runs one model call as a stream, handing each piece of text to
+    /// `on_text` as it arrives, and returns the whole reply. When the provider
+    /// starts the reply over, `on_text` gets a restart and the text before it
+    /// is not part of the returned reply.
     pub(super) async fn complete(
         &self,
         messages: &[DekiModelMessage],
         max_tokens: u64,
         timeout_for: Duration,
         cancellation: &DekiRuntimeCancellation,
+        mut on_text: impl FnMut(DekiModelText<'_>) + Send,
     ) -> AppResult<DekiModelResponse> {
         let timeout_for = if timeout_for.is_zero() {
             Duration::from_millis(1)
@@ -88,27 +106,46 @@ impl DekiModelClient {
                 "temperature": 0.35,
                 "maxTokens": max_tokens,
                 "responseFormat": "json_object",
+                "reasoningEffort": DEKI_REASONING_EFFORT,
             }),
             tools: Vec::new(),
         };
-        let completion = tokio::time::timeout(timeout_for, marinara_llm::complete_rich(request));
-        let response = tokio::select! {
-            result = completion => result.map_err(|_| {
-                    AppError::new(
-                        "deki_model_timeout",
-                        "Deki-senpai's selected model did not finish before the workspace time limit.",
-                    )
-                })??,
-            _ = cancellation.cancelled() => {
-                return Err(AppError::new(
-                    "deki_workspace_aborted",
-                    "Deki-senpai's workspace run was cancelled.",
-                ));
-            }
-        };
-        Ok(DekiModelResponse {
-            content: response.content,
-            usage: response.usage,
-        })
+        let mut content = String::new();
+        let mut usage = None;
+        {
+            let stream = marinara_llm::stream_events_with_restarts(request, |event| {
+                match event.get("type").and_then(Value::as_str) {
+                    Some("token") => {
+                        if let Some(text) = event.get("text").and_then(Value::as_str) {
+                            content.push_str(text);
+                            on_text(DekiModelText::Delta(text));
+                        }
+                    }
+                    Some("text_reset") => {
+                        content.clear();
+                        on_text(DekiModelText::Restart);
+                    }
+                    Some("usage") => usage = event.get("data").cloned(),
+                    _ => {}
+                }
+                Ok(())
+            });
+            let completion = tokio::time::timeout(timeout_for, stream);
+            tokio::select! {
+                result = completion => result.map_err(|_| {
+                        AppError::new(
+                            "deki_model_timeout",
+                            "Deki-senpai's selected model did not finish before the workspace time limit.",
+                        )
+                    })??,
+                _ = cancellation.cancelled() => {
+                    return Err(AppError::new(
+                        "deki_workspace_aborted",
+                        "Deki-senpai's workspace run was cancelled.",
+                    ));
+                }
+            };
+        }
+        Ok(DekiModelResponse { content, usage })
     }
 }
