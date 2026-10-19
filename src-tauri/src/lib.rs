@@ -6,6 +6,7 @@ pub mod http_dispatch;
 pub mod http_server;
 pub(crate) mod http_storage_dispatch;
 pub(crate) mod performance_diagnostics;
+pub mod runner_supervisor;
 mod seed_defaults;
 pub mod state;
 #[path = "commands/storage.rs"]

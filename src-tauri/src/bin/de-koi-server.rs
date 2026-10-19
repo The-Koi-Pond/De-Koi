@@ -1,4 +1,5 @@
 use de_koi_lib::http_server;
+use de_koi_lib::runner_supervisor;
 use de_koi_lib::state::AppState;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -28,6 +29,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         AppState::server_resource_dir(),
     )?;
     println!("de-koi-server listening on http://{addr}");
+    if runner_supervisor::spawn_if_configured(addr) {
+        println!("generation runner starting next to the server");
+    }
     http_server::serve(state, addr).await?;
     Ok(())
 }

@@ -86,6 +86,7 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src/shared/api/local-sidecar-api.ts`: Focused frontend runtime wrapper for Local Model sidecar status, config, runtime/model downloads, process control, and smoke tests.
 - `src/shared/api/plugin-memory-api.ts`: Focused frontend wrapper for namespaced plugin memory stored in the `plugin-memory` collection and routed through embedded or remote runtime storage.
 - `src/engine`: React-free product behavior and mode orchestration.
+- `src/runner`, `vite.runner.config.ts`, and `src-tauri/src/runner_supervisor.rs`: Hosted generation runner. A Node bundle of the engine plus the shared runtime adapters that runs chat replies on the server (so they survive a closed tab); `de-koi-server` starts it when `DE_KOI_RUNNER_SCRIPT` is set (the server image does), nginx routes `/runner/` to it, and `src/shared/api/generation-runner-api.ts` plus `useGenerate`/`useRunnerReattach` use it when it is healthy.
 - `src/features`: React UI packages. Shell tools live in `src/features/shell`, catalog/resource editors live in `src/features/catalog`, mode surfaces live in `src/features/modes`, shared runtime UI lives in `src/features/runtime`.
 - `src/features/catalog/sprites`: Shared catalog sprite query keys, types, and React Query hooks used by character and persona sprite editors plus runtime sprite consumers.
 - `src/features/catalog/library-folders`: Shared durable library-folder hooks for organizing lorebooks and prompt presets.

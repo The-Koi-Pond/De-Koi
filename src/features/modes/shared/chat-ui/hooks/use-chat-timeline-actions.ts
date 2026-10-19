@@ -10,7 +10,7 @@ import {
   useUpdateMessageExtra,
 } from "../../../../catalog/chats/index";
 import { usePeekPrompt } from "./use-peek-prompt";
-import { useGenerate } from "../../../../runtime/generation/index";
+import { useGenerate, useRunnerReattach } from "../../../../runtime/generation/index";
 import { useTrackerStateStore, worldStateApi, type WorldStateTarget } from "../../../../runtime/world-state/index";
 import { BUILT_IN_AGENTS } from "../../../../../engine/contracts/types/agent";
 import { buildGuidedGenerationInstructionMessage } from "../../../../../engine/shared/text/generation-guide";
@@ -206,6 +206,8 @@ export function useChatTimelineActions({
   const branchChat = useBranchChat();
   const setActiveSwipe = useSetActiveSwipe(activeChatId);
   const { generate, retryAgents } = useGenerate();
+  // A reply still running on the hosted runner for this chat streams here too.
+  useRunnerReattach(activeChatId);
   const updateMessageRef = useLatestRef(updateMessage);
   const updateMessageExtraRef = useLatestRef(updateMessageExtra);
   const setActiveSwipeRef = useLatestRef(setActiveSwipe);
