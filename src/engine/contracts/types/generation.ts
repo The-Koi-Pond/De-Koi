@@ -80,4 +80,5 @@ export type GenerationEvent =
   | { type: "illustration"; data: unknown }
   | { type: "illustration_error"; data: unknown }
   | { type: "scene_created"; data: unknown }
+  | { type: "message_reaction"; data: unknown }
   | { type: "done"; data?: unknown };
