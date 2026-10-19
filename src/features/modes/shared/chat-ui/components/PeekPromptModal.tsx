@@ -5,6 +5,7 @@ import { useState, useMemo } from "react";
 import type { GenerationContextAttribution } from "../../../../../engine/contracts/types/chat";
 import { X, ChevronRight, ChevronDown, Loader2, Gauge, AlertTriangle } from "lucide-react";
 import { cn } from "../../../../../shared/lib/utils";
+import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import { buildPromptAttributionViewModel, type PromptAttributionViewModel } from "../lib/prompt-attribution";
 import { usePresetSummaries } from "../../../../catalog/presets/index";
 import type { PromptBudgetEstimate } from "../../../../../engine/generation/prompt-budget";
@@ -670,6 +671,10 @@ function AttributionPanel({ model }: { model: PromptAttributionViewModel }) {
 
 export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
   const { data: presetSummaries } = usePresetSummaries();
+  useEscapeOverlay(() => {
+    onClose();
+    return true;
+  });
   const displayMessages = data.previewMessages?.length ? data.previewMessages : data.messages;
   const sections = useMemo(() => buildDisplaySections(displayMessages), [displayMessages]);
   const totalTokens = useMemo(
@@ -741,6 +746,9 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Assembled prompt"
         className="mx-4 flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -764,6 +772,8 @@ export function PeekPromptModal({ data, onClose }: PeekPromptModalProps) {
             </span>
           </div>
           <button
+            type="button"
+            aria-label="Close"
             onClick={onClose}
             className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
           >
