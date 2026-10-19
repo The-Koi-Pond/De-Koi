@@ -11,7 +11,8 @@ pub(super) mod web;
 
 pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (all paths are repository-relative and all keys use camelCase):
 - read: {"path":"relative/file","startLine":1,"endLine":200}
-- grep: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- grep: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0,"regex":false} (set regex true to match a regular expression; matching is case-insensitive)
+- outline: {"path":"relative/file"} -> the file's functions, types, impls, constants, and headings with line numbers; use it on a large file before reading a range
 - find: {"query":"name","path":"optional/directory","maxResults":80}
 - ls: {"path":"relative/directory","limit":80}
 - deki_code: either {"path":"relative/file","startLine":1,"endLine":200} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
@@ -31,7 +32,14 @@ Omit optional keys you do not need. Reads return numbered lines; startLine and e
 pub(super) fn is_repository_command(name: &str) -> bool {
     matches!(
         normalized_command_name(name).as_str(),
-        "read" | "grep" | "find" | "ls" | "deki_code" | "search_deki_code" | "read_deki_code_file"
+        "read"
+            | "grep"
+            | "find"
+            | "ls"
+            | "outline"
+            | "deki_code"
+            | "search_deki_code"
+            | "read_deki_code_file"
     )
 }
 
@@ -112,6 +120,7 @@ enum DekiCommand {
     Grep(code::SearchTextArgs),
     Find(code::FindRepoPathArgs),
     Ls(code::ListRepoPathArgs),
+    Outline(code::OutlineArgs),
     Data(data_cli::DekiDataCommand),
     ReadLibrary(super::ReadDekiLibraryArgs),
     ReadLibraryItems(super::ReadDekiLibraryItemsArgs),
@@ -134,6 +143,7 @@ impl DekiCommand {
             "grep" => parse_command_args("grep", args).map(Self::Grep),
             "find" => parse_command_args("find", args).map(Self::Find),
             "ls" => parse_command_args("ls", args).map(Self::Ls),
+            "outline" => parse_command_args("outline", args).map(Self::Outline),
             "deki_data" => data_cli::parse(args).map(Self::Data),
             "read_deki_library" => {
                 parse_command_args("read_deki_library", args).map(Self::ReadLibrary)
@@ -261,6 +271,7 @@ async fn run_command(
         }
         DekiCommand::Find(args) => off_runtime(move || code::find_repo_paths(args)).await,
         DekiCommand::Ls(args) => off_runtime(move || code::list_repo_path(args)).await,
+        DekiCommand::Outline(args) => off_runtime(move || code::outline_repo_file(args)).await,
         DekiCommand::ReadLibrary(args) => read_deki_library(state, args),
         DekiCommand::ReadLibraryItems(args) => read_deki_library_items(state, args),
         DekiCommand::DekiCode(code::DekiCodeCommand::Search(args)) => {
@@ -404,6 +415,7 @@ fn trace_tool_name(name: &str) -> &str {
         | "grep"
         | "find"
         | "ls"
+        | "outline"
         | "deki_data"
         | "deki_code"
         | "read_deki_library"
