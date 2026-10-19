@@ -368,8 +368,22 @@ fn run_before_apply_hook() -> AppResult<()> {
 /// other writer can change the rows between the check and the write. A failed
 /// write is reconciled by planning again: an unchanged hash proves nothing was
 /// written.
+///
+/// Memory edits are the exception: the chat memory owner re-embeds the memory
+/// through the embedding model, and holding every storage writer behind that
+/// network call is worse than the narrow window between the hash check and the
+/// write, so they check and apply without the exclusive section.
 fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<ApplyOutcome> {
-    state.storage.with_exclusive_writes(|| {
+    if pending.mutation.collection == super::memory_edit::MEMORY_COLLECTION {
+        return check_and_apply(state, pending);
+    }
+    state
+        .storage
+        .with_exclusive_writes(|| check_and_apply(state, pending))
+}
+
+fn check_and_apply(state: &AppState, pending: &PendingApproval) -> AppResult<ApplyOutcome> {
+    {
         let plan = data_cli::plan_mutation(state, &pending.mutation)?;
         if plan.validation.blocked() {
             return Ok(ApplyOutcome::Blocked(
@@ -394,7 +408,7 @@ fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<
         } else {
             ApplyOutcome::FailedAfterWrite(error)
         })
-    })
+    }
 }
 
 fn sentence(message: &str) -> &str {

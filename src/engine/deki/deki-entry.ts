@@ -367,7 +367,7 @@ export async function runDekiEntry(
     onEvent && gateway.promptEvents ? await gateway.promptEvents(request, onEvent) : await gateway.prompt(request);
   const content = typeof response.content === "string" ? response.content : "";
   if (!content.trim()) {
-    throw new Error("Deki-senpai returned an empty response. Try again or select a different tool-capable connection.");
+    throw new Error("Deki-senpai returned an empty response. Try again or select a different connection.");
   }
   return {
     ...response,
