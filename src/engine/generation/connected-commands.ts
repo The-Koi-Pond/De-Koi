@@ -40,6 +40,7 @@ import {
   type JsonRecord,
 } from "./runtime-records";
 import { characterExtensionsPatch } from "../entities/character-extensions-patch";
+import { readMessageReactions, withMessageReaction } from "../modes/chat/core/message-reactions";
 
 type ConnectedCommandEvent =
   | { type: "cross_post"; data: JsonRecord }
@@ -48,7 +49,8 @@ type ConnectedCommandEvent =
   | { type: "selfie"; data: JsonRecord }
   | { type: "selfie_error"; data: JsonRecord }
   | { type: "command_error"; data: JsonRecord }
-  | { type: "scene_created"; data: JsonRecord };
+  | { type: "scene_created"; data: JsonRecord }
+  | { type: "message_reaction"; data: JsonRecord };
 
 export interface ConnectedCommandResult {
   displayContent: string;
@@ -70,6 +72,8 @@ type SelfieCommand = Extract<CharacterCommand, { type: "selfie" }>;
 
 type ConnectedCommandOptions = {
   pendingSelfieIntent?: boolean;
+  /** The user message this reply answers and the replying character, for [react: ...] tapbacks. */
+  reactionTarget?: { messageId: string; reactorId: string } | null;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
@@ -921,6 +925,32 @@ function eventsPushCommandError(events: ConnectedCommandEvent[], command: string
   events.push({ type: "command_error", data: { command, error } });
 }
 
+/** Puts the replying character's tapback on the user message the reply answers (one reaction per character). */
+async function applyCharacterReaction(
+  storage: StorageGateway,
+  chatId: string,
+  emoji: string,
+  target: { messageId: string; reactorId: string } | null,
+  events: ConnectedCommandEvent[],
+): Promise<boolean> {
+  if (!target?.messageId || !target.reactorId) {
+    eventsPushCommandError(events, "react", "There is no message of yours to react to.");
+    return false;
+  }
+  const message = await storage.getChatMessage<JsonRecord>(target.messageId);
+  if (!message || readString(message.chatId) !== chatId || readString(message.role) !== "user") {
+    eventsPushCommandError(events, "react", "The message to react to is gone.");
+    return false;
+  }
+  const current = readMessageReactions(message.extra);
+  // A character re-sending the same tapback keeps it (only the user toggles by tapping again).
+  if (current.some((reaction) => reaction.by === target.reactorId && reaction.emoji === emoji)) return true;
+  const reactions = withMessageReaction(current, target.reactorId, emoji, nowIso());
+  await storage.patchChatMessageExtra(target.messageId, { reactions });
+  events.push({ type: "message_reaction", data: { chatId, messageId: target.messageId, reactions } });
+  return true;
+}
+
 async function createSceneFromCommand(args: {
   storage: StorageGateway;
   llm?: LlmGateway;
@@ -1393,9 +1423,14 @@ async function executeCommand(
   visibleContent: string,
   imagePromptSettings?: ImagePromptSettings,
   visuals?: VisualAssetGateway,
+  options?: ConnectedCommandOptions,
 ): Promise<{ name: string; suppressSourceMessage?: boolean } | null> {
   const chatId = readString(chat.id);
   switch (command.type) {
+    case "react":
+      return (await applyCharacterReaction(storage, chatId, command.emoji, options?.reactionTarget ?? null, events))
+        ? { name: "react" }
+        : null;
     case "note":
     case "influence": {
       const storageChatId = await connectedNoteStorageChatId(storage, chat);
@@ -1673,6 +1708,7 @@ export async function persistConnectedCommandTags(
         parsed.cleanContent,
         imagePromptSettings,
         visuals,
+        options,
       );
       if (executed) {
         executedCommands.push(executed.name);
