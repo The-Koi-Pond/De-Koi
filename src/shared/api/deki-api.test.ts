@@ -744,6 +744,11 @@ describe("dekiApi live workspace events", () => {
   it("drops malformed events and keeps valid ones in the frontend contract", () => {
     expect(normalizeDekiWorkspacePromptEvent({ type: "tool_start", data: { name: "rm_rf", input: {} } })).toBeNull();
     expect(normalizeDekiWorkspacePromptEvent({ type: "token", data: "hidden {\"commands\":[]}" })).toBeNull();
+    expect(normalizeDekiWorkspacePromptEvent({ type: "answer_delta", data: "It is 256." })).toEqual({
+      type: "answer_delta",
+      data: "It is 256.",
+    });
+    expect(normalizeDekiWorkspacePromptEvent({ type: "answer_reset" })).toEqual({ type: "answer_reset" });
     expect(normalizeDekiWorkspacePromptEvent({ type: "status", data: { content: "  " } })).toBeNull();
     expect(normalizeDekiWorkspacePromptEvent({ type: "approval_pending", data: { id: "x" } })).toBeNull();
     const event = normalizeDekiWorkspacePromptEvent({ type: "approval_pending", data: approval });

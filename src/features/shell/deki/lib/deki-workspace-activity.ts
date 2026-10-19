@@ -19,6 +19,8 @@ export type DekiLiveActivity = {
   retrying: boolean;
   steps: DekiActivityStep[];
   approvals: DekiWorkspacePendingApproval[];
+  /** The final answer so far, while Deki writes it. */
+  answer: string;
 };
 
 export const EMPTY_DEKI_LIVE_ACTIVITY: DekiLiveActivity = {
@@ -26,6 +28,7 @@ export const EMPTY_DEKI_LIVE_ACTIVITY: DekiLiveActivity = {
   retrying: false,
   steps: [],
   approvals: [],
+  answer: "",
 };
 
 /** Folds one live workspace event into the activity shown while Deki works. */
@@ -59,6 +62,10 @@ export function reduceDekiLiveActivity(state: DekiLiveActivity, event: DekiWorks
       };
       return { ...state, steps };
     }
+    case "answer_delta":
+      return { ...state, answer: state.answer + event.data };
+    case "answer_reset":
+      return { ...state, answer: "" };
     case "approval_pending":
       return state.approvals.some((approval) => approval.id === event.data.id)
         ? state
@@ -158,6 +165,12 @@ export function describeDekiStep(name: DekiWorkspaceToolName, input: unknown): s
       return query ? `Found files matching ${quoted(query)}${inPath(input)}` : "Found files";
     case "ls":
       return path ? `Listed ${path}` : "Listed the repository";
+    case "outline":
+      return path ? `Outlined ${path}` : "Outlined a file";
+    case "edit_file":
+      return path ? `Proposed an edit to ${path}` : "Proposed a source edit";
+    case "edit_memory":
+      return "Proposed a memory edit";
     case "deki_code":
       return query ? `Searched code for ${quoted(query)}${inPath(input)}` : path ? `Read ${path}` : "Checked code";
     case "read_deki_library": {

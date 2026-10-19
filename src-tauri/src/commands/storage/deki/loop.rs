@@ -1,3 +1,4 @@
+use super::answer_stream::AnswerStream;
 use super::budget::{truncate_to_chars, DekiEvidenceBudget, DekiRuntimeBudget};
 use super::events::DekiEventSink;
 use super::model_client::{DekiModelClient, DekiModelMessage};
@@ -142,22 +143,49 @@ pub(super) async fn run_json_command_runtime(
         } else {
             super::DEKI_POST_TOOL_MAX_TOKENS
         };
-        let response = match model
-            .complete(&messages, max_tokens, timeout, &input.cancellation)
-            .await
-        {
+        // Stream the answer as it is written, except when a stop would be
+        // turned away for lacking repository evidence.
+        let mut answer = AnswerStream::new(
+            final_round || !input.requires_repository_evidence || has_repository_evidence,
+        );
+        let events = &input.events;
+        let response = model
+            .complete(
+                &messages,
+                max_tokens,
+                timeout,
+                &input.cancellation,
+                |text| {
+                    if let Some(visible) = answer.push(text) {
+                        events.answer_token(&visible);
+                    }
+                },
+            )
+            .await;
+        // Any path below that does not return this round's answer clears it.
+        let abandon = |events: &DekiEventSink| {
+            if answer.emitted_any() {
+                events.answer_reset();
+            }
+        };
+        let response = match response {
             Ok(response) => response,
             // An investigation round that runs into the reserve gives way to
             // the final answer round instead of failing the whole turn.
             Err(error) if error.code == "deki_model_timeout" && !final_round => {
+                abandon(events);
                 final_reason = Some(DekiFinalReason::Time);
                 continue;
             }
             Err(error) if error.code == "deki_model_timeout" => {
+                abandon(events);
                 final_reason.get_or_insert(DekiFinalReason::Time);
                 break;
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                abandon(events);
+                return Err(error);
+            }
         };
         if let Some(round_usage) = response.usage {
             usage.push(round_usage);
@@ -166,6 +194,7 @@ pub(super) async fn run_json_command_runtime(
         let frame = match extract_command_frame(&raw) {
             Ok(frame) => frame,
             Err(error) => {
+                abandon(events);
                 input.events.retry();
                 push_trace(
                     &mut trace,
@@ -185,6 +214,7 @@ pub(super) async fn run_json_command_runtime(
                 has_repository_evidence,
             );
         if needs_repository_evidence {
+            abandon(events);
             messages.push(DekiModelMessage::assistant(raw_frame_for_memory(&frame)));
             messages.push(DekiModelMessage::user(
                 "The original task asks about the current repository, but no repository command has succeeded yet. Continue the original task with the smallest useful read, grep, find, ls, deki_code, search_deki_code, or read_deki_code_file command. Do not answer from memory and do not mention this internal reminder in say."
@@ -197,6 +227,7 @@ pub(super) async fn run_json_command_runtime(
         }
         if frame_is_terminal(&frame, final_round) {
             if frame.say.trim().is_empty() && final_reason.is_some() {
+                abandon(events);
                 break;
             }
             return Ok(DekiJsonRuntimeOutput {
@@ -208,6 +239,7 @@ pub(super) async fn run_json_command_runtime(
             });
         }
 
+        abandon(events);
         if !frame.say.trim().is_empty() {
             input.events.narration(&frame.say);
             push_trace(
