@@ -363,6 +363,15 @@ pub(crate) async fn dispatch_for_runtime_owner(
         "tts_speak" => {
             integrations::tts_call(state, "POST", &["speak"], optional_value(&args, "input")).await
         }
+        "stt_transcribe" => {
+            integrations::tts_call(
+                state,
+                "POST",
+                &["transcribe"],
+                optional_value(&args, "input"),
+            )
+            .await
+        }
         "translate_text_command" => {
             translation::translate_text(state, optional_value(&args, "input")).await
         }

@@ -100,6 +100,9 @@ const NANOGPT_ELEVENLABS_VOICES: &[&str] = &[
     "Will",
 ];
 
+#[path = "tts_transcribe.rs"]
+mod transcribe;
+
 pub(crate) async fn tts_call(
     state: &AppState,
     method: &str,
@@ -111,6 +114,7 @@ pub(crate) async fn tts_call(
         ("PUT", ["config"]) => put_config(state, body),
         ("GET", ["voices"]) => voices(state).await,
         ("POST", ["speak"]) => speak(state, body).await,
+        ("POST", ["transcribe"]) => transcribe::transcribe(state, body).await,
         _ => Err(AppError::new(
             "route_not_found",
             format!("Unknown tts route: {method} /{}", rest.join("/")),
@@ -124,6 +128,8 @@ fn default_config() -> Value {
         "source": "openai",
         "baseUrl": "https://api.openai.com/v1",
         "voicesPath": "",
+        "speechInputProvider": false,
+        "sttModel": "",
         "apiKey": "",
         "voice": "alloy",
         "model": "tts-1",

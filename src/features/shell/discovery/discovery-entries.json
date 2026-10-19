@@ -732,6 +732,37 @@
     "coverage": "advanced"
   },
   {
+    "id": "voice-calls",
+    "title": "Voice Calls And Voice Input",
+    "category": "Media",
+    "summary": "Call a Conversation character: talk, and they answer out loud in their Text to Speech voice, hands-free, with every turn kept in the chat as texts. The mic button and calls can transcribe with your Text to Speech provider (OpenAI Whisper or ElevenLabs Scribe) instead of the browser. Needs microphone access, so hosted installs need an https:// address.",
+    "keywords": [
+      "voice",
+      "call",
+      "phone call",
+      "talk",
+      "speak",
+      "microphone",
+      "mic",
+      "dictation",
+      "speech to text",
+      "stt",
+      "whisper",
+      "scribe",
+      "hands-free"
+    ],
+    "audience": "People who'd rather talk than type.",
+    "where": "Conversation chat > phone button at the top. Provider transcription: Connections > Text to Speech > Voice input.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "conversation",
+        "label": "Start a conversation"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",

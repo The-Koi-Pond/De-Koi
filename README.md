@@ -132,9 +132,10 @@ it.
 </details>
 
 <details>
-<summary><b>Media</b> (3)</summary>
+<summary><b>Media</b> (4)</summary>
 
 - **Text-to-Speech**: Configure voice providers and let chats, narration, or characters speak with assigned voices.
+- **Voice Calls And Voice Input**: Call a Conversation character: talk, and they answer out loud in their Text to Speech voice, hands-free, with every turn kept in the chat as texts. The mic button and calls can transcribe with your Text to Speech provider (OpenAI Whisper or ElevenLabs Scribe) instead of the browser. Needs microphone access, so hosted installs need an https:// address.
 - **Image Generation**: Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.
 - **Music Player**: Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.
 
