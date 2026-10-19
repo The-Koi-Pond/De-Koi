@@ -271,6 +271,9 @@ describe("startGeneration roleplay text persistence", () => {
       reasons: ["agency"],
       evidence: ['You accept the bargain. "Good," she says.'],
       durationMs: expect.any(Number),
+      originalContent: expect.stringContaining("You accept the bargain."),
+      correctedContent: corrected,
+      edits: [expect.objectContaining({ before: 'You accept the bargain. "Good," she says.', reason: "agency" })],
     });
     expect(assistant?.swipes[0]?.extra?.roleplayQualityCorrection).toEqual(assistant?.extra.roleplayQualityCorrection);
     expect(events.filter((event) => event.type === "content_replace")).toEqual([

@@ -3334,6 +3334,9 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
         reasons: repair.reasons,
         evidence: repair.evidence,
         durationMs: repair.durationMs,
+        originalContent: args.content,
+        correctedContent: repair.content,
+        edits: repair.edits,
       },
     };
   } catch {
