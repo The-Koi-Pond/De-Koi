@@ -20,6 +20,23 @@ const HISTORICAL_UNIVERSAL_V2_ADULT_BOUNDARY: &str = "Adult dark fiction is allo
 const HISTORICAL_UNIVERSAL_V2_SHORT_ADULT_BOUNDARY: &str = "Adult dark fiction is allowed.";
 const HISTORICAL_UNIVERSAL_V2_AGENCY_SECTION: &str = "{{agencyStrictness}}\n\nApply this content boundary: {{contentBoundary}}\n\nFor adult dark fiction, separate writer consent from character consent. The user's request, selected boundary, chat history, and stated limits define what the collaboration permits; characters inside the fiction may still lie, resist, threaten, coerce, harm, exploit, desire, or make terrible choices. Do not interrupt an opted-in adult scene just because the fictional relationship is unhealthy, non-consensual, toxic, villainous, or frightening.\n\nPause, clarify, redirect, fade out, or refuse only when the user's author-level consent, age framing, or stated boundaries are genuinely unclear, or when explicit content would involve minors or real-world sexualization. Treat OOC stop signals and direct boundary statements as authoritative. Otherwise stay in-world and continue the scene without moralizing, consent-check stalling, or replacing the requested beat with decorative darkness.";
 
+/// Universal V2 section texts as they shipped before the current seed. An install still holding one of these
+/// exactly gets the current text; any other text was edited by the user and is left alone.
+const PREVIOUS_UNIVERSAL_V2_SECTIONS: &[(&str, &str)] = &[
+    (
+        "section_v2_agency_boundaries",
+        "{{agencyStrictness}}\n\n{{contentBoundary}}\n\nHonor direct out-of-character limits. Otherwise follow the requested genre, established characterization, and scene causality. Let tension, conflict, consequences, and resolution develop from the fiction rather than a default preference for comfort or approval.",
+    ),
+    (
+        "section_v2_world_autonomy",
+        "Portray a world with pressure, memory, and inertia. People have motives, limits, loyalties, fears, habits, blind spots, and private priorities. They can be wrong, petty, brave, kind, cruel, funny, tired, or contradictory without being labeled as archetypes.\n\nLet choices matter. Reward preparation, punish carelessness when the situation warrants it, and make setbacks fair enough that the user can understand why they happened. Avoid plot armor, but do not drag the protagonist down for its own sake.\n\nMove the scene forward through consequences, decisions, discoveries, interruptions, complications, or quiet changes in emotional weather. Do not resolve tension early just to make the moment comfortable.",
+    ),
+    (
+        "section_v2_context_contract",
+        "Use the provided lore, character data, persona data, summary, examples, and chat history as living constraints.\n\nPrioritize the latest chat turn, then active scene facts, then summaries, then static lore. Do not re-explain context that the conversation already established. If old context conflicts with recent events, let recent events win unless the text clearly says otherwise.\n\nCharacters know only what they could perceive, remember, infer, be told, or plausibly suspect. Private thoughts are not audible. Private conversations stay private. Rumors travel imperfectly. When uncertain whether a character knows something, default to no and show the cost of that uncertainty.",
+    ),
+];
+
 pub fn seed_bundled_defaults(storage: &FileStorage, default_data: &Path) -> AppResult<()> {
     let db_root = default_data.join("db");
     remove_legacy_deki_character_records(storage)?;
@@ -144,6 +161,7 @@ fn refresh_universal_v2_boundary_rows(storage: &FileStorage, data: &Value) -> Ap
         refresh_universal_v2_boundary_choices(storage, &desired_boundary_options)?;
     }
     refresh_universal_v2_choice_metadata(storage, data)?;
+    refresh_previous_universal_v2_sections(storage, data)?;
 
     Ok(())
 }
@@ -297,6 +315,29 @@ fn refresh_universal_v2_agency_section(
             "section_v2_agency_boundaries",
             json!({ "content": desired_content }),
         )?;
+    }
+    Ok(())
+}
+
+fn refresh_previous_universal_v2_sections(storage: &FileStorage, data: &Value) -> AppResult<()> {
+    let Some(desired_sections) = data.get("sections").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for (id, previous) in PREVIOUS_UNIVERSAL_V2_SECTIONS {
+        let Some(desired) = desired_sections
+            .iter()
+            .find(|section| section.get("id").and_then(Value::as_str) == Some(id))
+            .and_then(|section| section.get("content"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Some(stored) = storage.get("prompt-sections", id)? else {
+            continue;
+        };
+        if desired != *previous && stored.get("content").and_then(Value::as_str) == Some(previous) {
+            storage.patch("prompt-sections", id, json!({ "content": desired }))?;
+        }
     }
     Ok(())
 }
@@ -1017,6 +1058,66 @@ mod tests {
         assert_eq!(
             explicit_adult.get("description").and_then(Value::as_str),
             Some("Allows adult explicit content; genre and character dynamics follow the scene.")
+        );
+    }
+
+    #[test]
+    fn refreshes_previous_universal_v2_sections_and_keeps_edited_ones() {
+        let (storage, root) = temp_storage();
+        storage
+            .create(
+                "prompts",
+                json!({
+                    "id": UNIVERSAL_V2_PRESET_ID,
+                    "name": UNIVERSAL_V2_PRESET_NAME,
+                    "author": MARINARA_PRESET_AUTHOR,
+                    "isDefault": false
+                }),
+            )
+            .expect("existing V2 prompt should insert");
+        let (previous_id, previous_content) = PREVIOUS_UNIVERSAL_V2_SECTIONS[1];
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": previous_id,
+                    "presetId": UNIVERSAL_V2_PRESET_ID,
+                    "content": previous_content
+                }),
+            )
+            .expect("untouched section should insert");
+        let (edited_id, _) = PREVIOUS_UNIVERSAL_V2_SECTIONS[2];
+        storage
+            .create(
+                "prompt-sections",
+                json!({
+                    "id": edited_id,
+                    "presetId": UNIVERSAL_V2_PRESET_ID,
+                    "content": "My own rules for this section."
+                }),
+            )
+            .expect("edited section should insert");
+
+        seed_bundled_defaults(&storage, &root.0.join("missing-default-data"))
+            .expect("defaults should seed");
+
+        let refreshed = storage
+            .get("prompt-sections", previous_id)
+            .expect("section should read")
+            .expect("section should remain");
+        let refreshed = refreshed
+            .get("content")
+            .and_then(Value::as_str)
+            .expect("content should be text");
+        assert_ne!(refreshed, previous_content);
+        assert!(refreshed.starts_with(previous_content.split("\n\n").next().unwrap()));
+        let edited = storage
+            .get("prompt-sections", edited_id)
+            .expect("section should read")
+            .expect("section should remain");
+        assert_eq!(
+            edited.get("content").and_then(Value::as_str),
+            Some("My own rules for this section.")
         );
     }
 
