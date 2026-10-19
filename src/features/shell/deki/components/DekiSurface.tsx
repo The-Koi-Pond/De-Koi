@@ -76,6 +76,8 @@ const DEKI_NO_CONNECTION_SELECTED_ERROR =
   'No connection set for Deki-senpai! Click the "chains" icon in the input box to select one.';
 const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai";
 const DEKI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
+/** Matches the backend's per-image limit (the size image-capable providers accept). */
+const DEKI_IMAGE_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 const DEKI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 const DEKI_ACTION_ENTITY_LABELS: Record<DekiActionEntity, string> = {
   characters: "character",
@@ -168,6 +170,14 @@ function isDekiImageFile(file: File) {
   if (file.type.startsWith("image/")) return true;
   const extension = file.name.includes(".") ? file.name.split(".").pop()?.toLowerCase() : null;
   return !!extension && DEKI_IMAGE_ATTACHMENT_EXTENSIONS.has(extension);
+}
+
+/** A data URL with an image MIME type, even when the browser reported none for the file. */
+function dekiImageDataUrl(file: File, dataUrl: string) {
+  if (file.type.startsWith("image/")) return dataUrl;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "png";
+  const mime = `image/${extension === "jpg" ? "jpeg" : extension}`;
+  return dataUrl.replace(/^data:[^;,]*/, `data:${mime}`);
 }
 
 function formatDaySeparator(value: string) {
@@ -529,8 +539,15 @@ function dekiApprovalErrorMessage(error: unknown): string {
   }
 }
 
+/** deki_data collections that are not action-card entities. */
+const DEKI_DATA_ONLY_QUERY_KEYS: Record<string, readonly (readonly unknown[])[]> = {
+  extensions: [["extensions"]],
+  agents: [["agents"]],
+};
+
 async function invalidateDekiDataQueries(queryClient: QueryClient, collection: string) {
-  const entityKeys = DEKI_ACTION_QUERY_KEYS[collection as DekiActionEntity] ?? [];
+  const entityKeys =
+    DEKI_ACTION_QUERY_KEYS[collection as DekiActionEntity] ?? DEKI_DATA_ONLY_QUERY_KEYS[collection] ?? [];
   await Promise.all(
     uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...entityKeys]).map((queryKey) =>
       queryClient.invalidateQueries({
@@ -604,6 +621,9 @@ export function DekiSurface({
   const [chatAccessGrants, setChatAccessGrants] = useState<DekiChatAccessGrant[]>([]);
   const [liveActivities, setLiveActivities] = useState<Record<string, DekiLiveActivity>>({});
   const [stoppingSessionKeys, setStoppingSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  /** Sessions with a Deki turn still running on the server that this tab did not start (it was closed or reloaded mid-turn). */
+  const [detachedRunKeys, setDetachedRunKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const sendingSessionKeysRef = useRef<ReadonlySet<string>>(new Set());
   const [workspaceApprovals, setWorkspaceApprovals] = useState<DekiWorkspaceApprovalsState | null>(null);
   const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
@@ -621,6 +641,37 @@ export function DekiSurface({
   const historyLoaded = historyLoadState.completed && historyLoadState.sessionKey === currentSessionRunKey;
   const historyLoadGeneration = historyLoadState.generation;
   const sending = sendingSessionKeys.has(currentSessionRunKey);
+  sendingSessionKeysRef.current = sendingSessionKeys;
+  const detachedRun = !sending && detachedRunKeys.has(currentSessionRunKey);
+
+  // A turn this tab did not start is still running on the server: check every
+  // few seconds, and reload the history once it ends so its saved reply shows.
+  useEffect(() => {
+    if (!detachedRun) return;
+    const key = currentSessionRunKey;
+    const targetSessionId = sessionId;
+    const timer = window.setInterval(() => {
+      void dekiApi.workspace
+        .status(dekiRuntimeSessionId(targetSessionId))
+        .then((status) => {
+          if (status.active) return;
+          const without = (current: ReadonlySet<string>) => {
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          };
+          setDetachedRunKeys(without);
+          setStoppingSessionKeys(without);
+          void onSessionsChanged?.();
+          setHistoryLoadState((current) =>
+            current.sessionKey === key ? { ...current, generation: current.generation + 1, completed: false } : current,
+          );
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [detachedRun, currentSessionRunKey, sessionId, onSessionsChanged]);
+
   const markSessionSending = (targetSessionId: string | null | undefined, active: boolean) => {
     const key = dekiSessionRunKey(targetSessionId);
     setSendingSessionKeys((current) => {
@@ -720,6 +771,9 @@ export function DekiSurface({
         pending: status.pendingApprovals,
         history: status.history,
       });
+      if (status.active && !sendingSessionKeysRef.current.has(key)) {
+        setDetachedRunKeys((current) => (current.has(key) ? current : new Set(current).add(key)));
+      }
     } catch {
       // The workspace runtime is absent (plain browser) or unreachable; the
       // approval cards say so instead of offering buttons that cannot work.
@@ -991,7 +1045,15 @@ export function DekiSurface({
                 content,
               });
             if (isDekiImageFile(file)) {
-              finish("");
+              // Too-large images go up empty; Deki-senpai's backend names the size limit back.
+              if (file.size > DEKI_IMAGE_ATTACHMENT_MAX_BYTES) {
+                finish("");
+                return;
+              }
+              const reader = new FileReader();
+              reader.onload = () => finish(dekiImageDataUrl(file, String(reader.result ?? "")));
+              reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`));
+              reader.readAsDataURL(file);
               return;
             }
             file
@@ -1535,6 +1597,13 @@ export function DekiSurface({
               />
             );
           })}
+          {!sending && detachedRunKeys.has(currentSessionRunKey) && (
+            <DekiLiveActivityPanel
+              activity={{ ...EMPTY_DEKI_LIVE_ACTIVITY, narration: "Still working on your last message..." }}
+              stopping={stoppingSessionKeys.has(currentSessionRunKey)}
+              onStop={() => void stopDeki()}
+            />
+          )}
           {sending &&
             (liveActivities[currentSessionRunKey] ? (
               <DekiLiveActivityPanel

@@ -2672,11 +2672,22 @@ function scheduleLine(block: JsonRecord): string {
   return activity ? `${prefix} - ${activity}` : prefix;
 }
 
-function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {
+interface ConversationFreshnessNames {
+  userName: string | null;
+  characterNames: string[];
+}
+
+function buildConversationFreshnessBlock(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+  names: ConversationFreshnessNames,
+): ChatMLMessage | null {
   if (modeOf(input.chat) !== "conversation") return null;
   const guidance = buildConversationFreshnessGuidance({
     messages: input.storedMessages,
     latestUserInput: input.latestUserInput,
+    userName: names.userName,
+    characterNames: names.characterNames,
   });
   if (!guidance) return null;
   return {
@@ -2691,6 +2702,23 @@ function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat:
       wrapFormat,
     ),
   };
+}
+
+/**
+ * Conversation notes that change every turn (the clock, the "conversation resumed" gap, the freshness hint).
+ * They ride on the latest user turn instead of sitting among the system blocks: providers that hoist every
+ * system message into one system prompt (Anthropic, Claude Subscription) would otherwise get a new system
+ * prompt each minute, and a changed system prompt misses the provider's prompt cache for the whole request.
+ */
+function buildConversationTurnNotes(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+  names: ConversationFreshnessNames,
+): ChatMLMessage[] {
+  return [
+    buildConversationPresenceBlock(input, wrapFormat),
+    buildConversationFreshnessBlock(input, wrapFormat, names),
+  ].filter((block): block is ChatMLMessage => block !== null);
 }
 
 interface RoleplayQualityContext {
@@ -2761,13 +2789,16 @@ function appendReplyNotesToLatestUserTurn(
   messages: ChatMLMessage[],
   roleplayQuality: RoleplayQualityContext | null,
   wrapFormat: WrapFormat,
+  conversationTurnNotes: ChatMLMessage[],
 ): ChatMLMessage[] {
   const mode = modeOf(input.chat);
   const styleNote =
     input.request.impersonate !== true && (mode === "roleplay" || mode === "visual_novel" || mode === "conversation")
       ? PROSE_STYLE_NOTE
       : "";
-  const notes = [styleNote, roleplayQuality?.note ?? ""].filter(Boolean);
+  const notes = [...conversationTurnNotes.map((note) => note.content), styleNote, roleplayQuality?.note ?? ""].filter(
+    Boolean,
+  );
   if (notes.length === 0) return messages;
   let latestTurnIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -2777,18 +2808,25 @@ function appendReplyNotesToLatestUserTurn(
     }
   }
   if (latestTurnIndex < 0 || messages[latestTurnIndex]!.role !== "user") {
-    // Continuing a reply has no user turn to carry the notes; the habit note still goes in as context.
-    if (!roleplayQuality) return messages;
-    const withHabits = [...messages];
-    insertBeforeLastUser(withHabits, [
-      {
-        role: "system",
-        contextKind: "agent",
-        displayName: "Roleplay quality",
-        content: wrapContent(roleplayQuality.note, "roleplay_quality", wrapFormat),
-      },
-    ]);
-    return withHabits;
+    // Continuing a reply or texting first has no user turn to carry the notes; the conversation notes and the
+    // habit note still go in as context (the clock matters most when a character decides to text first).
+    const contextNotes = [
+      ...conversationTurnNotes,
+      ...(roleplayQuality
+        ? [
+            {
+              role: "system" as const,
+              contextKind: "agent" as const,
+              displayName: "Roleplay quality",
+              content: wrapContent(roleplayQuality.note, "roleplay_quality", wrapFormat),
+            },
+          ]
+        : []),
+    ];
+    if (contextNotes.length === 0) return messages;
+    const withNotes = [...messages];
+    insertBeforeLastUser(withNotes, contextNotes);
+    return withNotes;
   }
   return messages.map((message, index) =>
     index === latestTurnIndex
@@ -3033,8 +3071,6 @@ async function buildConversationContextBlocks(
     buildCrossChatAwarenessBlock(storage, input.chat, characters, wrapFormat),
   ]);
   return [
-    buildConversationPresenceBlock(input, wrapFormat),
-    buildConversationFreshnessBlock(input, wrapFormat),
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
     crossChat,
     linked.block,
@@ -4677,7 +4713,16 @@ export async function assembleGenerationPrompt(
   if (messages.some((message) => hasDeferredCharacterMacros(message.content))) {
     throw new Error("Deferred character macro placeholder remained before prompt handoff");
   }
-  messages = appendReplyNotesToLatestUserTurn(input, messages, roleplayQualityContext, wrapFormat);
+  messages = appendReplyNotesToLatestUserTurn(
+    input,
+    messages,
+    roleplayQualityContext,
+    wrapFormat,
+    buildConversationTurnNotes(input, wrapFormat, {
+      userName: persona?.name.trim() || null,
+      characterNames: characters.map((character) => character.name),
+    }),
+  );
   const previewMessages = previewMessagesForPrompt(messages);
   const shouldEnforceStrictRoles = boolish(promptParameters?.strictRoleFormatting, true) && !individualGroupTarget;
   messages = shouldEnforceStrictRoles ? enforceStrictRoles(messages) : mergeAdjacentMessages(messages);

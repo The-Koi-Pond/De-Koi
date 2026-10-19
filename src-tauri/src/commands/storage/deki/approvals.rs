@@ -368,8 +368,22 @@ fn run_before_apply_hook() -> AppResult<()> {
 /// other writer can change the rows between the check and the write. A failed
 /// write is reconciled by planning again: an unchanged hash proves nothing was
 /// written.
+///
+/// Memory edits are the exception: the chat memory owner re-embeds the memory
+/// through the embedding model, and holding every storage writer behind that
+/// network call is worse than the narrow window between the hash check and the
+/// write, so they check and apply without the exclusive section.
 fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<ApplyOutcome> {
-    state.storage.with_exclusive_writes(|| {
+    if pending.mutation.collection == super::memory_edit::MEMORY_COLLECTION {
+        return check_and_apply(state, pending);
+    }
+    state
+        .storage
+        .with_exclusive_writes(|| check_and_apply(state, pending))
+}
+
+fn check_and_apply(state: &AppState, pending: &PendingApproval) -> AppResult<ApplyOutcome> {
+    {
         let plan = data_cli::plan_mutation(state, &pending.mutation)?;
         if plan.validation.blocked() {
             return Ok(ApplyOutcome::Blocked(
@@ -394,7 +408,7 @@ fn apply_if_unchanged(state: &AppState, pending: &PendingApproval) -> AppResult<
         } else {
             ApplyOutcome::FailedAfterWrite(error)
         })
-    })
+    }
 }
 
 fn sentence(message: &str) -> &str {
@@ -545,6 +559,111 @@ mod tests {
             .as_str()
             .expect("dry-run should create a pending approval")
             .to_string()
+    }
+
+    #[test]
+    fn custom_agent_insert_is_created_switched_off_with_a_custom_type() {
+        let state = test_state("agent-insert");
+        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("agent-insert"));
+
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "insert",
+                "collection": "agents",
+                "value": { "name": "Mood Tracker", "promptTemplate": "Track the mood." },
+                "reason": "user asked for a mood tracker"
+            }),
+        );
+        let id = approval_id(&result);
+        assert!(state.storage.list("agents").expect("list").is_empty());
+
+        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect("approval applies");
+        let agents = state.storage.list("agents").expect("list");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0]["type"], json!("custom-mood-tracker"));
+        assert_eq!(agents[0]["enabled"], json!(false));
+        assert_eq!(agents[0]["phase"], json!("parallel"));
+    }
+
+    #[test]
+    fn extensions_and_agents_cannot_be_switched_on_by_deki() {
+        let state = test_state("automation-guard");
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("automation-guard"),
+        );
+        state
+            .storage
+            .create(
+                "extensions",
+                json!({ "id": "ext-1", "name": "Notes", "css": "body{}", "enabled": false }),
+            )
+            .expect("seed extension");
+
+        let enabled_insert = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "insert",
+                "collection": "extensions",
+                "value": { "name": "Bold", "css": "b{}", "enabled": true },
+                "reason": "test"
+            }),
+        );
+        assert_eq!(enabled_insert["ok"], json!(false));
+        assert!(enabled_insert["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("switched off"));
+
+        let enable_patch = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "patch",
+                "collection": "extensions",
+                "id": "ext-1",
+                "patch": { "enabled": true },
+                "reason": "test"
+            }),
+        );
+        assert_eq!(enable_patch["ok"], json!(false));
+        assert!(enable_patch["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("cannot change enabled"));
+    }
+
+    #[test]
+    fn built_in_agents_are_not_deki_s_to_edit_or_delete() {
+        let state = test_state("agent-built-in");
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("agent-built-in"),
+        );
+        state
+            .storage
+            .create(
+                "agents",
+                json!({ "id": "agent-world", "type": "world-state", "name": "World State" }),
+            )
+            .expect("seed built-in agent");
+
+        for args in [
+            json!({ "action": "patch", "collection": "agents", "id": "agent-world", "patch": { "name": "Mine" }, "reason": "test" }),
+            json!({ "action": "delete", "collection": "agents", "id": "agent-world", "reason": "test" }),
+            json!({ "action": "insert", "collection": "agents", "value": { "name": "X", "type": "custom-tracker", "promptTemplate": "p" }, "reason": "test" }),
+        ] {
+            let result = dry_run(&state, &scope, args);
+            assert_eq!(result["ok"], json!(false), "{result}");
+            assert!(result["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("built-in"));
+        }
     }
 
     #[test]

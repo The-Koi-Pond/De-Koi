@@ -48,11 +48,11 @@ stable unless the implementation exposes a missing optional field.
 - Prompt text and request context assembly should live in `deki/prompt.rs`.
   Keep persona text, attachments, approved chat grants, approved web grants,
   repository guidance, and command-protocol instructions in one prompt owner.
-- The Slice 2 JSON path is read-only. Requests whose selected capability set
-  includes an existing write tool remain on the current native-tool path during
-  this transition so rebasing Slice 2 does not remove current-main behavior.
-  That compatibility lane is not part of the JSON command registry and should
-  be migrated only with a separately reviewed approval design.
+- Every Deki turn runs on this JSON runtime. Writes are dry-runs that wait
+  for the user's approval: `deki_data` for library rows, extensions, and custom
+  agents, `edit_file` for source, and `edit_memory` for memories (see
+  `docs/deki-data-approvals.md`). The earlier native-tool path, its keyword
+  routing, and the `autoagents` dependency are gone.
 
 - The bounded command loop should live in `deki/loop.rs`. It owns max rounds,
   wall-clock timeout checks, cancellation checks, internal trace
@@ -112,9 +112,14 @@ Use named constants in `deki/budget.rs` so tests can assert them:
   issue one smallest missing command batch; round 8 is command-free synthesis.
   This leaves one bounded recovery turn without executing unconsumable commands.
 - Maximum commands per round: 4.
-- Maximum wall-clock runtime before controlled stop: 90 seconds.
-- Maximum single command evidence fed to the next model turn: 12 KiB.
-- Maximum total hidden command evidence retained for the next model turn: 48 KiB.
+- Reasoning effort for every model call: medium (`DEKI_REASONING_EFFORT` in
+  `deki/model_client.rs`).
+- Maximum wall-clock runtime: 180 seconds, of which the last 45 are kept for
+  the final answer round. Investigation rounds and commands only use the time
+  before that reserve.
+- Command evidence is sized from the connection's `maxContext` (128k tokens
+  when unset): 30% of the window at about four characters per token, between
+  48 KiB and 384 KiB in total, and one sixth of that per command (12–48 KiB).
 - Maximum internal trace text kept for future Slice 4 use: 64 KiB.
 - Maximum web search results per command: 5.
 - Maximum web pages read per turn: 2.
@@ -124,20 +129,25 @@ When output is truncated, the command result must say what was truncated and how
 to narrow the next command. The complete serialized result, including wrapper
 metadata and guidance, must fit the single-result cap. The exact model feedback
 message, including the round/results/instructions envelope and message
-prefix/suffix, must be charged to the cumulative evidence cap. Drop tail results
-to make a complete envelope fit; if even the empty envelope cannot fit, stop the
-command loop. Silent truncation is not acceptable.
+prefix/suffix, is charged to the cumulative evidence cap. A result that does
+not fit becomes an `omitted` marker that keeps its id, name, and `ok` and says
+it is not an empty result; results are never dropped silently.
+
+The run always ends with an answer from the evidence it has. The last round,
+spent investigation time, a model call that runs into the reserve, or a used-up
+evidence budget each move the run to one command-free final answer round. Only
+when that round also produces nothing does the response carry a labelled
+partial answer (the last progress note plus why it stopped) and
+`incomplete: "rounds" | "time" | "evidence"`.
 
 ## Slice 2 Acceptance Checklist
 
 - Provider boundary: no Slice 2 code path should require
   `ensure_connection_supports_native_tools`; JSON runtime model calls go through
   `deki/model_client.rs`.
-  Native write compatibility requests are outside that read-only JSON path.
 - Module split: `deki.rs` stays a facade. Prompt assembly, loop control,
   protocol parsing, budget enforcement, action parsing, command execution, web
   research, and status DTOs have focused owners.
-  Legacy native write behavior remains colocated until its approval migration.
 - Typed commands: command input and output should use Rust structs/enums at the
   command boundary. Raw `serde_json::Value` should be limited to JSON protocol
   ingress/egress and returned storage payloads that are already JSON-shaped.

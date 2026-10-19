@@ -25,11 +25,12 @@ pub(super) const DEKI_DATA_GUIDE: &str = r#"deki_data app-data commands (always 
 - {"action":"insert","collection":"lorebook-entries","value":{...},"reason":"why"}
 - {"action":"patch","collection":"personas","id":"exact id","patch":{"only":"changed fields"},"reason":"why"}
 - {"action":"delete","collection":"lorebook-entries","id":"exact id","reason":"why"}
-Collections: characters, character-groups, personas, persona-groups, lorebooks, lorebook-entries, prompts, prompt-sections, prompt-groups, prompt-variables. Chats, messages, memories, connections, and settings are not deki_data collections.
+Collections: characters, character-groups, personas, persona-groups, lorebooks, lorebook-entries, prompts, prompt-sections, prompt-groups, prompt-variables, extensions, agents. Chats, messages, memories, connections, and settings are not deki_data collections.
+Extensions ({"name","description","css","js"}) and custom agents ({"name","description","phase":"pre_generation|parallel|post_processing","promptTemplate","settings":{...}}) are created switched off; never set enabled, and never patch enabled or type. Agent type defaults to custom-<name>. Built-in agents cannot be edited or deleted. Prefer an extension or custom agent over a source edit when the user wants to customize De-Koi.
 insert/patch/delete are dry-runs: nothing is written. Each returns a diff preview and a pending approval that the user must approve in De-Koi. Never say a dry-run change was saved, applied, or deleted; say it is waiting for approval. Character patches go under patch.data (for example {"data":{"scenario":"..."}}); persona patches use top-level card fields. Patch only the fields that change. Prefer a <deki_action> card for drafting or rewriting one card the user will review; use deki_data for deletes and precise structured edits such as adding or removing lorebook entries or patching a few fields across records."#;
 
 const MUTATION_ACTIONS: &str = "status, collections, list, search, get, insert, patch, delete";
-const PAYLOAD_MAX_BYTES: usize = 64 * 1024;
+pub(super) const PAYLOAD_MAX_BYTES: usize = 64 * 1024;
 const REASON_MAX_CHARS: usize = 500;
 const PREVIEW_STRING_MAX_CHARS: usize = 600;
 const PREVIEW_ARRAY_MAX_ITEMS: usize = 12;
@@ -271,6 +272,7 @@ pub(super) fn execute(
             }],
         ),
         DekiDataCommand::Mutate(mutation) => {
+            let mutation = super::automation::prepare_insert(state, mutation)?;
             let plan = plan_mutation(state, &mutation)?;
             let approval = approvals::record_dry_run(scope, &plan)?;
             let mut result = json!({
@@ -337,6 +339,8 @@ fn required_fields_note(entity: &str) -> &'static str {
         "prompt-sections" | "prompt-groups" | "prompt-variables" => {
             "insert needs presetId of an existing prompt preset"
         }
+        "extensions" => "insert needs name and css or js; created switched off",
+        "agents" => "insert needs name and promptTemplate; created switched off with a unique custom- type",
         _ => "insert needs name",
     }
 }
@@ -353,7 +357,7 @@ impl DekiDataValidation {
         json!({ "level": level, "entity": entity, "id": id, "message": message.into() })
     }
 
-    fn error(&mut self, entity: &str, id: &str, message: impl Into<String>) {
+    pub(super) fn error(&mut self, entity: &str, id: &str, message: impl Into<String>) {
         self.errors.push(Self::issue("error", entity, id, message));
     }
 
@@ -417,6 +421,12 @@ pub(super) fn plan_mutation(
     state: &AppState,
     mutation: &DekiDataMutation,
 ) -> AppResult<DekiDataPlan> {
+    if mutation.collection == super::source_edit::SOURCE_COLLECTION {
+        return super::source_edit::plan(mutation);
+    }
+    if mutation.collection == super::memory_edit::MEMORY_COLLECTION {
+        return super::memory_edit::plan(state, mutation);
+    }
     let entity = mutation.collection;
     let id = mutation.id.as_str();
     let mut validation = DekiDataValidation::default();
@@ -442,6 +452,7 @@ pub(super) fn plan_mutation(
         }
         DekiDataMutationKind::Delete => {}
     }
+    super::automation::validate(state, mutation, &payload, current.as_ref(), &mut validation)?;
 
     match mutation.kind {
         DekiDataMutationKind::Insert => {
@@ -588,6 +599,12 @@ pub(super) fn plan_mutation(
 /// Applies an approved mutation through the same storage owners the app's
 /// editors use, so normalization, cascades, and version snapshots match.
 pub(super) fn apply_mutation(state: &AppState, mutation: &DekiDataMutation) -> AppResult<Value> {
+    if mutation.collection == super::source_edit::SOURCE_COLLECTION {
+        return super::source_edit::apply(mutation);
+    }
+    if mutation.collection == super::memory_edit::MEMORY_COLLECTION {
+        return super::memory_edit::apply(state, mutation);
+    }
     let entity = mutation.collection.to_string();
     match mutation.kind {
         DekiDataMutationKind::Insert => {
@@ -1026,7 +1043,7 @@ fn changed_subset(before: &Value, after: &Value, depth: usize) -> (Value, Value)
     (Value::Object(before_changed), Value::Object(after_changed))
 }
 
-fn row_change(
+pub(super) fn row_change(
     entity: &str,
     id: &str,
     action: &str,
@@ -1142,7 +1159,7 @@ fn operation_hash(
 
 /// Serializes with object keys sorted at every level, independent of whether
 /// serde_json preserves insertion order in this build.
-fn canonical_json(value: &Value) -> String {
+pub(super) fn canonical_json(value: &Value) -> String {
     fn sorted(value: &Value) -> Value {
         match value {
             Value::Object(object) => {
@@ -1161,7 +1178,7 @@ fn canonical_json(value: &Value) -> String {
     sorted(value).to_string()
 }
 
-fn required_reason(reason: String) -> AppResult<String> {
+pub(super) fn required_reason(reason: String) -> AppResult<String> {
     let reason = reason.trim();
     if reason.is_empty() {
         return Err(AppError::invalid_input(
