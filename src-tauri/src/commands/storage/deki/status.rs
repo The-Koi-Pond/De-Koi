@@ -171,6 +171,7 @@ pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
     "grep",
     "find",
     "ls",
+    "outline",
     "deki_data",
     "deki_code",
     "read_deki_library",

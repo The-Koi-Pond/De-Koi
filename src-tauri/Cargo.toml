@@ -52,6 +52,7 @@ tauri-build = { version = "2", features = [], optional = true }
 aes-gcm = "0.11"
 axum = { version = "0.8", features = ["multipart"] }
 base64 = "0.23"
+regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 libc = "0.2"
