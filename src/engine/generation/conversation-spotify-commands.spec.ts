@@ -267,6 +267,55 @@ describe("conversation Spotify command prompting", () => {
     expect(promptText).toContain("Time zone: America/New_York");
   });
 
+  it("keeps the system blocks identical from minute to minute so provider prompt caches can hit", async () => {
+    vi.useFakeTimers();
+    const assembleAt = async (iso: string) => {
+      vi.setSystemTime(new Date(iso));
+      return assembleGenerationPrompt(promptStorage(), {
+        chat: { id: "chat-1", mode: "conversation", characterIds: ["char-1"], metadata: {} },
+        storedMessages: [
+          { id: "user-1", role: "user", content: "hey", createdAt: "2026-06-21T19:00:00.000Z" },
+          { id: "assistant-1", role: "assistant", content: "hey you", createdAt: "2026-06-21T19:00:30.000Z" },
+          { id: "user-2", role: "user", content: "what time is it?", createdAt: iso },
+        ],
+        connection: { provider: "anthropic", model: "qa-model" },
+        request: { userTimeZone: "America/New_York" },
+        latestUserInput: "what time is it?",
+      });
+    };
+    const first = await assembleAt("2026-06-21T19:30:00.000Z");
+    const second = await assembleAt("2026-06-21T19:47:00.000Z");
+    const systemText = (result: typeof first) =>
+      result.messages
+        .filter((message) => message.role === "system")
+        .map((message) => String(message.content ?? ""))
+        .join("\n");
+
+    expect(systemText(second)).toBe(systemText(first));
+    expect(systemText(first)).not.toContain("Current time:");
+    const latestTurn = String(second.messages.at(-1)?.content ?? "");
+    expect(second.messages.at(-1)?.role).toBe("user");
+    expect(latestTurn).toContain("what time is it?");
+    expect(latestTurn).toContain("Current time: 15:47");
+  });
+
+  it("still gives the clock to a reply that has no user turn to carry it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-21T19:30:00.000Z"));
+    const result = await assembleGenerationPrompt(promptStorage(), {
+      chat: { id: "chat-1", mode: "conversation", characterIds: ["char-1"], metadata: {} },
+      storedMessages: [
+        { id: "user-1", role: "user", content: "night!", createdAt: "2026-06-21T03:00:00.000Z" },
+        { id: "assistant-1", role: "assistant", content: "night", createdAt: "2026-06-21T03:00:30.000Z" },
+      ],
+      connection: { provider: "openai", model: "qa-model" },
+      request: { userTimeZone: "America/New_York" },
+      latestUserInput: "",
+    });
+
+    expect(result.messages.map((message) => String(message.content ?? "")).join("\n")).toContain("Current time: 15:30");
+  });
+
   it("marks an overnight user return as a later conversation interaction", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-22T13:00:00.000Z"));
