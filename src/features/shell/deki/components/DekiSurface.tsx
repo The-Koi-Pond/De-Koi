@@ -76,6 +76,8 @@ const DEKI_NO_CONNECTION_SELECTED_ERROR =
   'No connection set for Deki-senpai! Click the "chains" icon in the input box to select one.';
 const DEKI_INPUT_PLACEHOLDER = "Message Deki-senpai";
 const DEKI_ATTACHMENT_CLIENT_TEXT_BYTES = 64 * 1024;
+/** Matches the backend's per-image limit (the size image-capable providers accept). */
+const DEKI_IMAGE_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 const DEKI_IMAGE_ATTACHMENT_EXTENSIONS = new Set(["avif", "gif", "jpeg", "jpg", "png", "webp"]);
 const DEKI_ACTION_ENTITY_LABELS: Record<DekiActionEntity, string> = {
   characters: "character",
@@ -168,6 +170,14 @@ function isDekiImageFile(file: File) {
   if (file.type.startsWith("image/")) return true;
   const extension = file.name.includes(".") ? file.name.split(".").pop()?.toLowerCase() : null;
   return !!extension && DEKI_IMAGE_ATTACHMENT_EXTENSIONS.has(extension);
+}
+
+/** A data URL with an image MIME type, even when the browser reported none for the file. */
+function dekiImageDataUrl(file: File, dataUrl: string) {
+  if (file.type.startsWith("image/")) return dataUrl;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "png";
+  const mime = `image/${extension === "jpg" ? "jpeg" : extension}`;
+  return dataUrl.replace(/^data:[^;,]*/, `data:${mime}`);
 }
 
 function formatDaySeparator(value: string) {
@@ -991,7 +1001,15 @@ export function DekiSurface({
                 content,
               });
             if (isDekiImageFile(file)) {
-              finish("");
+              // Too-large images go up empty; Deki-senpai's backend names the size limit back.
+              if (file.size > DEKI_IMAGE_ATTACHMENT_MAX_BYTES) {
+                finish("");
+                return;
+              }
+              const reader = new FileReader();
+              reader.onload = () => finish(dekiImageDataUrl(file, String(reader.result ?? "")));
+              reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`));
+              reader.readAsDataURL(file);
               return;
             }
             file

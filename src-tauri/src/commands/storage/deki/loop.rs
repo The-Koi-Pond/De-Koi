@@ -16,6 +16,8 @@ pub(super) struct DekiJsonRuntimeInput<'a> {
     pub(super) connection: marinara_llm::LlmConnection,
     pub(super) system_prompt: String,
     pub(super) task_prompt: String,
+    /// Image data URLs attached to the latest user message.
+    pub(super) task_images: Vec<String>,
     pub(super) requires_repository_evidence: bool,
     pub(super) chat_access_grants: Vec<super::chat_access::DekiChatAccessGrant>,
     pub(super) web_research_grants: Vec<super::commands::web::DekiWebResearchGrant>,
@@ -60,7 +62,7 @@ pub(super) async fn run_json_command_runtime(
             super::commands::JSON_COMMAND_GUIDE,
             super::data_cli::DEKI_DATA_GUIDE,
         )),
-        DekiModelMessage::user(input.task_prompt),
+        DekiModelMessage::user(input.task_prompt).with_images(input.task_images),
     ];
     let mut trace = Vec::new();
     let mut usage = Vec::new();
