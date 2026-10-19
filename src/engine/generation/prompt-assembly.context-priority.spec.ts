@@ -154,7 +154,7 @@ describe("prompt context priority", () => {
     expect(assembly.messages.map((message) => message.content).join("\n")).not.toContain("REMOVE_THIS_PRIVATE_NOTE");
     expect(assembly.messages.map((message) => message.content).join("\n")).not.toContain("REMOVE_THIS_PROMPT_COMMENT");
 
-    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 400 }, { maxContext: 2_100 });
+    const fitted = fitLlmRequestToContextWindow(assembly.messages, { maxTokens: 400 }, { maxContext: 2_150 });
     const fittedText = fitted.messages.map((message) => message.content).join("\n");
     expect(fittedText).not.toContain("REMOVE_THIS_PRIVATE_NOTE");
     expect(fittedText).not.toContain("REMOVE_THIS_PROMPT_COMMENT");

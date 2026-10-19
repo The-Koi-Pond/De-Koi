@@ -23,6 +23,7 @@ import {
 } from "../generation-core/prompt/merger";
 import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/regex-application";
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
+import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
 import {
   commandCapabilityEnabled,
   conversationCommandCapabilities,
@@ -3018,6 +3019,7 @@ function buildConversationCommandBlock(
   );
   const canSpotify =
     spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
+  const canReact = commandCapabilityEnabled(capabilities, ["react", "canReact"]);
   const instructions = [
     focused
       ? "When useful, append at most one hidden command tag after the visible reply. De-Koi strips tags before display; never mention them visibly."
@@ -3045,6 +3047,11 @@ function buildConversationCommandBlock(
       : "",
     canSpotify
       ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
+      : "",
+    canReact
+      ? focused
+        ? '- Tapback with [react: emoji="❤️"] when it fits, with a reply or alone.'
+        : '- Tapback their last text with [react: emoji="❤️"] when a person would (good news, a joke), with a reply or alone.'
       : "",
     hasConnectedRoleplay
       ? "- Send linked-chat context with <influence>one-shot OOC steering note</influence> or <note>durable fact for the linked prompt</note> when this conversation should affect the linked roleplay."
@@ -3225,11 +3232,25 @@ interface HistoryPromptSelection {
   requestedLimit: number;
 }
 
+/** "(Sam reacted ❤️)" after a reacted Conversation message, so the character knows how a text landed. */
+function conversationReactionNote(
+  characters: GenerationCharacterContext[],
+  personaName: string | null,
+): (message: JsonRecord) => string {
+  const names = new Map(characters.map((character) => [character.id, character.name]));
+  return (message) =>
+    reactionHistoryNote(readMessageReactions(message.extra), (by) =>
+      by === USER_REACTOR ? personaName?.trim() || "The user" : (names.get(by) ?? "Someone"),
+    );
+}
+
 function historyMessageSelection(
   storedMessages: JsonRecord[],
   limit: number,
   includePastReasoning = false,
   includeAssistantMessages = true,
+  /** Extra line appended to a history message (Conversation reactions), or "" for none. */
+  historyNote: (message: JsonRecord) => string = () => "",
 ): HistoryPromptSelection {
   const requestedLimit = Math.max(0, limit);
   if (requestedLimit <= 0) {
@@ -3259,11 +3280,12 @@ function historyMessageSelection(
       : [];
     if (!content.length && images.length === 0) continue;
     const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
+    const note = historyNote(message);
     visibleMessages.push({
       source: message,
       prompt: {
         role,
-        content,
+        content: note ? `${content}\n${note}` : content,
         contextKind: "history" as const,
         characterId: readString(message.characterId).trim() || undefined,
         name: readString(message.name).trim() || undefined,
@@ -4307,6 +4329,7 @@ export async function assembleGenerationPrompt(
     selectedHistoryLimit,
     chatMeta.excludePastReasoning === false,
     conversationFocus?.includeAssistantHistory ?? true,
+    chatMode === "conversation" ? conversationReactionNote(characters, persona?.name ?? null) : undefined,
   );
   const compactedSourceHistory =
     !reusableContext && shouldCompactHistoryForSummary(input.chat, selectedPreset, summary)

@@ -31,6 +31,23 @@
     "coverage": "core"
   },
   {
+    "id": "message-reactions",
+    "title": "Message Reactions",
+    "category": "Chat modes",
+    "summary": "React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.",
+    "keywords": ["reaction", "reactions", "react", "tapback", "emoji", "heart", "like", "laugh"],
+    "audience": "Anyone texting characters in Conversation mode.",
+    "where": "Conversation > hover or tap a character's message > React.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "conversation",
+        "label": "Start a conversation"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
     "id": "roleplay-mode",
     "title": "Roleplay Mode",
     "category": "Chat modes",

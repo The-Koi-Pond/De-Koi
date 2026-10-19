@@ -15,6 +15,7 @@ import {
 import { cn } from "../../../../shared/lib/utils";
 import { buildSaveMomentSource, IllustrateMomentAction, SaveMomentAction } from "../../shared/chat-ui";
 import { MsgAction, type ConversationMessageRenderContext } from "./ConversationMessageShared";
+import { ConversationReactAction } from "./ConversationMessageReactions";
 
 export function ConversationMessageActions({
   context,
@@ -88,6 +89,7 @@ export function ConversationMessageActions({
           tabIndex={tabIdx}
         />
       )}
+      {!context.isUser && !context.isStreaming && <ConversationReactAction context={context} tabIndex={tabIdx} />}
       <MsgAction icon={<Pencil size="0.75rem" />} onClick={context.onStartEdit} title="Edit" tabIndex={tabIdx} />
       {context.canRegenerate && context.onRegenerate && (
         <MsgAction

@@ -87,9 +87,10 @@ it.
 <!-- features:start (generated from the Discover registry by `pnpm docs:readme-features`; do not edit) -->
 
 <details>
-<summary><b>Chat modes</b> (8)</summary>
+<summary><b>Chat modes</b> (9)</summary>
 
 - **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.
+- **Message Reactions**: React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.
 - **Roleplay Mode**: Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character (with a note showing what changed and a way to restore the original), and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.
 - **Fanfic Mode**: Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length. De-Koi can look up the canon online first, shows an outline you can edit or skip, then writes it chapter by chapter. Steer or rewrite chapters with notes, listen to them read aloud, and run quality, continuity, and in-character checks with one-tap fixes. A story ledger of who knows what and per-character voice sheets with real canon lines keep long fics consistent. An editor pass rewrites only the weak scenes, the outline re-plans itself after each chapter, you can rewrite any passage you select and pick from versions, and local models can ban phrases outright. Save it as HTML or Markdown.
 - **Message Search**: Find anything you or a character said in any Conversation or Roleplay chat. Type in the sidebar search, switch to Messages, and tap a result to open that chat right at the message, even if it was hundreds of messages ago.
