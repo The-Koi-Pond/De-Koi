@@ -28,6 +28,12 @@ pub(super) struct DekiRuntimeGuard {
 pub(crate) enum DekiRuntimeOwner {
     Embedded,
     Authenticated(String),
+    /// Requests the hostable runtime admits without a principal because of
+    /// their address or an explicit opt-in (loopback, Docker/Tailscale
+    /// interface, IP allowlist, private-network or remote opt-in). Every such
+    /// requester can already read and write all app data, so they share one
+    /// Deki owner, and one browser maps to it whether or not it sends a header.
+    TrustedNetwork,
     UnauthenticatedRemote,
 }
 
@@ -154,7 +160,7 @@ pub(super) fn validate_runtime_owner(owner: &DekiRuntimeOwner) -> AppResult<()> 
     if matches!(owner, DekiRuntimeOwner::UnauthenticatedRemote) {
         return Err(AppError::new(
             "deki_workspace_remote_owner_unavailable",
-            "Deki remote workspace commands require De-Koi Basic Auth so prompt, status, and abort share an isolated owner.",
+            "This request reached Deki-senpai without a De-Koi login or a trusted-network address, so its prompt, status, and Stop cannot be tied to one owner. Sign in with the server's Basic Auth user and try again.",
         ));
     }
     Ok(())
@@ -349,6 +355,15 @@ mod tests {
             .expect_err("remote auth bypass cannot provide an isolated owner");
 
         assert_eq!(error.code, "deki_workspace_remote_owner_unavailable");
+    }
+
+    #[test]
+    fn trusted_network_runtime_ownership_is_accepted() {
+        let session = format!("trusted-{}", NEXT_RUNTIME_ID.load(Ordering::Relaxed));
+        let guard = begin_runtime(&DekiRuntimeOwner::TrustedNetwork, &session)
+            .expect("trusted-network installs share one Deki owner");
+
+        drop(guard);
     }
 
     #[tokio::test]
