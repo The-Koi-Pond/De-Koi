@@ -112,6 +112,8 @@ Use named constants in `deki/budget.rs` so tests can assert them:
   issue one smallest missing command batch; round 8 is command-free synthesis.
   This leaves one bounded recovery turn without executing unconsumable commands.
 - Maximum commands per round: 4.
+- Reasoning effort for every model call: medium (`DEKI_REASONING_EFFORT` in
+  `deki/model_client.rs`).
 - Maximum wall-clock runtime: 180 seconds, of which the last 45 are kept for
   the final answer round. Investigation rounds and commands only use the time
   before that reserve.
