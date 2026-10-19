@@ -10,13 +10,13 @@ pub(super) mod code;
 pub(super) mod web;
 
 pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (all paths are repository-relative and all keys use camelCase):
-- read: {"path":"relative/file"}
+- read: {"path":"relative/file","startLine":1,"endLine":200}
 - grep: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
 - find: {"query":"name","path":"optional/directory","maxResults":80}
 - ls: {"path":"relative/directory","limit":80}
-- deki_code: either {"path":"relative/file"} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- deki_code: either {"path":"relative/file","startLine":1,"endLine":200} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
 - search_deki_code: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
-- read_deki_code_file: {"path":"relative/file"}
+- read_deki_code_file: {"path":"relative/file","startLine":1,"endLine":200}
 - read_deki_library: {"itemType":"optional type","types":"optional comma-separated types","query":"optional text","limit":80,"offset":0}
 - read_deki_library_items: {"itemType":"type","id":"exact id","includeEntries":true,"entryQuery":"optional text","entryLimit":50,"entryOffset":0}
 - read_deki_chats: {"chatIds":["optional approved id"],"characterId":"optional id","modes":["conversation"],"limit":50,"offset":0}
@@ -24,7 +24,7 @@ pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (
 - read_deki_memories: {"scopeType":"character or chat","scopeId":"exact id","query":"optional text","limit":50}
 - search_deki_web: {"query":"exact approved query","maxResults":5}
 - read_deki_web_page: {"query":"exact approved query","url":"approved public result URL"}
-Omit optional keys you do not need. Prefer precise searches over reading a large file from its beginning: large reads can truncate before a deep symbol, while grep/search results include matching line numbers and previews. Set contextLines to 1-3 when adjacent lines are needed to verify a call, signature, condition, or payload; keep it 0 otherwise. When the task names several exact files, search those exact file paths rather than a parent directory, and batch up to four independent query/path pairs in one frame. Continue until every user-requested query has returned evidence or a demonstrated no-match result. Never repeat an identical command after it succeeded. A search result proves only its returned path, line, preview, and requested context: copy exact symbols, signatures, and line numbers only when that text is visible in successful evidence, and never reconstruct omitted text. Say what could not be verified instead of guessing. After evidence answers the task, return commands:[] and stop:true."#;
+Omit optional keys you do not need. Reads return numbered lines; startLine and endLine are optional, one-based, and inclusive. A file over 96 KiB read without a range returns its first 400 lines and nextStartLine. To see a deep symbol, search first, then read a range of about 40-120 lines around the matching line number instead of reading a large file from its beginning. Set contextLines to 1-3 when adjacent lines are needed to verify a call, signature, condition, or payload; keep it 0 otherwise. When the task names several exact files, search those exact file paths rather than a parent directory, and batch up to four independent query/path pairs in one frame. Continue until every user-requested query has returned evidence or a demonstrated no-match result. Never repeat an identical command after it succeeded. A search result proves only its returned path, line, preview, and requested context: copy exact symbols, signatures, and line numbers only when that text is visible in successful evidence, and never reconstruct omitted text. Say what could not be verified instead of guessing. After evidence answers the task, return commands:[] and stop:true."#;
 
 pub(super) fn is_repository_command(name: &str) -> bool {
     matches!(
@@ -440,11 +440,14 @@ mod tests {
 
     #[test]
     fn json_command_guide_documents_repository_argument_contracts() {
-        assert!(JSON_COMMAND_GUIDE.contains(r#"read: {"path":"relative/file"}"#));
+        assert!(JSON_COMMAND_GUIDE
+            .contains(r#"read: {"path":"relative/file","startLine":1,"endLine":200}"#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"grep: {"query":"text""#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"find: {"query":"name""#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"ls: {"path":"relative/directory""#));
-        assert!(JSON_COMMAND_GUIDE.contains(r#"read_deki_code_file: {"path":"relative/file"}"#));
+        assert!(JSON_COMMAND_GUIDE.contains(
+            r#"read_deki_code_file: {"path":"relative/file","startLine":1,"endLine":200}"#
+        ));
         assert!(JSON_COMMAND_GUIDE.contains(r#"search_deki_code: {"query":"text""#));
         assert!(JSON_COMMAND_GUIDE.contains(r#""contextLines":0"#));
         assert!(JSON_COMMAND_GUIDE.contains("Set contextLines to 1-3"));
