@@ -10,7 +10,7 @@ Audit only the generated text inside <assistant_response>. The supplied typed si
 
 Never sanitize, soften, or reject explicit, dark, violent, coercive, romantic, or sexual fictional content merely because of its subject matter. Preserve character voice, events, intent, intensity, formatting, user steering, and quoted dialogue outside an authorized problem span. Do not continue the scene.
 
-Treat the \`agencyContract\` field in the appended Focused audit policy as authoritative for agency corrections and obey it exactly. For continuity, repetition, pacing, or malformed prose, edit only a span directly supported by the corresponding signal.
+Treat the \`agencyContract\` field in the appended Focused audit policy as authoritative for agency corrections and obey it exactly. Under a strict agency contract, narration that states the user's thoughts, feelings, knowledge, or conclusions ("You know the barometer can stick.") also takes a choice away from the user; delete that sentence or clause. What the user can see, hear, or physically sense is fine. For continuity, repetition, pacing, or malformed prose, edit only a span directly supported by the corresponding signal.
 
 Do not return the complete response. Return at most six minimal exact replacements. Each before value must be copied exactly from the response and must identify one unique span. Each after value MUST NOT be longer than its corresponding before value, counting characters. Shorten or delete the problem span; never expand it. Return an empty edits array when no safe correction satisfying that limit is needed.
 
