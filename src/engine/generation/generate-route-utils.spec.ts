@@ -109,6 +109,30 @@ describe("generationParameterSources", () => {
   });
 });
 
+describe("Claude Subscription effort defaults", () => {
+  const connection = { provider: "claude_subscription", model: "claude-opus-5-5", maxContext: 200_000 };
+  const merged = (chat: Record<string, unknown>, input: Record<string, unknown> = {}) =>
+    mergeStoredGenerationParameters(...generationParameterSources(connection, input, chat));
+
+  it("recommends low effort for Conversation chats", () => {
+    expect(merged({ mode: "conversation", metadata: {} })).toMatchObject({ reasoningEffort: "low" });
+  });
+
+  it("keeps Claude Code's default effort for fanfic and roleplay chats", () => {
+    expect(merged({ mode: "fanfic", metadata: {} })).not.toHaveProperty("reasoningEffort");
+    expect(merged({ mode: "roleplay", metadata: {} })).not.toHaveProperty("reasoningEffort");
+    expect(merged({ mode: "conversation", metadata: {} }, { generationProfileMode: "agent" })).not.toHaveProperty(
+      "reasoningEffort",
+    );
+  });
+
+  it("lets a chat's own reasoning effort win over the recommendation", () => {
+    expect(merged({ mode: "conversation", metadata: { chatParameters: { reasoningEffort: "high" } } })).toMatchObject({
+      reasoningEffort: "high",
+    });
+  });
+});
+
 describe("appendReadableAttachmentsToContent", () => {
   it("redacts inline image data URLs from JSON attachments before adding them to prompt text", () => {
     const cardJson = JSON.stringify(

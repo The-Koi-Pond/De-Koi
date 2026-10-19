@@ -4,6 +4,16 @@ import { providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { resolveRecommendedGenerationProfile } from "./recommended-generation-profile";
 
 describe("providerVisibleLlmParameters", () => {
+  it("shows the lowest Claude Code effort when a Claude Subscription request asks for none", () => {
+    const connection = { provider: "claude_subscription", model: "claude-opus-5-5" };
+    expect(providerVisibleLlmParameters(connection, { reasoningEffort: "none" })).toMatchObject({
+      reasoningEffort: "low",
+    });
+    expect(providerVisibleLlmParameters(connection, { reasoningEffort: "high" })).toMatchObject({
+      reasoningEffort: "high",
+    });
+  });
+
   it("applies provider capability filtering after resolving a recommendation", () => {
     const recommendation = resolveRecommendedGenerationProfile({
       mode: "conversation",
