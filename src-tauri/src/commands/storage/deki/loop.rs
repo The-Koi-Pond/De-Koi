@@ -1,7 +1,7 @@
 use super::answer_stream::AnswerStream;
 use super::budget::{truncate_to_chars, DekiEvidenceBudget, DekiRuntimeBudget};
 use super::events::DekiEventSink;
-use super::model_client::{DekiModelClient, DekiModelMessage};
+use super::model_client::{DekiModelClient, DekiModelMessage, DekiModelText};
 use super::protocol::{extract_command_frame, DekiCommandFrame, JSON_PROTOCOL_PROMPT};
 use super::status::DekiRuntimeCancellation;
 use crate::state::AppState;
@@ -155,9 +155,16 @@ pub(super) async fn run_json_command_runtime(
                 max_tokens,
                 timeout,
                 &input.cancellation,
-                |text| {
-                    if let Some(visible) = answer.push(text) {
-                        events.answer_token(&visible);
+                |text| match text {
+                    DekiModelText::Delta(text) => {
+                        if let Some(visible) = answer.push(text) {
+                            events.answer_token(&visible);
+                        }
+                    }
+                    DekiModelText::Restart => {
+                        if answer.restart() {
+                            events.answer_reset();
+                        }
                     }
                 },
             )
