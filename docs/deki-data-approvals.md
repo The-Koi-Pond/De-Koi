@@ -112,6 +112,10 @@ structured edits.
   older run of the same session. Stop calls `deki_workspace_abort`; a native
   write-tool turn reports that it cannot be stopped.
 
-Known limit: the hostable runtime treats loopback and trusted-interface
-requests as auth bypass, which is not a principal, so Deki refuses them. Use
-Basic Auth from another address to run Deki against a hosted runtime.
+Owners on a hosted runtime: a request the auth gate admits without a login
+(loopback, the Docker/Tailscale bypass interfaces, and with no Basic Auth
+configured also the IP allowlist and the private-network or remote opt-ins)
+runs as one shared trusted-network owner, header or not, so a trusted-LAN Pi
+works without Basic Auth. Every such requester can already read and write all
+app data. Any other request runs as its Basic Auth principal; a request with
+neither is refused.
