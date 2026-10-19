@@ -5525,6 +5525,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             &selection,
             Some("You are Simon."),
             ClaudeSubscriptionOutput::Stream,
+            None,
         );
         let args = command_args(&command);
         assert_eq!(command.get_current_dir(), Some(isolated.as_path()));
@@ -5594,6 +5595,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             &selection,
             Some("  "),
             ClaudeSubscriptionOutput::Json,
+            None,
         );
         let args = command_args(&command);
         let format_flag = args
@@ -5863,6 +5865,86 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             !Path::new(&format!("/proc/{pid}")).exists(),
             "a cancelled reply must kill and reap Claude Code"
         );
+    }
+
+    #[test]
+    fn claude_subscription_command_passes_effort_only_when_requested() {
+        let selection = claude_subscription_model_selection("claude-opus-5-5");
+        let with_effort = command_args(&claude_subscription_command_for(
+            "claude",
+            Path::new("."),
+            false,
+            &selection,
+            Some("You are Simon."),
+            ClaudeSubscriptionOutput::Stream,
+            Some("low"),
+        ));
+        let effort_flag = with_effort
+            .iter()
+            .position(|arg| arg == "--effort")
+            .expect("effort flag");
+        assert_eq!(with_effort[effort_flag + 1], "low");
+        let without_effort = command_args(&claude_subscription_command_for(
+            "claude",
+            Path::new("."),
+            false,
+            &selection,
+            Some("You are Simon."),
+            ClaudeSubscriptionOutput::Stream,
+            None,
+        ));
+        assert!(!without_effort.iter().any(|arg| arg == "--effort"));
+    }
+
+    #[test]
+    fn claude_subscription_effort_maps_reasoning_effort_to_claude_code_levels() {
+        let effort = |model: &str, value: Value| claude_subscription_effort(model, &value);
+        let opus = "claude-opus-5-5";
+        assert_eq!(effort(opus, json!({})), None);
+        assert_eq!(effort(opus, json!({ "reasoningEffort": null })), None);
+        assert_eq!(
+            effort(opus, json!({ "reasoningEffort": "none" })),
+            Some("low")
+        );
+        assert_eq!(
+            effort(opus, json!({ "reasoningEffort": "minimal" })),
+            Some("low")
+        );
+        assert_eq!(
+            effort(opus, json!({ "reasoningEffort": "low" })),
+            Some("low")
+        );
+        assert_eq!(
+            effort(opus, json!({ "reasoning_effort": "medium" })),
+            Some("medium")
+        );
+        assert_eq!(
+            effort(opus, json!({ "reasoningEffort": "high" })),
+            Some("high")
+        );
+        assert_eq!(
+            effort(opus, json!({ "reasoningEffort": "xhigh" })),
+            Some("xhigh")
+        );
+        assert_eq!(
+            effort(opus, json!({ "reasoningEffort": "maximum" })),
+            Some("max")
+        );
+        assert_eq!(effort(opus, json!({ "reasoningEffort": "turbo" })), None);
+        assert_eq!(
+            effort("claude-sonnet-4-6", json!({ "reasoningEffort": "xhigh" })),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn claude_subscription_effort_detection_reads_help_text() {
+        assert!(claude_subscription_help_supports_effort(
+            "  --effort <level>   Effort level for the current session (low, medium, high, xhigh, max)"
+        ));
+        assert!(!claude_subscription_help_supports_effort(
+            "  --safe-mode   Start with all customizations disabled"
+        ));
     }
 
     #[test]

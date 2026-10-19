@@ -61,6 +61,25 @@ describe("resolveRecommendedGenerationProfile", () => {
     });
   });
 
+  it("recommends low Claude Code effort only for Conversation on Claude Subscription", () => {
+    const base = {
+      provider: "claude_subscription",
+      model: "claude-opus-5-5",
+      capabilities: { reasoning: true },
+      maxContext: 200_000,
+    };
+    expect(resolveRecommendedGenerationProfile({ ...base, mode: "conversation" })).toMatchObject({
+      profileId: "conversation-balanced",
+      parameters: { reasoningEffort: "low", maxTokens: 2048 },
+    });
+    for (const mode of ["roleplay", "visual_novel", "structured", "fanfic"]) {
+      expect(resolveRecommendedGenerationProfile({ ...base, mode }).parameters).not.toHaveProperty("reasoningEffort");
+    }
+    expect(
+      resolveRecommendedGenerationProfile({ ...base, mode: "conversation", chatMode: "fanfic" }).parameters,
+    ).not.toHaveProperty("reasoningEffort");
+  });
+
   it("constrains output and prompt lanes for a small local model", () => {
     const profile = resolveRecommendedGenerationProfile({
       mode: "roleplay",
