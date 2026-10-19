@@ -61,6 +61,7 @@ import { loadModeSurface } from "./mode-surface-loader";
 import { requestIdleWork } from "./idle-work";
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { AutomaticMemoryMaintenanceStartup } from "../startup/AutomaticMemoryMaintenanceStartup";
+import { PhoneNotificationsStartup } from "../startup/PhoneNotificationsStartup";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -1379,6 +1380,7 @@ export function AppShell() {
   return (
     <TopBarActionsProvider>
       <AutomaticMemoryMaintenanceStartup />
+      <PhoneNotificationsStartup />
       <div
         data-component="AppShell"
         className={cn(

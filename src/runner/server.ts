@@ -18,6 +18,9 @@ import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { JobRegistry, type RunnerEvent, type RunnerJob } from "./jobs";
 import { runGenerationJob, configureRuntime } from "./engine";
+import { startAutonomousScheduler, type PresenceStatus } from "./autonomous";
+import { PushStore } from "./push-store";
+import { storageApi } from "../shared/api/storage-api";
 
 const VERSION = 1;
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -97,8 +100,57 @@ function jobSummary(job: RunnerJob) {
   };
 }
 
-export function createRunnerServer(config: RunnerConfig, registry = new JobRegistry()): http.Server {
+export interface RunnerFeatures {
+  /** Phone notifications; null when the runner can't keep its key file. */
+  push: PushStore | null;
+  /** Run "characters text first" here instead of in the tabs. */
+  textingFirst: boolean;
+}
+
+/** A screen counts as watching for this long after it last said it was visible. */
+const WATCHING_MS = 90_000;
+/** Reported status counts for this long; after that the user is treated as away ("idle"). */
+const PRESENCE_MS = 5 * 60_000;
+
+async function characterName(characterId: unknown): Promise<string> {
+  if (typeof characterId !== "string" || !characterId) return "A character";
+  const row = await storageApi.get<{ name?: unknown; data?: { name?: unknown } }>("characters", characterId);
+  const name = row?.data?.name ?? row?.name;
+  return typeof name === "string" && name.trim() ? name.trim() : "A character";
+}
+
+function savedReplyCharacterId(job: RunnerJob): string | null | undefined {
+  const saved = [...job.events].reverse().find((event) => event.type === "assistant_message");
+  if (!saved) return undefined;
+  const data = saved.data as { characterId?: unknown } | null | undefined;
+  return typeof data?.characterId === "string" ? data.characterId : null;
+}
+
+export function createRunnerServer(
+  config: RunnerConfig,
+  registry = new JobRegistry(),
+  features: RunnerFeatures = { push: null, textingFirst: false },
+): http.Server {
   configureRuntime(config.runtimeUrl);
+  const presence = { status: "idle" as PresenceStatus, reportedAt: 0, visibleAt: 0 };
+  const someoneWatching = () => Date.now() - presence.visibleAt < WATCHING_MS;
+  const presenceStatus = (): PresenceStatus =>
+    Date.now() - presence.reportedAt < PRESENCE_MS ? presence.status : "idle";
+  const autonomousJobs = new Set<string>();
+
+  const notify = (chatId: string, name: string, reason: "texted" | "replied") => {
+    if (!features.push || features.push.count === 0 || someoneWatching()) return;
+    void features.push
+      .notifyAll({
+        title: reason === "texted" ? `${name} texted you` : `${name} replied`,
+        body: "Open De-Koi to read it.",
+        chatId,
+        tag: `de-koi-chat-${chatId}`,
+      })
+      .then((counts) => {
+        if (counts.failed) console.warn(`[runner] ${counts.failed} notification(s) failed to send`);
+      });
+  };
 
   const authorize = (req: http.IncomingMessage) => {
     if (config.basicAuth && !sameSecret(String(req.headers.authorization ?? ""), config.basicAuth)) {
@@ -123,7 +175,13 @@ export function createRunnerServer(config: RunnerConfig, registry = new JobRegis
     void (async () => {
       try {
         for await (const event of runGenerationJob(input, job.controller.signal)) registry.push(job, event);
+        const watched = registry.followers(job) > 0;
         registry.finish(job, job.controller.signal.aborted ? "cancelled" : "done");
+        // A reply that finished with no screen following it: tell the phone (texting-first jobs notify themselves).
+        const replyCharacter = savedReplyCharacterId(job);
+        if (job.status === "done" && !watched && replyCharacter !== undefined && !autonomousJobs.has(job.id)) {
+          notify(chatId, await characterName(replyCharacter), "replied");
+        }
       } catch (error) {
         const cancelled = job.controller.signal.aborted;
         if (!cancelled) {
@@ -159,6 +217,20 @@ export function createRunnerServer(config: RunnerConfig, registry = new JobRegis
     }
   };
 
+  if (features.textingFirst) {
+    startAutonomousScheduler({
+      startJob: (input) => {
+        const job = startJob(input);
+        autonomousJobs.add(job.id);
+        return job;
+      },
+      runningForChat: (chatId) => registry.runningForChat(chatId),
+      waitForJob: async (job) => (await registry.wait(job)) === "done" && savedReplyCharacterId(job) !== undefined,
+      presence: presenceStatus,
+      onTexted: async (chat, character) => notify(chat.id, character.name, "texted"),
+    });
+  }
+
   return http.createServer((req, res) => {
     void (async () => {
       try {
@@ -169,10 +241,53 @@ export function createRunnerServer(config: RunnerConfig, registry = new JobRegis
             ok: true,
             version: VERSION,
             running: registry.list().filter((j) => j.status === "running").length,
+            push: features.push !== null,
+            textingFirst: features.textingFirst,
           });
           return;
         }
         authorize(req);
+        if (req.method === "POST" && path === "/runner/presence") {
+          const body = await readJson(req);
+          const status = body.status === "active" || body.status === "dnd" ? body.status : "idle";
+          presence.status = status;
+          presence.reportedAt = Date.now();
+          if (body.visible === true) presence.visibleAt = Date.now();
+          sendJson(res, 200, { ok: true });
+          return;
+        }
+        if (path.startsWith("/runner/push/")) {
+          const push = features.push;
+          if (!push) throw new HttpError(503, "Phone notifications aren't available on this server");
+          if (req.method === "GET" && path === "/runner/push/public-key") {
+            sendJson(res, 200, { publicKey: push.publicKey });
+            return;
+          }
+          if (req.method === "POST" && path === "/runner/push/subscribe") {
+            const body = await readJson(req);
+            try {
+              push.subscribe(body.subscription, typeof body.label === "string" ? body.label : "");
+            } catch (error) {
+              throw new HttpError(400, error instanceof Error ? error.message : "Invalid subscription");
+            }
+            sendJson(res, 200, { ok: true });
+            return;
+          }
+          if (req.method === "POST" && path === "/runner/push/unsubscribe") {
+            const body = await readJson(req);
+            sendJson(res, 200, { ok: push.unsubscribe(typeof body.endpoint === "string" ? body.endpoint : "") });
+            return;
+          }
+          if (req.method === "POST" && path === "/runner/push/test") {
+            const counts = await push.notifyAll({
+              title: "De-Koi notifications are on",
+              body: "You'll get one when a character texts you while De-Koi is closed.",
+              tag: "de-koi-test",
+            });
+            sendJson(res, 200, counts);
+            return;
+          }
+        }
         if (req.method === "POST" && path === "/runner/generate") {
           const body = await readJson(req);
           const input = body.input && typeof body.input === "object" ? (body.input as Record<string, unknown>) : null;
@@ -222,7 +337,14 @@ export function createRunnerServer(config: RunnerConfig, registry = new JobRegis
 
 export function startRunner(env: NodeJS.ProcessEnv = process.env): http.Server {
   const config = readConfig(env);
-  const server = createRunnerServer(config);
+  let push: PushStore | null = null;
+  try {
+    push = PushStore.forEnv(env);
+  } catch (error) {
+    console.warn("[runner] phone notifications are off: can't keep the notification key file", error);
+  }
+  const textingFirst = env.DE_KOI_RUNNER_TEXTING_FIRST?.trim() !== "0";
+  const server = createRunnerServer(config, new JobRegistry(), { push, textingFirst });
   const separator = config.addr.lastIndexOf(":");
   const host = config.addr.slice(0, separator) || "0.0.0.0";
   const port = Number(config.addr.slice(separator + 1));

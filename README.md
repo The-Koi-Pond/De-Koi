@@ -141,12 +141,13 @@ it.
 </details>
 
 <details>
-<summary><b>Settings</b> (9)</summary>
+<summary><b>Settings</b> (10)</summary>
 
 - **Settings**: Global controls for appearance, chat behavior, sound preferences, imports, themes, extensions, backups, updates, and advanced runtime options.
 - **Privacy And Data Controls**: Review how De-Koi stores and sends data, export or back up your library, erase selected categories, or perform a typed-confirmation complete wipe of De-Koi-managed data.
 - **Health And Diagnostics**: Check that setup is complete and everything is working: the local model, your providers, storage, and recent errors. Copy a troubleshooting report with private details removed.
 - **Notification Sounds**: Choose the Frog default, the Legacy ding, or a small custom audio file for local chat alerts.
+- **Phone Notifications**: On a hosted De-Koi (like a Raspberry Pi), get a notification on your phone or computer when a character texts you first or a reply finishes while De-Koi is closed. Characters can text first even with no tab open. Needs De-Koi on an https:// address. Message text is never included.
 - **Modules**: Enable or disable bundled modules like ME Notes and Music Player without importing custom extension files.
 - **Extensions**: Install CSS, JavaScript, or package manifest extensions, then enable, disable, and manage local behavior without editing core source.
 - **Extension Device Access**: Before an extension runs, check that it's compatible and see what it asks for, then turn on its CSS or trusted page-level JavaScript on this device and this De-Koi install only.

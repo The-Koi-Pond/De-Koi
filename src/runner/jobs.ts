@@ -25,6 +25,8 @@ export interface RunnerJob {
   events: RunnerEvent[];
   controller: AbortController;
   listeners: Set<Listener>;
+  /** Clients currently following the stream (internal waiters don't count). */
+  followers: number;
 }
 
 export const FINISHED_JOB_TTL_MS = 10 * 60 * 1000;
@@ -64,6 +66,7 @@ export class JobRegistry {
       events: [],
       controller: new AbortController(),
       listeners: new Set(),
+      followers: 0,
     };
     this.jobs.set(id, job);
     return job;
@@ -72,6 +75,24 @@ export class JobRegistry {
   push(job: RunnerJob, event: RunnerEvent): void {
     job.events.push(event);
     for (const listener of job.listeners) listener(event);
+  }
+
+  /** Resolves with the final status once the job ends. */
+  wait(job: RunnerJob): Promise<JobStatus> {
+    if (job.status !== "running") return Promise.resolve(job.status);
+    return new Promise((resolve) => {
+      const listener: Listener = (event) => {
+        if (event !== null) return;
+        job.listeners.delete(listener);
+        resolve(job.status);
+      };
+      job.listeners.add(listener);
+    });
+  }
+
+  /** How many clients are following the job's stream right now. */
+  followers(job: RunnerJob): number {
+    return job.followers;
   }
 
   finish(job: RunnerJob, status: Exclude<JobStatus, "running">): void {
@@ -92,6 +113,7 @@ export class JobRegistry {
     let wake: (() => void) | null = null;
     const listener: Listener = () => wake?.();
     job.listeners.add(listener);
+    job.followers += 1;
     const onAbort = () => wake?.();
     signal?.addEventListener("abort", onAbort);
     try {
@@ -103,6 +125,7 @@ export class JobRegistry {
       }
     } finally {
       job.listeners.delete(listener);
+      job.followers -= 1;
       signal?.removeEventListener("abort", onAbort);
     }
   }

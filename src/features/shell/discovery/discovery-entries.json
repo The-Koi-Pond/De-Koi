@@ -551,6 +551,34 @@
     "coverage": "advanced"
   },
   {
+    "id": "phone-notifications",
+    "title": "Phone Notifications",
+    "category": "Settings",
+    "summary": "On a hosted De-Koi (like a Raspberry Pi), get a notification on your phone or computer when a character texts you first or a reply finishes while De-Koi is closed. Characters can text first even with no tab open. Needs De-Koi on an https:// address. Message text is never included.",
+    "keywords": [
+      "notification",
+      "push",
+      "phone",
+      "mobile",
+      "text first",
+      "autonomous",
+      "background",
+      "closed",
+      "alert"
+    ],
+    "audience": "People who run De-Koi on a server and want to hear from their characters when the app isn't open.",
+    "where": "Settings > Appearance > Notifications > Phone notifications.",
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "destination": "notification-sounds",
+        "label": "Open Notifications"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "imports",
     "title": "Imports",
     "category": "Getting started",
