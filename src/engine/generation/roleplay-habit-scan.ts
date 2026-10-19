@@ -8,11 +8,11 @@ import type { StorageGateway } from "../capabilities/storage";
 import { boolish, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
 
-export const ROLEPLAY_HABIT_SCAN_VERSION = 1;
+const ROLEPLAY_HABIT_SCAN_VERSION = 1;
 /** How many of the latest assistant replies one scan reads. */
-export const ROLEPLAY_HABIT_SCAN_REPLIES = 8;
+const ROLEPLAY_HABIT_SCAN_REPLIES = 8;
 /** A new scan is due after this many new assistant replies. */
-export const ROLEPLAY_HABIT_SCAN_EVERY = 3;
+const ROLEPLAY_HABIT_SCAN_EVERY = 3;
 /** Replies needed before the first scan; a habit has to show up in three of them. */
 const FIRST_SCAN_REPLIES = 4;
 const MAX_HABITS = 5;
@@ -156,7 +156,7 @@ async function scanIfDue(input: ScheduleRoleplayHabitScanInput): Promise<void> {
   if (scan) await input.storage.patchChatMetadata(input.chatId, { roleplayHabitScan: scan });
 }
 
-export function roleplayHabitScanMessages(replies: readonly string[]): LlmMessage[] {
+function roleplayHabitScanMessages(replies: readonly string[]): LlmMessage[] {
   return [
     {
       role: "system",
