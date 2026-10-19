@@ -3,6 +3,12 @@ use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::time::Duration;
 
+/// Reasoning effort for every Deki model call. On Claude Subscription with Opus 5.5,
+/// medium answered Deki's codebase questions as well as leaving it unset (judge 9.1 vs
+/// 9.0 of 10 on a fixed task set) in about three quarters of the time. Providers without
+/// an effort setting ignore it.
+const DEKI_REASONING_EFFORT: &str = "medium";
+
 #[derive(Debug, Clone)]
 pub(super) struct DekiModelMessage {
     role: &'static str,
@@ -91,6 +97,7 @@ impl DekiModelClient {
                 "temperature": 0.35,
                 "maxTokens": max_tokens,
                 "responseFormat": "json_object",
+                "reasoningEffort": DEKI_REASONING_EFFORT,
             }),
             tools: Vec::new(),
         };
