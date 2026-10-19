@@ -58,6 +58,8 @@ mod model_client;
 mod prompt;
 #[path = "deki/protocol.rs"]
 mod protocol;
+#[path = "deki/source_edit.rs"]
+mod source_edit;
 #[path = "deki/status.rs"]
 mod status;
 
@@ -362,12 +364,13 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
     let direct_custom_agent = looks_like_custom_agent_creation_request(latest);
     let mut allow_memory_edit =
         looks_like_code_write_request(latest) && looks_like_memory_request(latest);
-    let mut allow_code_edit = looks_like_code_write_request(latest)
+    let direct_code_edit = looks_like_code_write_request(latest)
         && looks_like_code_tool_request(latest)
         && !direct_extension
         && !direct_custom_agent;
-    // Extensions and custom agents are proposed through deki_data dry-runs in
-    // the JSON runtime, so these requests never select a native write tool.
+    // Extensions, custom agents, and source edits are proposed as dry-runs in
+    // the JSON runtime (deki_data, edit_file), so these requests never select
+    // a native write tool. Only memory edits still use it.
     let latest_is_referential_mutation = looks_like_referential_mutation_request(latest);
     let latest_is_contextual_code_mutation = looks_like_code_write_request(latest)
         && !looks_like_code_tool_request(latest)
@@ -376,7 +379,7 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
     let latest_is_contextual_mutation =
         latest_is_referential_mutation || latest_is_contextual_code_mutation;
     if latest_is_contextual_mutation
-        && !allow_code_edit
+        && !direct_code_edit
         && !allow_memory_edit
         && !direct_extension
         && !direct_custom_agent
@@ -396,15 +399,11 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
         .filter(|matches| *matches)
         .count();
         if prior_domain_count == 1 {
-            allow_code_edit = prior_code;
             allow_memory_edit = prior_memory;
         }
     }
 
     let mut names = deki_tool_names_for_bundle(bundle, false);
-    if allow_code_edit {
-        names.push("edit_deki_code_file");
-    }
     if allow_memory_edit {
         if !names.contains(&"read_deki_memories") {
             names.push("read_deki_memories");
@@ -5533,7 +5532,8 @@ Extra visible text."#;
         let edit = deki_tool_names_for_request(&test_deki_prompt_request(
             "Edit src/engine/generation to fix the bug.",
         ));
-        assert!(edit.contains(&"edit_deki_code_file"));
+        // Source edits are edit_file dry-runs on the JSON runtime now.
+        assert!(!deki_request_requires_native_tool_path(&edit));
 
         let extension = deki_tool_names_for_request(&test_deki_prompt_request(
             "Create a De-Koi extension for quick notes.",
@@ -5620,7 +5620,10 @@ Extra visible text."#;
             "I need you to update src/app/App.tsx.",
         ] {
             let names = deki_tool_names_for_request(&test_deki_prompt_request(message));
-            assert!(names.contains(&"edit_deki_code_file"), "{message:?}");
+            assert!(
+                !deki_request_requires_native_tool_path(&names),
+                "{message:?}"
+            );
         }
     }
 
@@ -5702,7 +5705,7 @@ Extra visible text."#;
                 ("assistant", "The bug is in the prompt assembly module."),
             ],
         ));
-        assert!(code.contains(&"edit_deki_code_file"));
+        assert!(!deki_request_requires_native_tool_path(&code));
         assert!(!code.contains(&"create_deki_extension"));
         assert!(!code.contains(&"create_deki_custom_agent"));
 

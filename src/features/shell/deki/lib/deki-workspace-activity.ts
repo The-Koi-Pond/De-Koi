@@ -121,6 +121,7 @@ const SINGULAR_COLLECTIONS: Record<string, string> = {
   "prompt-variables": "prompt variable",
   extensions: "extension",
   agents: "custom agent",
+  source: "source file",
 };
 
 function collectionLabel(value: string | null): string {

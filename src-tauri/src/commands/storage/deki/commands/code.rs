@@ -30,7 +30,7 @@ const CODE_TEXT_FILE_NAMES: &[&str] = &[
     "LICENSE",
     "README",
 ];
-const CODE_SEARCH_MAX_FILE_BYTES: u64 = 512 * 1024;
+pub(in crate::storage_commands::deki) const CODE_SEARCH_MAX_FILE_BYTES: u64 = 512 * 1024;
 /// Files up to this size are returned whole when no line range is asked for.
 const CODE_READ_WHOLE_FILE_BYTES: usize = 96 * 1024;
 /// Lines returned from a larger file when no range is asked for.
@@ -403,8 +403,17 @@ fn read_window(
     Ok(window)
 }
 
-fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
-    let root = super::super::deki_repo_root()?;
+pub(in crate::storage_commands::deki) fn resolve_repo_file(
+    path: &str,
+) -> AppResult<(PathBuf, PathBuf, String)> {
+    resolve_repo_file_in(super::super::deki_repo_root()?, path)
+}
+
+/// [`resolve_repo_file`] against an explicit repository root.
+pub(in crate::storage_commands::deki) fn resolve_repo_file_in(
+    root: PathBuf,
+    path: &str,
+) -> AppResult<(PathBuf, PathBuf, String)> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(AppError::invalid_input(
@@ -642,7 +651,7 @@ fn display_child_path(parent_display: &str, child: &Path) -> String {
     }
 }
 
-fn is_code_text_path(path: &Path) -> bool {
+pub(in crate::storage_commands::deki) fn is_code_text_path(path: &Path) -> bool {
     let name = path.file_name().and_then(|value| value.to_str());
     if name.is_some_and(|name| CODE_TEXT_FILE_NAMES.contains(&name)) {
         return true;
