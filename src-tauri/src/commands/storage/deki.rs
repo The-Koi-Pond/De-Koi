@@ -24,6 +24,8 @@ mod command_loop;
 mod commands;
 #[path = "deki/data_cli.rs"]
 mod data_cli;
+#[path = "deki/detached_reply.rs"]
+mod detached_reply;
 #[path = "deki/events.rs"]
 mod events;
 #[path = "deki/library.rs"]
@@ -43,6 +45,7 @@ mod source_edit;
 #[path = "deki/status.rs"]
 mod status;
 
+pub(crate) use detached_reply::persist_detached_reply;
 pub(crate) use events::DekiEventSink;
 pub(crate) use status::DekiRuntimeOwner;
 
