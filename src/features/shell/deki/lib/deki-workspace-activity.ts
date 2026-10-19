@@ -119,6 +119,8 @@ const SINGULAR_COLLECTIONS: Record<string, string> = {
   "prompt-sections": "prompt section",
   "prompt-groups": "prompt group",
   "prompt-variables": "prompt variable",
+  extensions: "extension",
+  agents: "custom agent",
 };
 
 function collectionLabel(value: string | null): string {
