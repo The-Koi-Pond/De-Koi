@@ -2672,11 +2672,22 @@ function scheduleLine(block: JsonRecord): string {
   return activity ? `${prefix} - ${activity}` : prefix;
 }
 
-function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage | null {
+interface ConversationFreshnessNames {
+  userName: string | null;
+  characterNames: string[];
+}
+
+function buildConversationFreshnessBlock(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+  names: ConversationFreshnessNames,
+): ChatMLMessage | null {
   if (modeOf(input.chat) !== "conversation") return null;
   const guidance = buildConversationFreshnessGuidance({
     messages: input.storedMessages,
     latestUserInput: input.latestUserInput,
+    userName: names.userName,
+    characterNames: names.characterNames,
   });
   if (!guidance) return null;
   return {
@@ -2699,10 +2710,15 @@ function buildConversationFreshnessBlock(input: PromptAssemblyInput, wrapFormat:
  * system message into one system prompt (Anthropic, Claude Subscription) would otherwise get a new system
  * prompt each minute, and a changed system prompt misses the provider's prompt cache for the whole request.
  */
-function buildConversationTurnNotes(input: PromptAssemblyInput, wrapFormat: WrapFormat): ChatMLMessage[] {
-  return [buildConversationPresenceBlock(input, wrapFormat), buildConversationFreshnessBlock(input, wrapFormat)].filter(
-    (block): block is ChatMLMessage => block !== null,
-  );
+function buildConversationTurnNotes(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+  names: ConversationFreshnessNames,
+): ChatMLMessage[] {
+  return [
+    buildConversationPresenceBlock(input, wrapFormat),
+    buildConversationFreshnessBlock(input, wrapFormat, names),
+  ].filter((block): block is ChatMLMessage => block !== null);
 }
 
 interface RoleplayQualityContext {
@@ -4702,7 +4718,10 @@ export async function assembleGenerationPrompt(
     messages,
     roleplayQualityContext,
     wrapFormat,
-    buildConversationTurnNotes(input, wrapFormat),
+    buildConversationTurnNotes(input, wrapFormat, {
+      userName: persona?.name.trim() || null,
+      characterNames: characters.map((character) => character.name),
+    }),
   );
   const previewMessages = previewMessagesForPrompt(messages);
   const shouldEnforceStrictRoles = boolish(promptParameters?.strictRoleFormatting, true) && !individualGroupTarget;
