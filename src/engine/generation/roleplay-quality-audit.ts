@@ -42,6 +42,8 @@ const SIGNAL_REASONS: Record<RoleplayQualitySignalKind, RoleplayQualityChangeRea
   repeated_opening: "repetition",
   repeated_closing: "repetition",
   repeated_gesture: "repetition",
+  negation_beat: "repetition",
+  ambient_sound: "repetition",
   user_echo: "repetition",
   rhetorical_repetition: "repetition",
   cast_saturation: "pacing",
