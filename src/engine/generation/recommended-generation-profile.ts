@@ -34,6 +34,11 @@ export interface RecommendedGenerationProfile {
 
 export interface RecommendedGenerationProfileInput {
   mode: RecommendedGenerationMode | string;
+  /**
+   * The chat's own mode when `mode` was derived from it at send time (fanfic chats resolve to the
+   * conversation profile). Omit when `mode` already is the chat's mode.
+   */
+  chatMode?: string | null;
   provider?: string | null;
   model?: string | null;
   capabilities?: Record<string, unknown> | null;
@@ -187,8 +192,10 @@ function isSupportedLinkApiClaudeMode(input: RecommendedGenerationProfileInput):
 }
 
 function reasoningCapable(input: RecommendedGenerationProfileInput): boolean {
-  if (input.capabilities?.reasoning === true) return true;
   const provider = normalized(input.provider);
+  // Claude Code's effort is chosen per mode below, so other modes keep Claude Code's default.
+  if (provider === "claude_subscription") return false;
+  if (input.capabilities?.reasoning === true) return true;
   const model = normalized(input.model);
   if (provider === "openai" || provider === "openai_chatgpt") {
     return /(?:^|[/:\s-])(?:gpt-5|o[1-9])/.test(model);
@@ -218,6 +225,12 @@ function knownModelMetadata(input: RecommendedGenerationProfileInput): boolean {
     isSupportedLinkApiGemini35Mode(input) ||
     isSupportedLinkApiClaudeMode(input)
   );
+}
+
+function isClaudeSubscriptionConversation(input: RecommendedGenerationProfileInput): boolean {
+  if (normalized(input.provider) !== "claude_subscription") return false;
+  if (normalized(input.mode) !== "conversation") return false;
+  return input.chatMode === undefined || normalized(input.chatMode) === "conversation";
 }
 
 function withReasoning(
@@ -388,6 +401,24 @@ export function resolveRecommendedGenerationProfile(
         maxTokens: boundedOutputTokens(2048, maxContext),
       },
       suppressedParameters: ["topK", "reasoningEffort", "verbosity"],
+      promptBudgetGuidance: {},
+    };
+  }
+
+  if (isClaudeSubscriptionConversation(input)) {
+    return {
+      profileId: "conversation-balanced",
+      profileVersion: RECOMMENDED_GENERATION_PROFILE_VERSION,
+      source: "recommended",
+      rationale:
+        "Uses low Claude Code effort so texting replies start in seconds instead of after a long hidden think.",
+      parameters: {
+        temperature: 0.7,
+        topP: 0.95,
+        maxTokens: boundedOutputTokens(2048, maxContext),
+        reasoningEffort: "low",
+        verbosity: "medium",
+      },
       promptBudgetGuidance: {},
     };
   }

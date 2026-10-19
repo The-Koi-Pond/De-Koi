@@ -1084,6 +1084,14 @@ export function providerVisibleLlmParameters(
   const capped = requestMaxTokens(connection, normalizedParameters, 0);
   if (capped > 0) visible.maxTokens = capped;
   delete visible._marinara;
+  if (provider === "claude_subscription") {
+    // Claude Code cannot turn thinking off; the transport sends its lowest effort instead.
+    const effort = parameterString(normalizedParameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
+    if (effort === "none" || effort === "minimal") {
+      delete visible.reasoning_effort;
+      visible.reasoningEffort = "low";
+    }
+  }
   return visible;
 }
 
