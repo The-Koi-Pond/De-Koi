@@ -64,6 +64,7 @@ import { packBehavioralInterpretation } from "./behavioral-interpretation";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
+import { readRoleplayHabitScan, roleplayHabitScanGuidance } from "./roleplay-habit-scan";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
   generationParameterSources,
@@ -2712,6 +2713,12 @@ interface RoleplayQualityContext {
 export const ROLEPLAY_HABITS_NOTE_HEADER =
   "[Habits to avoid in this reply, do not mention it] Recent replies in this chat keep falling back on these. Explicit user steering wins over this note.";
 
+const MAX_ROLEPLAY_HABIT_LINES = 7;
+
+function storedMessageIds(messages: readonly JsonRecord[]): Set<string> {
+  return new Set(messages.map((message) => readString(message.id).trim()).filter(Boolean));
+}
+
 function buildRoleplayQualityContext(input: PromptAssemblyInput): RoleplayQualityContext | null {
   const mode = modeOf(input.chat);
   if (mode !== "roleplay" && mode !== "visual_novel") return null;
@@ -2720,19 +2727,27 @@ function buildRoleplayQualityContext(input: PromptAssemblyInput): RoleplayQualit
     messages: input.storedMessages,
     latestUserInput: input.latestUserInput,
   });
-  if (!result.guidance) return null;
+  // The model-read habits come first: they name what this chat actually repeats, props and closers included.
+  const scan = readRoleplayHabitScan(parseRecord(input.chat.metadata));
+  const scanLines =
+    scan && storedMessageIds(input.storedMessages).has(scan.throughMessageId) ? roleplayHabitScanGuidance(scan) : [];
+  const guidance = [...scanLines, ...(result.guidance ? result.guidance.split("\n") : [])]
+    .slice(0, MAX_ROLEPLAY_HABIT_LINES)
+    .join("\n");
+  if (!guidance) return null;
   return {
-    note: [ROLEPLAY_HABITS_NOTE_HEADER, result.guidance].join("\n"),
+    note: [ROLEPLAY_HABITS_NOTE_HEADER, guidance].join("\n"),
     attribution: {
       kind: "agent_injection",
       label: "Roleplay quality",
       status: "injected",
       sourceId: "core-roleplay-quality",
       sourceCollection: "generation_policy",
-      snippet: result.guidance,
+      snippet: guidance,
       metadata: {
         source: "local_roleplay_quality",
         signals: result.signals.map((entry) => entry.kind),
+        scannedHabits: scanLines.length,
       },
     },
   };

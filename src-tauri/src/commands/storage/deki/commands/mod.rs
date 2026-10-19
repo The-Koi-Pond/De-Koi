@@ -10,13 +10,14 @@ pub(super) mod code;
 pub(super) mod web;
 
 pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (all paths are repository-relative and all keys use camelCase):
-- read: {"path":"relative/file"}
-- grep: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- read: {"path":"relative/file","startLine":1,"endLine":200}
+- grep: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0,"regex":false} (set regex true to match a regular expression; matching is case-insensitive)
+- outline: {"path":"relative/file"} -> the file's functions, types, impls, constants, and headings with line numbers; use it on a large file before reading a range
 - find: {"query":"name","path":"optional/directory","maxResults":80}
 - ls: {"path":"relative/directory","limit":80}
-- deki_code: either {"path":"relative/file"} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
+- deki_code: either {"path":"relative/file","startLine":1,"endLine":200} or {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
 - search_deki_code: {"query":"text","path":"optional/file-or-directory","maxResults":32,"contextLines":0}
-- read_deki_code_file: {"path":"relative/file"}
+- read_deki_code_file: {"path":"relative/file","startLine":1,"endLine":200}
 - read_deki_library: {"itemType":"optional type","types":"optional comma-separated types","query":"optional text","limit":80,"offset":0}
 - read_deki_library_items: {"itemType":"type","id":"exact id","includeEntries":true,"entryQuery":"optional text","entryLimit":50,"entryOffset":0}
 - read_deki_chats: {"chatIds":["optional approved id"],"characterId":"optional id","modes":["conversation"],"limit":50,"offset":0}
@@ -24,12 +25,21 @@ pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (
 - read_deki_memories: {"scopeType":"character or chat","scopeId":"exact id","query":"optional text","limit":50}
 - search_deki_web: {"query":"exact approved query","maxResults":5}
 - read_deki_web_page: {"query":"exact approved query","url":"approved public result URL"}
-Omit optional keys you do not need. Prefer precise searches over reading a large file from its beginning: large reads can truncate before a deep symbol, while grep/search results include matching line numbers and previews. Set contextLines to 1-3 when adjacent lines are needed to verify a call, signature, condition, or payload; keep it 0 otherwise. When the task names several exact files, search those exact file paths rather than a parent directory, and batch up to four independent query/path pairs in one frame. Continue until every user-requested query has returned evidence or a demonstrated no-match result. Never repeat an identical command after it succeeded. A search result proves only its returned path, line, preview, and requested context: copy exact symbols, signatures, and line numbers only when that text is visible in successful evidence, and never reconstruct omitted text. Say what could not be verified instead of guessing. After evidence answers the task, return commands:[] and stop:true."#;
+- edit_memory: {"scopeType":"character or chat","scopeId":"exact id","memoryId":"id from read_deki_memories","content":"complete replacement memory","reason":"why"} -> a dry-run memory edit the user approves. Chat memories need approved chat access.
+- edit_file: {"path":"relative/file","oldText":"exact text that occurs once","newText":"replacement","reason":"why"} -> a dry-run source edit the user approves. Read the file first and copy oldText exactly, with enough lines to be unique. It only works when De-Koi runs from a git checkout.
+Omit optional keys you do not need. Reads return numbered lines; startLine and endLine are optional, one-based, and inclusive. A file over 96 KiB read without a range returns its first 400 lines and nextStartLine. To see a deep symbol, search first, then read a range of about 40-120 lines around the matching line number instead of reading a large file from its beginning. Set contextLines to 1-3 when adjacent lines are needed to verify a call, signature, condition, or payload; keep it 0 otherwise. When the task names several exact files, search those exact file paths rather than a parent directory, and batch up to four independent query/path pairs in one frame. Continue until every user-requested query has returned evidence or a demonstrated no-match result. Never repeat an identical command after it succeeded. A search result proves only its returned path, line, preview, and requested context: copy exact symbols, signatures, and line numbers only when that text is visible in successful evidence, and never reconstruct omitted text. Say what could not be verified instead of guessing. After evidence answers the task, return commands:[] and stop:true."#;
 
 pub(super) fn is_repository_command(name: &str) -> bool {
     matches!(
         normalized_command_name(name).as_str(),
-        "read" | "grep" | "find" | "ls" | "deki_code" | "search_deki_code" | "read_deki_code_file"
+        "read"
+            | "grep"
+            | "find"
+            | "ls"
+            | "outline"
+            | "deki_code"
+            | "search_deki_code"
+            | "read_deki_code_file"
     )
 }
 
@@ -110,6 +120,7 @@ enum DekiCommand {
     Grep(code::SearchTextArgs),
     Find(code::FindRepoPathArgs),
     Ls(code::ListRepoPathArgs),
+    Outline(code::OutlineArgs),
     Data(data_cli::DekiDataCommand),
     ReadLibrary(super::ReadDekiLibraryArgs),
     ReadLibraryItems(super::ReadDekiLibraryItemsArgs),
@@ -121,6 +132,8 @@ enum DekiCommand {
     ReadMemories(super::memory_access::ReadDekiMemoriesArgs),
     SearchWeb(web::SearchDekiWebArgs),
     ReadWebPage(web::ReadDekiWebPageArgs),
+    EditFile(super::source_edit::EditFileArgs),
+    EditMemory(super::memory_edit::EditMemoryArgs),
 }
 
 impl DekiCommand {
@@ -130,6 +143,7 @@ impl DekiCommand {
             "grep" => parse_command_args("grep", args).map(Self::Grep),
             "find" => parse_command_args("find", args).map(Self::Find),
             "ls" => parse_command_args("ls", args).map(Self::Ls),
+            "outline" => parse_command_args("outline", args).map(Self::Outline),
             "deki_data" => data_cli::parse(args).map(Self::Data),
             "read_deki_library" => {
                 parse_command_args("read_deki_library", args).map(Self::ReadLibrary)
@@ -155,6 +169,8 @@ impl DekiCommand {
             "read_deki_web_page" => {
                 parse_command_args("read_deki_web_page", args).map(Self::ReadWebPage)
             }
+            "edit_file" => parse_command_args("edit_file", args).map(Self::EditFile),
+            "edit_memory" => parse_command_args("edit_memory", args).map(Self::EditMemory),
             _ => Err(AppError::invalid_input(format!(
                 "Deki-senpai command '{name}' is not available in the JSON command runtime."
             ))),
@@ -249,15 +265,24 @@ async fn run_command(
                 &mut turn_state.pending_approvals,
             )
         }
-        DekiCommand::Read(args) => code::read_repo_file(args),
-        DekiCommand::Grep(args) | DekiCommand::SearchCode(args) => code::search_code(args),
-        DekiCommand::Find(args) => code::find_repo_paths(args),
-        DekiCommand::Ls(args) => code::list_repo_path(args),
+        DekiCommand::Read(args) => off_runtime(move || code::read_repo_file(args)).await,
+        DekiCommand::Grep(args) | DekiCommand::SearchCode(args) => {
+            off_runtime(move || code::search_code(args)).await
+        }
+        DekiCommand::Find(args) => off_runtime(move || code::find_repo_paths(args)).await,
+        DekiCommand::Ls(args) => off_runtime(move || code::list_repo_path(args)).await,
+        DekiCommand::Outline(args) => off_runtime(move || code::outline_repo_file(args)).await,
         DekiCommand::ReadLibrary(args) => read_deki_library(state, args),
         DekiCommand::ReadLibraryItems(args) => read_deki_library_items(state, args),
-        DekiCommand::DekiCode(code::DekiCodeCommand::Search(args)) => code::search_code(args),
-        DekiCommand::DekiCode(code::DekiCodeCommand::Read(args)) => code::read_deki_code_file(args),
-        DekiCommand::ReadCodeFile(args) => code::read_deki_code_file(args),
+        DekiCommand::DekiCode(code::DekiCodeCommand::Search(args)) => {
+            off_runtime(move || code::search_code(args)).await
+        }
+        DekiCommand::DekiCode(code::DekiCodeCommand::Read(args)) => {
+            off_runtime(move || code::read_deki_code_file(args)).await
+        }
+        DekiCommand::ReadCodeFile(args) => {
+            off_runtime(move || code::read_deki_code_file(args)).await
+        }
         DekiCommand::ReadChats(args) => read_deki_chats(state, chat_access_grants, args),
         DekiCommand::ReadChatMessages(args) => {
             read_deki_chat_messages(state, chat_access_grants, args)
@@ -266,11 +291,43 @@ async fn run_command(
             super::memory_access::read(state, chat_access_grants, args)
         }
         DekiCommand::SearchWeb(args) => search_deki_web(web_research_grants, args).await,
+        DekiCommand::EditFile(args) => {
+            turn_state.reserve_data_mutation()?;
+            data_cli::execute(
+                state,
+                approval_scope,
+                data_cli::DekiDataCommand::Mutate(super::source_edit::mutation(args)?),
+                &mut turn_state.pending_approvals,
+            )
+        }
+        DekiCommand::EditMemory(args) => {
+            turn_state.reserve_data_mutation()?;
+            data_cli::execute(
+                state,
+                approval_scope,
+                data_cli::DekiDataCommand::Mutate(super::memory_edit::mutation(
+                    state,
+                    chat_access_grants,
+                    args,
+                )?),
+                &mut turn_state.pending_approvals,
+            )
+        }
         DekiCommand::ReadWebPage(args) => {
             turn_state.reserve_web_page_read()?;
             read_deki_web_page(web_research_grants, args).await
         }
     }
+}
+
+/// Runs a repository command on the blocking pool. A repository search walks
+/// and reads files for seconds; doing that on an async worker stalls every
+/// task queued behind the Deki run there, including the stream that carries
+/// its live activity to the client.
+async fn off_runtime(work: impl FnOnce() -> AppResult<Value> + Send + 'static) -> AppResult<Value> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| AppError::new("deki_command_failed", error.to_string()))?
 }
 
 fn parse_command_args<T>(command_name: &str, args: Value) -> AppResult<T>
@@ -358,6 +415,7 @@ fn trace_tool_name(name: &str) -> &str {
         | "grep"
         | "find"
         | "ls"
+        | "outline"
         | "deki_data"
         | "deki_code"
         | "read_deki_library"
@@ -368,7 +426,9 @@ fn trace_tool_name(name: &str) -> &str {
         | "read_deki_chat_messages"
         | "read_deki_memories"
         | "search_deki_web"
-        | "read_deki_web_page" => name,
+        | "read_deki_web_page"
+        | "edit_file"
+        | "edit_memory" => name,
         _ => "deki_code",
     }
 }
@@ -422,11 +482,14 @@ mod tests {
 
     #[test]
     fn json_command_guide_documents_repository_argument_contracts() {
-        assert!(JSON_COMMAND_GUIDE.contains(r#"read: {"path":"relative/file"}"#));
+        assert!(JSON_COMMAND_GUIDE
+            .contains(r#"read: {"path":"relative/file","startLine":1,"endLine":200}"#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"grep: {"query":"text""#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"find: {"query":"name""#));
         assert!(JSON_COMMAND_GUIDE.contains(r#"ls: {"path":"relative/directory""#));
-        assert!(JSON_COMMAND_GUIDE.contains(r#"read_deki_code_file: {"path":"relative/file"}"#));
+        assert!(JSON_COMMAND_GUIDE.contains(
+            r#"read_deki_code_file: {"path":"relative/file","startLine":1,"endLine":200}"#
+        ));
         assert!(JSON_COMMAND_GUIDE.contains(r#"search_deki_code: {"query":"text""#));
         assert!(JSON_COMMAND_GUIDE.contains(r#""contextLines":0"#));
         assert!(JSON_COMMAND_GUIDE.contains("Set contextLines to 1-3"));

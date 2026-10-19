@@ -100,6 +100,15 @@ const STOCK_PHRASE_PATTERNS = [
 ];
 const MAX_EVIDENCE_LENGTH = 240;
 const QUESTION_REQUEST_PATTERN = /\b(ask me|questions?|interview me|quiz me|keep asking)\b/i;
+/** The user's inner life written for them. Perception ("you feel the deck tilt") stays allowed. */
+const PERSONA_INNER_STATE_PATTERN =
+  /\byou\s+(?:know|knew|realize|realized|remember|remembered|wonder|wondered|understand|understood|suspect|suspected|hope|hoped|doubt|doubted)\b|\byou\s+(?:feel|felt)\s+(?:that|like|as if|as though|sure|certain|relieved|guilty|afraid|ashamed|angry|a (?:pang|surge|flush|stab|rush) of)\b|\byou\s+find\s+yourself\b|\bwithout\s+meaning\s+to\b|\bbefore\s+you\s+can\s+stop\s+yourself\b|\bthan\s+you\s+(?:pictured|imagined)\b|\blooks?\s+(?:bad|good|wrong|different)\s+to\s+you\b|\byou\s+don't\s+have\s+to\s+ask\b/gi;
+/**
+ * A sentence that opens on the user doing something on purpose ("You pick up the dish."), or a beat that waits on
+ * an action the user never chose ("keeps it there until you set the dish into it").
+ */
+const PERSONA_LEADING_ACTION_PATTERN =
+  /(?:^|[.!?]["”’)*_]*\s+|\n\s*[*_]*|\buntil\s+)you\s+(pick|picked|get(?!\s+the\s+(?:sense|feeling|impression))|got(?!\s+the\s+(?:sense|feeling|impression))|stand|stood|lay|laid|follow|followed|reach|reached|set|put|pull|pulled|push|pushed|step|stepped|hand|handed|lift|lifted|pocket|pocketed|kneel|knelt|sit|sat|climb|climbed|tell|told|answer|answered|smile|smiled|laugh|laughed)\b/gi;
 const SECOND_PERSON_DELIBERATE_PATTERN =
   /\byou\s+(?:say|said|ask|asked|reply|replied|agree|agreed|decide|decided|choose|chose|believe|believed|think|thought|want|wanted|intend|intended|promise|promised|cross|crossed|walk|walked|open|opened|take|took|grab|grabbed|grip|gripped|lean|leaned|nod|nodded|shake|shook|sign|signed|accept|accepted|betray|betrayed)\b/gi;
 const PERSONA_DELIBERATE_VERB_PATTERN =
@@ -153,27 +162,6 @@ function repeatedValue(values: string[], minimum = 3): string | null {
       .filter(([, count]) => count >= minimum)
       .sort(([left], [right]) => right.length - left.length)[0]?.[0] ?? null
   );
-}
-
-function messageNgrams(message: string): Set<string> {
-  const words = normalizeText(message).split(" ").filter(Boolean);
-  const grams = new Set<string>();
-  for (let size = 5; size >= 3; size -= 1) {
-    for (let index = 0; index <= words.length - size; index += 1) {
-      grams.add(words.slice(index, index + size).join(" "));
-    }
-  }
-  return grams;
-}
-
-function repeatedNgrams(messages: string[]): Array<[string, number]> {
-  const counts = new Map<string, number>();
-  for (const message of messages) {
-    for (const gram of messageNgrams(message)) {
-      counts.set(gram, (counts.get(gram) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()].filter(([, count]) => count >= 3);
 }
 
 function sentenceOpening(message: string): string {
@@ -546,16 +534,57 @@ function latestUserEcho(content: string, latestUserInput: unknown): string | nul
   return null;
 }
 
-function repeatedCandidatePhrase(content: string, recentMessages: string[]): [string, number] | null {
+/**
+ * A line of six or more words this reply copies from at least two recent replies. Shorter overlaps are left to the
+ * next-turn habit note: in real chats they are mostly the scene's own nouns, and "fixing" them only swapped words.
+ */
+function copiedCandidateLine(content: string, recentMessages: string[]): [string, number] | null {
   if (recentMessages.length < 2) return null;
-  const candidateNgrams = messageNgrams(content);
-  const repeated = repeatedNgrams([...recentMessages, content])
-    .filter(([entry, count]) => count >= 3 && candidateNgrams.has(entry))
-    .sort(
-      ([left, leftCount], [right, rightCount]) =>
-        rightCount - leftCount || right.split(" ").length - left.split(" ").length || right.length - left.length,
-    );
-  return repeated[0] ?? null;
+  const candidate = new Set(copiedLines(content).map(([gram]) => gram));
+  const counts = new Map<string, number>();
+  for (const message of recentMessages) {
+    for (const gram of new Set(copiedLines(message).map(([entry]) => entry))) {
+      if (candidate.has(gram)) counts.set(gram, (counts.get(gram) ?? 0) + 1);
+    }
+  }
+  const best = [...counts.entries()].filter(([, count]) => count >= 2).sort((left, right) => right[1] - left[1])[0];
+  return best ? [best[0], best[1] + 1] : null;
+}
+
+function sentenceAt(content: string, index: number): string {
+  const before = content.slice(0, index);
+  // The sentence starts after the last stop (closing quotes included) or line break before the match.
+  let start = 0;
+  for (const stop of before.matchAll(/[.!?…]["”’)*_]*\s+|\n+/g)) start = stop.index + stop[0].length;
+  const after = content.slice(index).search(/[.!?\n]/);
+  return content
+    .slice(start, after < 0 ? content.length : index + after + 1)
+    .replace(/^[\s*_]+|[\s*_]+$/g, "")
+    .trim();
+}
+
+/**
+ * Narration that writes the user's inner life ("You know a barometer can stick.", "smaller than you pictured") or opens
+ * a sentence on a deliberate action ("You pick up the dish."). Strict agency leaves both to the user. Returns the
+ * sentences, so the editor sees the spans instead of the whole reply.
+ */
+function personaInnerOrLeadingActionSentences(
+  content: string,
+  latestUserInput: unknown,
+  includeQuotedAgencyAssertions = false,
+): string[] {
+  const asserted = maskNonAssertedSecondPersonClauses(content, includeQuotedAgencyAssertions);
+  const userWords = new Set(normalizeText(readString(latestUserInput)).split(" "));
+  const sentences: string[] = [];
+  for (const match of asserted.matchAll(PERSONA_INNER_STATE_PATTERN)) {
+    sentences.push(sentenceAt(content, match.index));
+  }
+  for (const match of asserted.matchAll(PERSONA_LEADING_ACTION_PATTERN)) {
+    // Restating what the user just said they did ("I pick up the dish" -> "You pick up the dish") is a consequence.
+    if (userWords.has(match[1]!.toLowerCase())) continue;
+    sentences.push(sentenceAt(content, match.index + match[0].length - match[1]!.length));
+  }
+  return [...new Set(sentences.filter(Boolean))];
 }
 
 function rhetoricalRepetitionEvidence(content: string): { evidence: string; occurrences: number } | null {
@@ -735,14 +764,14 @@ export function analyzeRoleplayResponse(input: RoleplayResponseQualityInput): Ro
     );
   }
 
-  const repeated = repeatedCandidatePhrase(content, recentMessages);
-  if (repeated) {
-    const [phrase, occurrences] = repeated;
+  const copied = copiedCandidateLine(content, recentMessages);
+  if (copied) {
+    const [phrase, occurrences] = copied;
     signals.push(
       signal(
         "repeated_phrase",
         phrase,
-        `Remove or vary the recurring phrase "${phrase}" only if it is not intentional.`,
+        `This reply reuses "${phrase}" word for word from earlier replies. Cut that line unless the scene needs it.`,
         "minor",
         occurrences,
       ),
@@ -789,19 +818,33 @@ export function analyzeRoleplayResponse(input: RoleplayResponseQualityInput): Ro
   }
 
   const personaName = input.personaName?.trim() ?? "";
-  if (
-    strictAgencyContract(input.agencyContract) &&
-    (personaAgencyMatch(content, personaName) ||
-      deliberateSecondPersonMatch(content, input.includeQuotedAgencyAssertions))
-  ) {
-    signals.push(
-      signal(
-        "agency_candidate",
-        content,
-        "Audit whether the response assigned dialogue, intent, belief, a decision, or a deliberate action to the user.",
-        "high",
-      ),
+  if (strictAgencyContract(input.agencyContract)) {
+    const innerOrAction = personaInnerOrLeadingActionSentences(
+      content,
+      input.latestUserInput,
+      input.includeQuotedAgencyAssertions,
     );
+    if (
+      personaAgencyMatch(content, personaName) ||
+      deliberateSecondPersonMatch(content, input.includeQuotedAgencyAssertions)
+    ) {
+      signals.push(
+        signal(
+          "agency_candidate",
+          content,
+          "Audit whether the response assigned dialogue, intent, belief, a decision, or a deliberate action to the user.",
+          "high",
+        ),
+      );
+    } else if (innerOrAction.length > 0) {
+      signals.push({
+        kind: "agency_candidate",
+        severity: "high",
+        evidence: innerOrAction.slice(0, 3).map(boundedEvidence),
+        guidance:
+          "Audit whether these sentences state the user's thoughts, feelings, knowledge, or conclusions, or have the user take a deliberate action. Under strict agency, delete the sentence or the clause that does.",
+      });
+    }
   }
   return { signals, shouldAudit: shouldAuditRoleplaySignals(signals) };
 }
