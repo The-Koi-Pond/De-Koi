@@ -548,6 +548,111 @@ mod tests {
     }
 
     #[test]
+    fn custom_agent_insert_is_created_switched_off_with_a_custom_type() {
+        let state = test_state("agent-insert");
+        let scope = scope(DekiRuntimeOwner::Embedded, &unique_session("agent-insert"));
+
+        let result = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "insert",
+                "collection": "agents",
+                "value": { "name": "Mood Tracker", "promptTemplate": "Track the mood." },
+                "reason": "user asked for a mood tracker"
+            }),
+        );
+        let id = approval_id(&result);
+        assert!(state.storage.list("agents").expect("list").is_empty());
+
+        approve(&state, &DekiRuntimeOwner::Embedded, &scope.session_id, &id)
+            .expect("approval applies");
+        let agents = state.storage.list("agents").expect("list");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0]["type"], json!("custom-mood-tracker"));
+        assert_eq!(agents[0]["enabled"], json!(false));
+        assert_eq!(agents[0]["phase"], json!("parallel"));
+    }
+
+    #[test]
+    fn extensions_and_agents_cannot_be_switched_on_by_deki() {
+        let state = test_state("automation-guard");
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("automation-guard"),
+        );
+        state
+            .storage
+            .create(
+                "extensions",
+                json!({ "id": "ext-1", "name": "Notes", "css": "body{}", "enabled": false }),
+            )
+            .expect("seed extension");
+
+        let enabled_insert = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "insert",
+                "collection": "extensions",
+                "value": { "name": "Bold", "css": "b{}", "enabled": true },
+                "reason": "test"
+            }),
+        );
+        assert_eq!(enabled_insert["ok"], json!(false));
+        assert!(enabled_insert["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("switched off"));
+
+        let enable_patch = dry_run(
+            &state,
+            &scope,
+            json!({
+                "action": "patch",
+                "collection": "extensions",
+                "id": "ext-1",
+                "patch": { "enabled": true },
+                "reason": "test"
+            }),
+        );
+        assert_eq!(enable_patch["ok"], json!(false));
+        assert!(enable_patch["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("cannot change enabled"));
+    }
+
+    #[test]
+    fn built_in_agents_are_not_deki_s_to_edit_or_delete() {
+        let state = test_state("agent-built-in");
+        let scope = scope(
+            DekiRuntimeOwner::Embedded,
+            &unique_session("agent-built-in"),
+        );
+        state
+            .storage
+            .create(
+                "agents",
+                json!({ "id": "agent-world", "type": "world-state", "name": "World State" }),
+            )
+            .expect("seed built-in agent");
+
+        for args in [
+            json!({ "action": "patch", "collection": "agents", "id": "agent-world", "patch": { "name": "Mine" }, "reason": "test" }),
+            json!({ "action": "delete", "collection": "agents", "id": "agent-world", "reason": "test" }),
+            json!({ "action": "insert", "collection": "agents", "value": { "name": "X", "type": "custom-tracker", "promptTemplate": "p" }, "reason": "test" }),
+        ] {
+            let result = dry_run(&state, &scope, args);
+            assert_eq!(result["ok"], json!(false), "{result}");
+            assert!(result["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("built-in"));
+        }
+    }
+
+    #[test]
     fn patch_dry_run_does_not_write_and_approval_applies_exactly_the_plan() {
         let state = test_state("patch");
         seed_lorebook(&state);

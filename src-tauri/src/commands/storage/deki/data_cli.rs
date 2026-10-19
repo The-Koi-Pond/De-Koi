@@ -25,7 +25,8 @@ pub(super) const DEKI_DATA_GUIDE: &str = r#"deki_data app-data commands (always 
 - {"action":"insert","collection":"lorebook-entries","value":{...},"reason":"why"}
 - {"action":"patch","collection":"personas","id":"exact id","patch":{"only":"changed fields"},"reason":"why"}
 - {"action":"delete","collection":"lorebook-entries","id":"exact id","reason":"why"}
-Collections: characters, character-groups, personas, persona-groups, lorebooks, lorebook-entries, prompts, prompt-sections, prompt-groups, prompt-variables. Chats, messages, memories, connections, and settings are not deki_data collections.
+Collections: characters, character-groups, personas, persona-groups, lorebooks, lorebook-entries, prompts, prompt-sections, prompt-groups, prompt-variables, extensions, agents. Chats, messages, memories, connections, and settings are not deki_data collections.
+Extensions ({"name","description","css","js"}) and custom agents ({"name","description","phase":"pre_generation|parallel|post_processing","promptTemplate","settings":{...}}) are created switched off; never set enabled, and never patch enabled or type. Agent type defaults to custom-<name>. Built-in agents cannot be edited or deleted. Prefer an extension or custom agent over a source edit when the user wants to customize De-Koi.
 insert/patch/delete are dry-runs: nothing is written. Each returns a diff preview and a pending approval that the user must approve in De-Koi. Never say a dry-run change was saved, applied, or deleted; say it is waiting for approval. Character patches go under patch.data (for example {"data":{"scenario":"..."}}); persona patches use top-level card fields. Patch only the fields that change. Prefer a <deki_action> card for drafting or rewriting one card the user will review; use deki_data for deletes and precise structured edits such as adding or removing lorebook entries or patching a few fields across records."#;
 
 const MUTATION_ACTIONS: &str = "status, collections, list, search, get, insert, patch, delete";
@@ -271,6 +272,7 @@ pub(super) fn execute(
             }],
         ),
         DekiDataCommand::Mutate(mutation) => {
+            let mutation = super::automation::prepare_insert(state, mutation)?;
             let plan = plan_mutation(state, &mutation)?;
             let approval = approvals::record_dry_run(scope, &plan)?;
             let mut result = json!({
@@ -337,6 +339,8 @@ fn required_fields_note(entity: &str) -> &'static str {
         "prompt-sections" | "prompt-groups" | "prompt-variables" => {
             "insert needs presetId of an existing prompt preset"
         }
+        "extensions" => "insert needs name and css or js; created switched off",
+        "agents" => "insert needs name and promptTemplate; created switched off with a unique custom- type",
         _ => "insert needs name",
     }
 }
@@ -353,7 +357,7 @@ impl DekiDataValidation {
         json!({ "level": level, "entity": entity, "id": id, "message": message.into() })
     }
 
-    fn error(&mut self, entity: &str, id: &str, message: impl Into<String>) {
+    pub(super) fn error(&mut self, entity: &str, id: &str, message: impl Into<String>) {
         self.errors.push(Self::issue("error", entity, id, message));
     }
 
@@ -442,6 +446,7 @@ pub(super) fn plan_mutation(
         }
         DekiDataMutationKind::Delete => {}
     }
+    super::automation::validate(state, mutation, &payload, current.as_ref(), &mut validation)?;
 
     match mutation.kind {
         DekiDataMutationKind::Insert => {

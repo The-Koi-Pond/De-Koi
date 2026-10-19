@@ -6070,12 +6070,12 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
     }
 
     #[test]
-    fn claude_subscription_transcript_rejects_image_turns() {
-        let mut image_only = test_message("user", "");
-        image_only.images = vec!["data:image/png;base64,abc".to_string()];
+    fn claude_subscription_transcript_sends_images_as_stream_json_blocks() {
+        let mut image_turn = test_message("user", "What does this say?");
+        image_turn.images = vec!["data:image/png;base64,abc".to_string()];
         let request = LlmRequest {
             connection: test_connection(),
-            messages: vec![image_only],
+            messages: vec![image_turn],
             parameters: json!({
                 "_marinara": {
                     "chatId": "chat-1",
@@ -6085,34 +6085,78 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             tools: Vec::new(),
         };
 
-        let error = claude_subscription_prompt(&request)
-            .expect_err("Claude subscription should reject unsupported image attachments");
-
-        assert_eq!(error.code, "claude_subscription_unsupported_capability");
-        assert!(error.message.contains("1 image attachment(s)"));
+        let prompt = claude_subscription_prompt(&request).expect("images are supported");
         assert_eq!(
-            error.details.as_ref().unwrap()["capability"],
-            "image_attachments"
+            prompt.images,
+            vec![ClaudeSubscriptionImage {
+                media_type: "image/png".to_string(),
+                data: "abc".to_string(),
+            }]
         );
-        assert_eq!(error.details.as_ref().unwrap()["imageAttachmentCount"], 1);
+
+        let payload = String::from_utf8(prompt.stdin_payload()).expect("utf-8 payload");
+        assert!(payload.ends_with('\n'));
+        let line: Value = serde_json::from_str(payload.trim()).expect("one JSON line");
+        assert_eq!(line["type"], "user");
+        let content = line["message"]["content"]
+            .as_array()
+            .expect("content blocks");
+        assert_eq!(content[0]["type"], "image");
+        assert_eq!(content[0]["source"]["media_type"], "image/png");
+        assert_eq!(content[0]["source"]["data"], "abc");
+        assert_eq!(content[1]["type"], "text");
+        assert!(content[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("What does this say?"));
     }
 
     #[test]
-    fn claude_subscription_runtime_chat_rejects_image_current_turn() {
-        let mut image_only = test_message("user", "");
-        image_only.images = vec!["data:image/png;base64,abc".to_string()];
+    fn claude_subscription_stream_output_completes_from_the_result_line_only() {
+        let stdout = [
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ERR"}}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"ERR-4417"}]}}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"ERR-4417"}"#,
+        ]
+        .join("\n");
+
+        let line = claude_subscription_stream_result_line(&stdout).expect("result line");
+        let completion =
+            parse_claude_subscription_output_rich(line, "claude-sonnet-5-5").expect("completion");
+
+        assert_eq!(completion.content, "ERR-4417");
+    }
+
+    #[test]
+    fn claude_subscription_without_images_keeps_the_plain_prompt_on_stdin() {
         let request = LlmRequest {
             connection: test_connection(),
-            messages: vec![test_message("assistant", "Earlier reply."), image_only],
+            messages: vec![test_message("user", "Hello")],
+            parameters: json!({}),
+            tools: Vec::new(),
+        };
+
+        let prompt = claude_subscription_prompt(&request).expect("plain prompt");
+        assert!(prompt.images.is_empty());
+        assert_eq!(prompt.stdin_payload(), prompt.prompt.clone().into_bytes());
+    }
+
+    #[test]
+    fn claude_subscription_refuses_linked_images_with_the_reason() {
+        let mut linked = test_message("user", "Look");
+        linked.images = vec!["https://example.com/cat.png".to_string()];
+        let request = LlmRequest {
+            connection: test_connection(),
+            messages: vec![test_message("assistant", "Earlier reply."), linked],
             parameters: json!({ "_marinara": { "chatId": "chat-1", "mode": "roleplay" } }),
             tools: Vec::new(),
         };
 
         let error = claude_subscription_prompt(&request)
-            .expect_err("Claude subscription should reject unsupported current-turn images");
+            .expect_err("a linked image cannot be sent to Claude Code");
 
         assert_eq!(error.code, "claude_subscription_unsupported_capability");
-        assert!(error.message.contains("1 image attachment(s)"));
+        assert!(error.message.contains("embedded"));
     }
 
     #[test]
