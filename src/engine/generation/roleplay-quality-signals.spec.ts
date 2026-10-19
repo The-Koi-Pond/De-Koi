@@ -214,20 +214,64 @@ describe("roleplay quality response signals", () => {
     expect(result.shouldAudit).toBe(false);
   });
 
-  it("routes one structural pattern only after it appears in the candidate and two prior replies", () => {
-    const result = analyzeRoleplayResponse({
-      content: "For a long moment, Mara studies the seal before answering.",
+  it("routes a line copied word for word from two prior replies, but not a short shared phrase", () => {
+    const copied = analyzeRoleplayResponse({
+      content: "Mara studies the seal. Somewhere below, the bilge pump coughs twice and goes quiet.",
       latestUserInput: "I wait.",
       messages: [
-        assistant("For a long moment, rain ticks against the window."),
-        assistant("For a long moment, neither guard speaks."),
+        assistant("Rain ticks on the glass. Somewhere below, the bilge pump coughs twice and goes quiet."),
+        assistant("Neither guard speaks. Somewhere below, the bilge pump coughs twice and goes quiet."),
+      ],
+    });
+    // Short overlaps are usually the scene's own nouns; the next-turn habit note handles stock phrases.
+    const shared = analyzeRoleplayResponse({
+      content: "For a long moment, Mara studies the seal in the generator room before answering.",
+      latestUserInput: "I wait.",
+      messages: [
+        assistant("For a long moment, rain ticks against the generator room window."),
+        assistant("For a long moment, neither guard in the generator room speaks."),
       ],
     });
 
-    expect(result.signals).toEqual(
+    expect(copied.signals).toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: "repeated_phrase", occurrences: 3 })]),
     );
-    expect(result.shouldAudit).toBe(true);
+    expect(copied.shouldAudit).toBe(true);
+    expect(shared.signals.some((signal) => signal.kind === "repeated_phrase")).toBe(false);
+    expect(shared.shouldAudit).toBe(false);
+  });
+
+  it("routes narration that writes the user's inner life or opens on their deliberate action", () => {
+    const strict = "strict agency: never write {{user}}'s dialogue, intent, decisions, or deliberate actions.";
+    const inner = analyzeRoleplayResponse({
+      content: 'Kaul taps the glass. "Stuck again." You know a barometer can stick. The needle sits on 29.4.',
+      latestUserInput: "I look at the barometer.",
+      agencyContract: strict,
+    });
+    const action = analyzeRoleplayResponse({
+      content: "Sal pushes the dish across the counter. You pick up the dish. It is warm from the lamp.",
+      latestUserInput: "I ask what it's worth.",
+      agencyContract: strict,
+    });
+    const echoedAction = analyzeRoleplayResponse({
+      content: "You pick up the dish. It is warm from the lamp, and Sal watches your hands.",
+      latestUserInput: "I pick up the dish and turn it over.",
+      agencyContract: strict,
+    });
+    const perception = analyzeRoleplayResponse({
+      content: 'You feel the deck tilt under you. "Hold on," Marr says, and if you know the reef, it never shows.',
+      latestUserInput: "I grab the rail.",
+      agencyContract: strict,
+    });
+
+    expect(inner.signals).toEqual([
+      expect.objectContaining({ kind: "agency_candidate", evidence: ["You know a barometer can stick."] }),
+    ]);
+    expect(action.signals).toEqual([
+      expect.objectContaining({ kind: "agency_candidate", evidence: ["You pick up the dish."] }),
+    ]);
+    expect(echoedAction.signals.some((signal) => signal.kind === "agency_candidate")).toBe(false);
+    expect(perception.signals.some((signal) => signal.kind === "agency_candidate")).toBe(false);
   });
 
   it("flags an authoritative named-pronoun contradiction without inferring identity", () => {
