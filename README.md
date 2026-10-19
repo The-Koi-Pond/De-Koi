@@ -87,7 +87,7 @@ it.
 <!-- features:start (generated from the Discover registry by `pnpm docs:readme-features`; do not edit) -->
 
 <details>
-<summary><b>Chat modes</b> (8)</summary>
+<summary><b>Chat modes</b> (9)</summary>
 
 - **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.
 - **Message Reactions**: React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.
