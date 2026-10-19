@@ -15,6 +15,10 @@ the user must approve.
   injected into the next Deki turn.
 - `src-tauri/src/commands/storage/deki/library.rs`: the collection allowlist
   shared by library reads and `deki_data`.
+- `src-tauri/src/commands/storage/deki/automation.rs`: extra rules for
+  extensions and custom agents.
+- `src-tauri/src/commands/storage/deki/source_edit.rs`: `edit_file` source
+  edits, planned and applied through the same approvals.
 - `src/shared/api/deki-api.ts`: `dekiApi.workspace.status`, `approve`, and
   `reject` wrappers. `deki_workspace_approve` and `deki_workspace_reject` are
   explicit in `remote-runtime.ts` and `http_dispatch.rs`.
@@ -24,14 +28,48 @@ the user must approve.
 Read actions: `status`, `collections`, `list`, `search`, `get`.
 Mutation actions: `insert`, `patch`, `delete`, each with a required `reason`.
 
-Collections are the creative library only: characters, character groups,
-personas, persona groups, lorebooks, lorebook entries, prompt presets, and
-prompt sections, groups, and variables. Chats, messages, memories, connections,
-and settings are not `deki_data` collections.
+Collections are the creative library (characters, character groups, personas,
+persona groups, lorebooks, lorebook entries, prompt presets, and prompt
+sections, groups, and variables) plus extensions and custom agents. Chats,
+messages, memories, connections, and settings are not `deki_data` collections.
+
+Extensions and custom agents run code or prompts in the app, so Deki may
+propose them but never switch them on. A new one is created with
+`enabled: false` (agents also get a unique `custom-<name>` type and the
+`parallel` phase when missing, filled in at dry-run time so the preview, hash,
+and stored row agree). A dry-run that sets `enabled: true`, or a patch that
+touches `enabled` or `type`, is blocked, and built-in agents cannot be edited or
+deleted.
+
+## Source Edits
+
+`edit_file` (`{"path","oldText","newText","reason"}`) is a dry-run under the
+`source` collection: `oldText` must occur exactly once, and the operation hash
+covers the whole current file, so any change to it after the dry-run makes the
+approval `state_changed`. Approving re-checks the hash and writes the file
+through a temporary file and a rename. Source edits need the repository root
+to be a git checkout: that is the only case where the edit reaches the running
+app (dev builds reload it) and can be undone with git. Packaged and container
+installs run from a copy, so their dry-runs are blocked and Deki gives the
+change as a snippet instead.
 
 `replace` is rejected on purpose. Storage owners merge updates (character
 `data` merges recursively), so a raw full-row replace would bypass their
 normalization. Use `patch` with only the fields that change.
+
+## Memory Edits
+
+`edit_memory` (`{"scopeType","scopeId","memoryId","content","reason"}`)
+replaces one character or chat memory's content as a dry-run under the
+`memories` collection. A chat memory needs an approved chat-access grant
+covering the chat when the edit is proposed; approving it is the user's
+consent. The memory must belong to the named character or chat and still be
+active (pinned character memories too), and the hash covers the stored
+memory. Approving re-checks the hash and writes through the memory owner:
+the canonical memory store and its lexical index for characters, the chat
+memory owner (which re-embeds) for chats. Because that re-embedding calls the
+embedding model, memory edits check and apply outside the exclusive storage
+section that the other approvals hold.
 
 ## Dry-Run And Apply
 
@@ -109,8 +147,7 @@ structured edits.
   readable after the runtime forgets the approval.
 - `dekiApi.promptEvents` normalizes every event and drops unknown or malformed
   ones. `DekiSurface` keys live activity by session and ignores events from an
-  older run of the same session. Stop calls `deki_workspace_abort`; a native
-  write-tool turn reports that it cannot be stopped.
+  older run of the same session. Stop calls `deki_workspace_abort`.
 
 Owners on a hosted runtime: a request the auth gate admits without a login
 (loopback, the Docker/Tailscale bypass interfaces, and with no Basic Auth

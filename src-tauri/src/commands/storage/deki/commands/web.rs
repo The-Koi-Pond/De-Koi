@@ -925,4 +925,128 @@ mod tests {
         assert_eq!(error.code, "deki_web_search_no_results");
         assert!(error.message.contains("interstitial"));
     }
+
+    #[test]
+    fn deki_web_grant_matches_only_exact_normalized_query() {
+        let grant = DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "Ghostface Dead by Daylight lore personality".to_string(),
+                allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+            },
+            granted_at: "2026-06-28T12:00:00Z".to_string(),
+            expires_at: None,
+        };
+        let grants = vec![grant];
+
+        assert!(deki_web_grant_for_query(
+            "  ghostface   dead by daylight lore personality  ",
+            &grants
+        )
+        .is_some());
+        assert!(deki_web_grant_for_query("Ghostface build guide", &grants).is_none());
+    }
+
+    #[test]
+    fn deki_web_page_text_extraction_removes_scripts_and_markup() {
+        let html = r#"
+            <html>
+              <head><title>Danny Johnson - The Ghost Face</title><style>.hidden{display:none}</style></head>
+              <body>
+                <script>window.secret = "ignore me";</script>
+                <h1>Danny Johnson</h1>
+                <p>His personal Perks, I&amp;#x27;m All Ears and Thrilling Tremors, reveal his stalking playstyle.</p>
+              </body>
+            </html>
+        "#;
+
+        let text = extract_deki_web_page_text(html, 400);
+
+        assert!(text.contains("Danny Johnson - The Ghost Face"));
+        assert!(text.contains("Danny Johnson"));
+        assert!(text.contains("I'm All Ears"));
+        assert!(!text.contains("window.secret"));
+        assert!(!text.contains("hidden"));
+        assert!(!text.contains("<p>"));
+    }
+
+    #[test]
+    fn deki_web_page_url_requires_matching_approved_domain() {
+        let grant = DekiWebResearchGrant {
+            id: "grant-1".to_string(),
+            action_message_id: "message-1".to_string(),
+            scope: DekiWebResearchScope {
+                scope_type: "query".to_string(),
+                query: "Ghostface Dead by Daylight lore personality".to_string(),
+                allowed_domains: vec!["deadbydaylight.fandom.com".to_string()],
+            },
+            granted_at: "2026-06-28T12:00:00Z".to_string(),
+            expires_at: None,
+        };
+
+        let allowed = deki_web_page_url_for_grant(
+            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen",
+            &grant,
+        )
+        .expect("matching approved domain should be readable");
+        let rejected = deki_web_page_url_for_grant("https://example.com/wiki/Danny", &grant)
+            .expect_err("unapproved domain should be rejected");
+        let local = deki_web_page_url_for_grant("http://127.0.0.1:8080/private", &grant)
+            .expect_err("local network URL should be rejected");
+
+        assert_eq!(allowed.domain(), Some("deadbydaylight.fandom.com"));
+        assert_eq!(rejected.code, "deki_web_page_domain_not_allowed");
+        assert_eq!(local.code, "deki_web_page_url_not_public");
+    }
+
+    #[test]
+    fn deki_fandom_page_text_falls_back_to_html_when_extract_is_missing() {
+        let json = r#"{"query":{"pages":{"12531":{"title":"Pierrot","extract":""}}}}"#;
+        let html = r#"
+            <html>
+              <head><title>Pierrot | Freak Circus Wiki</title></head>
+              <body>
+                <h1>Pierrot</h1>
+                <p>Pierrot enjoys music boxes, card tricks, and tending to the circus props.</p>
+              </body>
+            </html>
+        "#;
+
+        let text = extract_deki_fandom_page_text(json, html, 400)
+            .expect("Fandom HTML should be readable when the API extract is empty");
+
+        assert!(text.contains("Pierrot | Freak Circus Wiki"));
+        assert!(text.contains("music boxes"));
+        assert!(text.contains("card tricks"));
+    }
+
+    #[test]
+    fn deki_mediawiki_extract_parser_reads_page_extract() {
+        let json = r#"{"query":{"pages":{"12531":{"title":"Danny Johnson alias Jed Olsen","extract":"Danny Johnson or \"The Ghost Face\" is a Killer.\nHis personal Perks include I\u0027m All Ears."}}}}"#;
+
+        let text = extract_deki_mediawiki_page_text(json, 400).expect("extract should parse");
+
+        assert!(text.contains("Danny Johnson alias Jed Olsen"));
+        assert!(text.contains("The Ghost Face"));
+        assert!(text.contains("I'm All Ears"));
+    }
+
+    #[test]
+    fn deki_fandom_api_url_uses_mediawiki_extract_endpoint() {
+        let page_url = reqwest::Url::parse(
+            "https://deadbydaylight.fandom.com/wiki/Danny_Johnson_alias_Jed_Olsen",
+        )
+        .expect("page URL should parse");
+
+        let api_url = deki_fandom_api_url_for_page(&page_url).expect("fandom API URL should build");
+
+        assert_eq!(api_url.domain(), Some("deadbydaylight.fandom.com"));
+        assert_eq!(api_url.path(), "/api.php");
+        assert!(api_url.as_str().contains("prop=extracts"));
+        assert!(api_url
+            .as_str()
+            .contains("titles=Danny_Johnson_alias_Jed_Olsen"));
+    }
 }

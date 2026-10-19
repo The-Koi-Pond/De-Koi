@@ -19,10 +19,24 @@ const CODE_SEARCH_SKIP_DIRS: &[&str] = &[
 ];
 const CODE_SEARCH_SKIP_PATH_PREFIXES: &[&str] = &["packages/server/data", "src-tauri/gen"];
 const CODE_SEARCH_ALLOWED_EXTENSIONS: &[&str] = &[
-    "css", "html", "js", "jsx", "json", "md", "rs", "toml", "ts", "tsx", "yml", "yaml",
+    "cjs", "css", "cts", "html", "js", "jsx", "json", "md", "mjs", "mts", "ps1", "puml", "py",
+    "rs", "sh", "sql", "toml", "ts", "tsx", "yml", "yaml",
 ];
-const CODE_SEARCH_MAX_FILE_BYTES: u64 = 512 * 1024;
-const CODE_READ_MAX_FILE_BYTES: u64 = 96 * 1024;
+/// Source files without an allowed extension that are still worth reading.
+const CODE_TEXT_FILE_NAMES: &[&str] = &[
+    "AGENTS.md",
+    "Dockerfile",
+    "Dockerfile.web",
+    "LICENSE",
+    "README",
+];
+pub(in crate::storage_commands::deki) const CODE_SEARCH_MAX_FILE_BYTES: u64 = 512 * 1024;
+/// Files up to this size are returned whole when no line range is asked for.
+const CODE_READ_WHOLE_FILE_BYTES: usize = 96 * 1024;
+/// Lines returned from a larger file when no range is asked for.
+const CODE_READ_DEFAULT_LINES: usize = 400;
+/// Most lines one ranged read returns.
+const CODE_READ_MAX_RANGE_LINES: usize = 800;
 const LIST_DEFAULT_LIMIT: usize = 80;
 const LIST_MAX_LIMIT: usize = 200;
 const FIND_DEFAULT_LIMIT: usize = 80;
@@ -33,6 +47,10 @@ const SEARCH_MAX_CONTEXT_LINES: usize = 3;
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReadRepoFileArgs {
     pub(super) path: String,
+    #[serde(default, alias = "start_line")]
+    pub(super) start_line: Option<usize>,
+    #[serde(default, alias = "end_line")]
+    pub(super) end_line: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +64,15 @@ pub(super) struct SearchTextArgs {
     pub(super) max_results: Option<usize>,
     #[serde(default, alias = "context_lines")]
     pub(super) context_lines: Option<usize>,
+    /// Treat `query` as a regular expression instead of plain text.
+    #[serde(default)]
+    pub(super) regex: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OutlineArgs {
+    pub(super) path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,11 +104,48 @@ pub(super) struct SearchDekiCodeArgs {
     pub(super) max_results: Option<usize>,
     #[serde(default)]
     pub(super) context_lines: Option<usize>,
+    #[serde(default)]
+    pub(super) regex: Option<bool>,
+}
+
+/// How a search matches one line: plain text or a regular expression, both
+/// case-insensitive.
+enum LineMatcher {
+    Text(String),
+    Pattern(regex::Regex),
+}
+
+impl LineMatcher {
+    fn new(query: &str, regex: bool) -> AppResult<Self> {
+        if !regex {
+            return Ok(Self::Text(query.to_ascii_lowercase()));
+        }
+        regex::RegexBuilder::new(query)
+            .case_insensitive(true)
+            .size_limit(1 << 20)
+            .build()
+            .map(Self::Pattern)
+            .map_err(|error| {
+                AppError::invalid_input(format!("The search regex is invalid: {error}"))
+            })
+    }
+
+    fn is_match(&self, line: &str) -> bool {
+        match self {
+            Self::Text(needle) => line.to_ascii_lowercase().contains(needle.as_str()),
+            Self::Pattern(pattern) => pattern.is_match(line),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct ReadDekiCodeFileArgs {
     pub(super) path: String,
+    #[serde(default, alias = "start_line")]
+    pub(super) start_line: Option<usize>,
+    #[serde(default, alias = "end_line")]
+    pub(super) end_line: Option<usize>,
 }
 
 pub(super) enum DekiCodeCommand {
@@ -116,7 +180,11 @@ pub(super) fn parse_deki_code_command(args: Value) -> AppResult<DekiCodeCommand>
 }
 
 pub(super) fn read_repo_file(args: ReadRepoFileArgs) -> AppResult<Value> {
-    read_deki_code_file(ReadDekiCodeFileArgs { path: args.path })
+    read_deki_code_file(ReadDekiCodeFileArgs {
+        path: args.path,
+        start_line: args.start_line,
+        end_line: args.end_line,
+    })
 }
 
 pub(super) fn search_code(args: SearchTextArgs) -> AppResult<Value> {
@@ -130,11 +198,68 @@ pub(super) fn search_code(args: SearchTextArgs) -> AppResult<Value> {
         path: args.path,
         max_results: args.max_results,
         context_lines: args.context_lines,
+        regex: args.regex,
     })
 }
 
+/// Most outline entries one call returns.
+const OUTLINE_MAX_ENTRIES: usize = 400;
+
+/// The declarations in a source file with their line numbers (functions,
+/// types, impls, modules, constants; exported or top-level for TypeScript and
+/// JavaScript), so a large file can be navigated before reading a range.
+pub(super) fn outline_repo_file(args: OutlineArgs) -> AppResult<Value> {
+    let (_root, target, display_path) = resolve_repo_file(&args.path)?;
+    if !target.is_file() {
+        return Err(AppError::not_found(format!("{display_path} was not found")));
+    }
+    if !is_code_text_path(Path::new(&display_path)) {
+        return Err(AppError::invalid_input(format!(
+            "{display_path} is not a readable source or guidance file"
+        )));
+    }
+    if fs::metadata(&target)?.len() > CODE_SEARCH_MAX_FILE_BYTES {
+        return Err(AppError::invalid_input(format!(
+            "{display_path} is too large to outline"
+        )));
+    }
+    let content = fs::read_to_string(&target).map_err(|error| {
+        AppError::new(
+            "deki_code_read_failed",
+            format!("{display_path} is not valid UTF-8: {error}"),
+        )
+    })?;
+    let (entries, truncated) = outline_entries(&content);
+    Ok(json!({
+        "path": display_path,
+        "totalLines": content.lines().count(),
+        "entries": entries,
+        "truncated": truncated,
+    }))
+}
+
+fn outline_entries(content: &str) -> (Vec<Value>, bool) {
+    // Rust items at any depth (impl methods are indented), plus top-level
+    // TypeScript/JavaScript declarations and Markdown headings.
+    const PATTERN: &str = r"^(\s*(pub(\([^)]*\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|trait|impl|mod|const|static|type|macro_rules!)\b|^(export\s+)?(default\s+)?(async\s+)?(function|class|interface|type|enum|const|let)\s|^#{1,4}\s)";
+    let Ok(pattern) = regex::Regex::new(PATTERN) else {
+        return (Vec::new(), false);
+    };
+    let mut entries = Vec::new();
+    for (index, line) in content.lines().enumerate() {
+        if !pattern.is_match(line) || line.trim_start().starts_with("//") {
+            continue;
+        }
+        if entries.len() == OUTLINE_MAX_ENTRIES {
+            return (entries, true);
+        }
+        entries.push(json!({ "line": index + 1, "text": truncate_preview(line.trim_end()) }));
+    }
+    (entries, false)
+}
+
 pub(super) fn read_deki_code_file(args: ReadDekiCodeFileArgs) -> AppResult<Value> {
-    read_code_file(&args.path)
+    read_code_file(&args.path, args.start_line, args.end_line)
 }
 
 pub(super) fn list_repo_path(args: ListRepoPathArgs) -> AppResult<Value> {
@@ -249,12 +374,12 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
 
     let mut results = Vec::new();
     let mut searched_files = 0usize;
-    let query_lower = query.to_ascii_lowercase();
+    let matcher = LineMatcher::new(query, args.regex.unwrap_or(false))?;
     if start.is_file() {
         search_code_file(
             &root,
             &start,
-            &query_lower,
+            &matcher,
             scan_limit,
             context_lines,
             &mut searched_files,
@@ -264,7 +389,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
         search_code_dir(
             &root,
             &start,
-            &query_lower,
+            &matcher,
             scan_limit,
             context_lines,
             &mut searched_files,
@@ -283,7 +408,11 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
     }))
 }
 
-fn read_code_file(path: &str) -> AppResult<Value> {
+fn read_code_file(
+    path: &str,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> AppResult<Value> {
     let (_root, target, display_path) = resolve_repo_file(path)?;
     if !target.is_file() {
         return Err(AppError::not_found(format!("{display_path} was not found")));
@@ -294,9 +423,9 @@ fn read_code_file(path: &str) -> AppResult<Value> {
         )));
     }
     let metadata = fs::metadata(&target)?;
-    if metadata.len() > CODE_READ_MAX_FILE_BYTES {
+    if metadata.len() > CODE_SEARCH_MAX_FILE_BYTES {
         return Err(AppError::invalid_input(format!(
-            "{display_path} is too large to read directly; search it first and request a narrower file"
+            "{display_path} is too large to read; search it for the lines you need instead"
         )));
     }
     let content = fs::read_to_string(&target).map_err(|error| {
@@ -310,15 +439,79 @@ fn read_code_file(path: &str) -> AppResult<Value> {
             "{display_path} appears to contain generated, encoded, or binary-like content; search narrower source files instead"
         )));
     }
-    Ok(json!({
-        "path": display_path,
-        "bytes": content.len(),
-        "content": content,
-    }))
+    let mut window = read_window(&content, start_line, end_line)
+        .map_err(|message| AppError::invalid_input(format!("{display_path}: {message}")))?;
+    window["path"] = json!(display_path);
+    Ok(window)
 }
 
-fn resolve_repo_file(path: &str) -> AppResult<(PathBuf, PathBuf, String)> {
-    let root = super::super::deki_repo_root()?;
+/// The requested lines of `content`, numbered from 1 so answers can cite
+/// them. With no range, a file up to `CODE_READ_WHOLE_FILE_BYTES` comes back
+/// whole and a larger one as its first `CODE_READ_DEFAULT_LINES` lines;
+/// `nextStartLine` says where to continue.
+fn read_window(
+    content: &str,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> Result<Value, String> {
+    let lines = content.lines().collect::<Vec<_>>();
+    let total = lines.len();
+    if total == 0 {
+        return Ok(json!({ "totalLines": 0, "content": "" }));
+    }
+    let start = start_line.unwrap_or(1).max(1);
+    if start > total {
+        return Err(format!(
+            "startLine {start} is past the end of the file ({total} lines)"
+        ));
+    }
+    let default_end = if start_line.is_none()
+        && end_line.is_none()
+        && content.len() <= CODE_READ_WHOLE_FILE_BYTES
+    {
+        total
+    } else {
+        start + CODE_READ_DEFAULT_LINES - 1
+    };
+    let end = end_line
+        .unwrap_or(default_end)
+        .min(total)
+        .min(start + CODE_READ_MAX_RANGE_LINES - 1);
+    if end < start {
+        return Err(format!(
+            "endLine {} is before startLine {start}",
+            end_line.unwrap_or(end)
+        ));
+    }
+    let numbered = lines[start - 1..end]
+        .iter()
+        .enumerate()
+        .map(|(offset, line)| format!("{:>6}\t{line}", start + offset))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut window = json!({
+        "totalLines": total,
+        "startLine": start,
+        "endLine": end,
+        "content": numbered,
+    });
+    if end < total {
+        window["nextStartLine"] = json!(end + 1);
+    }
+    Ok(window)
+}
+
+pub(in crate::storage_commands::deki) fn resolve_repo_file(
+    path: &str,
+) -> AppResult<(PathBuf, PathBuf, String)> {
+    resolve_repo_file_in(super::super::deki_repo_root()?, path)
+}
+
+/// [`resolve_repo_file`] against an explicit repository root.
+pub(in crate::storage_commands::deki) fn resolve_repo_file_in(
+    root: PathBuf,
+    path: &str,
+) -> AppResult<(PathBuf, PathBuf, String)> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(AppError::invalid_input(
@@ -359,7 +552,7 @@ fn resolve_runtime_repo_path(path: Option<&str>) -> AppResult<(PathBuf, PathBuf,
 fn search_code_dir(
     root: &Path,
     dir: &Path,
-    query_lower: &str,
+    matcher: &LineMatcher,
     max_results: usize,
     context_lines: usize,
     searched_files: &mut usize,
@@ -392,7 +585,7 @@ fn search_code_dir(
             search_code_dir(
                 root,
                 &path,
-                query_lower,
+                matcher,
                 max_results,
                 context_lines,
                 searched_files,
@@ -402,7 +595,7 @@ fn search_code_dir(
             search_code_file(
                 root,
                 &path,
-                query_lower,
+                matcher,
                 max_results,
                 context_lines,
                 searched_files,
@@ -416,7 +609,7 @@ fn search_code_dir(
 fn search_code_file(
     root: &Path,
     path: &Path,
-    query_lower: &str,
+    matcher: &LineMatcher,
     max_results: usize,
     context_lines: usize,
     searched_files: &mut usize,
@@ -446,7 +639,7 @@ fn search_code_file(
         .replace('\\', "/");
     let lines = content.lines().collect::<Vec<_>>();
     for (index, line) in lines.iter().enumerate() {
-        if !line.to_ascii_lowercase().contains(query_lower) {
+        if !matcher.is_match(line) {
             continue;
         }
         let mut result = json!({
@@ -556,18 +749,17 @@ fn display_child_path(parent_display: &str, child: &Path) -> String {
     }
 }
 
-fn is_code_text_path(path: &Path) -> bool {
+pub(in crate::storage_commands::deki) fn is_code_text_path(path: &Path) -> bool {
+    let name = path.file_name().and_then(|value| value.to_str());
+    if name.is_some_and(|name| CODE_TEXT_FILE_NAMES.contains(&name)) {
+        return true;
+    }
+    // Dotfiles such as `.env` have no extension here and stay unreadable.
     path.extension()
         .and_then(|value| value.to_str())
-        .map(|extension| {
+        .is_some_and(|extension| {
             let extension = extension.to_ascii_lowercase();
             CODE_SEARCH_ALLOWED_EXTENSIONS.contains(&extension.as_str())
-        })
-        .unwrap_or_else(|| {
-            path.file_name()
-                .and_then(|value| value.to_str())
-                .map(|name| matches!(name, "AGENTS.md" | "README" | "LICENSE"))
-                .unwrap_or(false)
         })
 }
 
@@ -669,6 +861,59 @@ mod tests {
     }
 
     #[test]
+    fn read_window_numbers_lines_and_honors_a_range() {
+        let content = "one\ntwo\nthree\nfour\nfive";
+
+        let whole = read_window(content, None, None).expect("small file reads whole");
+        assert_eq!(whole["totalLines"], json!(5));
+        assert_eq!(whole["startLine"], json!(1));
+        assert_eq!(whole["endLine"], json!(5));
+        assert!(whole["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("     1\tone"));
+        assert!(whole.get("nextStartLine").is_none());
+
+        let middle = read_window(content, Some(2), Some(3)).expect("range reads");
+        assert_eq!(middle["content"], json!("     2\ttwo\n     3\tthree"));
+        assert_eq!(middle["nextStartLine"], json!(4));
+
+        assert!(read_window(content, Some(9), None)
+            .unwrap_err()
+            .contains("past the end"));
+        assert!(read_window(content, Some(4), Some(2))
+            .unwrap_err()
+            .contains("before startLine"));
+    }
+
+    #[test]
+    fn read_window_returns_the_first_lines_of_a_large_file_with_a_continuation() {
+        let line = "x".repeat(300);
+        let content = vec![line.as_str(); 1_000].join("\n");
+        assert!(content.len() > CODE_READ_WHOLE_FILE_BYTES);
+
+        let window = read_window(&content, None, None).expect("large file opens");
+        assert_eq!(window["endLine"], json!(CODE_READ_DEFAULT_LINES));
+        assert_eq!(window["nextStartLine"], json!(CODE_READ_DEFAULT_LINES + 1));
+
+        let capped = read_window(&content, Some(1), Some(1_000)).expect("long range is capped");
+        assert_eq!(capped["endLine"], json!(CODE_READ_MAX_RANGE_LINES));
+    }
+
+    #[test]
+    fn script_sources_are_readable_and_secret_files_are_not() {
+        assert!(is_code_text_path(Path::new(
+            "scripts/check-min-text-size.mjs"
+        )));
+        assert!(is_code_text_path(Path::new("src/vite.config.mts")));
+        assert!(is_code_text_path(Path::new("Dockerfile.web")));
+        assert!(!is_code_text_path(Path::new(".env")));
+        assert!(!is_code_text_path(Path::new(".env.local")));
+        assert!(!is_code_text_path(Path::new("notes/secret.txt")));
+        assert!(!is_code_text_path(Path::new("assets/logo.png")));
+    }
+
+    #[test]
     fn deki_code_tools_reject_encoded_source_payloads() {
         assert!(is_context_safe_source_text(
             "export function usefulSource() {\n  return 'readable code';\n}\n"
@@ -691,5 +936,31 @@ mod tests {
         let source = format!("export const embeddedImage = `\n{payload}\n`;");
 
         assert!(!is_context_safe_source_text(&source));
+    }
+
+    #[test]
+    fn regex_search_matches_patterns_and_reports_bad_ones() {
+        let matcher = LineMatcher::new(r"const \w+_TTL: Duration", true).expect("valid regex");
+        assert!(matcher
+            .is_match("const BACKGROUND_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);"));
+        assert!(!matcher.is_match("let ttl = 30;"));
+        let text = LineMatcher::new("Lease_TTL", false).expect("text matcher");
+        assert!(text.is_match("const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration"));
+        let error = LineMatcher::new("(unclosed", true)
+            .err()
+            .expect("bad regex is refused");
+        assert!(error.message.contains("regex is invalid"));
+    }
+
+    #[test]
+    fn outline_lists_declarations_with_line_numbers() {
+        let content = "use std::fs;\n\npub(crate) async fn deki_prompt() {}\nstruct Budget {\n    rounds: usize,\n}\nimpl Budget {\n    pub(super) fn rounds(&self) -> usize { 1 }\n}\n// fn commented_out() {}\nexport function sendMessage() {}\n## Owners\n";
+        let (entries, truncated) = outline_entries(content);
+        let lines = entries
+            .iter()
+            .map(|entry| entry["line"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(lines, vec![3, 4, 7, 8, 11, 12]);
+        assert!(!truncated);
     }
 }

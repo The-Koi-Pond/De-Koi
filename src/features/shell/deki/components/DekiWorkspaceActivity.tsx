@@ -1,5 +1,6 @@
 import { AlertCircle, Check, ChevronRight, CircleSlash, Loader2, Square } from "lucide-react";
 import type { DekiWorkspaceTraceItem } from "../../../../engine/deki/deki-entry";
+import { renderMarkdownBlocks } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
 import { dekiTraceSteps, type DekiActivityStep, type DekiLiveActivity } from "../lib/deki-workspace-activity";
 
@@ -100,6 +101,11 @@ export function DekiLiveActivityPanel({
             </div>
           )}
           <DekiStepList steps={visibleSteps} />
+        </div>
+      )}
+      {activity.answer && (
+        <div className="deki-live-answer mari-message-content mt-2 border-t border-[var(--border)]/60 pt-2 text-sm leading-relaxed text-[var(--foreground)]">
+          {renderMarkdownBlocks(activity.answer)}
         </div>
       )}
     </div>
