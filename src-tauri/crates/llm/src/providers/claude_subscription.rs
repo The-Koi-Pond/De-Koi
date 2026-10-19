@@ -357,17 +357,52 @@ pub(crate) fn claude_subscription_help_supports_safe_mode(help: &str) -> bool {
     help.contains("--safe-mode")
 }
 
+pub(crate) fn claude_subscription_help_supports_effort(help: &str) -> bool {
+    help.contains("--effort")
+}
+
+/// Optional Claude Code flags this install understands, read once from `claude --help`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClaudeSubscriptionCliSupport {
+    pub(crate) effort: bool,
+}
+
+pub(crate) const CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED: &str = "This Claude Code install does not support --effort, which De-Koi uses to apply this chat's reasoning effort. Run `claude update` (or reinstall @anthropic-ai/claude-code), or set Reasoning Effort back to the default in Chat Settings > Advanced Parameters.";
+
+/// Claude Code effort level for the chat's reasoning effort. Claude Code cannot turn thinking off,
+/// so "none" and "minimal" ask for its lowest level. Unset keeps Claude Code's own default.
+pub(crate) fn claude_subscription_effort(model: &str, parameters: &Value) -> Option<&'static str> {
+    let effort = param_string(parameters, &["reasoningEffort", "reasoning_effort"])?;
+    match effort.to_ascii_lowercase().as_str() {
+        "none" | "minimal" | "low" => Some("low"),
+        "medium" => Some("medium"),
+        "high" => Some("high"),
+        "xhigh" if is_claude_adaptive_only_model(model) => Some("xhigh"),
+        "xhigh" => Some("high"),
+        "maximum" | "max" => Some("max"),
+        _ => None,
+    }
+}
+
 pub(crate) const CLAUDE_SUBSCRIPTION_SAFE_MODE_REQUIRED: &str = "This Claude Code install does not support --safe-mode, which De-Koi needs to keep Claude Code's own instruction files (CLAUDE.md, AGENTS.md), skills, and hooks out of your chats. Run `claude update` (or reinstall @anthropic-ai/claude-code), then try again.";
 
 /// `--safe-mode` is what keeps CLAUDE.md/AGENTS.md discovery (including parent directories of the
 /// working directory, which De-Koi cannot control on desktop installs), skills, plugins, and hooks out
 /// of the request, so a CLI without it is refused. Only a positive probe is cached: after the user
 /// updates Claude Code, the next request re-probes.
-fn claude_subscription_require_safe_mode(command_name: &str) -> AppResult<()> {
-    static SUPPORTED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
-    let cache = SUPPORTED.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
-    if cache.lock().is_ok_and(|cache| cache.contains(command_name)) {
-        return Ok(());
+fn claude_subscription_require_safe_mode(
+    command_name: &str,
+) -> AppResult<ClaudeSubscriptionCliSupport> {
+    static SUPPORTED: OnceLock<
+        Mutex<std::collections::HashMap<String, ClaudeSubscriptionCliSupport>>,
+    > = OnceLock::new();
+    let cache = SUPPORTED.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(support) = cache
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(command_name).copied())
+    {
+        return Ok(support);
     }
     let mut command = Command::new(command_name);
     command
@@ -379,20 +414,30 @@ fn claude_subscription_require_safe_mode(command_name: &str) -> AppResult<()> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let supported = command.output().is_ok_and(|output| {
-        claude_subscription_help_supports_safe_mode(&String::from_utf8_lossy(&output.stdout))
-            || claude_subscription_help_supports_safe_mode(&String::from_utf8_lossy(&output.stderr))
-    });
-    if !supported {
+    let help = command
+        .output()
+        .map(|output| {
+            format!(
+                "{}
+{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        })
+        .unwrap_or_default();
+    if !claude_subscription_help_supports_safe_mode(&help) {
         return Err(AppError::new(
             "claude_subscription_unsupported_cli",
             CLAUDE_SUBSCRIPTION_SAFE_MODE_REQUIRED,
         ));
     }
+    let support = ClaudeSubscriptionCliSupport {
+        effort: claude_subscription_help_supports_effort(&help),
+    };
     if let Ok(mut cache) = cache.lock() {
-        cache.insert(command_name.to_string());
+        cache.insert(command_name.to_string(), support);
     }
-    Ok(())
+    Ok(support)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -427,6 +472,7 @@ pub(crate) fn claude_subscription_command_for(
     selection: &ClaudeSubscriptionModelSelection,
     system_prompt: Option<&str>,
     output: ClaudeSubscriptionOutput,
+    effort: Option<&str>,
 ) -> Command {
     let mut command = Command::new(command_name);
     command
@@ -447,7 +493,11 @@ pub(crate) fn claude_subscription_command_for(
                 .filter(|prompt| !prompt.is_empty())
                 .unwrap_or(CLAUDE_SUBSCRIPTION_NEUTRAL_SYSTEM_PROMPT),
         )
-        .args(claude_subscription_model_args(selection))
+        .args(claude_subscription_model_args(selection));
+    if let Some(effort) = effort {
+        command.arg("--effort").arg(effort);
+    }
+    command
         .env("ENABLE_CLAUDEAI_MCP_SERVERS", "false")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -466,9 +516,16 @@ fn claude_subscription_isolated_command(
     selection: &ClaudeSubscriptionModelSelection,
     system_prompt: Option<&str>,
     output: ClaudeSubscriptionOutput,
+    effort: Option<&str>,
 ) -> AppResult<(Command, ClaudeSubscriptionWorkspace)> {
     let command_name = claude_subscription_command();
-    claude_subscription_require_safe_mode(&command_name)?;
+    let support = claude_subscription_require_safe_mode(&command_name)?;
+    if effort.is_some() && !support.effort {
+        return Err(AppError::new(
+            "claude_subscription_unsupported_cli",
+            CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED,
+        ));
+    }
     let workspace = claude_subscription_workspace_in(&env::temp_dir())?;
     let command = claude_subscription_command_for(
         &command_name,
@@ -477,6 +534,7 @@ fn claude_subscription_isolated_command(
         selection,
         system_prompt,
         output,
+        effort,
     );
     Ok((command, workspace))
 }
@@ -1104,6 +1162,7 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
         &selection,
         None,
         ClaudeSubscriptionOutput::Json,
+        None,
     )?;
     let child = command.spawn().map_err(|error| {
         AppError::new(
@@ -1184,6 +1243,7 @@ pub(crate) async fn complete_claude_subscription_rich(
         &model_selection,
         prompt_selection.system_prompt.as_deref(),
         ClaudeSubscriptionOutput::Json,
+        claude_subscription_effort(&request.connection.model, &request.parameters),
     )?;
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());
@@ -1254,6 +1314,7 @@ pub(crate) async fn stream_claude_subscription(
         &model_selection,
         prompt_selection.system_prompt.as_deref(),
         ClaudeSubscriptionOutput::Stream,
+        claude_subscription_effort(&request.connection.model, &request.parameters),
     )?;
     if !request.connection.api_key.trim().is_empty() {
         command.env("ANTHROPIC_API_KEY", request.connection.api_key.trim());

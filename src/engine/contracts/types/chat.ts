@@ -527,6 +527,16 @@ export interface RoleplayQualityCorrectionExtra {
   reasons: Array<"agency" | "continuity" | "repetition" | "pacing" | "malformed">;
   evidence: string[];
   durationMs: number;
+  /** The reply as the model wrote it, so the user can restore it. Absent on corrections saved before this existed. */
+  originalContent?: string;
+  /** The reply right after the correction; the notice only offers a restore while the message still reads this way. */
+  correctedContent?: string;
+  /** Each exact replacement the editor made. */
+  edits?: Array<{
+    before: string;
+    after: string;
+    reason: "agency" | "continuity" | "repetition" | "pacing" | "malformed";
+  }>;
 }
 
 /** Additional data attached to a message. */
