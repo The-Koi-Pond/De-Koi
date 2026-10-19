@@ -196,7 +196,7 @@ fn built_in_agent_definition(agent_type: &str) -> Option<&'static BuiltInAgentDe
         .find(|definition| definition.agent_type == agent_type)
 }
 
-fn is_built_in_agent_type(agent_type: &str) -> bool {
+pub(crate) fn is_built_in_agent_type(agent_type: &str) -> bool {
     built_in_agent_definition(agent_type).is_some()
 }
 

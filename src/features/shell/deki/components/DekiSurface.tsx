@@ -529,8 +529,15 @@ function dekiApprovalErrorMessage(error: unknown): string {
   }
 }
 
+/** deki_data collections that are not action-card entities. */
+const DEKI_DATA_ONLY_QUERY_KEYS: Record<string, readonly (readonly unknown[])[]> = {
+  extensions: [["extensions"]],
+  agents: [["agents"]],
+};
+
 async function invalidateDekiDataQueries(queryClient: QueryClient, collection: string) {
-  const entityKeys = DEKI_ACTION_QUERY_KEYS[collection as DekiActionEntity] ?? [];
+  const entityKeys =
+    DEKI_ACTION_QUERY_KEYS[collection as DekiActionEntity] ?? DEKI_DATA_ONLY_QUERY_KEYS[collection] ?? [];
   await Promise.all(
     uniqueQueryKeys([...DEKI_CREATIVE_LIBRARY_QUERY_KEYS, ...entityKeys]).map((queryKey) =>
       queryClient.invalidateQueries({
