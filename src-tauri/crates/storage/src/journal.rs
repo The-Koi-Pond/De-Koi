@@ -400,6 +400,7 @@ pub(crate) fn append_collection_mutation(
     if created {
         sync_directory(collections_dir)?;
     }
+    crate::change_feed::collection_changed(collection);
     Ok(())
 }
 

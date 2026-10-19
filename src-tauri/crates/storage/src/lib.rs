@@ -1,5 +1,6 @@
 mod append_journal;
 mod cache;
+mod change_feed;
 mod chat_summaries;
 mod journal;
 mod messages;
@@ -11,6 +12,7 @@ mod write_gate;
 
 pub use cache::CollectionContentStamp;
 use cache::*;
+pub use change_feed::set_collection_change_listener;
 use chat_summaries::*;
 use journal::*;
 use marinara_core::{ensure_object, new_id, now_iso, AppError, AppResult};
@@ -3346,6 +3348,7 @@ impl FileStorage {
         }
         self.invalidate_read_indexes_for_collection(collection)?;
         self.cache_collection(collection, rows, false)?;
+        change_feed::collection_changed(collection);
         Ok(())
     }
 
@@ -3829,6 +3832,7 @@ impl FileStorage {
             }
             self.invalidate_read_indexes_for_collection(&collection)?;
             self.cache_collection(&collection, &rows, false)?;
+            change_feed::collection_changed(&collection);
         }
         if replaces_append_checkpoint {
             append_journal::prepare_known_checkpoint(&collections_dir)?;
