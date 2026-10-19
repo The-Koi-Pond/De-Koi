@@ -48,6 +48,7 @@ import { compactQuestProgressForContext } from "../shared/tracker-state/player-s
 import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
 import { fanficChapterRefs } from "../modes/fanfic/chapter-refs";
 import { readFanficLedger, renderFanficLedgerForPrompt } from "../modes/fanfic/ledger";
+import { fanficLoreScanMessages } from "../modes/fanfic/lore";
 import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
 import { readFanficState } from "../modes/fanfic/request";
 import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
@@ -689,6 +690,48 @@ export async function loadPersona(storage: StorageGateway, chat: JsonRecord): Pr
     (persona) => boolish(persona.isActive, false) || boolish(persona.active, false),
   );
   return active ? loadPersonaContext(active) : null;
+}
+
+/**
+ * Lorebook text for a one-off call that isn't a chat turn (the fanfic outline): the chat's active lorebooks,
+ * keyword-matched against `scanText`, macros resolved the way a turn resolves them. Timed-entry state is
+ * left alone, so planning never uses up a sticky or cooldown entry.
+ */
+export async function scanLorebooksForText(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  scanText: string,
+): Promise<string> {
+  const [characters, persona] = await Promise.all([loadCharacters(storage, chat), loadPersona(storage, chat)]);
+  const storedMessages: JsonRecord[] = scanText.trim() ? [{ role: "user", content: scanText }] : [];
+  const macros = macroContext({
+    chat,
+    connection: {},
+    storedMessages,
+    characters,
+    persona,
+    latestUserInput: scanText,
+    request: {},
+    groupScenarioOverride: groupScenarioOverride(parseRecord(chat.metadata)),
+  });
+  const scan = await scanActiveLorebooks({
+    storage,
+    chat,
+    characters,
+    persona,
+    storedMessages,
+    latestUserInput: scanText,
+    ignoreTiming: true,
+    contentResolver: {
+      resolve: (content) => cleanPromptText(resolvePromptMacros(content, macros, false)),
+      snapshotVariables: () => snapshotMacroVariables(macros),
+    },
+  });
+  const lore = scan.processedLore;
+  return [lore.worldInfoBefore, lore.worldInfoAfter, ...lore.depthEntries.map((entry) => entry.content)]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function normalizedCharacterFieldName(fieldName: string): string {
@@ -4256,6 +4299,11 @@ export async function assembleGenerationPrompt(
   if (reusableContext) applyReusableGreetingPromptVariables(macros, greetingPromptVariables);
   const baseLorebookIncludedPositions =
     reusableContext?.baseLorebookIncludedPositions ?? lorebookIncludedPositionsForPrompt(selectedPreset);
+  // A fic has no user turns: its request and this chapter's plan stand in for one, so keyword lore fires from chapter 1.
+  const fanficLoreScan =
+    chatMode === "fanfic"
+      ? fanficLoreScanMessages(readFanficState(chatMeta)?.request, readString(input.request.generationGuide))
+      : [];
   const scanLorebooksForPositions = (includedPositions: ActiveLorebookIncludedPositions) =>
     scanActiveLorebooks({
       storage,
@@ -4271,7 +4319,9 @@ export async function assembleGenerationPrompt(
               ...(userRegenerationSourceMessage.images?.length ? { images: userRegenerationSourceMessage.images } : {}),
             },
           ]
-        : input.storedMessages,
+        : fanficLoreScan.length > 0
+          ? [...input.storedMessages, ...fanficLoreScan]
+          : input.storedMessages,
       request: input.request,
       latestUserInput: input.latestUserInput,
       embeddingSource,

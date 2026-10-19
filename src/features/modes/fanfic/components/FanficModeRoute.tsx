@@ -25,7 +25,7 @@ import {
 import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficReader } from "./FanficReader";
-import { FanficRequestForm, type FanficRequestSubmit } from "./FanficRequestForm";
+import { FanficRequestForm, fanficPickedLorebookIds, type FanficRequestSubmit } from "./FanficRequestForm";
 
 export interface FanficModeRouteProps {
   activeChatId: string;
@@ -226,9 +226,12 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     >
       {showForm ? (
         <FanficRequestForm
+          chatId={activeChatId}
+          chatPersonaId={chat.personaId ?? null}
           initialRequest={state?.request ?? defaultFanficRequest()}
           initialConnectionId={connectionId}
           initialCharacterIds={Array.isArray(chat.characterIds) ? chat.characterIds : []}
+          initialLorebookIds={fanficPickedLorebookIds(chat.metadata)}
           submitting={saveRequest.isPending}
           submitError={errorText(saveRequest.error)}
           onSubmit={submitRequest}

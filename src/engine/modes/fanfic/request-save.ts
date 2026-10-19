@@ -8,6 +8,8 @@ export interface SaveFanficRequestInput {
   request: FanficRequest;
   connectionId: string | null;
   characterIds: string[];
+  /** Lorebooks the requester picked for this fic (`metadata.activeLorebookIds`); left alone when omitted. */
+  lorebookIds?: string[];
 }
 
 export class FanficRequestSaveError extends Error {
@@ -31,8 +33,8 @@ function stringIds(value: unknown): string[] {
 
 /**
  * Saves a submitted request as one unit: the chat's connection and linked cards, then a fresh
- * `metadata.fanfic` (no outline, so planning starts over). If the request write fails, the chat's
- * previous connection and cards are put back, so a half-saved submit never reaches planning.
+ * `metadata.fanfic` (no outline, so planning starts over) with the picked lorebooks in the same write. If that
+ * write fails, the chat's previous connection and cards are put back, so a half-saved submit never reaches planning.
  */
 export async function saveFanficRequest(storage: StorageGateway, input: SaveFanficRequestInput): Promise<FanficState> {
   const chat = await storage.get("chats", input.chatId);
@@ -49,7 +51,10 @@ export async function saveFanficRequest(storage: StorageGateway, input: SaveFanf
     characterIds: input.characterIds,
   });
   try {
-    await storage.patchChatMetadata(input.chatId, { fanfic: state });
+    await storage.patchChatMetadata(input.chatId, {
+      fanfic: state,
+      ...(input.lorebookIds ? { activeLorebookIds: [...new Set(input.lorebookIds)] } : {}),
+    });
   } catch (error) {
     let rollbackFailed = false;
     try {
