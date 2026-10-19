@@ -166,8 +166,11 @@ describe("long Conversation context focus", () => {
     expect(text).toContain("OLD_ASSISTANT_DRIFT_20");
     expect(text).not.toContain("OLD_ASSISTANT_DRIFT_17");
     expect(text.match(/BLOATED_DESCRIPTION_MIDDLE/g)?.length ?? 0).toBeLessThan(25);
-    // The fixed per-turn prose style note is not context bloat.
-    expect(text.replace(PROSE_STYLE_NOTE, "").length).toBeLessThan(7_000);
+    // The fixed per-turn prose style note is not context bloat. The freshness note reacts to this fixture's
+    // repetitive replies; it has its own small cap.
+    const freshnessNote = /<conversation_freshness>[\s\S]*?<\/conversation_freshness>/.exec(text)?.[0] ?? "";
+    expect(freshnessNote.length).toBeLessThan(600);
+    expect(text.replace(PROSE_STYLE_NOTE, "").replace(freshnessNote, "").length).toBeLessThan(7_000);
   });
 
   it("keeps the assistant replies that give follow-up questions their referents", async () => {
