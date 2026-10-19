@@ -1,6 +1,7 @@
+use super::answer_stream::AnswerStream;
 use super::budget::{truncate_to_chars, DekiEvidenceBudget, DekiRuntimeBudget};
 use super::events::DekiEventSink;
-use super::model_client::{DekiModelClient, DekiModelMessage};
+use super::model_client::{DekiModelClient, DekiModelMessage, DekiModelText};
 use super::protocol::{extract_command_frame, DekiCommandFrame, JSON_PROTOCOL_PROMPT};
 use super::status::DekiRuntimeCancellation;
 use crate::state::AppState;
@@ -42,6 +43,8 @@ pub(super) struct DekiJsonRuntimeInput<'a> {
     pub(super) connection: marinara_llm::LlmConnection,
     pub(super) system_prompt: String,
     pub(super) task_prompt: String,
+    /// Image data URLs attached to the latest user message.
+    pub(super) task_images: Vec<String>,
     pub(super) requires_repository_evidence: bool,
     /// The connection's context window in tokens, when it records one.
     pub(super) max_context_tokens: Option<u64>,
@@ -92,7 +95,7 @@ pub(super) async fn run_json_command_runtime(
             super::commands::JSON_COMMAND_GUIDE,
             super::data_cli::DEKI_DATA_GUIDE,
         )),
-        DekiModelMessage::user(input.task_prompt),
+        DekiModelMessage::user(input.task_prompt).with_images(input.task_images),
     ];
     let mut trace = Vec::new();
     let mut usage = Vec::new();
@@ -140,22 +143,56 @@ pub(super) async fn run_json_command_runtime(
         } else {
             super::DEKI_POST_TOOL_MAX_TOKENS
         };
-        let response = match model
-            .complete(&messages, max_tokens, timeout, &input.cancellation)
-            .await
-        {
+        // Stream the answer as it is written, except when a stop would be
+        // turned away for lacking repository evidence.
+        let mut answer = AnswerStream::new(
+            final_round || !input.requires_repository_evidence || has_repository_evidence,
+        );
+        let events = &input.events;
+        let response = model
+            .complete(
+                &messages,
+                max_tokens,
+                timeout,
+                &input.cancellation,
+                |text| match text {
+                    DekiModelText::Delta(text) => {
+                        if let Some(visible) = answer.push(text) {
+                            events.answer_token(&visible);
+                        }
+                    }
+                    DekiModelText::Restart => {
+                        if answer.restart() {
+                            events.answer_reset();
+                        }
+                    }
+                },
+            )
+            .await;
+        // Any path below that does not return this round's answer clears it.
+        let abandon = |events: &DekiEventSink| {
+            if answer.emitted_any() {
+                events.answer_reset();
+            }
+        };
+        let response = match response {
             Ok(response) => response,
             // An investigation round that runs into the reserve gives way to
             // the final answer round instead of failing the whole turn.
             Err(error) if error.code == "deki_model_timeout" && !final_round => {
+                abandon(events);
                 final_reason = Some(DekiFinalReason::Time);
                 continue;
             }
             Err(error) if error.code == "deki_model_timeout" => {
+                abandon(events);
                 final_reason.get_or_insert(DekiFinalReason::Time);
                 break;
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                abandon(events);
+                return Err(error);
+            }
         };
         if let Some(round_usage) = response.usage {
             usage.push(round_usage);
@@ -164,6 +201,7 @@ pub(super) async fn run_json_command_runtime(
         let frame = match extract_command_frame(&raw) {
             Ok(frame) => frame,
             Err(error) => {
+                abandon(events);
                 input.events.retry();
                 push_trace(
                     &mut trace,
@@ -183,6 +221,7 @@ pub(super) async fn run_json_command_runtime(
                 has_repository_evidence,
             );
         if needs_repository_evidence {
+            abandon(events);
             messages.push(DekiModelMessage::assistant(raw_frame_for_memory(&frame)));
             messages.push(DekiModelMessage::user(
                 "The original task asks about the current repository, but no repository command has succeeded yet. Continue the original task with the smallest useful read, grep, find, ls, deki_code, search_deki_code, or read_deki_code_file command. Do not answer from memory and do not mention this internal reminder in say."
@@ -195,6 +234,7 @@ pub(super) async fn run_json_command_runtime(
         }
         if frame_is_terminal(&frame, final_round) {
             if frame.say.trim().is_empty() && final_reason.is_some() {
+                abandon(events);
                 break;
             }
             return Ok(DekiJsonRuntimeOutput {
@@ -206,6 +246,7 @@ pub(super) async fn run_json_command_runtime(
             });
         }
 
+        abandon(events);
         if !frame.say.trim().is_empty() {
             input.events.narration(&frame.say);
             push_trace(

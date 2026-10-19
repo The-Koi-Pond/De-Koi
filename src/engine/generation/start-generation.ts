@@ -3452,6 +3452,30 @@ function answeredUserVersion(chat: JsonRecord, messages: JsonRecord[]): { messag
   return { messageId, index: Number.isInteger(index) && index >= 0 ? index : 0 };
 }
 
+/**
+ * The user message a Conversation reply answers, for the character's [react: ...] tapback: the latest user
+ * message, unless this character has already replied after it (texting again later reacts to nothing).
+ */
+function conversationReactionTarget(
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  messages: JsonRecord[],
+): { messageId: string; reactorId: string } | null {
+  if (readString(chat.mode || chat.chatMode) !== "conversation") return null;
+  const reactorId = assistantMessageCharacterId(chat, input);
+  if (!reactorId) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    const role = readString(message.role);
+    if (role === "assistant" && readString(message.characterId) === reactorId) return null;
+    if (role === "user") {
+      const messageId = readString(message.id).trim();
+      return messageId ? { messageId, reactorId } : null;
+    }
+  }
+  return null;
+}
+
 async function saveAssistantMessage(args: {
   storage: StorageGateway;
   chat: JsonRecord;
@@ -5752,6 +5776,7 @@ async function* startGenerationImpl(
               latestUserInput,
               recentMessages: generationMessages,
             }),
+            reactionTarget: conversationReactionTarget(chat, input, generationMessages),
           },
         );
     throwIfAborted(signal);
@@ -6176,6 +6201,7 @@ async function* startGenerationImpl(
             latestUserInput,
             recentMessages: generationMessages,
           }),
+          reactionTarget: conversationReactionTarget(chat, input, generationMessages),
         },
       );
   throwIfAborted(signal);

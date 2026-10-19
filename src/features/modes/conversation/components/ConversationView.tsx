@@ -77,6 +77,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../../../shared/api/conversation-settings-api";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
+import { useJumpToMessage } from "../../shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 
@@ -941,6 +942,15 @@ export function ConversationView({
     () => getTranscriptRenderWindow(messages, { startIndex: transcriptWindowStart }),
     [messages, transcriptWindowStart],
   );
+  useJumpToMessage({
+    chatId,
+    messages,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    setTranscriptWindowStart,
+    scrollContainerRef: scrollRef,
+  });
 
   const handleShowOlderMessages = useCallback(() => {
     if (transcriptWindow.hiddenBeforeCount > 0) {

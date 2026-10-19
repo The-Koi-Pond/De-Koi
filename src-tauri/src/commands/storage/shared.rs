@@ -366,7 +366,7 @@ const TIMELINE_MESSAGE_FIELDS: [&str; 14] = [
     "createdAt",
 ];
 
-const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 22] = [
+const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 23] = [
     "displayText",
     "isGenerated",
     "tokenCount",
@@ -389,6 +389,7 @@ const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 22] = [
     "isConversationStart",
     "generationError",
     "translation",
+    "reactions",
 ];
 
 pub(crate) fn project_timeline_message(mut message: Value) -> Value {

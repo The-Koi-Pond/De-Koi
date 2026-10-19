@@ -33,7 +33,7 @@ const SUMMARY_MAX_CONTEXT = 9_600;
 const MEMORY_RECALL_TOKEN_BUDGET = 512;
 const CANONICAL_MEMORY_MAX_CONTEXT = 4_000;
 const COMPACTION_MARKER = "\n...\n";
-const HIDDEN_COMMAND_RE = /\[(?:cross_post|memory|scene|schedule_update|selfie|spotify)\b[^\]]*\]/i;
+const HIDDEN_COMMAND_RE = /\[(?:cross_post|memory|react|scene|schedule_update|selfie|spotify)\b[^\]]*\]/i;
 const CONVERSATION_VOICE_EXAMPLES_OPEN = "<conversation_voice_examples>";
 
 export function isFocusedConversationVoiceExamples(value: string | undefined): boolean {

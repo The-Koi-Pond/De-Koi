@@ -62,6 +62,7 @@ import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
+import { useJumpToMessage } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton } from "../../../runtime/visuals/index";
 import type { SpriteDisplayMode } from "../../../runtime/visuals/sprite-display-modes";
 import type {
@@ -985,6 +986,15 @@ export function ChatRoleplaySurface({
     () => getTranscriptRenderWindow(messages, { startIndex: transcriptWindowStart }),
     [messages, transcriptWindowStart],
   );
+  useJumpToMessage({
+    chatId: activeChatId,
+    messages,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage: onLoadMore,
+    setTranscriptWindowStart,
+    scrollContainerRef: scrollRef,
+  });
   const newestMsgId = messages?.[messages.length - 1]?.id;
   useEffect(() => {
     const previousTail = previousTailRef.current;

@@ -60,6 +60,10 @@ pub(crate) async fn search(state: &AppState, body: Value) -> AppResult<Value> {
         "De-Koi character web research/1.0",
     )
     .await?;
+    log::debug!(
+        "[web-research] received results from {:?}",
+        response.provider
+    );
     let results = filter_search_results(
         response
             .results

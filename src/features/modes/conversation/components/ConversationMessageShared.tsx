@@ -96,6 +96,8 @@ export interface ConversationAvatarRender {
 
 export interface ConversationMessageRenderContext {
   message: ConversationMessageData;
+  /** Display name for a reaction's reactor ("You" for the user). */
+  reactorName: (by: string) => string;
   cardCssId?: string;
   messageStyle: ConversationMessageStyle;
   isStreaming?: boolean;

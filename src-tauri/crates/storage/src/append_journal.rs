@@ -305,6 +305,9 @@ pub(crate) fn append_transaction(
         .open(&journal)?;
     file.write_all(&bytes)?;
     file.sync_all()?;
+    for append in &entry.appends {
+        crate::change_feed::collection_changed(&append.collection);
+    }
     Ok(())
 }
 
