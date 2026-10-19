@@ -5,6 +5,7 @@ pub(crate) mod connection_refs;
 pub mod http_dispatch;
 pub mod http_server;
 pub(crate) mod http_storage_dispatch;
+pub(crate) mod http_storage_events;
 pub(crate) mod performance_diagnostics;
 mod seed_defaults;
 pub mod state;
