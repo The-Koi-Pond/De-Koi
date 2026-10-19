@@ -109,3 +109,21 @@ describe("dekiTraceSteps", () => {
     ]);
   });
 });
+
+describe("streamed answers", () => {
+  it("collects answer tokens and clears them on a reset", () => {
+    let state: DekiLiveActivity = EMPTY_DEKI_LIVE_ACTIVITY;
+    state = reduceDekiLiveActivity(state, { type: "answer_delta", data: "It is " });
+    state = reduceDekiLiveActivity(state, { type: "answer_delta", data: "256." });
+    expect(state.answer).toBe("It is 256.");
+
+    state = reduceDekiLiveActivity(state, { type: "answer_reset" });
+    expect(state.answer).toBe("");
+  });
+
+  it("labels the approval-gated edit commands and the outline", () => {
+    expect(describeDekiStep("edit_file", { path: "docs/notes.md" })).toBe("Proposed an edit to docs/notes.md");
+    expect(describeDekiStep("edit_memory", {})).toBe("Proposed a memory edit");
+    expect(describeDekiStep("outline", { path: "src/app.ts" })).toBe("Outlined src/app.ts");
+  });
+});

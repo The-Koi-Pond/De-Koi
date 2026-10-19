@@ -78,6 +78,18 @@ const LIBRARY_TYPES: &[LibraryType] = &[
         plural: "promptVariables",
         aliases: &["choice_block", "choice_blocks", "prompt_variables"],
     },
+    LibraryType {
+        overview_type: "extension",
+        entity: "extensions",
+        plural: "extensions",
+        aliases: &[],
+    },
+    LibraryType {
+        overview_type: "agent",
+        entity: "agents",
+        plural: "agents",
+        aliases: &["custom_agent", "custom_agents"],
+    },
 ];
 
 #[derive(Clone, Copy)]
@@ -265,7 +277,7 @@ fn library_type_for(raw: &str) -> AppResult<LibraryType> {
         .copied()
         .ok_or_else(|| {
             AppError::invalid_input(format!(
-                "Unsupported Deki library item type '{raw}'. Use character, persona, lorebook, lorebook_entry, prompt_preset, prompt_section, prompt_group, or prompt_variable."
+                "Unsupported Deki library item type '{raw}'. Use character, persona, lorebook, lorebook_entry, prompt_preset, prompt_section, prompt_group, prompt_variable, extension, or agent."
             ))
         })
 }
@@ -663,6 +675,18 @@ fn searchable_fields_for(library_type: LibraryType) -> &'static [SearchField] {
             SearchField::Top("options"),
             SearchField::Top("comment"),
             SearchField::Top("description"),
+        ],
+        "extension" => &[
+            SearchField::Top("id"),
+            SearchField::Top("name"),
+            SearchField::Top("description"),
+        ],
+        "agent" => &[
+            SearchField::Top("id"),
+            SearchField::Top("type"),
+            SearchField::Top("name"),
+            SearchField::Top("description"),
+            SearchField::Top("promptTemplate"),
         ],
         _ => &[
             SearchField::Top("id"),

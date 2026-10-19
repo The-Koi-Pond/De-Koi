@@ -1,8 +1,9 @@
 use marinara_core::{AppError, AppResult};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-use super::{DekiAttachment, DekiPersonaContext, DekiPromptRequest};
+use super::{DekiAttachment, DekiPersonaContext, DekiPromptMessage, DekiPromptRequest};
 
 pub(super) const DEKI_ATTACHMENT_MAX_COUNT: usize = 24;
 const DEKI_ATTACHMENT_MAX_CHARS: usize = 24 * 1024;
@@ -12,16 +13,82 @@ const DEKI_ATTACHMENT_TOTAL_MAX_CHARS: usize = 48 * 1024;
 const DEKI_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "csv", "json", "jsonl", "log", "md", "markdown", "txt", "xml", "yaml", "yml",
 ];
+/// Per-image limit, the size image-capable providers accept.
+const DEKI_IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
+const DEKI_IMAGE_MAX_COUNT: usize = 4;
+
+/// Which image attachments go to the model, and why any others do not.
+pub(super) struct DekiImagePlan {
+    /// Data URLs sent with the latest user message, in attachment order.
+    pub(super) images: Vec<String>,
+    /// Per attachment index: `None` for a text file or a sent image, the reason for an image
+    /// that was not sent.
+    problems: Vec<Option<String>>,
+}
+
+pub(super) fn plan_image_attachments(attachments: &[DekiAttachment]) -> DekiImagePlan {
+    let mut images = Vec::new();
+    let problems = attachments
+        .iter()
+        .map(|attachment| {
+            if !is_image_attachment(attachment) {
+                return None;
+            }
+            let problem = image_attachment_problem(attachment).or_else(|| {
+                (images.len() >= DEKI_IMAGE_MAX_COUNT).then(|| {
+                    format!("Deki-senpai takes up to {DEKI_IMAGE_MAX_COUNT} images per message")
+                })
+            });
+            if problem.is_none() {
+                images.push(attachment.content.trim().to_string());
+            }
+            problem
+        })
+        .collect();
+    DekiImagePlan { images, problems }
+}
+
+fn is_image_attachment(attachment: &DekiAttachment) -> bool {
+    attachment
+        .r#type
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("image/")
+}
+
+fn image_attachment_problem(attachment: &DekiAttachment) -> Option<String> {
+    let content = attachment.content.trim();
+    if content.is_empty() && attachment.size as usize > DEKI_IMAGE_MAX_BYTES {
+        return Some(format!(
+            "image is larger than {} MB",
+            DEKI_IMAGE_MAX_BYTES / (1024 * 1024)
+        ));
+    }
+    let Some((meta, data)) = content.split_once(',') else {
+        return Some("the image could not be read".to_string());
+    };
+    let meta = meta.to_ascii_lowercase();
+    if !meta.starts_with("data:image/") || !meta.ends_with(";base64") || data.is_empty() {
+        return Some("the image could not be read".to_string());
+    }
+    if data.len() / 4 * 3 > DEKI_IMAGE_MAX_BYTES {
+        return Some(format!(
+            "image is larger than {} MB",
+            DEKI_IMAGE_MAX_BYTES / (1024 * 1024)
+        ));
+    }
+    None
+}
 
 pub(super) fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> String {
     let mut parts = vec![
         "You are Deki-senpai, a standalone assistant inside De-Koi.".to_string(),
         "Personality: helpful, candid, playful, direct, technically sharp, and a little proudly adorable. Explain clearly, nudge users toward practical next steps, and keep your confidence warm rather than formal.".to_string(),
-        "You can chat with the user and inspect De-Koi through the JSON command runtime: read, grep, find, ls, deki_data, deki_code, read_deki_library, read_deki_library_items, search_deki_code, read_deki_code_file, read_deki_chats, read_deki_chat_messages, read_deki_memories, search_deki_web, and read_deki_web_page. Every command reads, except deki_data insert/patch/delete, which only dry-run a library change for the user to approve.".to_string(),
+        "You can chat with the user and inspect De-Koi through the JSON command runtime: read, grep, find, ls, deki_data, deki_code, read_deki_library, read_deki_library_items, search_deki_code, read_deki_code_file, read_deki_chats, read_deki_chat_messages, read_deki_memories, search_deki_web, read_deki_web_page, edit_file, and edit_memory. Every command reads, except deki_data insert/patch/delete, edit_file, and edit_memory, which only dry-run a change for the user to approve.".to_string(),
         "For questions about De-Koi internals, architecture, UI behavior, agent behavior, storage, imports, providers, or bugs, search the codebase before answering. Prefer AGENTS.md and the relevant owner files over memory. Never cite package-era paths unless command evidence confirms they exist in the current repository.".to_string(),
-        "Do not create extension records, create custom agent records, apply exact code edits, or claim source/storage writes through commands in this runtime. A deki_data dry-run is not a write: say it is waiting for approval, and only call it applied after the approvals context lists it as approved. If the user asks for an extension, custom agent, or source edit, inspect the relevant context and provide a reviewable plan or supported creative-library action card instead of pretending the change was saved.".to_string(),
+        "Propose new extensions and custom agents with a deki_data insert into the extensions or agents collection; they are created switched off and the user turns them on after reviewing. Prefer an extension or custom agent over a source edit when the user wants to customize De-Koi. To change De-Koi source, read the file, then propose one exact edit per edit_file call with an oldText copied from the file that occurs exactly once. If edit_file reports that this install is not a git checkout, give the user the change as a reviewable snippet instead. A deki_data or edit_file dry-run is not a write: say it is waiting for approval, and only call it applied after the approvals context lists it as approved.".to_string(),
         "You can inspect the creative library through read_deki_library when the user asks about their characters, personas, lorebooks, prompt presets, or groups. read_deki_library returns only an overview. Use read_deki_library_items with exact ids when you need full selected records. Do not request full item details until the overview identifies likely relevant records.".to_string(),
-        "You can inspect scoped memories with read_deki_memories. Character memory reads require an explicit character id. Private chat memory reads require approved chat access covering the exact chat id. This read-only runtime cannot edit or delete memories.".to_string(),
+        "You can inspect scoped memories with read_deki_memories. Character memory reads require an explicit character id. Private chat memory reads require approved chat access covering the exact chat id. To change a memory, propose edit_memory with the memory id from read_deki_memories and the complete replacement content; it waits for the user's approval. Chat memories need approved chat access. Memories cannot be deleted from here.".to_string(),
         "Treat requests to look at, review, improve, polish, update, or sanity-check characters, personas, lorebooks, lorebook entries, prompt presets, or groups as a creative-library quality audit even when the user does not explicitly ask for one. Use read_deki_library and then read_deki_library_items when current stored fields, linked entries, or neighboring records matter.".to_string(),
         "For character cards and personas, proactively estimate whole-card length and flag anything over the recommended ~3,200 estimated tokens. Warn when an otherwise helpful addition would make a card too long, and prefer tighter, more specific wording over expansion unless the user explicitly chooses the length tradeoff.".to_string(),
         "During creative-library quality audits, check for shallow characterization, overly tropey or generic archetype behavior, repetition, vague traits without behavior, duplicate facts across fields, and lorebook entries that are too broad to activate cleanly. If a character feels shallow or generic, deepen it with concrete motives, contradictions, habits, memories, relationships, sensory details, and situation-specific behaviors. When correcting character-card or persona characterization, phrase the correction as what they are and the behavior to add instead of what they are not; avoid \"(Character) is not ...\" negative framing unless the user explicitly asks for a contrast. For card or persona corrections, place each corrected trait in the single best-fit field. Do not repeat the same trait label across description, personality, scenario, backstory, appearance, creator notes, or example dialogue; replace duplicated trait labels with one concrete behavior, memory, contradiction, or sensory cue where it belongs.".to_string(),
@@ -38,7 +105,7 @@ pub(super) fn build_system_prompt(persona: Option<&DekiPersonaContext>) -> Strin
         "For lorebook entry content, default to compact, activation-focused entries of 1-3 short paragraphs or about 100-180 words; split larger lore into multiple focused entries instead of drafting one oversized entry, unless the user explicitly asks for a longer reference-style entry.".to_string(),
         "For prompt preset review, use read_deki_library when needed and give concise findings. If the user asks you to apply the review, emit an edit_record action for prompts, prompt-sections, prompt-groups, or prompt-variables.".to_string(),
         "When drafting character-card fields, SillyTavern examples, or example dialogue, keep Deki-senpai as the assistant outside the artifact only. Deki-senpai, assistant, user, and raw conversation-history labels must never become a speaker name inside generated card content. Treat {{char}} and {{user}} as literal artifact placeholders, preserve {{char}} and {{user}} exactly when the target format uses them, and never replace them with Deki-senpai; use the target character name only when the artifact format calls for an actual name.".to_string(),
-        "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, edit files directly, or perform broad/destructive rewrites. Delete library records only through a deki_data delete dry-run the user approves. If an edit needs runtime verification, say what should be checked.".to_string(),
+        "You cannot run shell commands, inspect unapproved private chats/messages/memories, access secrets, write files without an approved edit_file dry-run, or perform broad/destructive rewrites. Delete library records only through a deki_data delete dry-run the user approves. If an edit needs runtime verification, say what should be checked.".to_string(),
     ];
     if let Some(persona) = persona {
         let persona_text = [
@@ -95,26 +162,22 @@ pub(super) fn build_task_prompt(
     {
         sections.push(format!("Compacted conversation so far:\n{summary}"));
     }
-    let history = input
-        .messages
-        .iter()
-        .filter_map(|message| {
-            let content = message.content.trim();
-            (!content.is_empty()).then(|| format!("{}: {content}", message.role))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let history = history_with_evidence(&input.messages);
     if !history.is_empty() {
         sections.push(format!("Conversation history:\n{history}"));
     }
     if !input.attachments.is_empty() {
+        let image_plan = plan_image_attachments(&input.attachments);
         let mut remaining_attachment_chars = DEKI_ATTACHMENT_TOTAL_MAX_CHARS;
         let mut attachment_blocks = input
             .attachments
             .iter()
+            .enumerate()
             .take(DEKI_ATTACHMENT_MAX_COUNT)
-            .filter_map(|attachment| {
-                attachment_context_block(attachment, &mut remaining_attachment_chars)
+            .filter_map(|(index, attachment)| {
+                let image =
+                    is_image_attachment(attachment).then(|| image_plan.problems[index].as_deref());
+                attachment_context_block(attachment, image, &mut remaining_attachment_chars)
             })
             .collect::<Vec<_>>();
         let omitted_count = input
@@ -204,8 +267,82 @@ pub(super) fn build_task_prompt(
     sections.join("\n\n")
 }
 
+/// Total characters of earlier command evidence carried into a turn.
+const HISTORY_EVIDENCE_MAX_CHARS: usize = 24 * 1024;
+/// Characters kept from one earlier command result.
+const HISTORY_EVIDENCE_ITEM_MAX_CHARS: usize = 1_200;
+
+/// The conversation as role-labelled lines. An assistant reply that ran
+/// commands is followed by what those commands returned (newest replies get
+/// the evidence budget first), so a follow-up builds on what was already found
+/// instead of searching again.
+fn history_with_evidence(messages: &[DekiPromptMessage]) -> String {
+    let mut remaining = HISTORY_EVIDENCE_MAX_CHARS;
+    let mut evidence: Vec<Option<String>> = vec![None; messages.len()];
+    for (index, message) in messages.iter().enumerate().rev() {
+        if message.role != "assistant" || remaining == 0 {
+            continue;
+        }
+        let block = evidence_block(&message.workspace_trace, &mut remaining);
+        if !block.is_empty() {
+            evidence[index] = Some(block);
+        }
+    }
+    messages
+        .iter()
+        .zip(evidence)
+        .filter_map(|(message, evidence)| {
+            let content = message.content.trim();
+            if content.is_empty() {
+                return None;
+            }
+            let mut line = format!("{}: {content}", message.role);
+            if let Some(evidence) = evidence {
+                line.push_str("\n(Command results behind that reply:\n");
+                line.push_str(&evidence);
+                line.push(')');
+            }
+            Some(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One line per successful command in a stored trace, each result clipped,
+/// until the shared budget runs out.
+fn evidence_block(trace: &[Value], remaining: &mut usize) -> String {
+    let mut lines = Vec::new();
+    for tool in trace.iter().filter_map(|item| item.get("tool")) {
+        if tool.get("status").and_then(Value::as_str) != Some("done") {
+            continue;
+        }
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("command");
+        let input = tool.get("input").map(Value::to_string).unwrap_or_default();
+        let output = tool.get("output").and_then(Value::as_str).unwrap_or("");
+        let (output, clipped) = truncate_to_chars(output, HISTORY_EVIDENCE_ITEM_MAX_CHARS);
+        let line = format!(
+            "- {name} {input} -> {output}{}",
+            if clipped { " [clipped]" } else { "" }
+        );
+        let size = line.chars().count();
+        if size > *remaining {
+            *remaining = 0;
+            break;
+        }
+        *remaining -= size;
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
+/// One attachment's prompt block. `image` is `None` for a text file, and for an image
+/// `Some(None)` when it is sent with the message or `Some(Some(reason))` when it is not.
 fn attachment_context_block(
     attachment: &DekiAttachment,
+    image: Option<Option<&str>>,
     remaining_chars: &mut usize,
 ) -> Option<String> {
     let name = attachment.name.trim();
@@ -227,7 +364,29 @@ fn attachment_context_block(
     .into_iter()
     .flatten()
     .collect::<Vec<_>>();
-    let content_block = match attachment_omission_reason(attachment, content) {
+    let content_block = match image {
+        Some(None) => "[Image sent with this message; look at it directly.]".to_string(),
+        Some(Some(reason)) => format!("[Image not sent: {reason}.]"),
+        None => text_attachment_content(attachment, content, remaining_chars),
+    };
+    let mut block = format!(
+        "File: {name}\nType: {mime_type}\nSize: {}\nContent:\n{content_block}",
+        attachment.size
+    );
+    if !metadata_notes.is_empty() {
+        block.push_str("\n\n[Attachment metadata truncated: ");
+        block.push_str(&metadata_notes.join(", "));
+        block.push_str(".]");
+    }
+    take_attachment_budget(&block, remaining_chars)
+}
+
+fn text_attachment_content(
+    attachment: &DekiAttachment,
+    content: &str,
+    remaining_chars: &mut usize,
+) -> String {
+    match attachment_omission_reason(attachment, content) {
         Some(reason) => format!("[Attachment omitted: {reason}]"),
         None if content.is_empty() => {
             "[Attachment omitted: no readable text content was provided.]".to_string()
@@ -248,17 +407,7 @@ fn attachment_context_block(
                 snippet
             }
         }
-    };
-    let mut block = format!(
-        "File: {name}\nType: {mime_type}\nSize: {}\nContent:\n{content_block}",
-        attachment.size
-    );
-    if !metadata_notes.is_empty() {
-        block.push_str("\n\n[Attachment metadata truncated: ");
-        block.push_str(&metadata_notes.join(", "));
-        block.push_str(".]");
     }
-    take_attachment_budget(&block, remaining_chars)
 }
 
 fn take_attachment_budget(value: &str, remaining_chars: &mut usize) -> Option<String> {
@@ -272,12 +421,6 @@ fn take_attachment_budget(value: &str, remaining_chars: &mut usize) -> Option<St
 
 fn attachment_omission_reason(attachment: &DekiAttachment, content: &str) -> Option<String> {
     let mime_type = attachment.r#type.trim().to_ascii_lowercase();
-    if mime_type.starts_with("image/") {
-        return Some(
-            "image attachments are not sent as raw base64 to Deki-senpai; describe the image or attach text instead"
-                .to_string(),
-        );
-    }
     if !is_readable_deki_attachment(attachment) {
         return Some(format!("{mime_type} is not a readable text attachment"));
     }

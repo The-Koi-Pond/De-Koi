@@ -289,6 +289,25 @@ pub async fn complete_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
 
 pub async fn stream_events(
     request: LlmRequest,
+    emit: impl FnMut(Value) -> AppResult<()> + Send,
+) -> AppResult<()> {
+    stream_events_reporting(request, false, emit).await
+}
+
+/// Like [`stream_events`], except that when the provider gives up on text it already streamed and
+/// starts the reply over (Claude Code's own retry turns), it emits `{"type":"text_reset"}` and keeps
+/// going instead of failing. The caller must drop the text it collected before each reset; the
+/// tokens after the last one are the whole reply.
+pub async fn stream_events_with_restarts(
+    request: LlmRequest,
+    emit: impl FnMut(Value) -> AppResult<()> + Send,
+) -> AppResult<()> {
+    stream_events_reporting(request, true, emit).await
+}
+
+async fn stream_events_reporting(
+    request: LlmRequest,
+    report_restarts: bool,
     mut emit: impl FnMut(Value) -> AppResult<()> + Send,
 ) -> AppResult<()> {
     emit(json!({ "type": "start" }))?;
@@ -305,7 +324,7 @@ pub async fn stream_events(
     } else if request.connection.provider == "cohere" {
         stream_cohere(request, &mut emit).await?;
     } else if request.connection.provider == "claude_subscription" {
-        stream_claude_subscription(request, &mut emit).await?;
+        stream_claude_subscription(request, report_restarts, &mut emit).await?;
     } else {
         stream_openai_compatible(request, &mut emit).await?;
     }
@@ -5684,12 +5703,23 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
         lines: &[&str],
         exit: ClaudeSubscriptionStreamExit,
     ) -> (Vec<Value>, AppResult<()>) {
+        claude_subscription_stream_events_reporting(lines, exit, false)
+    }
+
+    fn claude_subscription_stream_events_reporting(
+        lines: &[&str],
+        exit: ClaudeSubscriptionStreamExit,
+        report_restarts: bool,
+    ) -> (Vec<Value>, AppResult<()>) {
         let mut events = Vec::new();
         let mut emit = |event: Value| {
             events.push(event);
             Ok(())
         };
-        let mut state = ClaudeSubscriptionStreamState::default();
+        let mut state = ClaudeSubscriptionStreamState {
+            report_restarts,
+            ..ClaudeSubscriptionStreamState::default()
+        };
         for line in lines {
             process_claude_subscription_stream_line(line, &mut state, &mut emit)
                 .expect("line should be handled");
@@ -5792,6 +5822,88 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                 .code,
             "claude_subscription_stream_replaced"
         );
+    }
+
+    /// The reply a caller of `stream_events_with_restarts` ends up with: the tokens after the last
+    /// `text_reset`.
+    fn text_after_last_reset(events: &[Value]) -> String {
+        let start = events
+            .iter()
+            .rposition(|event| event["type"] == "text_reset")
+            .map_or(0, |index| index + 1);
+        events[start..]
+            .iter()
+            .filter(|event| event["type"] == "token")
+            .map(|event| event["text"].as_str().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn claude_subscription_retry_turns_reset_the_streamed_reply_when_reported() {
+        // Claude Code rejects a reply with a malformed tool call, adds a synthetic user turn, and
+        // asks again; its result holds only the second reply (seen with Claude Code 2.1.304).
+        let rejected = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Batch the searches.\n<invoke name=\"mcp__deki__command\">"}}}"#;
+        let retry_turn = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"The previous response failed to produce a valid tool call. Please retry the tool call now."}]},"isSynthetic":true}"#;
+        let retried = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"{\"commands\":[],\"stop\":true}"}}}"#;
+        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"commands\":[],\"stop\":true}"}"#;
+
+        let (events, outcome) = claude_subscription_stream_events_reporting(
+            &[rejected, retry_turn, retried, result],
+            claude_subscription_clean_exit(),
+            true,
+        );
+        outcome.expect("a retried reply should finish");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["type"] == "text_reset")
+                .count(),
+            1
+        );
+        assert_eq!(
+            text_after_last_reset(&events),
+            r#"{"commands":[],"stop":true}"#
+        );
+
+        // Callers that cannot drop text keep failing instead of showing both replies.
+        let (events, outcome) = claude_subscription_stream_events(
+            &[rejected, retry_turn, retried, result],
+            claude_subscription_clean_exit(),
+        );
+        assert_eq!(
+            outcome.expect_err("unreported restarts still fail").code,
+            "claude_subscription_stream_replaced"
+        );
+        assert!(events.iter().all(|event| event["type"] != "text_reset"));
+    }
+
+    #[test]
+    fn claude_subscription_replaced_results_win_when_restarts_are_reported() {
+        let partial = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"The lamp"}}}"#;
+        let (events, outcome) = claude_subscription_stream_events_reporting(
+            &[
+                partial,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"A different reply.","usage":{"input_tokens":3,"output_tokens":4}}"#,
+            ],
+            claude_subscription_clean_exit(),
+            true,
+        );
+        outcome.expect("a replaced reply should finish");
+        assert_eq!(text_after_last_reset(&events), "A different reply.");
+        assert!(events.iter().any(|event| event["type"] == "usage"));
+
+        // A retry that only arrives in the result after a reset is sent whole.
+        let (events, outcome) = claude_subscription_stream_events_reporting(
+            &[
+                partial,
+                r#"{"type":"user","message":{"role":"user","content":[]},"isSynthetic":true}"#,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"The lamp went out."}"#,
+            ],
+            claude_subscription_clean_exit(),
+            true,
+        );
+        outcome.expect("a result-only retry should finish");
+        assert_eq!(text_after_last_reset(&events), "The lamp went out.");
     }
 
     #[test]
@@ -6070,12 +6182,12 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
     }
 
     #[test]
-    fn claude_subscription_transcript_rejects_image_turns() {
-        let mut image_only = test_message("user", "");
-        image_only.images = vec!["data:image/png;base64,abc".to_string()];
+    fn claude_subscription_transcript_sends_images_as_stream_json_blocks() {
+        let mut image_turn = test_message("user", "What does this say?");
+        image_turn.images = vec!["data:image/png;base64,abc".to_string()];
         let request = LlmRequest {
             connection: test_connection(),
-            messages: vec![image_only],
+            messages: vec![image_turn],
             parameters: json!({
                 "_marinara": {
                     "chatId": "chat-1",
@@ -6085,34 +6197,78 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
             tools: Vec::new(),
         };
 
-        let error = claude_subscription_prompt(&request)
-            .expect_err("Claude subscription should reject unsupported image attachments");
-
-        assert_eq!(error.code, "claude_subscription_unsupported_capability");
-        assert!(error.message.contains("1 image attachment(s)"));
+        let prompt = claude_subscription_prompt(&request).expect("images are supported");
         assert_eq!(
-            error.details.as_ref().unwrap()["capability"],
-            "image_attachments"
+            prompt.images,
+            vec![ClaudeSubscriptionImage {
+                media_type: "image/png".to_string(),
+                data: "abc".to_string(),
+            }]
         );
-        assert_eq!(error.details.as_ref().unwrap()["imageAttachmentCount"], 1);
+
+        let payload = String::from_utf8(prompt.stdin_payload()).expect("utf-8 payload");
+        assert!(payload.ends_with('\n'));
+        let line: Value = serde_json::from_str(payload.trim()).expect("one JSON line");
+        assert_eq!(line["type"], "user");
+        let content = line["message"]["content"]
+            .as_array()
+            .expect("content blocks");
+        assert_eq!(content[0]["type"], "image");
+        assert_eq!(content[0]["source"]["media_type"], "image/png");
+        assert_eq!(content[0]["source"]["data"], "abc");
+        assert_eq!(content[1]["type"], "text");
+        assert!(content[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("What does this say?"));
     }
 
     #[test]
-    fn claude_subscription_runtime_chat_rejects_image_current_turn() {
-        let mut image_only = test_message("user", "");
-        image_only.images = vec!["data:image/png;base64,abc".to_string()];
+    fn claude_subscription_stream_output_completes_from_the_result_line_only() {
+        let stdout = [
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ERR"}}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"ERR-4417"}]}}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"ERR-4417"}"#,
+        ]
+        .join("\n");
+
+        let line = claude_subscription_stream_result_line(&stdout).expect("result line");
+        let completion =
+            parse_claude_subscription_output_rich(line, "claude-sonnet-5-5").expect("completion");
+
+        assert_eq!(completion.content, "ERR-4417");
+    }
+
+    #[test]
+    fn claude_subscription_without_images_keeps_the_plain_prompt_on_stdin() {
         let request = LlmRequest {
             connection: test_connection(),
-            messages: vec![test_message("assistant", "Earlier reply."), image_only],
+            messages: vec![test_message("user", "Hello")],
+            parameters: json!({}),
+            tools: Vec::new(),
+        };
+
+        let prompt = claude_subscription_prompt(&request).expect("plain prompt");
+        assert!(prompt.images.is_empty());
+        assert_eq!(prompt.stdin_payload(), prompt.prompt.clone().into_bytes());
+    }
+
+    #[test]
+    fn claude_subscription_refuses_linked_images_with_the_reason() {
+        let mut linked = test_message("user", "Look");
+        linked.images = vec!["https://example.com/cat.png".to_string()];
+        let request = LlmRequest {
+            connection: test_connection(),
+            messages: vec![test_message("assistant", "Earlier reply."), linked],
             parameters: json!({ "_marinara": { "chatId": "chat-1", "mode": "roleplay" } }),
             tools: Vec::new(),
         };
 
         let error = claude_subscription_prompt(&request)
-            .expect_err("Claude subscription should reject unsupported current-turn images");
+            .expect_err("a linked image cannot be sent to Claude Code");
 
         assert_eq!(error.code, "claude_subscription_unsupported_capability");
-        assert!(error.message.contains("1 image attachment(s)"));
+        assert!(error.message.contains("embedded"));
     }
 
     #[test]

@@ -153,6 +153,7 @@ const DEKI_WORKSPACE_TOOL_NAMES = new Set<DekiWorkspaceToolName>([
   "grep",
   "find",
   "ls",
+  "outline",
   "deki_data",
   "deki_code",
   "read_deki_library",
@@ -164,6 +165,8 @@ const DEKI_WORKSPACE_TOOL_NAMES = new Set<DekiWorkspaceToolName>([
   "read_deki_memories",
   "search_deki_web",
   "read_deki_web_page",
+  "edit_file",
+  "edit_memory",
 ]);
 
 const DEKI_WORKSPACE_HISTORY_STATUSES = new Set<DekiWorkspaceHistoryEntry["status"]>([
@@ -492,6 +495,13 @@ export function normalizeDekiWorkspacePromptEvent(value: unknown): DekiWorkspace
         },
       };
     }
+    case "answer_delta": {
+      // Decoded final-answer text as Deki writes it. Raw model "token" events
+      // stay dropped: they could carry the hidden command protocol.
+      return typeof data === "string" && data ? { type: "answer_delta", data } : null;
+    }
+    case "answer_reset":
+      return { type: "answer_reset" };
     case "approval_pending": {
       const approval = normalizeDekiWorkspacePendingApproval(data);
       return approval ? { type: "approval_pending", data: approval } : null;

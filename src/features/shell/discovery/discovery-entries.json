@@ -141,6 +141,33 @@
     "coverage": "core"
   },
   {
+    "id": "message-search",
+    "title": "Message Search",
+    "category": "Chat modes",
+    "summary": "Find anything you or a character said in any Conversation or Roleplay chat. Type in the sidebar search, switch to Messages, and tap a result to open that chat right at the message, even if it was hundreds of messages ago.",
+    "keywords": [
+      "search",
+      "find",
+      "message",
+      "messages",
+      "history",
+      "old message",
+      "quote",
+      "look up",
+      "what did they say",
+      "jump to message"
+    ],
+    "audience": "Anyone with long chats who wants to find something said earlier.",
+    "where": "Sidebar > search box > Messages.",
+    "actions": [
+      {
+        "type": "go-home",
+        "label": "Go to chats"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
     "id": "roleplay-workflow-profiles",
     "title": "Roleplay workflow profiles",
     "category": "Chat modes",
