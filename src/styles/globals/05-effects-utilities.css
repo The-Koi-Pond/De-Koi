@@ -1108,3 +1108,29 @@
 .geometric-grid {
   background-image: none;
 }
+
+/* A message opened from search: a soft ring that fades out so the eye lands on it. */
+@keyframes message-jump-highlight {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent);
+    background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+    background-color: transparent;
+  }
+}
+
+[data-message-jump-highlight="true"] {
+  border-radius: 0.75rem;
+  animation: message-jump-highlight 2.4s ease-out forwards;
+}
+
+/* Without motion the ring stays still; the jump hook removes the attribute after a moment. */
+@media (prefers-reduced-motion: reduce) {
+  [data-message-jump-highlight="true"] {
+    animation: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+}
