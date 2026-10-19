@@ -4,9 +4,9 @@ use serde_json::Value;
 
 pub(super) const JSON_PROTOCOL_PROMPT: &str = r#"Deki workspace command protocol:
 - Respond with exactly one JSON object and no prose outside the object.
-- JSON shape: {"say":"visible text for the user","commands":[{"name":"command_name","args":{...}}],"stop":false}
+- JSON shape: {"commands":[{"name":"command_name","args":{...}}],"stop":false,"say":"visible text for the user"}. Always write commands and stop before say, so the user can watch a final answer appear as you write it.
 - Use commands only when repository, library, approved chat, or approved web evidence is needed.
-- When you can answer, return {"say":"final visible answer, including any <deki_action> block if needed","commands":[],"stop":true}
+- When you can answer, return {"commands":[],"stop":true,"say":"final visible answer, including any <deki_action> block if needed"}
 - The only command names available in this slice are read, grep, find, ls, outline, deki_data, deki_code, read_deki_library, read_deki_library_items, search_deki_code, read_deki_code_file, read_deki_chats, read_deki_chat_messages, search_deki_web, read_deki_web_page, edit_file, and edit_memory.
 - read_deki_memories is also available for scoped character memories and approved private-chat memories.
 - Do not request raw shell or direct storage writes through commands. Library, extension, and custom-agent changes go only through deki_data insert/patch/delete dry-runs, and source changes only through edit_file dry-runs; both wait for the user's approval.

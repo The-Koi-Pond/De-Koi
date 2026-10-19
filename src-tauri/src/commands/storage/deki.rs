@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 #[path = "deki/action_parser.rs"]
 mod action_parser;
+#[path = "deki/answer_stream.rs"]
+mod answer_stream;
 #[path = "deki/approvals.rs"]
 mod approvals;
 #[path = "deki/automation.rs"]
