@@ -1469,6 +1469,7 @@ pub(crate) async fn deki_prompt_with_events(
             connection,
             system_prompt,
             task_prompt,
+            task_images: prompt::plan_image_attachments(&input.attachments).images,
             requires_repository_evidence: needs_repo_guidance,
             max_context_tokens: deki_connection_max_context(&connection_value),
             chat_access_grants: input.chat_access_grants.clone(),
@@ -5957,6 +5958,57 @@ Extra visible text."#;
         assert!(!prompt.contains(&raw_data_url));
         assert!(prompt.contains("screenshot.png"));
         assert!(prompt.contains("omitted"));
+    }
+
+    #[test]
+    fn deki_json_runtime_sends_image_attachments_as_images_not_prompt_text() {
+        let image = |name: &str, content: String, size: u64| DekiAttachment {
+            name: name.to_string(),
+            r#type: "image/png".to_string(),
+            size,
+            content,
+        };
+        let ok = format!("data:image/png;base64,{}", "A".repeat(4096));
+        let too_large = format!("data:image/png;base64,{}", "A".repeat(8 * 1024 * 1024));
+        let mut attachments = vec![
+            image("screenshot.png", ok.clone(), 3072),
+            image("huge.png", too_large, 6 * 1024 * 1024),
+            image("skipped-by-browser.png", String::new(), 9 * 1024 * 1024),
+            image("broken.png", "not a data url".to_string(), 10),
+        ];
+        attachments
+            .extend((0..4).map(|index| image(&format!("extra-{index}.png"), ok.clone(), 3072)));
+        let input = DekiPromptRequest {
+            session_id: "test-session".to_string(),
+            user_message: "What does this show?".to_string(),
+            messages: Vec::new(),
+            compacted_summary: None,
+            connection_id: Some("connection".to_string()),
+            persona: None,
+            attachments,
+            chat_access_grants: Vec::new(),
+            web_research_grants: Vec::new(),
+        };
+
+        let plan = prompt::plan_image_attachments(&input.attachments);
+        assert_eq!(plan.images.len(), 4, "four images per message at most");
+        assert_eq!(plan.images[0], ok);
+
+        let text = prompt::build_task_prompt(&input, None, None);
+        assert!(
+            !text.contains(&ok),
+            "image data never enters the prompt text"
+        );
+        assert!(text.contains("screenshot.png"));
+        assert!(text.contains("Image sent with this message"));
+        assert!(text.contains(
+            "huge.png\nType: image/png\nSize: 6291456\nContent:\n[Image not sent: image is larger than 5 MB.]"
+        ));
+        assert!(text.contains(
+            "skipped-by-browser.png\nType: image/png\nSize: 9437184\nContent:\n[Image not sent: image is larger than 5 MB.]"
+        ));
+        assert!(text.contains("[Image not sent: the image could not be read.]"));
+        assert!(text.contains("[Image not sent: Deki-senpai takes up to 4 images per message.]"));
     }
 
     #[test]
