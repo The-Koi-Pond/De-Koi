@@ -34,6 +34,8 @@ use std::time::Duration;
 mod action_parser;
 #[path = "deki/approvals.rs"]
 mod approvals;
+#[path = "deki/automation.rs"]
+mod automation;
 #[path = "deki/budget.rs"]
 mod budget;
 #[path = "deki/chat_access.rs"]
@@ -364,9 +366,8 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
         && looks_like_code_tool_request(latest)
         && !direct_extension
         && !direct_custom_agent;
-    let mut allow_extension = direct_extension;
-    let mut allow_custom_agent = direct_custom_agent;
-
+    // Extensions and custom agents are proposed through deki_data dry-runs in
+    // the JSON runtime, so these requests never select a native write tool.
     let latest_is_referential_mutation = looks_like_referential_mutation_request(latest);
     let latest_is_contextual_code_mutation = looks_like_code_write_request(latest)
         && !looks_like_code_tool_request(latest)
@@ -377,8 +378,8 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
     if latest_is_contextual_mutation
         && !allow_code_edit
         && !allow_memory_edit
-        && !allow_extension
-        && !allow_custom_agent
+        && !direct_extension
+        && !direct_custom_agent
     {
         let prior = deki_prior_routing_context(input);
         let prior_code = looks_like_code_tool_request(&prior);
@@ -395,15 +396,8 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
         .filter(|matches| *matches)
         .count();
         if prior_domain_count == 1 {
-            if latest_is_referential_mutation {
-                allow_code_edit = prior_code;
-                allow_memory_edit = prior_memory;
-                allow_extension = prior_extension;
-                allow_custom_agent = prior_custom_agent;
-            } else if latest_is_contextual_code_mutation {
-                allow_code_edit = prior_code;
-                allow_memory_edit = prior_memory;
-            }
+            allow_code_edit = prior_code;
+            allow_memory_edit = prior_memory;
         }
     }
 
@@ -416,12 +410,6 @@ fn deki_tool_names_for_request(input: &DekiPromptRequest) -> Vec<&'static str> {
             names.push("read_deki_memories");
         }
         names.push("edit_deki_memory");
-    }
-    if allow_extension {
-        names.push("create_deki_extension");
-    }
-    if allow_custom_agent {
-        names.push("create_deki_custom_agent");
     }
     names
 }
@@ -5538,14 +5526,13 @@ Extra visible text."#;
         let extension = deki_tool_names_for_request(&test_deki_prompt_request(
             "Create a De-Koi extension for quick notes.",
         ));
-        assert!(extension.contains(&"create_deki_extension"));
-        assert!(!extension.contains(&"create_deki_custom_agent"));
+        // Extensions and custom agents are deki_data dry-runs on the JSON runtime now.
+        assert!(!deki_request_requires_native_tool_path(&extension));
 
         let custom_agent = deki_tool_names_for_request(&test_deki_prompt_request(
             "Create a custom agent for expression selection.",
         ));
-        assert!(!custom_agent.contains(&"create_deki_extension"));
-        assert!(custom_agent.contains(&"create_deki_custom_agent"));
+        assert!(!deki_request_requires_native_tool_path(&custom_agent));
     }
 
     #[test]
@@ -5717,9 +5704,8 @@ Extra visible text."#;
                 ),
             ],
         ));
-        assert!(extension.contains(&"create_deki_extension"));
         assert!(!extension.contains(&"edit_deki_code_file"));
-        assert!(!extension.contains(&"create_deki_custom_agent"));
+        assert!(!deki_request_requires_native_tool_path(&extension));
 
         let custom_agent = deki_tool_names_for_request(&test_deki_prompt_request_with_messages(
             "Do it.",
@@ -5731,9 +5717,8 @@ Extra visible text."#;
                 ),
             ],
         ));
-        assert!(custom_agent.contains(&"create_deki_custom_agent"));
         assert!(!custom_agent.contains(&"edit_deki_code_file"));
-        assert!(!custom_agent.contains(&"create_deki_extension"));
+        assert!(!deki_request_requires_native_tool_path(&custom_agent));
     }
 
     #[test]

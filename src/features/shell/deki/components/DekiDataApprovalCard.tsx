@@ -21,6 +21,8 @@ const COLLECTION_LABELS: Record<string, [singular: string, plural: string]> = {
   "prompt-sections": ["prompt section", "prompt sections"],
   "prompt-groups": ["prompt group", "prompt groups"],
   "prompt-variables": ["prompt variable", "prompt variables"],
+  extensions: ["extension", "extensions"],
+  agents: ["custom agent", "custom agents"],
   "lorebook-folders": ["lorebook folder", "lorebook folders"],
   "character-gallery": ["character gallery image", "character gallery images"],
   "persona-gallery": ["persona gallery image", "persona gallery images"],
