@@ -24,6 +24,7 @@ pub(super) const JSON_COMMAND_GUIDE: &str = r#"Deki command argument contracts (
 - read_deki_memories: {"scopeType":"character or chat","scopeId":"exact id","query":"optional text","limit":50}
 - search_deki_web: {"query":"exact approved query","maxResults":5}
 - read_deki_web_page: {"query":"exact approved query","url":"approved public result URL"}
+- edit_file: {"path":"relative/file","oldText":"exact text that occurs once","newText":"replacement","reason":"why"} -> a dry-run source edit the user approves. Read the file first and copy oldText exactly, with enough lines to be unique. It only works when De-Koi runs from a git checkout.
 Omit optional keys you do not need. Reads return numbered lines; startLine and endLine are optional, one-based, and inclusive. A file over 96 KiB read without a range returns its first 400 lines and nextStartLine. To see a deep symbol, search first, then read a range of about 40-120 lines around the matching line number instead of reading a large file from its beginning. Set contextLines to 1-3 when adjacent lines are needed to verify a call, signature, condition, or payload; keep it 0 otherwise. When the task names several exact files, search those exact file paths rather than a parent directory, and batch up to four independent query/path pairs in one frame. Continue until every user-requested query has returned evidence or a demonstrated no-match result. Never repeat an identical command after it succeeded. A search result proves only its returned path, line, preview, and requested context: copy exact symbols, signatures, and line numbers only when that text is visible in successful evidence, and never reconstruct omitted text. Say what could not be verified instead of guessing. After evidence answers the task, return commands:[] and stop:true."#;
 
 pub(super) fn is_repository_command(name: &str) -> bool {
@@ -121,6 +122,7 @@ enum DekiCommand {
     ReadMemories(super::memory_access::ReadDekiMemoriesArgs),
     SearchWeb(web::SearchDekiWebArgs),
     ReadWebPage(web::ReadDekiWebPageArgs),
+    EditFile(super::source_edit::EditFileArgs),
 }
 
 impl DekiCommand {
@@ -155,6 +157,7 @@ impl DekiCommand {
             "read_deki_web_page" => {
                 parse_command_args("read_deki_web_page", args).map(Self::ReadWebPage)
             }
+            "edit_file" => parse_command_args("edit_file", args).map(Self::EditFile),
             _ => Err(AppError::invalid_input(format!(
                 "Deki-senpai command '{name}' is not available in the JSON command runtime."
             ))),
@@ -274,6 +277,15 @@ async fn run_command(
             super::memory_access::read(state, chat_access_grants, args)
         }
         DekiCommand::SearchWeb(args) => search_deki_web(web_research_grants, args).await,
+        DekiCommand::EditFile(args) => {
+            turn_state.reserve_data_mutation()?;
+            data_cli::execute(
+                state,
+                approval_scope,
+                data_cli::DekiDataCommand::Mutate(super::source_edit::mutation(args)?),
+                &mut turn_state.pending_approvals,
+            )
+        }
         DekiCommand::ReadWebPage(args) => {
             turn_state.reserve_web_page_read()?;
             read_deki_web_page(web_research_grants, args).await
@@ -386,7 +398,8 @@ fn trace_tool_name(name: &str) -> &str {
         | "read_deki_chat_messages"
         | "read_deki_memories"
         | "search_deki_web"
-        | "read_deki_web_page" => name,
+        | "read_deki_web_page"
+        | "edit_file" => name,
         _ => "deki_code",
     }
 }

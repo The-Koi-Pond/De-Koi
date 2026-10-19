@@ -30,7 +30,7 @@ Extensions ({"name","description","css","js"}) and custom agents ({"name","descr
 insert/patch/delete are dry-runs: nothing is written. Each returns a diff preview and a pending approval that the user must approve in De-Koi. Never say a dry-run change was saved, applied, or deleted; say it is waiting for approval. Character patches go under patch.data (for example {"data":{"scenario":"..."}}); persona patches use top-level card fields. Patch only the fields that change. Prefer a <deki_action> card for drafting or rewriting one card the user will review; use deki_data for deletes and precise structured edits such as adding or removing lorebook entries or patching a few fields across records."#;
 
 const MUTATION_ACTIONS: &str = "status, collections, list, search, get, insert, patch, delete";
-const PAYLOAD_MAX_BYTES: usize = 64 * 1024;
+pub(super) const PAYLOAD_MAX_BYTES: usize = 64 * 1024;
 const REASON_MAX_CHARS: usize = 500;
 const PREVIEW_STRING_MAX_CHARS: usize = 600;
 const PREVIEW_ARRAY_MAX_ITEMS: usize = 12;
@@ -421,6 +421,9 @@ pub(super) fn plan_mutation(
     state: &AppState,
     mutation: &DekiDataMutation,
 ) -> AppResult<DekiDataPlan> {
+    if mutation.collection == super::source_edit::SOURCE_COLLECTION {
+        return super::source_edit::plan(mutation);
+    }
     let entity = mutation.collection;
     let id = mutation.id.as_str();
     let mut validation = DekiDataValidation::default();
@@ -593,6 +596,9 @@ pub(super) fn plan_mutation(
 /// Applies an approved mutation through the same storage owners the app's
 /// editors use, so normalization, cascades, and version snapshots match.
 pub(super) fn apply_mutation(state: &AppState, mutation: &DekiDataMutation) -> AppResult<Value> {
+    if mutation.collection == super::source_edit::SOURCE_COLLECTION {
+        return super::source_edit::apply(mutation);
+    }
     let entity = mutation.collection.to_string();
     match mutation.kind {
         DekiDataMutationKind::Insert => {
@@ -1031,7 +1037,7 @@ fn changed_subset(before: &Value, after: &Value, depth: usize) -> (Value, Value)
     (Value::Object(before_changed), Value::Object(after_changed))
 }
 
-fn row_change(
+pub(super) fn row_change(
     entity: &str,
     id: &str,
     action: &str,
@@ -1147,7 +1153,7 @@ fn operation_hash(
 
 /// Serializes with object keys sorted at every level, independent of whether
 /// serde_json preserves insertion order in this build.
-fn canonical_json(value: &Value) -> String {
+pub(super) fn canonical_json(value: &Value) -> String {
     fn sorted(value: &Value) -> Value {
         match value {
             Value::Object(object) => {
@@ -1166,7 +1172,7 @@ fn canonical_json(value: &Value) -> String {
     sorted(value).to_string()
 }
 
-fn required_reason(reason: String) -> AppResult<String> {
+pub(super) fn required_reason(reason: String) -> AppResult<String> {
     let reason = reason.trim();
     if reason.is_empty() {
         return Err(AppError::invalid_input(
