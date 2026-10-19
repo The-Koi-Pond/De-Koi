@@ -249,15 +249,23 @@ async fn run_command(
                 &mut turn_state.pending_approvals,
             )
         }
-        DekiCommand::Read(args) => code::read_repo_file(args),
-        DekiCommand::Grep(args) | DekiCommand::SearchCode(args) => code::search_code(args),
-        DekiCommand::Find(args) => code::find_repo_paths(args),
-        DekiCommand::Ls(args) => code::list_repo_path(args),
+        DekiCommand::Read(args) => off_runtime(move || code::read_repo_file(args)).await,
+        DekiCommand::Grep(args) | DekiCommand::SearchCode(args) => {
+            off_runtime(move || code::search_code(args)).await
+        }
+        DekiCommand::Find(args) => off_runtime(move || code::find_repo_paths(args)).await,
+        DekiCommand::Ls(args) => off_runtime(move || code::list_repo_path(args)).await,
         DekiCommand::ReadLibrary(args) => read_deki_library(state, args),
         DekiCommand::ReadLibraryItems(args) => read_deki_library_items(state, args),
-        DekiCommand::DekiCode(code::DekiCodeCommand::Search(args)) => code::search_code(args),
-        DekiCommand::DekiCode(code::DekiCodeCommand::Read(args)) => code::read_deki_code_file(args),
-        DekiCommand::ReadCodeFile(args) => code::read_deki_code_file(args),
+        DekiCommand::DekiCode(code::DekiCodeCommand::Search(args)) => {
+            off_runtime(move || code::search_code(args)).await
+        }
+        DekiCommand::DekiCode(code::DekiCodeCommand::Read(args)) => {
+            off_runtime(move || code::read_deki_code_file(args)).await
+        }
+        DekiCommand::ReadCodeFile(args) => {
+            off_runtime(move || code::read_deki_code_file(args)).await
+        }
         DekiCommand::ReadChats(args) => read_deki_chats(state, chat_access_grants, args),
         DekiCommand::ReadChatMessages(args) => {
             read_deki_chat_messages(state, chat_access_grants, args)
@@ -271,6 +279,16 @@ async fn run_command(
             read_deki_web_page(web_research_grants, args).await
         }
     }
+}
+
+/// Runs a repository command on the blocking pool. A repository search walks
+/// and reads files for seconds; doing that on an async worker stalls every
+/// task queued behind the Deki run there, including the stream that carries
+/// its live activity to the client.
+async fn off_runtime(work: impl FnOnce() -> AppResult<Value> + Send + 'static) -> AppResult<Value> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| AppError::new("deki_command_failed", error.to_string()))?
 }
 
 fn parse_command_args<T>(command_name: &str, args: Value) -> AppResult<T>
