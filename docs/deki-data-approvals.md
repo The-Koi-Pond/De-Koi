@@ -57,6 +57,20 @@ change as a snippet instead.
 `data` merges recursively), so a raw full-row replace would bypass their
 normalization. Use `patch` with only the fields that change.
 
+## Memory Edits
+
+`edit_memory` (`{"scopeType","scopeId","memoryId","content","reason"}`)
+replaces one character or chat memory's content as a dry-run under the
+`memories` collection. A chat memory needs an approved chat-access grant
+covering the chat when the edit is proposed; approving it is the user's
+consent. The memory must belong to the named character or chat and still be
+active (pinned character memories too), and the hash covers the stored
+memory. Approving re-checks the hash and writes through the memory owner:
+the canonical memory store and its lexical index for characters, the chat
+memory owner (which re-embeds) for chats. Because that re-embedding calls the
+embedding model, memory edits check and apply outside the exclusive storage
+section that the other approvals hold.
+
 ## Dry-Run And Apply
 
 1. A mutation command plans against current storage and writes nothing. The
@@ -133,8 +147,7 @@ structured edits.
   readable after the runtime forgets the approval.
 - `dekiApi.promptEvents` normalizes every event and drops unknown or malformed
   ones. `DekiSurface` keys live activity by session and ignores events from an
-  older run of the same session. Stop calls `deki_workspace_abort`; a native
-  write-tool turn reports that it cannot be stopped.
+  older run of the same session. Stop calls `deki_workspace_abort`.
 
 Owners on a hosted runtime: a request the auth gate admits without a login
 (loopback, the Docker/Tailscale bypass interfaces, and with no Basic Auth

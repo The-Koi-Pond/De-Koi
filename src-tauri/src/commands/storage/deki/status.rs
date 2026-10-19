@@ -183,6 +183,7 @@ pub(super) const DEKI_WORKSPACE_TOOLS: &[&str] = &[
     "search_deki_web",
     "read_deki_web_page",
     "edit_file",
+    "edit_memory",
 ];
 
 pub(crate) async fn deki_workspace_status(

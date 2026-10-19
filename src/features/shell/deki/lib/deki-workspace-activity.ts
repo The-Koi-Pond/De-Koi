@@ -122,6 +122,7 @@ const SINGULAR_COLLECTIONS: Record<string, string> = {
   extensions: "extension",
   agents: "custom agent",
   source: "source file",
+  memories: "memory",
 };
 
 function collectionLabel(value: string | null): string {
