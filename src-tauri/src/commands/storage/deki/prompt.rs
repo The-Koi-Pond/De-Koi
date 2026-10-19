@@ -1,8 +1,9 @@
 use marinara_core::{AppError, AppResult};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-use super::{DekiAttachment, DekiPersonaContext, DekiPromptRequest};
+use super::{DekiAttachment, DekiPersonaContext, DekiPromptMessage, DekiPromptRequest};
 
 pub(super) const DEKI_ATTACHMENT_MAX_COUNT: usize = 24;
 const DEKI_ATTACHMENT_MAX_CHARS: usize = 24 * 1024;
@@ -161,15 +162,7 @@ pub(super) fn build_task_prompt(
     {
         sections.push(format!("Compacted conversation so far:\n{summary}"));
     }
-    let history = input
-        .messages
-        .iter()
-        .filter_map(|message| {
-            let content = message.content.trim();
-            (!content.is_empty()).then(|| format!("{}: {content}", message.role))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let history = history_with_evidence(&input.messages);
     if !history.is_empty() {
         sections.push(format!("Conversation history:\n{history}"));
     }
@@ -272,6 +265,77 @@ pub(super) fn build_task_prompt(
         input.user_message.trim()
     ));
     sections.join("\n\n")
+}
+
+/// Total characters of earlier command evidence carried into a turn.
+const HISTORY_EVIDENCE_MAX_CHARS: usize = 24 * 1024;
+/// Characters kept from one earlier command result.
+const HISTORY_EVIDENCE_ITEM_MAX_CHARS: usize = 1_200;
+
+/// The conversation as role-labelled lines. An assistant reply that ran
+/// commands is followed by what those commands returned (newest replies get
+/// the evidence budget first), so a follow-up builds on what was already found
+/// instead of searching again.
+fn history_with_evidence(messages: &[DekiPromptMessage]) -> String {
+    let mut remaining = HISTORY_EVIDENCE_MAX_CHARS;
+    let mut evidence: Vec<Option<String>> = vec![None; messages.len()];
+    for (index, message) in messages.iter().enumerate().rev() {
+        if message.role != "assistant" || remaining == 0 {
+            continue;
+        }
+        let block = evidence_block(&message.workspace_trace, &mut remaining);
+        if !block.is_empty() {
+            evidence[index] = Some(block);
+        }
+    }
+    messages
+        .iter()
+        .zip(evidence)
+        .filter_map(|(message, evidence)| {
+            let content = message.content.trim();
+            if content.is_empty() {
+                return None;
+            }
+            let mut line = format!("{}: {content}", message.role);
+            if let Some(evidence) = evidence {
+                line.push_str("\n(Command results behind that reply:\n");
+                line.push_str(&evidence);
+                line.push(')');
+            }
+            Some(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One line per successful command in a stored trace, each result clipped,
+/// until the shared budget runs out.
+fn evidence_block(trace: &[Value], remaining: &mut usize) -> String {
+    let mut lines = Vec::new();
+    for tool in trace.iter().filter_map(|item| item.get("tool")) {
+        if tool.get("status").and_then(Value::as_str) != Some("done") {
+            continue;
+        }
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("command");
+        let input = tool.get("input").map(Value::to_string).unwrap_or_default();
+        let output = tool.get("output").and_then(Value::as_str).unwrap_or("");
+        let (output, clipped) = truncate_to_chars(output, HISTORY_EVIDENCE_ITEM_MAX_CHARS);
+        let line = format!(
+            "- {name} {input} -> {output}{}",
+            if clipped { " [clipped]" } else { "" }
+        );
+        let size = line.chars().count();
+        if size > *remaining {
+            *remaining = 0;
+            break;
+        }
+        *remaining -= size;
+        lines.push(line);
+    }
+    lines.join("\n")
 }
 
 /// One attachment's prompt block. `image` is `None` for a text file, and for an image

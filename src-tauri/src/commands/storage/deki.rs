@@ -76,6 +76,9 @@ struct DekiPromptRequest {
 struct DekiPromptMessage {
     role: String,
     content: String,
+    /// The bounded command trace stored with an earlier assistant reply.
+    #[serde(default, rename = "workspaceTrace")]
+    workspace_trace: Vec<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1321,5 +1324,36 @@ Extra visible text."#;
 
     fn prompt_with_attachment(attachment: DekiAttachment) -> String {
         prompt_with_attachments(vec![attachment])
+    }
+
+    #[test]
+    fn follow_up_prompts_carry_the_evidence_behind_earlier_replies() {
+        let input: DekiPromptRequest = serde_json::from_value(json!({
+            "sessionId": "test-session",
+            "userMessage": "Quote the exact line.",
+            "connectionId": "connection",
+            "messages": [
+                { "role": "user", "content": "Where is the SSE channel capacity?" },
+                {
+                    "role": "assistant",
+                    "content": "It is 256, in http_server.rs.",
+                    "workspaceTrace": [
+                        { "type": "status", "content": "Searching." },
+                        { "type": "tool", "tool": { "name": "grep", "status": "done", "input": { "query": "SSE_EVENT_CHANNEL_CAPACITY" }, "output": "39: const SSE_EVENT_CHANNEL_CAPACITY: usize = 256;" } },
+                        { "type": "tool", "tool": { "name": "read", "status": "error", "input": { "path": "missing.rs" }, "output": "missing.rs was not found" } }
+                    ]
+                }
+            ]
+        }))
+        .expect("request parses");
+
+        let prompt = prompt::build_task_prompt(&input, None, None);
+
+        assert!(prompt.contains("Command results behind that reply"));
+        assert!(prompt.contains("const SSE_EVENT_CHANNEL_CAPACITY: usize = 256;"));
+        assert!(
+            !prompt.contains("missing.rs was not found"),
+            "failed commands are left out"
+        );
     }
 }
