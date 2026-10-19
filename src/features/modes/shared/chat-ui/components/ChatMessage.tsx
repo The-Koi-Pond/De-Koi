@@ -78,6 +78,7 @@ import { readStoredThinking } from "../lib/message-thinking";
 import { MessageReasoningPanel } from "./MessageReasoningPanel";
 import { CharacterWebResearchCard, CharacterWebResearchSources } from "./CharacterWebResearchCard";
 import { GenerationInterruptedStatus } from "./GenerationInterruptedStatus";
+import { RoleplayQualityCorrectionNotice } from "./RoleplayQualityCorrectionNotice";
 import { isImageMessageAttachment, messageAttachmentsFromExtra } from "../lib/message-attachments";
 import { resolvePromptSnapshotFromExtra } from "../lib/prompt-snapshot";
 import { ResolvedAvatarImage } from "./ResolvedAvatarImage";
@@ -2397,6 +2398,14 @@ export const ChatMessage = memo(function ChatMessage({
             onRegenerate={onRegenerate}
           />
         )}
+        {!isUser && (
+          <RoleplayQualityCorrectionNotice
+            correction={extra.roleplayQualityCorrection}
+            content={message.content}
+            messageId={message.id}
+            onEdit={onEdit}
+          />
+        )}
         {!isUser && <CharacterWebResearchSources sources={extra.characterWebResearchSources} />}
         {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
         {generationReplay && (
@@ -2888,6 +2897,14 @@ export const ChatMessage = memo(function ChatMessage({
           messageId={message.id}
           forCharacterId={message.characterId}
           onRegenerate={onRegenerate}
+        />
+      )}
+      {!isUser && (
+        <RoleplayQualityCorrectionNotice
+          correction={extra.roleplayQualityCorrection}
+          content={message.content}
+          messageId={message.id}
+          onEdit={onEdit}
         />
       )}
       {!isUser && <CharacterWebResearchSources sources={extra.characterWebResearchSources} />}

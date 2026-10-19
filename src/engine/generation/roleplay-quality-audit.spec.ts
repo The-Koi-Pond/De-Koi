@@ -80,6 +80,7 @@ describe("roleplay quality audit validation", () => {
       reasons: ["agency"],
       evidence: ['"I accept," Celia says.'],
       durationMs: 321,
+      edits: [{ before: '"I accept," Celia says.', after: '"Your choice."', reason: "agency" }],
     });
   });
 
@@ -108,6 +109,7 @@ describe("roleplay quality audit validation", () => {
       reasons: [],
       evidence: [],
       durationMs: 321,
+      edits: [],
     });
   });
 
@@ -179,6 +181,7 @@ describe("roleplay quality audit validation", () => {
       reasons: [],
       evidence: [],
       durationMs: 321,
+      edits: [],
     });
   });
 

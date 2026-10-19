@@ -429,6 +429,7 @@ export function recommendedGenerationProfileForRequest(
           : "conversation";
   return resolveRecommendedGenerationProfile({
     mode,
+    chatMode: chatMode || legacyChatMode,
     provider: readString(connection?.provider),
     model: readString(connection?.model),
     capabilities: parseRecord(connection?.capabilities),

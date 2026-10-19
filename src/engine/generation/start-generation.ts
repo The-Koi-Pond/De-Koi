@@ -131,6 +131,7 @@ import {
   scheduleSparseCharacterInterpretations,
 } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
+import { scheduleRoleplayHabitScan } from "./roleplay-habit-scan";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -3334,6 +3335,9 @@ async function applyAutomaticRoleplayQualityCorrection(args: {
         reasons: repair.reasons,
         evidence: repair.evidence,
         durationMs: repair.durationMs,
+        originalContent: args.content,
+        correctedContent: repair.content,
+        edits: repair.edits,
       },
     };
   } catch {
@@ -4813,11 +4817,35 @@ async function holdPostReplyJobs(
       holdLorebookKeeperBackfill(deps, input, chat, connection),
       holdContinuityDirectorRefresh(deps, chat),
       holdPostReplyAgents(deps, input, chat, connection, postReplyAgentsTurnId),
+      holdRoleplayHabitScan(deps, input, chat, connection),
     ])
   ).filter((hold): hold is TurnJobHold => hold !== null);
   return {
     async release(replySaved) {
       await Promise.all(holds.map((hold) => hold.release(replySaved)));
+    },
+  };
+}
+
+// The habit scan only steers later turns, so it is not stored as a job: once the turn has written everything, it
+// runs in this tab if due. If it never runs, it is still due after the next reply.
+function holdRoleplayHabitScan(
+  deps: GenerationEngineDeps,
+  input: StartGenerationInput,
+  chat: JsonRecord,
+  connection: JsonRecord,
+): TurnJobHold | null {
+  const chatId = readString(chat.id).trim();
+  if (!chatId || !automaticRoleplayQualityCorrectionEnabled(chat, input)) return null;
+  return {
+    async release(replySaved) {
+      if (!replySaved) return;
+      scheduleRoleplayHabitScan({
+        storage: deps.storage,
+        llm: deps.llm,
+        chatId,
+        connectionId: readString(connection.id) || input.connectionId || null,
+      });
     },
   };
 }

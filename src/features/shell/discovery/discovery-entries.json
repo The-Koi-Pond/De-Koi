@@ -34,7 +34,7 @@
     "id": "roleplay-mode",
     "title": "Roleplay Mode",
     "category": "Chat modes",
-    "summary": "Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character, and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.",
+    "summary": "Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character (with a note showing what changed and a way to restore the original), and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.",
     "keywords": [
       "rp",
       "story",
@@ -45,6 +45,8 @@
       "agency",
       "strict agency",
       "roleplay quality",
+      "auto-fixed",
+      "restore original",
       "repetition",
       "anti repetition",
       "scene",

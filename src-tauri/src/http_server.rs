@@ -2397,8 +2397,11 @@ impl SecurityConfig {
         client_ip: IpAddr,
         headers: &HeaderMap,
     ) -> crate::storage_commands::deki::DekiRuntimeOwner {
-        if is_loopback(client_ip) || self.is_trusted_interface_ip(client_ip) {
-            return crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote;
+        // A requester the auth gate admits without a principal gets the shared
+        // trusted-network owner even when it also sends a header, so its
+        // prompt, status, and Stop always resolve to the same owner.
+        if self.admits_without_principal(client_ip) {
+            return crate::storage_commands::deki::DekiRuntimeOwner::TrustedNetwork;
         }
         match self.authenticated_principal(headers) {
             Some(principal) => crate::storage_commands::deki::DekiRuntimeOwner::Authenticated(
@@ -2440,23 +2443,27 @@ impl SecurityConfig {
         }
     }
 
-    fn enforce_basic_auth(&self, ip: IpAddr, headers: &HeaderMap) -> Result<(), SecurityRejection> {
+    /// True when the auth gate admits `ip` without a Basic Auth principal:
+    /// loopback or a Docker/Tailscale bypass interface always, and with no
+    /// Basic Auth configured also an allowlisted address or one covered by the
+    /// unauthenticated remote/private-network opt-ins.
+    fn admits_without_principal(&self, ip: IpAddr) -> bool {
         if is_loopback(ip) || self.is_trusted_interface_ip(ip) {
+            return true;
+        }
+        self.basic_auth.is_none()
+            && (self.is_ip_allowlisted(ip)
+                || self.allow_unauthenticated_remote
+                || (self.allow_unauthenticated_private_network
+                    && cidr_list_contains(&self.trusted_private_networks, ip)))
+    }
+
+    fn enforce_basic_auth(&self, ip: IpAddr, headers: &HeaderMap) -> Result<(), SecurityRejection> {
+        if self.admits_without_principal(ip) {
             return Ok(());
         }
 
         if self.basic_auth.is_none() {
-            if self.is_ip_allowlisted(ip) {
-                return Ok(());
-            }
-            if self.allow_unauthenticated_remote {
-                return Ok(());
-            }
-            if self.allow_unauthenticated_private_network
-                && cidr_list_contains(&self.trusted_private_networks, ip)
-            {
-                return Ok(());
-            }
             return Err(SecurityRejection::forbidden(
                 "remote_auth_required",
                 "Non-loopback access requires BASIC_AUTH_USER and BASIC_AUTH_PASS, IP_ALLOWLIST, or an explicit unauthenticated remote opt-in",
@@ -4335,10 +4342,38 @@ mod tests {
 
         assert_eq!(
             security.deki_runtime_owner(client_ip, &authenticated_headers),
-            crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote
+            crate::storage_commands::deki::DekiRuntimeOwner::TrustedNetwork
         );
         assert_eq!(
             security.deki_runtime_owner(client_ip, &HeaderMap::new()),
+            crate::storage_commands::deki::DekiRuntimeOwner::TrustedNetwork
+        );
+    }
+
+    #[test]
+    fn deki_runtime_owner_admits_trusted_lan_installs_without_basic_auth() {
+        // The Pi trusted-LAN compose: the web container proxies from the Docker
+        // bridge with BYPASS_AUTH_DOCKER and no Basic Auth.
+        let mut docker = test_security();
+        docker.bypass_docker = true;
+        docker.require_auth_for_docker_proxy = false;
+        assert_eq!(
+            docker.deki_runtime_owner(IpAddr::V4(Ipv4Addr::new(172, 18, 0, 3)), &HeaderMap::new()),
+            crate::storage_commands::deki::DekiRuntimeOwner::TrustedNetwork
+        );
+
+        let mut private = test_security();
+        private.allow_unauthenticated_private_network = true;
+        let lan_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 40));
+        assert_eq!(
+            private.deki_runtime_owner(lan_ip, &HeaderMap::new()),
+            crate::storage_commands::deki::DekiRuntimeOwner::TrustedNetwork
+        );
+
+        // Once Basic Auth is configured, a private-network address must log in.
+        private.basic_auth = Some(basic_auth("alice", "pass"));
+        assert_eq!(
+            private.deki_runtime_owner(lan_ip, &HeaderMap::new()),
             crate::storage_commands::deki::DekiRuntimeOwner::UnauthenticatedRemote
         );
     }

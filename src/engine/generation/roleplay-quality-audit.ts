@@ -10,6 +10,8 @@ export interface RoleplayQualityRepair {
   reasons: RoleplayQualityChangeReason[];
   evidence: string[];
   durationMs: number;
+  /** The applied replacements in reading order; empty when nothing changed. */
+  edits: Array<{ before: string; after: string; reason: RoleplayQualityChangeReason }>;
 }
 
 export interface RoleplayQualityAuditValidationOptions {
@@ -42,6 +44,8 @@ const SIGNAL_REASONS: Record<RoleplayQualitySignalKind, RoleplayQualityChangeRea
   repeated_opening: "repetition",
   repeated_closing: "repetition",
   repeated_gesture: "repetition",
+  negation_beat: "repetition",
+  ambient_sound: "repetition",
   user_echo: "repetition",
   rhetorical_repetition: "repetition",
   cast_saturation: "pacing",
@@ -50,7 +54,7 @@ const SIGNAL_REASONS: Record<RoleplayQualitySignalKind, RoleplayQualityChangeRea
 };
 
 function unchanged(original: string, durationMs: number): RoleplayQualityRepair {
-  return { content: original, changed: false, reasons: [], evidence: [], durationMs };
+  return { content: original, changed: false, reasons: [], evidence: [], durationMs, edits: [] };
 }
 
 function comparable(value: string): string {
@@ -159,5 +163,6 @@ export function validateRoleplayQualityAudit(
     reasons,
     evidence,
     durationMs,
+    edits: positioned.map(({ before, after, reason }) => ({ before, after, reason })),
   };
 }
