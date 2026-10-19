@@ -1179,7 +1179,7 @@ pub(crate) async fn complete_claude_subscription_rich(
     let model_selection = claude_subscription_model_selection(&request.connection.model);
     // Every prompt already carries the chat history, so the command never persists a session:
     // reusing a fixed --session-id fails with "Session ID ... is already in use" from the second turn on.
-    let (mut command, _workspace) = claude_subscription_isolated_command(
+    let (mut command, workspace) = claude_subscription_isolated_command(
         request.connection.claude_fast_mode,
         &model_selection,
         prompt_selection.system_prompt.as_deref(),
@@ -1212,19 +1212,28 @@ pub(crate) async fn complete_claude_subscription_rich(
                 ),
             )
         })?;
-    let output = claude_subscription_run_child(child, prompt_selection.prompt.as_bytes())?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
+    drop(command);
+    // Read the output without blocking the async runtime: callers race this future against
+    // timeouts and Stop, and dropping it kills Claude Code instead of letting the call run on.
+    let mut running = ClaudeSubscriptionStreamingChild::start(
+        child,
+        prompt_selection.prompt.into_bytes(),
+        Some(workspace),
+    )?;
+    let mut stdout = String::new();
+    while let Some(line) = running.next_line().await {
+        stdout.push_str(&line?);
+    }
+    let exit = running.finish()?;
+    if !exit.success {
         return Err(AppError::with_details(
             "claude_subscription_failed",
-            if stderr.trim().is_empty() {
+            if exit.stderr.trim().is_empty() {
                 "Claude Code request failed.".to_string()
             } else {
-                redact_sensitive_text(stderr.trim())
+                redact_sensitive_text(exit.stderr.trim())
             },
             redact_sensitive_json(json!({
-                "status": output.status.code(),
                 "stdout": stdout.chars().take(1000).collect::<String>(),
             })),
         ));
