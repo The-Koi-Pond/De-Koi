@@ -108,6 +108,11 @@ describe("analyzeMemoryCleanup", () => {
     expect(system).toContain("future contextual value");
     expect(system).toContain("generic or common knowledge");
     expect(system).toContain("manual, edited, imported, corrected, command-created, or pinned");
+    expect(system).toContain("only when it clearly has no future value. When unsure, keep it.");
+    expect(system).toContain("Ordinary, everyday, or briefly mentioned personal facts are not low-value.");
+    expect(system).toContain("Flag it only when the whole excerpt is small talk.");
+    expect(system).toContain("someone will have, want, or say something vague to an unnamed you");
+    expect(system).not.toContain("questionable");
     expect(preview.proposals).toEqual([]);
   });
 
