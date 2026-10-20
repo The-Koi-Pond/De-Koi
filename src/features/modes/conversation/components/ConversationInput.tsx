@@ -20,15 +20,27 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { toUserMessage } from "../../../../shared/lib/error-message";
+import {
+  attachmentTooLargeMessage,
+  attachmentUnreadableMessage,
+  commandFailureMessage,
+  sendFailureMessage,
+  translationFallbackMessage,
+} from "../../shared/chat-ui/index";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import {
   deletePreparedManagedImageAttachments,
   prepareManagedImageAttachmentBatch,
   type PreparedManagedImageAttachments,
 } from "../../../../shared/api/message-attachment-api";
-import { GenerationFailureNotice, useGenerate } from "../../../runtime/generation/index";
+import { GenerationFailureNotice, isReportedGenerationFailure, useGenerate } from "../../../runtime/generation/index";
 import { readScopedRegexMode, useApplyRegex } from "../../../catalog/regex-scripts/regex-application";
 import {
   useCreateMessage,
@@ -372,7 +384,7 @@ export function ConversationInput({
       const MAX_SIZE = 20 * 1024 * 1024;
       const acceptedFiles = Array.from(files).filter((file) => {
         if (file.size > MAX_SIZE) {
-          toast.error(`${file.name} exceeds 20 MB limit`);
+          toast.error(attachmentTooLargeMessage(file.name));
           return false;
         }
         if (!isSupportedChatAttachment(file)) {
@@ -399,7 +411,7 @@ export function ConversationInput({
             });
           } catch (error) {
             console.warn("[chat-attachment] Failed to prepare image attachment", { displayName, error });
-            toast.error(`Failed to prepare ${displayName}`);
+            toast.error(attachmentUnreadableMessage(displayName));
           } finally {
             adjustPendingAttachmentReads(originChatId, -1);
           }
@@ -410,7 +422,7 @@ export function ConversationInput({
           const data = await blobToDataUrl(file, "Failed to read file");
           appendAttachmentForChat(originChatId, { type: inferAttachmentType(file), data, name: displayName });
         } catch {
-          toast.error(`Failed to read ${displayName}`);
+          toast.error(attachmentUnreadableMessage(displayName));
         } finally {
           adjustPendingAttachmentReads(originChatId, -1);
         }
@@ -512,8 +524,10 @@ export function ConversationInput({
         try {
           await generate({ chatId: activeChatId, connectionId: null });
         } catch (error) {
-          const msg = error instanceof Error ? error.message : "Generation failed";
-          toast.error(msg);
+          // useGenerate already showed what went wrong; only report what it didn't.
+          if (!isReportedGenerationFailure(error) && !isAbortError(error)) {
+            toast.error(toUserMessage(error, { fallback: "Couldn't retry the reply. Try again." }));
+          }
         }
       }
       return;
@@ -552,7 +566,7 @@ export function ConversationInput({
           const translated = await translateText(message);
           if (translated.trim()) message = translated;
         } catch {
-          toast.error("Failed to translate message — sending original");
+          toast.error(translationFallbackMessage("sent"));
         }
       }
       // Final pass: resolve macros introduced by translation while {{input}} still points to raw.
@@ -601,8 +615,7 @@ export function ConversationInput({
             rollbackFailed = true;
           }
         }
-        const msg = error instanceof Error ? error.message : "Failed to send message";
-        toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+        toast.error(sendFailureMessage(error, { action: "send", restored: false, savedDataMayRemain: rollbackFailed }));
         return;
       }
       if (textareaRef.current) {
@@ -676,8 +689,8 @@ export function ConversationInput({
         if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== activeChatId)) {
           setInputDraft(activeChatId, submittedDraft);
         }
-        const msg = error instanceof Error ? error.message : "Command failed";
-        toast.error(msg);
+        if (isReportedGenerationFailure(error)) return;
+        toast.error(commandFailureMessage(error));
       }
       return;
     }
@@ -700,7 +713,7 @@ export function ConversationInput({
         const translated = await translateText(message);
         if (translated.trim()) message = translated;
       } catch {
-        toast.error("Failed to translate message — sending original");
+        toast.error(translationFallbackMessage("sent"));
       }
     }
 
@@ -796,8 +809,9 @@ export function ConversationInput({
           }
         }
         if (!rollbackFailed) restoreSubmittedDraft();
-        const msg = error instanceof Error ? error.message : "Failed to send message";
-        toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+        toast.error(
+          sendFailureMessage(error, { action: "send", restored: !rollbackFailed, savedDataMayRemain: rollbackFailed }),
+        );
       }
       return;
     }
@@ -916,8 +930,8 @@ export function ConversationInput({
         }
       } catch (error) {
         restoreSubmittedDraft();
-        const msg = error instanceof Error ? error.message : fallbackError;
-        toast.error(msg);
+        if (isReportedGenerationFailure(error)) return;
+        toast.error(commandFailureMessage(error, fallbackError));
       }
     },
     [
@@ -981,7 +995,7 @@ export function ConversationInput({
         const translated = await translateText(message);
         if (translated.trim()) message = translated;
       } catch {
-        toast.error("Failed to translate message; posting original");
+        toast.error(translationFallbackMessage("posted"));
       }
     }
 
@@ -1069,8 +1083,13 @@ export function ConversationInput({
       if (submittedDraft && (canRestoreVisibleDraft || activeChatIdAfterFailure !== submittingChatId)) {
         setInputDraft(submittingChatId, submittedDraft);
       }
-      const msg = error instanceof Error ? error.message : "Failed to post message";
-      toast.error(rollbackFailed ? `${msg}; partial saved data may need to be removed before retrying.` : msg);
+      toast.error(
+        sendFailureMessage(error, {
+          action: "post",
+          restored: canRestoreVisibleDraft,
+          savedDataMayRemain: rollbackFailed,
+        }),
+      );
     }
   }, [
     activeChatId,
@@ -1405,7 +1424,7 @@ export function ConversationInput({
           if (createdMessageId) {
             await deleteMessage.mutateAsync(createdMessageId).catch(() => undefined);
           }
-          toast.error(error instanceof Error ? error.message : "Failed to send GIF.");
+          toast.error(toUserMessage(error, { fallback: "Couldn't send the GIF. Try again." }));
         }
       };
 
@@ -1464,8 +1483,10 @@ export function ConversationInput({
             : { chatId: activeChatId, connectionId: null, forCharacterId: characterId },
         );
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "Generation failed";
-        toast.error(msg);
+        // useGenerate already showed what went wrong; only report what it didn't.
+        if (!isReportedGenerationFailure(error) && !isAbortError(error)) {
+          toast.error(toUserMessage(error, { fallback: "Couldn't get a reply from that character. Try again." }));
+        }
       }
     },
     [activeChatId, isStreaming, generate, guideGenerations, hasInput],

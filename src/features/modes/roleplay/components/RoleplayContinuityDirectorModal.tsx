@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Check, CirclePause, CircleX, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 import type {
   ContinuityDirectorBeat,
@@ -43,8 +44,23 @@ function statusTone(status: ContinuityDirectorBeatStatus): string {
   return "bg-amber-500/10 text-amber-300 ring-amber-500/25";
 }
 
-function errorText(error: unknown): string | null {
-  return error instanceof Error ? error.message : error ? String(error) : null;
+const NEXT_STEP_PATTERN = /(try again|check|pick|switch|reload|enable)/i;
+
+/** What went wrong with the plan and what to do; planner errors carry a code that says which. */
+function errorText(error: unknown, fallback = "The continuity plan hit a problem. Try again."): string | null {
+  if (!error) return null;
+  if (error instanceof Error && error.name === "ContinuityDirectorApiError") {
+    const code = (error as Error & { code?: unknown }).code;
+    if (code === "timeout") return "The planning model took too long. Try again, or pick a faster planning model.";
+    if (code === "connection_unavailable")
+      return "The planning model's connection is missing. Pick another planning model, or check it in Connections.";
+    if (code === "stale_revision" || code === "disabled") return error.message;
+    if (code === "invalid_output")
+      return NEXT_STEP_PATTERN.test(error.message)
+        ? error.message
+        : `${error.message} Try again, or pick a stronger planning model.`;
+  }
+  return toUserMessage(error, { fallback });
 }
 
 function ThreadCard({
@@ -254,7 +270,7 @@ export function RoleplayContinuityDirectorModal({ chatId, open, onClose }: Rolep
     director.command.mutate(
       { command: value, expectedRevision: state.revision },
       {
-        onError: (error) => toast.error(errorText(error) ?? "Continuity plan update failed."),
+        onError: (error) => toast.error(errorText(error, "Couldn't update the continuity plan. Try again.")),
       },
     );
   };
@@ -262,7 +278,7 @@ export function RoleplayContinuityDirectorModal({ chatId, open, onClose }: Rolep
   const reroll = (beatId: string) => {
     director.reroll.mutate(beatId, {
       onSuccess: () => toast.success("Fresh beat proposed for review."),
-      onError: (error) => toast.error(errorText(error) ?? "Beat reroll failed."),
+      onError: (error) => toast.error(errorText(error, "Couldn't reroll that beat. Try again.")),
     });
   };
 
@@ -355,7 +371,8 @@ export function RoleplayContinuityDirectorModal({ chatId, open, onClose }: Rolep
                           ? `Plan refreshed. ${result.rejectedUnsafeBeats} unsafe beat${result.rejectedUnsafeBeats === 1 ? " was" : "s were"} discarded.`
                           : "Continuity plan refreshed.",
                       ),
-                    onError: (error) => toast.error(errorText(error) ?? "Continuity plan refresh failed."),
+                    onError: (error) =>
+                      toast.error(errorText(error, "Couldn't refresh the continuity plan. Try again.")),
                   })
                 }
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] shadow-sm transition-opacity hover:opacity-90 disabled:opacity-40"

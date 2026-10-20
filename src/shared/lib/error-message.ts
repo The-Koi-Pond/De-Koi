@@ -46,11 +46,34 @@ type UserMessageOptions = {
   fallback?: string;
 };
 
-export function toUserMessage(error: unknown, context?: UserErrorContext | UserMessageOptions): string {
+// Error codes whose messages are already written for the person using De-Koi and name the fix: model provider
+// failures (worded in src-tauri/crates/llm/src/provider_errors.rs) and De-Koi server problems (worded in
+// src/shared/api/remote-runtime.ts), and engine errors marked `user_facing` because their text is user copy.
+// Other providers' "*_provider_error" / "*_network_error" messages carry the
+// provider's own explanation, which beats generic copy.
+const USER_WORDED_ERROR_CODE =
+  /^(llm_|models_|openai_chatgpt_|claude_subscription_|remote_runtime_|admin_access_|csrf_)|^(user_facing|rate_limited|remote_auth_required|request_body_too_large)$|_(provider|network)_error$/;
+
+function readCode(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const code = (value as { code?: unknown }).code;
+  return typeof code === "string" ? code : "";
+}
+
+/** The error's own message when it is already user copy with a next step; otherwise null. */
+function userWordedMessage(error: unknown): string | null {
+  if (!(error instanceof Error) || !error.message.trim()) return null;
   // An outdated server is not fixed by trying again; its message (fixed app
   // copy, never server text) says to update. Matched by name so this lower
   // layer does not import the API that throws it.
-  if (error instanceof Error && error.name === "OutdatedServerError") return error.message;
+  if (error.name === "OutdatedServerError") return error.message;
+  const code = readCode(error) || readCode((error as { details?: unknown }).details);
+  return USER_WORDED_ERROR_CODE.test(code) ? error.message : null;
+}
+
+export function toUserMessage(error: unknown, context?: UserErrorContext | UserMessageOptions): string {
+  const worded = userWordedMessage(error);
+  if (worded) return worded;
   if (typeof context === "string") return USER_ERROR_MESSAGES[context];
   return context?.fallback ?? "Something didn't work. Try again.";
 }

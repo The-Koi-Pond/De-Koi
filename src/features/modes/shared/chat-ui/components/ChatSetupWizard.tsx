@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import {
   ChevronRight,
   Plug,
@@ -710,8 +711,9 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
         }
       },
       reportStatusRefreshFailure: (error) => {
-        const detail = error instanceof Error && error.message.trim() ? ` ${error.message}` : "";
-        toast.error(`Chat started, but character status blurbs could not be created.${detail}`);
+        toast.error(
+          `Chat started, but character status blurbs couldn't be created. ${toUserMessage(error, { fallback: "The chat works without them." })}`,
+        );
       },
       finish: () => {
         if (shouldGenerateSchedules) {
@@ -1363,7 +1365,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                 queryClient.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
               }
             })().catch((error) => {
-              toast.error(error instanceof Error ? error.message : "Failed to add character greeting.");
+              toast.error(toUserMessage(error, { fallback: "Couldn't add the character's greeting. Try again." }));
             });
           },
         });
@@ -1427,7 +1429,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
       onFinish();
     } catch (error) {
       if (shortcutApplyOperationRef.current !== operationId) return;
-      toast.error(error instanceof Error ? error.message : "Failed to apply chat preset.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't apply the chat preset. Try again." }));
     } finally {
       if (shortcutApplyPendingOperationRef.current === operationId) {
         shortcutApplyPendingOperationRef.current = null;

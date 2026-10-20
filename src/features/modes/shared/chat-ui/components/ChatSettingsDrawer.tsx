@@ -43,6 +43,7 @@ import {
   Paintbrush,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import { cn, type AvatarCrop } from "../../../../../shared/lib/utils";
 import { AvatarImage } from "../../../../../shared/components/ui/AvatarImage";
 import { extractCreatorNotesCss } from "../../../../../shared/lib/creator-notes-css";
@@ -1415,8 +1416,7 @@ function ChatSettingsDrawerInner({
         toast.success(`Generated ${generatedCount} conversation schedule${generatedCount === 1 ? "" : "s"}.`);
         qc.invalidateQueries({ queryKey: chatKeys.detail(chat.id) });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Schedule generation failed.";
-        toast.error(message);
+        toast.error(toUserMessage(error, { fallback: "Couldn't generate the schedules. Try again." }));
       } finally {
         isRegeneratingSchedulesRef.current = false;
         setIsRegeneratingSchedules(false);

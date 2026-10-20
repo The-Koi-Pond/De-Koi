@@ -15,6 +15,7 @@ import {
   handleSceneCreatedGenerationEvent,
   isTrackerPatchRetryRequest,
   notifyOffChatAssistantMessage,
+  isReportedGenerationFailure,
   runGenerationWithUi,
   showAgentWarningToast,
   type GenerateArgs,
@@ -1121,6 +1122,30 @@ describe("runGenerationWithUi", () => {
     expect(toast.error).not.toHaveBeenCalled();
     queryClient.clear();
   });
+  it("says why a concluded scene can't take a reply, so callers don't fail silently", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-concluded-scene";
+    queryClient.setQueryData(chatKeys.detail(chatId), {
+      id: chatId,
+      mode: "roleplay",
+      metadata: { sceneStatus: "concluded" },
+    } as unknown as Chat);
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "done" } as StreamEvent;
+    }
+
+    let failure: unknown;
+    await runGenerationWithUi(queryClient, { chatId }, stream).catch((error: unknown) => {
+      failure = error;
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "This scene is concluded. Convert or reopen it before sending new messages.",
+    );
+    expect(isReportedGenerationFailure(failure)).toBe(true);
+    queryClient.clear();
+  });
+
   it("labels image provider failures as attachment delivery failures", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-image-failure";

@@ -25,7 +25,18 @@ import {
   prepareManagedImageAttachmentBatch,
   type PreparedManagedImageAttachments,
 } from "../../../../../shared/api/message-attachment-api";
-import { GenerationFailureNotice, useGenerate } from "../../../../runtime/generation/index";
+import {
+  GenerationFailureNotice,
+  isReportedGenerationFailure,
+  useGenerate,
+} from "../../../../runtime/generation/index";
+import {
+  attachmentTooLargeMessage,
+  attachmentUnreadableMessage,
+  commandFailureMessage,
+  sendFailureMessage,
+  translationFallbackMessage,
+} from "../lib/chat-input-errors";
 import { readScopedRegexMode, useApplyRegex } from "../../../../catalog/regex-scripts/regex-application";
 import { useCreateMessage, useDeleteMessage, useUpdateMessageExtra, chatKeys } from "../../../../catalog/chats/index";
 import { characterKeys } from "../../../../catalog/characters/index";
@@ -400,7 +411,7 @@ export const ChatInput = memo(function ChatInput({
 
       const acceptedFiles = Array.from(files).filter((file) => {
         if (file.size > 20 * 1024 * 1024) {
-          toast.error(`${file.name} is too large (max 20 MB)`);
+          toast.error(attachmentTooLargeMessage(file.name));
           return false;
         }
         if (!isSupportedChatAttachment(file)) {
@@ -427,7 +438,7 @@ export const ChatInput = memo(function ChatInput({
             });
           } catch (error) {
             console.warn("[chat-attachment] Failed to prepare image attachment", { displayName, error });
-            toast.error(`Failed to prepare ${displayName}`);
+            toast.error(attachmentUnreadableMessage(displayName));
           } finally {
             adjustPendingAttachmentReads(originChatId, -1);
           }
@@ -438,7 +449,7 @@ export const ChatInput = memo(function ChatInput({
           const data = await blobToDataUrl(file, "Failed to read file");
           appendAttachmentForChat(originChatId, { type: inferAttachmentType(file), data, name: displayName });
         } catch {
-          toast.error(`Failed to read ${displayName}`);
+          toast.error(attachmentUnreadableMessage(displayName));
         } finally {
           adjustPendingAttachmentReads(originChatId, -1);
         }
@@ -668,8 +679,8 @@ export const ChatInput = memo(function ChatInput({
       } catch (error) {
         const recovery = submissionRecovery.failure(error);
         if (!recovery.report) return;
-        const msg = error instanceof Error ? error.message : "Command failed";
-        toast.error(msg);
+        if (isReportedGenerationFailure(error)) return;
+        toast.error(commandFailureMessage(error));
       }
       return;
     }
@@ -697,7 +708,7 @@ export const ChatInput = memo(function ChatInput({
         const translated = await translateText(message);
         if (translated.trim()) message = translated;
       } catch {
-        toast.error("Failed to translate message — sending original");
+        toast.error(translationFallbackMessage("sent"));
       }
     }
 
@@ -769,11 +780,12 @@ export const ChatInput = memo(function ChatInput({
         }
         const recovery = submissionRecovery.failure(error);
         if (!recovery.report) return;
-        const msg = error instanceof Error ? error.message : "Failed to send message";
         toast.error(
-          submissionRecovery.savedDataMayRemain
-            ? `${msg}; partial saved data may need to be removed before retrying.`
-            : msg,
+          sendFailureMessage(error, {
+            action: "post",
+            restored: recovery.restore,
+            savedDataMayRemain: submissionRecovery.savedDataMayRemain,
+          }),
         );
       }
       return;
@@ -874,8 +886,8 @@ export const ChatInput = memo(function ChatInput({
       } catch (error) {
         const recovery = submissionRecovery.failure(error);
         if (!recovery.report) return;
-        const msg = error instanceof Error ? error.message : fallbackError;
-        toast.error(msg);
+        if (isReportedGenerationFailure(error)) return;
+        toast.error(commandFailureMessage(error, fallbackError));
       }
     },
     [
@@ -934,7 +946,7 @@ export const ChatInput = memo(function ChatInput({
         const translated = await translateText(message);
         if (translated.trim()) message = translated;
       } catch {
-        toast.error("Failed to translate message; posting original");
+        toast.error(translationFallbackMessage("posted"));
       }
     }
 
@@ -1001,11 +1013,12 @@ export const ChatInput = memo(function ChatInput({
       }
       const recovery = submissionRecovery.failure(error);
       if (!recovery.report) return;
-      const msg = error instanceof Error ? error.message : "Failed to post message";
       toast.error(
-        submissionRecovery.savedDataMayRemain
-          ? `${msg}; partial saved data may need to be removed before retrying.`
-          : msg,
+        sendFailureMessage(error, {
+          action: "post",
+          restored: recovery.restore,
+          savedDataMayRemain: submissionRecovery.savedDataMayRemain,
+        }),
       );
     }
   }, [

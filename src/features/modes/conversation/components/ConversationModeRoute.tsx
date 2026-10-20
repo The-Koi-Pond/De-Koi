@@ -1,6 +1,7 @@
 import "../../../../styles/globals/06-chat-mode-themes.css";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
@@ -87,7 +88,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     (messageId: string, index: number) => {
       handleSetActiveSwipe(messageId, index);
       pairReplyWithUserVersion(messageId, index).catch((error: unknown) => {
-        toast.error(error instanceof Error ? error.message : "Could not switch the reply to match.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't switch the reply to match. Try again." }));
       });
     },
     [handleSetActiveSwipe, pairReplyWithUserVersion],

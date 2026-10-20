@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import {
   isCustomAgentConfig,
@@ -347,7 +348,7 @@ export function RoleplayHUDActionsMenu({
                   toast.success("Episode queued for consolidation.");
                   onClose();
                 } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "Could not close this episode.");
+                  toast.error(toUserMessage(error, { fallback: "Couldn't close this episode. Try again." }));
                 } finally {
                   setClosingEpisode(false);
                 }

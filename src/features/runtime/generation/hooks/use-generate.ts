@@ -100,6 +100,13 @@ const scheduledChatRefreshTimers = new Map<string, number>();
 const shownMemoryEmbeddingWarningKeys = new Set<string>();
 const queuedAgentDebugEntries: Array<Omit<AgentDebugEntry, "timestamp"> & { timestamp?: number }> = [];
 const activeGenerateLocks = new Set<string>();
+/** Failures this hook already showed the user, so callers that catch them don't show them twice. */
+const reportedGenerationFailures = new WeakSet<object>();
+
+/** True when useGenerate already told the user about this failure (toast + notice). */
+export function isReportedGenerationFailure(error: unknown): boolean {
+  return typeof error === "object" && error !== null && reportedGenerationFailures.has(error);
+}
 const AGENT_WARNING_DISMISSAL_STORAGE_PREFIX = "de-koi:agent-warning-dismissed:";
 let agentDebugFlushTimer: number | null = null;
 
@@ -1354,7 +1361,14 @@ export async function runGenerationWithUi(
   activeGenerateLocks.add(chatId);
   let controller: AbortController | null = null;
   try {
-    await assertChatCanGenerate(queryClient, chatId);
+    try {
+      await assertChatCanGenerate(queryClient, chatId);
+    } catch (error) {
+      // The chat can't take a reply (a concluded scene): say so here, since callers leave feedback to this hook.
+      toast.error(errorMessage(error));
+      if (typeof error === "object" && error !== null) reportedGenerationFailures.add(error);
+      throw error;
+    }
     const chatStore = useChatStore.getState();
     if (chatStore.abortControllers.has(chatId)) {
       console.warn("[generation] Generation already in progress for chat", chatId);
@@ -1962,6 +1976,7 @@ export async function runGenerationWithUi(
         .setGenerationFailure(chatId, { message: toastMessage, failedAt: Date.now(), providerIssue });
       dispatchGenerationFailureEvent(chatId, toastMessage);
       showGenerationFailureToast(toastMessage, providerIssue);
+      if (typeof error === "object" && error !== null) reportedGenerationFailures.add(error);
     }
     throw error;
   } finally {

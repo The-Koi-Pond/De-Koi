@@ -12,7 +12,7 @@ describe("runChatSetupStart", () => {
         generateSchedules: null,
         finish,
       }),
-    ).resolves.toEqual({ ok: false, message: "storage unavailable" });
+    ).resolves.toEqual({ ok: false, message: "Conversation setup didn't finish. Try again." });
     expect(finish).not.toHaveBeenCalled();
   });
 

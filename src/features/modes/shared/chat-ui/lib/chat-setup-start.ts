@@ -1,3 +1,5 @@
+import { toUserMessage } from "../../../../../shared/lib/error-message";
+
 export type ChatSetupStartResult = { ok: true } | { ok: false; message: string };
 export type ChatSetupStartGateResult = ChatSetupStartResult | { ok: false; busy: true };
 
@@ -21,7 +23,7 @@ export async function runChatSetupStart(input: {
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error && error.message.trim() ? error.message : "Conversation setup failed.",
+      message: toUserMessage(error, { fallback: "Conversation setup didn't finish. Try again." }),
     };
   }
 }
