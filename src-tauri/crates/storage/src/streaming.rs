@@ -470,6 +470,9 @@ impl FileStorage {
             remove_collection_transaction_manifest(&manifest_path)?;
         }
         self.invalidate_collection_caches(collection)?;
+        if report.deleted_records > 0 {
+            crate::change_feed::collection_changed(collection);
+        }
         Ok(report)
     }
 
@@ -622,6 +625,7 @@ impl FileStorage {
         cache
             .projected_lists
             .retain(|key, _| key.collection != collection);
+        crate::change_feed::collection_changed(collection);
         Ok(report)
     }
 }

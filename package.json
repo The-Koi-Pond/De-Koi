@@ -14,6 +14,7 @@
     "docs:schema:legacy": "node scripts/generate-legacy-storage-schema.mjs",
     "docs:schema:all": "pnpm docs:schema && pnpm docs:schema:legacy",
     "build": "tsc -b && node scripts/run-vite.mjs build",
+    "build:runner": "node scripts/run-vite.mjs build --config vite.runner.config.ts",
     "typecheck": "tsc -b",
     "format": "prettier --write --ignore-unknown .",
     "format:check": "prettier --check --ignore-unknown .",

@@ -29,6 +29,23 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --manifest-path src-tauri/Cargo.toml --release --bin de-koi-server --no-default-features --features server \
     && cp /app/src-tauri/target/release/de-koi-server /usr/local/bin/de-koi-server
 
+# The generation runner (src/runner): the app's reply engine bundled into one Node file. It runs replies on
+# the server so they survive a closed browser tab; de-koi-server starts it (see runner_supervisor.rs).
+FROM node:22-bookworm-slim AS runner-builder
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
+RUN pnpm install --frozen-lockfile
+
+COPY tsconfig.json tsconfig.node.json vite.runner.config.ts ./
+COPY scripts/run-vite.mjs ./scripts/run-vite.mjs
+COPY src ./src
+RUN pnpm build:runner
+
 FROM node:22-bookworm-slim AS runtime
 
 ARG DE_KOI_IMAGE_VERSION=prealpha
@@ -66,12 +83,15 @@ COPY src-tauri/crates ./src-tauri/crates
 COPY src-tauri/src ./src-tauri/src
 COPY --from=builder /usr/local/bin/de-koi-server /usr/local/bin/de-koi-server
 COPY --from=builder /app/src-tauri/resources /app/src-tauri/resources
+COPY --from=runner-builder /app/dist-runner/runner.mjs /app/dist-runner/runner.mjs.map /app/runner/
 
 ENV DE_KOI_SERVER_ADDR=0.0.0.0:8787
 ENV DE_KOI_DATA_DIR=/data
 ENV DE_KOI_REPO_ROOT=/app
+ENV DE_KOI_RUNNER_SCRIPT=/app/runner/runner.mjs
+ENV DE_KOI_RUNNER_ADDR=0.0.0.0:8790
 
-EXPOSE 8787
+EXPOSE 8787 8790
 VOLUME ["/data"]
 
 CMD ["de-koi-server"]

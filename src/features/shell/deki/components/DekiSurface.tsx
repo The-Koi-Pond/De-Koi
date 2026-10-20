@@ -621,6 +621,9 @@ export function DekiSurface({
   const [chatAccessGrants, setChatAccessGrants] = useState<DekiChatAccessGrant[]>([]);
   const [liveActivities, setLiveActivities] = useState<Record<string, DekiLiveActivity>>({});
   const [stoppingSessionKeys, setStoppingSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  /** Sessions with a Deki turn still running on the server that this tab did not start (it was closed or reloaded mid-turn). */
+  const [detachedRunKeys, setDetachedRunKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const sendingSessionKeysRef = useRef<ReadonlySet<string>>(new Set());
   const [workspaceApprovals, setWorkspaceApprovals] = useState<DekiWorkspaceApprovalsState | null>(null);
   const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null);
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
@@ -638,6 +641,37 @@ export function DekiSurface({
   const historyLoaded = historyLoadState.completed && historyLoadState.sessionKey === currentSessionRunKey;
   const historyLoadGeneration = historyLoadState.generation;
   const sending = sendingSessionKeys.has(currentSessionRunKey);
+  sendingSessionKeysRef.current = sendingSessionKeys;
+  const detachedRun = !sending && detachedRunKeys.has(currentSessionRunKey);
+
+  // A turn this tab did not start is still running on the server: check every
+  // few seconds, and reload the history once it ends so its saved reply shows.
+  useEffect(() => {
+    if (!detachedRun) return;
+    const key = currentSessionRunKey;
+    const targetSessionId = sessionId;
+    const timer = window.setInterval(() => {
+      void dekiApi.workspace
+        .status(dekiRuntimeSessionId(targetSessionId))
+        .then((status) => {
+          if (status.active) return;
+          const without = (current: ReadonlySet<string>) => {
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          };
+          setDetachedRunKeys(without);
+          setStoppingSessionKeys(without);
+          void onSessionsChanged?.();
+          setHistoryLoadState((current) =>
+            current.sessionKey === key ? { ...current, generation: current.generation + 1, completed: false } : current,
+          );
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [detachedRun, currentSessionRunKey, sessionId, onSessionsChanged]);
+
   const markSessionSending = (targetSessionId: string | null | undefined, active: boolean) => {
     const key = dekiSessionRunKey(targetSessionId);
     setSendingSessionKeys((current) => {
@@ -737,6 +771,9 @@ export function DekiSurface({
         pending: status.pendingApprovals,
         history: status.history,
       });
+      if (status.active && !sendingSessionKeysRef.current.has(key)) {
+        setDetachedRunKeys((current) => (current.has(key) ? current : new Set(current).add(key)));
+      }
     } catch {
       // The workspace runtime is absent (plain browser) or unreachable; the
       // approval cards say so instead of offering buttons that cannot work.
@@ -1560,6 +1597,13 @@ export function DekiSurface({
               />
             );
           })}
+          {!sending && detachedRunKeys.has(currentSessionRunKey) && (
+            <DekiLiveActivityPanel
+              activity={{ ...EMPTY_DEKI_LIVE_ACTIVITY, narration: "Still working on your last message..." }}
+              stopping={stoppingSessionKeys.has(currentSessionRunKey)}
+              onStop={() => void stopDeki()}
+            />
+          )}
           {sending &&
             (liveActivities[currentSessionRunKey] ? (
               <DekiLiveActivityPanel

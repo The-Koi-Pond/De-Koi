@@ -1,4 +1,5 @@
 import { cn } from "../../../../shared/lib/utils";
+import { ConversationMessageReactions } from "./ConversationMessageReactions";
 import { ConversationMessageActions } from "./ConversationMessageActions";
 import {
   ConversationMessageAttachments,
@@ -60,6 +61,7 @@ export function ConversationMessageLine({ context }: { context: ConversationMess
           <ConversationMessageBodyContent context={context} />
           <ConversationMessageTranslation context={context} />
           <ConversationMessageAttachments context={context} className="mt-1.5 flex flex-col items-center gap-2" />
+          <ConversationMessageReactions context={context} />
           <ConversationMessageSwipeControl context={context} variant="line" />
         </div>
       </div>

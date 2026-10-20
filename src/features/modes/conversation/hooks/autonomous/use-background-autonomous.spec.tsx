@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => ({
   storageList: vi.fn(),
 }));
 
+vi.mock("../../../../../shared/api/generation-runner-api", () => ({
+  generationRunnerHealth: async () => ({ ok: false, push: false, textingFirst: false }),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({
     resetQueries: vi.fn(),

@@ -802,11 +802,13 @@ impl Drop for ClaudeSubscriptionStreamingChild {
 }
 
 /// What a streaming reply has produced so far: the text already sent to the client and Claude Code's
-/// final `result` line.
+/// final `result` line. With `report_restarts`, a reply Claude Code starts over is reported as a
+/// `text_reset` event (see [`crate::stream_events_with_restarts`]) instead of failing.
 #[derive(Debug, Default)]
 pub(crate) struct ClaudeSubscriptionStreamState {
     pub(crate) streamed_text: String,
     pub(crate) result: Option<Value>,
+    pub(crate) report_restarts: bool,
 }
 
 /// Handles one stdout line of `claude -p --output-format stream-json --include-partial-messages`.
@@ -854,6 +856,17 @@ pub(crate) fn process_claude_subscription_stream_line(
                     "data": { "estimatedTokens": estimated_tokens }
                 }))?;
             }
+        }
+        // Claude Code answers some bad replies itself with a synthetic user turn (a malformed tool
+        // call, a reply cut off mid-stream) and asks again. The text streamed so far belongs to the
+        // reply it gave up on.
+        Some("user")
+            if state.report_restarts
+                && !state.streamed_text.is_empty()
+                && value.get("isSynthetic").and_then(Value::as_bool) == Some(true) =>
+        {
+            state.streamed_text.clear();
+            emit(json!({ "type": "text_reset" }))?;
         }
         Some("result") => state.result = Some(value),
         _ => {}
@@ -912,12 +925,16 @@ pub(crate) fn finish_claude_subscription_stream(
         };
         emit(json!({ "type": "token", "text": text, "data": text }))?;
     } else if let Some(text) = final_text {
-        // When a stream breaks mid-reply, Claude Code drops the partial message and asks again
-        // without streaming, so the final text can extend or replace what was already sent.
+        // Claude Code can ask again after a broken stream or a reply it rejects, so the final
+        // text can extend or replace what was already sent.
         if let Some(rest) = text.strip_prefix(state.streamed_text.as_str()) {
             if !rest.is_empty() {
                 emit(json!({ "type": "token", "text": rest, "data": rest }))?;
             }
+        } else if text.trim() != state.streamed_text.trim() && state.report_restarts {
+            // Claude Code's result is the reply; the caller drops what it streamed before.
+            emit(json!({ "type": "text_reset" }))?;
+            emit(json!({ "type": "token", "text": text, "data": text }))?;
         } else if text.trim() != state.streamed_text.trim() {
             return Err(AppError::with_details(
                 "claude_subscription_stream_replaced",
@@ -1379,6 +1396,7 @@ pub(crate) fn claude_subscription_stream_result_line(stdout: &str) -> Option<&st
 /// the client disconnecting) drops the running process with it, which kills it.
 pub(crate) async fn stream_claude_subscription(
     request: LlmRequest,
+    report_restarts: bool,
     emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
 ) -> AppResult<()> {
     let prompt_selection = claude_subscription_prompt(&request)?;
@@ -1425,7 +1443,10 @@ pub(crate) async fn stream_claude_subscription(
         prompt_selection.stdin_payload(),
         Some(workspace),
     )?;
-    let mut state = ClaudeSubscriptionStreamState::default();
+    let mut state = ClaudeSubscriptionStreamState {
+        report_restarts,
+        ..ClaudeSubscriptionStreamState::default()
+    };
     while let Some(line) = stream.next_line().await {
         process_claude_subscription_stream_line(&line?, &mut state, emit)?;
     }

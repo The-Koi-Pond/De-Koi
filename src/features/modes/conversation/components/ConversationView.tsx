@@ -78,6 +78,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../../../shared/api/conversation-settings-api";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
+import { useJumpToMessage } from "../../shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import { useGenerate } from "../../../runtime/generation/index";
@@ -149,6 +150,7 @@ interface ConversationViewProps {
   onDelete: (messageId: string) => void;
   onRegenerate: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onEdit: (messageId: string, content: string) => void | Promise<void>;
+  onEditAndResend?: (messageId: string, content: string) => Promise<void>;
   onSetActiveSwipe: (messageId: string, index: number) => void;
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
@@ -372,6 +374,7 @@ export function ConversationView({
   onDelete,
   onRegenerate,
   onEdit,
+  onEditAndResend,
   onSetActiveSwipe,
   onPeekPrompt,
   onToggleHiddenFromAI,
@@ -972,6 +975,15 @@ export function ConversationView({
     () => getTranscriptRenderWindow(messages, { startIndex: transcriptWindowStart }),
     [messages, transcriptWindowStart],
   );
+  useJumpToMessage({
+    chatId,
+    messages,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    setTranscriptWindowStart,
+    scrollContainerRef: scrollRef,
+  });
 
   const handleShowOlderMessages = useCallback(() => {
     if (transcriptWindow.hiddenBeforeCount > 0) {
@@ -1636,6 +1648,7 @@ export function ConversationView({
                         onDelete={onDelete}
                         onRegenerate={onRegenerate}
                         onEdit={onEdit}
+                        onEditAndResend={onEditAndResend}
                         onSetActiveSwipe={onSetActiveSwipe}
                         onPeekPrompt={onPeekPrompt}
                         onToggleHiddenFromAI={onToggleHiddenFromAI}

@@ -5,8 +5,8 @@ use crate::storage_commands::{
     characters, chat_memory, chats, connection_secrets, custom_tools, customization, deki,
     entity_images, exports, fanfic_research, fonts, generation, http, images, imports,
     integrations, knowledge, knowledge_edges, llm, lorebook_images, managed_thumbnails,
-    memory_capture, memory_maintenance, personas, profile, prompts, shared, sidecar, sprites,
-    translation, updates, web_research,
+    memory_capture, memory_maintenance, message_search, personas, profile, prompts, shared,
+    sidecar, sprites, translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1284,6 +1284,12 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
+        "chat_messages_search" => {
+            dispatch_blocking_http_storage(state, &args, |state, args| {
+                message_search::search_messages(state, optional_value(args, "body"))
+            })
+            .await
+        }
         "chat_branch" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 chats::branch_chat(
@@ -1864,6 +1870,7 @@ mod tests {
         "chat_message_add_swipe",
         "chat_message_count",
         "chat_sibling_conversation_context",
+        "chat_messages_search",
         "chat_message_delete_swipe",
         "chat_message_set_active_swipe",
         "chat_message_swipes",

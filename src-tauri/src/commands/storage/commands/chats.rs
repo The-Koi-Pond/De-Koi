@@ -1,4 +1,4 @@
-use super::{chat_memory, chats, shared};
+use super::{chat_memory, chats, message_search, shared};
 use crate::state::AppState;
 use marinara_core::AppError;
 use serde_json::{json, Value};
@@ -240,6 +240,17 @@ pub fn chat_sibling_conversation_context(
     body: Value,
 ) -> Result<Value, AppError> {
     chats::sibling_conversation_context(&state, body)
+}
+
+#[tauri::command]
+pub async fn chat_messages_search(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || message_search::search_messages(&state, body))
+        .await
+        .map_err(|error| AppError::new("task_join_error", error.to_string()))?
 }
 
 #[tauri::command]

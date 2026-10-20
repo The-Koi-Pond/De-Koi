@@ -1,7 +1,6 @@
 use super::chat_access::{self, DekiChatAccessGrant};
 use crate::state::AppState;
 use crate::storage_commands::{canonical_memory, chat_memory};
-use autoagents::prelude::ToolInput;
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -9,37 +8,17 @@ use serde_json::{json, Map, Value};
 const MEMORY_READ_DEFAULT_LIMIT: usize = 50;
 const MEMORY_READ_MAX_LIMIT: usize = 100;
 
-#[derive(Debug, Deserialize, ToolInput)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReadDekiMemoriesArgs {
-    #[input(description = "Memory scope type: character or chat.")]
     #[serde(alias = "scope_type")]
     pub(super) scope_type: String,
-    #[input(description = "Exact character id or approved chat id for the selected scope.")]
     #[serde(alias = "scope_id")]
     pub(super) scope_id: String,
-    #[input(description = "Optional case-insensitive search within memory content.")]
     #[serde(default)]
     pub(super) query: Option<String>,
-    #[input(description = "Maximum memories to return. Defaults to 50 and is capped at 100.")]
     #[serde(default)]
     pub(super) limit: Option<usize>,
-}
-
-#[derive(Debug, Deserialize, ToolInput)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct EditDekiMemoryArgs {
-    #[input(description = "Memory scope type: character or chat.")]
-    #[serde(alias = "scope_type")]
-    pub(super) scope_type: String,
-    #[input(description = "Exact character id or approved chat id for the selected scope.")]
-    #[serde(alias = "scope_id")]
-    pub(super) scope_id: String,
-    #[input(description = "Exact memory id returned by read_deki_memories.")]
-    #[serde(alias = "memory_id")]
-    pub(super) memory_id: String,
-    #[input(description = "Complete replacement memory sentence. Must not be empty.")]
-    pub(super) content: String,
 }
 
 pub(super) fn read(
@@ -90,23 +69,16 @@ pub(super) fn read(
     Ok(project_page(rows, args.query.as_deref(), args.limit))
 }
 
-pub(super) async fn edit(
+/// The memory a Deki edit targets, as stored now. It must belong to the named
+/// character or chat and still be editable (active or pinned character
+/// memories; retrievable chat memories). Chat access was checked when the
+/// edit was proposed.
+pub(super) fn current_memory(
     state: &AppState,
-    grants: &[DekiChatAccessGrant],
-    args: EditDekiMemoryArgs,
+    scope_type: &str,
+    scope_id: &str,
+    memory_id: &str,
 ) -> AppResult<Value> {
-    let scope_type = args.scope_type.trim();
-    let scope_id = args.scope_id.trim();
-    let memory_id = args.memory_id.trim();
-    let content = args.content.trim();
-    if scope_id.is_empty() || memory_id.is_empty() {
-        return Err(AppError::invalid_input(
-            "edit_deki_memory requires scopeId and memoryId",
-        ));
-    }
-    if content.is_empty() {
-        return Err(AppError::invalid_input("Memory content is required"));
-    }
     match scope_type {
         "character" => {
             let current = canonical_memory::get_memory(state, memory_id)?;
@@ -130,22 +102,12 @@ pub(super) async fn edit(
                     "Only active or pinned character memories can be edited",
                 ));
             }
-            let updated =
-                canonical_memory::update_memory(state, memory_id, json!({ "content": content }))?;
-            canonical_memory::rebuild_memory_lexical_index(
-                state,
-                json!({
-                    "scope": { "kind": "character", "id": scope_id },
-                    "statuses": ["active", "pinned"]
-                }),
-            )?;
-            Ok(json!({ "memory": project_memory(updated) }))
+            Ok(current)
         }
         "chat" => {
-            let chat_id = chat_access::ensure_chat_allowed(state, grants, scope_id)?;
             let current = chat_memory::list_chat_memories_excluding_recent(
                 state,
-                &chat_id,
+                scope_id,
                 None,
                 Some("stored"),
                 &[],
@@ -159,7 +121,7 @@ pub(super) async fn edit(
             .cloned()
             .ok_or_else(|| {
                 AppError::not_found(format!(
-                    "Memory '{memory_id}' was not found in approved chat '{chat_id}'"
+                    "Memory '{memory_id}' was not found in chat '{scope_id}'"
                 ))
             })?;
             if !chat_memory::chat_memory_is_retrievable(&current) {
@@ -167,9 +129,41 @@ pub(super) async fn edit(
                     "Only active chat memories can be edited",
                 ));
             }
+            Ok(current)
+        }
+        _ => Err(AppError::invalid_input(
+            "Memory scopeType must be character or chat",
+        )),
+    }
+}
+
+/// Replaces a memory's content through its storage owner: the canonical
+/// memory store (and its lexical index) for characters, or the chat memory
+/// owner (which re-embeds) for chats.
+pub(super) async fn update_memory(
+    state: &AppState,
+    scope_type: &str,
+    scope_id: &str,
+    memory_id: &str,
+    content: &str,
+) -> AppResult<Value> {
+    match scope_type {
+        "character" => {
+            let updated =
+                canonical_memory::update_memory(state, memory_id, json!({ "content": content }))?;
+            canonical_memory::rebuild_memory_lexical_index(
+                state,
+                json!({
+                    "scope": { "kind": "character", "id": scope_id },
+                    "statuses": ["active", "pinned"]
+                }),
+            )?;
+            Ok(json!({ "memory": project_memory(updated) }))
+        }
+        "chat" => {
             let updated_chat = chat_memory::update_chat_memory(
                 state,
-                &chat_id,
+                scope_id,
                 memory_id,
                 json!({ "content": content }),
             )
@@ -188,7 +182,7 @@ pub(super) async fn edit(
             Ok(json!({ "memory": project_memory(updated) }))
         }
         _ => Err(AppError::invalid_input(
-            "edit_deki_memory scopeType must be character or chat",
+            "Memory scopeType must be character or chat",
         )),
     }
 }
@@ -253,6 +247,7 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use crate::storage_commands::canonical_memory;
+    use marinara_core::AppResult;
     use serde_json::{json, Value};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -407,9 +402,55 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn character_edits_verify_scope_and_rebuild_the_lexical_index() {
+    fn edit_scope(label: &str) -> super::super::approvals::DekiApprovalScope {
+        super::super::approvals::DekiApprovalScope::new(
+            &super::super::status::DekiRuntimeOwner::Embedded,
+            &format!("memory-{label}-{}", marinara_core::new_id()),
+        )
+        .expect("approval scope")
+    }
+
+    /// Proposes an edit_memory dry-run the way the command runtime does.
+    fn propose_edit(
+        state: &AppState,
+        scope: &super::super::approvals::DekiApprovalScope,
+        grants: &[DekiChatAccessGrant],
+        args: Value,
+    ) -> AppResult<Value> {
+        let mutation = super::super::memory_edit::mutation(
+            state,
+            grants,
+            serde_json::from_value(args).expect("edit_memory args"),
+        )?;
+        let mut pending = Vec::new();
+        super::super::data_cli::execute(
+            state,
+            scope,
+            super::super::data_cli::DekiDataCommand::Mutate(mutation),
+            &mut pending,
+        )
+    }
+
+    fn approve_edit(
+        state: &AppState,
+        scope: &super::super::approvals::DekiApprovalScope,
+        result: &Value,
+    ) -> AppResult<Value> {
+        let id = result["approval"]["id"]
+            .as_str()
+            .expect("dry-run should create a pending approval");
+        super::super::approvals::approve(
+            state,
+            &super::super::status::DekiRuntimeOwner::Embedded,
+            &scope.session_id,
+            id,
+        )
+    }
+
+    #[test]
+    fn character_memory_edits_wait_for_approval_and_rebuild_the_lexical_index() {
         let state = test_state("character-edit");
+        let scope = edit_scope("character");
         seed_character_memory(
             &state,
             "memory-rina",
@@ -423,38 +464,31 @@ mod tests {
             "Other private memory.",
         );
 
-        let denied = edit(
+        let denied = propose_edit(
             &state,
+            &scope,
             &[],
-            EditDekiMemoryArgs {
-                scope_type: "character".to_string(),
-                scope_id: "char-rina".to_string(),
-                memory_id: "memory-other".to_string(),
-                content: "Changed across scope.".to_string(),
-            },
+            json!({ "scopeType": "character", "scopeId": "char-rina", "memoryId": "memory-other", "content": "Changed across scope.", "reason": "test" }),
         )
-        .await;
-        assert!(denied.is_err());
+        .expect("dry-run runs");
+        assert_eq!(denied["ok"], json!(false), "cross-scope edit is blocked");
 
-        let updated = edit(
+        let proposed = propose_edit(
             &state,
+            &scope,
             &[],
-            EditDekiMemoryArgs {
-                scope_type: "character".to_string(),
-                scope_id: "char-rina".to_string(),
-                memory_id: "memory-rina".to_string(),
-                content: "Rina entrusted the silver key to Celia.".to_string(),
-            },
+            json!({ "scopeType": "character", "scopeId": "char-rina", "memoryId": "memory-rina", "content": "Rina entrusted the silver key to Celia.", "reason": "test" }),
         )
-        .await
-        .expect("in-scope character memory should update");
-
+        .expect("dry-run runs");
+        let stored = canonical_memory::get_memory(&state, "memory-rina").expect("memory reads");
         assert_eq!(
-            updated["memory"]["content"],
-            json!("Rina entrusted the silver key to Celia.")
+            stored["content"],
+            json!("Rina keeps the silver key."),
+            "nothing changes before approval"
         );
-        let stored = canonical_memory::get_memory(&state, "memory-rina")
-            .expect("updated memory should read");
+
+        approve_edit(&state, &scope, &proposed).expect("approval applies");
+        let stored = canonical_memory::get_memory(&state, "memory-rina").expect("memory reads");
         assert_eq!(
             stored["content"],
             json!("Rina entrusted the silver key to Celia.")
@@ -471,56 +505,43 @@ mod tests {
         }));
     }
 
-    #[tokio::test]
-    async fn chat_edits_require_a_covering_grant_and_use_the_chat_memory_owner() {
+    #[test]
+    fn chat_memory_edits_need_a_covering_grant_and_use_the_chat_memory_owner() {
         let state = test_state("chat-edit");
+        let scope = edit_scope("chat");
         seed_chat_memory(&state);
 
-        let denied = edit(
+        let denied = propose_edit(
             &state,
+            &scope,
             &[chat_grant("chat-other")],
-            EditDekiMemoryArgs {
-                scope_type: "chat".to_string(),
-                scope_id: "chat-rina".to_string(),
-                memory_id: "chat-memory-1".to_string(),
-                content: "Rina entrusted the silver key to Celia.".to_string(),
-            },
+            json!({ "scopeType": "chat", "scopeId": "chat-rina", "memoryId": "chat-memory-1", "content": "Rina entrusted the silver key to Celia.", "reason": "test" }),
         )
-        .await
-        .expect_err("cross-chat grant should reject");
+        .expect_err("a grant for another chat is refused");
         assert_eq!(denied.code, "invalid_input");
 
-        let deleted = edit(
+        let deleted = propose_edit(
             &state,
+            &scope,
             &[chat_grant("chat-rina")],
-            EditDekiMemoryArgs {
-                scope_type: "chat".to_string(),
-                scope_id: "chat-rina".to_string(),
-                memory_id: "chat-memory-deleted".to_string(),
-                content: "Deleted memory should remain inaccessible.".to_string(),
-            },
+            json!({ "scopeType": "chat", "scopeId": "chat-rina", "memoryId": "chat-memory-deleted", "content": "Deleted memory should remain inaccessible.", "reason": "test" }),
         )
-        .await
-        .expect_err("deleted chat memory should reject");
-        assert_eq!(deleted.code, "invalid_input");
-
-        let updated = edit(
-            &state,
-            &[chat_grant("chat-rina")],
-            EditDekiMemoryArgs {
-                scope_type: "chat".to_string(),
-                scope_id: "chat-rina".to_string(),
-                memory_id: "chat-memory-1".to_string(),
-                content: "Rina entrusted the silver key to Celia.".to_string(),
-            },
-        )
-        .await
-        .expect("covered chat memory should update");
-
+        .expect("dry-run runs");
         assert_eq!(
-            updated["memory"]["content"],
-            json!("Rina entrusted the silver key to Celia.")
+            deleted["ok"],
+            json!(false),
+            "deleted memories cannot be edited"
         );
+
+        let proposed = propose_edit(
+            &state,
+            &scope,
+            &[chat_grant("chat-rina")],
+            json!({ "scopeType": "chat", "scopeId": "chat-rina", "memoryId": "chat-memory-1", "content": "Rina entrusted the silver key to Celia.", "reason": "test" }),
+        )
+        .expect("dry-run runs");
+        approve_edit(&state, &scope, &proposed).expect("approval applies");
+
         let chat = state
             .storage
             .get("chats", "chat-rina")
@@ -534,9 +555,10 @@ mod tests {
         assert!(chat["memories"][0]["embedding"].is_array());
     }
 
-    #[tokio::test]
-    async fn edits_reject_empty_content_and_inactive_character_memories() {
+    #[test]
+    fn memory_edits_reject_empty_content_and_inactive_character_memories() {
         let state = test_state("edit-validation");
+        let scope = edit_scope("validation");
         seed_character_memory(
             &state,
             "memory-rina",
@@ -544,32 +566,24 @@ mod tests {
             "Rina keeps the silver key.",
         );
 
-        let empty = edit(
+        let empty = propose_edit(
             &state,
+            &scope,
             &[],
-            EditDekiMemoryArgs {
-                scope_type: "character".to_string(),
-                scope_id: "char-rina".to_string(),
-                memory_id: "memory-rina".to_string(),
-                content: "   ".to_string(),
-            },
+            json!({ "scopeType": "character", "scopeId": "char-rina", "memoryId": "memory-rina", "content": "   ", "reason": "test" }),
         )
-        .await;
-        assert!(empty.is_err());
+        .expect("dry-run runs");
+        assert_eq!(empty["ok"], json!(false));
 
         canonical_memory::update_memory(&state, "memory-rina", json!({ "status": "deleted" }))
             .expect("memory should become inactive");
-        let inactive = edit(
+        let inactive = propose_edit(
             &state,
+            &scope,
             &[],
-            EditDekiMemoryArgs {
-                scope_type: "character".to_string(),
-                scope_id: "char-rina".to_string(),
-                memory_id: "memory-rina".to_string(),
-                content: "Rina entrusted the silver key to Celia.".to_string(),
-            },
+            json!({ "scopeType": "character", "scopeId": "char-rina", "memoryId": "memory-rina", "content": "Rina entrusted the silver key to Celia.", "reason": "test" }),
         )
-        .await;
-        assert!(inactive.is_err());
+        .expect("dry-run runs");
+        assert_eq!(inactive["ok"], json!(false));
     }
 }

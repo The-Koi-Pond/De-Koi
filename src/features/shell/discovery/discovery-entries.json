@@ -3,7 +3,7 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
+    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
     "keywords": [
       "dm",
       "chat",
@@ -17,7 +17,11 @@
       "speaker bubbles",
       "card css",
       "freshness",
-      "anti repetition"
+      "anti repetition",
+      "edit",
+      "resend",
+      "edit and resend",
+      "versions"
     ],
     "audience": "Users who want companion-style chats, quick conversations, or character group messages.",
     "where": "Home > Conversation, then the chat setup wizard and chat settings drawer.",
@@ -26,6 +30,23 @@
         "type": "open-mode-setup",
         "mode": "conversation",
         "label": "Set up Conversation"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
+    "id": "message-reactions",
+    "title": "Message Reactions",
+    "category": "Chat modes",
+    "summary": "React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.",
+    "keywords": ["reaction", "reactions", "react", "tapback", "emoji", "heart", "like", "laugh"],
+    "audience": "Anyone texting characters in Conversation mode.",
+    "where": "Conversation > hover or tap a character's message > React.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "conversation",
+        "label": "Start a conversation"
       }
     ],
     "coverage": "core"
@@ -119,6 +140,33 @@
         "type": "open-mode-setup",
         "mode": "fanfic",
         "label": "Request a fic"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
+    "id": "message-search",
+    "title": "Message Search",
+    "category": "Chat modes",
+    "summary": "Find anything you or a character said in any Conversation or Roleplay chat. Type in the sidebar search, switch to Messages, and tap a result to open that chat right at the message, even if it was hundreds of messages ago.",
+    "keywords": [
+      "search",
+      "find",
+      "message",
+      "messages",
+      "history",
+      "old message",
+      "quote",
+      "look up",
+      "what did they say",
+      "jump to message"
+    ],
+    "audience": "Anyone with long chats who wants to find something said earlier.",
+    "where": "Sidebar > search box > Messages.",
+    "actions": [
+      {
+        "type": "go-home",
+        "label": "Go to chats"
       }
     ],
     "coverage": "core"
@@ -546,6 +594,34 @@
         "tab": "appearance",
         "destination": "notification-sounds",
         "label": "Open Notification Sounds"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
+    "id": "phone-notifications",
+    "title": "Phone Notifications",
+    "category": "Settings",
+    "summary": "On a hosted De-Koi (like a Raspberry Pi), get a notification on your phone or computer when a character texts you first or a reply finishes while De-Koi is closed. Characters can text first even with no tab open. Needs De-Koi on an https:// address. Message text is never included.",
+    "keywords": [
+      "notification",
+      "push",
+      "phone",
+      "mobile",
+      "text first",
+      "autonomous",
+      "background",
+      "closed",
+      "alert"
+    ],
+    "audience": "People who run De-Koi on a server and want to hear from their characters when the app isn't open.",
+    "where": "Settings > Appearance > Notifications > Phone notifications.",
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "destination": "notification-sounds",
+        "label": "Open Notifications"
       }
     ],
     "coverage": "advanced"
