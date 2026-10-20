@@ -66,7 +66,7 @@ import { packBehavioralInterpretation } from "./behavioral-interpretation";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
-import { readRoleplayHabitScan, roleplayHabitScanGuidance } from "./roleplay-habit-scan";
+import { habitScanGuidance, readHabitScan } from "./habit-scan";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
   generationParameterSources,
@@ -2727,12 +2727,14 @@ function buildConversationFreshnessBlock(
   names: ConversationFreshnessNames,
 ): ChatMLMessage | null {
   if (modeOf(input.chat) !== "conversation") return null;
-  const guidance = buildConversationFreshnessGuidance({
+  const localGuidance = buildConversationFreshnessGuidance({
     messages: input.storedMessages,
     latestUserInput: input.latestUserInput,
     userName: names.userName,
     characterNames: names.characterNames,
   });
+  // The model-read habits come first: they catch the running bits a word count misses.
+  const guidance = [...currentHabitScanLines(input), ...(localGuidance ? [localGuidance] : [])].join("\n");
   if (!guidance) return null;
   return {
     role: "system",
@@ -2779,6 +2781,12 @@ function storedMessageIds(messages: readonly JsonRecord[]): Set<string> {
   return new Set(messages.map((message) => readString(message.id).trim()).filter(Boolean));
 }
 
+/** The stored habit scan's lines, while the reply it ended on is still in the chat (a deleted reply drops it). */
+function currentHabitScanLines(input: PromptAssemblyInput): string[] {
+  const scan = readHabitScan(parseRecord(input.chat.metadata));
+  return scan && storedMessageIds(input.storedMessages).has(scan.throughMessageId) ? habitScanGuidance(scan) : [];
+}
+
 function buildRoleplayQualityContext(input: PromptAssemblyInput): RoleplayQualityContext | null {
   const mode = modeOf(input.chat);
   if (mode !== "roleplay" && mode !== "visual_novel") return null;
@@ -2788,9 +2796,7 @@ function buildRoleplayQualityContext(input: PromptAssemblyInput): RoleplayQualit
     latestUserInput: input.latestUserInput,
   });
   // The model-read habits come first: they name what this chat actually repeats, props and closers included.
-  const scan = readRoleplayHabitScan(parseRecord(input.chat.metadata));
-  const scanLines =
-    scan && storedMessageIds(input.storedMessages).has(scan.throughMessageId) ? roleplayHabitScanGuidance(scan) : [];
+  const scanLines = currentHabitScanLines(input);
   const guidance = [...scanLines, ...(result.guidance ? result.guidance.split("\n") : [])]
     .slice(0, MAX_ROLEPLAY_HABIT_LINES)
     .join("\n");
@@ -2812,6 +2818,15 @@ function buildRoleplayQualityContext(input: PromptAssemblyInput): RoleplayQualit
     },
   };
 }
+
+/**
+ * Roleplay replies are long, so they reach for pause beats, and a writer who is told to drop one noise or fidget
+ * swaps in a look-alike. This names the whole kind up front, before a running bit forms.
+ */
+export const ROLEPLAY_FILLER_NOTE = [
+  "[Pacing for this reply, do not mention it] Don't pad the gaps between lines with filler beats: a background noise or the weather as a pause, a prop handled as a fidget, a voice described as level or mild, a look held for a while, someone going still. Let one line answer another, or have someone do something that changes the scene.",
+  "Don't end reply after reply the same way (someone waiting on the user, an either/or ultimatum, an ominous noise).",
+].join("\n");
 
 export const PROSE_STYLE_NOTE = [
   "[Style for this reply, do not mention it] Write like a person, not a model. These habits make text read as AI-generated; do not use them unless the user explicitly asks for that style:",
@@ -2840,9 +2855,14 @@ function appendReplyNotesToLatestUserTurn(
     input.request.impersonate !== true && (mode === "roleplay" || mode === "visual_novel" || mode === "conversation")
       ? PROSE_STYLE_NOTE
       : "";
-  const notes = [...conversationTurnNotes.map((note) => note.content), styleNote, roleplayQuality?.note ?? ""].filter(
-    Boolean,
-  );
+  const fillerNote =
+    input.request.impersonate !== true && (mode === "roleplay" || mode === "visual_novel") ? ROLEPLAY_FILLER_NOTE : "";
+  const notes = [
+    ...conversationTurnNotes.map((note) => note.content),
+    fillerNote,
+    styleNote,
+    roleplayQuality?.note ?? "",
+  ].filter(Boolean);
   if (notes.length === 0) return messages;
   let latestTurnIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {

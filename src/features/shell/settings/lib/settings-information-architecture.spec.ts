@@ -4,18 +4,21 @@ import { describe, expect, it } from "vitest";
 const read = (path: string) => readFileSync(path, "utf8");
 
 describe("settings information architecture", () => {
-  it("keeps automatic Roleplay correction visible and default-on in per-chat settings", () => {
+  it("keeps automatic Roleplay correction and the Conversation habit check visible and default-on in per-chat settings", () => {
     const drawer = read("src/features/modes/shared/chat-ui/components/ChatSettingsDrawer.tsx");
 
-    expect(drawer).toContain('label="Roleplay Quality"');
+    expect(drawer).toContain('label={isConversation ? "Texting Quality" : "Roleplay Quality"}');
     expect(drawer).toContain("metadata.automaticRoleplayQualityCorrection !== false");
     expect(drawer).toContain("automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection");
     expect(drawer).toContain('role="switch"');
     expect(drawer).toContain("aria-checked={automaticRoleplayQualityCorrection}");
-    expect(drawer).toContain("Clean replies stay fast and use no extra model call.");
+    // The habit scan is one background call per reply; the copy says so.
+    expect(drawer).not.toContain("use no extra model call");
+    expect(drawer).toContain("one small background model call");
     expect(drawer).toContain("high-confidence prose and strict-agency problems");
-    expect(drawer).toContain("strong local");
-    expect(drawer).toContain("evidence and keeps the original whenever a correction is uncertain or fails");
+    expect(drawer).toContain(
+      "strong local evidence and keeps the original whenever a correction is uncertain or fails",
+    );
   });
 
   it("keeps per-chat context, research, and reasoning in separate sections", () => {
