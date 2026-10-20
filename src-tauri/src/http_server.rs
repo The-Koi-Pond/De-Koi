@@ -4422,6 +4422,52 @@ mod tests {
         );
     }
 
+    /// The trusted-LAN Pi: nginx in `de-koi-web` appends the peer it saw to
+    /// X-Forwarded-For, and docker-compose.pi.trusted-lan.yml trusts the Docker
+    /// range as proxies. Visitors are judged by their own address whether they
+    /// come straight to port 7860 or through `tailscale serve` on the host.
+    #[test]
+    fn trusted_lan_pi_judges_visitors_behind_web_container_and_tailscale_serve() {
+        let security = SecurityConfig {
+            trusted_proxies: Some(vec![parse_cidr("172.16.0.0/12").expect("valid cidr")]),
+            allow_unauthenticated_private_network: true,
+            bypass_docker: true,
+            require_auth_for_docker_proxy: false,
+            ..test_security()
+        };
+        let web_container = IpAddr::V4(Ipv4Addr::new(172, 18, 0, 3));
+        let forwarded = |value: &'static str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                HeaderName::from_static("x-forwarded-for"),
+                HeaderValue::from_static(value),
+            );
+            headers
+        };
+
+        // Straight to port 7860 from a tailnet or LAN device.
+        let tailnet = security.resolve_client_ip(web_container, &forwarded("100.76.80.79"));
+        assert_eq!(tailnet, IpAddr::V4(Ipv4Addr::new(100, 76, 80, 79)));
+        assert!(security.admits_without_principal(tailnet));
+        let lan = security.resolve_client_ip(web_container, &forwarded("192.168.1.157"));
+        assert!(security.admits_without_principal(lan));
+
+        // Through `tailscale serve`: it adds the visitor, nginx adds the Docker gateway.
+        let served =
+            security.resolve_client_ip(web_container, &forwarded("100.76.80.79, 172.18.0.1"));
+        assert_eq!(served, IpAddr::V4(Ipv4Addr::new(100, 76, 80, 79)));
+        assert!(security.admits_without_principal(served));
+
+        // A spoofed hop is ignored: nginx's own appended address is what counts.
+        let spoofed = security.resolve_client_ip(web_container, &forwarded("127.0.0.1, 8.8.8.8"));
+        assert_eq!(spoofed, IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)));
+        assert!(!security.admits_without_principal(spoofed));
+
+        // Only Docker machinery in the chain (e.g. curl on the Pi itself) gets no bypass.
+        let machinery = security.resolve_client_ip(web_container, &forwarded("172.18.0.1"));
+        assert!(!security.admits_without_principal(machinery));
+    }
+
     #[test]
     fn hostable_security_resolves_forwarded_client_through_trusted_proxy() {
         let security = SecurityConfig {
