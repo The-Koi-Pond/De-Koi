@@ -358,8 +358,15 @@ async function main() {
   }
 
   const prAware = hasArg("--pr-aware");
+  // A merge_group event carries no PR body. Each queued PR already passed this
+  // check on its own pull_request run, which the queue requires before entry.
+  const mergeQueueRun = prAware && process.env.GITHUB_EVENT_NAME === "merge_group";
+  if (mergeQueueRun) {
+    console.log("Merge queue run: Feature Discoverability was checked on each pull request.");
+  }
   const changedFrom =
-    getArgValue("--changed-from") ?? (prAware ? `origin/${process.env.GITHUB_BASE_REF || "main"}` : undefined);
+    getArgValue("--changed-from") ??
+    (prAware && !mergeQueueRun ? `origin/${process.env.GITHUB_BASE_REF || "main"}` : undefined);
   const pullRequestBody = await readPullRequestBodyFromEvent();
   const featureDiscoverabilityDecision = parseFeatureDiscoverabilityDecision(pullRequestBody);
   const featureDiscoverabilityDecisionCount =
