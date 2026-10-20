@@ -88,11 +88,18 @@ describe("character card lint", () => {
   });
 
   describe("speaker prefix in greetings", () => {
-    it("strips the label from the greeting's first line only", () => {
+    it("strips the label from every bubble when all of them are the character's", () => {
       const item = finding(lintCharacterCard(brokenCard), "speaker_prefix:first_mes");
+      expect(item.edits).toHaveLength(2);
       expect(fixCardLintFinding(brokenCard, item)).toEqual({
-        first_mes: "*Aria looks up from the till.* We're closed.\n\n{{char}}: That was a joke. Sit.",
+        first_mes: "*Aria looks up from the till.* We're closed.\n\nThat was a joke. Sit.",
       });
+    });
+
+    it("strips only the opening label when other speakers have lines too", () => {
+      const card = { name: "Aria", first_mes: "{{char}}: Closed.\nBram: She means it.\n{{char}}: I do." };
+      const item = finding(lintCharacterCard(card), "speaker_prefix:first_mes");
+      expect(fixCardLintFinding(card, item)).toEqual({ first_mes: "Closed.\nBram: She means it.\n{{char}}: I do." });
     });
 
     it("matches the card's own name and fixes every alternate greeting", () => {

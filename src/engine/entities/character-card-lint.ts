@@ -33,8 +33,8 @@ export interface CardLintFinding {
 }
 
 type CardData = Record<string, unknown>;
-/** Rewrites one line; null drops it. `first` is true for the text's first non-blank line. */
-type LineFix = (line: string, name: string, first: boolean) => string | null;
+/** Rewrites one line of `text`; null drops it. `first` is true for the text's first non-blank line. */
+type LineFix = (line: string, name: string, first: boolean, text: string) => string | null;
 
 const FIELD_LABELS: Record<CardLintField, string> = {
   name: "Name",
@@ -126,6 +126,13 @@ function speakerPrefix(name: string): RegExp {
 }
 
 const USER_TURN = /^\s*(?:\{\{user\}\}|<user>)\s*:/im;
+const ANY_LABEL = /^\s*[^\s*"“([][^:\n]{0,40}:\s/;
+
+/** True when every labelled line belongs to the character, like a texting greeting with one label per bubble. */
+function onlyOwnLabels(text: string, name: string): boolean {
+  const own = speakerPrefix(name);
+  return text.split("\n").every((line) => !ANY_LABEL.test(line) || own.test(line));
+}
 
 // ── Old Claude-2 scaffolding ──
 
@@ -216,7 +223,9 @@ const RULES: Rule[] = [
     fields: GREETINGS,
     title: "Speaker label in the greeting",
     why: "A greeting that opens with a name label like {{char}}: teaches the model to put its own name label in front of every reply.",
-    fix: (line, name, first) => (first ? line.replace(speakerPrefix(name), "$1") : line),
+    // Every bubble's label goes when all labels are the character's; with other speakers present, only the opener.
+    fix: (line, name, first, text) =>
+      first || onlyOwnLabels(text, name) ? line.replace(speakerPrefix(name), "$1") : line,
     // A greeting that scripts both sides is a different format; stripping one side would scramble it.
     skip: (value) => USER_TURN.test(value),
   },
@@ -242,7 +251,7 @@ function fixText(text: string, rule: Rule, name: string): { text: string; edits:
   const edits: CardLintEdit[] = [];
   let first = true;
   for (const line of text.split("\n")) {
-    const next = rule.fix(line, name, first);
+    const next = rule.fix(line, name, first, text);
     if (line.trim()) first = false;
     if (next !== line) edits.push(editOf(line, next ?? ""));
     if (next !== null) lines.push(next);
