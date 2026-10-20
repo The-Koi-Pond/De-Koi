@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,6 +19,7 @@ function render(chatId: string): HTMLElement {
 
 describe("StreamingPendingIndicator", () => {
   afterEach(() => {
+    vi.useRealTimers();
     act(() => root?.unmount());
     root = null;
     document.body.innerHTML = "";
@@ -36,6 +37,24 @@ describe("StreamingPendingIndicator", () => {
 
     act(() => useChatStore.getState().setGenerationPhase("chat-1", "Calling model..."));
     expect(container.textContent).toBe("Calling model...");
+  });
+
+  it("shows how long a slow step has run, then how to stop it", () => {
+    vi.useFakeTimers();
+    useChatStore.getState().setGenerationPhase("chat-1", "Calling model...");
+    const container = render("chat-1");
+    expect(container.textContent).toBe("Calling model...");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(container.textContent).toBe("Calling model... · 12s");
+
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(container.textContent).toContain("Calling model... · 32s");
+    expect(container.textContent).toContain("Press Stop to cancel.");
+
+    // A new step restarts the clock.
+    act(() => useChatStore.getState().setGenerationPhase("chat-1", "Saving message..."));
+    expect(container.textContent).toBe("Saving message...");
   });
 
   it("shows only the pending animation when its chat has no phase, whatever other chats are doing", () => {

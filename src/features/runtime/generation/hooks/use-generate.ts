@@ -1806,6 +1806,8 @@ export async function runGenerationWithUi(
           const info = { name: label, status };
           const state = useChatStore.getState();
           state.setPerChatDelayed(chatId, info);
+          // The character is deliberately away; that wait is not the model being slow, so no phase clock runs.
+          state.setGenerationPhase(chatId, null);
           if (state.activeChatId === chatId) state.setDelayedCharacterInfo(info);
           runDeferredGenerationWork("character status refresh", () =>
             queryClient.invalidateQueries({ queryKey: characterKeys.list() }),

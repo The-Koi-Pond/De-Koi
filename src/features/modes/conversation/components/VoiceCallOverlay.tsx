@@ -1,6 +1,8 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "../../../../shared/lib/utils";
+import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useReplyWait } from "../../shared/chat-ui/index";
 import { useVoiceCall, type VoiceCallCharacter, type VoiceCallPhase } from "../hooks/use-voice-call";
 
 const PHASE_TEXT: Record<VoiceCallPhase, string> = {
@@ -24,6 +26,9 @@ export interface VoiceCallOverlayProps {
 export function VoiceCallOverlay({ chatId, character, sendText, onClose }: VoiceCallOverlayProps) {
   const call = useVoiceCall({ chatId, character, sendText });
   const { hangUp, phase } = call;
+  // While the character is "thinking", the reply is waiting on the model: show how long once it drags.
+  const stepStartedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
+  const wait = useReplyWait(phase === "thinking" ? stepStartedAt : null);
 
   useEffect(() => {
     if (phase === "ended") onClose();
@@ -54,7 +59,16 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         <p aria-live="polite" className="text-sm text-[var(--muted-foreground)]">
           {PHASE_TEXT[phase]}
           {call.muted && phase === "listening" ? " (muted)" : ""}
+          {wait.elapsed ? (
+            <span className="tabular-nums" aria-hidden="true">
+              {" "}
+              {wait.elapsed}
+            </span>
+          ) : null}
         </p>
+        {wait.slow && (
+          <p className="text-xs text-[var(--muted-foreground)]">Still waiting on the model. Hang up to cancel.</p>
+        )}
       </div>
 
       <div className="relative flex items-center justify-center">

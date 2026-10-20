@@ -46,7 +46,9 @@ import {
   scrollTranscriptToBottom,
   shouldFollowTranscriptBottom,
   shouldRevealLatestTranscriptWindow,
+  SLOW_REPLY_HINT,
   TRANSCRIPT_RENDER_WINDOW_STEP,
+  useReplyWait,
 } from "../../shared/chat-ui/index";
 import type { RegenerateOptions } from "../../shared/chat-ui/types";
 
@@ -233,6 +235,21 @@ function TypingIndicatorRow({ names, cardCssId }: { names: string[]; cardCssId?:
         {label} {verb} typing...
       </span>
     </div>
+  );
+}
+
+/** Under the typing row: how long the reply's current step has run once it drags, then how to stop it. */
+function TypingWaitNote({ chatId }: { chatId: string }) {
+  const startedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
+  const wait = useReplyWait(startedAt);
+  if (!wait.elapsed) return null;
+  return (
+    <p className="px-4 pb-1.5 text-xs text-[var(--muted-foreground)]">
+      <span className="tabular-nums" aria-hidden="true">
+        {wait.elapsed}
+      </span>
+      <span aria-live="polite">{wait.slow ? ` · ${SLOW_REPLY_HINT}` : ""}</span>
+    </p>
   );
 }
 
@@ -1725,6 +1742,7 @@ export function ConversationView({
               {typingStyledRows.map((p) => (
                 <TypingIndicatorRow key={p.id} names={[p.name]} cardCssId={p.id} />
               ))}
+              <TypingWaitNote chatId={chatId} />
             </>
           )}
 

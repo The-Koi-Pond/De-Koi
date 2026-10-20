@@ -647,6 +647,40 @@ describe("runGenerationWithUi", () => {
     }
   });
 
+  it("stops the phase clock while a character is deliberately away", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-delayed-clock";
+    queryClient.setQueryData(chatKeys.detail(chatId), { id: chatId, mode: "conversation", metadata: {} } as Chat);
+    queryClient.setQueryData(chatKeys.messages(chatId), { pages: [[]], pageParams: [undefined] });
+    useChatStore.getState().setActiveChatId(chatId);
+
+    let markDelayed!: () => void;
+    const delayed = new Promise<void>((resolve) => {
+      markDelayed = resolve;
+    });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "delayed", data: { characters: ["Wren"], status: "dnd" } } as StreamEvent;
+      markDelayed();
+      await finished;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      await delayed;
+      expect(useChatStore.getState().generationPhaseByChatId.has(chatId)).toBe(false);
+      expect(useChatStore.getState().generationPhaseStartedAtByChatId.has(chatId)).toBe(false);
+    } finally {
+      finish();
+      await Promise.allSettled([run]);
+      queryClient.clear();
+    }
+  });
+
   it("records each phase for its own chat and clears it once the reply is released", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-phase-text";
