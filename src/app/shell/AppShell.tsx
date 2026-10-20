@@ -378,6 +378,7 @@ export function AppShell() {
     () =>
       subscribeAutomaticMemoryCaptureStatuses(({ chatId }) => {
         void queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+        void queryClient.invalidateQueries({ queryKey: chatKeys.memoryCaptureLog(chatId) });
       }),
     [queryClient],
   );

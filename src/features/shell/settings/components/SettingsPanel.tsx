@@ -202,7 +202,10 @@ export function SettingsPanel() {
           </div>
         )}
       </div>
-      <div className="de-koi-settings-layout min-h-0 flex-1 @3xl:grid @3xl:grid-cols-[14rem_minmax(0,1fr)]">
+      {/* A flex column below @3xl too, so the body gets a bounded height and scrolls itself. Unbounded, it
+          grew to its content, never scrolled, and (as an overflow-y-auto with overscroll containment) kept
+          touch and wheel scrolls from reaching the panel around it. */}
+      <div className="de-koi-settings-layout flex min-h-0 flex-1 flex-col @3xl:grid @3xl:grid-cols-[14rem_minmax(0,1fr)]">
         <div
           className="de-koi-settings-tabs flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/45 p-2 @3xl:flex-col @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r @3xl:p-3"
           role="tablist"
@@ -241,7 +244,7 @@ export function SettingsPanel() {
 
         <div
           id={`settings-panel-${activeTab.id}`}
-          className="de-koi-settings-body min-h-0 overflow-y-auto"
+          className="de-koi-settings-body min-h-0 flex-1 overflow-y-auto"
           role="tabpanel"
           aria-labelledby={`settings-tab-${activeTab.id}`}
         >

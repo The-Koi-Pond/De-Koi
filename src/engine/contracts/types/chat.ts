@@ -492,7 +492,68 @@ export interface MessageAttachment {
   [key: string]: MessageAttachmentExtraValue;
 }
 
-export type MessageMemoryCaptureStatus = "processing" | "retryable" | "failed" | "completed";
+export type MessageMemoryCaptureStatus = "processing" | "retryable" | "failed" | "completed" | "skipped";
+
+// Why a memory the model proposed was not saved. Every proposed memory is either saved or gets one
+// of these, so a missing memory can be explained.
+export type MemoryCaptureSkipReason =
+  | "malformed_response"
+  | "malformed_candidate"
+  | "over_limit"
+  | "unknown_kind"
+  | "empty_content"
+  | "too_long"
+  | "unknown_evidence"
+  | "no_source_rows"
+  | "unknown_source_row"
+  | "unknown_reference_row"
+  | "evidence_mismatch"
+  | "not_in_cited_rows"
+  | "unknown_supersedes"
+  | "wording_uncorrected"
+  | "verifier_rejected"
+  | "verifier_unusable"
+  | "low_value"
+  | "duplicate";
+
+export interface MemoryCaptureSkip {
+  reason: MemoryCaptureSkipReason;
+  kind?: string;
+  content?: string;
+  /** The skip happened on the corrected wording, not the first draft. */
+  afterCorrection?: boolean;
+}
+
+// Why an exchange was never checked for memories at all.
+export type MemoryCaptureNotCheckedReason =
+  | "no_reply_text"
+  | "enqueue_failed"
+  | "missing_source_snapshot"
+  | "source_message_deleted"
+  | "source_chat_changed"
+  | "source_role_changed"
+  | "source_content_changed"
+  | "source_character_changed"
+  | "transcript_changed"
+  | "configuration_error"
+  | "provider_error";
+
+export interface MemoryCaptureReport {
+  version: 1;
+  /** Entries in the model's memories list, before any check. */
+  proposed: number;
+  /** Memories created or updated and used in replies. */
+  saved: number;
+  /** Memories saved with confidence under 0.7: kept, but never recalled into replies. */
+  savedInactive: number;
+  /** Saved memories whose wording or confidence was fixed first. */
+  corrected: number;
+  skippedTotal: number;
+  /** The first skips with their reasons (capped; skippedTotal has the full count). */
+  skipped: MemoryCaptureSkip[];
+  /** The automatic exchange note for this reply. */
+  transcript: "saved" | "low_value" | "none";
+}
 
 export interface MessageMemoryCaptureExtra {
   status: MessageMemoryCaptureStatus;
@@ -501,6 +562,9 @@ export interface MessageMemoryCaptureExtra {
   attempts?: number;
   nextAttemptAt?: string | null;
   failureCategory?: "capture_unavailable";
+  /** Set with failed or skipped: why the exchange was not checked. */
+  notCheckedReason?: MemoryCaptureNotCheckedReason | null;
+  report?: MemoryCaptureReport | null;
   updatedAt?: string;
   completedAt?: string;
   capture?: {

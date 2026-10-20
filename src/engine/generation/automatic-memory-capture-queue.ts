@@ -1,11 +1,14 @@
 import type { LlmGateway } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { CanonicalMemoryRecord, MemoryScope } from "../contracts/types/memory";
+import type { MemoryCaptureNotCheckedReason } from "../contracts/types/chat";
 import {
+  buildMemoryCaptureReport,
   canonicalMemoryEligibleForConsequences,
   extractCanonicalMemoryConsequences,
   persistCanonicalMemoryConsequences,
   reviewAutomaticMemoryCandidates,
+  type CanonicalConsequenceExtractionResult,
   type PersistedCanonicalConsequence,
 } from "./automatic-memory-capture";
 import { buildAutomaticMemoryCaptureContext, type AutomaticMemorySourceMessage } from "./automatic-memory-context";
@@ -203,6 +206,14 @@ function retryTime(now: string, attempts: number): string {
   return new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + delay).toISOString();
 }
 
+// The storage runtime refuses a transcript commit when the exchange changed while the model calls ran.
+const TRANSCRIPT_CHANGED_ERROR = /capture preview is stale|capture is no longer eligible/i;
+
+function captureFailureReason(error: unknown, configurationFailure: boolean): MemoryCaptureNotCheckedReason {
+  if (configurationFailure) return "configuration_error";
+  return TRANSCRIPT_CHANGED_ERROR.test(errorMessage(error)) ? "transcript_changed" : "provider_error";
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Automatic memory capture failed");
 }
@@ -282,7 +293,10 @@ async function assistantMessageExists(storage: StorageGateway, job: JsonRecord):
   return !!(await storage.getChatMessage<JsonRecord>(assistantMessageId, { fields: ["id"] }));
 }
 
-async function validateSourceMessages(storage: StorageGateway, job: JsonRecord): Promise<string | null> {
+async function validateSourceMessages(
+  storage: StorageGateway,
+  job: JsonRecord,
+): Promise<MemoryCaptureNotCheckedReason | null> {
   const snapshots = [...sourceSnapshotsFromJob(job), ...referenceSnapshotsFromJob(job)];
   if (snapshots.length === 0) return "missing_source_snapshot";
   for (const snapshot of snapshots) {
@@ -334,7 +348,7 @@ async function extractConsequences(args: {
   model: string | null;
 }): Promise<{
   scope: MemoryScope;
-  candidates: Awaited<ReturnType<typeof extractCanonicalMemoryConsequences>>["candidates"];
+  extraction: CanonicalConsequenceExtractionResult;
   eligibleMemories: CanonicalMemoryRecord[];
 }> {
   const scope = jobScope(args.job);
@@ -364,7 +378,7 @@ async function extractConsequences(args: {
       model: args.model,
     },
   });
-  return { scope, candidates: extraction.candidates, eligibleMemories };
+  return { scope, extraction, eligibleMemories };
 }
 
 export async function enqueueAutomaticMemoryCaptureJob(
@@ -571,6 +585,7 @@ export async function processAutomaticMemoryCaptureQueue(
                 sourceMessageIds: jobSourceIds(job),
                 attempts,
                 failureCategory: "capture_unavailable",
+                notCheckedReason: staleReason,
                 updatedAt: now,
               },
               leaseId,
@@ -588,6 +603,7 @@ export async function processAutomaticMemoryCaptureQueue(
             jobId: id,
             sourceMessageIds: jobSourceIds(job),
             attempts,
+            notCheckedReason: null,
             updatedAt: now,
           },
           leaseId,
@@ -615,7 +631,7 @@ export async function processAutomaticMemoryCaptureQueue(
           jobId: id,
           scope: extracted.scope,
           transcriptCandidate: preview.candidate,
-          canonicalCandidates: extracted.candidates,
+          canonicalCandidates: extracted.extraction.candidates,
         });
         await requireLease();
         const persisted = await persistCanonicalMemoryConsequences({
@@ -668,7 +684,15 @@ export async function processAutomaticMemoryCaptureQueue(
             })
           : null;
         const capture = committedCapture ? memoryCaptureFromCommit(committedCapture) : null;
-        const reviewedCandidateCount = (preview.candidate ? 1 : 0) + extracted.candidates.length;
+        const report = buildMemoryCaptureReport({
+          extraction: extracted.extraction,
+          lowValue: valueGate.rejectedCanonicalCandidates,
+          duplicates: persisted.duplicates,
+          affected: consequences,
+          transcriptCandidate: preview.candidate !== null,
+          transcriptAccepted: valueGate.acceptTranscriptCandidate,
+        });
+        const reviewedCandidateCount = (preview.candidate ? 1 : 0) + extracted.extraction.candidates.length;
         const valueReview = {
           status: "completed",
           reviewed: reviewedCandidateCount,
@@ -686,6 +710,8 @@ export async function processAutomaticMemoryCaptureQueue(
               completedAt: now,
               ...(capture ? { capture } : {}),
               valueReview,
+              notCheckedReason: null,
+              report,
               consequences: {
                 status: "completed",
                 affected: consequences.map(({ operation, memory }) => ({
@@ -715,6 +741,7 @@ export async function processAutomaticMemoryCaptureQueue(
             consequenceStatus: "completed",
             consequenceSkipReason: null,
             valueReview,
+            captureReport: report,
             affectedCanonicalMemoryIds: consequences.map((entry) => entry.memory.id),
           },
           leaseId,
@@ -733,6 +760,7 @@ export async function processAutomaticMemoryCaptureQueue(
       } catch (error) {
         const configurationFailure = isTerminalBackgroundGenerationError(error);
         const terminal = configurationFailure || attempts >= maxAttempts;
+        const failureReason = captureFailureReason(error, configurationFailure);
         const nextAttemptAt = terminal ? null : retryTime(now, attempts);
         await updateJob(
           storage,
@@ -740,6 +768,7 @@ export async function processAutomaticMemoryCaptureQueue(
           {
             status: terminal ? "failed" : "retryable",
             lastError: errorMessage(error),
+            notCheckedReason: terminal ? failureReason : null,
             failedAt: terminal ? now : null,
             nextAttemptAt,
             leaseExpiresAt: null,
@@ -757,12 +786,18 @@ export async function processAutomaticMemoryCaptureQueue(
             sourceMessageIds: jobSourceIds(job),
             attempts,
             ...(terminal
-              ? { failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable" }
+              ? {
+                  failureCategory: configurationFailure ? "configuration_error" : "capture_unavailable",
+                  notCheckedReason: failureReason,
+                }
               : { nextAttemptAt }),
             updatedAt: now,
           },
           leaseId,
-        ).catch(() => {});
+        ).catch((statusError: unknown) => {
+          // The job row above already holds the failure; only the reply's status chip is out of date.
+          console.warn("[memory-capture] could not mark the reply's capture status", statusError);
+        });
         if (terminal) result.failed += 1;
         else result.retryable += 1;
       }
@@ -906,7 +941,56 @@ export async function enqueueAndScheduleAutomaticMemoryCapture(
   input: AutomaticMemoryCaptureScheduleInput,
 ): Promise<JsonRecord | null> {
   const { storage } = queueDependencies(dependencies);
-  const job = await enqueueAutomaticMemoryCaptureJob(storage, input);
-  if (job) scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
-  return job;
+  let job: JsonRecord | null;
+  try {
+    job = await enqueueAutomaticMemoryCaptureJob(storage, input);
+  } catch (error) {
+    console.warn("[memory-capture] could not queue the exchange", error);
+    await markExchangeNotChecked(storage, input, "failed", "enqueue_failed");
+    return null;
+  }
+  if (job) {
+    scheduleAutomaticMemoryCaptureQueueProcessing(dependencies);
+    return job;
+  }
+  const assistant = parseRecord(input.savedAssistantMessage);
+  if (!readString(assistant.content).trim()) {
+    await markExchangeNotChecked(storage, input, "skipped", "no_reply_text");
+  } else {
+    console.warn("[memory-capture] exchange was not queued: the saved reply is not an assistant row of this chat", {
+      chatId: readString(input.chat.id).trim(),
+      messageId: readString(assistant.id).trim(),
+      role: readString(assistant.role).trim(),
+    });
+  }
+  return null;
+}
+
+// An exchange that never became a capture job still gets a reason on its reply.
+async function markExchangeNotChecked(
+  storage: StorageGateway,
+  input: AutomaticMemoryCaptureScheduleInput,
+  status: "failed" | "skipped",
+  reason: MemoryCaptureNotCheckedReason,
+): Promise<void> {
+  const assistant = parseRecord(input.savedAssistantMessage);
+  const assistantMessageId = readString(assistant.id).trim();
+  const chatId = readString(input.chat.id).trim() || readString(assistant.chatId).trim();
+  if (!assistantMessageId || !chatId) return;
+  const now = nowIso();
+  try {
+    await storage.patchChatMessageExtra(assistantMessageId, {
+      memoryCapture: {
+        status,
+        jobId: "",
+        sourceMessageIds: [],
+        ...(status === "failed" ? { failureCategory: "capture_unavailable" } : {}),
+        notCheckedReason: reason,
+        updatedAt: now,
+      },
+    });
+    publishMemoryCaptureStatus({ chatId, assistantMessageId, status });
+  } catch (error) {
+    console.warn(`[memory-capture] could not record "${reason}" on the reply`, error);
+  }
 }

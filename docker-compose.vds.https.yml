@@ -1,0 +1,25 @@
+# HTTPS for a VDS: Caddy in front of de-koi-web, with a login on the whole site.
+# Use together with docker-compose.vds.yml. `sh scripts/vds-https.sh <domain>` sets up .env and starts it.
+services:
+  de-koi-caddy:
+    image: caddy:2.10.2-alpine
+    container_name: de-koi-caddy
+    restart: unless-stopped
+    depends_on:
+      - de-koi-web
+    environment:
+      DE_KOI_DOMAIN: ${DE_KOI_DOMAIN:?Set DE_KOI_DOMAIN in .env (run scripts/vds-https.sh)}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?Set BASIC_AUTH_USER in .env (run scripts/vds-https.sh)}
+      DE_KOI_CADDY_PASSWORD_HASH: ${DE_KOI_CADDY_PASSWORD_HASH:?Set DE_KOI_CADDY_PASSWORD_HASH in .env (run scripts/vds-https.sh)}
+    ports:
+      - "${DE_KOI_HTTP_PORT:-80}:80"
+      - "${DE_KOI_HTTPS_PORT:-443}:443"
+      - "${DE_KOI_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/vds/Caddyfile:/etc/caddy/Caddyfile:ro
+      - de-koi-caddy-data:/data
+      - de-koi-caddy-config:/config
+
+volumes:
+  de-koi-caddy-data:
+  de-koi-caddy-config:

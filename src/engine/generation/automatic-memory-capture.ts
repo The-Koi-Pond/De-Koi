@@ -1,5 +1,10 @@
 import type { LlmGateway } from "../capabilities/llm";
-import type { ChatMemoryChunk } from "../contracts/types/chat";
+import type {
+  ChatMemoryChunk,
+  MemoryCaptureReport,
+  MemoryCaptureSkip,
+  MemoryCaptureSkipReason,
+} from "../contracts/types/chat";
 import type { StorageGateway } from "../capabilities/storage";
 import type {
   CanonicalMemoryInput,
@@ -60,9 +65,38 @@ export interface CanonicalConsequenceExtractionRequest {
   model?: string | null;
 }
 
+type CaptureSkip = MemoryCaptureSkip;
+type CaptureSkipReason = MemoryCaptureSkipReason;
+
+const MAX_SKIP_CONTENT_LENGTH = 240;
+
+function captureSkip(
+  reason: CaptureSkipReason,
+  candidate?: { kind?: unknown; content?: unknown },
+  afterCorrection = false,
+): CaptureSkip {
+  const kind = readString(candidate?.kind).trim();
+  const content = readString(candidate?.content).trim();
+  return {
+    reason,
+    ...(kind ? { kind } : {}),
+    ...(content
+      ? {
+          content: content.length > MAX_SKIP_CONTENT_LENGTH ? `${content.slice(0, MAX_SKIP_CONTENT_LENGTH)}…` : content,
+        }
+      : {}),
+    ...(afterCorrection ? { afterCorrection: true } : {}),
+  };
+}
+
 export interface CanonicalConsequenceExtractionResult {
   candidates: CanonicalMemoryInput[];
   skippedCount: number;
+  skipped: CaptureSkip[];
+  // Entries in the model's memories list, before any screening.
+  proposedCount: number;
+  // Candidates whose wording or confidence was fixed by the correction call and then kept.
+  correctedCount: number;
 }
 
 export interface PersistedCanonicalConsequence {
@@ -72,6 +106,7 @@ export interface PersistedCanonicalConsequence {
 
 export interface AutomaticMemoryValueGateResult {
   acceptedCanonicalCandidates: CanonicalMemoryInput[];
+  rejectedCanonicalCandidates: CanonicalMemoryInput[];
   acceptTranscriptCandidate: boolean;
   rejectedCandidateCount: number;
 }
@@ -130,10 +165,10 @@ export async function reviewAutomaticMemoryCandidates(input: {
     signal: input.signal,
   });
   const rejectedIds = new Set(review.proposals.flatMap((proposal) => proposal.sourceIds));
+  const rejectedCanonical = (index: number) => rejectedIds.has(`capture-candidate-${input.jobId}-${index}`);
   return {
-    acceptedCanonicalCandidates: input.canonicalCandidates.filter(
-      (_candidate, index) => !rejectedIds.has(`capture-candidate-${input.jobId}-${index}`),
-    ),
+    acceptedCanonicalCandidates: input.canonicalCandidates.filter((_candidate, index) => !rejectedCanonical(index)),
+    rejectedCanonicalCandidates: input.canonicalCandidates.filter((_candidate, index) => rejectedCanonical(index)),
     acceptTranscriptCandidate: input.transcriptCandidate !== null && !rejectedIds.has(input.transcriptCandidate.id),
     rejectedCandidateCount: rejectedIds.size,
   };
@@ -265,8 +300,8 @@ export async function persistCanonicalMemoryConsequences(input: {
     knowledgeEdges?: KnowledgeEdgeInput[],
   ) => Promise<CanonicalMemoryRecord>;
   knowledgeEdgesForMemory?: (candidate: CanonicalMemoryInput, memoryId: string) => KnowledgeEdgeInput[];
-}): Promise<{ affected: PersistedCanonicalConsequence[] }> {
-  if (input.candidates.length === 0) return { affected: [] };
+}): Promise<{ affected: PersistedCanonicalConsequence[]; duplicates: CanonicalMemoryInput[] }> {
+  if (input.candidates.length === 0) return { affected: [], duplicates: [] };
   const createMemory = input.createMemory ?? input.storage.createMemory?.bind(input.storage);
   const updateMemory = input.updateMemory ?? input.storage.updateMemory?.bind(input.storage);
   if (!createMemory || !updateMemory) {
@@ -279,12 +314,16 @@ export async function persistCanonicalMemoryConsequences(input: {
       .map((memory) => [memory.id, memory]),
   );
   const affected: PersistedCanonicalConsequence[] = [];
+  const duplicates: CanonicalMemoryInput[] = [];
   const seenSemanticIdentities = new Set<string>();
 
   for (const candidate of input.candidates) {
     const identities = await semanticConsequenceIdentities(candidate);
     const semanticIdentity = identities.current;
-    if (seenSemanticIdentities.has(semanticIdentity)) continue;
+    if (seenSemanticIdentities.has(semanticIdentity)) {
+      duplicates.push(candidate);
+      continue;
+    }
     seenSemanticIdentities.add(semanticIdentity);
     const memoryId = await sha256MemoryId("canonical-consequence", semanticIdentity);
     const legacyId = `canonical-consequence-${stableHash(identities.legacy)}`;
@@ -371,7 +410,37 @@ export async function persistCanonicalMemoryConsequences(input: {
     }
   }
 
-  return { affected };
+  return { affected, duplicates };
+}
+
+const MAX_REPORTED_SKIPS = 24;
+
+// One record per capture job: what the model proposed, what was saved, and why each other memory was not.
+export function buildMemoryCaptureReport(input: {
+  extraction: Pick<CanonicalConsequenceExtractionResult, "skipped" | "proposedCount" | "correctedCount">;
+  lowValue: CanonicalMemoryInput[];
+  duplicates: CanonicalMemoryInput[];
+  affected: PersistedCanonicalConsequence[];
+  transcriptCandidate: boolean;
+  transcriptAccepted: boolean;
+}): MemoryCaptureReport {
+  const written = input.affected.filter((entry) => entry.operation !== "superseded");
+  const skipped = [
+    ...input.extraction.skipped,
+    ...input.lowValue.map((candidate) => captureSkip("low_value", candidate)),
+    ...input.duplicates.map((candidate) => captureSkip("duplicate", candidate)),
+  ];
+  return {
+    version: 1,
+    proposed: input.extraction.proposedCount,
+    saved: written.filter((entry) => entry.memory.status === "active" || entry.memory.status === "pinned").length,
+    savedInactive: written.filter((entry) => entry.memory.status !== "active" && entry.memory.status !== "pinned")
+      .length,
+    corrected: input.extraction.correctedCount,
+    skippedTotal: skipped.length,
+    skipped: skipped.slice(0, MAX_REPORTED_SKIPS),
+    transcript: !input.transcriptCandidate ? "none" : input.transcriptAccepted ? "saved" : "low_value",
+  };
 }
 
 function readStringArray(value: unknown): string[] {
@@ -1392,7 +1461,38 @@ type CorrectableCandidate = {
 type CandidateScreen =
   | { status: "accepted"; entry: ScreenedConsequence }
   | { status: "correctable"; correctable: CorrectableCandidate }
-  | { status: "rejected" };
+  | { status: "rejected"; reason: CaptureSkipReason };
+
+function substanceFailure(input: {
+  kind: MemoryKind | null;
+  content: string;
+  evidence: CanonicalConsequenceEvidence | null;
+  evidenceIds: string[];
+  referenceIds: string[];
+  evidenceMessages: CanonicalConsequenceSourceMessage[];
+  referenceMessages: CanonicalConsequenceSourceMessage[];
+  supersedesMemoryId: string | null;
+  eligibleIds: ReadonlySet<string>;
+}): CaptureSkipReason | null {
+  if (!input.kind) return "unknown_kind";
+  if (!input.content) return "empty_content";
+  if (input.content.length > MAX_CONSEQUENCE_CONTENT_LENGTH) return "too_long";
+  if (!input.evidence) return "unknown_evidence";
+  if (input.evidenceIds.length === 0) return "no_source_rows";
+  if (input.evidenceMessages.length !== input.evidenceIds.length) return "unknown_source_row";
+  if (input.referenceMessages.length !== input.referenceIds.length) return "unknown_reference_row";
+  if (!evidenceSupportsKind(input.kind, input.evidence, input.evidenceMessages)) return "evidence_mismatch";
+  if (
+    !contentSupportedByEvidence(input.content, input.evidenceMessages) ||
+    !contentSupportedByEvidence(input.content, [...input.evidenceMessages, ...input.referenceMessages])
+  ) {
+    return "not_in_cited_rows";
+  }
+  if (input.supersedesMemoryId !== null && !input.eligibleIds.has(input.supersedesMemoryId)) {
+    return "unknown_supersedes";
+  }
+  return null;
+}
 
 const CANDIDATE_CORRECTIONS: Record<CorrectableCandidateProblem, string> = {
   third_person_personal_pronoun:
@@ -1426,21 +1526,18 @@ function screenConsequenceCandidate(
     .map((id) => referenceById.get(id))
     .filter((message): message is CanonicalConsequenceSourceMessage => message !== undefined);
   const supersedesMemoryId = readString(candidate.supersedesMemoryId).trim() || null;
-  if (
-    !kind ||
-    !content ||
-    content.length > MAX_CONSEQUENCE_CONTENT_LENGTH ||
-    !evidence ||
-    evidenceIds.length === 0 ||
-    evidenceMessages.length !== evidenceIds.length ||
-    referenceMessages.length !== referenceIds.length ||
-    !evidenceSupportsKind(kind, evidence, evidenceMessages) ||
-    !contentSupportedByEvidence(content, evidenceMessages) ||
-    !contentSupportedByEvidence(content, [...evidenceMessages, ...referenceMessages]) ||
-    (supersedesMemoryId !== null && !eligibleIds.has(supersedesMemoryId))
-  ) {
-    return { status: "rejected" };
-  }
+  const failure = substanceFailure({
+    kind,
+    content,
+    evidence,
+    evidenceIds,
+    referenceIds,
+    evidenceMessages,
+    referenceMessages,
+    supersedesMemoryId,
+    eligibleIds,
+  });
+  if (failure || !kind || !evidence) return { status: "rejected", reason: failure ?? "unknown_kind" };
   const wordingFailure = automaticCaptureMemoryFailure(content);
   const problems: CorrectableCandidateProblem[] = [];
   if (wordingFailure) problems.push(wordingFailure);
@@ -1519,9 +1616,18 @@ export async function extractCanonicalMemoryConsequences(input: {
     input.signal,
   );
   const parsed = extractJsonObject(raw);
-  const rawCandidates = Array.isArray(parsed.memories)
-    ? (parsed.memories.filter(isRecord).slice(0, MAX_CAPTURED_MEMORIES) as AutomaticMemoryCandidate[])
-    : [];
+  const skipped: CaptureSkip[] = [];
+  const proposed: unknown[] = Array.isArray(parsed.memories) ? parsed.memories : [];
+  // An object without a memories list is a broken reply, not "nothing worth saving".
+  if (!Array.isArray(parsed.memories)) skipped.push(captureSkip("malformed_response"));
+  const recordCandidates = proposed.filter(isRecord) as AutomaticMemoryCandidate[];
+  for (let index = recordCandidates.length; index < proposed.length; index += 1) {
+    skipped.push(captureSkip("malformed_candidate"));
+  }
+  const rawCandidates = recordCandidates.slice(0, MAX_CAPTURED_MEMORIES);
+  for (const candidate of recordCandidates.slice(MAX_CAPTURED_MEMORIES)) {
+    skipped.push(captureSkip("over_limit", candidate));
+  }
   const sourceById = new Map(request.sourceMessages.map((message) => [message.id, message]));
   const referenceById = new Map(request.referenceMessages.map((message) => [message.id, message]));
   const eligibleIds = new Set(
@@ -1535,26 +1641,54 @@ export async function extractCanonicalMemoryConsequences(input: {
 
   const accepted: ScreenedConsequence[] = [];
   const correctable: CorrectableCandidate[] = [];
+  const corrected = new Set<ScreenedConsequence>();
   for (const candidate of rawCandidates) {
     const screened = screen(candidate);
     if (screened.status === "accepted") accepted.push(screened.entry);
     if (screened.status === "correctable") correctable.push(screened.correctable);
+    if (screened.status === "rejected") skipped.push(captureSkip(screened.reason, candidate));
   }
   if (correctable.length > 0) {
     const corrections = await correctMemoryCandidates(input, correctable);
-    for (const [index, correction] of corrections) {
-      const screened = screen({ ...correctable[index]!.candidate, ...correction });
-      // A corrected sentence is new model wording, so the verifier always judges it.
-      if (screened.status === "accepted") accepted.push({ ...screened.entry, verify: true });
+    for (const [index, entry] of correctable.entries()) {
+      const correction = corrections.get(index);
+      if (!correction) {
+        skipped.push(captureSkip("wording_uncorrected", entry.candidate));
+        continue;
+      }
+      const correctedCandidate = { ...entry.candidate, ...correction };
+      const screened = screen(correctedCandidate);
+      if (screened.status === "accepted") {
+        // A corrected sentence is new model wording, so the verifier always judges it.
+        const correctedEntry = { ...screened.entry, verify: true };
+        corrected.add(correctedEntry);
+        accepted.push(correctedEntry);
+      } else {
+        const reason = screened.status === "rejected" ? screened.reason : "wording_uncorrected";
+        skipped.push(captureSkip(reason, correctedCandidate, true));
+      }
     }
   }
 
   const pending = accepted.filter((entry) => entry.verify);
-  const faithful = pending.length > 0 ? await verifyMemoryFidelity(input, pending) : new Set<number>();
-  const candidates = accepted
-    .filter((entry) => !entry.verify || faithful.has(pending.indexOf(entry)))
-    .map((entry) => entry.memory);
-  return { candidates, skippedCount: rawCandidates.length - candidates.length };
+  const verification = pending.length > 0 ? await verifyMemoryFidelity(input, pending) : null;
+  const kept: ScreenedConsequence[] = [];
+  for (const entry of accepted) {
+    if (!entry.verify || verification?.faithful.has(pending.indexOf(entry))) {
+      kept.push(entry);
+      continue;
+    }
+    const reason = verification?.usable === false ? "verifier_unusable" : "verifier_rejected";
+    skipped.push(captureSkip(reason, entry.memory, corrected.has(entry)));
+  }
+  const candidates = kept.map((entry) => entry.memory);
+  return {
+    candidates,
+    skippedCount: skipped.length,
+    skipped,
+    proposedCount: proposed.length,
+    correctedCount: kept.filter((entry) => corrected.has(entry)).length,
+  };
 }
 
 // One batched call fixes the wording and format slips screening found. A correction may change only
@@ -1611,7 +1745,8 @@ async function correctMemoryCandidates(
 
 // One batched call judges every candidate that failed the surface checks against its cited rows.
 // Only an explicit faithful verdict keeps a candidate. A verdict set that does not give exactly one
-// boolean per candidate rejects every candidate, and a provider failure propagates so the job retries.
+// boolean per candidate rejects every candidate (usable: false), and a provider failure propagates so
+// the job retries.
 async function verifyMemoryFidelity(
   input: { llm: LlmGateway; request: CanonicalConsequenceExtractionRequest; signal?: AbortSignal },
   pending: Array<{
@@ -1619,7 +1754,7 @@ async function verifyMemoryFidelity(
     sourceRows: CanonicalConsequenceSourceMessage[];
     referenceRows: CanonicalConsequenceSourceMessage[];
   }>,
-): Promise<Set<number>> {
+): Promise<{ faithful: Set<number>; usable: boolean }> {
   const { request } = input;
   const row = (label: string, message: CanonicalConsequenceSourceMessage) =>
     `  ${label} ${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`;
@@ -1669,12 +1804,12 @@ async function verifyMemoryFidelity(
       (verdict.index as number) >= pending.length ||
       byIndex.has(verdict.index as number)
     ) {
-      return new Set();
+      return { faithful: new Set(), usable: false };
     }
     byIndex.set(verdict.index as number, verdict.faithful);
   }
-  if (byIndex.size !== pending.length) return new Set();
-  return new Set([...byIndex].filter(([, faithful]) => faithful).map(([index]) => index));
+  if (byIndex.size !== pending.length) return { faithful: new Set(), usable: false };
+  return { faithful: new Set([...byIndex].filter(([, faithful]) => faithful).map(([index]) => index)), usable: true };
 }
 
 function extractJsonObject(raw: string): Record<string, unknown> {

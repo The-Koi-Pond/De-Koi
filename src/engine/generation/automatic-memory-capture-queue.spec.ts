@@ -11,6 +11,7 @@ import type {
 import type { JsonRecord } from "./runtime-records";
 import {
   beginForegroundGeneration,
+  enqueueAndScheduleAutomaticMemoryCapture,
   enqueueAutomaticMemoryCaptureJob,
   processAutomaticMemoryCaptureQueue,
   scheduleAutomaticMemoryCaptureQueueProcessing,
@@ -1130,6 +1131,17 @@ describe("automatic memory capture queue", () => {
           rejected: 0,
           accepted: 1,
         },
+        notCheckedReason: null,
+        report: {
+          version: 1,
+          proposed: 0,
+          saved: 0,
+          savedInactive: 0,
+          corrected: 0,
+          skippedTotal: 0,
+          skipped: [],
+          transcript: "saved",
+        },
         consequences: {
           status: "completed",
           affected: [],
@@ -1137,7 +1149,11 @@ describe("automatic memory capture queue", () => {
       },
     });
     expect(harness.jobs.get(String(job?.id))).toEqual(
-      expect.objectContaining({ consequenceStatus: "completed", consequenceSkipReason: null }),
+      expect.objectContaining({
+        consequenceStatus: "completed",
+        consequenceSkipReason: null,
+        captureReport: expect.objectContaining({ transcript: "saved", skippedTotal: 0 }),
+      }),
     );
   });
 
@@ -1254,6 +1270,7 @@ describe("automatic memory capture queue", () => {
       sourceMessageIds: ["user-1", "assistant-1"],
       attempts: 3,
       failureCategory: "capture_unavailable",
+      notCheckedReason: "provider_error",
       updatedAt: "2026-01-01T00:09:00.000Z",
     });
     expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).not.toHaveProperty("lastError");
@@ -1569,5 +1586,112 @@ describe("automatic memory capture queue", () => {
     expect(recalled?.attributionItems).toContainEqual(
       expect.objectContaining({ sourceId: consequence?.id, sourceCollection: "canonical-memories" }),
     );
+  });
+});
+
+describe("automatic memory capture reasons on the reply", () => {
+  function captureExtra(harness: ReturnType<typeof queueStorage>) {
+    return (harness.messages.get("assistant-1")?.extra as JsonRecord | undefined)?.memoryCapture as
+      | JsonRecord
+      | undefined;
+  }
+
+  it("records enqueue_failed on the reply when the job cannot be queued", async () => {
+    const harness = queueStorage();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    harness.storage.create = async () => {
+      throw new Error("disk full");
+    };
+
+    const job = await enqueueAndScheduleAutomaticMemoryCapture(harness.storage, {
+      chat: { id: "chat-1", mode: "conversation" },
+      characters: [{ id: "char-1" }],
+      savedUserMessage: harness.messages.get("user-1"),
+      savedAssistantMessage: harness.messages.get("assistant-1"),
+    });
+    warn.mockRestore();
+
+    expect(job).toBeNull();
+    expect(captureExtra(harness)).toEqual(
+      expect.objectContaining({ status: "failed", notCheckedReason: "enqueue_failed", jobId: "" }),
+    );
+  });
+
+  it("records no_reply_text on a reply that has nothing to capture", async () => {
+    const harness = queueStorage();
+    await harness.storage.updateChatMessage("assistant-1", { content: "   " });
+
+    const job = await enqueueAndScheduleAutomaticMemoryCapture(harness.storage, {
+      chat: { id: "chat-1", mode: "conversation" },
+      characters: [{ id: "char-1" }],
+      savedUserMessage: harness.messages.get("user-1"),
+      savedAssistantMessage: harness.messages.get("assistant-1"),
+    });
+
+    expect(job).toBeNull();
+    expect(harness.jobs.size).toBe(0);
+    expect(captureExtra(harness)).toEqual(
+      expect.objectContaining({ status: "skipped", notCheckedReason: "no_reply_text" }),
+    );
+  });
+
+  it("puts the stale reason on the reply, not only on the job", async () => {
+    const harness = queueStorage();
+    await harness.enqueue();
+    await harness.storage.updateChatMessage("user-1", { content: "My cat's name changed." });
+
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:04:00.000Z" });
+
+    expect(captureExtra(harness)).toEqual(
+      expect.objectContaining({ status: "failed", notCheckedReason: "source_content_changed" }),
+    );
+  });
+
+  it("calls a refused transcript commit a changed exchange, not a model failure", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    harness.storage.commitChatMemoryCapture = async () => {
+      throw new Error("Automatic memory capture preview is stale");
+    };
+
+    await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-01T00:03:00.000Z" });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await processAutomaticMemoryCaptureQueue(harness.dependencies, {
+        now: String(harness.jobs.get(String(job?.id))?.nextAttemptAt),
+      });
+    }
+
+    expect(harness.jobs.get(String(job?.id))).toEqual(
+      expect.objectContaining({ status: "failed", notCheckedReason: "transcript_changed" }),
+    );
+    expect(captureExtra(harness)).toEqual(
+      expect.objectContaining({ status: "failed", notCheckedReason: "transcript_changed" }),
+    );
+  });
+
+  it("stores the skip reasons of a completed capture on the job and the reply", async () => {
+    const harness = queueStorage();
+    const job = await harness.enqueue();
+    const llm = passingValueReviewLlm(async () =>
+      JSON.stringify({
+        memories: [
+          {
+            kind: "fact",
+            content: "Celia's cat is named Miso.",
+            confidence: 0.95,
+            evidence: "direct_user_assertion",
+            sourceMessageIds: ["assistant-1"],
+          },
+        ],
+      }),
+    );
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+
+    const skipped = [{ reason: "evidence_mismatch", kind: "fact", content: "Celia's cat is named Miso." }];
+    expect(harness.jobs.get(String(job?.id))?.captureReport).toEqual(
+      expect.objectContaining({ proposed: 1, saved: 0, skippedTotal: 1, skipped }),
+    );
+    expect(captureExtra(harness)?.report).toEqual(expect.objectContaining({ skippedTotal: 1, skipped }));
   });
 });

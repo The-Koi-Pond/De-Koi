@@ -143,20 +143,34 @@ CSRF_TRUSTED_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:78
 
 ### HTTPS With Tailscale
 
-Phone notifications and voice input only work on an `https://` page. With the trusted-LAN install, Tailscale
-can give the Pi one:
+Phone notifications and voice calls (the microphone) only work on an `https://` page. With the trusted-LAN
+install, Tailscale can give the Pi one that only your own Tailscale devices can reach (this is not Funnel).
 
-1. In the Tailscale admin console, open **DNS** and turn on **HTTPS Certificates**.
-2. On the Pi, run `sudo tailscale serve --bg 7860` once. It prints the address, such as
-   `https://pi.<tailnet>.ts.net/`, and keeps serving after reboots. It is only reachable from your own
-   Tailscale devices (that is not Funnel).
-3. Add that exact address to both `CORS_ORIGINS` and `CSRF_TRUSTED_ORIGINS` in `.env`, then rerun
-   `sh scripts/pi-update.sh --trusted-lan`.
+Once, in the Tailscale admin console, open **DNS** and turn on **MagicDNS** and **HTTPS Certificates**. Then
+run this on the Pi from the De-Koi repository root:
+
+```sh
+sh scripts/pi-https.sh
+```
+
+It turns on `tailscale serve` for port 7860 (asking for `sudo`), adds `https://pi.<tailnet>.ts.net` to
+`CORS_ORIGINS` and `CSRF_TRUSTED_ORIGINS` in `.env` (backup in `.env.bak-before-https`), recreates the
+containers with `scripts/pi-update.sh --trusted-lan`, and checks the HTTPS page, API and reply runner. It
+prints the address when it's done. Running it again changes nothing that's already set, and `tailscale serve`
+keeps serving after reboots.
+
+Then, on the phone (signed in to Tailscale):
+
+1. Open the printed `https://` address. On Android Chrome you can use **Add to Home screen**.
+2. In **Settings → Appearance**, turn on **Phone notifications** and allow them when the browser asks.
+   **Send a test notification** checks the whole path.
+3. In a Conversation chat's settings, turn on **Autonomous Messages**. The server's reply runner then sends a
+   notification when a character texts first, or when a reply finishes while De-Koi is closed.
 
 The trusted-LAN override sets `TRUSTED_PROXIES` to the Docker range, so the server judges each visitor by the
 address the web container passes on rather than blocking `tailscale serve` as an unknown proxy. Leave
 `TRUSTED_PROXIES` unset in `.env` to keep that default. To stop serving HTTPS, run
-`sudo tailscale serve --https=443 off`.
+`sh scripts/pi-https.sh --off`.
 
 ## Replies That Keep Going
 
