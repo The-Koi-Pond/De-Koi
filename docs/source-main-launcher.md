@@ -1,8 +1,8 @@
 # Source Main-Channel Launcher
 
-De-Koi's release installers are fixed desktop artifacts. They do not silently
-pull commits from `main`, and the in-app update check still hands users to
-GitHub Releases for manual installer replacement.
+De-Koi's release installers are fixed desktop artifacts. They never pull
+commits from `main`; they update only to signed GitHub releases, after the user
+agrees (see [`release-update-strategy.md`](release-update-strategy.md)).
 
 For source users who intentionally want a moving `main` channel, use the
 launcher from a git checkout:
@@ -45,6 +45,6 @@ Useful options:
 .\scripts\update-and-launch.ps1 -DryRun
 ```
 
-This is a developer/source workflow, not a stable release update channel. Signed
-Tauri auto-updates still require release signing keys, updater metadata,
-platform signing/notarization, and a separate publication policy.
+This is a developer/source workflow, not a release update channel. Source
+builds don't carry the signed updater; release builds from the `Release`
+workflow do. Both use the same data folder (`com.de-koi.app`).

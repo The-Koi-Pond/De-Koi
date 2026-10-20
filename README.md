@@ -66,18 +66,20 @@ and save it as HTML or Markdown.
 
 ## Get De-Koi
 
-De-Koi is in **pre-alpha**. Builds are unsigned, things break, and you should test with data you don't mind losing.
+De-Koi is in **beta**. Back up before you install or update ([how](docs/install.md#before-you-update-or-reinstall-back-up)).
 
-| Platform     | Download                                                                                              |
-| ------------ | ----------------------------------------------------------------------------------------------------- |
-| Windows      | `.exe` or `.msi` from the newest [pre-alpha release](https://github.com/The-Koi-Pond/De-Koi/releases) |
-| Linux        | `.AppImage`, `.deb`, or `.rpm` from the same release                                                  |
-| Android      | the debug `.apk` from the same release                                                                |
-| Raspberry Pi | prebuilt images: [Pi guide](docs/pi.md), or [without Docker](docs/pi-bare-metal.md)                   |
-| VPS / server | the [VDS / VPS guide](docs/vds.md) (web app for your phone and PC, behind HTTPS or a private network) |
-| macOS        | no build yet; [run from source](#run-from-source)                                                     |
+| Platform     | Download                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Windows      | `De-Koi_<version>_windows-x64-setup.exe` from the [latest release](https://github.com/The-Koi-Pond/De-Koi/releases/latest) |
+| Linux        | `.AppImage` or `.deb` from the same release                                                                                |
+| Android      | the signed `.apk` from the same release                                                                                    |
+| Raspberry Pi | prebuilt images: [Pi guide](docs/pi.md), or [without Docker](docs/pi-bare-metal.md)                                        |
+| VPS / server | the [VDS / VPS guide](docs/vds.md) (web app for your phone and PC, behind HTTPS or a private network)                      |
+| macOS        | no build yet; [run from source](#run-from-source)                                                                          |
 
-Updates are manual for now: download the newer build from the releases page and install it over the old one.
+Step-by-step install, checksum and uninstall help: [Install De-Koi](docs/install.md). Windows and Linux builds update
+themselves once you say yes, and every update is signature-checked. On Android, install the new APK over the old one.
+The Windows installer isn't Authenticode-signed yet, so SmartScreen warns the first time you install.
 
 ## Every feature
 
