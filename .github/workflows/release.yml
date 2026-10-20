@@ -523,6 +523,13 @@ jobs:
           if [ "${CHANNEL}" != "Stable" ]; then
             title="${title} (${CHANNEL})"
           fi
+          # Drafts don't create tags, so the tag check in "prepare" can't see an
+          # earlier unpublished draft. Refuse to make a second one.
+          existing="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"${TAG}\") | .id")"
+          if [ -n "${existing}" ]; then
+            echo "::error::A release or draft named ${TAG} already exists. Delete or publish it first."
+            exit 1
+          fi
           # Draft: nothing is public, and installed apps see nothing, until a
           # maintainer reviews it and clicks Publish (which marks it Latest).
           url="$(gh release create "${TAG}" final/dist/* \
