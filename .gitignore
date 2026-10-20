@@ -48,6 +48,11 @@ src-tauri/gen/android/**/key.properties
 src-tauri/gen/android/**/keystore.properties
 src-tauri/gen/android/**/*.jks
 src-tauri/gen/android/**/*.keystore
+# Release signing material never belongs in the repo, wherever it lands.
+*.jks
+*.keystore
+*.p12
+*.pfx
 
 # Local session artifacts
 /.pi/

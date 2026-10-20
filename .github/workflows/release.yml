@@ -29,6 +29,7 @@ on:
       - .github/release/**
       - scripts/release-updater-manifest.mjs
       - src-tauri/tauri.release.conf.json
+      - src-tauri/gen/android/app/build.gradle.kts
 
 concurrency:
   group: release-${{ github.event_name }}-${{ github.ref }}
@@ -260,12 +261,149 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-android:
+    name: Android arm64 APK
+    runs-on: ubuntu-22.04
+    needs: prepare
+    permissions:
+      contents: read
+    env:
+      ANDROID_RUST_TARGET: aarch64-linux-android
+      ANDROID_TAURI_TARGET: aarch64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Java for Android Gradle
+        uses: actions/setup-java@v5.6.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+
+      - name: Install Rust stable with Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.ANDROID_RUST_TARGET }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build signed release APK
+        shell: bash
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          # Real keys only ever reach manual runs from main, never pull requests.
+          KEYSTORE_BASE64: ${{ github.event_name == 'workflow_dispatch' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          KEYSTORE_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          KEY_ALIAS: ${{ github.event_name == 'workflow_dispatch' && secrets.ANDROID_KEY_ALIAS || '' }}
+          KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          keystore="${RUNNER_TEMP}/release-signing.jks"
+          if [ "${DRY_RUN}" = "true" ]; then
+            KEYSTORE_PASSWORD="dry-run-pass"
+            KEY_ALIAS="dry-run"
+            KEY_PASSWORD="dry-run-pass"
+            keytool -genkeypair -keystore "${keystore}" -storetype JKS -keyalg RSA -keysize 2048 -validity 1 \
+              -alias "${KEY_ALIAS}" -storepass "${KEYSTORE_PASSWORD}" -keypass "${KEY_PASSWORD}" -dname "CN=De-Koi dry run"
+            # A dry run must carry its own throwaway certificate.
+            keytool -list -v -keystore "${keystore}" -storepass "${KEYSTORE_PASSWORD}" -alias "${KEY_ALIAS}" \
+              | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f' > "${RUNNER_TEMP}/expected-cert.sha256"
+          else
+            for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+              if [ -z "${!name}" ]; then
+                echo "::error::The ANDROID_${name} secret is not set. Releases must ship a signed APK."
+                exit 1
+              fi
+            done
+            printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+            # A real release must carry the committed release certificate, the one
+            # installed apps already trust for updates.
+            cp .github/release/android-signing-cert.sha256 "${RUNNER_TEMP}/expected-cert.sha256"
+          fi
+          export DE_KOI_ANDROID_KEYSTORE_PATH="${keystore}"
+          export DE_KOI_ANDROID_KEYSTORE_PASSWORD="${KEYSTORE_PASSWORD}"
+          export DE_KOI_ANDROID_KEY_ALIAS="${KEY_ALIAS}"
+          export DE_KOI_ANDROID_KEY_PASSWORD="${KEY_PASSWORD}"
+          status=0
+          pnpm tauri android build --apk --ci --target "${ANDROID_TAURI_TARGET}" || status=$?
+          rm -f "${keystore}"
+          exit "${status}"
+
+      - name: Collect and check the APK signature
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -path '*/release/*' -name '*.apk' -print)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one release APK, found ${#apks[@]}: ${apks[*]:-none}"
+            exit 1
+          fi
+          case "${apks[0]}" in
+            *unsigned*)
+              echo "::error::Gradle produced an unsigned APK: ${apks[0]}"
+              exit 1
+              ;;
+          esac
+          apksigner="$(ls -d "${ANDROID_HOME}"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          report="$("${apksigner}" verify --verbose --print-certs "${apks[0]}")"
+          echo "${report}"
+          if ! grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" <<< "${report}"; then
+            echo "::error::APK is not signed with APK Signature Scheme v2."
+            exit 1
+          fi
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "${report}")"
+          expected="$(tr -d '[:space:]' < "${RUNNER_TEMP}/expected-cert.sha256")"
+          if [ -z "${actual}" ] || [ "${actual}" != "${expected}" ]; then
+            echo "::error::APK is signed by certificate ${actual:-none}, expected ${expected}. Check the ANDROID_* secrets."
+            exit 1
+          fi
+          mkdir -p release-assets
+          cp "${apks[0]}" "release-assets/De-Koi_${VERSION}_android-arm64.apk"
+          ls -la release-assets
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-android-arm64
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
   manifest:
     name: Build and verify latest.json
     runs-on: ubuntu-latest
     needs:
       - prepare
       - build-desktop
+      - build-android
     permissions:
       contents: read
     steps:

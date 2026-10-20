@@ -14,15 +14,17 @@
 | Windows 10/11 (x64) | `De-Koi_{{VERSION}}_windows-x64-setup.exe` | Installer. {{WINDOWS_SIGNING}} |
 | Linux (x64) | `De-Koi_{{VERSION}}_linux-x64.AppImage` | Portable app. Make it executable, then run it. |
 | Linux (x64, Debian/Ubuntu) | `De-Koi_{{VERSION}}_linux-x64.deb` | Install with your package manager. |
+| Android (64-bit ARM) | `De-Koi_{{VERSION}}_android-arm64.apk` | Signed with De-Koi's release key. Open it on your phone and allow installs from your browser or files app when asked. |
 | All | `SHA256SUMS.txt` | Checksums for every file above. |
 | Updater | `latest.json` and `*.sig` | Used by the app's auto-updater. You don't need to download these. |
 
-Android and macOS are not part of this release yet.
+macOS and iOS are not part of this release yet.
 
 ## Updating
 
 - **Windows and Linux:** De-Koi checks for updates when it starts. When a new release is out it asks "Install and restart?". Choose it and De-Koi downloads the update, checks its signature, installs it and opens again. Your chats and settings stay where they are.
-- Every update is signed with De-Koi's update key, and the app refuses any download whose signature doesn't match.
+- **Android:** download the new APK from this page and install it over the old one. Android only accepts it when it's signed with the same key, and your data stays.
+- Every desktop update is signed with De-Koi's update key, and the app refuses any download whose signature doesn't match.
 - **If an update fails:** come back to this page (GitHub Releases), download the file for your platform and install it over the old version.
 - Settings > Advanced > Check for Updates still works, and Open Release brings you to this page.
 
