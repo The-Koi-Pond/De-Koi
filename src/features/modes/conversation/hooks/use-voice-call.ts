@@ -2,19 +2,22 @@
 // Hook: Voice call with a Conversation character
 // ──────────────────────────────────────────────
 // Hands-free loop: listen until you pause → transcribe → send as your text → the character replies → read the
-// reply aloud with the character's Text to Speech voice → listen again. Everything said stays in the chat as
+// reply aloud with the character's Text to Speech voice (each piece as soon as it has streamed) → listen again. Everything said stays in the chat as
 // normal texts. Transcription uses the Text to Speech provider when "voice input" is on there, otherwise the
 // browser's speech recognition.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { ttsApi } from "../../../../shared/api/tts-api";
+import { getOrCreateCachedTTSAudioBlob } from "../../../../shared/lib/tts-audio-cache";
 import {
   buildTTSVoiceRequests,
   clientSidePlaybackRate,
   withTTSVoiceRequestCacheKeys,
 } from "../../../../shared/lib/tts-dialogue";
 import { ttsService } from "../../../../shared/lib/tts-service";
+import { useChatStore } from "../../../../shared/stores/chat.store";
+import { StreamingSpeaker } from "../lib/voice-call-streaming-speech";
 import {
   VOICE_NEEDS_HTTPS_MESSAGE,
   canRecordAudio,
@@ -108,6 +111,7 @@ export function useVoiceCall({
   const [muted, setMuted] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(true);
   const controllerRef = useRef<AbortController | null>(null);
+  const turnRef = useRef<AbortController | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mutedRef = useRef(false);
   mutedRef.current = muted;
@@ -123,20 +127,35 @@ export function useVoiceCall({
     [chatId],
   );
 
-  const speak = useCallback(
-    async (message: StoredMessage, config: TTSConfig | null, signal: AbortSignal) => {
-      if (!config?.enabled || !message.content) return false;
-      const requests = withTTSVoiceRequestCacheKeys(
-        buildTTSVoiceRequests(message.content, config, character.name, message.characterId ?? character.id).filter(
-          (request) => request.text.trim().length > 0,
-        ),
-        config,
-        message.id,
-      );
-      if (!requests.length) return false;
-      await ttsService.speakSequence(requests, message.id, { signal, playbackRate: clientSidePlaybackRate(config) });
-      return true;
-    },
+  /** A speaker for one reply: voices pieces with the character's voice as they arrive, in order. */
+  const createSpeaker = useCallback(
+    (config: TTSConfig | null, turnKey: string, signal: AbortSignal) =>
+      new StreamingSpeaker({
+        signal,
+        toRequests: (text, pieceIndex) =>
+          config?.enabled
+            ? withTTSVoiceRequestCacheKeys(
+                buildTTSVoiceRequests(text, config, character.name, character.id).filter(
+                  (request) => request.text.trim().length > 0,
+                ),
+                config,
+                `${turnKey}:${pieceIndex}`,
+              )
+            : [],
+        prefetch: (request) => {
+          void getOrCreateCachedTTSAudioBlob(
+            request.cacheKey,
+            () => ttsService.generateAudio(request.text, { ...request, signal }),
+            request.cacheAliases,
+          ).catch(() => undefined); // Reported when the piece plays and fetches it again.
+        },
+        play: (requests) =>
+          ttsService.speakSequence(requests, turnKey, {
+            signal,
+            playbackRate: config ? clientSidePlaybackRate(config) : 1,
+            lookahead: 1,
+          }),
+      }),
     [character.id, character.name],
   );
 
@@ -176,15 +195,42 @@ export function useVoiceCall({
         if (signal.aborted) return;
         if (!text) continue;
         setHeard(text);
+        setSaid("");
         setPhase("thinking");
         const sentAt = Date.now();
-        await sendText(text);
+        // One turn can be cut off (Interrupt) without ending the call.
+        const turn = new AbortController();
+        turnRef.current = turn;
+        const stopTurn = () => turn.abort();
+        signal.addEventListener("abort", stopTurn, { once: true });
+        const speaker = createSpeaker(config, `voice-call:${chatId}:${sentAt}`, turn.signal);
+        // Text left in the buffer from an earlier reply isn't this one: follow only once it has been cleared.
+        let armed = !useChatStore.getState().streamBuffers.get(chatId);
+        const unfollow = useChatStore.subscribe((state) => {
+          const streamed = state.streamBuffers.get(chatId);
+          if (!armed) {
+            armed = !streamed;
+            return;
+          }
+          if (!streamed) return;
+          setSaid(streamed);
+          speaker.push(streamed);
+          if (speaker.started && !turn.signal.aborted) setPhase("speaking");
+        });
+        try {
+          await sendText(text);
+        } catch (caught) {
+          turn.abort(); // Nothing already queued keeps talking over the error.
+          throw caught;
+        } finally {
+          unfollow();
+        }
         if (signal.aborted) return;
         const reply = await latestReply(sentAt);
-        if (!reply) continue;
-        setSaid(reply.content ?? "");
-        setPhase("speaking");
-        await speak(reply, config, signal);
+        if (reply?.content) setSaid(reply.content);
+        if ((reply || speaker.started) && !turn.signal.aborted) setPhase("speaking");
+        await speaker.finish(reply?.content ?? null);
+        signal.removeEventListener("abort", stopTurn);
       }
     } catch (caught) {
       if (signal.aborted || (caught instanceof DOMException && caught.name === "AbortError")) return;
@@ -194,7 +240,7 @@ export function useVoiceCall({
       stopStream(streamRef.current);
       streamRef.current = null;
     }
-  }, [latestReply, sendText, speak]);
+  }, [chatId, createSpeaker, latestReply, sendText]);
 
   useEffect(() => {
     void run();
@@ -210,9 +256,12 @@ export function useVoiceCall({
     setPhase("ended");
   }, []);
 
-  /** Cut the character off and go back to listening. */
+  /** Cut the character off (including pieces still waiting to be said) and go back to listening. */
   const interrupt = useCallback(() => {
+    turnRef.current?.abort();
     ttsService.stop();
+    // The rest of the reply may still be arriving (it is saved as a text); it just won't be read out.
+    setPhase((current) => (current === "speaking" ? "thinking" : current));
   }, []);
 
   return { phase, level, heard, said, error, muted, setMuted, voiceReplies, hangUp, interrupt };
