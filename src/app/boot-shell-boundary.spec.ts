@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -62,12 +62,14 @@ describe("app boot shell boundary", () => {
     }
     expect(readViteConfigSource()).not.toMatch(/framer-motion|@dnd-kit/);
 
-    const importers = readdirSync(join(currentDir, ".."), { recursive: true, encoding: "utf8" })
-      .filter((file) => /\.tsx?$/.test(file) && !/\.(spec|test)\.tsx?$/.test(file))
-      .filter((file) =>
-        /from "(framer-motion|motion\/react)"/.test(readFileSync(join(currentDir, "..", file), "utf8")),
-      );
-    expect(importers).toEqual([]);
+    // A package missing from the lockfile can't be installed, so no source file
+    // can import it. This also catches one pulled in by another dependency.
+    // One file read: scanning every source file timed out under parallel load.
+    const lockedPackages = readFileSync(join(currentDir, "../../pnpm-lock.yaml"), "utf8")
+      .split(/^snapshots:$/m)[0]
+      .split(/^packages:$/m)[1];
+    expect(lockedPackages).toMatch(/^ {2}react-dom@/m);
+    expect(lockedPackages.match(/^ {2}'?(framer-motion|motion|@dnd-kit\/core)@.*$/gm) ?? []).toEqual([]);
   });
 
   it("keeps the root App module free of deferred shell and feature imports", () => {
