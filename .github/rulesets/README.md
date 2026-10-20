@@ -32,8 +32,17 @@ events, so `ci-full.yml` listens for them. Keep that trigger on any workflow
 whose check becomes required.
 
 - Queue a pull request once its own `Required Validation` passes and its review
-  threads are resolved, with `gh pr merge <number>` or the merge button. The
-  branch does not need updating first.
+  threads are resolved, with the merge button on the pull request page or the
+  command below. The branch does not need updating first.
+- `gh pr merge` queues through the auto-merge API, so it fails with "Auto merge
+  is not allowed for this repository" while the repository's auto-merge setting
+  is off. Use the enqueue mutation instead:
+
+  ```bash
+  id=$(gh pr view <number> --repo The-Koi-Pond/De-Koi --json id -q .id)
+  gh api graphql -f query="mutation { enqueuePullRequest(input: {pullRequestId: \"$id\"}) { mergeQueueEntry { position } } }"
+  ```
+
 - The queue builds main plus the queued pull requests, runs CI Full on that
   commit, and squash-merges when `Required Validation` passes there.
 - A failing or conflicting pull request is removed from the queue without
