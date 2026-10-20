@@ -487,6 +487,7 @@ function consequenceExtractionPrompt(request: CanonicalConsequenceExtractionRequ
     "Do not use third-person personal pronouns; repeat the supported person's name instead.",
     "Replace context-dependent it, this, or that with the actual supported subject when the subject matters.",
     ...MEMORY_FIDELITY_RULES,
+    ...addresseeRules(request),
     "Each item must include kind, content, confidence, evidence, and sourceMessageIds.",
     "Each confidence must be a JSON number from 0 to 1, such as 0.9.",
     "Each item may include referenceMessageIds in addition to sourceMessageIds.",
@@ -613,6 +614,32 @@ function knownSpeakerLabels(request: CanonicalConsequenceExtractionRequest): str
 
 function knownSpeakerTokens(request: CanonicalConsequenceExtractionRequest): Set<string> {
   return new Set(knownSpeakerLabels(request).flatMap((label) => label.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []));
+}
+
+// In a one-on-one conversation the addressee of every "you" is known, so it counts as explicit
+// addressee evidence. Roleplay is left out: one character there can voice several people.
+export function oneOnOneAddresseeRule(request: CanonicalConsequenceExtractionRequest): string | null {
+  if (request.mode !== "conversation") return null;
+  const characters = Object.entries(request.characterLabels).filter(([id, label]) => id.trim() && label.trim());
+  if (characters.length !== 1) return null;
+  const [characterId, characterLabel] = characters[0]!;
+  const userLabel = request.userLabel.trim();
+  if (!userLabel || userLabel === "{{user}}") return null;
+  const onlyTheTwo = request.sourceMessages.every(
+    (message) => message.role === "user" || (message.role === "assistant" && message.characterId === characterId),
+  );
+  if (!onlyTheTwo) return null;
+  const character = characterLabel.trim();
+  return [
+    `This is a one-on-one chat between ${userLabel} and ${character}; that is explicit addressee evidence.`,
+    `A you or your in ${userLabel}'s rows that addresses someone means ${character}; one in ${character}'s rows means ${userLabel}.`,
+    "A you in words someone else says or said, quoted or reported (my mum says you need to rest), or a generic you that means people in general, addresses no one in the chat: keep it as you.",
+  ].join(" ");
+}
+
+function addresseeRules(request: CanonicalConsequenceExtractionRequest): string[] {
+  const rule = oneOnOneAddresseeRule(request);
+  return rule ? [rule] : [];
 }
 
 function messageBelongsToSpeaker(
@@ -1783,6 +1810,7 @@ async function verifyMemoryFidelity(
             "Mark a candidate faithful only if every claim in it is stated by its source rows and it follows every rule below. Reference rows may only identify who or what a bare name or pronoun means; they never support a claim.",
             `The user identity is ${request.userLabel}.`,
             ...MEMORY_FIDELITY_RULES,
+            ...addresseeRules(request),
             'Return JSON only: {"verdicts":[{"index":0,"faithful":true}]} with one verdict per candidate.',
             items,
           ].join("\n"),
