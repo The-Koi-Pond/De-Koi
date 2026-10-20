@@ -6,3 +6,5 @@ export { useExportChat } from "./hooks/use-export-chat";
 export * from "./lib/timeline-message";
 export { preserveRecentMessageContentEdit } from "./lib/recent-message-content-edits";
 export { confirmChatDeletion } from "./lib/chat-delete-confirmation";
+export * from "./lib/memory-capture-log";
+export * from "./hooks/use-memory-capture-log";

@@ -1,12 +1,19 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MessageExtra, MessageMemoryCaptureStatus } from "../../../../../engine/contracts/types/chat";
 import { cn } from "../../../../../shared/lib/utils";
+import { MEMORY_CAPTURE_NOT_CHECKED_COPY, MEMORY_CAPTURE_SKIP_COPY } from "../../../../catalog/chats/index";
 
 type MessageMemoryCapture = MessageExtra["memoryCapture"];
 type MessageMemoryDisplayStatus = MessageMemoryCaptureStatus | "unsupported";
 type MessageMemoryLifecycleStatus = Exclude<MessageMemoryDisplayStatus, "completed">;
 
-const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>(["processing", "retryable", "failed", "completed"]);
+const MEMORY_CAPTURE_STATUSES = new Set<MessageMemoryCaptureStatus>([
+  "processing",
+  "retryable",
+  "failed",
+  "completed",
+  "skipped",
+]);
 
 const MEMORY_CAPTURE_LIFECYCLE_PRESENTATION: Record<
   MessageMemoryLifecycleStatus,
@@ -26,6 +33,11 @@ const MEMORY_CAPTURE_LIFECYCLE_PRESENTATION: Record<
     label: "memory unavailable",
     title: "Memory unavailable",
     detail: "Memory capture could not finish after several attempts. The conversation reply is still safe.",
+  },
+  skipped: {
+    label: "not remembered",
+    title: "Not checked for memory",
+    detail: "This reply was not checked for memories.",
   },
   unsupported: {
     label: "memory status unavailable",
@@ -112,8 +124,18 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
   const lifecycleStatus: MessageMemoryLifecycleStatus | null =
     !isUser && captureStatus && captureStatus !== "completed" ? captureStatus : null;
   const lifecyclePresentation = lifecycleStatus ? MEMORY_CAPTURE_LIFECYCLE_PRESENTATION[lifecycleStatus] : null;
+  const notCheckedReason = memoryCapture?.notCheckedReason;
+  const notCheckedCopy =
+    (lifecycleStatus === "failed" || lifecycleStatus === "skipped") && notCheckedReason
+      ? (MEMORY_CAPTURE_NOT_CHECKED_COPY[notCheckedReason] ?? null)
+      : null;
+  const reportedSkips =
+    captureStatus === "completed" && Array.isArray(memoryCapture?.report?.skipped) ? memoryCapture.report.skipped : [];
+  const skippedTotal = Math.max(memoryCapture?.report?.skippedTotal ?? 0, reportedSkips.length);
   const remembered =
     !isUser && captureStatus === "completed" && (savedMemories.length > 0 || partialCapture || unavailableCapture);
+  // The model proposed memories here but none was kept: say so, so a missing memory can be traced to this reply.
+  const nothingKept = !isUser && captureStatus === "completed" && !remembered && skippedTotal > 0;
 
   useEffect(() => {
     if (!savedOpen) return;
@@ -136,11 +158,11 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
     };
   }, [savedOpen]);
 
-  if (!remembered && !lifecycleStatus) return null;
+  if (!remembered && !lifecycleStatus && !nothingKept) return null;
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5", className)}>
-      {(remembered || lifecycleStatus) && (
+      {(remembered || lifecycleStatus || nothingKept) && (
         <span className="relative inline-flex">
           <button
             ref={savedChipRef}
@@ -148,7 +170,7 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
             aria-expanded={savedOpen}
             aria-haspopup="dialog"
             aria-controls={savedOpen ? savedTitleId : undefined}
-            aria-label={lifecycleStatus ? "Open memory capture status" : "Open saved memory details"}
+            aria-label={lifecycleStatus || nothingKept ? "Open memory capture status" : "Open saved memory details"}
             title={lifecycleStatus ? "Show memory capture status" : "Show saved memory"}
             onClick={(event) => {
               event.stopPropagation();
@@ -156,13 +178,21 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
             }}
             className={cn(
               "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[0.5625rem] font-medium outline-none transition-colors duration-150 focus-visible:ring-1",
-              lifecycleStatus
-                ? "border-amber-400/20 bg-amber-400/10 text-amber-200/85 hover:bg-amber-400/15 focus-visible:ring-amber-300/45"
-                : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300/80 hover:bg-emerald-400/15 focus-visible:ring-emerald-300/45",
+              nothingKept
+                ? "border-[var(--border)] bg-[var(--secondary)]/60 text-[var(--muted-foreground)] hover:bg-[var(--accent)] focus-visible:ring-[var(--ring)]/45"
+                : lifecycleStatus
+                  ? "border-amber-400/20 bg-amber-400/10 text-amber-200/85 hover:bg-amber-400/15 focus-visible:ring-amber-300/45"
+                  : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300/80 hover:bg-emerald-400/15 focus-visible:ring-emerald-300/45",
             )}
           >
             {lifecyclePresentation?.label ??
-              (partialCapture ? "⚠ partial memory" : unavailableCapture ? "⚠ memory unavailable" : "✦ remembered")}
+              (nothingKept
+                ? "nothing saved"
+                : partialCapture
+                  ? "⚠ partial memory"
+                  : unavailableCapture
+                    ? "⚠ memory unavailable"
+                    : "✦ remembered")}
           </button>
           {savedOpen && (
             <div
@@ -174,19 +204,22 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
             >
               <div id={savedTitleId} className="mb-2 font-semibold text-[var(--foreground)]">
                 {lifecyclePresentation?.title ??
-                  (partialCapture
-                    ? "Partial memory capture"
-                    : unavailableCapture
-                      ? "Memory unavailable"
-                      : savedMemories.length > 1
-                        ? "Saved memories"
-                        : savedMemories[0]?.operation === "updated"
-                          ? "Updated memory"
-                          : "Saved memory")}
+                  (nothingKept
+                    ? "Nothing saved from this reply"
+                    : partialCapture
+                      ? "Partial memory capture"
+                      : unavailableCapture
+                        ? "Memory unavailable"
+                        : savedMemories.length > 1
+                          ? "Saved memories"
+                          : savedMemories[0]?.operation === "updated"
+                            ? "Updated memory"
+                            : "Saved memory")}
               </div>
               {lifecyclePresentation?.detail && (
                 <p className="rounded-md bg-amber-400/10 px-2 py-1.5 text-amber-100/90">
                   {lifecyclePresentation.detail}
+                  {notCheckedCopy && <span className="mt-1 block">Why: {notCheckedCopy}</span>}
                 </p>
               )}
               {partialCapture && (
@@ -216,6 +249,23 @@ export function MessageMemoryIndicators({ isUser, memoryCapture, className }: Me
                     </code>
                   </div>
                 ))}
+                {skippedTotal > 0 && (
+                  <div className="space-y-1.5 border-t border-[var(--border)] pt-2">
+                    <div className="text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                      Not saved ({skippedTotal})
+                    </div>
+                    {reportedSkips.map((skip, index) => (
+                      <div key={index} className="rounded-md bg-[var(--accent)]/20 px-2 py-1.5 leading-relaxed">
+                        {skip.content && (
+                          <p className="whitespace-pre-wrap text-[var(--foreground)]/75">{skip.content}</p>
+                        )}
+                        <p className="text-[var(--muted-foreground)]">
+                          {MEMORY_CAPTURE_SKIP_COPY[skip.reason] ?? skip.reason}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -5051,6 +5051,7 @@ function ChatSettingsDrawerInner({
         chatId={chat.id}
         open={showMemoriesModal}
         onClose={() => setShowMemoriesModal(false)}
+        memoryCaptureEnabled={getEffectiveMemoryRecallEnabled(chat.mode, metadata)}
       />
 
       <StoryContinuityModal chatId={chat.id} open={showStoryModal} onClose={() => setShowStoryModal(false)} />

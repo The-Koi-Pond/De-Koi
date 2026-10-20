@@ -8,6 +8,7 @@ export const chatKeys = {
   messageCount: (chatId: string) => [...chatKeys.all, "messageCount", chatId] as const,
   memories: (chatId: string) => [...chatKeys.all, "memories", chatId] as const,
   inheritedMemories: (chatId: string) => [...chatKeys.memories(chatId), "inherited"] as const,
+  memoryCaptureLog: (chatId: string) => [...chatKeys.memories(chatId), "capture-log"] as const,
   notes: (chatId: string) => [...chatKeys.all, "notes", chatId] as const,
   group: (groupId: string) => [...chatKeys.all, "group", groupId] as const,
 };
