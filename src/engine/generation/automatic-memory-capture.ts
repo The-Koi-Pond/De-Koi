@@ -1449,7 +1449,7 @@ type ScreenedConsequence = {
 };
 
 // Wording and format slips the model can fix without changing a claim. Every other failure is final.
-type CorrectableCandidateProblem = AutomaticCaptureMemoryFailure | "invalid_confidence";
+type CorrectableCandidateProblem = AutomaticCaptureMemoryFailure | "invalid_confidence" | "evidence_mismatch";
 
 type CorrectableCandidate = {
   candidate: AutomaticMemoryCandidate;
@@ -1501,7 +1501,14 @@ const CANDIDATE_CORRECTIONS: Record<CorrectableCandidateProblem, string> = {
   unresolved_opening_reference: "It opens with a pronoun or with this or that. Open with the subject's name instead.",
   dangling_topic_reference: "It talks about an unnamed it, this, or that. Name the topic from the source rows.",
   invalid_confidence: "Its confidence is not a number from 0 to 1. Give a number such as 0.9.",
+  evidence_mismatch:
+    "Its kind and evidence do not fit its cited rows. A fact, preference, or contradiction about the user is direct_user_assertion and cites only the user's rows; a promise is explicit_promise or explicit_exchange; a scene_event or plot_state is explicit_screen_event or explicit_exchange; a relationship_state is explicit_exchange, or direct_user_assertion citing only the user's rows. Return the kind, evidence, and sourceMessageIds that fit. You may drop cited rows but never add one.",
 };
+
+// A candidate that could not be corrected keeps the reason of its first unfixed problem.
+function uncorrectedReason(problems: CorrectableCandidateProblem[]): CaptureSkipReason {
+  return problems.includes("evidence_mismatch") ? "evidence_mismatch" : "wording_uncorrected";
+}
 
 function screenConsequenceCandidate(
   candidate: AutomaticMemoryCandidate,
@@ -1537,9 +1544,12 @@ function screenConsequenceCandidate(
     supersedesMemoryId,
     eligibleIds,
   });
-  if (failure || !kind || !evidence) return { status: "rejected", reason: failure ?? "unknown_kind" };
+  // A kind and evidence pair that does not fit its rows is a label slip, not a wrong claim: the
+  // model may relabel it once, and the relabeled memory is screened again and always verified.
+  const labelSlip = failure === "evidence_mismatch" && kind !== null && evidence !== null;
+  if ((failure && !labelSlip) || !kind || !evidence) return { status: "rejected", reason: failure ?? "unknown_kind" };
   const wordingFailure = automaticCaptureMemoryFailure(content);
-  const problems: CorrectableCandidateProblem[] = [];
+  const problems: CorrectableCandidateProblem[] = labelSlip ? ["evidence_mismatch"] : [];
   if (wordingFailure) problems.push(wordingFailure);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) problems.push("invalid_confidence");
   if (problems.length > 0) {
@@ -1653,7 +1663,7 @@ export async function extractCanonicalMemoryConsequences(input: {
     for (const [index, entry] of correctable.entries()) {
       const correction = corrections.get(index);
       if (!correction) {
-        skipped.push(captureSkip("wording_uncorrected", entry.candidate));
+        skipped.push(captureSkip(uncorrectedReason(entry.problems), entry.candidate));
         continue;
       }
       const correctedCandidate = { ...entry.candidate, ...correction };
@@ -1664,7 +1674,8 @@ export async function extractCanonicalMemoryConsequences(input: {
         corrected.add(correctedEntry);
         accepted.push(correctedEntry);
       } else {
-        const reason = screened.status === "rejected" ? screened.reason : "wording_uncorrected";
+        const reason =
+          screened.status === "rejected" ? screened.reason : uncorrectedReason(screened.correctable.problems);
         skipped.push(captureSkip(reason, correctedCandidate, true));
       }
     }
@@ -1691,12 +1702,36 @@ export async function extractCanonicalMemoryConsequences(input: {
   };
 }
 
+type CandidateCorrection = {
+  content: unknown;
+  confidence: unknown;
+  kind?: unknown;
+  evidence?: unknown;
+  sourceMessageIds?: string[];
+};
+
+// A relabel may change kind and evidence and may drop cited source rows, never add one.
+function relabeledFields(
+  correction: Record<string, unknown>,
+  candidate: AutomaticMemoryCandidate,
+): Pick<CandidateCorrection, "kind" | "evidence" | "sourceMessageIds"> {
+  const cited = new Set(readStringArray(candidate.sourceMessageIds));
+  const fields: Pick<CandidateCorrection, "kind" | "evidence" | "sourceMessageIds"> = {};
+  if (correction.kind !== undefined) fields.kind = correction.kind;
+  if (correction.evidence !== undefined) fields.evidence = correction.evidence;
+  if (Array.isArray(correction.sourceMessageIds)) {
+    fields.sourceMessageIds = readStringArray(correction.sourceMessageIds).filter((id) => cited.has(id));
+  }
+  return fields;
+}
+
 // One batched call fixes the wording and format slips screening found. A correction may change only
-// content and confidence; it is screened again and verified, and a missing correction stays dropped.
+// content and confidence, plus kind, evidence, and a narrower set of cited rows for a label slip; it is
+// screened again and verified, and a missing correction stays dropped.
 async function correctMemoryCandidates(
   input: { llm: LlmGateway; request: CanonicalConsequenceExtractionRequest; signal?: AbortSignal },
   pending: CorrectableCandidate[],
-): Promise<Map<number, { content: unknown; confidence: unknown }>> {
+): Promise<Map<number, CandidateCorrection>> {
   const { request } = input;
   const row = (label: string, message: CanonicalConsequenceSourceMessage) =>
     `  ${label} ${message.id} | ${message.role} | ${message.speakerLabel} | ${message.content}`;
@@ -1705,6 +1740,9 @@ async function correctMemoryCandidates(
       [
         `Candidate ${index} (${readString(entry.candidate.kind)}): ${readString(entry.candidate.content)}`,
         `  confidence: ${JSON.stringify(entry.candidate.confidence ?? null)}`,
+        ...(entry.problems.includes("evidence_mismatch")
+          ? [`  evidence: ${JSON.stringify(entry.candidate.evidence ?? null)}`]
+          : []),
         ...entry.problems.map((problem) => `  problem: ${CANDIDATE_CORRECTIONS[problem]}`),
         ...entry.sourceRows.map((message) => row("source", message)),
         ...entry.referenceRows.map((message) => row("reference", message)),
@@ -1724,6 +1762,7 @@ async function correctMemoryCandidates(
             "Keep every claim, condition, and speaker exactly as written; do not add, drop, or change any fact.",
             `The user identity is ${request.userLabel}.`,
             'Return JSON only: {"corrections":[{"index":0,"content":"...","confidence":0.9}]} with one correction per candidate.',
+            "For a kind and evidence problem, also return kind, evidence, and sourceMessageIds in that correction.",
             items,
           ].join("\n"),
         },
@@ -1733,12 +1772,17 @@ async function correctMemoryCandidates(
     input.signal,
   );
   const parsed = extractJsonObject(raw);
-  const corrections = new Map<number, { content: unknown; confidence: unknown }>();
+  const corrections = new Map<number, CandidateCorrection>();
   for (const correction of Array.isArray(parsed.corrections) ? parsed.corrections : []) {
     if (!isRecord(correction) || !Number.isInteger(correction.index)) continue;
     const index = correction.index as number;
     if (index < 0 || index >= pending.length || corrections.has(index)) continue;
-    corrections.set(index, { content: correction.content, confidence: correction.confidence });
+    const relabel = pending[index]!.problems.includes("evidence_mismatch");
+    corrections.set(index, {
+      content: correction.content,
+      confidence: correction.confidence,
+      ...(relabel ? relabeledFields(correction, pending[index]!.candidate) : {}),
+    });
   }
   return corrections;
 }
