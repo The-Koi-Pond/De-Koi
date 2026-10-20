@@ -1902,6 +1902,9 @@ export async function runGenerationWithUi(
           );
           break;
         }
+        case "message_reaction":
+          scheduleChatQueryRefresh(queryClient, chatId);
+          break;
         case "illustration_error": {
           const data = parseMaybeRecord(event.data);
           toast.error(readString(data.error, "Illustration generation failed."));

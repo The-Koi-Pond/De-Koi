@@ -5,6 +5,7 @@ pub(crate) mod connection_refs;
 pub mod http_dispatch;
 pub mod http_server;
 pub(crate) mod http_storage_dispatch;
+pub(crate) mod http_storage_events;
 pub(crate) mod performance_diagnostics;
 pub mod runner_supervisor;
 mod seed_defaults;
@@ -416,6 +417,7 @@ pub fn run() {
             storage_commands::chat_commands::chat_messages_bulk_delete,
             storage_commands::chat_commands::chat_message_count,
             storage_commands::chat_commands::chat_sibling_conversation_context,
+            storage_commands::chat_commands::chat_messages_search,
             storage_commands::chat_commands::chat_branch,
             storage_commands::chat_commands::chat_message_swipes,
             storage_commands::chat_commands::chat_message_add_swipe,

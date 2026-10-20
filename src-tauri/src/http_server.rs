@@ -138,6 +138,7 @@ pub async fn serve(state: AppState, addr: SocketAddr) -> Result<(), std::io::Err
 }
 
 pub fn router(state: AppState) -> Router {
+    crate::http_storage_events::install_storage_change_feed();
     let security = SecurityConfig::from_env();
     let cors_security = security.clone();
     let controls = HttpControls::new(security.clone());
@@ -165,6 +166,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/import/st-bulk/run", post(import_st_bulk_run_stream))
         .route("/api/deki/prompt/stream", post(deki_prompt_stream))
+        .route("/api/events/stream", post(storage_events_stream))
         .route("/api/sidecar/v1/embeddings", post(sidecar_embeddings))
         .route("/api/assets/{kind}/{*path}", get(managed_asset))
         .route("/api/llm/stream", post(llm_stream))
@@ -1152,6 +1154,13 @@ fn deki_stream_prompt_request(body: &Value) -> AppResult<Value> {
 /// Hostable streaming variant of `deki_prompt`. Live workspace events are sent
 /// as they happen; the stream ends with `done` (carrying the final response,
 /// including the complete bounded trace) or `error`.
+/// Live storage-change events so other open clients refresh what changed (see `http_storage_events`).
+async fn storage_events_stream() -> Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>
+{
+    let events = crate::http_storage_events::spawn_storage_event_stream();
+    Sse::new(ReceiverStream::new(events)).keep_alive(KeepAlive::default())
+}
+
 async fn deki_prompt_stream(
     State(state): State<HttpState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -1172,6 +1181,7 @@ async fn deki_prompt_stream(
         let events = deki::DekiEventSink::new(move |event| {
             let _ = event_tx.try_send(Ok(Event::default().data(event.to_string())));
         });
+        let session = json!({ "sessionId": request.get("sessionId").cloned() });
         let result =
             deki::deki_prompt_with_events(&state.app, request, &runtime_owner, events).await;
         let payload = match result {
@@ -1180,7 +1190,27 @@ async fn deki_prompt_stream(
                     "deki_prompt_stream ok in {}ms",
                     started.elapsed().as_millis()
                 ));
-                json!({ "type": "done", "data": response })
+                let done = json!({ "type": "done", "data": response });
+                if tx
+                    .send(Ok(Event::default().data(done.to_string())))
+                    .await
+                    .is_err()
+                {
+                    // The client left before the reply finished (tab closed,
+                    // connection dropped): save the reply so it is there when
+                    // the user comes back.
+                    let app = state.app.clone();
+                    let reply = done["data"].clone();
+                    let saved = tokio::task::spawn_blocking(move || {
+                        deki::persist_detached_reply(&app, &session, &reply)
+                    })
+                    .await;
+                    request_log(format!(
+                        "deki_prompt_stream client gone; reply saved={}",
+                        matches!(saved, Ok(Ok(true)))
+                    ));
+                }
+                return;
             }
             Err(error) => {
                 request_log(format!(
