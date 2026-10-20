@@ -149,6 +149,8 @@ pub(super) fn run_st_bulk_import_inner(
     let selections = BulkSelections::from_options(&options, &data_dir);
     let mut progress = BulkImportProgress::new(event_sink, selections.total());
     let mut imported = empty_import_counts();
+    // Saved character ids, so the app can run the card check on just these cards.
+    let mut character_ids: Vec<String> = Vec::new();
     let mut errors: Vec<Value> = Vec::new();
     let tag_mode = options
         .get("characterTagImportMode")
@@ -199,6 +201,9 @@ pub(super) fn run_st_bulk_import_inner(
                     .and_then(|name| name.to_str())
                     .map(ToOwned::to_owned);
                 if let Some(character) = result.get("character") {
+                    if let Some(id) = character.get("id").and_then(Value::as_str) {
+                        character_ids.push(id.to_owned());
+                    }
                     add_character_lookup_record(
                         &mut character_lookup,
                         character,
@@ -442,6 +447,7 @@ pub(super) fn run_st_bulk_import_inner(
     let result = json!({
         "success": imported_total > 0 || errors.is_empty(),
         "imported": imported,
+        "characterIds": character_ids,
         "errors": errors
     });
     progress.emit_done(&result)?;

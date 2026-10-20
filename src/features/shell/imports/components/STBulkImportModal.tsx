@@ -23,10 +23,12 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
+import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useSTBulkImportController } from "../hooks/use-st-bulk-import-controller";
 import {
   formatSTBulkModifiedAt,
   ST_BULK_TAG_IMPORT_OPTIONS,
+  type STBulkCardCheck,
   type STBulkScanItemBase,
 } from "../lib/st-bulk-import-model";
 
@@ -37,12 +39,14 @@ interface Props {
 
 export function STBulkImportModal({ open, onClose }: Props) {
   const controller = useSTBulkImportController();
+  const openModal = useUIStore((s) => s.openModal);
   const {
     folderPath,
     phase,
     scanResult,
     selection,
     importResult,
+    cardCheck,
     progress,
     error,
     characterTagImportMode,
@@ -537,6 +541,17 @@ export function STBulkImportModal({ open, onClose }: Props) {
               </div>
             )}
 
+            {importResult.success && importResult.imported.characters > 0 && (
+              <ImportedCardCheckNotice
+                cardCheck={cardCheck}
+                onReview={() => {
+                  const characterIds = importResult.characterIds;
+                  reset();
+                  openModal("card-check", { characterIds });
+                }}
+              />
+            )}
+
             {importResult.errors.length > 0 && (
               <div className="flex flex-col gap-1.5 rounded-lg bg-amber-500/10 p-2.5">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
@@ -563,6 +578,59 @@ export function STBulkImportModal({ open, onClose }: Props) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/** The import card check, run on the characters this folder import saved. */
+function ImportedCardCheckNotice({ cardCheck, onReview }: { cardCheck: STBulkCardCheck | null; onReview: () => void }) {
+  if (!cardCheck) {
+    // An older runtime that doesn't report which characters it saved.
+    return (
+      <p className="text-xs text-[var(--muted-foreground)]">
+        To check the imported cards, use Characters &gt; Import &gt; Check my cards.
+      </p>
+    );
+  }
+  if (cardCheck.status === "checking") {
+    return (
+      <p role="status" className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+        <Loader2 size="0.75rem" className="animate-spin" aria-hidden="true" />
+        Checking the imported cards…
+      </p>
+    );
+  }
+  if (cardCheck.status === "failed") {
+    return (
+      <p role="alert" className="text-xs text-[var(--destructive)]">
+        Couldn&apos;t check the imported cards: {cardCheck.error}. Characters &gt; Import &gt; Check my cards runs it
+        again.
+      </p>
+    );
+  }
+  const { flagged } = cardCheck;
+  if (flagged === 0) {
+    return (
+      <p role="status" className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+        <CheckCircle size="0.75rem" className="shrink-0 text-emerald-500" aria-hidden="true" />
+        Card check: nothing to fix in the {cardCheck.checked} imported card{cardCheck.checked === 1 ? "" : "s"}.
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+      <span className="flex items-center gap-2">
+        <AlertTriangle size="0.875rem" className="shrink-0 text-amber-500" aria-hidden="true" />
+        {flagged} of {cardCheck.checked} imported card{cardCheck.checked === 1 ? "" : "s"}{" "}
+        {flagged === 1 ? "has" : "have"} something that may trip up the model.
+      </span>
+      <button
+        type="button"
+        onClick={onReview}
+        className="shrink-0 rounded-md bg-[var(--primary)] px-3 py-1.5 font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+      >
+        Review
+      </button>
+    </div>
   );
 }
 

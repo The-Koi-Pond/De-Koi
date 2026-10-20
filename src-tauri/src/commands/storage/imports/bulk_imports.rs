@@ -842,6 +842,20 @@ mod tests {
 
         let alice_id = character_id_by_name(&state, "Alice");
         let bob_id = character_id_by_name(&state, "Bob");
+        let mut imported_ids = result["characterIds"]
+            .as_array()
+            .expect("bulk import should list the saved character ids")
+            .iter()
+            .map(|id| {
+                id.as_str()
+                    .expect("character id should be a string")
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        imported_ids.sort();
+        let mut expected_ids = vec![alice_id.clone(), bob_id.clone()];
+        expected_ids.sort();
+        assert_eq!(imported_ids, expected_ids);
         let chats = state.storage.list("chats").expect("chats should list");
         let alice_chats = chats
             .iter()

@@ -203,7 +203,7 @@
     "id": "characters",
     "title": "Characters",
     "category": "Library",
-    "summary": "Create, import, group, and edit character cards, with version history and per-character memories. Imported cards get a quick check for garbled text, name labels in greetings, old Claude 2 scaffolding and stock AI phrases, each with a previewed Fix it. Export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, or De-Koi's own format with cleaned-up memories if you want them. Choose whether a character remembers across chats, generate missing card fields, and set a public profile and music taste (shown as what they're listening to, with songs you can play). When a card is thin, De-Koi quietly infers a few tendencies from how the character actually behaves in chats; what you wrote always wins.",
+    "summary": "Create, import, group, and edit character cards, with version history and per-character memories. Imported cards, including SillyTavern folder imports, get a quick check for garbled text, name labels in greetings, old Claude 2 scaffolding and stock AI phrases, each with a previewed Fix it; Check my cards runs it on cards you already have. Export Character Card V3 JSON or CHARX packages with avatar, banner, and sprites, or De-Koi's own format with cleaned-up memories if you want them. Choose whether a character remembers across chats, generate missing card fields, and set a public profile and music taste (shown as what they're listening to, with songs you can play). When a card is thin, De-Koi quietly infers a few tendencies from how the character actually behaves in chats; what you wrote always wins.",
     "keywords": [
       "card",
       "character",
@@ -211,6 +211,7 @@
       "import",
       "card check",
       "card linter",
+      "check my cards",
       "garbled text",
       "mojibake",
       "fix card",
@@ -252,7 +253,7 @@
       "shuffle music"
     ],
     "audience": "Users building or collecting characters to chat or roleplay with.",
-    "where": "Title bar > Characters (Import shows the card check); open a character, then use Behavior for automatic sparse-card interpretation, Memories for cross-chat continuity, version history for saved card versions, or Export to choose De-Koi Native (optionally with sanitized character memories), V2 JSON, PNG, Character Card V3, or CHARX.",
+    "where": "Title bar > Characters (Import shows the card check, and Import > Check my cards checks saved cards); open a character, then use Behavior for automatic sparse-card interpretation, Memories for cross-chat continuity, version history for saved card versions, or Export to choose De-Koi Native (optionally with sanitized character memories), V2 JSON, PNG, Character Card V3, or CHARX.",
     "actions": [
       {
         "type": "open-panel",
