@@ -20,30 +20,47 @@ export interface RunnerJobSummary {
 const HEALTH_CACHE_MS = 60_000;
 /** 1 + 2 + 4 + 8 + 15 x 7 seconds of retries, about two minutes. */
 const RESUME_ATTEMPTS = 11;
-let health: { baseUrl: string; ok: boolean; checkedAt: number } | null = null;
+export interface RunnerHealth {
+  ok: boolean;
+  /** The runner can send phone notifications. */
+  push: boolean;
+  /** The runner sends "characters text first" messages itself, so tabs should not. */
+  textingFirst: boolean;
+}
+
+const NO_RUNNER: RunnerHealth = { ok: false, push: false, textingFirst: false };
+let health: { baseUrl: string; value: RunnerHealth; checkedAt: number } | null = null;
 
 /**
  * True when this app talks to a hosted runtime that has the generation runner next to it (the Pi images ship it
  * from this version on). Cached for a minute; desktop installs never use it.
  */
 export async function generationRunnerAvailable(): Promise<boolean> {
+  return (await generationRunnerHealth()).ok;
+}
+
+export async function generationRunnerHealth(): Promise<RunnerHealth> {
   const target = remoteRuntimeTarget();
-  if (!target) return false;
+  if (!target) return NO_RUNNER;
   const now = Date.now();
-  if (health && health.baseUrl === target.baseUrl && now - health.checkedAt < HEALTH_CACHE_MS) return health.ok;
-  let ok = false;
+  if (health && health.baseUrl === target.baseUrl && now - health.checkedAt < HEALTH_CACHE_MS) return health.value;
+  let value = NO_RUNNER;
   try {
     const response = await fetch(
       `${target.baseUrl}/runner/health`,
       remoteFetchInit({ headers: remoteHeaders(target) }),
     );
-    ok = response.ok && ((await response.json()) as { ok?: unknown }).ok === true;
+    if (response.ok) {
+      const body = (await response.json()) as { ok?: unknown; push?: unknown; textingFirst?: unknown };
+      const ok = body.ok === true;
+      value = { ok, push: ok && body.push === true, textingFirst: ok && body.textingFirst === true };
+    }
   } catch {
     // No runner (older install, or the runner container is down): replies run in the tab as before.
-    ok = false;
+    value = NO_RUNNER;
   }
-  health = { baseUrl: target.baseUrl, ok, checkedAt: now };
-  return ok;
+  health = { baseUrl: target.baseUrl, value, checkedAt: now };
+  return value;
 }
 
 /** Forget the cached health result, e.g. after the runner refused a request. */

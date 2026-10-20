@@ -62,6 +62,7 @@ import { requestIdleWork } from "./idle-work";
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { AutomaticMemoryMaintenanceStartup } from "../startup/AutomaticMemoryMaintenanceStartup";
 import { LiveStorageSync } from "../startup/LiveStorageSync";
+import { PhoneNotificationsStartup } from "../startup/PhoneNotificationsStartup";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -1381,6 +1382,7 @@ export function AppShell() {
     <TopBarActionsProvider>
       <AutomaticMemoryMaintenanceStartup />
       <LiveStorageSync />
+      <PhoneNotificationsStartup />
       <div
         data-component="AppShell"
         className={cn(

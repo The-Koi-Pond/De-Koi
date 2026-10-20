@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { phoneNotificationsApi } from "../../../../../shared/api/phone-notifications-api";
+import {
+  disablePhoneNotifications,
+  enablePhoneNotifications,
+  phoneNotificationSupport,
+  phoneNotificationUnavailableText,
+  phoneNotificationsEnabled,
+  type PhoneNotificationSupport,
+} from "../../../../../shared/lib/phone-notifications";
 import { Bell, Play, Upload, Volume2, X } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import {
@@ -178,6 +187,7 @@ export function ConversationSoundSetting() {
         }}
         help={nativeNotificationsHelp}
       />
+      <PhoneNotificationsSetting />
       <ToggleSetting
         label="Show memories as they are saved"
         checked={automaticMemoryCaptureNotifications}
@@ -420,5 +430,88 @@ export function ToggleSetting({
         </span>
       )}
     </label>
+  );
+}
+
+/**
+ * Phone notifications (Web Push) from the hosted runner: a character texted first, or a reply finished while
+ * De-Koi was closed. Hidden on installs without a runner (desktop app, older servers).
+ */
+function PhoneNotificationsSetting() {
+  const [support, setSupport] = useState<PhoneNotificationSupport | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const nextSupport = await phoneNotificationSupport();
+      const nextEnabled = nextSupport.supported ? await phoneNotificationsEnabled() : false;
+      if (cancelled) return;
+      setSupport(nextSupport);
+      setEnabled(nextEnabled);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!support || (!support.supported && support.reason === "no-runner")) return null;
+
+  const run = async (action: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+      setEnabled(await phoneNotificationsEnabled());
+      setMessage(done);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "That didn't work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <ToggleSetting
+        label="Phone notifications"
+        checked={enabled}
+        disabled={busy || !support.supported}
+        onChange={(next) =>
+          run(
+            next ? enablePhoneNotifications : disablePhoneNotifications,
+            next ? "This device will get notifications." : "Notifications are off for this device.",
+          )
+        }
+        help="Get a notification on this device when a character texts you first, or a reply finishes, while De-Koi is closed. Message text is never included."
+      />
+      {!support.supported && (
+        <p className="pl-6 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
+          {phoneNotificationUnavailableText(support.reason)}
+        </p>
+      )}
+      {enabled && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              const counts = await phoneNotificationsApi.test();
+              if (!counts.sent) throw new Error("The test notification didn't go through.");
+            }, "Test notification sent.")
+          }
+          className="ml-6 rounded-md px-2 py-1 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)] disabled:opacity-50"
+        >
+          Send a test notification
+        </button>
+      )}
+      {message && (
+        <p role="status" className="pl-6 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
+          {message}
+        </p>
+      )}
+    </div>
   );
 }
