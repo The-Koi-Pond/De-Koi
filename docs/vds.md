@@ -22,9 +22,44 @@ Open the web shell from a browser. Same-origin requests to `/health` and
 auto-detect the runtime without a separate Remote Runtime URL. Phone and PC
 browsers that open the same hosted URL use the same server-side data volume.
 
-## HTTPS Domain Or Reverse Proxy
+## HTTPS With Caddy (One Command)
 
-Create `.env` first and set the exact browser origin users will open:
+Phone notifications and voice calls (the microphone) only work on an `https://` page, and a public VDS needs a
+login. Caddy handles both:
+
+1. Point your domain's DNS (an A and/or AAAA record) at the VDS.
+2. Open ports 80 and 443 in the VDS firewall. Caddy uses 80 only to get and renew the certificate.
+3. From the repository root, run:
+
+```sh
+sh scripts/vds-https.sh de-koi.example.com
+```
+
+The script writes `DE_KOI_DOMAIN`, the `https://` origin in `CORS_ORIGINS` and `CSRF_TRUSTED_ORIGINS`, and a
+login to `.env` (it generates `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` if you haven't set them, plus the bcrypt hash
+Caddy needs). It then starts `docker-compose.vds.yml` with `docker-compose.vds.https.yml`, which adds a
+`de-koi-caddy` container ([`deploy/vds/Caddyfile`](../deploy/vds/Caddyfile)) on ports 80 and 443. It waits for
+the certificate, checks that the page asks for the login and that the API accepts it, and prints the login if
+it made one. Running it again keeps your login and settings.
+
+The browser asks for the login once per device. Caddy checks it for the whole site, and `de-koi-web` passes
+the same `Authorization` header on to the server, which checks it against `BASIC_AUTH_USER`/`BASIC_AUTH_PASS`.
+To change the password, edit `BASIC_AUTH_PASS` in `.env` and run the script again.
+
+To update later, include both compose files:
+
+```sh
+docker compose -f docker-compose.vds.yml -f docker-compose.vds.https.yml pull
+docker compose -f docker-compose.vds.yml -f docker-compose.vds.https.yml up -d
+```
+
+Then turn on **Phone notifications** in **Settings → Appearance** on each phone, and **Autonomous Messages** in a
+Conversation chat's settings for characters who text first.
+
+## Your Own HTTPS Reverse Proxy
+
+To use a reverse proxy you already run instead, create `.env` first and set the exact browser origin users will
+open:
 
 ```env
 CORS_ORIGINS=https://de-koi.example.com
