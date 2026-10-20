@@ -40,6 +40,7 @@ import { MemoryMaintenanceRecovery } from "../../../../../catalog/memory-mainten
 import { KnowledgeEdgeEditor } from "../../../../../catalog/knowledge";
 import { useUIStore } from "../../../../../../shared/stores/ui.store";
 import { MEMORY_RECALL_CONSOLE_DESCRIPTION } from "../../lib/memory-recall-copy";
+import { MemoryCaptureLogPanel } from "./MemoryCaptureLogPanel";
 
 export function formatMemoryDate(value: string | null | undefined): string {
   if (!value) return "Unknown";
@@ -259,10 +260,12 @@ export function MemoryRecallMemoriesModal({
   chatId,
   open,
   onClose,
+  memoryCaptureEnabled = true,
 }: {
   chatId: string;
   open: boolean;
   onClose: () => void;
+  memoryCaptureEnabled?: boolean;
 }) {
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
@@ -604,6 +607,7 @@ export function MemoryRecallMemoriesModal({
               </button>
             </div>
           </div>
+          <MemoryCaptureLogPanel chatId={chatId} open={open} captureEnabled={memoryCaptureEnabled} />
           {localMemories.length === 0 && (
             <p
               className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[0.6875rem] text-amber-800 dark:text-amber-200"

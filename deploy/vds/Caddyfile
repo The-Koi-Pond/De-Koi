@@ -1,0 +1,13 @@
+# HTTPS for a De-Koi VDS. Used by docker-compose.vds.https.yml; scripts/vds-https.sh fills in the values.
+# Caddy gets and renews the certificate for DE_KOI_DOMAIN on its own (ports 80 and 443 must reach this host).
+{$DE_KOI_DOMAIN} {
+	# The browser asks for this login once, then sends it with every request. de-koi-web passes it on to the
+	# server, which checks the same BASIC_AUTH_USER/BASIC_AUTH_PASS.
+	basic_auth {
+		{$BASIC_AUTH_USER} {$DE_KOI_CADDY_PASSWORD_HASH}
+	}
+	reverse_proxy de-koi-web:80 {
+		# Replies stream as server-sent events; send each piece on right away.
+		flush_interval -1
+	}
+}

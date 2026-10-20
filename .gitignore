@@ -23,6 +23,7 @@ dist-ssr
 
 # Local environment and app/runtime data
 .env
+.env.bak-*
 .marinara-legacy-profile-import.json
 .docker-marinara-data/
 /scratch/

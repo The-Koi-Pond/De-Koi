@@ -333,6 +333,25 @@ assertServiceNotContains(
   'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"',
 );
 assertServiceNotContains("docker-compose.vds.yml de-koi-server", vdsServer, 'BYPASS_AUTH_DOCKER: "true"');
+
+// HTTPS: Tailscale Serve on the Pi, Caddy with a whole-site login on a VDS.
+const piHttpsScript = read("scripts/pi-https.sh");
+const vdsHttpsScript = read("scripts/vds-https.sh");
+const vdsHttpsCompose = read("docker-compose.vds.https.yml");
+const vdsCaddyfile = read("deploy/vds/Caddyfile");
+assertContains("scripts/pi-https.sh", piHttpsScript, "tailscale serve --bg --yes");
+assertContains("scripts/pi-https.sh", piHttpsScript, "sh scripts/pi-update.sh --trusted-lan");
+assertContains("scripts/pi-https.sh", piHttpsScript, "CSRF_TRUSTED_ORIGINS");
+assertContains("docs/pi.md", piDocs, "sh scripts/pi-https.sh");
+assertContains("scripts/vds-https.sh", vdsHttpsScript, "-f docker-compose.vds.yml -f docker-compose.vds.https.yml");
+assertContains("scripts/vds-https.sh", vdsHttpsScript, "CSRF_TRUSTED_ORIGINS");
+assertContains("docs/vds.md", vdsDocs, "sh scripts/vds-https.sh");
+assertOnlyServicePublishesHostPort("docker-compose.vds.https.yml", vdsHttpsCompose, "de-koi-caddy");
+assertNotContains("docker-compose.vds.https.yml", vdsHttpsCompose, "8787");
+assertContains("docker-compose.vds.https.yml", vdsHttpsCompose, "./deploy/vds/Caddyfile:/etc/caddy/Caddyfile:ro");
+assertContains("deploy/vds/Caddyfile", vdsCaddyfile, "basic_auth");
+assertContains("deploy/vds/Caddyfile", vdsCaddyfile, "reverse_proxy de-koi-web:80");
+
 assertServiceContains("docker-compose.vds.yml de-koi-web", vdsWeb, "ghcr.io/the-koi-pond/de-koi-web:prealpha");
 assertServiceContains(
   "docker-compose.vds.yml de-koi-web",

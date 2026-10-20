@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import {
   automaticCaptureMemoryFailure,
+  buildMemoryCaptureReport,
   extractCanonicalMemoryConsequences,
   standaloneMemoryFailure,
   type CanonicalConsequenceExtractionRequest,
@@ -158,7 +159,7 @@ describe("automatic memory consequence extraction", () => {
       request: extractionRequest,
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("uses reference context only to resolve wording and persists both provenance ID sets", async () => {
@@ -245,7 +246,7 @@ describe("automatic memory consequence extraction", () => {
       request: extractionRequest,
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   describe("wording and format corrections", () => {
@@ -367,7 +368,7 @@ describe("automatic memory consequence extraction", () => {
 
       const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
 
-      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
       expect(prompts).toHaveLength(2);
     });
 
@@ -388,7 +389,7 @@ describe("automatic memory consequence extraction", () => {
 
       const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
 
-      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
       expect(prompts).toHaveLength(3);
     });
 
@@ -405,7 +406,7 @@ describe("automatic memory consequence extraction", () => {
 
       const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
 
-      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
     });
 
     it("does not ask for a correction when a candidate fails a substance check", async () => {
@@ -415,7 +416,7 @@ describe("automatic memory consequence extraction", () => {
 
       const result = await extractCanonicalMemoryConsequences({ llm, request: catRequest() });
 
-      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
       expect(prompts).toHaveLength(1);
     });
 
@@ -423,6 +424,172 @@ describe("automatic memory consequence extraction", () => {
       const { llm } = sequencedGateway([{ memories: [catMemory({ confidence: "high" })] }, new Error("provider down")]);
 
       await expect(extractCanonicalMemoryConsequences({ llm, request: catRequest() })).rejects.toThrow("provider down");
+    });
+  });
+});
+
+describe("automatic memory capture skip reasons", () => {
+  function replies(...answers: unknown[]): LlmGateway {
+    return {
+      async complete() {
+        return JSON.stringify(answers.shift() ?? {});
+      },
+      async *stream() {
+        yield { type: "done" as const };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+  }
+
+  const miso = {
+    kind: "fact",
+    content: "Celia's cat is named Miso.",
+    confidence: 0.95,
+    evidence: "direct_user_assertion",
+    sourceMessageIds: ["user-current"],
+  };
+
+  it.each([
+    ["unknown_kind", { kind: "rumor" }],
+    ["empty_content", { content: "   " }],
+    ["too_long", { content: `Celia's cat is named Miso. ${"Miso naps. ".repeat(60)}` }],
+    ["unknown_evidence", { evidence: "vibes" }],
+    ["no_source_rows", { sourceMessageIds: [] }],
+    ["unknown_source_row", { sourceMessageIds: ["user-elsewhere"] }],
+    ["unknown_reference_row", { referenceMessageIds: ["user-elsewhere"] }],
+    ["evidence_mismatch", { sourceMessageIds: ["assistant-current"] }],
+    ["not_in_cited_rows", { content: "Celia owns a red bicycle." }],
+    ["unknown_supersedes", { supersedesMemoryId: "memory-that-is-not-there" }],
+  ])("records %s for a candidate that fails that check", async (reason, patch) => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: replies({ memories: [{ ...miso, ...patch }] }),
+      request: request(),
+    });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.skipped).toEqual([expect.objectContaining({ reason })]);
+    expect(result.skippedCount).toBe(1);
+    expect(result.proposedCount).toBe(1);
+  });
+
+  it("records a reply without a memories list, broken entries and entries past the limit", async () => {
+    const empty = await extractCanonicalMemoryConsequences({ llm: replies({ facts: [] }), request: request() });
+    expect(empty.skipped).toEqual([{ reason: "malformed_response" }]);
+
+    const crowded = await extractCanonicalMemoryConsequences({
+      llm: replies({ memories: ["not an object", ...Array.from({ length: 13 }, () => miso)] }),
+      request: request(),
+    });
+    expect(crowded.proposedCount).toBe(14);
+    expect(crowded.skipped.filter((skip) => skip.reason === "malformed_candidate")).toHaveLength(1);
+    expect(crowded.skipped.filter((skip) => skip.reason === "over_limit")).toEqual([
+      expect.objectContaining({ reason: "over_limit", content: miso.content, kind: "fact" }),
+    ]);
+    // The twelve that fit all pass; the persist step dedupes them later.
+    expect(crowded.candidates).toHaveLength(12);
+  });
+
+  it("separates a missing correction, a still-broken correction and a verifier rejection", async () => {
+    const pronoun = { ...miso, content: "Celia says her cat is named Miso." };
+
+    const missing = await extractCanonicalMemoryConsequences({
+      llm: replies({ memories: [pronoun] }, { corrections: [] }),
+      request: request(),
+    });
+    expect(missing.skipped).toEqual([expect.objectContaining({ reason: "wording_uncorrected" })]);
+    expect(missing.skipped[0]).not.toHaveProperty("afterCorrection");
+
+    const stillBroken = await extractCanonicalMemoryConsequences({
+      llm: replies({ memories: [pronoun] }, { corrections: [{ index: 0, content: pronoun.content, confidence: 0.9 }] }),
+      request: request(),
+    });
+    expect(stillBroken.skipped).toEqual([
+      expect.objectContaining({ reason: "wording_uncorrected", afterCorrection: true }),
+    ]);
+
+    const rejected = await extractCanonicalMemoryConsequences({
+      llm: replies(
+        { memories: [pronoun] },
+        { corrections: [{ index: 0, content: "Celia says Celia's cat is named Miso.", confidence: 0.9 }] },
+        { verdicts: [{ index: 0, faithful: false }] },
+      ),
+      request: request(),
+    });
+    expect(rejected.skipped).toEqual([expect.objectContaining({ reason: "verifier_rejected", afterCorrection: true })]);
+  });
+
+  it("says when the verifier's answer was unusable instead of calling it a rejection", async () => {
+    const paraphrase = { ...miso, content: "Celia has a cat called Miso." };
+    const result = await extractCanonicalMemoryConsequences({
+      llm: replies({ memories: [paraphrase] }, { verdicts: [{ index: 3, faithful: true }] }),
+      request: request(),
+    });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.skipped).toEqual([expect.objectContaining({ reason: "verifier_unusable" })]);
+  });
+
+  it("counts a corrected memory that the verifier keeps", async () => {
+    const result = await extractCanonicalMemoryConsequences({
+      llm: replies(
+        { memories: [{ ...miso, confidence: "high" }] },
+        { corrections: [{ index: 0, content: miso.content, confidence: 0.9 }] },
+        { verdicts: [{ index: 0, faithful: true }] },
+      ),
+      request: request(),
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.correctedCount).toBe(1);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("reports low-value, duplicate and low-confidence memories in the job report", () => {
+    const candidate = (content: string) => ({
+      kind: "fact" as const,
+      status: "active" as const,
+      scope: { kind: "character" as const, id: "pierrot" },
+      content,
+      confidence: 0.9,
+      provenance: { sourceChatId: "chat-1", messageIds: ["user-current"], characterId: null, timestamp: null },
+      title: null,
+      tags: [],
+      supersedesMemoryId: null,
+      payload: {},
+    });
+    const saved = (id: string, status: "active" | "stale") => ({
+      operation: "created" as const,
+      memory: { ...candidate(id), id, status, createdAt: "", updatedAt: "" },
+    });
+
+    const report = buildMemoryCaptureReport({
+      extraction: {
+        skipped: [{ reason: "verifier_rejected", content: "Celia hates Miso." }],
+        proposedCount: 5,
+        correctedCount: 1,
+      },
+      lowValue: [candidate("Celia said hello.")],
+      duplicates: [candidate("Celia's cat is named Miso.")],
+      affected: [saved("memory-1", "active"), saved("memory-2", "stale")],
+      transcriptCandidate: true,
+      transcriptAccepted: false,
+    });
+
+    expect(report).toEqual({
+      version: 1,
+      proposed: 5,
+      saved: 1,
+      savedInactive: 1,
+      corrected: 1,
+      skippedTotal: 3,
+      skipped: [
+        { reason: "verifier_rejected", content: "Celia hates Miso." },
+        { reason: "low_value", kind: "fact", content: "Celia said hello." },
+        { reason: "duplicate", kind: "fact", content: "Celia's cat is named Miso." },
+      ],
+      transcript: "low_value",
     });
   });
 });

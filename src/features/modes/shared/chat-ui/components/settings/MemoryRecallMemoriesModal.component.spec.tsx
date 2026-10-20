@@ -20,6 +20,7 @@ const hookMocks = vi.hoisted(() => ({
   },
   showConfirmDialog: vi.fn(async () => true),
   recoveryProps: null as Record<string, unknown> | null,
+  captureJobs: [] as Array<Record<string, unknown>>,
 }));
 
 function mutation() {
@@ -30,20 +31,39 @@ function mutation() {
   };
 }
 
-vi.mock("../../../../../catalog/chats/index", () => ({
-  useChatMemories: () => ({ data: hookMocks.memories, isLoading: false, isFetching: false, error: null }),
-  useInheritedCharacterMemories: () => ({ data: [], isLoading: false, error: null }),
-  useCreateChatMemory: () => hookMocks.createMemory,
-  useSoftDeleteChatMemory: mutation,
-  useRestoreChatMemory: mutation,
-  useUpdateChatMemory: mutation,
-  usePinChatMemory: mutation,
-  useCorrectChatMemory: mutation,
-  useClearChatMemories: mutation,
-  useRepairChatMemories: () => hookMocks.repairMemories,
-  useExportChatMemories: mutation,
-  useImportChatMemories: mutation,
-}));
+vi.mock("../../../../../catalog/chats/index", async () => {
+  const actual = await vi.importActual<typeof import("../../../../../catalog/chats/index")>(
+    "../../../../../catalog/chats/index",
+  );
+  return {
+    MEMORY_CAPTURE_LOG_LIMIT: actual.MEMORY_CAPTURE_LOG_LIMIT,
+    MEMORY_CAPTURE_NOT_CHECKED_COPY: actual.MEMORY_CAPTURE_NOT_CHECKED_COPY,
+    MEMORY_CAPTURE_SKIP_COPY: actual.MEMORY_CAPTURE_SKIP_COPY,
+    useMemoryCaptureLog: () => ({
+      data: actual.memoryCaptureLog(hookMocks.captureJobs),
+      isLoading: false,
+      isError: false,
+    }),
+    ...chatHookMocks(),
+  };
+});
+
+function chatHookMocks() {
+  return {
+    useChatMemories: () => ({ data: hookMocks.memories, isLoading: false, isFetching: false, error: null }),
+    useInheritedCharacterMemories: () => ({ data: [], isLoading: false, error: null }),
+    useCreateChatMemory: () => hookMocks.createMemory,
+    useSoftDeleteChatMemory: mutation,
+    useRestoreChatMemory: mutation,
+    useUpdateChatMemory: mutation,
+    usePinChatMemory: mutation,
+    useCorrectChatMemory: mutation,
+    useClearChatMemories: mutation,
+    useRepairChatMemories: () => hookMocks.repairMemories,
+    useExportChatMemories: mutation,
+    useImportChatMemories: mutation,
+  };
+}
 
 vi.mock("../../../../../catalog/memory-maintenance", () => ({
   MemoryMaintenanceRecovery: (props: Record<string, unknown>) => {
@@ -103,6 +123,7 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
       },
     ];
     hookMocks.recoveryProps = null;
+    hookMocks.captureJobs = [];
     act(() => {
       root = createRoot(container!);
       root.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} />);
@@ -275,6 +296,74 @@ describe("MemoryRecallMemoriesModal manual entry", () => {
       "No local memories to clear yet",
     );
     expect(container!.textContent).not.toContain("Tidy memories");
+  });
+
+  it("shows what capture saved and why each other memory was not saved", () => {
+    hookMocks.captureJobs = [
+      {
+        id: "job-saved",
+        chatId: "chat-1",
+        status: "completed",
+        completedAt: "2026-10-20T10:00:00.000Z",
+        captureReport: {
+          version: 1,
+          proposed: 3,
+          saved: 1,
+          savedInactive: 1,
+          corrected: 0,
+          skippedTotal: 1,
+          skipped: [{ reason: "verifier_rejected", kind: "fact", content: "Chai owns two cats." }],
+          transcript: "saved",
+        },
+      },
+      {
+        id: "job-quiet",
+        chatId: "chat-1",
+        status: "completed",
+        completedAt: "2026-10-20T09:00:00.000Z",
+        captureReport: {
+          version: 1,
+          proposed: 0,
+          saved: 0,
+          savedInactive: 0,
+          corrected: 0,
+          skippedTotal: 0,
+          skipped: [],
+          transcript: "low_value",
+        },
+      },
+      {
+        id: "job-edited",
+        chatId: "chat-1",
+        status: "stale",
+        staleReason: "source_content_changed",
+        completedAt: "2026-10-20T08:00:00.000Z",
+      },
+      {
+        id: "job-old",
+        chatId: "chat-1",
+        status: "completed",
+        completedAt: "2026-10-01T08:00:00.000Z",
+        affectedCanonicalMemoryIds: ["m1"],
+      },
+    ];
+    act(() => {
+      root?.render(<MemoryRecallMemoriesModal chatId="chat-1" open onClose={vi.fn()} memoryCaptureEnabled={false} />);
+    });
+
+    const log = container!.querySelector('section[aria-label="Memory capture log"]');
+    expect(log?.textContent).toContain(
+      "3 replies checked · 2 memories saved · 1 not saved · 1 kept but not used · 1 reply not checked",
+    );
+    expect(log?.textContent).toContain("Memory is off for this chat");
+    const showWhy = Array.from(log!.querySelectorAll("button")).find((button) => button.textContent === "Show why");
+    act(() => showWhy?.click());
+    expect(log?.textContent).toContain("Saved 1 · 1 kept but not used · 1 not saved");
+    expect(log?.textContent).toContain("Chai owns two cats.");
+    expect(log?.textContent).toContain("The fact check said it doesn't match what was said.");
+    expect(log?.textContent).toContain("A message was edited before memory ran.");
+    expect(log?.textContent).toContain("1 reply was checked before De-Koi kept skip reasons.");
+    expect(log?.textContent).toContain("1 other reply saved everything it found, or had nothing new.");
   });
 
   it("does not expose manual cleanup and scopes optional recovery to both local lanes", () => {
