@@ -11,12 +11,7 @@ import {
   type ConversationRoutine,
   type WeekSchedule,
 } from "../schedules/schedule.service.js";
-import {
-  getChatActivityState,
-  hasChatActivityState,
-  setChatActivityState,
-  type AutonomousClientPresenceStatus,
-} from "./activity-state.js";
+import { getChatActivityState, setChatActivityState, type AutonomousClientPresenceStatus } from "./activity-state.js";
 import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬
@@ -65,6 +60,7 @@ type StoredMessage = {
   role?: unknown;
   createdAt?: unknown;
   characterId?: unknown;
+  extra?: unknown;
 };
 
 type StoredCharacter = {
@@ -76,7 +72,7 @@ type StoredCharacter = {
 type UserStatus = "active" | "idle" | "dnd";
 
 const AUTONOMOUS_ACTIVITY_MESSAGE_LIMIT = 80;
-const AUTONOMOUS_ACTIVITY_MESSAGE_FIELDS = ["role", "createdAt", "characterId"];
+const AUTONOMOUS_ACTIVITY_MESSAGE_FIELDS = ["role", "createdAt", "characterId", "extra"];
 
 function metadataRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
@@ -106,8 +102,15 @@ async function chatMessages(storage: StorageGateway, chatId: string): Promise<St
   const rows = await storage.listChatMessages<unknown>(chatId, {
     limit: AUTONOMOUS_ACTIVITY_MESSAGE_LIMIT,
     fields: AUTONOMOUS_ACTIVITY_MESSAGE_FIELDS,
+    // Only the marker that says a reply answered a user message; the rest of `extra` can be large.
+    fieldSelections: { extra: ["answersUserVersion"] },
   });
   return Array.isArray(rows) ? (rows as StoredMessage[]) : [];
+}
+
+/** A Conversation reply carries `extra.answersUserVersion`; a message a character sent on its own does not. */
+function answersUser(extra: unknown): boolean {
+  return Boolean(metadataRecord(extra).answersUserVersion);
 }
 
 function characterSchedules(meta: Record<string, unknown>): Record<string, WeekSchedule> {
@@ -364,12 +367,13 @@ export async function checkConversationAutonomous(
     return { shouldTrigger: false, characterIds: [], reason: "scene_active", inactivityMs: 0 };
 
   const messages = await chatMessages(storage, input.chatId);
-  initializeActivityFromMessages(
+  syncActivityFromMessages(
     input.chatId,
     messages.map((message) => ({
       role: typeof message.role === "string" ? message.role : "message",
       createdAt: typeof message.createdAt === "string" ? message.createdAt : undefined,
       characterId: typeof message.characterId === "string" ? message.characterId : null,
+      answersUser: answersUser(message.extra),
     })),
   );
 
@@ -531,38 +535,62 @@ export function clearGenerationInProgress(chatId: string, startedAt?: number): v
 }
 
 /**
- * Initialize activity state from DB messages if not already tracked in memory.
- * This handles server restarts and fresh page loads Ã¢â‚¬â€ we look at the most recent
- * messages to reconstruct timing state so autonomous messaging can resume.
+ * Bring the in-memory activity state in line with the stored transcript before each check.
+ *
+ * The transcript is the record of what was actually sent: the user's last message, and every message a
+ * character sent on its own after it (no `answersUser` marker). Counting those here means the follow-up
+ * cooldown and cap hold even when a caller didn't record its send, and after a server restart or a fresh page
+ * load. Without it the hosted runner re-sent a "texts first" message on every 30-second poll.
  */
-function initializeActivityFromMessages(
+function syncActivityFromMessages(
   chatId: string,
-  messages: Array<{ role: string; createdAt?: string; characterId?: string | null }>,
+  messages: Array<{ role: string; createdAt?: string; characterId?: string | null; answersUser: boolean }>,
 ): void {
-  // Already tracked Ã¢â‚¬â€ don't overwrite
-  if (hasChatActivityState(chatId)) return;
-  if (messages.length === 0) return;
-
-  let lastUserAt = 0;
-  let lastAssistantAt = 0;
-
-  // Scan messages in reverse to find timestamps efficiently
+  let lastUserIndex = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]!;
-    const ts = msg.createdAt ? new Date(msg.createdAt).getTime() : 0;
-    if (msg.role === "user" && !lastUserAt) lastUserAt = ts;
-    if (msg.role === "assistant" && !lastAssistantAt) lastAssistantAt = ts;
-    if (lastUserAt && lastAssistantAt) break;
+    if (messages[i]!.role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+  if (lastUserIndex < 0) return; // No user message in view: nothing to measure inactivity from.
+
+  const time = (message: { createdAt?: string }) => (message.createdAt ? new Date(message.createdAt).getTime() : 0);
+  const lastUserAt = time(messages[lastUserIndex]!);
+  let lastAssistantAt = 0;
+  const sent = new Map<string, { count: number; lastSentAt: number }>();
+  messages.forEach((message, index) => {
+    if (message.role !== "assistant") return;
+    lastAssistantAt = Math.max(lastAssistantAt, time(message));
+    if (index <= lastUserIndex || message.answersUser || !message.characterId) return;
+    const previous = sent.get(message.characterId);
+    sent.set(message.characterId, {
+      count: (previous?.count ?? 0) + 1,
+      lastSentAt: Math.max(previous?.lastSentAt ?? 0, time(message)),
+    });
+  });
+
+  const state = getChatActivityState(chatId);
+  if (!state) {
+    setChatActivityState(chatId, {
+      lastUserMessageAt: lastUserAt,
+      lastAssistantMessageAt: lastAssistantAt,
+      autonomousMessages: sent,
+      generationInProgressSince: null,
+    });
+    return;
   }
 
-  if (!lastUserAt) return; // No user messages Ã¢â‚¬â€ can't initialize
-
-  setChatActivityState(chatId, {
-    lastUserMessageAt: lastUserAt,
-    lastAssistantMessageAt: lastAssistantAt,
-    autonomousMessages: new Map(),
-    generationInProgressSince: null,
-  });
+  if (lastUserAt > state.lastUserMessageAt) {
+    // The user wrote since this state was recorded (another tab or device): start the count over.
+    state.lastUserMessageAt = lastUserAt;
+    state.autonomousMessages.clear();
+  }
+  state.lastAssistantMessageAt = Math.max(state.lastAssistantMessageAt, lastAssistantAt);
+  for (const [characterId, stored] of sent) {
+    const recorded = state.autonomousMessages.get(characterId);
+    if (!recorded || stored.count > recorded.count) state.autonomousMessages.set(characterId, stored);
+  }
 }
 
 export function recordAutonomousClientPresence(
