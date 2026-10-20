@@ -2,6 +2,11 @@
 pub mod app;
 pub(crate) mod builtins;
 pub(crate) mod connection_refs;
+#[cfg(all(
+    feature = "desktop",
+    not(any(target_os = "android", target_os = "ios"))
+))]
+pub(crate) mod desktop_updater;
 pub mod http_dispatch;
 pub mod http_server;
 pub(crate) mod http_storage_dispatch;
@@ -253,6 +258,8 @@ pub fn run() {
             app.manage(state);
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             center_main_window_on_primary_monitor(app);
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            desktop_updater::register(app)?;
             #[cfg(all(debug_assertions, not(any(target_os = "android", target_os = "ios"))))]
             open_main_window_devtools_if_requested(app);
             Ok(())
