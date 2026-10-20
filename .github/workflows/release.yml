@@ -379,7 +379,12 @@ jobs:
             echo "::error::APK is not signed with APK Signature Scheme v2."
             exit 1
           fi
-          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<< "${report}")"
+          if ! grep -qx "Number of signers: 1" <<< "${report}"; then
+            echo "::error::Expected exactly one APK signer."
+            exit 1
+          fi
+          # apksigner prints "Signer #1 certificate ..." (older) or "V2 Signer: certificate ..." (newer).
+          actual="$(sed -nE 's/^(Signer #1|V[0-9.]+ Signer):? certificate SHA-256 digest: //p' <<< "${report}" | sort -u)"
           expected="$(tr -d '[:space:]' < "${RUNNER_TEMP}/expected-cert.sha256")"
           if [ -z "${actual}" ] || [ "${actual}" != "${expected}" ]; then
             echo "::error::APK is signed by certificate ${actual:-none}, expected ${expected}. Check the ANDROID_* secrets."

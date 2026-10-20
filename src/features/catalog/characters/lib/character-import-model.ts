@@ -1,7 +1,11 @@
+import type { CardLintTarget } from "./card-lint-target";
+
 export type ImportResultRow = {
   filename: string;
   success: boolean;
   message: string;
+  /** The saved character, so the card check can lint it and save fixes. */
+  lint?: CardLintTarget | null;
 };
 
 export type TagImportMode = "all" | "none" | "existing";
