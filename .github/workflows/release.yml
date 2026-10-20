@@ -387,7 +387,8 @@ jobs:
           fi
           # Drafts don't create tags, so the tag check in "prepare" can't see an
           # earlier unpublished draft. Refuse to make a second one.
-          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+          existing="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"${TAG}\") | .id")"
+          if [ -n "${existing}" ]; then
             echo "::error::A release or draft named ${TAG} already exists. Delete or publish it first."
             exit 1
           fi
