@@ -1,0 +1,398 @@
+name: Release
+
+# Builds a De-Koi release with signed updater bundles and a verified latest.json.
+#
+# - Manual dispatch from main: builds everything, then creates a DRAFT GitHub
+#   release (tag vX.Y.Z from package.json). A maintainer reviews and publishes it;
+#   publishing marks it Latest, which is what the in-app updater reads.
+# - Pull requests that touch release files: the same build as a dry run, signed
+#   with a throwaway key. No release is created and no real secrets are used.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel shown in the title and notes"
+        required: true
+        default: Beta
+        type: choice
+        options:
+          - Beta
+          - Stable
+      release_notes:
+        description: "What's new (markdown). Shown at the top of the release notes."
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/release/**
+      - scripts/release-updater-manifest.mjs
+      - src-tauri/tauri.release.conf.json
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.33.2"
+  RELEASE_OVERLAY: src-tauri/tauri.release.conf.json
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      dry_run: ${{ steps.mode.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Choose release or dry run
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "dry_run=true" >> "${GITHUB_OUTPUT}"
+            echo "Dry run: builds and verifies everything, publishes nothing."
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "dry_run=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::error::Releases may only be built from main. Selected branch: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Check version and tag
+        id: version
+        shell: bash
+        env:
+          DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          cargo_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -n 1)"
+          if [ "${version}" != "${tauri_version}" ] || [ "${version}" != "${cargo_version}" ]; then
+            echo "::error::Version mismatch: package.json ${version}, tauri.conf.json ${tauri_version}, Cargo.toml ${cargo_version}"
+            exit 1
+          fi
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release versions must be x.y.z (the updater and installers need plain numbers). Got ${version}"
+            exit 1
+          fi
+          tag="v${version}"
+          if [ "${DRY_RUN}" = "false" ] && git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists. Bump the version before releasing."
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "Release ${tag} from ${GITHUB_SHA}"
+
+      - uses: pnpm/action-setup@v6.0.9
+        if: steps.mode.outputs.dry_run == 'true'
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        if: steps.mode.outputs.dry_run == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Make a throwaway updater key (dry run)
+        if: steps.mode.outputs.dry_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          mkdir -p "${RUNNER_TEMP}/dry-run-key"
+          pnpm tauri signer generate --ci -p dry-run -w "${RUNNER_TEMP}/dry-run-key/updater.key"
+
+      - name: Share the throwaway updater key (dry run)
+        if: steps.mode.outputs.dry_run == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dry-run-updater-key
+          path: ${{ runner.temp }}/dry-run-key/
+          if-no-files-found: error
+          retention-days: 1
+
+  build-desktop:
+    name: Desktop ${{ matrix.slug }}
+    runs-on: ${{ matrix.platform }}
+    needs: prepare
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: windows-x64
+            platform: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - slug: linux-x64
+            platform: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            fakeroot \
+            dpkg-dev
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch the throwaway updater key (dry run)
+        if: needs.prepare.outputs.dry_run == 'true'
+        uses: actions/download-artifact@v7
+        with:
+          name: dry-run-updater-key
+          path: ${{ runner.temp }}/dry-run-key
+
+      - name: Build signed release bundles
+        shell: bash
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+          BUNDLES: ${{ matrix.bundles }}
+          DE_KOI_SOURCE_COMMIT: ${{ github.sha }}
+          # Real keys only ever reach manual runs from main, never pull requests.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          config_args=(--config "${RELEASE_OVERLAY}")
+          if [ "${DRY_RUN}" = "true" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$(cat "${RUNNER_TEMP}/dry-run-key/updater.key")"
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="dry-run"
+            pubkey="$(cat "${RUNNER_TEMP}/dry-run-key/updater.key.pub")"
+            printf '{"plugins":{"updater":{"pubkey":"%s"}}}' "${pubkey}" > "${RUNNER_TEMP}/dry-run-pubkey.json"
+            config_args+=(--config "${RUNNER_TEMP}/dry-run-pubkey.json")
+          elif [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set. Releases must ship signed updates."
+            exit 1
+          fi
+          pnpm tauri build --ci "${config_args[@]}" --target "${RUST_TARGET}" --bundles "${BUNDLES}"
+
+      - name: Collect release files
+        shell: bash
+        env:
+          SLUG: ${{ matrix.slug }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundle_dir="src-tauri/target/${RUST_TARGET}/release/bundle"
+          mkdir -p release-assets
+          collect() {
+            local pattern="$1" name="$2"
+            local matches=(${pattern})
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one ${pattern}, found ${#matches[@]}"
+              exit 1
+            fi
+            cp "${matches[0]}" "release-assets/${name}"
+            if [ -f "${matches[0]}.sig" ]; then
+              cp "${matches[0]}.sig" "release-assets/${name}.sig"
+            fi
+          }
+          case "${SLUG}" in
+            windows-x64)
+              collect "${bundle_dir}/nsis/*-setup.exe" "De-Koi_${VERSION}_windows-x64-setup.exe"
+              ;;
+            linux-x64)
+              collect "${bundle_dir}/appimage/*.AppImage" "De-Koi_${VERSION}_linux-x64.AppImage"
+              collect "${bundle_dir}/deb/*.deb" "De-Koi_${VERSION}_linux-x64.deb"
+              ;;
+          esac
+          ls -la release-assets
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.slug }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  manifest:
+    name: Build and verify latest.json
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build-desktop
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download release files
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Fetch the throwaway updater key (dry run)
+        if: needs.prepare.outputs.dry_run == 'true'
+        uses: actions/download-artifact@v7
+        with:
+          name: dry-run-updater-key
+          path: ${{ runner.temp }}/dry-run-key
+
+      - name: Build latest.json and check every signature
+        shell: bash
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" = "true" ]; then
+            pubkey="$(cat "${RUNNER_TEMP}/dry-run-key/updater.key.pub")"
+          else
+            # The key installed apps trust. Verifying against it catches a secret
+            # that doesn't match the committed public key before anything ships.
+            pubkey="$(node -p "require('./${RELEASE_OVERLAY}').plugins.updater.pubkey")"
+          fi
+          node scripts/release-updater-manifest.mjs build \
+            --dir dist \
+            --version "${VERSION}" \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            --notes "De-Koi ${VERSION}. Full notes: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
+            --out dist/latest.json
+          node scripts/release-updater-manifest.mjs verify --dir dist --manifest dist/latest.json --pubkey "${pubkey}"
+          (cd dist && sha256sum -- * > "${RUNNER_TEMP}/SHA256SUMS.txt" && mv "${RUNNER_TEMP}/SHA256SUMS.txt" SHA256SUMS.txt)
+          cat dist/latest.json
+          cat dist/SHA256SUMS.txt
+
+      - name: Write release notes
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          CHANNEL: ${{ inputs.channel || 'Beta' }}
+          OPERATOR_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const fs = require("node:fs");
+          const values = {
+            VERSION: process.env.VERSION,
+            TAG: process.env.TAG,
+            CHANNEL: process.env.CHANNEL,
+            CHANNEL_LOWER: process.env.CHANNEL.toLowerCase(),
+            COMMIT: process.env.GITHUB_SHA,
+            REPOSITORY: process.env.GITHUB_REPOSITORY,
+            OPERATOR_NOTES: (process.env.OPERATOR_NOTES || "").trim(),
+            WINDOWS_SIGNING:
+              "Not Authenticode-signed yet, so Windows SmartScreen will warn. Choose More info, then Run anyway.",
+          };
+          const template = fs.readFileSync(".github/release/notes-template.md", "utf8");
+          const notes = template.replace(/\{\{([A-Z_]+)\}\}/g, (match, key) => {
+            if (!(key in values)) throw new Error(`unknown placeholder ${match}`);
+            return values[key];
+          });
+          fs.writeFileSync("release-notes.md", notes.replace(/\n{3,}/g, "\n\n"));
+          EOF
+          cat release-notes.md
+
+      - name: Upload final release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-final
+          path: |
+            dist/
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+  draft-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - manifest
+    if: needs.prepare.outputs.dry_run == 'false'
+    permissions:
+      contents: write
+    steps:
+      - name: Download final release bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: release-final
+          path: final
+
+      - name: Create draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          title="De-Koi ${VERSION}"
+          if [ "${CHANNEL}" != "Stable" ]; then
+            title="${title} (${CHANNEL})"
+          fi
+          # Draft: nothing is public, and installed apps see nothing, until a
+          # maintainer reviews it and clicks Publish (which marks it Latest).
+          url="$(gh release create "${TAG}" final/dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft \
+            --latest \
+            --target "${GITHUB_SHA}" \
+            --title "${title}" \
+            --notes-file final/release-notes.md)"
+          echo "Draft release: ${url}"
+          echo "Draft release ready for review: ${url}" >> "${GITHUB_STEP_SUMMARY}"

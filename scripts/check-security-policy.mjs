@@ -7,6 +7,10 @@ const CONFIG_PATHS = [
   path.join(ROOT, "src-tauri", "tauri.conf.json"),
   path.join(ROOT, "src-tauri", "tauri.prealpha.conf.json"),
 ];
+// Overlay merged over tauri.conf.json by the release workflow only. It is the one
+// place allowed to turn on the signed updater.
+const RELEASE_OVERLAY_PATH = path.join(ROOT, "src-tauri", "tauri.release.conf.json");
+const RELEASE_UPDATER_ENDPOINT = "https://github.com/The-Koi-Pond/De-Koi/releases/latest/download/latest.json";
 const MAXIMUM_ASSET_SCOPES = new Set([
   "$APPDATA/**",
   "$APPDATA/.avatar-thumbnails/**",
@@ -86,6 +90,53 @@ export function securityPolicyErrors(config) {
   return errors;
 }
 
+// Base and pre-alpha builds must never auto-update: pre-alpha has its own identity
+// and source builds update through git.
+export function noUpdaterErrors(config) {
+  const errors = [];
+  if (config?.plugins?.updater !== undefined) errors.push("plugins.updater belongs only in tauri.release.conf.json");
+  if (config?.bundle?.createUpdaterArtifacts !== undefined) {
+    errors.push("bundle.createUpdaterArtifacts belongs only in tauri.release.conf.json");
+  }
+  return errors;
+}
+
+export function releaseOverlayErrors(overlay) {
+  const errors = [];
+  const allowedTopLevel = new Set(["$schema", "bundle", "plugins"]);
+  for (const key of Object.keys(overlay ?? {})) {
+    if (!allowedTopLevel.has(key)) errors.push(`release overlay must not override ${key}`);
+  }
+  for (const key of Object.keys(overlay?.bundle ?? {})) {
+    if (key !== "createUpdaterArtifacts") errors.push(`release overlay must not override bundle.${key}`);
+  }
+  if (overlay?.bundle?.createUpdaterArtifacts !== true) {
+    errors.push("release overlay must set bundle.createUpdaterArtifacts to true (v2 signed installers, no zips)");
+  }
+  for (const key of Object.keys(overlay?.plugins ?? {})) {
+    if (key !== "updater") errors.push(`release overlay must not configure plugins.${key}`);
+  }
+  const updater = overlay?.plugins?.updater;
+  if (!updater) return [...errors, "release overlay must configure plugins.updater"];
+  for (const key of Object.keys(updater)) {
+    if (key.startsWith("dangerous")) errors.push(`plugins.updater.${key} must not be set`);
+  }
+  const endpoints = updater.endpoints;
+  if (!Array.isArray(endpoints) || endpoints.length !== 1 || endpoints[0] !== RELEASE_UPDATER_ENDPOINT) {
+    errors.push(`plugins.updater.endpoints must be exactly ["${RELEASE_UPDATER_ENDPOINT}"]`);
+  }
+  let keyText = "";
+  try {
+    keyText = Buffer.from(String(updater.pubkey ?? ""), "base64").toString("utf8");
+  } catch {
+    keyText = "";
+  }
+  if (!/^untrusted comment: minisign public key/.test(keyText)) {
+    errors.push("plugins.updater.pubkey must be a base64-encoded minisign public key");
+  }
+  return errors;
+}
+
 function selfTest() {
   const errors = securityPolicyErrors({
     app: {
@@ -114,6 +165,34 @@ function selfTest() {
     "app.security.csp",
   );
   if (!wildcardErrors.some((error) => error.includes("wildcard sources"))) throw new Error("missing wildcard check");
+
+  if (noUpdaterErrors({ plugins: { updater: {} }, bundle: { createUpdaterArtifacts: true } }).length !== 2) {
+    throw new Error("missing base/pre-alpha updater check");
+  }
+  const overlayErrors = releaseOverlayErrors({
+    app: { security: { csp: null } },
+    bundle: { createUpdaterArtifacts: "v1Compatible", targets: "all" },
+    plugins: {
+      shell: {},
+      updater: {
+        pubkey: "bm90IGEga2V5",
+        endpoints: ["http://example.com/latest.json"],
+        dangerousInsecureTransportProtocol: true,
+      },
+    },
+  });
+  for (const expected of [
+    "must not override app",
+    "must not override bundle.targets",
+    "createUpdaterArtifacts to true",
+    "must not configure plugins.shell",
+    "dangerousInsecureTransportProtocol must not be set",
+    "endpoints must be exactly",
+    "minisign public key",
+  ]) {
+    if (!overlayErrors.some((error) => error.includes(expected)))
+      throw new Error(`missing release overlay check: ${expected}`);
+  }
 }
 
 if (process.argv.includes("--self-test")) {
@@ -122,12 +201,20 @@ if (process.argv.includes("--self-test")) {
 } else {
   const failures = CONFIG_PATHS.flatMap((configPath) => {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    return securityPolicyErrors(config).map((error) => `${path.relative(ROOT, configPath)}: ${error}`);
+    return [...securityPolicyErrors(config), ...noUpdaterErrors(config)].map(
+      (error) => `${path.relative(ROOT, configPath)}: ${error}`,
+    );
   });
+  const overlay = JSON.parse(fs.readFileSync(RELEASE_OVERLAY_PATH, "utf8"));
+  failures.push(
+    ...releaseOverlayErrors(overlay).map((error) => `${path.relative(ROOT, RELEASE_OVERLAY_PATH)}: ${error}`),
+  );
   if (failures.length > 0) {
     console.error(failures.map((error) => `- ${error}`).join("\n"));
     process.exitCode = 1;
   } else {
-    console.log(`security policy check passed (CSP enforced in ${CONFIG_PATHS.length} desktop configs)`);
+    console.log(
+      `security policy check passed (CSP enforced in ${CONFIG_PATHS.length} desktop configs, release updater overlay reviewed)`,
+    );
   }
 }

@@ -16,10 +16,10 @@ export type UpdateCheckResponse = {
   installType: string;
   serverPlatform: string;
   clientPlatform?: string;
-  updateMechanism: "manual-release" | "source-main";
+  updateMechanism: "manual-release" | "source-main" | "tauri-updater";
   tauriUpdaterConfigured: boolean;
   applyAvailable: boolean;
-  applyUnavailableReason: "tauri-updater-not-configured";
+  applyUnavailableReason: "tauri-updater-not-configured" | null;
   manualUpdateCommand: string | null;
   manualUpdateHint: string;
 };
@@ -35,13 +35,18 @@ export function canOpenUpdateRelease(
   return update.updateAvailable && update.versionUpdate && update.installType !== "server";
 }
 
-export type UpdateApplyResponse = Omit<
-  UpdateCheckResponse,
-  "releaseNotes" | "publishedAt" | "updateAvailable" | "versionUpdate"
-> & {
-  status: "manual_update_required";
-  message: string;
-};
+export type UpdateApplyResponse =
+  | (Omit<UpdateCheckResponse, "releaseNotes" | "publishedAt" | "updateAvailable" | "versionUpdate"> & {
+      status: "manual_update_required";
+      message: string;
+    })
+  // Release desktop builds install signed updates in place; a successful install
+  // exits or restarts the app, so the only reply that comes back is "nothing newer".
+  | {
+      status: "up_to_date";
+      message: string;
+      currentVersion: string;
+    };
 
 export async function openUpdateRelease(
   update: Pick<UpdateCheckResponse, "releaseUrl">,

@@ -134,6 +134,7 @@ fn release_payload_for(
     release: &ReleaseInfo,
     current_commit: Option<&str>,
     server_build: bool,
+    updater_configured: bool,
 ) -> Value {
     let version_update = is_newer_version(APP_VERSION, &release.latest_version);
     let current_commit = clean_commit(current_commit);
@@ -141,6 +142,8 @@ fn release_payload_for(
     let commit_update =
         current_commit.is_some() && target_commit.is_some() && current_commit != target_commit;
     let update_available = version_update || (server_build && commit_update);
+    // Signed in-app installs exist only in release desktop builds (see desktop_updater.rs).
+    let updater_configured = updater_configured && !server_build;
     json!({
         "currentVersion": APP_VERSION,
         "latestVersion": release.latest_version,
@@ -157,20 +160,31 @@ fn release_payload_for(
         "installType": if server_build { "server" } else { "tauri-desktop" },
         "serverPlatform": platform_label(),
         "clientPlatform": "desktop",
-        "updateMechanism": if server_build { "source-main" } else { "manual-release" },
-        "tauriUpdaterConfigured": false,
-        "applyAvailable": false,
-        "applyUnavailableReason": "tauri-updater-not-configured",
+        "updateMechanism": if server_build {
+            "source-main"
+        } else if updater_configured {
+            "tauri-updater"
+        } else {
+            "manual-release"
+        },
+        "tauriUpdaterConfigured": updater_configured,
+        "applyAvailable": updater_configured && version_update,
+        "applyUnavailableReason": if updater_configured {
+            Value::Null
+        } else {
+            json!("tauri-updater-not-configured")
+        },
         "manualUpdateCommand": Value::Null,
         "manualUpdateHint": manual_update_hint(server_build),
     })
 }
 
-fn release_payload(release: &ReleaseInfo) -> Value {
+fn release_payload(release: &ReleaseInfo, updater_configured: bool) -> Value {
     release_payload_for(
         release,
         option_env!("DE_KOI_SOURCE_COMMIT"),
         cfg!(feature = "server"),
+        updater_configured,
     )
 }
 
@@ -353,9 +367,11 @@ async fn fetch_latest_release() -> AppResult<ReleaseInfo> {
     })
 }
 
-pub async fn check_updates() -> AppResult<Value> {
+/// `updater_configured` is true only for release desktop builds that carry the
+/// signed Tauri updater config; the server runtime always passes false.
+pub async fn check_updates(updater_configured: bool) -> AppResult<Value> {
     let release = fetch_latest_release().await?;
-    Ok(release_payload(&release))
+    Ok(release_payload(&release, updater_configured))
 }
 
 pub fn apply_update(input: Value) -> AppResult<Value> {
@@ -447,7 +463,7 @@ mod tests {
         let mut release = fallback_release("v1.6.2");
         release.target_commit = Some("target1234567890".to_string());
 
-        let payload = release_payload_for(&release, Some("current1234567890"), true);
+        let payload = release_payload_for(&release, Some("current1234567890"), true, false);
 
         assert_eq!(payload["currentCommit"], "current1234567890");
         assert_eq!(payload["targetCommit"], "target1234567890");
@@ -462,7 +478,7 @@ mod tests {
         let mut release = fallback_release(&format!("v{APP_VERSION}"));
         release.target_commit = Some("target1234567890".to_string());
 
-        let payload = release_payload_for(&release, Some("current1234567890"), true);
+        let payload = release_payload_for(&release, Some("current1234567890"), true, false);
 
         assert_eq!(payload["versionUpdate"], false);
         assert_eq!(payload["commitUpdate"], true);
@@ -474,11 +490,38 @@ mod tests {
         let mut release = fallback_release(&format!("v{APP_VERSION}"));
         release.target_commit = Some("target1234567890".to_string());
 
-        let payload = release_payload_for(&release, Some("current1234567890"), false);
+        let payload = release_payload_for(&release, Some("current1234567890"), false, false);
 
         assert_eq!(payload["versionUpdate"], false);
         assert_eq!(payload["commitUpdate"], true);
         assert_eq!(payload["updateAvailable"], false);
+    }
+
+    #[test]
+    fn release_desktop_build_offers_signed_install_only_for_a_newer_version() {
+        let newer = fallback_release("v999.0.0");
+        let payload = release_payload_for(&newer, None, false, true);
+        assert_eq!(payload["updateMechanism"], "tauri-updater");
+        assert_eq!(payload["tauriUpdaterConfigured"], true);
+        assert_eq!(payload["applyAvailable"], true);
+        assert_eq!(payload["applyUnavailableReason"], Value::Null);
+
+        let same = fallback_release(&format!("v{APP_VERSION}"));
+        let payload = release_payload_for(&same, None, false, true);
+        assert_eq!(payload["applyAvailable"], false);
+    }
+
+    #[test]
+    fn server_build_never_reports_the_desktop_updater() {
+        let newer = fallback_release("v999.0.0");
+        let payload = release_payload_for(&newer, None, true, true);
+        assert_eq!(payload["updateMechanism"], "source-main");
+        assert_eq!(payload["tauriUpdaterConfigured"], false);
+        assert_eq!(payload["applyAvailable"], false);
+        assert_eq!(
+            payload["applyUnavailableReason"],
+            "tauri-updater-not-configured"
+        );
     }
 
     #[test]

@@ -40,6 +40,7 @@ desktop = [
   "dep:tauri-plugin-dialog",
   "dep:tauri-plugin-notification",
   "dep:tauri-plugin-opener",
+  "dep:tauri-plugin-updater",
   "dep:tauri-plugin-window-state",
 ]
 devtools = ["desktop", "dep:tauri-plugin-devtools"]
@@ -83,6 +84,8 @@ marinara-llm = { path = "crates/llm" }
 marinara-sidecar = { path = "crates/sidecar" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# No "zip" feature: releases ship v2 updater artifacts (signed installers/AppImages), never zipped v1 bundles.
+tauri-plugin-updater = { version = "2", optional = true, default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-window-state = { version = "2", optional = true }
 
 [dev-dependencies]

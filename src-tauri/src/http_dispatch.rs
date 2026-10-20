@@ -1584,7 +1584,7 @@ pub(crate) async fn dispatch_for_runtime_owner(
             )
             .await
         }
-        "update_check" => updates::check_updates().await,
+        "update_check" => updates::check_updates(false).await,
         "update_apply" => updates::apply_update(optional_value(&args, "input")),
         _ => Err(AppError::new(
             "unsupported_command",
