@@ -47,3 +47,5 @@ whose check becomes required.
   commit, and squash-merges when `Required Validation` passes there.
 - A failing or conflicting pull request is removed from the queue without
   blocking the others. Fix it and queue it again.
+
+Merge queue trial 2: tiny test change.
