@@ -1,5 +1,6 @@
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
 import type { ImportResultRow } from "../lib/character-import-model";
+import { CardLintReview } from "./CardLintReview";
 
 type CharacterImportStatusPanelProps = {
   status: "idle" | "loading" | "done";
@@ -50,6 +51,10 @@ export function CharacterImportStatusPanel({ status, results }: CharacterImportS
           </div>
         ))}
       </div>
+
+      {results.map((result) =>
+        result.lint ? <CardLintReview key={`lint-${result.lint.characterId}`} {...result.lint} /> : null,
+      )}
     </div>
   );
 }

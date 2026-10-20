@@ -2,6 +2,7 @@ export * from "./query-keys";
 export * from "./hooks/use-characters";
 export * from "./hooks/use-character-memories";
 export * from "./hooks/use-start-chat-from-character";
+export { offerCardLintReview } from "./lib/card-lint-target";
 export * from "./lib/character-avatar-url";
 export * from "./lib/character-public-profile";
 export * from "./components/CharacterAvatarImage";
