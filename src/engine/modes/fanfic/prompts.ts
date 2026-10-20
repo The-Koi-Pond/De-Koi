@@ -187,6 +187,19 @@ export function buildFanficRevisionGuide(
     .join("\n\n");
 }
 
+/**
+ * Plotting rules for the first outline. Lab judges scored "Unsurprising" and "Compelling Plot" lowest on every fic:
+ * the first plan took the most obvious route, replayed canon plots, and resolved obstacles as soon as they appeared.
+ */
+export const FANFIC_OUTLINE_PLOT_RULES = [
+  "Plot past the first idea:",
+  "- Your first idea is the one every reader expects. Name it (the predictable field), then plan a route they won't guess. Keep every beat, pairing, and tone the requester asked for: surprise comes from how the story gets there, never from dropping or softening what they asked for.",
+  "- Canon is the setting and the cast, not the plot. Unless the requester asked for a retelling, don't replay a canon story or episode beat for beat, and in a divergence fic, events after the divergence go differently.",
+  "- Run a second thread that pulls against the main one, and let obstacles cost something before they give.",
+  "- Every threat, promise, or clue you set up pays off on the page. In a mystery, the solution isn't a famous canon solution, and every clue it needs appears before the reveal.",
+  "- No two chapters share a shape. Each one changes the situation in a different way.",
+].join("\n");
+
 /** Messages for the one-shot outline request; the reply is JSON. */
 export function buildFanficOutlineMessages(args: {
   request: FanficRequest;
@@ -198,6 +211,7 @@ export function buildFanficOutlineMessages(args: {
   const system = [
     "You plan fanfiction. Read the request and write a story outline that delivers what the requester asked for: the ships, tropes, and beats they named, in the fandom's real canon unless the setting says otherwise.",
     "Give the story a real arc: a hook, escalation, a turn, and a payoff. Each chapter summary is 2-3 sentences of concrete events: the situation, what changes, and where it ends up. Leave specific jokes, lines, and images for the chapter itself, and skip formula shapes like three failed attempts before the fix.",
+    FANFIC_OUTLINE_PLOT_RULES,
     "When you don't know a canon detail, plan around it instead of inventing a specific.",
     `## Content rules\n${fanficContentRules(request)}`,
     `## The request\n${renderFanficRequestForPrompt(request)}`,
@@ -209,7 +223,8 @@ export function buildFanficOutlineMessages(args: {
     .join("\n\n");
   const user = [
     `Outline this fic in exactly ${request.chapterCount} chapter${request.chapterCount === 1 ? "" : "s"}.`,
-    'Reply with JSON only, no prose around it: {"title": string, "summary": string (AO3-style 1-3 sentence summary), "chapters": [{"title": string, "summary": string}]}',
+    'Reply with JSON only, no prose around it: {"predictable": string, "title": string, "summary": string (AO3-style 1-3 sentence summary), "chapters": [{"title": string, "summary": string}]}',
+    "Write predictable first: 2-3 sentences on the version a reader would guess from the request, and any canon plot or episode it would replay. Then plan the story that takes a different route.",
   ].join("\n");
   return [
     { role: "system", content: system },
