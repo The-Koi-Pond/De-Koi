@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { phoneNotificationsApi } from "../../../../../shared/api/phone-notifications-api";
 import {
   disablePhoneNotifications,
   enablePhoneNotifications,
   phoneNotificationSupport,
   phoneNotificationUnavailableText,
   phoneNotificationsEnabled,
+  testPhoneNotifications,
   type PhoneNotificationSupport,
 } from "../../../../../shared/lib/phone-notifications";
 import { Bell, Play, Upload, Volume2, X } from "lucide-react";
@@ -497,10 +497,7 @@ function PhoneNotificationsSetting() {
           type="button"
           disabled={busy}
           onClick={() =>
-            run(async () => {
-              const counts = await phoneNotificationsApi.test();
-              if (!counts.sent) throw new Error("The test notification didn't go through.");
-            }, "Test notification sent.")
+            run(testPhoneNotifications, "Test notification sent. If nothing popped up, check the notification shade.")
           }
           className="ml-6 rounded-md px-2 py-1 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)] disabled:opacity-50"
         >

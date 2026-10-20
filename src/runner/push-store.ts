@@ -97,6 +97,27 @@ export class PushStore {
     return true;
   }
 
+  /** Sends to one device and logs anything but a delivery, with the push service's answer. */
+  private async deliver(
+    subscription: StoredSubscription,
+    payload: Record<string, unknown>,
+    fetchImpl: typeof fetch,
+  ): Promise<PushResult> {
+    const host = new URL(subscription.endpoint).host;
+    try {
+      const { result, status } = await sendPush(subscription, payload, this.data.vapid, fetchImpl);
+      if (result === "gone") {
+        console.warn(`[runner] push to ${host} answered HTTP ${status}: that device's sign-up expired, forgetting it`);
+      } else if (result === "failed") {
+        console.warn(`[runner] push to ${host} was refused with HTTP ${status}`);
+      }
+      return result;
+    } catch (error) {
+      console.warn(`[runner] push to ${host} failed`, error);
+      return "failed";
+    }
+  }
+
   /** Sends to every device; forgets devices whose subscription expired. Returns per-result counts. */
   async notifyAll(
     payload: Record<string, unknown>,
@@ -106,18 +127,28 @@ export class PushStore {
     const gone: string[] = [];
     await Promise.all(
       this.data.subscriptions.map(async (subscription) => {
-        let result: PushResult;
-        try {
-          result = await sendPush(subscription, payload, this.data.vapid, fetchImpl);
-        } catch (error) {
-          console.warn(`[runner] push to ${new URL(subscription.endpoint).host} failed`, error);
-          result = "failed";
-        }
+        const result = await this.deliver(subscription, payload, fetchImpl);
         counts[result] += 1;
         if (result === "gone") gone.push(subscription.endpoint);
       }),
     );
     for (const endpoint of gone) this.unsubscribe(endpoint);
     return counts;
+  }
+
+  /**
+   * Sends to the one device with this endpoint ("missing" when the server doesn't know it), forgetting it if its
+   * subscription expired. The settings test uses this so it tests the device it was pressed on.
+   */
+  async notifyOne(
+    endpoint: string,
+    payload: Record<string, unknown>,
+    fetchImpl: typeof fetch = fetch,
+  ): Promise<PushResult | "missing"> {
+    const subscription = this.data.subscriptions.find((entry) => entry.endpoint === endpoint);
+    if (!subscription) return "missing";
+    const result = await this.deliver(subscription, payload, fetchImpl);
+    if (result === "gone") this.unsubscribe(endpoint);
+    return result;
   }
 }

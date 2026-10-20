@@ -11,10 +11,14 @@ self.addEventListener("push", (event) => {
     data = {};
   }
   const title = typeof data.title === "string" && data.title ? data.title : "De-Koi";
+  const tag = typeof data.tag === "string" && data.tag ? data.tag : undefined;
   event.waitUntil(
     self.registration.showNotification(title, {
       body: typeof data.body === "string" ? data.body : "Open De-Koi to read it.",
-      tag: typeof data.tag === "string" ? data.tag : undefined,
+      tag,
+      // A newer notification with the same tag replaces the old one; renotify makes it alert again instead of
+      // swapping in silently (Chrome only accepts renotify together with a tag).
+      renotify: Boolean(tag),
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       data: { chatId: typeof data.chatId === "string" ? data.chatId : null },

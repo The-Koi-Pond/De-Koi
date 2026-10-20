@@ -63,6 +63,28 @@ export async function disablePhoneNotifications(): Promise<void> {
   await subscription.unsubscribe();
 }
 
+/**
+ * Sends a test notification to this device. If the push service says this device's sign-up expired, or the server
+ * no longer knows it, signs up again and retries once (what turning the setting off and on would do).
+ */
+export async function testPhoneNotifications(): Promise<void> {
+  const subscription = await currentSubscription();
+  if (!subscription) throw new Error("This device isn't signed up. Turn Phone notifications off and on again.");
+  let result = await phoneNotificationsApi.test(subscription.endpoint);
+  if (result === "gone" || result === "missing") {
+    await subscription.unsubscribe();
+    await enablePhoneNotifications();
+    const renewed = await currentSubscription();
+    if (!renewed) throw new Error("Couldn't sign this device up again. Turn Phone notifications off and on again.");
+    result = await phoneNotificationsApi.test(renewed.endpoint);
+  }
+  if (result === "sent") return;
+  if (result === "failed") {
+    throw new Error("The push service refused the test notification. The server log says why.");
+  }
+  throw new Error("This device's notification sign-up keeps expiring. Turn Phone notifications off and on again.");
+}
+
 export function phoneNotificationUnavailableText(reason: "insecure" | "unsupported" | "no-runner"): string {
   if (reason === "insecure") {
     return "Phone notifications need De-Koi on an https:// address. Plain http (like http://pi:7860) can't receive them.";

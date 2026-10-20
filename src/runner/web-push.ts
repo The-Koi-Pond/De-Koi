@@ -104,13 +104,16 @@ export function vapidAuthorization(endpoint: string, keys: VapidKeys, now = Date
 
 export type PushResult = "sent" | "gone" | "failed";
 
-/** Sends one notification. "gone" means the subscription expired (404/410) and should be forgotten. */
+/**
+ * Sends one notification. "gone" means the subscription expired (404/410) and should be forgotten. `status` is the
+ * push service's HTTP answer, kept so a refusal can be logged with its reason.
+ */
 export async function sendPush(
   subscription: PushSubscription,
   payload: Record<string, unknown>,
   keys: VapidKeys,
   fetchImpl: typeof fetch = fetch,
-): Promise<PushResult> {
+): Promise<{ result: PushResult; status: number }> {
   const body = encryptPushPayload(Buffer.from(JSON.stringify(payload)), subscription);
   const response = await fetchImpl(subscription.endpoint, {
     method: "POST",
@@ -123,6 +126,7 @@ export async function sendPush(
     },
     body: new Uint8Array(body),
   });
-  if (response.status === 404 || response.status === 410) return "gone";
-  return response.ok ? "sent" : "failed";
+  const result: PushResult =
+    response.status === 404 || response.status === 410 ? "gone" : response.ok ? "sent" : "failed";
+  return { result, status: response.status };
 }
