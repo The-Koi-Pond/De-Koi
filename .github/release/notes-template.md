@@ -9,14 +9,14 @@
 
 ## Downloads
 
-| Platform | File | Notes |
-|---|---|---|
-| Windows 10/11 (x64) | `De-Koi_{{VERSION}}_windows-x64-setup.exe` | Installer. {{WINDOWS_SIGNING}} |
-| Linux (x64) | `De-Koi_{{VERSION}}_linux-x64.AppImage` | Portable app. Make it executable, then run it. |
-| Linux (x64, Debian/Ubuntu) | `De-Koi_{{VERSION}}_linux-x64.deb` | Install with your package manager. |
-| Android (64-bit ARM) | `De-Koi_{{VERSION}}_android-arm64.apk` | Signed with De-Koi's release key. Open it on your phone and allow installs from your browser or files app when asked. |
-| All | `SHA256SUMS.txt` | Checksums for every file above. |
-| Updater | `latest.json` and `*.sig` | Used by the app's auto-updater. You don't need to download these. |
+| Platform                   | File                                       | Notes                                                                                                                 |
+| -------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Windows 10/11 (x64)        | `De-Koi_{{VERSION}}_windows-x64-setup.exe` | Installer. {{WINDOWS_SIGNING}}                                                                                        |
+| Linux (x64)                | `De-Koi_{{VERSION}}_linux-x64.AppImage`    | Portable app. Make it executable, then run it.                                                                        |
+| Linux (x64, Debian/Ubuntu) | `De-Koi_{{VERSION}}_linux-x64.deb`         | Install with your package manager.                                                                                    |
+| Android (64-bit ARM)       | `De-Koi_{{VERSION}}_android-arm64.apk`     | Signed with De-Koi's release key. Open it on your phone and allow installs from your browser or files app when asked. |
+| All                        | `SHA256SUMS.txt`                           | Checksums for every file above.                                                                                       |
+| Updater                    | `latest.json` and `*.sig`                  | Used by the app's auto-updater. You don't need to download these.                                                     |
 
 macOS and iOS are not part of this release yet.
 
