@@ -83,6 +83,7 @@ import {
 import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from "./chat-sidebar-character-avatars";
 import { CHAT_ROW_ACTION_RAIL_CLASS_NAME, CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
 import {
+  chatSidebarRetryNote,
   getChatSidebarRecovery,
   type ChatSidebarRecovery,
   type ChatSidebarRecoveryActionId,
@@ -258,6 +259,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     isError: chatsError,
     isLoading,
     isFetching,
+    failureCount: chatsFailureCount,
+    failureReason: chatsFailureReason,
     refetch: refetchChats,
   } = useChatSummaries();
   const deleteChat = useDeleteChat();
@@ -1443,6 +1446,11 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             {[1, 2, 3].map((i) => (
               <div key={i} className="shimmer h-10 rounded-lg" />
             ))}
+            {chatsFailureCount > 0 && (
+              <p role="status" className="px-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+                {chatSidebarRetryNote(chatsFailureReason)}
+              </p>
+            )}
           </div>
         )}
 

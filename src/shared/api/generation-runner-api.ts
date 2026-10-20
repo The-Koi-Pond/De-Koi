@@ -1,8 +1,11 @@
 import { ApiError } from "./api-errors";
 import {
+  fetchRemoteRuntime,
+  isRemoteRuntimeUnreachable,
   readRemoteError,
   remoteFetchInit,
   remoteHeaders,
+  remoteRuntimeNotConfiguredError,
   remoteRuntimeTarget,
   streamRemoteJsonEvents,
 } from "./remote-runtime";
@@ -70,8 +73,8 @@ export function resetGenerationRunnerHealth(): void {
 
 async function runnerFetch(path: string, init: RequestInit): Promise<Response> {
   const target = remoteRuntimeTarget();
-  if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
-  const response = await fetch(
+  if (!target) throw remoteRuntimeNotConfiguredError();
+  const response = await fetchRemoteRuntime(
     `${target.baseUrl}${path}`,
     remoteFetchInit({
       ...init,
@@ -112,11 +115,16 @@ export const generationRunnerApi = {
         }
         // The stream closed without runner_end (a proxy or network cut): resume below.
       } catch (error) {
-        // HTTP errors and the job's own error come back as ApiError: those are final. Network failures are not.
-        if (signal?.aborted || error instanceof ApiError) throw error;
+        // HTTP errors and the job's own error come back as ApiError: those are final. Network failures are not,
+        // including a server that can't be reached for a moment (phone asleep, wifi blip).
+        if (signal?.aborted || (error instanceof ApiError && !isRemoteRuntimeUnreachable(error))) throw error;
       }
       failures += 1;
-      if (failures > RESUME_ATTEMPTS) throw new ApiError("Lost the connection to the reply on the server", 503);
+      if (failures > RESUME_ATTEMPTS)
+        throw new ApiError(
+          "Lost the connection to the reply on the De-Koi server. It may still finish there: reopen this chat in a minute to see it.",
+          503,
+        );
       await new Promise((resolve) => setTimeout(resolve, Math.min(15_000, 1_000 * 2 ** (failures - 1))));
     }
   },

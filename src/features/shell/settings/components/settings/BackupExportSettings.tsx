@@ -66,7 +66,9 @@ export function BackupExportSettings() {
 
   const allowPrivilegedBackupOperation = () => {
     if (!remoteAdminAccessRequiredNow()) return true;
-    toast.error("Admin Access is required to manage backups on this remote runtime.");
+    toast.error(
+      "Managing backups on this server needs Admin Access. Enter the server's ADMIN_SECRET in Settings → Advanced → Admin Access.",
+    );
     return false;
   };
 

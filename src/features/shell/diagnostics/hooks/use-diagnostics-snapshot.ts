@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { APP_VERSION } from "../../../../engine/contracts/constants/defaults";
 import type { StorageEntity } from "../../../../engine/capabilities/storage";
 import type { LocalSidecarStatusResponse } from "../../../../engine/contracts/types/sidecar";
-import { checkRemoteRuntimeHealth, hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
+import {
+  checkRemoteRuntimeHealth,
+  hasEmbeddedTauriRuntime,
+  REMOTE_RUNTIME_NOT_CONFIGURED_MESSAGE,
+} from "../../../../shared/api/remote-runtime";
 import { localSidecarApi } from "../../../../shared/api/local-sidecar-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { getRecentClientDiagnostics, recordClientDiagnostic } from "../../../../shared/lib/client-diagnostics";
@@ -81,7 +85,7 @@ async function runtimeSection(remoteRuntimeUrl: string): Promise<DiagnosticsSect
         id: "remote-runtime",
         label: "Remote runtime",
         status: "error",
-        summary: "Remote Runtime URL is required in web-shell mode.",
+        summary: REMOTE_RUNTIME_NOT_CONFIGURED_MESSAGE,
       },
     ]);
   }

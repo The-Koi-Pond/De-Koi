@@ -337,7 +337,27 @@ export function sameOriginRemoteRuntimeUrl(): string {
 export function unconfiguredRemoteRuntimeHealth(): RemoteRuntimeHealthCheck {
   return hasEmbeddedTauriRuntime()
     ? { status: "unconfigured", message: "Embedded Tauri runtime in use." }
-    : { status: "unconfigured", message: "Remote Runtime URL is required in web-shell mode." };
+    : { status: "unconfigured", message: REMOTE_RUNTIME_NOT_CONFIGURED_MESSAGE };
+}
+
+/** Where users enter the De-Koi server address. */
+const SERVER_ADDRESS_SETTING = "Settings → Advanced → Remote Runtime URL";
+const ADMIN_ACCESS_SETTING = "Settings → Advanced → Admin Access";
+export const REMOTE_RUNTIME_NOT_CONFIGURED_MESSAGE = `No De-Koi server address is set. Enter it in ${SERVER_ADDRESS_SETTING}.`;
+
+export function remoteRuntimeNotConfiguredError(): ApiError {
+  return new ApiError(REMOTE_RUNTIME_NOT_CONFIGURED_MESSAGE, 400, { code: "remote_runtime_unconfigured" });
+}
+
+/** What the user can do about an HTTP status from the De-Koi server itself, or null when there is nothing specific. */
+function serverStatusNextStep(status: number): string | null {
+  if (status === 401) return "Check the username and password for the De-Koi server.";
+  if (status === 403)
+    return "The server refused this page's address. Add it to CORS_ORIGINS and CSRF_TRUSTED_ORIGINS on the server, then restart it.";
+  if (status === 404) return `Check that ${SERVER_ADDRESS_SETTING} points at a De-Koi server.`;
+  if (status === 502 || status === 503 || status === 504)
+    return "Make sure the De-Koi server is running, then try again.";
+  return null;
 }
 
 function encodeBasicAuth(username: string, password: string): string {
@@ -532,25 +552,50 @@ function createRemoteRequestDeadline(options: RemoteFiniteRequestOptions = {}) {
 }
 
 function remoteTimeoutError(timeoutMs: number): ApiError {
-  return new ApiError(`Remote runtime request timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`, 504, {
-    code: "remote_runtime_timeout",
-    timeoutMs,
-  });
+  const seconds = Math.ceil(timeoutMs / 1000);
+  return new ApiError(
+    `The De-Koi server didn't answer within ${seconds} seconds. Check that it's running and reachable, then try again.`,
+    504,
+    {
+      code: "remote_runtime_timeout",
+      timeoutMs,
+    },
+  );
+}
+
+const REMOTE_RUNTIME_UNREACHABLE_MESSAGE = `Can't reach the De-Koi server. Check that it's running and that ${SERVER_ADDRESS_SETTING} is right, then try again.`;
+
+/** The server could not be reached at all; a caller that resumes after dropped connections may retry it. */
+export function isRemoteRuntimeUnreachable(error: unknown): boolean {
+  return error instanceof ApiError && isRecord(error.details) && error.details.code === "remote_runtime_unreachable";
+}
+
+/** `fetch` to the De-Koi server, reporting a failed connection as an unreachable server instead of a bare TypeError. */
+export async function fetchRemoteRuntime(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    if (init.signal?.aborted || isAbortError(error)) throw error;
+    throw remoteNetworkError(error);
+  }
+}
+
+function unexpectedRemoteReplyError(): ApiError {
+  return new ApiError(
+    "The De-Koi server sent an unexpected reply. Try again; if it keeps happening, update and restart the server.",
+    502,
+  );
 }
 
 function remoteNetworkError(error: unknown, details: Record<string, unknown> = {}): ApiError {
   if (error instanceof ApiError) return error;
   const message = error instanceof Error ? error.message : String(error ?? "Unknown network error");
-  return new ApiError(
-    "Remote runtime is unreachable. Check Settings and make sure the runtime server is running.",
-    503,
-    {
-      code: "remote_runtime_unreachable",
-      ...details,
-      cause: error,
-      causeMessage: message,
-    },
-  );
+  return new ApiError(REMOTE_RUNTIME_UNREACHABLE_MESSAGE, 503, {
+    code: "remote_runtime_unreachable",
+    ...details,
+    cause: error,
+    causeMessage: message,
+  });
 }
 
 export async function checkRemoteRuntimeHealth(
@@ -565,7 +610,10 @@ export async function checkRemoteRuntimeHealth(
   try {
     target = normalizeRemoteRuntimeUrl(rawUrl);
   } catch {
-    return { status: "invalid", message: "Remote Runtime URL is invalid." };
+    return {
+      status: "invalid",
+      message: `${SERVER_ADDRESS_SETTING} isn't a valid address. Enter a full address like http://pi:7860.`,
+    };
   }
 
   if (!target) {
@@ -584,7 +632,11 @@ export async function checkRemoteRuntimeHealth(
     );
 
     if (!response.ok) {
-      return { status: "unreachable", message: `Remote runtime returned ${response.status}.` };
+      const nextStep = serverStatusNextStep(response.status);
+      return {
+        status: "unreachable",
+        message: `The De-Koi server answered with HTTP ${response.status}.${nextStep ? ` ${nextStep}` : ""}`,
+      };
     }
 
     let body: RemoteRuntimeHealthPayload | null = null;
@@ -594,13 +646,17 @@ export async function checkRemoteRuntimeHealth(
       if (deadline.didTimeOut() || deadline.didCallerAbort()) throw error;
     }
     if (!body || typeof body !== "object" || body.ok !== true || !isSupportedRemoteRuntime(body.runtime)) {
-      return { status: "unreachable", message: "Remote runtime did not return a compatible health response." };
+      return {
+        status: "unreachable",
+        message: `That address didn't answer like a De-Koi server. Check ${SERVER_ADDRESS_SETTING}, and update the server if it's old.`,
+      };
     }
 
     if (body.writable !== true) {
       return {
         status: "not-writable",
-        message: "Remote runtime is reachable, but its data storage is not writable.",
+        message:
+          "The De-Koi server is running, but it can't save data. Check that its data folder (DE_KOI_DATA_DIR) is writable, then restart it.",
         health: body,
       };
     }
@@ -625,13 +681,16 @@ export async function checkRemoteRuntimeHealth(
       if (invokeReady.status === 429) {
         return {
           status: "ok",
-          message: "Remote runtime is online and storage is writable, but API requests are temporarily rate limited.",
+          message:
+            "The De-Koi server is online, but it's getting too many requests from this device right now. Wait a minute before trying again.",
           health: body,
         };
       }
       return {
         status: "unreachable",
-        message: `Remote runtime health is reachable, but API invoke returned ${invokeReady.status}.`,
+        message: `The De-Koi server is online, but it rejected a test request (HTTP ${invokeReady.status}). ${
+          serverStatusNextStep(invokeReady.status) ?? "Update and restart the server, then refresh this page."
+        }`,
         health: body,
       };
     }
@@ -645,7 +704,7 @@ export async function checkRemoteRuntimeHealth(
     const timedOutAfterMs = deadline.timedOutAfterMs();
     if (timedOutAfterMs !== null) throw remoteTimeoutError(timedOutAfterMs);
     if (deadline.didCallerAbort() || isAbortError(error)) throw error;
-    return { status: "unreachable", message: "Remote runtime is unreachable." };
+    return { status: "unreachable", message: REMOTE_RUNTIME_UNREACHABLE_MESSAGE };
   } finally {
     deadline.dispose();
   }
@@ -673,6 +732,37 @@ function summarizeRemoteErrorText(text: string): string | null {
     : normalized;
 }
 
+/**
+ * The De-Koi server's own refusals (rate limit, Admin Access, untrusted page address, missing login) carry codes;
+ * its messages are written for whoever runs the server, so say what this user can do instead.
+ */
+function serverRefusalMessage(code: string, rawMessage: string, retryAfterMs: number | null): string | null {
+  switch (code) {
+    case "rate_limited": {
+      const wait = retryAfterMs ? `${Math.max(1, Math.ceil(retryAfterMs / 1000))} seconds` : "a minute";
+      return `The De-Koi server is getting too many requests from this device. Wait ${wait} and try again.`;
+    }
+    case "request_body_too_large":
+      return "That's too large for the De-Koi server to accept. Try a smaller file.";
+    case "admin_access_required":
+      return rawMessage.includes("ADMIN_SECRET")
+        ? `This needs Admin Access, but the De-Koi server has no ADMIN_SECRET set. Set ADMIN_SECRET on the server and restart it, then enter the same secret in ${ADMIN_ACCESS_SETTING}.`
+        : `This needs Admin Access. Enter the server's ADMIN_SECRET in ${ADMIN_ACCESS_SETTING}.`;
+    case "admin_access_invalid":
+      return `The Admin Access secret doesn't match the server's ADMIN_SECRET. Re-enter it in ${ADMIN_ACCESS_SETTING}.`;
+    case "csrf_origin_not_trusted":
+    case "csrf_referer_not_trusted":
+    case "csrf_cross_site": {
+      const origin = typeof window === "undefined" ? "this page's address" : window.location.origin;
+      return `The De-Koi server doesn't accept requests from ${origin}. Add it to CORS_ORIGINS and CSRF_TRUSTED_ORIGINS on the server, then restart it.`;
+    }
+    case "remote_auth_required":
+      return "The De-Koi server won't accept remote connections until it has a login. Set BASIC_AUTH_USER and BASIC_AUTH_PASS (or IP_ALLOWLIST) on the server, then restart it.";
+    default:
+      return null;
+  }
+}
+
 export async function readRemoteError(response: Response): Promise<ApiError> {
   const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
   try {
@@ -683,16 +773,19 @@ export async function readRemoteError(response: Response): Promise<ApiError> {
         ? record.message
         : typeof record.error === "string"
           ? record.error
-          : "Remote runtime returned " + response.status;
+          : `The De-Koi server answered with HTTP ${response.status}.`;
+    const code = typeof record.code === "string" ? record.code : "";
     const message = /Unsupported storage (?:entity|enity):?\s*deki-sessions/i.test(rawMessage)
       ? "This De-Koi server is older than the web app and cannot store Deki sessions. Update and restart the server, then refresh this page."
-      : rawMessage;
+      : (serverRefusalMessage(code, rawMessage, retryAfterMs) ?? rawMessage);
     return new ApiError(message, response.status, retryAfterMs === null ? record : { ...record, retryAfterMs });
   } catch {
+    // No JSON: usually a proxy (nginx, Tailscale) answering because the server behind it is down.
     const body = summarizeRemoteErrorText(await response.text().catch(() => ""));
-    const message = "Remote runtime returned " + response.status;
+    const nextStep = serverStatusNextStep(response.status);
+    const message = `The De-Koi server answered with HTTP ${response.status}.${nextStep ? ` ${nextStep}` : ""}`;
     return new ApiError(
-      body ? message + ": " + body : message,
+      body ? `${message} Details: ${body}` : message,
       response.status,
       retryAfterDetails(retryAfterMs, body ? { body } : undefined),
     );
@@ -730,7 +823,7 @@ export async function invokeRemote<T>(
   options: RemoteFiniteRequestOptions = {},
 ): Promise<T> {
   const target = remoteRuntimeTarget();
-  if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
+  if (!target) throw remoteRuntimeNotConfiguredError();
   const body = JSON.stringify({ command, args: args ?? null });
   const deadline = createRemoteRequestDeadline(options);
   try {
@@ -761,8 +854,8 @@ export async function* streamRemoteJsonEvents(
   options: { signal?: AbortSignal; privileged?: boolean } = {},
 ): AsyncGenerator<{ type: string; data: unknown }> {
   const target = remoteRuntimeTarget();
-  if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
-  const response = await fetch(
+  if (!target) throw remoteRuntimeNotConfiguredError();
+  const response = await fetchRemoteRuntime(
     `${target.baseUrl}${path}`,
     remoteFetchInit({
       method: "POST",
@@ -776,7 +869,7 @@ export async function* streamRemoteJsonEvents(
     }),
   );
   if (!response.ok) throw await readRemoteError(response);
-  if (!response.body) throw new ApiError("Remote runtime did not return an event stream", 500);
+  if (!response.body) throw unexpectedRemoteReplyError();
 
   for await (const data of readSseEventData(response.body)) {
     yield parseRemoteJsonEvent(data);
@@ -789,8 +882,8 @@ export async function* streamRemoteFormEvents(
   options: { signal?: AbortSignal; privileged?: boolean } = {},
 ): AsyncGenerator<{ type: string; data: unknown }> {
   const target = remoteRuntimeTarget();
-  if (!target) throw new ApiError("Remote runtime URL is not configured", 400);
-  const response = await fetch(
+  if (!target) throw remoteRuntimeNotConfiguredError();
+  const response = await fetchRemoteRuntime(
     `${target.baseUrl}${path}`,
     remoteFetchInit({
       method: "POST",
@@ -803,7 +896,7 @@ export async function* streamRemoteFormEvents(
     }),
   );
   if (!response.ok) throw await readRemoteError(response);
-  if (!response.body) throw new ApiError("Remote runtime did not return an event stream", 500);
+  if (!response.body) throw unexpectedRemoteReplyError();
 
   for await (const data of readSseEventData(response.body)) {
     yield parseRemoteJsonEvent(data);
@@ -841,7 +934,9 @@ function parseRemoteJsonEvent(data: string): { type: string; data: unknown } {
     const errorData = isRecord(event.data) ? event.data : {};
     const code = readString(errorData.code);
     throw new ApiError(
-      readString(errorData.message) || readString(errorData.error) || "Remote event stream failed",
+      readString(errorData.message) ||
+        readString(errorData.error) ||
+        "The De-Koi server stopped this task without saying why. Try again.",
       500,
       code ? { ...event, code } : event,
     );
@@ -871,7 +966,7 @@ export async function* streamRemoteLlm(
   target: RuntimeTarget,
   signal?: AbortSignal,
 ): AsyncGenerator<LlmChunk> {
-  const response = await fetch(
+  const response = await fetchRemoteRuntime(
     `${target.baseUrl}/api/llm/stream`,
     remoteFetchInit({
       method: "POST",
@@ -885,7 +980,7 @@ export async function* streamRemoteLlm(
     }),
   );
   if (!response.ok) throw await readRemoteError(response);
-  if (!response.body) throw new ApiError("Remote runtime did not return a stream", 500);
+  if (!response.body) throw unexpectedRemoteReplyError();
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -898,11 +993,15 @@ export async function* streamRemoteLlm(
       const idleTimeout = new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
           reject(
-            new ApiError("Remote LLM stream was idle for 120 seconds.", 504, {
-              code: "remote_runtime_stream_timeout",
-              timeoutMs: REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
-              partialOutput,
-            }),
+            new ApiError(
+              `The De-Koi server sent nothing for ${Math.round(REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS / 60_000)} minutes, so the reply was stopped. Retry; if it keeps happening, check the server and its model connection.`,
+              504,
+              {
+                code: "remote_runtime_stream_timeout",
+                timeoutMs: REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
+                partialOutput,
+              },
+            ),
           );
         }, REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS);
       });
@@ -926,7 +1025,7 @@ export async function* streamRemoteLlm(
       }
     }
     if (!terminalEventReceived) {
-      throw new ApiError("Remote LLM stream ended before a terminal event.", 502, {
+      throw new ApiError("The connection to the De-Koi server dropped before the reply finished. Retry.", 502, {
         code: "llm_stream_incomplete",
         partialOutput,
       });

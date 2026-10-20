@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getChatSidebarRecovery, type ChatSidebarRecoveryActionId } from "./chat-sidebar-recovery";
+import { ApiError } from "../../shared/api/api-errors";
+import {
+  chatSidebarRetryNote,
+  getChatSidebarRecovery,
+  type ChatSidebarRecoveryActionId,
+} from "./chat-sidebar-recovery";
 
 const context = { mode: "conversation" as const, state: "error" as const };
 
@@ -28,6 +33,22 @@ describe("getChatSidebarRecovery", () => {
     const recovery = getChatSidebarRecovery({ kind }, context);
     expect([recovery.primaryAction.id, recovery.secondaryAction?.id]).toEqual(actions);
     expect(`${recovery.title} ${recovery.description}`.toLowerCase()).toContain(copy);
+  });
+
+  it("shows the De-Koi server's own fix when the chat list can't reach it", () => {
+    const unreachable = new ApiError("Can't reach the De-Koi server. Check that it's running.", 503, {
+      code: "remote_runtime_unreachable",
+    });
+    const recovery = getChatSidebarRecovery(unreachable, context);
+    expect(recovery.title).toBe("Can't load chats from the De-Koi server");
+    expect(recovery.description).toBe(unreachable.message);
+    expect(chatSidebarRetryNote(unreachable)).toBe(`Still trying to load chats. ${unreachable.message}`);
+
+    const unconfigured = new ApiError("No De-Koi server address is set.", 400, { code: "remote_runtime_unconfigured" });
+    expect(getChatSidebarRecovery(unconfigured, context).primaryAction.id).toBe("connect-server");
+
+    // Ordinary failures keep the generic copy instead of showing internal text.
+    expect(chatSidebarRetryNote(new ApiError("chats/x not found", 404))).toBe("Still trying to load chats…");
   });
 
   it("keeps opaque failures unknown and routes them to retry and health", () => {
