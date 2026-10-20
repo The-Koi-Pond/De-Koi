@@ -181,7 +181,7 @@ pub(crate) async fn complete_anthropic_rich(request: LlmRequest) -> AppResult<Ll
         .ok_or_else(|| {
             AppError::with_details(
                 "llm_response_error",
-                "Provider response did not contain assistant text",
+                provider_empty_reply_message("Provider response did not contain assistant text"),
                 redact_sensitive_json(json.clone()),
             )
         })?;
@@ -225,7 +225,7 @@ pub(crate) async fn stream_anthropic(
     let mut completed = false;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            AppError::new("llm_stream_error", provider_transport_error_message(error))
+            AppError::new("llm_stream_error", provider_transport_error_message(&error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
         ensure_sse_buffer_within_limit(&buffer)?;
@@ -309,8 +309,12 @@ pub(crate) fn process_anthropic_sse_block(
     if payload == "[DONE]" {
         return Ok(SseBlockStatus::Complete);
     }
-    let value: Value = serde_json::from_str(&payload)
-        .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    let value: Value = serde_json::from_str(&payload).map_err(|error| {
+        AppError::new(
+            "llm_stream_parse_error",
+            provider_unreadable_reply_message(error),
+        )
+    })?;
     process_anthropic_stream_event(&value, event_name, emit)
 }
 
@@ -372,11 +376,11 @@ pub(crate) fn process_anthropic_stream_event(
             }
         }
         "error" => {
-            let error = value.get("error").unwrap_or(value).clone();
+            let error = redact_sensitive_json(value.get("error").unwrap_or(value).clone());
             return Err(AppError::with_details(
                 "llm_provider_error",
-                "Anthropic stream error",
-                redact_sensitive_json(error),
+                provider_stream_error_message("Anthropic", provider_error_text(&error).as_deref()),
+                error,
             ));
         }
         "message_stop" => return Ok(SseBlockStatus::Complete),

@@ -41,6 +41,7 @@ import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores
 import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../../../../shared/lib/agent-failures";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
+import { isProviderFailure, openConnectionsPanel } from "../lib/generation-failure";
 import type { AvatarCropValue } from "../../../../shared/lib/utils";
 import { useTrackerStateStore } from "../../world-state/index";
 import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
@@ -124,10 +125,11 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function showGenerationFailureToast(message: string): void {
+function showGenerationFailureToast(message: string, providerIssue: boolean): void {
   toast.error(message || "Generation failed", {
-    description: "Your message was kept. Fix the connection or provider issue, then retry.",
+    description: "Your message was kept. Use Retry to send it again.",
     duration: 10_000,
+    ...(providerIssue ? { action: { label: "Open Connections", onClick: openConnectionsPanel } } : {}),
   });
 }
 
@@ -1952,9 +1954,12 @@ export async function runGenerationWithUi(
       if (!foregroundGenerationReleased && ownsChatController()) resetLiveGenerationBuffers();
       const message = errorMessage(error);
       const toastMessage = generationFailureToastMessage(args, message);
-      useChatStore.getState().setGenerationFailure(chatId, { message: toastMessage, failedAt: Date.now() });
+      const providerIssue = isProviderFailure(error);
+      useChatStore
+        .getState()
+        .setGenerationFailure(chatId, { message: toastMessage, failedAt: Date.now(), providerIssue });
       dispatchGenerationFailureEvent(chatId, toastMessage);
-      showGenerationFailureToast(toastMessage);
+      showGenerationFailureToast(toastMessage, providerIssue);
     }
     throw error;
   } finally {

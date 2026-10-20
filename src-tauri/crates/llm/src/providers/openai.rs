@@ -110,7 +110,7 @@ pub(crate) async fn stream_openai_compatible(
     let mut completed = false;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            AppError::new("llm_stream_error", provider_transport_error_message(error))
+            AppError::new("llm_stream_error", provider_transport_error_message(&error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
         ensure_sse_buffer_within_limit(&buffer)?;
@@ -602,7 +602,9 @@ impl ChatGptResponsesRichCollector {
         if self.content.trim().is_empty() && self.tool_calls.is_empty() {
             return Err(AppError::new(
                 "llm_response_error",
-                "ChatGPT Codex stream did not contain assistant text or tool calls",
+                provider_empty_reply_message(
+                    "ChatGPT Codex stream did not contain assistant text or tool calls",
+                ),
             ));
         }
         let finish_reason = if self.tool_calls.is_empty() {
@@ -678,7 +680,9 @@ pub(crate) async fn complete_openai_responses_rich(
     if content.trim().is_empty() && tool_calls.is_empty() {
         return Err(AppError::with_details(
             "llm_response_error",
-            "Responses API result did not contain assistant text or tool calls",
+            provider_empty_reply_message(
+                "Responses API result did not contain assistant text or tool calls",
+            ),
             redact_sensitive_json(json),
         ));
     }
@@ -729,7 +733,7 @@ pub(crate) async fn stream_openai_responses(
     let mut completed = false;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            AppError::new("llm_stream_error", provider_transport_error_message(error))
+            AppError::new("llm_stream_error", provider_transport_error_message(&error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
         ensure_sse_buffer_within_limit(&buffer)?;
@@ -785,8 +789,12 @@ pub(crate) fn process_openai_responses_sse_block(
     if payload == "[DONE]" {
         return Ok(SseBlockStatus::Complete);
     }
-    let value: Value = serde_json::from_str(&payload)
-        .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    let value: Value = serde_json::from_str(&payload).map_err(|error| {
+        AppError::new(
+            "llm_stream_parse_error",
+            provider_unreadable_reply_message(error),
+        )
+    })?;
     let event_type = value
         .get("type")
         .and_then(Value::as_str)
@@ -844,10 +852,21 @@ pub(crate) fn process_openai_responses_sse_block(
             return Ok(SseBlockStatus::Complete);
         }
         "response.failed" | "response.incomplete" | "error" => {
+            let event_type = event_type.to_string();
+            let value = redact_sensitive_json(value);
+            let detail = provider_error_text(&value)
+                .or_else(|| {
+                    value
+                        .pointer("/response/error/message")
+                        .or_else(|| value.pointer("/response/incomplete_details/reason"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .unwrap_or(event_type);
             return Err(AppError::with_details(
                 "llm_provider_error",
-                format!("Responses API stream event {event_type}"),
-                redact_sensitive_json(value),
+                provider_stream_error_message("The provider", Some(&detail)),
+                value,
             ));
         }
         _ => {}
@@ -1080,8 +1099,12 @@ pub(crate) fn process_openai_sse_block(
     if payload == "[DONE]" {
         return Ok(SseBlockStatus::Complete);
     }
-    let value: Value = serde_json::from_str(&payload)
-        .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    let value: Value = serde_json::from_str(&payload).map_err(|error| {
+        AppError::new(
+            "llm_stream_parse_error",
+            provider_unreadable_reply_message(error),
+        )
+    })?;
     if let Some(usage) = value.get("usage").filter(|usage| !usage.is_null()) {
         emit(json!({ "type": "usage", "data": usage }))?;
     }

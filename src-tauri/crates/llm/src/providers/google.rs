@@ -509,14 +509,16 @@ pub(crate) async fn complete_google_rich(request: LlmRequest) -> AppResult<LlmCo
         .ok_or_else(|| {
             AppError::with_details(
                 "llm_response_error",
-                "Provider response did not contain a completion candidate",
+                provider_empty_reply_message(
+                    "Provider response did not contain a completion candidate",
+                ),
                 redact_sensitive_json(json.clone()),
             )
         })?;
     let content = google_candidate_text(candidate).ok_or_else(|| {
         AppError::with_details(
             "llm_response_error",
-            "Provider response did not contain assistant text",
+            provider_empty_reply_message("Provider response did not contain assistant text"),
             redact_sensitive_json(json.clone()),
         )
     })?;
@@ -579,7 +581,7 @@ pub(crate) async fn stream_google(
     let mut completed = false;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            AppError::new("llm_stream_error", provider_transport_error_message(error))
+            AppError::new("llm_stream_error", provider_transport_error_message(&error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
         ensure_sse_buffer_within_limit(&buffer)?;
@@ -628,13 +630,18 @@ pub(crate) fn process_google_sse_block(
     if payload == "[DONE]" {
         return Ok(SseBlockStatus::Complete);
     }
-    let value: Value = serde_json::from_str(&payload)
-        .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    let value: Value = serde_json::from_str(&payload).map_err(|error| {
+        AppError::new(
+            "llm_stream_parse_error",
+            provider_unreadable_reply_message(error),
+        )
+    })?;
     if let Some(error) = value.get("error") {
+        let error = redact_sensitive_json(json!({ "error": error.clone() }));
         return Err(AppError::with_details(
             "llm_provider_error",
-            "Gemini API stream error",
-            redact_sensitive_json(error.clone()),
+            provider_stream_error_message("Gemini", provider_error_text(&error).as_deref()),
+            error["error"].clone(),
         ));
     }
     if let Some(usage) = value.get("usageMetadata") {

@@ -1,6 +1,7 @@
-import { AlertCircle, RefreshCw, X } from "lucide-react";
+import { AlertCircle, RefreshCw, Settings2, X } from "lucide-react";
 
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { openConnectionsPanel } from "../lib/generation-failure";
 
 interface GenerationFailureNoticeProps {
   chatId: string | null;
@@ -21,14 +22,26 @@ export function GenerationFailureNotice({ chatId, onRetry }: GenerationFailureNo
       <div className="min-w-0 flex-1">
         <p className="font-medium">No response came back.</p>
         <p className="mt-0.5 break-words text-foreground/70">{failure.message}</p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-medium text-foreground hover:bg-foreground/10"
-        >
-          <RefreshCw size="0.75rem" aria-hidden="true" />
-          Retry
-        </button>
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-medium text-foreground hover:bg-foreground/10"
+          >
+            <RefreshCw size="0.75rem" aria-hidden="true" />
+            Retry
+          </button>
+          {failure.providerIssue && (
+            <button
+              type="button"
+              onClick={openConnectionsPanel}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-medium text-foreground hover:bg-foreground/10"
+            >
+              <Settings2 size="0.75rem" aria-hidden="true" />
+              Open Connections
+            </button>
+          )}
+        </div>
       </div>
       <button
         type="button"

@@ -552,7 +552,7 @@ export function ConversationInput({
           const translated = await translateText(message);
           if (translated.trim()) message = translated;
         } catch {
-          toast.error("Failed to translate message ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sending original");
+          toast.error("Failed to translate message — sending original");
         }
       }
       // Final pass: resolve macros introduced by translation while {{input}} still points to raw.
@@ -700,7 +700,7 @@ export function ConversationInput({
         const translated = await translateText(message);
         if (translated.trim()) message = translated;
       } catch {
-        toast.error("Failed to translate message ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sending original");
+        toast.error("Failed to translate message — sending original");
       }
     }
 
