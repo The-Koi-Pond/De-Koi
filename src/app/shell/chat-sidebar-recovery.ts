@@ -36,6 +36,37 @@ const EMPTY_NOUNS: Record<ChatSidebarRecoveryContext["mode"], { plural: string; 
 const RETRY = { id: "retry", label: "Retry" } as const;
 const VIEW_HEALTH = { id: "view-health", label: "View Health" } as const;
 
+// Codes the remote runtime adapter puts on a failure to reach or use the De-Koi server. Their messages already
+// name the fix (start the server, wait, trust this address), so the sidebar shows them as they are.
+const SERVER_PROBLEM_CODES = new Set([
+  "remote_runtime_unreachable",
+  "remote_runtime_timeout",
+  "rate_limited",
+  "remote_auth_required",
+  "csrf_origin_not_trusted",
+  "csrf_referer_not_trusted",
+  "csrf_cross_site",
+]);
+
+/** A failure to reach or use the De-Koi server, with its user-facing message; null for anything else. */
+function serverProblem(error: unknown): { kind: "missing-runtime" | "unhealthy-runtime"; message: string } | null {
+  if (!(error instanceof Error) || error.name !== "ApiError") return null;
+  const { status, details } = error as Error & { status?: unknown; details?: unknown };
+  const code =
+    typeof details === "object" && details !== null && typeof (details as { code?: unknown }).code === "string"
+      ? (details as { code: string }).code
+      : "";
+  if (code === "remote_runtime_unconfigured") return { kind: "missing-runtime", message: error.message };
+  const gatewayDown = typeof status === "number" && status >= 502 && status <= 504;
+  return SERVER_PROBLEM_CODES.has(code) || gatewayDown ? { kind: "unhealthy-runtime", message: error.message } : null;
+}
+
+/** Shown under the loading rows while the chat list keeps retrying, so a slow or missing server isn't a silent wait. */
+export function chatSidebarRetryNote(failureReason: unknown): string {
+  const problem = serverProblem(failureReason);
+  return problem ? `Still trying to load chats. ${problem.message}` : "Still trying to load chats…";
+}
+
 function isKnownRecoveryError(error: unknown): error is ChatSidebarRecoveryError {
   if (typeof error !== "object" || error === null || !("kind" in error)) return false;
   return ["startup", "missing-runtime", "unhealthy-runtime", "storage", "connection"].includes(String(error.kind));
@@ -61,6 +92,17 @@ function emptyRecovery(context: Extract<ChatSidebarRecoveryContext, { state: "em
 
 export function getChatSidebarRecovery(error: unknown, context: ChatSidebarRecoveryContext): ChatSidebarRecovery {
   if (context.state === "empty") return emptyRecovery(context);
+
+  const problem = isKnownRecoveryError(error) ? null : serverProblem(error);
+  if (problem?.kind === "unhealthy-runtime") {
+    return {
+      title: "Can't load chats from the De-Koi server",
+      description: problem.message,
+      primaryAction: RETRY,
+      secondaryAction: VIEW_HEALTH,
+    };
+  }
+  if (problem?.kind === "missing-runtime") error = { kind: "missing-runtime" };
 
   if (!isKnownRecoveryError(error)) {
     return {

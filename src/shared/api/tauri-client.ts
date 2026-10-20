@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { measurePerformanceAsync } from "../lib/performance-diagnostics";
 import { ApiError } from "./api-errors";
-import { invokeRemote, isRemoteCommand, remoteRuntimeTarget } from "./remote-runtime";
+import { invokeRemote, isRemoteCommand, remoteRuntimeNotConfiguredError, remoteRuntimeTarget } from "./remote-runtime";
 
 function normalize(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
@@ -44,10 +44,8 @@ export async function invokeTauri<T>(
     );
   }
   if (!hasEmbeddedTauriIpc()) {
-    throw new ApiError(
-      remoteCommand ? "Remote Runtime URL is not configured" : "This action requires the Tauri app shell",
-      400,
-    );
+    if (remoteCommand) throw remoteRuntimeNotConfiguredError();
+    throw new ApiError("This only works in the De-Koi desktop app.", 400);
   }
   try {
     return await measurePerformanceAsync({ category: "ipc", name: command, details: { runtime: "embedded" } }, () =>

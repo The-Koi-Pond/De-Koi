@@ -125,7 +125,8 @@ describe("checkRemoteRuntimeHealth", () => {
 
     await expect(checkRemoteRuntimeHealth("not a runtime URL")).resolves.toEqual({
       status: "invalid",
-      message: "Remote Runtime URL is invalid.",
+      message:
+        "Settings → Advanced → Remote Runtime URL isn't a valid address. Enter a full address like http://pi:7860.",
     });
 
     expect(vi.getTimerCount()).toBe(0);
@@ -172,7 +173,8 @@ describe("checkRemoteRuntimeHealth", () => {
 
     await expect(checkRemoteRuntimeHealth("http://127.0.0.1:3080")).resolves.toMatchObject({
       status: "ok",
-      message: "Remote runtime is online and storage is writable, but API requests are temporarily rate limited.",
+      message:
+        "The De-Koi server is online, but it's getting too many requests from this device right now. Wait a minute before trying again.",
       health: { runtime: "de-koi-server", writable: true },
     });
   });
@@ -182,7 +184,8 @@ describe("checkRemoteRuntimeHealth", () => {
 
     await expect(checkRemoteRuntimeHealth("http://127.0.0.1:3080")).resolves.toEqual({
       status: "unreachable",
-      message: "Remote runtime did not return a compatible health response.",
+      message:
+        "That address didn't answer like a De-Koi server. Check Settings → Advanced → Remote Runtime URL, and update the server if it's old.",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -190,6 +193,37 @@ describe("checkRemoteRuntimeHealth", () => {
 });
 
 describe("readRemoteError", () => {
+  it("says how long to wait when the server is rate limiting this device", async () => {
+    const error = await readRemoteError(
+      jsonResponse(
+        { code: "rate_limited", message: "Too many requests" },
+        { status: 429, headers: { "content-type": "application/json", "retry-after": "12" } },
+      ),
+    );
+
+    expect(error.message).toBe(
+      "The De-Koi server is getting too many requests from this device. Wait 12 seconds and try again.",
+    );
+    expect(error.details).toMatchObject({ code: "rate_limited", retryAfterMs: 12_000 });
+  });
+
+  it("points Admin Access refusals at the setting that fixes them", async () => {
+    const missingSecret = await readRemoteError(
+      jsonResponse(
+        { code: "admin_access_required", message: "This remote command requires ADMIN_SECRET on the runtime." },
+        { status: 403 },
+      ),
+    );
+    expect(missingSecret.message).toContain("the De-Koi server has no ADMIN_SECRET set");
+
+    const wrongSecret = await readRemoteError(
+      jsonResponse({ code: "admin_access_invalid", message: "Admin Access secret did not match." }, { status: 401 }),
+    );
+    expect(wrongSecret.message).toBe(
+      "The Admin Access secret doesn't match the server's ADMIN_SECRET. Re-enter it in Settings → Advanced → Admin Access.",
+    );
+  });
+
   it("uses a JSON error field when the remote runtime omits message", async () => {
     const error = await readRemoteError(jsonResponse({ error: "Provider gateway timed out" }, { status: 502 }));
 
@@ -203,7 +237,9 @@ describe("readRemoteError", () => {
   it("keeps a short non-JSON error body in the remote runtime message", async () => {
     const error = await readRemoteError(textResponse("Provider gateway timed out"));
 
-    expect(error.message).toBe("Remote runtime returned 502: Provider gateway timed out");
+    expect(error.message).toBe(
+      "The De-Koi server answered with HTTP 502. Make sure the De-Koi server is running, then try again. Details: Provider gateway timed out",
+    );
     expect(error.status).toBe(502);
     expect(error.details).toMatchObject({
       body: "Provider gateway timed out",
@@ -283,7 +319,8 @@ describe("invokeRemote", () => {
 
     await expect(invokeRemote("connection_models", { id: "conn-1" })).rejects.toMatchObject({
       name: "ApiError",
-      message: "Remote runtime is unreachable. Check Settings and make sure the runtime server is running.",
+      message:
+        "Can't reach the De-Koi server. Check that it's running and that Settings → Advanced → Remote Runtime URL is right, then try again.",
       status: 503,
       details: {
         code: "remote_runtime_unreachable",
@@ -377,6 +414,23 @@ describe("streamRemoteJsonEvents", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     useUIStore.setState({ remoteRuntimeUrl: "" });
+  });
+
+  it("reports a server it can't reach instead of the browser's bare fetch error", async () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://runtime.test" });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    let failure: unknown;
+    try {
+      for await (const _event of streamRemoteJsonEvents("/runner/jobs/job-1/stream", { from: 0 })) {
+        // never reached
+      }
+    } catch (cause) {
+      failure = cause;
+    }
+
+    expect(failure).toMatchObject({ name: "ApiError", details: { code: "remote_runtime_unreachable" } });
+    expect((failure as Error).message).toContain("Can't reach the De-Koi server.");
   });
 
   it("keeps a failed job's error code on the thrown error", async () => {
