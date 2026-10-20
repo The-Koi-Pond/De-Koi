@@ -1,5 +1,6 @@
 import { cn } from "../../../../shared/lib/utils";
 import { ConversationMessageActions } from "./ConversationMessageActions";
+import { ConversationMessageReactions } from "./ConversationMessageReactions";
 import {
   ConversationMessageAttachments,
   ConversationMessageAvatarColumn,
@@ -66,6 +67,7 @@ export function ConversationMessageBubble({ context }: { context: ConversationMe
           <ConversationMessageBodyContent context={context} />
           <ConversationMessageTranslation context={context} />
           <ConversationMessageAttachments context={context} className="mt-1.5 flex flex-col items-center gap-2" />
+          <ConversationMessageReactions context={context} />
         </div>
       </div>
 

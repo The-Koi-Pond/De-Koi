@@ -12,6 +12,7 @@ import {
   readStoredThinking,
   resolvePromptSnapshotFromExtra,
 } from "../../shared/chat-ui/index";
+import { USER_REACTOR } from "../../../../engine/modes/chat/core/message-reactions";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
 import { ConversationMessageLine } from "./ConversationMessageLine";
 import {
@@ -542,6 +543,7 @@ export const ConversationMessage = memo(function ConversationMessage({
 
   const context: ConversationMessageRenderContext = {
     message,
+    reactorName: (by: string) => (by === USER_REACTOR ? "You" : (scopedCharacterMap?.get(by)?.name ?? "Someone")),
     cardCssId,
     messageStyle,
     isStreaming,

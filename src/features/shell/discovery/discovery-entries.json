@@ -31,6 +31,23 @@
     "coverage": "core"
   },
   {
+    "id": "message-reactions",
+    "title": "Message Reactions",
+    "category": "Chat modes",
+    "summary": "React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.",
+    "keywords": ["reaction", "reactions", "react", "tapback", "emoji", "heart", "like", "laugh"],
+    "audience": "Anyone texting characters in Conversation mode.",
+    "where": "Conversation > hover or tap a character's message > React.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "conversation",
+        "label": "Start a conversation"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
     "id": "roleplay-mode",
     "title": "Roleplay Mode",
     "category": "Chat modes",
@@ -121,6 +138,33 @@
         "type": "open-mode-setup",
         "mode": "fanfic",
         "label": "Request a fic"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
+    "id": "message-search",
+    "title": "Message Search",
+    "category": "Chat modes",
+    "summary": "Find anything you or a character said in any Conversation or Roleplay chat. Type in the sidebar search, switch to Messages, and tap a result to open that chat right at the message, even if it was hundreds of messages ago.",
+    "keywords": [
+      "search",
+      "find",
+      "message",
+      "messages",
+      "history",
+      "old message",
+      "quote",
+      "look up",
+      "what did they say",
+      "jump to message"
+    ],
+    "audience": "Anyone with long chats who wants to find something said earlier.",
+    "where": "Sidebar > search box > Messages.",
+    "actions": [
+      {
+        "type": "go-home",
+        "label": "Go to chats"
       }
     ],
     "coverage": "core"
