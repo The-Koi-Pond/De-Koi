@@ -313,6 +313,7 @@ pub fn run() {
             storage_commands::integration_commands::tts_update_config,
             storage_commands::integration_commands::tts_voices,
             storage_commands::integration_commands::tts_speak,
+            storage_commands::integration_commands::stt_transcribe,
             storage_commands::integration_commands::translate_text_command,
             storage_commands::integration_commands::discord_webhook_send,
             storage_commands::integration_commands::music_status,

@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff } from "lucide-react";
+import { Loader2, Mic, MicOff } from "lucide-react";
+import { ttsApi } from "../../api/tts-api";
+import {
+  VOICE_NEEDS_HTTPS_MESSAGE,
+  canRecordAudio,
+  loadSpeechConfig,
+  openMicrophone,
+  providerSpeechInputEnabled,
+  startRecording,
+  stopStream,
+} from "../../lib/voice-recorder";
 import { toast } from "sonner";
 import { toUserMessage } from "../../lib/error-message";
 import { cn } from "../../lib/utils";
@@ -69,24 +79,73 @@ function readTranscript(result: SpeechRecognitionResultLike | undefined): string
 export function SpeechToTextButton({ disabled, onTranscript, className, iconSize = 16 }: SpeechToTextButtonProps) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  /** Voice input goes to the Text to Speech provider (Whisper / Scribe) instead of the browser. */
+  const [providerMode, setProviderMode] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const recordingRef = useRef<{ stop: () => Promise<Blob>; stream: MediaStream } | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setSupported(Boolean(getSpeechRecognitionCtor()));
+    void loadSpeechConfig().then((config) => {
+      if (cancelled || !providerSpeechInputEnabled(config)) return;
+      setProviderMode(true);
+      setSupported(canRecordAudio());
+    });
     return () => {
+      cancelled = true;
       recognitionRef.current?.abort();
       recognitionRef.current = null;
+      if (recordingRef.current) stopStream(recordingRef.current.stream);
+      recordingRef.current = null;
     };
   }, []);
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
+    const recording = recordingRef.current;
+    if (!recording) return;
+    recordingRef.current = null;
+    setListening(false);
+    setTranscribing(true);
+    void (async () => {
+      try {
+        const audio = await recording.stop();
+        stopStream(recording.stream);
+        const text = await ttsApi.transcribe(audio);
+        if (text) onTranscript(text);
+        else toast.error("Didn't catch any words. Try again a little closer to the mic.");
+      } catch (error) {
+        toast.error(toUserMessage(error, "speechRecognition"));
+      } finally {
+        setTranscribing(false);
+      }
+    })();
+  }, [onTranscript]);
+
+  const startProviderRecording = useCallback(async () => {
+    if (!canRecordAudio()) {
+      toast.error(VOICE_NEEDS_HTTPS_MESSAGE);
+      return;
+    }
+    try {
+      const stream = await openMicrophone();
+      recordingRef.current = { stop: startRecording(stream).stop, stream };
+      setListening(true);
+    } catch (error) {
+      toast.error(toUserMessage(error, "speechRecognition"));
+    }
   }, []);
 
   const startListening = useCallback(() => {
-    if (disabled) return;
+    if (disabled || transcribing) return;
     if (listening) {
       stopListening();
+      return;
+    }
+    if (providerMode) {
+      void startProviderRecording();
       return;
     }
 
@@ -134,13 +193,13 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
       setListening(false);
       toast.error(toUserMessage(null, "speechRecognition"));
     }
-  }, [disabled, listening, onTranscript, stopListening]);
+  }, [disabled, listening, onTranscript, providerMode, startProviderRecording, stopListening, transcribing]);
 
   return (
     <button
       type="button"
       onClick={startListening}
-      disabled={disabled}
+      disabled={disabled || transcribing}
       className={cn(
         "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all duration-200 active:scale-90 sm:h-8 sm:w-8",
         listening
@@ -152,16 +211,27 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
         className,
       )}
       title={
-        listening
-          ? "Stop dictation"
-          : supported
-            ? "Dictate message"
-            : "Speech recognition is not supported in this browser"
+        transcribing
+          ? "Transcribing…"
+          : listening
+            ? "Stop dictation"
+            : supported
+              ? "Dictate message"
+              : providerMode
+                ? VOICE_NEEDS_HTTPS_MESSAGE
+                : "Speech recognition is not supported in this browser"
       }
       aria-pressed={listening}
-      aria-label={listening ? "Stop dictation" : "Dictate message"}
+      aria-busy={transcribing}
+      aria-label={transcribing ? "Transcribing" : listening ? "Stop dictation" : "Dictate message"}
     >
-      {supported ? <Mic size={iconSize} /> : <MicOff size={iconSize} />}
+      {transcribing ? (
+        <Loader2 size={iconSize} className="animate-spin" />
+      ) : supported ? (
+        <Mic size={iconSize} />
+      ) : (
+        <MicOff size={iconSize} />
+      )}
     </button>
   );
 }

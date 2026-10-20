@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   MoreVertical,
   LayoutGrid,
+  Phone,
   ScrollText,
 } from "lucide-react";
 import { ConversationMessage } from "./ConversationMessage";
@@ -80,6 +81,8 @@ import type { SaveMomentSource } from "../../shared/chat-ui/index";
 import { useJumpToMessage } from "../../shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
+import { useGenerate } from "../../../runtime/generation/index";
+import { VoiceCallOverlay } from "./VoiceCallOverlay";
 
 const ConversationAutonomousEffects = lazy(async () => {
   const module = await import("./ConversationAutonomousEffects");
@@ -553,6 +556,21 @@ export function ConversationView({
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [voiceCallOpen, setVoiceCallOpen] = useState(false);
+  const { generate: generateForCall } = useGenerate();
+  const callCharacterId = chatCharIds[0] ?? null;
+  const callCharacterInfo = callCharacterId ? characterMap.get(callCharacterId) : undefined;
+  const callCharacter = useMemo(
+    () =>
+      callCharacterInfo
+        ? { id: callCharacterId, name: callCharacterInfo.name, avatarUrl: callCharacterInfo.avatarUrl }
+        : null,
+    [callCharacterId, callCharacterInfo],
+  );
+  const sendCallText = useCallback(
+    (text: string) => generateForCall({ chatId, connectionId: null, userMessage: text }),
+    [chatId, generateForCall],
+  );
   const [activeActionMessageId, setActiveActionMessageId] = useState<string | null>(null);
   const sheetContentRef = useRef<HTMLDivElement>(null);
   const toolsSheetRef = useRef<HTMLDivElement>(null);
@@ -889,6 +907,21 @@ export function ConversationView({
   useEffect(() => {
     setRightSlot(
       <>
+        {callCharacter && (
+          <button
+            type="button"
+            onClick={() => {
+              setMoreMenuOpen(false);
+              setToolsSheetOpen(false);
+              setVoiceCallOpen(true);
+            }}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--muted-foreground)] transition-all active:scale-90 hover:bg-[var(--accent)]/30 hover:text-[var(--foreground)]"
+            title={`Voice call with ${callCharacter.name}`}
+            aria-label={`Voice call with ${callCharacter.name}`}
+          >
+            <Phone size="1.1rem" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -926,7 +959,7 @@ export function ConversationView({
     return () => {
       setRightSlot(null);
     };
-  }, [moreMenuOpen, toolsSheetOpen, setRightSlot]);
+  }, [callCharacter, moreMenuOpen, toolsSheetOpen, setRightSlot]);
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Build message list with day separators ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   // Assistant messages with multiple lines are split into separate visual
@@ -1479,6 +1512,17 @@ export function ConversationView({
                 )}
               </div>
               <ActiveWorldInfoButton chatId={chatId} />
+              {callCharacter && (
+                <button
+                  type="button"
+                  onClick={() => setVoiceCallOpen(true)}
+                  className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
+                  title={`Voice call with ${callCharacter.name}`}
+                  aria-label={`Voice call with ${callCharacter.name}`}
+                >
+                  <Phone size="0.875rem" />
+                </button>
+              )}
               <button
                 onClick={onOpenGallery}
                 className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
@@ -1950,6 +1994,14 @@ export function ConversationView({
         />
       )}
       <ActiveWorldInfoModal chatId={chatId} open={mobileWorldInfoOpen} onClose={() => setMobileWorldInfoOpen(false)} />
+      {voiceCallOpen && callCharacter && (
+        <VoiceCallOverlay
+          chatId={chatId}
+          character={callCharacter}
+          sendText={sendCallText}
+          onClose={() => setVoiceCallOpen(false)}
+        />
+      )}
     </div>
   );
 }

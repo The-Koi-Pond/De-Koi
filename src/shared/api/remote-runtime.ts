@@ -43,6 +43,7 @@ const REMOTE_COMMANDS = new Set([
   "tts_update_config",
   "tts_voices",
   "tts_speak",
+  "stt_transcribe",
   "translate_text_command",
   "discord_webhook_send",
   "music_status",
