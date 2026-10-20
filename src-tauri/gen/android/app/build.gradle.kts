@@ -20,6 +20,21 @@ val androidAppName = providers.environmentVariable("DE_KOI_ANDROID_APP_NAME")
     .orElse(providers.environmentVariable("MARINARA_ANDROID_APP_NAME"))
     .orElse("De-Koi")
 
+// Release signing comes only from the environment (the release workflow decodes
+// the keystore from a GitHub secret into a temp file). Keystores never live in
+// the repo. With none of these set, release builds stay unsigned like before.
+val releaseSigningEnv = listOf(
+    "DE_KOI_ANDROID_KEYSTORE_PATH",
+    "DE_KOI_ANDROID_KEYSTORE_PASSWORD",
+    "DE_KOI_ANDROID_KEY_ALIAS",
+    "DE_KOI_ANDROID_KEY_PASSWORD",
+).associateWith { providers.environmentVariable(it).orNull?.takeIf(String::isNotBlank) }
+val releaseSigningConfigured = releaseSigningEnv.values.all { it != null }
+if (!releaseSigningConfigured && releaseSigningEnv.values.any { it != null }) {
+    val missing = releaseSigningEnv.filterValues { it == null }.keys.joinToString()
+    throw GradleException("Android release signing is partly configured; also set: $missing")
+}
+
 android {
     compileSdk = 36
     namespace = "com.de_koi.app"
@@ -32,6 +47,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseSigningEnv.getValue("DE_KOI_ANDROID_KEYSTORE_PATH")!!)
+                storePassword = releaseSigningEnv.getValue("DE_KOI_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = releaseSigningEnv.getValue("DE_KOI_ANDROID_KEY_ALIAS")
+                keyPassword = releaseSigningEnv.getValue("DE_KOI_ANDROID_KEY_PASSWORD")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -47,6 +72,9 @@ android {
             }
         }
         getByName("release") {
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
