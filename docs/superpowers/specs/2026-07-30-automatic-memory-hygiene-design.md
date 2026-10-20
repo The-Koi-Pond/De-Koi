@@ -11,7 +11,7 @@ Make De-Koi memory maintenance fully automatic:
 
 In this design, **cleanup** is one analyzed and atomically applied proposal batch for one storage target. **Maintenance** is the durable background lifecycle around cleanup: enqueueing, scheduling, reloading current sources, running zero or more cleanup batches, retrying interruptions, and stopping at a fixed point.
 
-“Low value” means low value under De-Koi’s shared semantic policy. Model judgment cannot provide a mathematical guarantee, but capture and maintenance must use the same aggressive policy so the product does not intentionally admit a candidate that its own cleanup would immediately discard.
+“Low value” means low value under De-Koi’s shared semantic policy. Model judgment cannot provide a mathematical guarantee, but capture and maintenance must use the same policy so the product does not intentionally admit a candidate that its own cleanup would immediately discard. The policy flags only memories that clearly have no future value; when unsure, it keeps. (2026-10-20: the earlier "obvious and questionable" wording made capture drop ordinary personal facts such as an upcoming interview, a parent's visit, handedness, and diet, and drop the transcript excerpts that stated them.)
 
 ## User contract
 
@@ -65,13 +65,15 @@ The policy continues to flag:
 
 - generic or common knowledge without user, character, relationship, or world-specific value;
 - conversational residue and ephemeral reactions;
-- contextless fragments;
+- contextless fragments, including memories whose only content is something vague for an unnamed "you", and in-the-moment teasing or game scores;
 - accidental captures;
-- questionable facts that do not help future continuity.
+- transcript excerpts that are small talk from start to finish.
 
 The policy continues to preserve:
 
-- preferences, routines, possessions, identity, and health needs;
+- ordinary, everyday, or briefly mentioned personal facts: preferences, likes and dislikes, diet, allergies, health needs, body traits, routines, habits, possessions, pets, family, home, background, work, and identity;
+- upcoming appointments, visits, trips, and other dated events, and feelings about an ongoing situation;
+- transcript excerpts in which any line states such a fact;
 - relationships, boundaries, plans, and promises;
 - distinctive events and ongoing situations;
 - character-specific beliefs and world-specific state.
@@ -225,7 +227,7 @@ Remote runtime parity is required for every new command. Embedded Tauri invocati
 
 Durable tests must prove:
 
-- obvious and questionable low-value candidates never reach `createMemory`;
+- clearly low-value candidates never reach `createMemory`;
 - durable candidates still preserve category, confidence, provenance, scope, and index refresh;
 - mixed candidate groups create only survivors;
 - malformed or failed value review creates nothing and leaves the job retryable;
