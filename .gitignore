@@ -68,3 +68,4 @@ src-tauri/gen/android/**/*.keystore
 # Codex local build/proof artifacts
 /.codex-cargo*/
 *~[0-9]*
+dist-runner/

@@ -42,6 +42,15 @@ impl AnswerStream {
     pub(super) fn emitted_any(&self) -> bool {
         self.emitted_chars > 0
     }
+
+    /// Forgets the model output so far because the reply was started over.
+    /// Returns true when shown answer text has to be cleared.
+    pub(super) fn restart(&mut self) -> bool {
+        let shown = self.emitted_any();
+        self.raw.clear();
+        self.emitted_chars = 0;
+        shown
+    }
 }
 
 /// The answer visible so far: the decoded `say` string of a frame whose
@@ -179,6 +188,21 @@ mod tests {
             "server.rs`.\\nDone\"}",
         ]);
         assert_eq!(streamed, "It is 256, in `http_server.rs`.\nDone");
+    }
+
+    #[test]
+    fn a_restarted_reply_streams_only_the_new_answer() {
+        let mut stream = AnswerStream::new(true);
+        assert_eq!(
+            stream.push("{\"commands\": [], \"stop\": true, \"say\": \"Port 80"),
+            Some("Port 80".to_string())
+        );
+        assert!(stream.restart(), "shown text must be cleared");
+        assert_eq!(
+            stream.push("{\"commands\": [], \"stop\": true, \"say\": \"Port 8787.\"}"),
+            Some("Port 8787.".to_string())
+        );
+        assert!(!AnswerStream::new(true).restart());
     }
 
     #[test]

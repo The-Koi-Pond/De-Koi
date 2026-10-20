@@ -138,6 +138,7 @@ pub async fn serve(state: AppState, addr: SocketAddr) -> Result<(), std::io::Err
 }
 
 pub fn router(state: AppState) -> Router {
+    crate::http_storage_events::install_storage_change_feed();
     let security = SecurityConfig::from_env();
     let cors_security = security.clone();
     let controls = HttpControls::new(security.clone());
@@ -165,6 +166,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/import/st-bulk/run", post(import_st_bulk_run_stream))
         .route("/api/deki/prompt/stream", post(deki_prompt_stream))
+        .route("/api/events/stream", post(storage_events_stream))
         .route("/api/sidecar/v1/embeddings", post(sidecar_embeddings))
         .route("/api/assets/{kind}/{*path}", get(managed_asset))
         .route("/api/llm/stream", post(llm_stream))
@@ -1152,6 +1154,13 @@ fn deki_stream_prompt_request(body: &Value) -> AppResult<Value> {
 /// Hostable streaming variant of `deki_prompt`. Live workspace events are sent
 /// as they happen; the stream ends with `done` (carrying the final response,
 /// including the complete bounded trace) or `error`.
+/// Live storage-change events so other open clients refresh what changed (see `http_storage_events`).
+async fn storage_events_stream() -> Sse<KeepAliveStream<ReceiverStream<Result<Event, Infallible>>>>
+{
+    let events = crate::http_storage_events::spawn_storage_event_stream();
+    Sse::new(ReceiverStream::new(events)).keep_alive(KeepAlive::default())
+}
+
 async fn deki_prompt_stream(
     State(state): State<HttpState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,

@@ -28,6 +28,11 @@ pub async fn tts_speak(state: State<'_, AppState>, input: Value) -> Result<Value
 }
 
 #[tauri::command]
+pub async fn stt_transcribe(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
+    integrations::tts_call(&state, "POST", &["transcribe"], input).await
+}
+
+#[tauri::command]
 pub async fn translate_text_command(
     state: State<'_, AppState>,
     input: Value,

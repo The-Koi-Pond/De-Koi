@@ -98,4 +98,25 @@ export const ttsApi = {
       optionalString(response.contentType) ?? optionalString(response.mimeType) ?? "audio/mpeg",
     );
   },
+  /** Speech to text with the Text to Speech provider (OpenAI-compatible or ElevenLabs). */
+  transcribe: async (audio: Blob, signal?: AbortSignal): Promise<string> => {
+    throwIfAborted(signal);
+    const audioBase64 = await blobToBase64(audio);
+    throwIfAborted(signal);
+    const response = await invokeTauri<{ text?: unknown }>(
+      "stt_transcribe",
+      { input: { audioBase64, mimeType: audio.type || "audio/webm" } },
+      { signal },
+    );
+    return typeof response?.text === "string" ? response.text.trim() : "";
+  },
 };
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}

@@ -14,6 +14,7 @@ import { generateConversationSchedules } from "../../../../../engine/modes/chat/
 import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
+import { generationRunnerHealth } from "../../../../../shared/api/generation-runner-api";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { invalidateCharacterCollectionQueries } from "../../../../catalog/characters/index";
@@ -177,6 +178,11 @@ export function useAutonomousMessaging(
       const userStatus = useUIStore.getState().userStatus;
       recordAutonomousClientPresence(chatId, userStatus);
       if (userStatus === "dnd") {
+        schedulePoll(poll, epoch);
+        return;
+      }
+      // The hosted runner texts first on the server; this tab must not send a second one.
+      if ((await generationRunnerHealth()).textingFirst) {
         schedulePoll(poll, epoch);
         return;
       }

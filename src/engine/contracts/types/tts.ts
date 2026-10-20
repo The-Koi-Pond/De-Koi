@@ -105,6 +105,10 @@ export const ttsConfigSchema = z.object({
   baseUrl: z.string().default("https://api.openai.com/v1"),
   /** OpenAI-compatible voice catalog path. Empty preserves the legacy /audio/voices route. */
   voicesPath: z.string().default(""),
+  /** Transcribe voice input (mic button, voice calls) with this provider instead of the browser's speech recognition. */
+  speechInputProvider: z.boolean().default(false),
+  /** Speech-to-text model; empty uses the provider default (whisper-1 / scribe_v1). */
+  sttModel: z.string().default(""),
   /** Plain text on write; masked "••••••" on read when a key is saved */
   apiKey: z.string().default(""),
   voice: z.string().default("alloy"),

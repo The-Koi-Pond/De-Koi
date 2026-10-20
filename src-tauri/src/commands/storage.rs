@@ -81,6 +81,8 @@ pub(crate) mod media_uploads;
 pub(crate) mod memory_capture;
 #[path = "storage/memory_maintenance.rs"]
 pub(crate) mod memory_maintenance;
+#[path = "storage/message_search.rs"]
+pub(crate) mod message_search;
 #[path = "storage/message_swipes.rs"]
 pub(crate) mod message_swipes;
 #[path = "storage/personas.rs"]

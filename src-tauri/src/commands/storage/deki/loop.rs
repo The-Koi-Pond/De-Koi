@@ -1,8 +1,11 @@
 use super::answer_stream::AnswerStream;
 use super::budget::{truncate_to_chars, DekiEvidenceBudget, DekiRuntimeBudget};
 use super::events::DekiEventSink;
-use super::model_client::{DekiModelClient, DekiModelMessage};
-use super::protocol::{extract_command_frame, DekiCommandFrame, JSON_PROTOCOL_PROMPT};
+use super::model_client::{DekiModelClient, DekiModelMessage, DekiModelText};
+use super::protocol::{
+    extract_command_frame, is_tool_markup_loop, tool_markup_error, DekiCommandFrame,
+    JSON_PROTOCOL_PROMPT,
+};
 use super::status::DekiRuntimeCancellation;
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
@@ -149,15 +152,29 @@ pub(super) async fn run_json_command_runtime(
             final_round || !input.requires_repository_evidence || has_repository_evidence,
         );
         let events = &input.events;
+        let mut round_raw = String::new();
         let response = model
             .complete(
                 &messages,
                 max_tokens,
                 timeout,
                 &input.cancellation,
-                |text| {
-                    if let Some(visible) = answer.push(text) {
-                        events.answer_token(&visible);
+                |text| match text {
+                    DekiModelText::Delta(text) => {
+                        if let Some(visible) = answer.push(text) {
+                            events.answer_token(&visible);
+                        }
+                        round_raw.push_str(text);
+                        // A reply looping on tool-call markup can run for minutes; stop it
+                        // and ask for the JSON frame again.
+                        !is_tool_markup_loop(&round_raw)
+                    }
+                    DekiModelText::Restart => {
+                        if answer.restart() {
+                            events.answer_reset();
+                        }
+                        round_raw.clear();
+                        true
                     }
                 },
             )
@@ -191,7 +208,12 @@ pub(super) async fn run_json_command_runtime(
             usage.push(round_usage);
         }
         let raw = response.content;
-        let frame = match extract_command_frame(&raw) {
+        let frame = if response.cut_short {
+            Err(tool_markup_error())
+        } else {
+            extract_command_frame(&raw)
+        };
+        let frame = match frame {
             Ok(frame) => frame,
             Err(error) => {
                 abandon(events);

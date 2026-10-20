@@ -289,6 +289,25 @@ pub async fn complete_rich(request: LlmRequest) -> AppResult<LlmCompletion> {
 
 pub async fn stream_events(
     request: LlmRequest,
+    emit: impl FnMut(Value) -> AppResult<()> + Send,
+) -> AppResult<()> {
+    stream_events_reporting(request, false, emit).await
+}
+
+/// Like [`stream_events`], except that when the provider gives up on text it already streamed and
+/// starts the reply over (Claude Code's own retry turns), it emits `{"type":"text_reset"}` and keeps
+/// going instead of failing. The caller must drop the text it collected before each reset; the
+/// tokens after the last one are the whole reply.
+pub async fn stream_events_with_restarts(
+    request: LlmRequest,
+    emit: impl FnMut(Value) -> AppResult<()> + Send,
+) -> AppResult<()> {
+    stream_events_reporting(request, true, emit).await
+}
+
+async fn stream_events_reporting(
+    request: LlmRequest,
+    report_restarts: bool,
     mut emit: impl FnMut(Value) -> AppResult<()> + Send,
 ) -> AppResult<()> {
     emit(json!({ "type": "start" }))?;
@@ -305,7 +324,7 @@ pub async fn stream_events(
     } else if request.connection.provider == "cohere" {
         stream_cohere(request, &mut emit).await?;
     } else if request.connection.provider == "claude_subscription" {
-        stream_claude_subscription(request, &mut emit).await?;
+        stream_claude_subscription(request, report_restarts, &mut emit).await?;
     } else {
         stream_openai_compatible(request, &mut emit).await?;
     }
@@ -5684,12 +5703,23 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
         lines: &[&str],
         exit: ClaudeSubscriptionStreamExit,
     ) -> (Vec<Value>, AppResult<()>) {
+        claude_subscription_stream_events_reporting(lines, exit, false)
+    }
+
+    fn claude_subscription_stream_events_reporting(
+        lines: &[&str],
+        exit: ClaudeSubscriptionStreamExit,
+        report_restarts: bool,
+    ) -> (Vec<Value>, AppResult<()>) {
         let mut events = Vec::new();
         let mut emit = |event: Value| {
             events.push(event);
             Ok(())
         };
-        let mut state = ClaudeSubscriptionStreamState::default();
+        let mut state = ClaudeSubscriptionStreamState {
+            report_restarts,
+            ..ClaudeSubscriptionStreamState::default()
+        };
         for line in lines {
             process_claude_subscription_stream_line(line, &mut state, &mut emit)
                 .expect("line should be handled");
@@ -5792,6 +5822,88 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
                 .code,
             "claude_subscription_stream_replaced"
         );
+    }
+
+    /// The reply a caller of `stream_events_with_restarts` ends up with: the tokens after the last
+    /// `text_reset`.
+    fn text_after_last_reset(events: &[Value]) -> String {
+        let start = events
+            .iter()
+            .rposition(|event| event["type"] == "text_reset")
+            .map_or(0, |index| index + 1);
+        events[start..]
+            .iter()
+            .filter(|event| event["type"] == "token")
+            .map(|event| event["text"].as_str().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn claude_subscription_retry_turns_reset_the_streamed_reply_when_reported() {
+        // Claude Code rejects a reply with a malformed tool call, adds a synthetic user turn, and
+        // asks again; its result holds only the second reply (seen with Claude Code 2.1.304).
+        let rejected = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Batch the searches.\n<invoke name=\"mcp__deki__command\">"}}}"#;
+        let retry_turn = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"The previous response failed to produce a valid tool call. Please retry the tool call now."}]},"isSynthetic":true}"#;
+        let retried = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"{\"commands\":[],\"stop\":true}"}}}"#;
+        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"commands\":[],\"stop\":true}"}"#;
+
+        let (events, outcome) = claude_subscription_stream_events_reporting(
+            &[rejected, retry_turn, retried, result],
+            claude_subscription_clean_exit(),
+            true,
+        );
+        outcome.expect("a retried reply should finish");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["type"] == "text_reset")
+                .count(),
+            1
+        );
+        assert_eq!(
+            text_after_last_reset(&events),
+            r#"{"commands":[],"stop":true}"#
+        );
+
+        // Callers that cannot drop text keep failing instead of showing both replies.
+        let (events, outcome) = claude_subscription_stream_events(
+            &[rejected, retry_turn, retried, result],
+            claude_subscription_clean_exit(),
+        );
+        assert_eq!(
+            outcome.expect_err("unreported restarts still fail").code,
+            "claude_subscription_stream_replaced"
+        );
+        assert!(events.iter().all(|event| event["type"] != "text_reset"));
+    }
+
+    #[test]
+    fn claude_subscription_replaced_results_win_when_restarts_are_reported() {
+        let partial = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"The lamp"}}}"#;
+        let (events, outcome) = claude_subscription_stream_events_reporting(
+            &[
+                partial,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"A different reply.","usage":{"input_tokens":3,"output_tokens":4}}"#,
+            ],
+            claude_subscription_clean_exit(),
+            true,
+        );
+        outcome.expect("a replaced reply should finish");
+        assert_eq!(text_after_last_reset(&events), "A different reply.");
+        assert!(events.iter().any(|event| event["type"] == "usage"));
+
+        // A retry that only arrives in the result after a reset is sent whole.
+        let (events, outcome) = claude_subscription_stream_events_reporting(
+            &[
+                partial,
+                r#"{"type":"user","message":{"role":"user","content":[]},"isSynthetic":true}"#,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"The lamp went out."}"#,
+            ],
+            claude_subscription_clean_exit(),
+            true,
+        );
+        outcome.expect("a result-only retry should finish");
+        assert_eq!(text_after_last_reset(&events), "The lamp went out.");
     }
 
     #[test]

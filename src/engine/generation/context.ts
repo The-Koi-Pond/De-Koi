@@ -30,6 +30,7 @@ const GENERATION_MESSAGE_EXTRA_FIELDS = [
   "spriteExpressions",
   "isConversationStart",
   "postReplyAgents",
+  "reactions",
 ];
 
 function uniqueStrings(values: readonly string[]): string[] {

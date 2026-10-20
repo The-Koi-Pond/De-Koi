@@ -34,6 +34,7 @@ on:
       - src-tauri/src/commands/storage/profile/**
       - src-tauri/src/commands/storage/sprites.rs
       - src-tauri/src/commands/storage/updates.rs
+      - src-tauri/src/runner_supervisor.rs
       - src-tauri/src/state.rs
   workflow_dispatch:
   schedule:

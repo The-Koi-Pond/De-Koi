@@ -237,12 +237,28 @@ function normalizeRequestTimeoutMs(value: number): number {
   return Math.min(MAX_TTS_REQUEST_TIMEOUT_MS, Math.max(MIN_TTS_REQUEST_TIMEOUT_MS, Math.round(value)));
 }
 
-function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
-    <label className="flex cursor-pointer items-center justify-between rounded-lg p-1.5 transition-colors hover:bg-[var(--secondary)]/50">
+    <label
+      className={cn(
+        "flex cursor-pointer items-center justify-between rounded-lg p-1.5 transition-colors hover:bg-[var(--secondary)]/50",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
+    >
       <span className="text-xs">{label}</span>
       <input
         type="checkbox"
+        disabled={disabled}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         className="h-3.5 w-3.5 rounded border-[var(--border)] accent-rose-400"
@@ -329,6 +345,8 @@ export function TTSConfigCard() {
   const [autoplayGame, setAutoplayGame] = useState(false);
   const [autoplayStreaming, setAutoplayStreaming] = useState(false);
   const [dialogueOnly, setDialogueOnly] = useState(false);
+  const [speechInputProvider, setSpeechInputProvider] = useState(false);
+  const [sttModel, setSttModel] = useState("");
 
   const [expanded, setExpanded] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -362,6 +380,8 @@ export function TTSConfigCard() {
     setVoice(savedConfig.voice);
     setAudioFormat(savedConfig.audioFormat ?? "mp3");
     setNarratorVoiceEnabled(savedConfig.narratorVoiceEnabled ?? false);
+    setSpeechInputProvider(savedConfig.speechInputProvider ?? false);
+    setSttModel(savedConfig.sttModel ?? "");
     setNarratorVoice(savedConfig.narratorVoice ?? "");
     setVoiceMode(savedConfig.voiceMode ?? "single");
     setVoiceAssignments(savedConfig.voiceAssignments ?? []);
@@ -427,6 +447,8 @@ export function TTSConfigCard() {
     dialogueOnly,
     dialogueScope: "all",
     dialogueCharacterName: "",
+    speechInputProvider,
+    sttModel,
     ...overrides,
   });
 
@@ -1011,6 +1033,40 @@ export function TTSConfigCard() {
               )}
             </FieldRow>
           )}
+
+          <FieldRow
+            label="Voice Input"
+            help="Turn your speech into text with this provider (OpenAI Whisper or ElevenLabs Scribe) for the mic button and voice calls, instead of the browser's own speech recognition. Uses the same API key."
+          >
+            <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-2">
+              <ToggleRow
+                label="Transcribe my voice with this provider"
+                checked={speechInputProvider && source !== "pockettts"}
+                disabled={source === "pockettts"}
+                onChange={(next) => {
+                  setSpeechInputProvider(next);
+                  mark({ speechInputProvider: next });
+                }}
+              />
+              {source === "pockettts" && (
+                <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                  PocketTTS can only speak. Pick OpenAI or ElevenLabs to transcribe with a provider.
+                </p>
+              )}
+              {speechInputProvider && source !== "pockettts" && (
+                <input
+                  value={sttModel}
+                  aria-label="Speech-to-text model"
+                  placeholder={source === "elevenlabs" ? "scribe_v1 (default)" : "whisper-1 (default)"}
+                  onChange={(e) => {
+                    setSttModel(e.target.value);
+                    mark({ sttModel: e.target.value });
+                  }}
+                  className={INPUT_CLS}
+                />
+              )}
+            </div>
+          </FieldRow>
 
           {voiceMode === "single" && (
             <FieldRow
