@@ -3,9 +3,14 @@ name: CI Full
 # Repo-variable toggles:
 # - DE_KOI_PR_SYNC_AUTOMATION=off skips full CI lanes for PR synchronize events.
 # - DE_KOI_CI_FULL_MODE=full runs all full CI lanes instead of file classification.
+#
+# merge_group runs every lane on the merge queue's commit (main plus the queued
+# pull requests), so Required Validation reports there before anything merges.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: "17 9 * * 1,4"
   workflow_dispatch:
