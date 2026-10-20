@@ -931,9 +931,10 @@ async fn read_connection_test_response(
         let text = read_capped_provider_error_text(response, "connection_response_error").await?;
         return Err(AppError::new(
             "connection_provider_error",
-            format!(
-                "{label} returned HTTP {status}: {}",
-                sanitize_provider_body(&text)
+            marinara_llm::provider_http_error_message(
+                label,
+                status,
+                Some(&sanitize_provider_body(&text)),
             ),
         ));
     }
@@ -971,7 +972,10 @@ async fn send_provider_get(
             request
         };
         let response = request.send().await.map_err(|error| {
-            AppError::new(network_error_code, provider_transport_error_message(error))
+            AppError::new(
+                network_error_code,
+                marinara_llm::provider_transport_error_message(&error),
+            )
         })?;
         let status = response.status();
         if !(status.is_redirection() && response.headers().contains_key(reqwest::header::LOCATION))
@@ -1298,9 +1302,10 @@ async fn fetch_provider_models(connection: &Value) -> AppResult<Vec<Value>> {
         let text = read_capped_provider_error_text(response, "models_response_error").await?;
         return Err(AppError::new(
             "models_provider_error",
-            format!(
-                "Provider returned HTTP {status}: {}",
-                sanitize_provider_body(&text)
+            marinara_llm::provider_http_error_message(
+                "Provider",
+                status,
+                Some(&sanitize_provider_body(&text)),
             ),
         ));
     }
@@ -1329,9 +1334,10 @@ async fn fetch_ollama_models(connection: &Value) -> AppResult<Vec<Value>> {
         let text = read_capped_provider_error_text(response, "models_response_error").await?;
         return Err(AppError::new(
             "models_provider_error",
-            format!(
-                "Ollama returned HTTP {status}: {}",
-                sanitize_provider_body(&text)
+            marinara_llm::provider_http_error_message(
+                "Ollama",
+                status,
+                Some(&sanitize_provider_body(&text)),
             ),
         ));
     }
@@ -1486,9 +1492,10 @@ where
         let text = read_capped_provider_error_text(response, "models_response_error").await?;
         return Err(AppError::new(
             "models_provider_error",
-            format!(
-                "{provider} returned HTTP {status}: {}",
-                sanitize_provider_body(&text)
+            marinara_llm::provider_http_error_message(
+                provider,
+                status,
+                Some(&sanitize_provider_body(&text)),
             ),
         ));
     }
@@ -1943,11 +1950,12 @@ async fn read_limited_provider_text(
     }
 
     let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| AppError::new(error_code, provider_transport_error_message(error)))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(|error| {
+        AppError::new(
+            error_code,
+            marinara_llm::provider_transport_error_message(&error),
+        )
+    })? {
         if body.len().saturating_add(chunk.len()) > PROVIDER_CONFIG_MAX_RESPONSE_BYTES {
             return Err(provider_response_too_large_error(error_code));
         }
@@ -1963,11 +1971,12 @@ async fn read_capped_provider_error_text(
     let mut body = Vec::new();
     let mut truncated = false;
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| AppError::new(error_code, provider_transport_error_message(error)))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(|error| {
+        AppError::new(
+            error_code,
+            marinara_llm::provider_transport_error_message(&error),
+        )
+    })? {
         let remaining = PROVIDER_CONFIG_MAX_RESPONSE_BYTES.saturating_sub(body.len());
         if chunk.len() > remaining {
             body.extend_from_slice(&chunk[..remaining]);
@@ -1994,17 +2003,11 @@ fn provider_response_too_large_error(error_code: &str) -> AppError {
     )
 }
 
-fn provider_transport_error_message(error: impl std::fmt::Display) -> String {
-    redact_sensitive_text(&error.to_string())
-}
-
 fn sanitize_provider_body(body: &str) -> String {
-    let lower = body.to_ascii_lowercase();
-    if lower.contains("<html") || lower.contains("<!doctype") {
-        "Provider returned HTML instead of JSON".to_string()
-    } else {
-        redact_sensitive_text(body).chars().take(300).collect()
-    }
+    marinara_llm::provider_error_body_summary(body)
+        .chars()
+        .take(300)
+        .collect()
 }
 
 #[cfg(test)]

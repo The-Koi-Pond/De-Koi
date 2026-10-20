@@ -6704,9 +6704,14 @@ async function* streamMainGenerationLoop(args: {
       }
       const truncatedFinishReason = incompleteFinishReason(turnProviderMetadata);
       if (truncatedFinishReason) {
-        throw Object.assign(new Error(`LLM provider stopped early (${truncatedFinishReason}).`), {
-          code: "llm_stream_length",
-        });
+        throw Object.assign(
+          new Error(
+            `The reply hit the output limit and stopped early (${truncatedFinishReason}). Raise Max Output Tokens in this connection's generation controls, then retry.`,
+          ),
+          {
+            code: "llm_stream_length",
+          },
+        );
       }
       const streamUsage = mergeStreamUsageChunks(streamUsages);
       if (streamUsage != null) turnUsages.push(streamUsage);

@@ -387,6 +387,25 @@ describe("streamRemoteLlm", () => {
     return events;
   }
 
+  it("keeps a provider error's code where the engine reads it", async () => {
+    stubFetch([
+      new Response(
+        'data: {"type":"error","code":"llm_provider_error","message":"Provider returned HTTP 401 Unauthorized","data":{"error":{"message":"bad key"}}}\n\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    ]);
+
+    const events = await collectStream();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "error",
+        text: "Provider returned HTTP 401 Unauthorized",
+        data: { error: { message: "bad key" }, code: "llm_provider_error" },
+      }),
+    ]);
+  });
+
   it("rejects EOF without a terminal event", async () => {
     const encoder = new TextEncoder();
     stubFetch([

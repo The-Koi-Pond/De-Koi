@@ -178,7 +178,7 @@ pub(crate) async fn stream_cohere(
     let mut completed = false;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            AppError::new("llm_stream_error", provider_transport_error_message(error))
+            AppError::new("llm_stream_error", provider_transport_error_message(&error))
         })?;
         decoder.push_chunk(&chunk, &mut buffer);
         ensure_sse_buffer_within_limit(&buffer)?;
@@ -282,8 +282,12 @@ pub(crate) fn process_cohere_sse_block(
     if payload.is_empty() {
         return Ok(SseBlockStatus::Continue);
     }
-    let value: Value = serde_json::from_str(&payload)
-        .map_err(|error| AppError::new("llm_stream_parse_error", error.to_string()))?;
+    let value: Value = serde_json::from_str(&payload).map_err(|error| {
+        AppError::new(
+            "llm_stream_parse_error",
+            provider_unreadable_reply_message(error),
+        )
+    })?;
     let event_type = value.get("type").and_then(Value::as_str).unwrap_or("");
     match event_type {
         "content-delta" => {

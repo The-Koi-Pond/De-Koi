@@ -700,8 +700,13 @@ export async function readRemoteError(response: Response): Promise<ApiError> {
 }
 
 function normalizeRemoteLlmChunk(event: LlmChunk): LlmChunk {
-  const record = event as LlmChunk & { error?: unknown; message?: unknown };
+  const record = event as LlmChunk & { error?: unknown; message?: unknown; code?: unknown };
   const data = isRecord(event.data) ? event.data : {};
+  // The server sends an error's code beside `data` (which holds provider details); the engine reads
+  // `data.code`, the same place the embedded runtime puts it.
+  if (event.type === "error" && typeof record.code === "string" && data.code === undefined) {
+    event = { ...event, data: { ...data, code: record.code } };
+  }
   const text =
     typeof event.text === "string"
       ? event.text

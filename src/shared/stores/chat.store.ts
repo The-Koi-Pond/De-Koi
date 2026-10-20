@@ -21,6 +21,8 @@ type NewChatSetupIntent = {
 interface GenerationFailureState {
   message: string;
   failedAt: number;
+  /** The model provider or connection failed, so Connections is where to fix it. */
+  providerIssue?: boolean;
 }
 
 /** Read the last active chat so reloads reopen the selected transcript. */

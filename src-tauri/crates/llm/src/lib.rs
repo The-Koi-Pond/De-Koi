@@ -20,7 +20,14 @@ use std::{
 };
 use uuid::Uuid;
 
+mod provider_errors;
 mod providers;
+
+pub use provider_errors::{
+    provider_empty_reply_message, provider_headers_timeout_message, provider_http_error_message,
+    provider_stream_error_message, provider_transport_error_message,
+    provider_unreadable_reply_message,
+};
 
 use providers::{
     anthropic::{complete_anthropic_rich, stream_anthropic},
@@ -748,20 +755,13 @@ async fn send_provider_request_with_timeout(
         Ok(Ok(response)) => Ok(response),
         Ok(Err(error)) => Err(AppError::new(
             error_code,
-            provider_transport_error_message(error),
+            provider_transport_error_message(&error),
         )),
         Err(_) => Err(AppError::new(
             error_code,
-            format!(
-                "LLM provider request timed out while waiting for response headers after {} ms",
-                timeout.as_millis()
-            ),
+            provider_headers_timeout_message(timeout),
         )),
     }
-}
-
-fn provider_transport_error_message(error: impl std::fmt::Display) -> String {
-    redact_sensitive_text(&error.to_string())
 }
 
 fn should_use_openai_responses(request: &LlmRequest) -> bool {
@@ -1743,9 +1743,8 @@ fn provider_error_text(details: &Value) -> Option<String> {
 
 fn provider_http_error(status: reqwest::StatusCode, details: Value) -> AppError {
     let details = redact_sensitive_json(details);
-    let message = provider_error_text(&details)
-        .map(|detail| format!("Provider returned HTTP {status}: {detail}"))
-        .unwrap_or_else(|| format!("Provider returned HTTP {status}"));
+    let message =
+        provider_http_error_message("Provider", status, provider_error_text(&details).as_deref());
     AppError::with_details("llm_provider_error", message, details)
 }
 
@@ -1766,6 +1765,13 @@ fn provider_error_details_from_text(text: &str) -> Value {
     serde_json::from_str::<Value>(trimmed)
         .map(redact_sensitive_json)
         .unwrap_or_else(|_| json!({ "message": sanitize_provider_error_text(trimmed) }))
+}
+
+/// The provider's own words from a raw error body: its JSON error message when it
+/// has one, otherwise the trimmed, redacted body.
+pub fn provider_error_body_summary(body: &str) -> String {
+    provider_error_text(&provider_error_details_from_text(body))
+        .unwrap_or_else(|| sanitize_provider_error_text(body))
 }
 
 fn assistant_prefill(parameters: &Value) -> Option<String> {
@@ -2213,7 +2219,7 @@ async fn read_json_response(
     let json = serde_json::from_str::<Value>(&text).map_err(|error| {
         AppError::with_details(
             "llm_response_error",
-            format!("Provider response was not valid JSON: {error}"),
+            provider_unreadable_reply_message(format!("not valid JSON: {error}")),
             json!({ "body": sanitize_provider_error_text(&text) }),
         )
     })?;
@@ -2232,7 +2238,7 @@ async fn read_limited_provider_text(mut response: reqwest::Response) -> AppResul
     while let Some(chunk) = response.chunk().await.map_err(|error| {
         AppError::new(
             "llm_response_error",
-            provider_transport_error_message(error),
+            provider_transport_error_message(&error),
         )
     })? {
         if body.len().saturating_add(chunk.len()) > PROVIDER_RESPONSE_MAX_BYTES {
@@ -2250,7 +2256,7 @@ async fn read_capped_provider_error_text(mut response: reqwest::Response) -> App
     while let Some(chunk) = response.chunk().await.map_err(|error| {
         AppError::new(
             "llm_response_error",
-            provider_transport_error_message(error),
+            provider_transport_error_message(&error),
         )
     })? {
         let remaining = PROVIDER_RESPONSE_MAX_BYTES.saturating_sub(body.len());
@@ -2287,7 +2293,7 @@ where
     extract(&json).ok_or_else(|| {
         AppError::with_details(
             "llm_response_error",
-            "Provider response did not contain assistant text",
+            provider_empty_reply_message("Provider response did not contain assistant text"),
             redact_sensitive_json(json),
         )
     })
@@ -2443,7 +2449,9 @@ async fn parse_cohere_response_rich(response: reqwest::Response) -> AppResult<Ll
         }
         return Err(AppError::with_details(
             "llm_response_error",
-            "Provider response did not contain assistant text or tool calls",
+            provider_empty_reply_message(
+                "Provider response did not contain assistant text or tool calls",
+            ),
             redact_sensitive_json(json),
         ));
     }
@@ -2472,7 +2480,9 @@ async fn parse_json_response_rich(response: reqwest::Response) -> AppResult<LlmC
         .ok_or_else(|| {
             AppError::with_details(
                 "llm_response_error",
-                "Provider response did not contain a completion choice",
+                provider_empty_reply_message(
+                    "Provider response did not contain a completion choice",
+                ),
                 redact_sensitive_json(json.clone()),
             )
         })?;
@@ -2511,7 +2521,9 @@ async fn parse_json_response_rich(response: reqwest::Response) -> AppResult<LlmC
         }
         return Err(AppError::with_details(
             "llm_response_error",
-            "Provider response did not contain assistant text or tool calls",
+            provider_empty_reply_message(
+                "Provider response did not contain assistant text or tool calls",
+            ),
             redact_sensitive_json(json),
         ));
     }
@@ -4290,8 +4302,10 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
         .expect_err("slow provider headers should time out");
 
         assert_eq!(error.code, "llm_network_error");
-        assert!(error.message.contains("timed out"));
-        assert!(error.message.contains("response headers"));
+        assert_eq!(
+            error.message,
+            "The model didn't start answering within a second. Retry, or check that the provider is up."
+        );
     }
 
     #[test]

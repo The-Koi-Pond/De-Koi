@@ -1110,7 +1110,9 @@ describe("runGenerationWithUi", () => {
           targetCharacterId: null,
         },
       } as StreamEvent;
-      throw new Error("Provider API error: Unable to process input image.");
+      throw Object.assign(new Error("Provider API error: Unable to process input image."), {
+        code: "llm_provider_error",
+      });
     }
 
     await expect(
@@ -1128,7 +1130,8 @@ describe("runGenerationWithUi", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "Image attachment could not be delivered: Provider API error: Unable to process input image.",
       expect.objectContaining({
-        description: "Your message was kept. Fix the connection or provider issue, then retry.",
+        description: "Your message was kept. Use Retry to send it again.",
+        action: expect.objectContaining({ label: "Open Connections" }),
       }),
     );
     queryClient.clear();
