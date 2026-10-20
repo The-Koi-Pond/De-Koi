@@ -17,7 +17,9 @@ import {
 } from "./outline";
 import {
   buildFanficChapterGuide,
+  buildFanficOutlineMessages,
   buildFanficRevisionGuide,
+  FANFIC_OUTLINE_PLOT_RULES,
   buildFanficSystemSegments,
   labelFanficChapterHistory,
   renderFanficCastCards,
@@ -194,6 +196,25 @@ describe("fanfic outline parsing", () => {
 
   it("throws when the reply has no chapters", () => {
     expect(() => parseFanficOutlineReply("Sorry, I can't plan that.")).toThrow(FanficOutlineParseError);
+  });
+
+  it("reads the plan past the predictable version and doesn't keep that version", () => {
+    const outline = parseFanficOutlineReply(
+      '{"predictable":"Holmes finds a tunnel to the bank, like {The Red-Headed League}.","title":"Clocks","summary":"S","chapters":[{"title":"A","summary":"a"}]}',
+    );
+    expect(outline).toEqual({ title: "Clocks", summary: "S", chapters: [{ number: 1, title: "A", summary: "a" }] });
+  });
+});
+
+describe("fanfic outline prompt", () => {
+  it("asks the planner to name the predictable version first and plot past it", () => {
+    const [system, user] = buildFanficOutlineMessages({
+      request: { ...defaultFanficRequest(), fandom: "Sherlock Holmes", chapterCount: 4 },
+      castCards: "",
+    });
+    expect(system!.content).toContain(FANFIC_OUTLINE_PLOT_RULES);
+    expect(user!.content).toContain('{"predictable": string, "title": string');
+    expect(user!.content).toContain("exactly 4 chapters");
   });
 });
 
