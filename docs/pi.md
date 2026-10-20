@@ -141,6 +141,17 @@ CORS_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http:
 CSRF_TRUSTED_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http://100.64.240.39:7860
 ```
 
+## Replies That Keep Going
+
+The server image includes a small reply runner. `de-koi-server` starts it next to itself (port 8790 inside the
+container) and the web container routes `/runner/` to it. Replies then run on the Pi instead of in the browser
+tab, so closing the tab or locking the phone no longer cuts a reply off: it finishes and saves, and reopening
+the chat shows it (still streaming if it isn't done). Stop still stops it.
+
+Nothing to configure. If the runner isn't running, De-Koi falls back to running replies in the tab as before. The
+runner uses the same `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` and `CSRF_TRUSTED_ORIGINS` as the server. Replies keep
+running in the tab when "review image prompts before sending" or debug mode is on.
+
 ## Auto Update Timer
 
 After one manual image update works, install the systemd timer templates:
