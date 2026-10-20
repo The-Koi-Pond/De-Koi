@@ -244,9 +244,11 @@ function TypingWaitNote({ chatId }: { chatId: string }) {
   const wait = useReplyWait(startedAt);
   if (!wait.elapsed) return null;
   return (
-    <p className="px-4 pb-1.5 text-xs text-[var(--muted-foreground)]" aria-live="polite">
-      <span className="tabular-nums">{wait.elapsed}</span>
-      {wait.slow ? ` · ${SLOW_REPLY_HINT}` : null}
+    <p className="px-4 pb-1.5 text-xs text-[var(--muted-foreground)]">
+      <span className="tabular-nums" aria-hidden="true">
+        {wait.elapsed}
+      </span>
+      <span aria-live="polite">{wait.slow ? ` · ${SLOW_REPLY_HINT}` : ""}</span>
     </p>
   );
 }

@@ -59,7 +59,12 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         <p aria-live="polite" className="text-sm text-[var(--muted-foreground)]">
           {PHASE_TEXT[phase]}
           {call.muted && phase === "listening" ? " (muted)" : ""}
-          {wait.elapsed ? <span className="tabular-nums"> {wait.elapsed}</span> : null}
+          {wait.elapsed ? (
+            <span className="tabular-nums" aria-hidden="true">
+              {" "}
+              {wait.elapsed}
+            </span>
+          ) : null}
         </p>
         {wait.slow && (
           <p className="text-xs text-[var(--muted-foreground)]">Still waiting on the model. Hang up to cancel.</p>
