@@ -1,13 +1,15 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { importApi } from "../../../../shared/api/import-api";
 import { remoteRuntimeTarget } from "../../../../shared/api/remote-runtime";
+import { runCardCheck } from "../../../catalog/characters/index";
 import { applySTBulkImportInvalidations } from "../lib/st-bulk-import-invalidations";
 import {
   buildInitialSTBulkSelection,
   createEmptySTBulkSelection,
+  type STBulkCardCheck,
   type STBulkCategoryKey,
   type STBulkImportPhase,
   type STBulkImportProgress,
@@ -53,6 +55,9 @@ function normalizeImportResult(value: unknown): STBulkImportResult | null {
       backgrounds: Number(imported.backgrounds ?? 0),
       personas: Number(imported.personas ?? 0),
     },
+    characterIds: Array.isArray(record.characterIds)
+      ? record.characterIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
     errors: Array.isArray(record.errors) ? record.errors.map(String) : [],
   };
 }
@@ -78,6 +83,9 @@ export function useSTBulkImportController() {
   const [scanResult, setScanResult] = useState<STBulkScanResult | null>(null);
   const [selection, setSelection] = useState<STBulkSelectionState>(createEmptySTBulkSelection);
   const [importResult, setImportResult] = useState<STBulkImportResult | null>(null);
+  const [cardCheck, setCardCheck] = useState<STBulkCardCheck | null>(null);
+  // Bumped on reset and each import, so a slow check can't land on a newer import.
+  const cardCheckRun = useRef(0);
   const [progress, setProgress] = useState<STBulkImportProgress | null>(null);
   const [error, setError] = useState("");
   const [characterTagImportMode, setCharacterTagImportMode] = useState<STBulkTagImportMode>("all");
@@ -98,9 +106,33 @@ export function useSTBulkImportController() {
     setFolderToken(null);
     setSelection(createEmptySTBulkSelection());
     setImportResult(null);
+    setCardCheck(null);
+    cardCheckRun.current += 1;
     setProgress(null);
     setError("");
     setCharacterTagImportMode("all");
+  }, []);
+
+  const checkImportedCards = useCallback((characterIds: string[]) => {
+    const run = ++cardCheckRun.current;
+    if (characterIds.length === 0) {
+      setCardCheck(null);
+      return;
+    }
+    setCardCheck({ status: "checking" });
+    runCardCheck(characterIds).then(
+      ({ checked, flagged }) => {
+        if (run !== cardCheckRun.current) return;
+        setCardCheck({ status: "done", checked, flagged: flagged.length });
+      },
+      (checkError: unknown) => {
+        if (run !== cardCheckRun.current) return;
+        setCardCheck({
+          status: "failed",
+          error: checkError instanceof Error ? checkError.message : String(checkError),
+        });
+      },
+    );
   }, []);
 
   const scan = useCallback(async () => {
@@ -235,11 +267,13 @@ export function useSTBulkImportController() {
           throw new Error(typeof errorData?.error === "string" ? errorData.error : "Import failed");
         }
       }
-      data ??= await importApi.stBulkRun<STBulkImportResult>(payload);
+      data ??= normalizeImportResult(await importApi.stBulkRun<unknown>(payload));
+      if (!data) throw new Error("The import sent back no result");
       if (data.success) {
         setImportResult(data);
         setPhase("done");
         applySTBulkImportInvalidations(queryClient, data.imported);
+        checkImportedCards(data.characterIds);
       } else {
         setError(`Import failed${data.error ? `: ${data.error}` : ""}`);
         setPhase("preview");
@@ -248,7 +282,7 @@ export function useSTBulkImportController() {
       setError(describeImportError(err, "Import failed"));
       setPhase("preview");
     }
-  }, [characterTagImportMode, folderPath, folderToken, queryClient, selection]);
+  }, [characterTagImportMode, checkImportedCards, folderPath, folderToken, queryClient, selection]);
 
   return {
     folderPath,
@@ -256,6 +290,7 @@ export function useSTBulkImportController() {
     scanResult,
     selection,
     importResult,
+    cardCheck,
     progress,
     error,
     characterTagImportMode,

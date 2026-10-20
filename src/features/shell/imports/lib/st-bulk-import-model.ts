@@ -32,8 +32,16 @@ export interface STBulkImportResult {
   success: boolean;
   error?: string;
   imported: STBulkImportedCounts;
+  /** Ids of the characters this import saved. Older runtimes don't send them. */
+  characterIds: string[];
   errors: string[];
 }
+
+/** The card check on the characters a folder import just saved. */
+export type STBulkCardCheck =
+  | { status: "checking" }
+  | { status: "done"; checked: number; flagged: number }
+  | { status: "failed"; error: string };
 
 export interface STBulkImportProgress {
   category: string;

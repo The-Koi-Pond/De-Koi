@@ -2,7 +2,9 @@
 // Modal: Import Character (JSON / PNG)
 // ──────────────────────────────────────────────
 import { useRef } from "react";
+import { ShieldCheck } from "lucide-react";
 import { Modal } from "../../../../shared/components/ui/Modal";
+import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useCharacterImportFlow } from "../hooks/use-character-import-flow";
 import { CharacterImportDropZone } from "./CharacterImportDropZone";
 import { CharacterImportLorebookPrompt } from "./CharacterImportLorebookPrompt";
@@ -16,6 +18,7 @@ interface Props {
 
 export function ImportCharacterModal({ open, onClose }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const openModal = useUIStore((s) => s.openModal);
   const {
     characters,
     status,
@@ -95,7 +98,19 @@ export function ImportCharacterModal({ open, onClose }: Props) {
         <CharacterImportStatusPanel status={status} results={results} />
 
         {/* Footer */}
-        <div className="flex justify-end border-t border-[var(--border)] pt-3">
+        <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              reset();
+              openModal("card-check");
+            }}
+            title="Run the import card check on the cards you already have"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+          >
+            <ShieldCheck size="0.875rem" aria-hidden="true" />
+            Check my cards
+          </button>
           <button
             onClick={() => {
               reset();

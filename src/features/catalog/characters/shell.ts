@@ -1,3 +1,4 @@
+export * from "./components/CardCheckModal";
 export * from "./components/CardLintModal";
 export * from "./components/CharacterCardUpdateModal";
 export * from "./components/CharacterEditor";
