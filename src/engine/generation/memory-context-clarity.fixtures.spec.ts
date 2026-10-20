@@ -139,7 +139,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a named commitment without same-speaker commitment-act evidence", async () => {
@@ -175,7 +175,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a named commitment with the wrong same-speaker action", async () => {
@@ -202,7 +202,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each(["I did not promise to wait at the east gate.", "I will not wait at the east gate."])(
@@ -231,7 +231,7 @@ describe("memory context clarity semantic fixtures", () => {
         ]),
       });
 
-      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
     },
   );
 
@@ -287,7 +287,7 @@ describe("memory context clarity semantic fixtures", () => {
         ]),
       });
 
-      expect(result).toEqual({ candidates: [], skippedCount: 1 });
+      expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
     },
   );
 
@@ -315,7 +315,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("requires speaker-local support for an according-to frame", async () => {
@@ -351,7 +351,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects an according-to frame with only topical speaker overlap", async () => {
@@ -378,7 +378,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a positive attribution from negative evidence", async () => {
@@ -405,7 +405,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects coordinated attribution claims whose proposition polarities are inverted", async () => {
@@ -432,7 +432,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a direct claim whose evidence has opposite polarity", async () => {
@@ -459,7 +459,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a direct claim with an unsupported surface predicate", async () => {
@@ -486,7 +486,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -524,7 +524,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -562,7 +562,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a negative predicate when its material object changed", async () => {
@@ -589,7 +589,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("accepts equivalent negative predicates with the same material object", async () => {
@@ -653,7 +653,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a claim that reverses material argument roles", async () => {
@@ -680,7 +680,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects replacing a material asked predicate with warned", async () => {
@@ -707,7 +707,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects replacing a material discussed predicate with prefers", async () => {
@@ -734,7 +734,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects candidate details that are not proved while resolving it", async () => {
@@ -761,7 +761,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects reversed roles in a material naming predicate", async () => {
@@ -788,7 +788,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -828,7 +828,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -868,7 +868,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -936,7 +936,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("uses reference context only for an unresolved antecedent identity", async () => {
@@ -978,7 +978,7 @@ describe("memory context clarity semantic fixtures", () => {
       ),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -1070,7 +1070,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("accepts an unchanged reporting act and trailing condition", async () => {
@@ -1315,7 +1315,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -1405,7 +1405,7 @@ describe("memory context clarity semantic fixtures", () => {
       ),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("does not import a referenced reduced relative into an unresolved antecedent", async () => {
@@ -1447,7 +1447,7 @@ describe("memory context clarity semantic fixtures", () => {
       ),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("accepts a bare antecedent identity resolved from reference context", async () => {
@@ -1569,7 +1569,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects a general rule inferred from one returned-Machina observation", async () => {
@@ -1596,7 +1596,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects class-wide subject drift even when a local quantifier remains", async () => {
@@ -1623,7 +1623,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects class-wide subject drift without relying on a candidate verb cue", async () => {
@@ -1650,7 +1650,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects class-wide drift from an article-scoped singular observation", async () => {
@@ -1677,7 +1677,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects irregular singular-to-class drift when another one remains", async () => {
@@ -1704,7 +1704,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it.each([
@@ -1782,7 +1782,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects moving demonstrative scope to a different local noun", async () => {
@@ -1809,7 +1809,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects laundering a moved scope through one shared binding token", async () => {
@@ -1836,7 +1836,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects laundering a moved scope through shared modifiers", async () => {
@@ -1863,7 +1863,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects laundering a moved scope when extra modifiers push the source head out", async () => {
@@ -1890,7 +1890,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("accepts a candidate that preserves the cited observation's explicit scope", async () => {
@@ -2047,7 +2047,7 @@ describe("memory context clarity semantic fixtures", () => {
       ]),
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("resolves a vague topic only when the cited context names it", async () => {

@@ -10,7 +10,7 @@ export interface AutomaticMemoryCaptureCompletion {
 export interface AutomaticMemoryCaptureStatus {
   chatId: string;
   assistantMessageId: string;
-  status: "processing" | "retryable" | "failed" | "completed";
+  status: "processing" | "retryable" | "failed" | "completed" | "skipped";
 }
 
 type AutomaticMemoryCaptureCompletionListener = (completion: AutomaticMemoryCaptureCompletion) => void;

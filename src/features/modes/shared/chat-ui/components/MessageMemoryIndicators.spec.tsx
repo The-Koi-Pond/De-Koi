@@ -240,4 +240,91 @@ describe("MessageMemoryIndicators", () => {
     expect(container.textContent).toContain("unsupported saved memory status");
     expect(container.textContent).toContain("not treated as remembered");
   });
+  it("lists what a completed capture did not save, with the reason", () => {
+    const memoryCapture = {
+      status: "completed",
+      jobId: "job-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+      completedAt: "2026-10-20T00:00:00.000Z",
+      report: {
+        version: 1,
+        proposed: 2,
+        saved: 1,
+        savedInactive: 0,
+        corrected: 0,
+        skippedTotal: 1,
+        skipped: [{ reason: "verifier_rejected", kind: "fact", content: "Chai owns two cats." }],
+        transcript: "saved",
+      },
+      consequences: {
+        status: "completed",
+        affected: [
+          {
+            operation: "created",
+            memory: { id: "memory-1", kind: "fact", status: "active", content: "Chai's cat is named Pickle." },
+          },
+        ],
+      },
+    } as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    act(() => container.querySelector("button")?.click());
+    expect(container.textContent).toContain("Chai's cat is named Pickle.");
+    expect(container.textContent).toContain("Not saved (1)");
+    expect(container.textContent).toContain("Chai owns two cats.");
+    expect(container.textContent).toContain("The fact check said it doesn't match what was said.");
+  });
+
+  it("says why a reply was not checked for memory", () => {
+    const memoryCapture = {
+      status: "skipped",
+      jobId: "",
+      sourceMessageIds: [],
+      notCheckedReason: "no_reply_text",
+    } as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toContain("not remembered");
+    act(() => button?.click());
+    expect(container.textContent).toContain("Why: The reply had no text.");
+  });
+  it("marks a reply whose proposed memories were all skipped", () => {
+    const memoryCapture = {
+      status: "completed",
+      jobId: "job-1",
+      sourceMessageIds: ["user-1", "assistant-1"],
+      report: {
+        version: 1,
+        proposed: 1,
+        saved: 0,
+        savedInactive: 0,
+        corrected: 0,
+        skippedTotal: 1,
+        skipped: [{ reason: "low_value", kind: "fact", content: "Sam is left-handed." }],
+        transcript: "saved",
+      },
+      consequences: { status: "completed", affected: [] },
+    } as MessageExtra["memoryCapture"];
+
+    act(() => {
+      root = createRoot(container);
+      root.render(<MessageMemoryIndicators memoryCapture={memoryCapture} />);
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("nothing saved");
+    act(() => button?.click());
+    expect(container.textContent).toContain("Nothing saved from this reply");
+    expect(container.textContent).toContain("Sam is left-handed.");
+    expect(container.textContent).toContain("Judged not worth remembering.");
+  });
 });

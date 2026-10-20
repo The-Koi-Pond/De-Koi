@@ -121,6 +121,9 @@ describe("automatic canonical-memory consequence extraction", () => {
         }),
       ],
       skippedCount: 0,
+      skipped: [],
+      proposedCount: 1,
+      correctedCount: 0,
     });
     expect(llm.complete).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -435,7 +438,7 @@ describe("automatic canonical-memory consequence extraction", () => {
       },
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 3 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 3 });
   });
 
   it("accepts supported promises, relationship changes, scene events, plot state, and eligible contradictions", async () => {
@@ -603,7 +606,7 @@ describe("automatic canonical-memory consequence extraction", () => {
       },
     });
 
-    expect(result).toEqual({ candidates: [], skippedCount: 1 });
+    expect(result).toMatchObject({ candidates: [], skippedCount: 1 });
   });
 
   it("rejects low-confidence role reversal, unsupported inference, and invented supersession IDs", async () => {
