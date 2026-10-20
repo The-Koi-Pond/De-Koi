@@ -7,7 +7,7 @@ function requireText(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-for (const trigger of ["pull_request:", "schedule:", "workflow_dispatch:"]) {
+for (const trigger of ["pull_request:", "merge_group:", "schedule:", "workflow_dispatch:"]) {
   requireText(workflow.includes(trigger), `CI Full must retain the ${trigger.slice(0, -1)} trigger.`);
 }
 
@@ -44,9 +44,18 @@ requireText(
 requireText(!denyStep.includes("continue-on-error"), "Rust dependency policy must remain blocking.");
 
 const ruleTypes = new Set(ruleset.rules.map((rule) => rule.type));
-for (const type of ["deletion", "non_fast_forward", "pull_request", "required_status_checks"]) {
+for (const type of ["deletion", "non_fast_forward", "pull_request", "merge_queue", "required_status_checks"]) {
   requireText(ruleTypes.has(type), `Protect main ruleset is missing ${type}.`);
 }
+const queueRule = ruleset.rules.find((rule) => rule.type === "merge_queue");
+requireText(
+  queueRule.parameters.grouping_strategy === "ALLGREEN",
+  "Protect main's merge queue must only merge groups where every pull request passed.",
+);
+requireText(
+  queueRule.parameters.check_response_timeout_minutes >= 30,
+  "Protect main's merge queue must wait at least 30 minutes for Required Validation.",
+);
 const statusRule = ruleset.rules.find((rule) => rule.type === "required_status_checks");
 requireText(
   statusRule.parameters.strict_required_status_checks_policy === true,
