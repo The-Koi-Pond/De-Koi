@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generationParameterSources, mergeStoredGenerationParameters } from "./generate-route-utils";
-import { providerVisibleLlmParameters } from "./provider-visible-parameters";
+import { generationInfoFromVisibleParameters, providerVisibleLlmParameters } from "./provider-visible-parameters";
 import { resolveRecommendedGenerationProfile } from "./recommended-generation-profile";
 
 describe("providerVisibleLlmParameters", () => {
@@ -11,6 +11,33 @@ describe("providerVisibleLlmParameters", () => {
     });
     expect(providerVisibleLlmParameters(connection, { reasoningEffort: "high" })).toMatchObject({
       reasoningEffort: "high",
+    });
+  });
+
+  it("shows only the Claude Subscription settings Claude Code actually uses", () => {
+    const connection = { provider: "claude_subscription", model: "claude-opus-5-5", maxTokensOverride: 2048 };
+    const visible = providerVisibleLlmParameters(connection, {
+      maxTokens: 4096,
+      temperature: 0.9,
+      topP: 0.95,
+      topK: 40,
+      frequencyPenalty: 0.2,
+      stop: ["\nUser:"],
+      reasoningEffort: "medium",
+      showThoughts: true,
+      maxContext: 200_000,
+      _marinara: { chatId: "chat-1" },
+    });
+
+    expect(visible).toEqual({
+      reasoningEffort: "medium",
+      showThoughts: true,
+      maxContext: 200_000,
+    });
+    expect(generationInfoFromVisibleParameters(connection, visible)).toMatchObject({
+      maxTokens: null,
+      temperature: null,
+      reasoningEffort: "medium",
     });
   });
 
