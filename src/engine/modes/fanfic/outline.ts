@@ -2,9 +2,10 @@ import type { LlmGateway } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
 import type { FanficOutline, FanficState } from "../../contracts/types/fanfic";
 import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
-import { loadCharacters } from "../../generation/prompt-assembly";
+import { loadCharacters, scanLorebooksForText } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString } from "../../generation/runtime-records";
 import { parseGameJsonish } from "../../shared/parsing-jsonish";
+import { fanficLoreScanText } from "./lore";
 import { buildFanficOutlineMessages, renderFanficCastCards } from "./prompts";
 import { normalizeFanficOutline, readFanficState } from "./request";
 
@@ -73,10 +74,14 @@ export async function generateFanficOutline(
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId) throw new Error("Pick a connection for this fic first.");
 
-  const characters = await loadCharacters(deps.storage, chat);
+  const [characters, worldInfo] = await Promise.all([
+    loadCharacters(deps.storage, chat),
+    scanLorebooksForText(deps.storage, chat, fanficLoreScanText(state.request)),
+  ]);
   const messages = buildFanficOutlineMessages({
     request: state.request,
     castCards: renderFanficCastCards(characters),
+    worldInfo,
     researchNotes: state.research?.notes,
   });
   const raw = await deps.llm.complete(
