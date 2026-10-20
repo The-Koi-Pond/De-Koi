@@ -140,7 +140,7 @@ fn human_duration(duration: Duration) -> String {
     let seconds = duration.as_secs();
     if seconds == 0 {
         "a second".to_string()
-    } else if seconds >= 60 && seconds % 60 == 0 {
+    } else if seconds >= 60 && seconds.is_multiple_of(60) {
         let minutes = seconds / 60;
         format!("{minutes} minute{}", if minutes == 1 { "" } else { "s" })
     } else {
