@@ -17,6 +17,7 @@ import type {
 import { chatBackgroundMetadataToUrl } from "../../../../shared/lib/backgrounds";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { llmApi } from "../../../../shared/api/llm-api";
+import { generationRunnerApi, generationRunnerAvailable } from "../../../../shared/api/generation-runner-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { backgroundsApi } from "../../../../shared/api/settings-assets-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
@@ -1307,6 +1308,33 @@ async function applyAgentResultEffects(
   if (!options.skipTrackerSync) await applyTrackerResultToTrackerState(queryClient, chatId, result);
 }
 
+/**
+ * Follows a reply running on the hosted runner (replays what it produced so far, then live). Stopping the
+ * reply here cancels it on the runner; closing the tab does not, so the reply still finishes and saves.
+ */
+export async function* followRunnerReply(jobId: string, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+  const cancel = () => {
+    generationRunnerApi.cancel(jobId).catch((error: unknown) => {
+      console.warn("[generation] could not cancel the reply on the runner", error);
+    });
+  };
+  if (signal.aborted) {
+    cancel();
+    return;
+  }
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    yield* generationRunnerApi.follow(jobId, signal) as AsyncGenerator<StreamEvent>;
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
+}
+
+async function* runReplyOnRunner(input: Record<string, unknown>, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+  const jobId = await generationRunnerApi.start(input);
+  yield* followRunnerReply(jobId, signal);
+}
+
 export async function runGenerationWithUi(
   queryClient: QueryClient,
   args: GenerateArgs,
@@ -1995,37 +2023,41 @@ export function useGenerate() {
 
   const generate = useCallback(
     async (args: GenerateArgs): Promise<boolean> => {
-      return runGenerationWithUi(
-        queryClient,
-        args,
-        (streamArgs, signal) =>
-          startGeneration(
-            {
-              storage: storageApi,
-              llm: llmApi,
-              integrations: reviewedIntegrationGateway,
-              visuals: visualAssetsApi,
-              onPerformanceTiming: reportPerformanceStageTiming,
-            },
-            {
-              ...streamArgs,
-              userStatus: useUIStore.getState().userStatus,
-              userActivity: useUIStore.getState().userActivity,
-              userTimeZone: resolveUserTimeZone(),
-              imagePromptSettings: {
-                includeAppearances: useUIStore.getState().imagePromptIncludeAppearances,
-                format: useUIStore.getState().imagePromptFormat,
-                styleProfileId: useUIStore.getState().imageStyleProfiles.defaultProfileId,
-                styleProfiles: useUIStore.getState().imageStyleProfiles,
-              },
-              hideAutomatedSummarySourceMessages: useUIStore.getState().summaryPopoverSettings.hideSummarizedMessages,
-              trimIncompleteModelOutput: useUIStore.getState().trimIncompleteModelOutput,
-              debugMode: useUIStore.getState().debugMode,
-              debugSink: enqueueAgentDebugEntry,
-            },
-            signal,
-          ) as AsyncGenerator<StreamEvent>,
-      );
+      return runGenerationWithUi(queryClient, args, async function* (streamArgs, signal) {
+        const ui = useUIStore.getState();
+        const input = {
+          ...streamArgs,
+          userStatus: ui.userStatus,
+          userActivity: ui.userActivity,
+          userTimeZone: resolveUserTimeZone(),
+          imagePromptSettings: {
+            includeAppearances: ui.imagePromptIncludeAppearances,
+            format: ui.imagePromptFormat,
+            styleProfileId: ui.imageStyleProfiles.defaultProfileId,
+            styleProfiles: ui.imageStyleProfiles,
+          },
+          hideAutomatedSummarySourceMessages: ui.summaryPopoverSettings.hideSummarizedMessages,
+          trimIncompleteModelOutput: ui.trimIncompleteModelOutput,
+          debugMode: ui.debugMode,
+        };
+        // Hosted installs run the reply on the server so it survives a closed tab. Image prompt review and the
+        // debug log need this tab, so those keep running here.
+        if (!ui.reviewImagePromptsBeforeSend && !ui.debugMode && (await generationRunnerAvailable())) {
+          yield* runReplyOnRunner(input, signal);
+          return;
+        }
+        yield* startGeneration(
+          {
+            storage: storageApi,
+            llm: llmApi,
+            integrations: reviewedIntegrationGateway,
+            visuals: visualAssetsApi,
+            onPerformanceTiming: reportPerformanceStageTiming,
+          },
+          { ...input, debugSink: enqueueAgentDebugEntry },
+          signal,
+        ) as AsyncGenerator<StreamEvent>;
+      });
     },
     [queryClient, reviewedIntegrationGateway],
   );

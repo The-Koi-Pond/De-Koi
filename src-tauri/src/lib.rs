@@ -7,6 +7,7 @@ pub mod http_server;
 pub(crate) mod http_storage_dispatch;
 pub(crate) mod http_storage_events;
 pub(crate) mod performance_diagnostics;
+pub mod runner_supervisor;
 mod seed_defaults;
 pub mod state;
 #[path = "commands/storage.rs"]
@@ -312,6 +313,7 @@ pub fn run() {
             storage_commands::integration_commands::tts_update_config,
             storage_commands::integration_commands::tts_voices,
             storage_commands::integration_commands::tts_speak,
+            storage_commands::integration_commands::stt_transcribe,
             storage_commands::integration_commands::translate_text_command,
             storage_commands::integration_commands::discord_webhook_send,
             storage_commands::integration_commands::music_status,

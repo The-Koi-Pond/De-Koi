@@ -18,6 +18,7 @@ import {
   recordAssistantActivity,
 } from "../../../../../engine/modes/chat/autonomous/autonomous.service";
 import { chatCommandApi } from "../../../../../shared/api/chat-command-api";
+import { generationRunnerHealth } from "../../../../../shared/api/generation-runner-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../../shared/api/integration-gateway";
@@ -66,6 +67,12 @@ export function useBackgroundAutonomousPolling() {
 
     const poll = async () => {
       if (cancelled) return;
+
+      // The hosted runner texts first on the server (even with no tab open); tabs must not do it twice.
+      if ((await generationRunnerHealth()).textingFirst) {
+        schedulePoll();
+        return;
+      }
 
       // Don't trigger autonomous messages when user is DND
       if (useUIStore.getState().userStatus === "dnd") {

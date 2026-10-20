@@ -65,6 +65,7 @@ type ConversationSurfaceProps = {
   onDelete: (messageId: string) => void;
   onRegenerate: (messageId: string) => void;
   onEdit: (messageId: string, content: string) => void | Promise<void>;
+  onEditAndResend?: (messageId: string, content: string) => Promise<void>;
   onSetActiveSwipe: (messageId: string, index: number) => void;
   onPeekPrompt: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI: (messageId: string, current: boolean) => void;
@@ -134,6 +135,7 @@ export function ChatConversationSurface({
   onDelete,
   onRegenerate,
   onEdit,
+  onEditAndResend,
   onSetActiveSwipe,
   onPeekPrompt,
   onToggleHiddenFromAI,
@@ -196,6 +198,7 @@ export function ChatConversationSurface({
           onDelete={onDelete}
           onRegenerate={onRegenerate}
           onEdit={onEdit}
+          onEditAndResend={onEditAndResend}
           onSetActiveSwipe={onSetActiveSwipe}
           onPeekPrompt={onPeekPrompt}
           onToggleHiddenFromAI={onToggleHiddenFromAI}

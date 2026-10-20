@@ -89,7 +89,7 @@ it.
 <details>
 <summary><b>Chat modes</b> (9)</summary>
 
-- **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.
+- **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.
 - **Message Reactions**: React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.
 - **Roleplay Mode**: Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character (with a note showing what changed and a way to restore the original), and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.
 - **Fanfic Mode**: Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length, plus character cards and lorebooks from your library as canon notes. De-Koi can look up the canon online first, shows an outline you can edit or skip, then writes it chapter by chapter. Steer or rewrite chapters with notes, listen to them read aloud, and run quality, continuity, and in-character checks with one-tap fixes. A story ledger of who knows what and per-character voice sheets with real canon lines keep long fics consistent. An editor pass rewrites only the weak scenes, the outline re-plans itself after each chapter, you can rewrite any passage you select and pick from versions, and local models can ban phrases outright. Save it as HTML or Markdown.
@@ -134,21 +134,23 @@ it.
 </details>
 
 <details>
-<summary><b>Media</b> (3)</summary>
+<summary><b>Media</b> (4)</summary>
 
 - **Text-to-Speech**: Configure voice providers and let chats, narration, or characters speak with assigned voices.
+- **Voice Calls And Voice Input**: Call a Conversation character: talk, and they answer out loud in their Text to Speech voice, hands-free, with every turn kept in the chat as texts. The mic button and calls can transcribe with your Text to Speech provider (OpenAI Whisper or ElevenLabs Scribe) instead of the browser. Needs microphone access, so hosted installs need an https:// address.
 - **Image Generation**: Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.
 - **Music Player**: Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.
 
 </details>
 
 <details>
-<summary><b>Settings</b> (9)</summary>
+<summary><b>Settings</b> (10)</summary>
 
 - **Settings**: Global controls for appearance, chat behavior, sound preferences, imports, themes, extensions, backups, updates, and advanced runtime options.
 - **Privacy And Data Controls**: Review how De-Koi stores and sends data, export or back up your library, erase selected categories, or perform a typed-confirmation complete wipe of De-Koi-managed data.
 - **Health And Diagnostics**: Check that setup is complete and everything is working: the local model, your providers, storage, and recent errors. Copy a troubleshooting report with private details removed.
 - **Notification Sounds**: Choose the Frog default, the Legacy ding, or a small custom audio file for local chat alerts.
+- **Phone Notifications**: On a hosted De-Koi (like a Raspberry Pi), get a notification on your phone or computer when a character texts you first or a reply finishes while De-Koi is closed. Characters can text first even with no tab open. Needs De-Koi on an https:// address. Message text is never included.
 - **Modules**: Enable or disable bundled modules like ME Notes and Music Player without importing custom extension files.
 - **Extensions**: Install CSS, JavaScript, or package manifest extensions, then enable, disable, and manage local behavior without editing core source.
 - **Extension Device Access**: Before an extension runs, check that it's compatible and see what it asks for, then turn on its CSS or trusted page-level JavaScript on this device and this De-Koi install only.

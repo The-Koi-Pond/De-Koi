@@ -28,6 +28,7 @@ vi.mock("../../../../runtime/generation/index", () => ({
     generate: mocks.generate,
     retryAgents: mocks.retryAgents,
   }),
+  useRunnerReattach: () => undefined,
 }));
 
 import { useChatTimelineActions } from "./use-chat-timeline-actions";
