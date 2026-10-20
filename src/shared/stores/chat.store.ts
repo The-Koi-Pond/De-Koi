@@ -99,6 +99,8 @@ interface ChatState {
    * shown while its reply has not started streaming yet.
    */
   generationPhaseByChatId: Map<string, string>;
+  /** Per chat: when the current generation phase began (ms), so a long wait can show how long it has run. */
+  generationPhaseStartedAtByChatId: Map<string, number>;
   /** Character name + status shown during DND/idle delay (before generation starts). */
   delayedCharacterInfo: { name: string; status: string } | null;
   /** Per-chat typing state so switching chats restores the correct indicator. */
@@ -218,6 +220,7 @@ export const useChatStore = create<ChatState>()(
     streamingCharacterIdByChatId: new Map(),
     typingCharacterName: null,
     generationPhaseByChatId: new Map(),
+    generationPhaseStartedAtByChatId: new Map(),
     delayedCharacterInfo: null,
     perChatTyping: new Map(),
     perChatDelayed: new Map(),
@@ -466,9 +469,15 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         if ((state.generationPhaseByChatId.get(chatId) ?? null) === phase) return state;
         const phases = new Map(state.generationPhaseByChatId);
-        if (phase) phases.set(chatId, phase);
-        else phases.delete(chatId);
-        return { generationPhaseByChatId: phases };
+        const startedAt = new Map(state.generationPhaseStartedAtByChatId);
+        if (phase) {
+          phases.set(chatId, phase);
+          startedAt.set(chatId, Date.now());
+        } else {
+          phases.delete(chatId);
+          startedAt.delete(chatId);
+        }
+        return { generationPhaseByChatId: phases, generationPhaseStartedAtByChatId: startedAt };
       }),
 
     setDelayedCharacterInfo: (info) => set({ delayedCharacterInfo: info, typingCharacterName: null }),
@@ -719,6 +728,7 @@ export const useChatStore = create<ChatState>()(
         streamingCharacterIdByChatId: new Map(),
         typingCharacterName: null,
         generationPhaseByChatId: new Map(),
+        generationPhaseStartedAtByChatId: new Map(),
         delayedCharacterInfo: null,
         perChatTyping: new Map(),
         perChatDelayed: new Map(),

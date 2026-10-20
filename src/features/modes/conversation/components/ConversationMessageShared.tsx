@@ -28,7 +28,10 @@ import {
   CharacterWebResearchSources,
   ResolvedAvatarImage,
   SwipeJumpControl,
+  SLOW_REPLY_HINT,
+  useReplyWait,
 } from "../../shared/chat-ui/index";
+import { useChatStore } from "../../../../shared/stores/chat.store";
 
 const IMAGE_URL_RE = /^https?:\/\/\S+\.(?:gif|png|jpe?g|webp)(?:\?[^\s]*)?$/i;
 export const MESSAGE_EDIT_GESTURE_IGNORE_SELECTOR =
@@ -435,28 +438,47 @@ export function MessageSelectCheckbox({ isSelected }: { isSelected?: boolean }) 
 }
 
 function StreamingPendingIndicator({
+  chatId,
   label,
   displayName,
   className,
 }: {
+  chatId: string;
   label?: string;
   displayName?: string;
   className?: string;
 }) {
+  // Counts the current generation step only; a character's deliberate "away" delay clears it.
+  const startedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
+  const wait = useReplyWait(startedAt);
   return (
-    <div
-      className={cn(
-        "mari-streaming-pending inline-flex items-center gap-2 py-0.5",
-        label && "mari-typing-indicator",
-        className,
+    <>
+      <div
+        className={cn(
+          "mari-streaming-pending inline-flex items-center gap-2 py-0.5",
+          label && "mari-typing-indicator",
+          className,
+        )}
+        data-typing-name={label ? displayName : undefined}
+        aria-label={label ?? "Assistant response is starting"}
+      >
+        <span className="mari-streaming-pending-glow" aria-hidden="true" />
+        <span className="mari-streaming-pending-line" aria-hidden="true" />
+        {label && (
+          <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">{label}</span>
+        )}
+        {wait.elapsed && (
+          <span className="tabular-nums text-[0.8125rem] text-[var(--text-secondary)]" aria-hidden="true">
+            {wait.elapsed}
+          </span>
+        )}
+      </div>
+      {wait.slow && (
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]" aria-live="polite">
+          {SLOW_REPLY_HINT}
+        </p>
       )}
-      data-typing-name={label ? displayName : undefined}
-      aria-label={label ?? "Assistant response is starting"}
-    >
-      <span className="mari-streaming-pending-glow" aria-hidden="true" />
-      <span className="mari-streaming-pending-line" aria-hidden="true" />
-      {label && <span className="mari-typing-text text-[0.8125rem] italic text-[var(--text-secondary)]">{label}</span>}
-    </div>
+    </>
   );
 }
 
@@ -549,9 +571,13 @@ export function ConversationMessageBodyContent({
         style={context.messageTextStyle}
       >
         {!context.hasRenderedContent && context.typingLabel ? (
-          <StreamingPendingIndicator label={context.typingLabel} displayName={context.displayName} />
+          <StreamingPendingIndicator
+            chatId={context.message.chatId}
+            label={context.typingLabel}
+            displayName={context.displayName}
+          />
         ) : context.isStreaming && !context.hasRenderedContent ? (
-          <StreamingPendingIndicator />
+          <StreamingPendingIndicator chatId={context.message.chatId} />
         ) : (
           <>
             {context.isStreaming ? (
