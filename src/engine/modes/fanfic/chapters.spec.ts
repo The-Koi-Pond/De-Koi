@@ -64,6 +64,8 @@ function fanficStorage(fanfic: FanficState | null = approvedState) {
     "preset-default": { id: "preset-default", name: "RP preset" },
   };
   const messages: StoredMessage[] = [];
+  const lorebooks: Array<Record<string, unknown>> = [];
+  const loreEntries: Array<Record<string, unknown>> = [];
   let nextMessageId = 1;
   const created = (chatId: string, value: Record<string, unknown>): StoredMessage => {
     const content = String(value.content ?? "");
@@ -87,6 +89,7 @@ function fanficStorage(fanfic: FanficState | null = approvedState) {
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return [records["conn-1"]] as T[];
       if (entity === "personas") return [records["persona-1"]] as T[];
+      if (entity === "lorebooks") return lorebooks as T[];
       return [] as T[];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
@@ -148,8 +151,8 @@ function fanficStorage(fanfic: FanficState | null = approvedState) {
     async saveTrackerSnapshot<T = unknown>(): Promise<T> {
       return {} as T;
     },
-    async listLorebookEntries<T = unknown>(): Promise<T[]> {
-      return [] as T[];
+    async listLorebookEntries<T = unknown>(lorebookId: string): Promise<T[]> {
+      return loreEntries.filter((entry) => entry.lorebookId === lorebookId) as T[];
     },
     async createLorebookEntries<T = unknown>(): Promise<T[]> {
       return [] as T[];
@@ -173,7 +176,33 @@ function fanficStorage(fanfic: FanficState | null = approvedState) {
     },
   } as StorageGateway;
 
-  return { storage, messages, records };
+  return { storage, messages, records, lorebooks, loreEntries };
+}
+
+/**
+ * A picked lorebook whose "bookshop" entry matches only the request text, an entry nothing mentions, and an
+ * unpicked lorebook that would also match.
+ */
+function addLore({ records, lorebooks, loreEntries }: ReturnType<typeof fanficStorage>) {
+  const chat = records["chat-1"]!;
+  chat.metadata = { ...(chat.metadata as object), activeLorebookIds: ["lb-omens"] };
+  lorebooks.push({ id: "lb-omens", name: "Good Omens World", enabled: true });
+  lorebooks.push({ id: "lb-spare", name: "Discworld Notes", enabled: true });
+  const entry = (id: string, lorebookId: string, keys: string[], content: string) => ({
+    id,
+    lorebookId,
+    name: id,
+    keys,
+    content,
+    enabled: true,
+    constant: false,
+    position: 0,
+  });
+  loreEntries.push(
+    entry("e-shop", "lb-omens", ["bookshop"], "LORE-SHOP: The bookshop is A.Z. Fell & Co. in Soho."),
+    entry("e-tadfield", "lb-omens", ["Tadfield"], "LORE-TADFIELD: Tadfield is in Oxfordshire."),
+    entry("e-ankh", "lb-spare", ["bookshop"], "LORE-ANKH: Ankh-Morpork has no bookshops."),
+  );
 }
 
 function proseLlm(responses: string[], completeResponse = ""): LlmGateway & { requests: LlmRequest[] } {
@@ -230,6 +259,26 @@ describe("startFanficGeneration", () => {
     expect(last.content).toContain("Chapter 1: First Flakes");
     expect(Number(llm.requests[0]!.parameters?.maxTokens)).toBeGreaterThanOrEqual(5000);
     expect(messages[0]!.extra.generationReplay).toMatchObject({ generationGuideSource: "fanfic_chapter" });
+  });
+
+  it("brings in picked lore that the request mentions from chapter 1, with no user turns to scan", async () => {
+    const setup = fanficStorage();
+    addLore(setup);
+    const llm = proseLlm(["Snow fell on Soho."]);
+
+    await drain(
+      startFanficGeneration(
+        { storage: setup.storage, llm, integrations: {} as IntegrationGateway },
+        { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" },
+      ),
+    );
+
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("LORE-SHOP: The bookshop is A.Z. Fell & Co. in Soho.");
+    expect(prompt).not.toContain("LORE-TADFIELD");
+    expect(prompt).not.toContain("LORE-ANKH");
+    // The scan-only turn never reaches the model as a message.
+    expect(llm.requests[0]!.messages.filter((message) => message.role === "user")).toHaveLength(1);
   });
 
   it("shows earlier chapters with headings and asks for the next one", async () => {
@@ -391,6 +440,22 @@ describe("generateFanficOutline", () => {
     expect(promptText(llm.requests[0])).toContain("Outline this fic in exactly 2 chapters.");
   });
 
+  it("plans with the picked lore that the request mentions", async () => {
+    const setup = fanficStorage({ ...approvedState, outline: null, outlineApproved: false });
+    addLore(setup);
+    const llm = proseLlm(
+      [],
+      '{"title":"T","summary":"S","chapters":[{"title":"A","summary":"a"},{"title":"B","summary":"b"}]}',
+    );
+
+    await generateFanficOutline({ storage: setup.storage, llm }, { chatId: "chat-1" });
+
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("## World info\nLORE-SHOP: The bookshop is A.Z. Fell & Co. in Soho.");
+    expect(prompt).not.toContain("LORE-TADFIELD");
+    expect(prompt).not.toContain("LORE-ANKH");
+  });
+
   it("approves the outline right away when review was skipped", async () => {
     const { storage } = fanficStorage({
       ...approvedState,
@@ -444,6 +509,19 @@ describe("saveFanficRequest", () => {
     expect(state).toMatchObject({ outline: null, outlineApproved: false });
     expect(records["chat-1"]).toMatchObject({ connectionId: "conn-2", characterIds: ["char-zag"] });
     expect((records["chat-1"]!.metadata as { fanfic: FanficState }).fanfic.request.fandom).toBe("Hades");
+    expect(records["chat-1"]!.metadata).not.toHaveProperty("activeLorebookIds");
+  });
+
+  it("saves the picked lorebooks with the request", async () => {
+    const { storage, records } = fanficStorage();
+    await saveFanficRequest(storage, {
+      chatId: "chat-1",
+      request,
+      connectionId: "conn-1",
+      characterIds: [],
+      lorebookIds: ["lb-omens", "lb-omens", "lb-house"],
+    });
+    expect(records["chat-1"]!.metadata).toMatchObject({ activeLorebookIds: ["lb-omens", "lb-house"] });
   });
 
   it("puts the previous connection and cards back when the request write fails", async () => {
