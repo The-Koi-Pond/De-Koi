@@ -20,6 +20,7 @@ import {
   type TagImportMode,
 } from "../lib/character-import-model";
 import { extractDroppedCharacterImportFiles } from "../lib/import-drop";
+import { cardLintTarget } from "../lib/card-lint-target";
 import {
   cacheCharacterListRecordFromResult,
   invalidateCharacterCollectionQueries,
@@ -111,7 +112,7 @@ export function useCharacterImportFlow(open: boolean) {
 
     await updateCharacterFromImportPlan(plan, importedName);
 
-    return plan.updatedName;
+    return plan;
   };
 
   const pushUpdateExistingResult = async ({
@@ -126,11 +127,12 @@ export function useCharacterImportFlow(open: boolean) {
     nextResults: ImportResultRow[];
   }) => {
     try {
-      const updatedName = await updateImportedCharacterInPlace(imported, importedName);
+      const plan = await updateImportedCharacterInPlace(imported, importedName);
       nextResults.push({
         filename,
         success: true,
-        message: `Updated "${updatedName}" from "${importedName}"`,
+        message: `Updated "${plan.updatedName}" from "${importedName}"`,
+        lint: cardLintTarget({ id: plan.patch.id, data: plan.patch.data }),
       });
     } catch (error) {
       if (!(error instanceof CharacterImportPartialSuccessError)) throw error;
@@ -275,6 +277,7 @@ export function useCharacterImportFlow(open: boolean) {
                       : ""
                 }${formatRegexImportSuffix(regexImport)}`
               : (result.error ?? "Import failed"),
+            lint: result.success ? cardLintTarget(result.character) : null,
           });
         }
       }
@@ -311,6 +314,7 @@ export function useCharacterImportFlow(open: boolean) {
             filename: item.file.name,
             success: result.success,
             message: result.success ? `Imported "${result.name ?? item.file.name}"` : (result.error ?? "Import failed"),
+            lint: result.success ? cardLintTarget(result.character) : null,
           });
         } catch (error) {
           nextResults.push({
@@ -354,6 +358,7 @@ export function useCharacterImportFlow(open: boolean) {
             filename: file.name,
             success: result.success,
             message: result.success ? `Imported "${result.name ?? file.name}"` : (result.error ?? "Import failed"),
+            lint: result.success ? cardLintTarget(result.character) : null,
           });
         } catch (error) {
           nextResults.push({

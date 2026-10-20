@@ -134,6 +134,7 @@ import {
 import { useUpdateChatMetadata } from "../../../../catalog/chats";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { chatKeys } from "../../../../catalog/chats";
+import { offerCardLintReview } from "../../../../catalog/characters/index";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { TrackerPanelIcon } from "../../../../../shared/components/ui/TrackerPanelIcon";
 import { TrackerSizeTierIcon } from "../../../../../shared/components/ui/TrackerSizeTierIcon";
@@ -3063,6 +3064,8 @@ type ImportButtonResult = {
   success?: boolean;
   error?: string;
   chatId?: string;
+  character?: unknown;
+  characterId?: string | null;
 };
 
 function ImportButton({
@@ -3137,6 +3140,10 @@ function ImportButton({
         } else {
           toast.success("Imported successfully!");
         }
+        if (endpoint === "/import/st-character")
+          void offerCardLintReview(data).catch((error) =>
+            console.warn("[card-check] Could not check the imported card.", error),
+          );
       } else {
         toast.error(toUserMessage(data.error, "importSettings"));
       }
