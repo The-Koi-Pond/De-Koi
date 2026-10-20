@@ -16,6 +16,9 @@ async function runnerRequest<T>(path: string, init: RequestInit = {}): Promise<T
   return (await response.json()) as T;
 }
 
+/** What happened to a test notification for one device. "missing": the server doesn't know the device. */
+export type PhoneTestResult = "sent" | "gone" | "failed" | "missing";
+
 /** The hosted runner's Web Push endpoints (src/runner/server.ts). */
 export const phoneNotificationsApi = {
   async available(): Promise<boolean> {
@@ -33,7 +36,20 @@ export const phoneNotificationsApi = {
     }),
   unsubscribe: (endpoint: string) =>
     runnerRequest<{ ok: boolean }>("/runner/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) }),
-  test: () => runnerRequest<{ sent: number; failed: number }>("/runner/push/test", { method: "POST", body: "{}" }),
+  /** Sends a test to the device with this endpoint and reports what happened to it. */
+  async test(endpoint: string): Promise<PhoneTestResult> {
+    const body = await runnerRequest<{ result?: unknown; sent?: number; gone?: number; failed?: number }>(
+      "/runner/push/test",
+      { method: "POST", body: JSON.stringify({ endpoint }) },
+    );
+    if (body.result === "sent" || body.result === "gone" || body.result === "failed" || body.result === "missing") {
+      return body.result;
+    }
+    // A server from before per-device tests answers with counts for all devices.
+    if (body.sent) return "sent";
+    if (body.gone) return "gone";
+    return body.failed ? "failed" : "missing";
+  },
   /** Tells the server whether someone is at a screen (it sends texts-first and "reply ready" pushes otherwise). */
   presence: (status: "active" | "idle" | "dnd", visible: boolean) =>
     runnerRequest<{ ok: boolean }>("/runner/presence", { method: "POST", body: JSON.stringify({ status, visible }) }),

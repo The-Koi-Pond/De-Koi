@@ -279,12 +279,18 @@ export function createRunnerServer(
             return;
           }
           if (req.method === "POST" && path === "/runner/push/test") {
-            const counts = await push.notifyAll({
+            const body = await readJson(req);
+            const payload = {
               title: "De-Koi notifications are on",
               body: "You'll get one when a character texts you while De-Koi is closed.",
               tag: "de-koi-test",
-            });
-            sendJson(res, 200, counts);
+            };
+            // With an endpoint, test just that device and say what happened to it; without one (older apps), all.
+            if (typeof body.endpoint === "string" && body.endpoint) {
+              sendJson(res, 200, { result: await push.notifyOne(body.endpoint, payload) });
+            } else {
+              sendJson(res, 200, await push.notifyAll(payload));
+            }
             return;
           }
         }
