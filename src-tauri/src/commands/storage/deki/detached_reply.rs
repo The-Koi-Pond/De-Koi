@@ -78,18 +78,18 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_state() -> AppState {
+    fn test_state(label: &str) -> AppState {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("de-koi-deki-detached-{nonce}"));
+        let path = std::env::temp_dir().join(format!("de-koi-deki-detached-{label}-{nonce}"));
         AppState::from_data_dir(path, Vec::new()).expect("test app state")
     }
 
     #[test]
     fn a_reply_for_a_stored_session_is_appended_after_its_messages() {
-        let state = test_state();
+        let state = test_state("appended");
         state
             .storage
             .create(
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn replies_without_a_stored_session_are_not_saved() {
-        let state = test_state();
+        let state = test_state("no-session");
         let response = json!({ "content": "Hi." });
         assert!(
             !persist_detached_reply(&state, &json!({ "sessionId": "missing" }), &response).unwrap()
