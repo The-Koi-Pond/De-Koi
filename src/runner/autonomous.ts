@@ -68,6 +68,8 @@ export function startAutonomousScheduler(deps: AutonomousSchedulerDeps): () => v
       const job = deps.startJob({ chatId: chat.id, connectionId: null, forCharacterId: characterId, streaming: true });
       saved = await deps.waitForJob(job);
       if (saved) {
+        // Count the send so the next poll waits out the follow-up cooldown instead of texting again.
+        recordAssistantActivity(chat.id, characterId);
         await chatCommandApi.markAutonomousUnread(chat.id, { characterId });
         await deps.onTexted(chat, { id: characterId, name: await characterName(characterId) });
       }
