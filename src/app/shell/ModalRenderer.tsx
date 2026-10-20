@@ -4,6 +4,7 @@
 import { lazy, Suspense } from "react";
 import { useUIStore } from "../../shared/stores/ui.store";
 import type { AgentData } from "../../features/catalog/agents/shell";
+import type { CardLintModalProps } from "../../features/catalog/characters/shell";
 import type {
   CreateLorebookModalDefaults,
   SaveMomentLoreDraftModalProps,
@@ -57,6 +58,9 @@ const CreateConnectionModal = lazy(() =>
 const CreatePersonaModal = lazy(() =>
   import("../../features/catalog/personas/shell").then((module) => ({ default: module.CreatePersonaModal })),
 );
+const CardLintModal = lazy(() =>
+  import("../../features/catalog/characters/shell").then((module) => ({ default: module.CardLintModal })),
+);
 const CharacterCardUpdateModal = lazy(() =>
   import("../../features/catalog/characters/shell").then((module) => ({ default: module.CharacterCardUpdateModal })),
 );
@@ -75,6 +79,11 @@ export function ModalRenderer() {
       break;
     case "import-character":
       content = <ImportCharacterModal open onClose={closeModal} />;
+      break;
+    case "card-lint":
+      content = (
+        <CardLintModal open onClose={closeModal} {...(modal?.props as Omit<CardLintModalProps, "open" | "onClose">)} />
+      );
       break;
     case "character-maker":
       content = <CharacterMakerModal open onClose={closeModal} />;
