@@ -1080,17 +1080,37 @@ export function providerVisibleLlmParameters(
     return visibleOpenAiCompatibleParameters(connection, normalizedParameters, options);
   }
 
+  if (provider === "claude_subscription") return visibleClaudeSubscriptionParameters(normalizedParameters);
+
   const visible: Record<string, unknown> = { ...normalizedParameters };
   const capped = requestMaxTokens(connection, normalizedParameters, 0);
   if (capped > 0) visible.maxTokens = capped;
   delete visible._marinara;
-  if (provider === "claude_subscription") {
-    // Claude Code cannot turn thinking off; the transport sends its lowest effort instead.
-    const effort = parameterString(normalizedParameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
-    if (effort === "none" || effort === "minimal") {
-      delete visible.reasoning_effort;
-      visible.reasoningEffort = "low";
-    }
+  return visible;
+}
+
+// Claude Code takes only the reasoning effort from these settings; max tokens, temperature, top-p and
+// the rest never reach the model, so the preview leaves them out. Context settings stay because they
+// shape the prompt De-Koi builds.
+const CLAUDE_SUBSCRIPTION_VISIBLE_KEYS = [
+  "reasoningEffort",
+  "reasoning_effort",
+  "showThoughts",
+  "show_thoughts",
+  "maxContext",
+  "useMaxContext",
+];
+
+function visibleClaudeSubscriptionParameters(parameters: JsonRecord): Record<string, unknown> {
+  const visible: Record<string, unknown> = {};
+  for (const key of CLAUDE_SUBSCRIPTION_VISIBLE_KEYS) {
+    if (parameters[key] !== undefined) visible[key] = parameters[key];
+  }
+  // Claude Code cannot turn thinking off; the transport sends its lowest effort instead.
+  const effort = parameterString(parameters, ["reasoningEffort", "reasoning_effort"])?.toLowerCase();
+  if (effort === "none" || effort === "minimal") {
+    delete visible.reasoning_effort;
+    visible.reasoningEffort = "low";
   }
   return visible;
 }
