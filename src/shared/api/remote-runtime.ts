@@ -839,10 +839,11 @@ function parseRemoteJsonEvent(data: string): { type: string; data: unknown } {
   const type = typeof event.type === "string" ? event.type : "message";
   if (type === "error") {
     const errorData = isRecord(event.data) ? event.data : {};
+    const code = readString(errorData.code);
     throw new ApiError(
       readString(errorData.message) || readString(errorData.error) || "Remote event stream failed",
       500,
-      event,
+      code ? { ...event, code } : event,
     );
   }
   return { type, data: "data" in event ? event.data : "text" in event ? event.text : event };

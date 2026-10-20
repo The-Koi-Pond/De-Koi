@@ -185,9 +185,14 @@ export function createRunnerServer(
       } catch (error) {
         const cancelled = job.controller.signal.aborted;
         if (!cancelled) {
+          // The code lets the screen offer the right fix (for example Open Connections for a provider failure).
+          const code = (error as { code?: unknown } | null)?.code;
           registry.push(job, {
             type: "error",
-            data: { message: error instanceof Error ? error.message : String(error) },
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+              ...(typeof code === "string" && code ? { code } : {}),
+            },
           });
           console.error(`[runner] job ${job.id} for chat ${chatId} failed:`, error);
         }

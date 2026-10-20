@@ -11,6 +11,7 @@ import {
   REMOTE_LLM_STREAM_IDLE_TIMEOUT_MS,
   remoteRuntimeGeneration,
   remoteRuntimeTarget,
+  streamRemoteJsonEvents,
   streamRemoteLlm,
 } from "./remote-runtime";
 import { useUIStore } from "../stores/ui.store";
@@ -369,6 +370,38 @@ describe("invokeRemote", () => {
 
     expect(settledAfterDefaultDeadline).toBe(false);
     expect(result).toEqual({ status: "rejected", error: abortError });
+  });
+});
+
+describe("streamRemoteJsonEvents", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+  });
+
+  it("keeps a failed job's error code on the thrown error", async () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://runtime.test" });
+    stubFetch([
+      new Response(
+        'data: {"type":"error","data":{"message":"Provider returned HTTP 401","code":"llm_provider_error"}}\n\n',
+        {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        },
+      ),
+    ]);
+
+    let failure: unknown;
+    try {
+      for await (const _event of streamRemoteJsonEvents("/runner/jobs/job-1/stream", { from: 0 })) {
+        // the error event throws
+      }
+    } catch (cause) {
+      failure = cause;
+    }
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({ message: "Provider returned HTTP 401", details: { code: "llm_provider_error" } });
   });
 });
 
