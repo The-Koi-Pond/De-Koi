@@ -115,6 +115,7 @@ assertContains("docker/nginx/pi-web.conf", nginx, "proxy_pass http://de-koi-serv
 assertContains("docker/nginx/pi-web.conf", nginx, "proxy_pass http://de-koi-server:8787;");
 assertContains("docker/nginx/pi-web.conf", nginx, "client_max_body_size 256m;");
 assertContains("docker/nginx/pi-web.conf", nginx, "proxy_set_header Authorization $http_authorization;");
+assertContains("docker/nginx/pi-web.conf", nginx, "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;");
 assertContains("docker/nginx/pi-web.conf", nginx, "try_files $uri $uri/ /index.html;");
 assertContains("scripts/pi-update.sh", piUpdateScript, "--trusted-lan");
 assertContains("scripts/pi-update.sh", piUpdateScript, 'set -- "$@" -f "$trusted_lan_file"');
@@ -308,6 +309,11 @@ assertNotContains("docker-compose.pi.yml", compose, 'ALLOW_UNAUTHENTICATED_PRIVA
 assertNotContains("docker-compose.pi.yml", compose, 'BYPASS_AUTH_DOCKER: "true"');
 assertContains("docker-compose.pi.trusted-lan.yml", trustedLanCompose, 'ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"');
 assertContains("docker-compose.pi.trusted-lan.yml", trustedLanCompose, 'BYPASS_AUTH_DOCKER: "true"');
+assertContains(
+  "docker-compose.pi.trusted-lan.yml",
+  trustedLanCompose,
+  "TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}",
+);
 const vdsServer = composeServiceBlock("docker-compose.vds.yml", vdsCompose, "de-koi-server");
 const vdsWeb = composeServiceBlock("docker-compose.vds.yml", vdsCompose, "de-koi-web");
 assertOnlyServicePublishesHostPort("docker-compose.vds.yml", vdsCompose, "de-koi-web");

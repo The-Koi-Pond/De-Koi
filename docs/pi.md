@@ -141,6 +141,23 @@ CORS_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http:
 CSRF_TRUSTED_ORIGINS=http://pi:7860,http://pi.local:7860,http://192.168.1.231:7860,http://100.64.240.39:7860
 ```
 
+### HTTPS With Tailscale
+
+Phone notifications and voice input only work on an `https://` page. With the trusted-LAN install, Tailscale
+can give the Pi one:
+
+1. In the Tailscale admin console, open **DNS** and turn on **HTTPS Certificates**.
+2. On the Pi, run `sudo tailscale serve --bg 7860` once. It prints the address, such as
+   `https://pi.<tailnet>.ts.net/`, and keeps serving after reboots. It is only reachable from your own
+   Tailscale devices (that is not Funnel).
+3. Add that exact address to both `CORS_ORIGINS` and `CSRF_TRUSTED_ORIGINS` in `.env`, then rerun
+   `sh scripts/pi-update.sh --trusted-lan`.
+
+The trusted-LAN override sets `TRUSTED_PROXIES` to the Docker range, so the server judges each visitor by the
+address the web container passes on rather than blocking `tailscale serve` as an unknown proxy. Leave
+`TRUSTED_PROXIES` unset in `.env` to keep that default. To stop serving HTTPS, run
+`sudo tailscale serve --https=443 off`.
+
 ## Replies That Keep Going
 
 The server image includes a small reply runner. `de-koi-server` starts it next to itself (port 8790 inside the

@@ -4,3 +4,6 @@ services:
       # Opt-in only: use this override for trusted home LAN/Tailscale pre-alpha installs.
       ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK: "true"
       BYPASS_AUTH_DOCKER: "true"
+      # de-koi-web (nginx) passes each visitor's address on in X-Forwarded-For; trust only the Docker hops so the
+      # server judges the visitor, including through `tailscale serve` HTTPS on the host.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
