@@ -3,7 +3,7 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
+    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
     "keywords": [
       "dm",
       "chat",
@@ -17,7 +17,11 @@
       "speaker bubbles",
       "card css",
       "freshness",
-      "anti repetition"
+      "anti repetition",
+      "edit",
+      "resend",
+      "edit and resend",
+      "versions"
     ],
     "audience": "Users who want companion-style chats, quick conversations, or character group messages.",
     "where": "Home > Conversation, then the chat setup wizard and chat settings drawer.",

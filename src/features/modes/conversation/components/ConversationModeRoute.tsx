@@ -1,5 +1,6 @@
 import "../../../../styles/globals/06-chat-mode-themes.css";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
@@ -19,6 +20,7 @@ import {
   useChatTimelineActions,
   useChatTranscriptShortcuts,
   useChatTtsAutoplay,
+  useEditAndResend,
   useSpriteMetadataState,
   isAbandonedChatDraft,
   isEmptyNewChatSetup,
@@ -73,6 +75,23 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     enabledAgentTypes,
     refreshWorldStateOnTimelineChange: agentsEnabled,
   });
+  const editResend = useEditAndResend({
+    activeChatId,
+    messages: data.messages,
+    setActiveSwipe: timeline.handleSetActiveSwipe,
+  });
+  const { handleSetActiveSwipe } = timeline;
+  const { pairReplyWithUserVersion } = editResend;
+  // Switching a version of your message also shows the reply version that answered it.
+  const handleSetActiveSwipeWithReply = useCallback(
+    (messageId: string, index: number) => {
+      handleSetActiveSwipe(messageId, index);
+      pairReplyWithUserVersion(messageId, index).catch((error: unknown) => {
+        toast.error(error instanceof Error ? error.message : "Could not switch the reply to match.");
+      });
+    },
+    [handleSetActiveSwipe, pairReplyWithUserVersion],
+  );
   const shortcutsBlocked =
     overlays.settingsOpen ||
     overlays.filesOpen ||
@@ -89,7 +108,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
     agentProcessing: timeline.agentProcessing,
     latestAssistantMessageForSwipes: timeline.latestAssistantMessageForSwipes,
     latestMessageForEdit: timeline.latestMessageForEdit,
-    onSetActiveSwipe: timeline.handleSetActiveSwipe,
+    onSetActiveSwipe: handleSetActiveSwipeWithReply,
     onRegenerate: timeline.handleRegenerate,
   });
   useChatTtsAutoplay({
@@ -289,7 +308,8 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
         onDelete={timeline.handleDelete}
         onRegenerate={timeline.handleRegenerate}
         onEdit={timeline.handleEdit}
-        onSetActiveSwipe={timeline.handleSetActiveSwipe}
+        onEditAndResend={editResend.handleEditAndResend}
+        onSetActiveSwipe={handleSetActiveSwipeWithReply}
         onPeekPrompt={timeline.handlePeekPrompt}
         onToggleHiddenFromAI={timeline.handleToggleHiddenFromAI}
         onBranch={timeline.handleBranch}

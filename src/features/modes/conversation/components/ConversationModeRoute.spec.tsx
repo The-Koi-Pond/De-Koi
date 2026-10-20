@@ -118,6 +118,7 @@ vi.mock("../../shared/chat-ui/index", () => ({
   }),
   useChatTranscriptShortcuts: vi.fn(),
   useChatTtsAutoplay: vi.fn(),
+  useEditAndResend: () => ({ handleEditAndResend: vi.fn(), pairReplyWithUserVersion: vi.fn(async () => undefined) }),
   useSpriteMetadataState: () => ({
     handleResetSpritePlacements: vi.fn(),
     handleSetSpritePosition: vi.fn(),
