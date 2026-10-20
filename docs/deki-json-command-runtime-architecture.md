@@ -48,11 +48,11 @@ stable unless the implementation exposes a missing optional field.
 - Prompt text and request context assembly should live in `deki/prompt.rs`.
   Keep persona text, attachments, approved chat grants, approved web grants,
   repository guidance, and command-protocol instructions in one prompt owner.
-- The Slice 2 JSON path is read-only. Requests whose selected capability set
-  includes an existing write tool remain on the current native-tool path during
-  this transition so rebasing Slice 2 does not remove current-main behavior.
-  That compatibility lane is not part of the JSON command registry and should
-  be migrated only with a separately reviewed approval design.
+- Every Deki turn runs on this JSON runtime. Writes are dry-runs that wait
+  for the user's approval: `deki_data` for library rows, extensions, and custom
+  agents, `edit_file` for source, and `edit_memory` for memories (see
+  `docs/deki-data-approvals.md`). The earlier native-tool path, its keyword
+  routing, and the `autoagents` dependency are gone.
 
 - The bounded command loop should live in `deki/loop.rs`. It owns max rounds,
   wall-clock timeout checks, cancellation checks, internal trace
@@ -112,6 +112,8 @@ Use named constants in `deki/budget.rs` so tests can assert them:
   issue one smallest missing command batch; round 8 is command-free synthesis.
   This leaves one bounded recovery turn without executing unconsumable commands.
 - Maximum commands per round: 4.
+- Reasoning effort for every model call: medium (`DEKI_REASONING_EFFORT` in
+  `deki/model_client.rs`).
 - Maximum wall-clock runtime: 180 seconds, of which the last 45 are kept for
   the final answer round. Investigation rounds and commands only use the time
   before that reserve.
@@ -143,11 +145,9 @@ partial answer (the last progress note plus why it stopped) and
 - Provider boundary: no Slice 2 code path should require
   `ensure_connection_supports_native_tools`; JSON runtime model calls go through
   `deki/model_client.rs`.
-  Native write compatibility requests are outside that read-only JSON path.
 - Module split: `deki.rs` stays a facade. Prompt assembly, loop control,
   protocol parsing, budget enforcement, action parsing, command execution, web
   research, and status DTOs have focused owners.
-  Legacy native write behavior remains colocated until its approval migration.
 - Typed commands: command input and output should use Rust structs/enums at the
   command boundary. Raw `serde_json::Value` should be limited to JSON protocol
   ingress/egress and returned storage payloads that are already JSON-shaped.

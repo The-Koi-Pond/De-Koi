@@ -61,6 +61,7 @@ import { loadModeSurface } from "./mode-surface-loader";
 import { requestIdleWork } from "./idle-work";
 import { usePageActivity } from "../../shared/hooks/use-page-activity";
 import { AutomaticMemoryMaintenanceStartup } from "../startup/AutomaticMemoryMaintenanceStartup";
+import { LiveStorageSync } from "../startup/LiveStorageSync";
 import { PhoneNotificationsStartup } from "../startup/PhoneNotificationsStartup";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -1380,6 +1381,7 @@ export function AppShell() {
   return (
     <TopBarActionsProvider>
       <AutomaticMemoryMaintenanceStartup />
+      <LiveStorageSync />
       <PhoneNotificationsStartup />
       <div
         data-component="AppShell"

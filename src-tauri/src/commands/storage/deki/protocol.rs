@@ -4,10 +4,11 @@ use serde_json::Value;
 
 pub(super) const JSON_PROTOCOL_PROMPT: &str = r#"Deki workspace command protocol:
 - Respond with exactly one JSON object and no prose outside the object.
-- JSON shape: {"say":"visible text for the user","commands":[{"name":"command_name","args":{...}}],"stop":false}
+- This conversation has no tool-calling interface. Never write <invoke>, <function_calls>, <parameter>, or any other tool-call markup; request Deki commands only inside the JSON object's commands array.
+- JSON shape: {"commands":[{"name":"command_name","args":{...}}],"stop":false,"say":"visible text for the user"}. Always write commands and stop before say, so the user can watch a final answer appear as you write it.
 - Use commands only when repository, library, approved chat, or approved web evidence is needed.
-- When you can answer, return {"say":"final visible answer, including any <deki_action> block if needed","commands":[],"stop":true}
-- The only command names available in this slice are read, grep, find, ls, deki_data, deki_code, read_deki_library, read_deki_library_items, search_deki_code, read_deki_code_file, read_deki_chats, read_deki_chat_messages, search_deki_web, read_deki_web_page, and edit_file.
+- When you can answer, return {"commands":[],"stop":true,"say":"final visible answer, including any <deki_action> block if needed"}
+- The only command names available in this slice are read, grep, find, ls, outline, deki_data, deki_code, read_deki_library, read_deki_library_items, search_deki_code, read_deki_code_file, read_deki_chats, read_deki_chat_messages, search_deki_web, read_deki_web_page, edit_file, and edit_memory.
 - read_deki_memories is also available for scoped character memories and approved private-chat memories.
 - Do not request raw shell or direct storage writes through commands. Library, extension, and custom-agent changes go only through deki_data insert/patch/delete dry-runs, and source changes only through edit_file dry-runs; both wait for the user's approval.
 - Keep <deki_action> blocks inside say only. The command protocol must never wrap or inspect action JSON.
@@ -53,6 +54,26 @@ struct RawCommandRequest {
     args: Option<Value>,
     #[serde(default)]
     arguments: Option<Value>,
+}
+
+/// True once a reply is a loop of tool-call markup instead of a command frame:
+/// it does not start with a JSON object, has opened `<invoke` more than once,
+/// and has no `"commands"` key. Models trained on native tool calls sometimes
+/// write that format as plain text and repeat it until their output limit,
+/// which takes minutes, so the loop stops such a reply early.
+pub(super) fn is_tool_markup_loop(raw: &str) -> bool {
+    let reply = raw.trim_start();
+    !reply.starts_with('{')
+        && reply.matches("<invoke").nth(1).is_some()
+        && !reply.contains("\"commands\"")
+}
+
+/// The protocol error a reply stopped by [`is_tool_markup_loop`] is repaired with.
+pub(super) fn tool_markup_error() -> AppError {
+    AppError::new(
+        "deki_protocol_tool_markup",
+        "it wrote tool-call markup such as <invoke> instead of one JSON object; this conversation has no tool-calling interface, so commands go only in the JSON commands array",
+    )
 }
 
 pub(super) fn extract_command_frame(raw: &str) -> AppResult<DekiCommandFrame> {
@@ -243,6 +264,40 @@ fn json_type_name(value: &Value) -> &'static str {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn repeated_tool_call_markup_is_a_loop() {
+        // Shape captured from Opus 5.5 on Claude Code: the same invoke blocks repeated for
+        // minutes, with no JSON frame.
+        let block = "<invoke name=\"search_deki_code\">\n<parameter name=\"query\">MIN_TEXT_REM</parameter>\n</invoke>\n";
+        assert!(
+            !is_tool_markup_loop(block),
+            "one block may still be followed by a frame"
+        );
+        assert!(is_tool_markup_loop(&format!("{block}\n<invoke")));
+        assert!(is_tool_markup_loop(&block.repeat(40)));
+    }
+
+    #[test]
+    fn replies_with_a_command_frame_are_never_a_loop() {
+        // Captured shapes that still carried a usable frame.
+        assert!(!is_tool_markup_loop(
+            "<invoke name=\"AskUserQuestion\">\n</invoke>\n\n{\"commands\":[{\"name\":\"ls\",\"args\":{}}],\"stop\":false,\"say\":\"Checking.\"}"
+        ));
+        assert!(!is_tool_markup_loop(
+            "Batch the searches.\n<invoke name=\"mcp__deki__command\">\n<parameter name=\"frame\">{\"commands\":[],\"stop\":false,\"say\":\"\"}</parameter>\n</invoke>\n<invoke"
+        ));
+        // A frame whose answer talks about tool-call markup.
+        assert!(!is_tool_markup_loop(
+            "{\"commands\":[],\"stop\":true,\"say\":\"Write <invoke> once, then another <invoke> block.\"}"
+        ));
+    }
+
+    #[test]
+    fn the_protocol_forbids_tool_call_markup() {
+        assert!(JSON_PROTOCOL_PROMPT.contains("no tool-calling interface"));
+        assert!(tool_markup_error().message.contains("<invoke>"));
+    }
 
     #[test]
     fn parses_plain_json_command_frame() {

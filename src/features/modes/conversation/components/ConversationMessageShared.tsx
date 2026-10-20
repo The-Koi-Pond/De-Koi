@@ -58,6 +58,8 @@ export interface ConversationMessageProps {
   onDelete?: (messageId: string) => void;
   onRegenerate?: (messageId: string, options?: RegenerateOptions) => void | Promise<void>;
   onEdit?: (messageId: string, content: string) => void | Promise<void>;
+  /** Save the edit as a new version of your message and get a new reply (or a branch, for older messages). */
+  onEditAndResend?: (messageId: string, content: string) => Promise<void>;
   onSetActiveSwipe?: (messageId: string, index: number) => void;
   onPeekPrompt?: (options?: PeekPromptOptions) => void;
   onToggleHiddenFromAI?: (messageId: string, current: boolean) => void;
@@ -94,6 +96,8 @@ export interface ConversationAvatarRender {
 
 export interface ConversationMessageRenderContext {
   message: ConversationMessageData;
+  /** Display name for a reaction's reactor ("You" for the user). */
+  reactorName: (by: string) => string;
   cardCssId?: string;
   messageStyle: ConversationMessageStyle;
   isStreaming?: boolean;
@@ -124,6 +128,7 @@ export interface ConversationMessageRenderContext {
   setEditValue: (value: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: () => void | Promise<void>;
+  onSaveAndResend?: () => void | Promise<void>;
   messageTextStyle: CSSProperties;
   displayName: string;
   nameColor?: string;
@@ -500,6 +505,19 @@ function ConversationMessageEditForm({ context }: { context: ConversationMessage
         >
           {context.editSaving ? "saving" : "save"}
         </button>
+        {context.onSaveAndResend && (
+          <>
+            <span>·</span>
+            <button
+              onClick={() => void context.onSaveAndResend?.()}
+              disabled={context.editSaving}
+              title="Keep your old text as a previous version and get a new reply"
+              className="font-semibold text-[var(--primary)] hover:underline"
+            >
+              save & resend
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

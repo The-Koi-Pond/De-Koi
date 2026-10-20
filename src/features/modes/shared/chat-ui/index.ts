@@ -30,6 +30,8 @@ export * from "./hooks/use-chat-surface-data";
 export * from "./hooks/use-chat-timeline-actions";
 export * from "./hooks/use-chat-transcript-shortcuts";
 export * from "./hooks/use-chat-tts-autoplay";
+export * from "./hooks/use-edit-and-resend";
+export * from "./hooks/use-jump-to-message";
 export * from "./hooks/use-streaming-tts";
 export * from "./hooks/use-sprite-metadata-state";
 export * from "./lib/message-thinking";

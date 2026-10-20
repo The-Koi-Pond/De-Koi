@@ -424,6 +424,9 @@ pub(super) fn plan_mutation(
     if mutation.collection == super::source_edit::SOURCE_COLLECTION {
         return super::source_edit::plan(mutation);
     }
+    if mutation.collection == super::memory_edit::MEMORY_COLLECTION {
+        return super::memory_edit::plan(state, mutation);
+    }
     let entity = mutation.collection;
     let id = mutation.id.as_str();
     let mut validation = DekiDataValidation::default();
@@ -598,6 +601,9 @@ pub(super) fn plan_mutation(
 pub(super) fn apply_mutation(state: &AppState, mutation: &DekiDataMutation) -> AppResult<Value> {
     if mutation.collection == super::source_edit::SOURCE_COLLECTION {
         return super::source_edit::apply(mutation);
+    }
+    if mutation.collection == super::memory_edit::MEMORY_COLLECTION {
+        return super::memory_edit::apply(state, mutation);
     }
     let entity = mutation.collection.to_string();
     match mutation.kind {

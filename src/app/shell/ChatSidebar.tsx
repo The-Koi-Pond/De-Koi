@@ -66,6 +66,10 @@ import { isNewChatJourneyPending, useStartNewChat } from "./useStartNewChat";
 import { predictiveChatIntentHandlers } from "./predictive-chat-preload";
 import { usePredictiveChatPreload } from "./use-predictive-chat-preload";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
+import { ChatSidebarMessageResults } from "./ChatSidebarMessageResults";
+import { MESSAGE_SEARCH_MIN_CHARS } from "../../features/catalog/chats/sidebar";
+import type { MessageSearchResult } from "../../shared/api/message-search-api";
+import { useMessageJumpStore } from "../../shared/stores/message-jump.store";
 import {
   deleteSingleChatWithConfirmation,
   deleteSelectedChatsSequentially,
@@ -302,6 +306,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   );
   const charLookup = useMemo(() => buildChatSidebarCharacterLookup(allCharacters), [allCharacters]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchScope, setSearchScope] = useState<"chats" | "messages">("chats");
   const [sort, setSort] = useState<ChatSortOption>("newest");
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagsExpanded, setTagsExpanded] = useState(false);
@@ -401,6 +406,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       );
     });
   }, [modeChats, searchQuery, activeTag, charLookup]);
+
+  // Message text search runs for Conversation and Roleplay; the Chats/Messages switch shows once the query is long enough.
+  const messageSearchAvailable = activeTab !== "fanfic" && searchQuery.trim().length >= MESSAGE_SEARCH_MIN_CHARS;
+  const showMessageResults = messageSearchAvailable && searchScope === "messages";
 
   // ── Collapse chats that share a groupId into one entry ──
   const displayChats = useMemo(
@@ -902,6 +911,27 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     );
   }, [activeGroupId, deleteChatGroup, deleteTarget, setActiveChatId]);
 
+  const openMessageResult = async (result: MessageSearchResult) => {
+    if (
+      result.chatId !== activeChatId &&
+      !(await confirmDiscardPendingAppWork({
+        purpose: "navigation",
+        title: "Switch chats?",
+        confirmLabel: "Switch anyway",
+      }))
+    ) {
+      return;
+    }
+    if (hasAnyDetailOpen()) {
+      closeAllDetails();
+    }
+    internalNavRef.current = true;
+    setActiveChatId(result.chatId);
+    useMessageJumpStore.getState().requestJump(result.chatId, result.messageId);
+    useUIStore.getState().setMobileChatToolsOpen(false);
+    if (window.innerWidth < 768) onRequestClose();
+  };
+
   // ── Chat row renderer (shared between unfiled + folder sections) ──
   const renderChatRow = ({ chat, branchCount }: ChatSidebarRow) => {
     const cfg = MODE_CONFIG[chat.mode] ?? MODE_CONFIG.conversation;
@@ -1258,9 +1288,34 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none"
           />
         </div>
+        {messageSearchAvailable && (
+          <div
+            role="tablist"
+            aria-label="Search in"
+            className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--secondary)] p-0.5"
+          >
+            {(["chats", "messages"] as const).map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                role="tab"
+                aria-selected={searchScope === scope}
+                onClick={() => setSearchScope(scope)}
+                className={cn(
+                  "rounded-md px-2 py-1 text-[0.6875rem] font-semibold transition-colors",
+                  searchScope === scope
+                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                )}
+              >
+                {scope === "chats" ? "Chats" : "Messages"}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="space-y-1.5">
-          <div className="relative">
+          <div className={cn("relative", showMessageResults && "hidden")}>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as ChatSortOption)}
@@ -1374,7 +1429,16 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
       {/* Chat list */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-1">
-        {isLoading && (
+        {showMessageResults && (
+          <ChatSidebarMessageResults
+            query={searchQuery}
+            mode={activeTab}
+            characterName={(characterId) => charLookup.get(characterId)?.name}
+            activeMessageChatId={activeChatId}
+            onOpen={(result) => void openMessageResult(result)}
+          />
+        )}
+        {!showMessageResults && isLoading && (
           <div className="flex flex-col gap-2 px-2 py-4">
             {[1, 2, 3].map((i) => (
               <div key={i} className="shimmer h-10 rounded-lg" />
@@ -1382,7 +1446,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           </div>
         )}
 
-        {chatsError && !isLoading && (
+        {!showMessageResults && chatsError && !isLoading && (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-6 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--destructive)]/10">
               <AlertTriangle size="1.25rem" className="text-[var(--destructive)]" />
@@ -1391,7 +1455,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           </div>
         )}
 
-        {displayChats.length === 0 && !isLoading && !chatsError && (
+        {!showMessageResults && displayChats.length === 0 && !isLoading && !chatsError && (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-6 text-center">
             <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--secondary)]">
               {activeTab === "conversation" ? (
@@ -1406,7 +1470,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           </div>
         )}
 
-        {displayChats.length > 0 && !isLoading && !chatsError && (
+        {!showMessageResults && displayChats.length > 0 && !isLoading && !chatsError && (
           <ChatSidebarVirtualList
             rows={sidebarRows}
             activeChatId={activeChatId}

@@ -64,6 +64,15 @@ pub(super) struct SearchTextArgs {
     pub(super) max_results: Option<usize>,
     #[serde(default, alias = "context_lines")]
     pub(super) context_lines: Option<usize>,
+    /// Treat `query` as a regular expression instead of plain text.
+    #[serde(default)]
+    pub(super) regex: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OutlineArgs {
+    pub(super) path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +104,38 @@ pub(super) struct SearchDekiCodeArgs {
     pub(super) max_results: Option<usize>,
     #[serde(default)]
     pub(super) context_lines: Option<usize>,
+    #[serde(default)]
+    pub(super) regex: Option<bool>,
+}
+
+/// How a search matches one line: plain text or a regular expression, both
+/// case-insensitive.
+enum LineMatcher {
+    Text(String),
+    Pattern(regex::Regex),
+}
+
+impl LineMatcher {
+    fn new(query: &str, regex: bool) -> AppResult<Self> {
+        if !regex {
+            return Ok(Self::Text(query.to_ascii_lowercase()));
+        }
+        regex::RegexBuilder::new(query)
+            .case_insensitive(true)
+            .size_limit(1 << 20)
+            .build()
+            .map(Self::Pattern)
+            .map_err(|error| {
+                AppError::invalid_input(format!("The search regex is invalid: {error}"))
+            })
+    }
+
+    fn is_match(&self, line: &str) -> bool {
+        match self {
+            Self::Text(needle) => line.to_ascii_lowercase().contains(needle.as_str()),
+            Self::Pattern(pattern) => pattern.is_match(line),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,7 +198,64 @@ pub(super) fn search_code(args: SearchTextArgs) -> AppResult<Value> {
         path: args.path,
         max_results: args.max_results,
         context_lines: args.context_lines,
+        regex: args.regex,
     })
+}
+
+/// Most outline entries one call returns.
+const OUTLINE_MAX_ENTRIES: usize = 400;
+
+/// The declarations in a source file with their line numbers (functions,
+/// types, impls, modules, constants; exported or top-level for TypeScript and
+/// JavaScript), so a large file can be navigated before reading a range.
+pub(super) fn outline_repo_file(args: OutlineArgs) -> AppResult<Value> {
+    let (_root, target, display_path) = resolve_repo_file(&args.path)?;
+    if !target.is_file() {
+        return Err(AppError::not_found(format!("{display_path} was not found")));
+    }
+    if !is_code_text_path(Path::new(&display_path)) {
+        return Err(AppError::invalid_input(format!(
+            "{display_path} is not a readable source or guidance file"
+        )));
+    }
+    if fs::metadata(&target)?.len() > CODE_SEARCH_MAX_FILE_BYTES {
+        return Err(AppError::invalid_input(format!(
+            "{display_path} is too large to outline"
+        )));
+    }
+    let content = fs::read_to_string(&target).map_err(|error| {
+        AppError::new(
+            "deki_code_read_failed",
+            format!("{display_path} is not valid UTF-8: {error}"),
+        )
+    })?;
+    let (entries, truncated) = outline_entries(&content);
+    Ok(json!({
+        "path": display_path,
+        "totalLines": content.lines().count(),
+        "entries": entries,
+        "truncated": truncated,
+    }))
+}
+
+fn outline_entries(content: &str) -> (Vec<Value>, bool) {
+    // Rust items at any depth (impl methods are indented), plus top-level
+    // TypeScript/JavaScript declarations and Markdown headings.
+    const PATTERN: &str = r"^(\s*(pub(\([^)]*\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|trait|impl|mod|const|static|type|macro_rules!)\b|^(export\s+)?(default\s+)?(async\s+)?(function|class|interface|type|enum|const|let)\s|^#{1,4}\s)";
+    let Ok(pattern) = regex::Regex::new(PATTERN) else {
+        return (Vec::new(), false);
+    };
+    let mut entries = Vec::new();
+    for (index, line) in content.lines().enumerate() {
+        if !pattern.is_match(line) || line.trim_start().starts_with("//") {
+            continue;
+        }
+        if entries.len() == OUTLINE_MAX_ENTRIES {
+            return (entries, true);
+        }
+        entries.push(json!({ "line": index + 1, "text": truncate_preview(line.trim_end()) }));
+    }
+    (entries, false)
 }
 
 pub(super) fn read_deki_code_file(args: ReadDekiCodeFileArgs) -> AppResult<Value> {
@@ -276,12 +374,12 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
 
     let mut results = Vec::new();
     let mut searched_files = 0usize;
-    let query_lower = query.to_ascii_lowercase();
+    let matcher = LineMatcher::new(query, args.regex.unwrap_or(false))?;
     if start.is_file() {
         search_code_file(
             &root,
             &start,
-            &query_lower,
+            &matcher,
             scan_limit,
             context_lines,
             &mut searched_files,
@@ -291,7 +389,7 @@ fn search_deki_code(args: SearchDekiCodeArgs) -> AppResult<Value> {
         search_code_dir(
             &root,
             &start,
-            &query_lower,
+            &matcher,
             scan_limit,
             context_lines,
             &mut searched_files,
@@ -454,7 +552,7 @@ fn resolve_runtime_repo_path(path: Option<&str>) -> AppResult<(PathBuf, PathBuf,
 fn search_code_dir(
     root: &Path,
     dir: &Path,
-    query_lower: &str,
+    matcher: &LineMatcher,
     max_results: usize,
     context_lines: usize,
     searched_files: &mut usize,
@@ -487,7 +585,7 @@ fn search_code_dir(
             search_code_dir(
                 root,
                 &path,
-                query_lower,
+                matcher,
                 max_results,
                 context_lines,
                 searched_files,
@@ -497,7 +595,7 @@ fn search_code_dir(
             search_code_file(
                 root,
                 &path,
-                query_lower,
+                matcher,
                 max_results,
                 context_lines,
                 searched_files,
@@ -511,7 +609,7 @@ fn search_code_dir(
 fn search_code_file(
     root: &Path,
     path: &Path,
-    query_lower: &str,
+    matcher: &LineMatcher,
     max_results: usize,
     context_lines: usize,
     searched_files: &mut usize,
@@ -541,7 +639,7 @@ fn search_code_file(
         .replace('\\', "/");
     let lines = content.lines().collect::<Vec<_>>();
     for (index, line) in lines.iter().enumerate() {
-        if !line.to_ascii_lowercase().contains(query_lower) {
+        if !matcher.is_match(line) {
             continue;
         }
         let mut result = json!({
@@ -838,5 +936,31 @@ mod tests {
         let source = format!("export const embeddedImage = `\n{payload}\n`;");
 
         assert!(!is_context_safe_source_text(&source));
+    }
+
+    #[test]
+    fn regex_search_matches_patterns_and_reports_bad_ones() {
+        let matcher = LineMatcher::new(r"const \w+_TTL: Duration", true).expect("valid regex");
+        assert!(matcher
+            .is_match("const BACKGROUND_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);"));
+        assert!(!matcher.is_match("let ttl = 30;"));
+        let text = LineMatcher::new("Lease_TTL", false).expect("text matcher");
+        assert!(text.is_match("const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration"));
+        let error = LineMatcher::new("(unclosed", true)
+            .err()
+            .expect("bad regex is refused");
+        assert!(error.message.contains("regex is invalid"));
+    }
+
+    #[test]
+    fn outline_lists_declarations_with_line_numbers() {
+        let content = "use std::fs;\n\npub(crate) async fn deki_prompt() {}\nstruct Budget {\n    rounds: usize,\n}\nimpl Budget {\n    pub(super) fn rounds(&self) -> usize { 1 }\n}\n// fn commented_out() {}\nexport function sendMessage() {}\n## Owners\n";
+        let (entries, truncated) = outline_entries(content);
+        let lines = entries
+            .iter()
+            .map(|entry| entry["line"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(lines, vec![3, 4, 7, 8, 11, 12]);
+        assert!(!truncated);
     }
 }
