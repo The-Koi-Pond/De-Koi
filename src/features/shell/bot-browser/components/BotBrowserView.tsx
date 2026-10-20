@@ -32,6 +32,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   cacheCharacterListRecordFromResult,
   invalidateCharacterCollectionQueries,
+  offerCardLintReview,
 } from "../../../catalog/characters/index";
 import { lorebookKeys } from "../../../catalog/lorebooks/index";
 import { parsePngCharacterCard } from "../../../../shared/lib/png-parser";
@@ -1475,6 +1476,9 @@ export function BotBrowserView() {
           const cached = cacheCharacterListRecordFromResult(qc, data);
           if (!cached) invalidateCharacterCollectionQueries(qc);
           if (data.lorebook) qc.invalidateQueries({ queryKey: lorebookKeys.all });
+          void offerCardLintReview(data).catch((error) =>
+            console.warn("[card-check] Could not check the imported card.", error),
+          );
           if (data.character) {
             const characterId = data.characterId || data.character.id;
             if (characterId && data.character.data) {
@@ -1535,6 +1539,9 @@ export function BotBrowserView() {
           const cached = cacheCharacterListRecordFromResult(qc, data);
           if (!cached) invalidateCharacterCollectionQueries(qc);
           if (data.lorebook) qc.invalidateQueries({ queryKey: lorebookKeys.all });
+          void offerCardLintReview(data).catch((error) =>
+            console.warn("[card-check] Could not check the imported card.", error),
+          );
           if (data.character) {
             const characterId = data.characterId || data.character.id;
             if (characterId && data.character.data) {
