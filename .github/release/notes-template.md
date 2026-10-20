@@ -9,13 +9,13 @@
 
 ## Downloads
 
-| Platform | File | Notes |
-|---|---|---|
-| Windows 10/11 (x64) | `De-Koi_{{VERSION}}_windows-x64-setup.exe` | Installer. {{WINDOWS_SIGNING}} |
-| Linux (x64) | `De-Koi_{{VERSION}}_linux-x64.AppImage` | Portable app. Make it executable, then run it. |
-| Linux (x64, Debian/Ubuntu) | `De-Koi_{{VERSION}}_linux-x64.deb` | Install with your package manager. |
-| All | `SHA256SUMS.txt` | Checksums for every file above. |
-| Updater | `latest.json` and `*.sig` | Used by the app's auto-updater. You don't need to download these. |
+| Platform                   | File                                       | Notes                                                             |
+| -------------------------- | ------------------------------------------ | ----------------------------------------------------------------- |
+| Windows 10/11 (x64)        | `De-Koi_{{VERSION}}_windows-x64-setup.exe` | Installer. {{WINDOWS_SIGNING}}                                    |
+| Linux (x64)                | `De-Koi_{{VERSION}}_linux-x64.AppImage`    | Portable app. Make it executable, then run it.                    |
+| Linux (x64, Debian/Ubuntu) | `De-Koi_{{VERSION}}_linux-x64.deb`         | Install with your package manager.                                |
+| All                        | `SHA256SUMS.txt`                           | Checksums for every file above.                                   |
+| Updater                    | `latest.json` and `*.sig`                  | Used by the app's auto-updater. You don't need to download these. |
 
 Android and macOS are not part of this release yet.
 
