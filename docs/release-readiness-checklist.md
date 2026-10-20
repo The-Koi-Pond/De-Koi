@@ -22,7 +22,11 @@ pages, or screenshots for the current desktop/runtime architecture.
   serve the React UI and is not the desktop app installer.
 - Pre-alpha artifacts are marked as GitHub pre-releases and are not promoted as
   the latest stable release.
-- Unsigned, unnotarized, or debug-signed artifacts are clearly called out.
+- Unsigned, unnotarized, or debug-signed artifacts are clearly called out. Until
+  Authenticode signing ships, release notes say the Windows installer is
+  unsigned and SmartScreen will warn.
+- Release desktop bundles carry updater signatures; the release Android APK is
+  signed with the release keystore.
 - The release notes say whether users should test with throwaway data.
 - Installer, archive, APK, Docker, and source-build instructions match the
   actual artifacts attached to the release.
@@ -30,15 +34,29 @@ pages, or screenshots for the current desktop/runtime architecture.
 ## Install And Update Copy
 
 - Install instructions send users to GitHub Releases as the download source of
-  truth.
-- Update instructions describe manual replacement through the downloaded
-  platform artifact.
-- The Settings > Advanced update check is described as a handoff to the release
-  page, not as a silent auto-install flow.
+  truth and link [`install.md`](install.md).
+- Desktop release notes describe the signed auto-update prompt ("Install and
+  restart?") and say updates are verified with De-Koi's update key.
+- Android release notes describe manual APK replacement over the old install.
+- The Settings > Advanced update check is described as a check plus a link to
+  the release page, not as the installer.
 - Failed update recovery tells users to open GitHub Releases and download the
   intended release manually.
-- Release notes do not mention signed Tauri auto-updates unless that support has
-  been implemented, signed, and verified.
+- Pre-alpha release notes never mention auto-updates; pre-alpha builds don't
+  carry the updater.
+- Backup copy names the exact data folder for each platform (see `install.md`).
+
+## Before Publishing A Release
+
+- The `Release` workflow run is green, including "Build and verify latest.json"
+  and the Android APK signature check.
+- The draft has the Windows installer, AppImage, `.deb`, APK, every `.sig`,
+  `latest.json` and `SHA256SUMS.txt`.
+- `latest.json` lists `windows-x86_64-nsis` and `linux-x86_64-appimage`, and
+  every URL points at this release's tag.
+- At least one install from the previous release has updated to the draft's
+  files (or the release notes say this was not tested).
+- The draft is marked to become Latest. Pre-alpha releases never are.
 
 ## Screenshots
 
