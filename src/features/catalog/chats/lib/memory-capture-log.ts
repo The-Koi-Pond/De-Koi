@@ -82,6 +82,8 @@ export const MEMORY_CAPTURE_NOT_CHECKED_COPY: Record<MemoryCaptureNotCheckedReas
   source_character_changed: "A message changed speaker before memory ran.",
   transcript_changed: "The messages changed while memory was running.",
   configuration_error: "The memory model's connection isn't set up right.",
+  route_unavailable:
+    "Helper Models sends memory to a connection that's missing or not ready. Fix it in Connections → Helper Models.",
   provider_error: "The memory model kept failing (3 tries).",
 };
 

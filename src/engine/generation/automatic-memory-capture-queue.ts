@@ -19,6 +19,7 @@ import {
   foregroundGenerationActive,
 } from "./background-generation-coordinator";
 import { resolveBackgroundTextConnection } from "./background-llm-connection";
+import { isModelRouteError, resolveStoredModelRoute } from "./model-routing";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
@@ -210,6 +211,7 @@ function retryTime(now: string, attempts: number): string {
 const TRANSCRIPT_CHANGED_ERROR = /capture preview is stale|capture is no longer eligible/i;
 
 function captureFailureReason(error: unknown, configurationFailure: boolean): MemoryCaptureNotCheckedReason {
+  if (isModelRouteError(error)) return "route_unavailable";
   if (configurationFailure) return "configuration_error";
   return TRANSCRIPT_CHANGED_ERROR.test(errorMessage(error)) ? "transcript_changed" : "provider_error";
 }
@@ -614,7 +616,9 @@ export async function processAutomaticMemoryCaptureQueue(
         if (!llm) throw new Error("Automatic memory value review requires an LLM gateway");
         const queuedConnectionId = readString(job.connectionId).trim();
         const queuedModel = readString(job.model).trim();
-        const backgroundConnection = await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel);
+        const backgroundConnection =
+          (await resolveStoredModelRoute(storage, "memory")) ??
+          (await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel));
         const connectionId = readString(backgroundConnection.id).trim();
         const model =
           readString(backgroundConnection.model).trim() ||
@@ -758,7 +762,8 @@ export async function processAutomaticMemoryCaptureQueue(
           });
         }
       } catch (error) {
-        const configurationFailure = isTerminalBackgroundGenerationError(error);
+        // A broken helper route fails the same way on every retry; the user has to fix the route.
+        const configurationFailure = isTerminalBackgroundGenerationError(error) || isModelRouteError(error);
         const terminal = configurationFailure || attempts >= maxAttempts;
         const failureReason = captureFailureReason(error, configurationFailure);
         const nextAttemptAt = terminal ? null : retryTime(now, attempts);

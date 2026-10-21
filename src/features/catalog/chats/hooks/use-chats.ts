@@ -11,7 +11,6 @@ import {
   summariesPatchSchema,
   type CreateMessageInput,
 } from "../../../../engine/contracts/schemas/chat.schema";
-import { boolish } from "../../../../engine/generation/runtime-records";
 import { appendChatSummaryEntryToMetadata } from "../../../../engine/shared/text/chat-summary-entries";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
@@ -997,28 +996,6 @@ function compactTranscript(messages: Message[]) {
     .join("\n\n");
 }
 
-async function resolveSummaryConnectionId(chat: Chat): Promise<string> {
-  const [agents, connections] = await Promise.all([
-    storageApi.list<Record<string, unknown>>("agents").catch(() => []),
-    storageApi.list<Record<string, unknown>>("connections"),
-  ]);
-  const summaryAgent = agents.find(
-    (agent) => readString(agent.id).trim() === "chat-summary" || readString(agent.type).trim() === "chat-summary",
-  );
-  const summaryConnectionId = readString(summaryAgent?.connectionId).trim();
-  if (summaryConnectionId) return summaryConnectionId;
-  const agentDefault = connections.find((connection) => boolish(connection.defaultForAgents, false));
-  const agentDefaultId = readString(agentDefault?.id).trim();
-  if (agentDefaultId) return agentDefaultId;
-  if (typeof chat.connectionId === "string" && chat.connectionId.trim()) return chat.connectionId.trim();
-  const selected =
-    connections.find((connection) => boolish(connection.isDefault, false) || boolish(connection.default, false)) ??
-    connections[0];
-  const connectionId = readString(selected?.id).trim();
-  if (!connectionId) throw new Error("No API connection configured for summary generation.");
-  return connectionId;
-}
-
 async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<GenerateSummaryResult> {
   const { chatId, sourceMode, contextSize, rangeStartIndex, rangeEndIndex, promptTemplateId } = input;
   const chat = await storageApi.get<Chat>("chats", chatId);
@@ -1043,7 +1020,10 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
   const selected = selection.messages;
   if (selected.length === 0) throw new Error("No non-hidden messages available for the requested summary.");
 
-  const connectionId = await resolveSummaryConnectionId(chat);
+  // Loaded on use, like the summary service: the home screen never needs it.
+  const { resolveChatSummaryConnectionId } =
+    await import("../../../../engine/modes/chat/core/summaries/summary-connection");
+  const connectionId = await resolveChatSummaryConnectionId(storageApi, chat);
   const metadata = parseRecord(chat.metadata);
   const promptTemplate = await resolveSummaryPromptTemplate(metadata, promptTemplateId);
   const transcript = compactTranscript(selected);

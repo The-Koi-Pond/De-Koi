@@ -70,7 +70,7 @@ function episodeMemory(index: number, status: CanonicalMemoryRecord["status"] = 
   };
 }
 
-function harness() {
+function harness(options: { modelRouting?: unknown; connections?: Record<string, unknown>[] } = {}) {
   const jobs = new Map<string, StoryProjectionJob>();
   const memories = new Map<string, CanonicalMemoryRecord>();
   let failArcCreate = false;
@@ -93,10 +93,14 @@ function harness() {
   const storage = {
     async list(entity: string) {
       if (entity === STORY_CONSOLIDATION_JOBS_COLLECTION) return Array.from(jobs.values());
+      if (entity === "connections") return options.connections ?? [];
       return [];
     },
     async get(entity: string, id: string) {
       if (entity === STORY_CONSOLIDATION_JOBS_COLLECTION) return jobs.get(id) ?? null;
+      if (entity === "app-settings" && id === "model-routing" && options.modelRouting !== undefined) {
+        return { id, value: options.modelRouting };
+      }
       return null;
     },
     async create(entity: string, body: Record<string, unknown>) {
@@ -232,6 +236,76 @@ describe("story consolidation queue", () => {
         }),
       }),
     ]);
+  });
+
+  it("summarizes on the queued reply connection when summaries are not routed", async () => {
+    const test = harness();
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+
+    await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+
+    expect(llm.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: "connection-1", model: "model-1" }),
+    );
+  });
+
+  it("summarizes on the summaries route and records the connection it used", async () => {
+    const test = harness({
+      connections: [{ id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" }],
+      modelRouting: { version: 1, routes: { summaries: "cheap" } },
+    });
+    const job = await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
+
+    expect(result.completed).toBe(1);
+    expect(llm.complete).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "cheap", model: "cheap-model" }));
+    expect(Array.from(test.memories.values())[0]?.payload).toMatchObject({
+      summarizer: { connectionId: "cheap", provider: "openai", model: "cheap-model" },
+    });
+    // The job keeps its queued connection, so clearing the route goes back to it.
+    expect(test.jobs.get(String(job?.id))).toMatchObject({ connectionId: "connection-1", model: "model-1" });
+  });
+
+  it("does not summarize on another connection when the summaries route is broken", async () => {
+    const test = harness({
+      connections: [{ id: "cheap", name: "Cheap", provider: "openai", model: "", enabled: true }],
+      modelRouting: { version: 1, routes: { summaries: "cheap" } },
+    });
+    const job = await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = { complete: vi.fn(async () => llmResult()) } as unknown as LlmGateway;
+
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
+
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(result.retryable).toBe(1);
+    expect(test.jobs.get(String(job?.id))?.lastError).toContain(
+      'The Summaries helper is set to "Cheap", which has no model picked.',
+    );
+    expect(test.memories.size).toBe(0);
   });
 
   it("disables provider reasoning for bounded story projection JSON", async () => {

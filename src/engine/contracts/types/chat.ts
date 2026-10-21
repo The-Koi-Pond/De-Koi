@@ -536,6 +536,7 @@ export type MemoryCaptureNotCheckedReason =
   | "source_character_changed"
   | "transcript_changed"
   | "configuration_error"
+  | "route_unavailable"
   | "provider_error";
 
 export interface MemoryCaptureReport {

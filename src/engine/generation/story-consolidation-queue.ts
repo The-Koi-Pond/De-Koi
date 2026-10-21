@@ -14,6 +14,7 @@ import {
   foregroundGenerationActive,
 } from "./background-generation-coordinator";
 import { sha256MemoryId } from "./deterministic-memory-id";
+import { resolveStoredModelRoute } from "./model-routing";
 import { nowIso, parseArray, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import {
   getEffectiveStoryConsolidationEnabled,
@@ -803,11 +804,22 @@ export async function processStoryConsolidationQueue(
           result.stale += 1;
           continue;
         }
+        // A summaries route replaces the reply's connection for this run only; the job
+        // keeps its queued connection, so clearing the route goes back to it.
+        const routed = await resolveStoredModelRoute(storage, "summaries");
+        const summaryJob: StoryProjectionJob = routed
+          ? {
+              ...job,
+              connectionId: readString(routed.id).trim(),
+              provider: readString(routed.provider).trim() || null,
+              model: readString(routed.model).trim() || null,
+            }
+          : job;
         const structured = parseSummary(
           await withStoryLeaseHeartbeat(storage, leaseId, () =>
             completeStorySummary(llm, {
-              connectionId: job.connectionId ?? null,
-              model: job.model ?? null,
+              connectionId: summaryJob.connectionId ?? null,
+              model: summaryJob.model ?? null,
               messages: [
                 { role: "system", content: "You produce auditable long-form story continuity as strict JSON." },
                 { role: "user", content: summarizerPrompt(job) },
@@ -816,7 +828,7 @@ export async function processStoryConsolidationQueue(
           ),
           job,
         );
-        const input = await projectionInput(job, structured, now);
+        const input = await projectionInput(summaryJob, structured, now);
         const currentMemories = await storyMemories(storage, job.ownerChatId);
         assertProjectionOverlapAllowed(job, input, currentMemories);
         let created: CanonicalMemoryRecord;

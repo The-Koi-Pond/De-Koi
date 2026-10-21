@@ -63,6 +63,7 @@ function queueStorage(
     chat?: JsonRecord;
     persona?: JsonRecord | null;
     connections?: JsonRecord[];
+    modelRouting?: unknown;
   } = {},
 ) {
   const jobs = new Map<string, JsonRecord>();
@@ -93,6 +94,9 @@ function queueStorage(
       if (entity === "memory-capture-jobs") return (jobs.get(id) ?? null) as T | null;
       if (entity === "canonical-memories") return (canonicalMemories.get(id) ?? null) as T | null;
       if (entity === "personas" && id === "persona-1") return (options.persona ?? null) as T | null;
+      if (entity === "app-settings" && id === "model-routing" && options.modelRouting !== undefined) {
+        return { id, value: options.modelRouting } as T;
+      }
       return null;
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -769,6 +773,63 @@ describe("automatic memory capture queue", () => {
     expect(requests).not.toHaveLength(0);
     expect(requests.every((request) => request.connectionId === "background-connection")).toBe(true);
     expect(requests[0]?.model).toBe("background-model");
+  });
+
+  it("sends every memory call to the memory helper route over the agents default", async () => {
+    const harness = queueStorage({
+      connections: [
+        { id: "connection-1", provider: "nanogpt", model: "foreground-model", enabled: true },
+        { id: "agents-default", provider: "openai", model: "agent-model", enabled: true, defaultForAgents: true },
+        { id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model", enabled: true },
+      ],
+      modelRouting: { version: 1, routes: { memory: "cheap" } },
+    });
+    await harness.enqueue();
+    const requests: Parameters<LlmGateway["complete"]>[0][] = [];
+    const llm: LlmGateway = {
+      ...passingValueReviewLlm(),
+      async complete(request) {
+        requests.push(request);
+        return isValueReviewRequest(request) ? JSON.stringify({ proposals: [] }) : JSON.stringify({ memories: [] });
+      },
+    };
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+
+    // Extraction and the value review both ran on the routed connection.
+    expect(requests.length).toBeGreaterThanOrEqual(2);
+    expect(requests.some(isValueReviewRequest)).toBe(true);
+    expect(requests.every((request) => request.connectionId === "cheap")).toBe(true);
+    expect(requests[0]?.model).toBe("cheap-model");
+  });
+
+  it("fails without calling any model when the memory route's connection is gone", async () => {
+    const harness = queueStorage({
+      connections: [
+        { id: "connection-1", provider: "openai", model: "foreground-model", enabled: true, defaultForAgents: true },
+      ],
+      modelRouting: { version: 1, routes: { memory: "deleted-connection" } },
+    });
+    const job = await harness.enqueue();
+    const complete = vi.fn(async () => JSON.stringify({ memories: [] }));
+    const llm: LlmGateway = { ...passingValueReviewLlm(), complete };
+
+    const result = await processAutomaticMemoryCaptureQueue(
+      { storage: harness.storage, llm },
+      { now: "2026-01-01T00:03:00.000Z" },
+    );
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ failed: 1, retryable: 0 });
+    expect(harness.jobs.get(String(job?.id))).toMatchObject({
+      status: "failed",
+      notCheckedReason: "route_unavailable",
+      lastError: expect.stringContaining("The Memory helper is set to a connection that no longer exists."),
+    });
+    expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toMatchObject({
+      status: "failed",
+      notCheckedReason: "route_unavailable",
+    });
   });
 
   it("snapshots named source and bounded reference context", async () => {

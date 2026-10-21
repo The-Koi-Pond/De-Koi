@@ -139,6 +139,42 @@ describe("backfillConversationSummaries", () => {
     expect(patchedSummaries).toEqual([]);
   });
 
+  it("summarizes on the summaries route instead of the reply's connection", async () => {
+    const { capabilities, records } = createBackfillHarness("2020-01-01T15:30:00.000Z");
+    records.set("connections:cheap", { id: "cheap", name: "Cheap", provider: "test", model: "cheap-model" });
+    records.set("app-settings:model-routing", { id: "model-routing", value: { version: 1, routes: { summaries: "cheap" } } });
+    const requests: Array<{ connectionId?: string | null; model?: string | null }> = [];
+    capabilities.llm.complete = vi.fn(async (request) => {
+      requests.push(request);
+      return JSON.stringify({ summary: "Routed summary.", keyDetails: [] });
+    });
+
+    await backfillConversationSummaries(capabilities, {
+      chatId: "chat-1",
+      connectionId: "summary-connection",
+      maxMissingDays: 14,
+    });
+
+    expect(requests).not.toHaveLength(0);
+    expect(requests.every((request) => request.connectionId === "cheap")).toBe(true);
+  });
+
+  it("refuses to summarize when the summaries route points at a deleted connection", async () => {
+    const { capabilities, records, patchedSummaries } = createBackfillHarness("2020-01-01T15:30:00.000Z");
+    records.set("app-settings:model-routing", { id: "model-routing", value: { version: 1, routes: { summaries: "gone" } } });
+    capabilities.llm.complete = vi.fn(async () => JSON.stringify({ summary: "Should not run.", keyDetails: [] }));
+
+    await expect(
+      backfillConversationSummaries(capabilities, {
+        chatId: "chat-1",
+        connectionId: "summary-connection",
+        maxMissingDays: 14,
+      }),
+    ).rejects.toThrow("The Summaries helper is set to a connection that no longer exists.");
+    expect(capabilities.llm.complete).not.toHaveBeenCalled();
+    expect(patchedSummaries).toEqual([]);
+  });
+
   it("resolves Random to a concrete NanoGPT connection before summarizing", async () => {
     const { capabilities, records } = createBackfillHarness("2020-01-01T15:30:00.000Z");
     records.set("chats:chat-1", {
