@@ -114,6 +114,14 @@ describe("HelperModelsCard", () => {
     );
   });
 
+  it("names a Local Model route even while the Local Model is not listed", async () => {
+    vi.mocked(modelRoutingApi.get).mockResolvedValue({ version: 1, routes: { memory: "sidecar:local" } });
+    await render();
+
+    expect(select("Memory").selectedOptions[0]?.textContent).toBe("Local Model • local-sidecar");
+    expect(status("Memory")).toBe("Uses Local Model • local-sidecar.");
+  });
+
   it("says when the settings can't load and retries on request", async () => {
     vi.mocked(modelRoutingApi.get)
       .mockRejectedValueOnce(new Error("storage unavailable"))

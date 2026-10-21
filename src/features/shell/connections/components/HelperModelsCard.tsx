@@ -78,7 +78,9 @@ function HelperRouteRow({
           </option>
         ))}
         {routedId && !routedListed && (
-          <option value={routedId}>{named ? connectionLabel(named) : "Missing connection"}</option>
+          <option value={routedId}>
+            {named ? connectionLabel(named) : check?.ok ? connectionLabel(check.connection) : "Missing connection"}
+          </option>
         )}
       </select>
       <p
