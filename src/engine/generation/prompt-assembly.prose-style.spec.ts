@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageGateway } from "../capabilities/storage";
+import { CHARACTER_WILL_NOTES } from "./character-will";
 import { assembleGenerationPrompt, PROSE_STYLE_NOTE } from "./prompt-assembly";
 
 function storage(): StorageGateway {
@@ -72,5 +73,42 @@ describe("prose style note", () => {
 
     expect(impersonated.messages.some((message) => message.content.includes(PROSE_STYLE_NOTE))).toBe(false);
     expect(continued.messages.some((message) => message.content.includes(PROSE_STYLE_NOTE))).toBe(false);
+  });
+});
+
+describe("character will note", () => {
+  async function latestTurn(mode: string, userText: string) {
+    const result = await assembleGenerationPrompt(storage(), {
+      chat: { id: "chat-1", mode, characterIds: ["mira"], metadata: { enableMemoryRecall: false } },
+      storedMessages: [
+        { id: "a1", role: "assistant", content: "The lanterns are ready." },
+        { id: "u1", role: "user", content: userText },
+      ],
+      connection: { maxContext: 32_000 },
+      request: {},
+      latestUserInput: userText,
+    });
+    return { messages: result.messages, latest: latestNonSystem(result.messages) };
+  }
+
+  it.each([
+    ["roleplay", "Let me carry the lantern tonight.", CHARACTER_WILL_NOTES.roleplay],
+    [
+      "conversation",
+      "honestly you should just sell the shop, it'd be so much easier",
+      CHARACTER_WILL_NOTES.conversation,
+    ],
+  ])("rides on the latest user turn when the user pushes in %s mode", async (mode, text, note) => {
+    const { messages, latest } = await latestTurn(mode, text);
+
+    expect(latest.content).toContain(note);
+    expect(messages.filter((message) => message.content.includes(note))).toHaveLength(1);
+  });
+
+  it("stays out of an ordinary turn", async () => {
+    const { messages } = await latestTurn("roleplay", "What happens next?");
+    const notes = Object.values(CHARACTER_WILL_NOTES);
+
+    expect(messages.some((message) => notes.some((note) => message.content.includes(note)))).toBe(false);
   });
 });

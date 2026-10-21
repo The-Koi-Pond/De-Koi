@@ -65,6 +65,7 @@ import {
 import { packBehavioralInterpretation } from "./behavioral-interpretation";
 import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPrioritySkipped } from "./context-priority";
 import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
+import { characterWillNote } from "./character-will";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
 import { readRoleplayHabitScan, roleplayHabitScanGuidance } from "./roleplay-habit-scan";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
@@ -2840,9 +2841,13 @@ function appendReplyNotesToLatestUserTurn(
     input.request.impersonate !== true && (mode === "roleplay" || mode === "visual_novel" || mode === "conversation")
       ? PROSE_STYLE_NOTE
       : "";
-  const notes = [...conversationTurnNotes.map((note) => note.content), styleNote, roleplayQuality?.note ?? ""].filter(
-    Boolean,
-  );
+  const willNote = characterWillNote(mode, input.latestUserInput, input.request.impersonate === true);
+  const notes = [
+    ...conversationTurnNotes.map((note) => note.content),
+    willNote,
+    styleNote,
+    roleplayQuality?.note ?? "",
+  ].filter(Boolean);
   if (notes.length === 0) return messages;
   let latestTurnIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
