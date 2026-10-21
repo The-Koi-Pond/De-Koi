@@ -7,6 +7,7 @@ import {
   habitScanDue,
   habitScanGuidance,
   runHabitScan,
+  runHabitScanIfDue,
   scheduleHabitScan,
   type HabitScan,
   type ScheduleHabitScanInput,
@@ -133,6 +134,69 @@ describe("habit scan", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  function routedStorage(routes: Record<string, string>) {
+    const messages = chatMessages(replies);
+    return {
+      get: vi.fn(async (entity: string, id: string) =>
+        entity === "app-settings" && id === "model-routing"
+          ? { id, value: { version: 1, routes } }
+          : { id: "chat-1", metadata: {} },
+      ),
+      list: vi.fn(async (entity: string) =>
+        entity === "connections" ? [{ id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" }] : [],
+      ),
+      listChatMessages: vi.fn(async () => [...messages].reverse()),
+      patchChatMetadata: vi.fn(async () => ({})),
+    };
+  }
+
+  it("keeps the reply's connection when the habit check is not routed", async () => {
+    const storage = routedStorage({ memory: "cheap" });
+    const llm = llmReturning(JSON.stringify({ habits: [] }));
+
+    await runHabitScanIfDue({
+      storage: storage as unknown as ScheduleHabitScanInput["storage"],
+      llm,
+      chatId: "chat-1",
+      mode: "roleplay",
+      connectionId: "chat-connection",
+    });
+
+    expect(llm.complete).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "chat-connection" }), undefined);
+  });
+
+  it("scans on the habit check route instead of the reply's connection", async () => {
+    const storage = routedStorage({ habitCheck: "cheap" });
+    const llm = llmReturning(JSON.stringify({ habits: [] }));
+
+    await runHabitScanIfDue({
+      storage: storage as unknown as ScheduleHabitScanInput["storage"],
+      llm,
+      chatId: "chat-1",
+      mode: "roleplay",
+      connectionId: "chat-connection",
+    });
+
+    expect(llm.complete).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "cheap" }), undefined);
+  });
+
+  it("does not scan on another connection when the habit check route is broken", async () => {
+    const storage = routedStorage({ habitCheck: "gone" });
+    const llm = llmReturning(JSON.stringify({ habits: [] }));
+
+    await expect(
+      runHabitScanIfDue({
+        storage: storage as unknown as ScheduleHabitScanInput["storage"],
+        llm,
+        chatId: "chat-1",
+        mode: "roleplay",
+        connectionId: "chat-connection",
+      }),
+    ).rejects.toThrow("The Habit check helper is set to a connection that no longer exists.");
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(storage.patchChatMetadata).not.toHaveBeenCalled();
   });
 
   it("turns a stored scan into one steering line per habit", () => {

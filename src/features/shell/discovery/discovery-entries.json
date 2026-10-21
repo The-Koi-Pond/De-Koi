@@ -974,7 +974,7 @@
     "id": "helper-models",
     "title": "Helper Models",
     "category": "Advanced",
-    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup) and for summaries (story recaps, daily chat summaries, Summarize chat). Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.",
+    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, and the judge a fanfic quality check starts on. Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.",
     "keywords": [
       "helper models",
       "model routing",
@@ -983,7 +983,9 @@
       "background model",
       "memory model",
       "summary model",
-      "routing profile"
+      "routing profile",
+      "habit check",
+      "judge model"
     ],
     "audience": "Users who want a strong model for replies and a cheaper or local one for background helpers.",
     "where": "Title bar > Connections > Helper Models.",
