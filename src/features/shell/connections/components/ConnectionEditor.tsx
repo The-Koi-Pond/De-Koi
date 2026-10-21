@@ -90,6 +90,7 @@ import type {
   ImageGenerationDefaultsProfile,
 } from "../../../../engine/contracts/types/image-generation-defaults";
 import { mergeConnectionModels, selectConnectionModel } from "../lib/connection-model-selection";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 /** Links where users can obtain API keys for each provider */
 const API_KEY_LINKS: Partial<Record<APIProvider, { label: string; url: string }>> = {
@@ -546,7 +547,7 @@ export function ConnectionEditor() {
       }
       return true;
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save connection");
+      setSaveError(toUserMessage(err, { fallback: "Couldn't save connection. Try again." }));
       return false;
     }
   }, [
@@ -607,7 +608,7 @@ export function ConnectionEditor() {
     } catch (err) {
       const block = connectionDeleteBlockFromError(err);
       if (!block) {
-        const message = err instanceof Error ? err.message : "Delete failed";
+        const message = toUserMessage(err, { fallback: "Delete failed. Try again." });
         setSaveError(message);
         toast.error(message);
         return;
@@ -658,7 +659,11 @@ export function ConnectionEditor() {
         }
       },
       onError: (err) =>
-        setTestResult({ success: false, message: err instanceof Error ? err.message : "Failed", latencyMs: 0 }),
+        setTestResult({
+          success: false,
+          message: toUserMessage(err, { fallback: "Failed. Try again." }),
+          latencyMs: 0,
+        }),
     });
   }, [connectionDetailId, dirty, handleSave, testConnection, closeConnectionDetail]);
 
@@ -676,7 +681,7 @@ export function ConnectionEditor() {
           success: false,
           response: "",
           latencyMs: 0,
-          error: err instanceof Error ? err.message : "Failed",
+          error: toUserMessage(err, { fallback: "Failed. Try again." }),
         }),
     });
   }, [connectionDetailId, dirty, handleSave, testMessage]);
@@ -697,7 +702,7 @@ export function ConnectionEditor() {
           modelUsageDetail: [],
           fastModeState: null,
           downgraded: false,
-          response: err instanceof Error ? err.message : "Failed",
+          response: toUserMessage(err, { fallback: "Failed. Try again." }),
           latencyMs: 0,
         }),
     });
@@ -728,7 +733,7 @@ export function ConnectionEditor() {
           mimeType: null,
           latencyMs: 0,
           prompt: "",
-          error: err instanceof Error ? err.message : "Failed",
+          error: toUserMessage(err, { fallback: "Failed. Try again." }),
         }),
     });
   }, [connectionDetailId, dirty, handleSave, testImageGeneration]);
@@ -763,7 +768,7 @@ export function ConnectionEditor() {
         });
       },
       onError: (err) => {
-        setFetchError(err instanceof Error ? err.message : "Failed to fetch models");
+        setFetchError(toUserMessage(err, { fallback: "Couldn't fetch models. Try again." }));
       },
     });
   }, [connectionDetailId, dirty, handleSave, fetchModels, localProvider]);

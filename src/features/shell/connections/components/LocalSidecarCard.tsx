@@ -270,7 +270,7 @@ export function LocalSidecarCard() {
         const alreadyLocalSummary =
           alreadyLocalAgents.length > 0 ? `Already local: ${alreadyLocalAgents.join(", ")}. ` : "";
         toast.warning(
-          `${changedSummary}${alreadyLocalSummary}Failed: ${failedAgents.map((agent) => agent.name).join(", ")}.`,
+          `${changedSummary}${alreadyLocalSummary}Couldn't switch: ${failedAgents.map((agent) => agent.name).join(", ")}. Try again for those.`,
         );
         return;
       }

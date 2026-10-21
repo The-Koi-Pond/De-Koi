@@ -168,7 +168,7 @@ export function BotBrowserPanel() {
                     });
                   })
                   .catch(() => {
-                    toast.error("Could not load character greetings.");
+                    toast.error("Couldn't load the character's greetings. Try opening it again.");
                     setContextMenu({
                       x,
                       y,
