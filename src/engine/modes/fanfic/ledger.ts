@@ -20,6 +20,7 @@ import {
 } from "./llm-json";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 /** Bumped when the ledger prompt or entry shape changes; older ledgers are rebuilt. */
 const FANFIC_LEDGER_VERSION = 1;
@@ -257,7 +258,10 @@ async function saveEntries(
   entries: FanficLedgerEntry[],
 ): Promise<boolean> {
   const updateChatIfUnchanged = storage.updateChatIfUnchanged;
-  if (!updateChatIfUnchanged) throw new Error("This runtime can't save the story ledger safely.");
+  if (!updateChatIfUnchanged)
+    throw userFacingError(
+      "This De-Koi server is too old to save the story ledger safely. Update and restart it, then try again.",
+    );
   const { updated } = await updateChatIfUnchanged.call(
     storage,
     chatId,
@@ -361,7 +365,7 @@ export async function updateFanficLedger(
     if (!isRecord(chat)) throw new Error("Chat was not found.");
     if (readString(chat.mode) !== "fanfic") throw new Error("The story ledger is only kept for fanfic chats.");
     const state = readFanficState(parseRecord(chat.metadata));
-    if (!state) throw new Error("Fill in the fanfic request first.");
+    if (!state) throw userFacingError("Fill in the fanfic request first.");
     const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
     const chapters = fanficChapterRefs(messages.filter(isRecord));
     let expectedRaw = rawLedger(chat.metadata);
@@ -378,10 +382,11 @@ export async function updateFanficLedger(
     const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
     if (!connectionId || connectionId === "random") {
       if (input.onlyIfInUse) return ledger;
-      throw new Error("Pick a connection for the story ledger.");
+      throw userFacingError("Pick a connection for the story ledger.");
     }
     const connection = await loadFanficConnection(deps.storage, connectionId);
-    if (!isRecord(connection)) throw new Error("The ledger connection was not found.");
+    if (!isRecord(connection))
+      throw userFacingError("That story ledger connection no longer exists. Pick another one for the ledger.");
     if (input.onlyIfInUse && !fanficLedgerInUse(saved, chapters, connection)) return ledger;
 
     const toRead = chapters.slice(status.fresh.length);
@@ -433,7 +438,7 @@ export async function updateFanficLedger(
     if (!conflicted) return ledger;
     // Another tab saved ledger entries first: start over from what it saved.
   }
-  throw new Error("The story ledger kept changing while updating. Try again.");
+  throw userFacingError("The story ledger kept changing while updating. Try again.");
 }
 
 // ── In the chapter prompt ───────────────────────

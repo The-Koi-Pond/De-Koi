@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { userFacingError } from "../../engine/shared/user-facing-error";
 import { getErrorMessage, toUserMessage } from "./error-message";
 
 describe("user-facing error messages", () => {
@@ -27,6 +28,9 @@ describe("user-facing error messages", () => {
       details: { code: "remote_runtime_unreachable" },
     });
     expect(toUserMessage(server, { fallback: "Couldn't save." })).toBe(server.message);
+
+    const engine = userFacingError("Pick a connection for this fic first.");
+    expect(toUserMessage(engine, { fallback: "Couldn't write the outline." })).toBe(engine.message);
 
     // Storage and other internal failures keep the contextual copy.
     const storage = Object.assign(new Error("messages/abc not found"), { details: { code: "not_found" } });

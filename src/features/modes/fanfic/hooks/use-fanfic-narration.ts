@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useTTSConfig } from "../../../../shared/hooks/use-tts";
 import { clientSidePlaybackRate } from "../../../../shared/lib/tts-dialogue";
 import { ttsService } from "../../../../shared/lib/tts-service";
@@ -64,7 +65,7 @@ export function useFanficNarration(chatId: string) {
           onPartStart: setPartIndex,
         })
         .catch((error: unknown) => {
-          toast.error(error instanceof Error ? `Narration stopped: ${error.message}` : "Narration stopped.");
+          toast.error(`Narration stopped. ${toUserMessage(error, { fallback: "Press play to try again." })}`);
         });
     },
     [activeId, config],

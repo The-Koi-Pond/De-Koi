@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
 import { applyFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
@@ -31,10 +32,10 @@ export interface FanficModeRouteProps {
   activeChatId: string;
 }
 
-function errorText(error: unknown): string | null {
+function errorText(error: unknown, fallback = "That didn't work. Try again."): string | null {
   if (!error) return null;
   if (error instanceof DOMException && error.name === "AbortError") return null;
-  return error instanceof Error ? error.message : String(error);
+  return toUserMessage(error, { fallback });
 }
 
 export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
@@ -157,7 +158,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     try {
       await saveState(next);
     } catch (error) {
-      toast.error(errorText(error) ?? "The outline could not be saved.");
+      const text = errorText(error, "Couldn't save the outline. Try again.");
+      if (text) toast.error(text);
       return;
     }
     if (chapters.length === 0) runWrite({ kind: "chapter" });
@@ -169,7 +171,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       await saveState(withFanficVoices(state, sheets));
       toast.success("Voice sheets saved. The next chapter uses them.");
     } catch (error) {
-      toast.error(errorText(error) ?? "The voice sheets could not be saved.");
+      const text = errorText(error, "Couldn't save the voice sheets. Try again.");
+      if (text) toast.error(text);
     }
   };
 
@@ -180,7 +183,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       await plan.dismiss();
       toast.success("The outline is updated. The next chapter follows the new plan.");
     } catch (error) {
-      toast.error(errorText(error) ?? "The new plan could not be saved.");
+      const text = errorText(error, "Couldn't save the new plan. Try again.");
+      if (text) toast.error(text);
     }
   };
 
@@ -191,7 +195,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       await saveState(phrases ? { ...rest, bannedPhrases: phrases } : rest);
       toast.success(phrases ? "Banned phrases saved." : "Back to the default banned phrases.");
     } catch (error) {
-      toast.error(errorText(error) ?? "The banned phrases could not be saved.");
+      const text = errorText(error, "Couldn't save the banned phrases. Try again.");
+      if (text) toast.error(text);
     }
   };
 
@@ -203,7 +208,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   if (error && !chat) {
     return (
       <div role="alert" className="flex flex-1 items-center justify-center p-6 text-sm text-[var(--muted-foreground)]">
-        {errorText(error) ?? "This fic could not be opened."}
+        {errorText(error, "This fic couldn't be opened. Go back to the chat list and open it again.")}
       </div>
     );
   }
@@ -233,14 +238,14 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           initialCharacterIds={Array.isArray(chat.characterIds) ? chat.characterIds : []}
           initialLorebookIds={fanficPickedLorebookIds(chat.metadata)}
           submitting={saveRequest.isPending}
-          submitError={errorText(saveRequest.error)}
+          submitError={errorText(saveRequest.error, "Couldn't save the request. Try again.")}
           onSubmit={submitRequest}
           onCancel={editingRequest && state?.outline ? () => setEditingRequest(false) : undefined}
         />
       ) : planning || !state ? (
         <FanficPlanning
           phase={outline.phase}
-          error={errorText(outline.error)}
+          error={errorText(outline.error, "The outline couldn't be written. Try again.")}
           onRetry={replan}
           onCancel={() => {
             outlineAbort.current?.abort();

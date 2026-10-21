@@ -13,6 +13,7 @@ import { renderFanficCastCards, renderFanficRequestForPrompt } from "./prompts";
 import { FANFIC_RESEARCH_NOTES_MAX, readFanficState } from "./request";
 import type { FanficWebResearchGateway, FanficWebSource } from "./web-research";
 import { buildFanficVoiceSheets, fanficVoiceCharacters, type FanficVoicePhase } from "./voices";
+import { userFacingError } from "../../shared/user-facing-error";
 
 const MAX_QUERIES = 5;
 const QUERY_MAX_TOKENS = 1200;
@@ -139,10 +140,10 @@ export async function runFanficResearch(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Research only runs for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
-  if (!state.request.research) throw new Error("Online research is off for this fic.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
+  if (!state.request.research) throw userFacingError("Online research is off for this fic.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId) throw new Error("Pick a connection for this fic first.");
+  if (!connectionId) throw userFacingError("Pick a connection for this fic first.");
   const throwIfAborted = () => {
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
   };
@@ -184,7 +185,8 @@ export async function runFanficResearch(
   );
   throwIfAborted();
   const notes = extractLeadingThinkingBlocks(rawNotes).cleanText.trim().slice(0, FANFIC_RESEARCH_NOTES_MAX);
-  if (!notes) throw new Error("The research notes came back empty. Try again, or turn research off for this fic.");
+  if (!notes)
+    throw userFacingError("The research notes came back empty. Try again, or turn research off for this fic.");
   const research: FanficResearch = {
     notes,
     sources: sources.map((source) => ({ title: source.title || source.url, url: source.url })),

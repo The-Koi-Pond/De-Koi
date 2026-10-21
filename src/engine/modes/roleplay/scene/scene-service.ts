@@ -24,11 +24,7 @@ import { resolveSceneUniversalPreset } from "./universal-preset";
 import { getEffectiveStoryConsolidationEnabled } from "../../../generation/story-projections";
 import { persistCompletedSceneStoryEpisode } from "../../../generation/story-consolidation-queue";
 import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
-
-/** An error whose text is written for the user; the UI shows it as is (code "user_facing"). */
-function userFacingError(message: string): Error {
-  return Object.assign(new Error(message), { code: "user_facing" });
-}
+import { userFacingError } from "../../../shared/user-facing-error";
 
 function errorCodeOf(error: unknown): string | undefined {
   const code = error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;

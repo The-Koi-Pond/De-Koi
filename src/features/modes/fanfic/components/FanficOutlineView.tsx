@@ -3,7 +3,7 @@ import { ArrowLeft, Loader2, PenLine, RefreshCw } from "lucide-react";
 import type { FanficOutline, FanficResearch } from "../../../../engine/contracts/types/fanfic";
 import type { FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
 import { cn } from "../../../../shared/lib/utils";
-import { FanficButton, FanficSection, fanficInputClass } from "./fanfic-ui";
+import { FanficButton, FanficSection, FanficWaitNote, fanficInputClass } from "./fanfic-ui";
 
 const PLANNING_PHASE_TEXT: Record<FanficPlanningPhase, { title: string; detail: string }> = {
   choosing_searches: { title: "Looking things up…", detail: "Working out what to check about the canon." },
@@ -48,14 +48,7 @@ export function FanficPlanning({
           </div>
         </>
       ) : (
-        <div role="status" aria-live="polite" className="flex flex-col items-center gap-3">
-          <Loader2 size="1.75rem" className="animate-spin text-[var(--primary)]" aria-hidden="true" />
-          <p className="text-base font-semibold text-[var(--foreground)]">{text.title}</p>
-          <p className="text-sm text-[var(--muted-foreground)]">{text.detail}</p>
-          <FanficButton onClick={onCancel} className="mt-2">
-            Cancel
-          </FanficButton>
-        </div>
+        <PlanningStatus key={phase ?? "outlining"} title={text.title} detail={text.detail} onCancel={onCancel} />
       )}
     </div>
   );
@@ -250,6 +243,24 @@ export function FanficOutlineReview({
           Start writing
         </FanficButton>
       </div>
+    </div>
+  );
+}
+
+/** One planning phase; keyed by phase, so its clock starts again when the phase changes. */
+function PlanningStatus({ title, detail, onCancel }: { title: string; detail: string; onCancel: () => void }) {
+  const [startedAt] = useState(() => Date.now());
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div role="status" aria-live="polite" className="flex flex-col items-center gap-3">
+        <Loader2 size="1.75rem" className="animate-spin text-[var(--primary)]" aria-hidden="true" />
+        <p className="text-base font-semibold text-[var(--foreground)]">{title}</p>
+        <p className="text-sm text-[var(--muted-foreground)]">{detail}</p>
+      </div>
+      <FanficWaitNote startedAt={startedAt} stopLabel="Cancel" />
+      <FanficButton onClick={onCancel} className="mt-2">
+        Cancel
+      </FanficButton>
     </div>
   );
 }

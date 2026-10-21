@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import {
   Ban,
   BookMarked,
@@ -84,7 +85,8 @@ import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
-import { FanficButton, FanficChip, fanficInputClass } from "./fanfic-ui";
+import { FanficButton, FanficChip, FanficWaitNote, fanficInputClass } from "./fanfic-ui";
+import { useChatStore } from "../../../../shared/stores/chat.store";
 
 type ReaderView = number | "all";
 
@@ -887,16 +889,19 @@ function NarrationBar({
 }
 
 function StreamingChapter({
+  chatId,
   heading,
   text,
   phase,
   onStop,
 }: {
+  chatId: string;
   heading: string;
   text: string;
   phase: string | null;
   onStop: () => void;
 }) {
+  const startedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
   return (
     <article aria-busy="true" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -909,10 +914,13 @@ function StreamingChapter({
       {text.trim() ? (
         <Prose text={text} keyBase="fanfic-stream" />
       ) : (
-        <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-          <Loader2 size="1rem" className="animate-spin text-[var(--primary)]" aria-hidden="true" />
-          {phase || "Writing…"}
-        </p>
+        <div className="flex flex-col gap-1">
+          <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+            <Loader2 size="1rem" className="animate-spin text-[var(--primary)]" aria-hidden="true" />
+            {phase || "Writing…"}
+          </p>
+          <FanficWaitNote startedAt={startedAt} stopLabel="Stop" />
+        </div>
       )}
     </article>
   );
@@ -1077,7 +1085,7 @@ export function FanficReader({
       });
       if (result !== "cancelled") toast.success(`Saved ${file.filename}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The fic could not be saved.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't save the fic. Try again." }));
     }
   };
 
@@ -1196,6 +1204,7 @@ export function FanficReader({
           return (
             <StreamingChapter
               key={chapter.message.id}
+              chatId={chatId}
               heading={heading}
               text={streamText}
               phase={phase}
@@ -1243,6 +1252,7 @@ export function FanficReader({
 
       {writingNew && (
         <StreamingChapter
+          chatId={chatId}
           heading={chapterHeading(state, chapterCount + 1)}
           text={streamText}
           phase={phase}

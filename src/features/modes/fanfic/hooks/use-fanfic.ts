@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { chatKeys, useChat, useChatMessages, useUpdateChat } from "../../../catalog/chats/index";
 import { runGenerationWithUi, type GenerateArgs } from "../../../runtime/generation/index";
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
@@ -184,7 +185,7 @@ export function useFanficOutline(chatId: string) {
     },
     onError: (error) => {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      toast.error(error instanceof Error ? error.message : "The outline could not be written.");
+      toast.error(toUserMessage(error, { fallback: "The outline couldn't be written. Try again." }));
     },
   });
   return { ...mutation, phase };
@@ -213,14 +214,14 @@ export function useFanficQuality(chatId: string) {
     onSuccess: refresh,
     onError: (error) => {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      toast.error(error instanceof Error ? error.message : "The quality check could not finish.");
+      toast.error(toUserMessage(error, { fallback: "The quality check couldn't finish. Try again." }));
     },
   });
   const remove = useMutation({
     meta: { handlesOwnErrors: true },
     mutationFn: (runId: string) => deleteFanficQualityRun(storageApi, chatId, runId),
     onSettled: refresh,
-    onError: (error) => toast.error(error instanceof Error ? error.message : "The run could not be deleted."),
+    onError: (error) => toast.error(toUserMessage(error, { fallback: "Couldn't delete that run. Try again." })),
   });
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   return { run, remove, phase, stop };
@@ -260,7 +261,7 @@ export function useFanficLedger(chatId: string, connectionId: string | null): Fa
       )
         .catch((error: unknown) => {
           if (isAbort(error)) return;
-          const message = error instanceof Error ? error.message : "The story ledger could not update.";
+          const message = toUserMessage(error, { fallback: "The story ledger couldn't update. Try again." });
           if (quiet) toast.warning(`Story ledger not updated: ${message}`);
           else toast.error(message);
         })
@@ -326,7 +327,7 @@ function useFanficChapterCheck<Result extends FanficChapterCheckResult, Phase ex
         .current(messageId, controller.signal, setPhase)
         .then((result) => setResults((current) => ({ ...current, [messageId]: result })))
         .catch((error: unknown) => {
-          if (!isAbort(error)) toast.error(error instanceof Error ? error.message : copy.failed);
+          if (!isAbort(error)) toast.error(toUserMessage(error, { fallback: `${copy.failed} Try again.` }));
         })
         .finally(() => {
           if (controllerRef.current === controller) controllerRef.current = null;
@@ -371,7 +372,7 @@ function useFanficChapterCheck<Result extends FanficChapterCheckResult, Phase ex
         const unplaced = skipped ? ` (${skipped} couldn't be placed)` : "";
         toast.success(`Fixed ${applied} ${noun}${unplaced}. Saved as a new version, so the old one is one tap back.`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "The fix could not be saved.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't save the fix. Try again." }));
       } finally {
         setFixing(false);
       }
@@ -453,7 +454,7 @@ export function useFanficVoices(chatId: string, connectionId: string | null): Fa
       .then((result) => toast.success(voicesReadyMessage(result)))
       .catch((error: unknown) => {
         if (!isAbort(error))
-          toast.error(error instanceof Error ? error.message : "The voice sheets could not be written.");
+          toast.error(toUserMessage(error, { fallback: "The voice sheets couldn't be written. Try again." }));
       })
       .finally(() => {
         if (controllerRef.current === controller) controllerRef.current = null;
@@ -496,7 +497,8 @@ export function useFanficEditor(chatId: string, connectionId: string | null): Fa
           if (message) toast.success(message);
         })
         .catch((error: unknown) => {
-          if (!isAbort(error)) toast.error(error instanceof Error ? error.message : failed);
+          if (!isAbort(error))
+            toast.error(toUserMessage(error, { fallback: `${failed.replace(/\.$/, "")}. Try again.` }));
         })
         .finally(() => {
           if (controllerRef.current === controller) controllerRef.current = null;
@@ -578,7 +580,7 @@ export function useFanficPlan(chatId: string, connectionId: string | null): Fanf
       )
         .catch((error: unknown) => {
           if (isAbort(error)) return;
-          const message = error instanceof Error ? error.message : "The plan could not be updated.";
+          const message = toUserMessage(error, { fallback: "The plan couldn't be updated. Try again." });
           if (quiet) toast.warning(`Plan not updated: ${message}`);
           else toast.error(message);
         })
@@ -648,7 +650,7 @@ export function useFanficPhraseBans(chatId: string, connectionId: string | null)
         })
         .catch((error: unknown) => {
           if (isAbort(error)) return;
-          const message = error instanceof Error ? error.message : "Banned phrases could not be removed.";
+          const message = toUserMessage(error, { fallback: "The banned phrases couldn't be removed. Try again." });
           if (quiet) toast.warning(`Banned phrases not removed: ${message}`);
           else toast.error(message);
         })
