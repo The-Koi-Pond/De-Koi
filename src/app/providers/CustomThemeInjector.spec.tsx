@@ -11,7 +11,7 @@ const settingsData = vi.hoisted(() => ({
   extensions: [] as Array<Record<string, unknown>> | undefined,
 }));
 
-vi.mock("../../features/shell/settings/index", () => ({
+vi.mock("../../features/shell/settings/customization", () => ({
   useThemes: () => ({ data: settingsData.themes }),
   useExtensions: () => ({ data: settingsData.extensions }),
 }));

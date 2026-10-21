@@ -3,7 +3,7 @@ import type { SetupJourneyIntent, SetupJourneyRecovery } from "../../../engine/o
 import {
   normalizeImageStyleProfileSettings,
   type ImageStyleProfileSettings,
-} from "../../../engine/generation/image-style-profiles";
+} from "../../../engine/generation/image-style-profile-settings";
 import { decodeLocalAssetPath, userBackgroundUrl } from "../../api/managed-asset-paths";
 import { normalizeQuoteFormat } from "../../lib/dialogue-quotes";
 import { normalizeCustomNotificationSound, normalizeNotificationSoundId } from "../../lib/notification-sound";
