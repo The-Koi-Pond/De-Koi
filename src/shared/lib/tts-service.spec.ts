@@ -172,4 +172,52 @@ describe("ttsService.speakSequence", () => {
     ).rejects.toThrow("quota exceeded");
     expect(failures).toEqual([]);
   });
+
+  it("waits each part's pause before playing it, but never before the first part", async () => {
+    vi.useFakeTimers();
+    try {
+      speak.mockResolvedValue(new Blob(["a"]));
+      const started: number[] = [];
+      void ttsService.speakSequence(
+        [
+          { text: "one", pauseBeforeMs: 900 },
+          { text: "two", pauseBeforeMs: 700 },
+        ],
+        "seq",
+        { onPartStart: (index) => started.push(index) },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toEqual([0]);
+
+      FakeAudio.playing[0]!.onended?.();
+      await vi.advanceTimersByTimeAsync(699);
+      expect(started).toEqual([0]);
+      expect(ttsService.getState()).toBe("playing");
+      expect(speak.mock.calls.map(([input]) => input.text)).toEqual(["one", "two"]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(started).toEqual([0, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops during a pause without playing the next part", async () => {
+    vi.useFakeTimers();
+    try {
+      speak.mockResolvedValue(new Blob(["a"]));
+      const done = ttsService.speakSequence([{ text: "one" }, { text: "two", pauseBeforeMs: 5000 }], "seq");
+      await vi.advanceTimersByTimeAsync(0);
+      FakeAudio.playing[0]!.onended?.();
+      await vi.advanceTimersByTimeAsync(100);
+
+      ttsService.stop();
+      await vi.advanceTimersByTimeAsync(0);
+      await done;
+      expect(FakeAudio.playing).toHaveLength(1);
+      expect(ttsService.getState()).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

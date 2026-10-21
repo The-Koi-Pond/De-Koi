@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ttsConfigSchema, type TTSConfig } from "../../../../engine/contracts/types/tts";
 import {
+  FANFIC_PAUSE_MS,
   buildFanficNarration,
   fanficNarrationText,
   fanficProseBlocks,
@@ -271,5 +272,60 @@ describe("buildFanficNarration with sound effects", () => {
     expect(fanficSoundEffect("[END OF AUDIO]")).toBeNull();
     expect(fanficSoundEffect("She heard it. [SFX: A door creaks.]")).toBeNull();
     expect(fanficSoundEffect("[SFX: ]")).toBeNull();
+  });
+});
+
+describe("buildFanficNarration pauses", () => {
+  it("pauses between lines, longer where a stage direction was left out or a scene breaks, never mid-paragraph", () => {
+    const longLine = Array.from({ length: 40 }, (_, index) => `Sentence ${index} runs on for a while.`).join(" ");
+    const content = [
+      "**PIERROT:** Good evening.",
+      "",
+      "**PIERROT:** Come in.",
+      "",
+      "(You cross the apartment. The door opens.)",
+      "",
+      "**PIERROT:** There you are.",
+      "",
+      "* * *",
+      "",
+      `**PIERROT:** ${longLine}`,
+    ].join("\n");
+    const plan = buildFanficNarration(
+      [
+        { ...scriptChapter, content },
+        { ...scriptChapter, messageId: "msg-2", number: 2, heading: "Chapter 2", content: "**PIERROT:** Again." },
+      ],
+      ttsConfig({ source: "elevenlabs", model: "eleven_v3", voice: "pierrot" }),
+    );
+    const pauses = plan.parts.map((part) => [part.chapterNumber, part.block, part.pauseBeforeMs]);
+
+    expect(pauses.slice(0, 4)).toEqual([
+      [1, null, undefined],
+      [1, 0, FANFIC_PAUSE_MS.line],
+      [1, 1, FANFIC_PAUSE_MS.line],
+      [1, 3, FANFIC_PAUSE_MS.beat],
+    ]);
+    const longParts = plan.parts.filter((part) => part.block === 5);
+    expect(longParts.length).toBeGreaterThan(1);
+    expect(longParts.map((part) => part.pauseBeforeMs)).toEqual([
+      FANFIC_PAUSE_MS.scene,
+      ...longParts.slice(1).map(() => undefined),
+    ]);
+    expect(pauses.slice(-2)).toEqual([
+      [2, null, FANFIC_PAUSE_MS.chapter],
+      [2, 0, FANFIC_PAUSE_MS.line],
+    ]);
+  });
+
+  it("keeps pauses out of the audio cache key", () => {
+    const config = ttsConfig({ source: "elevenlabs", model: "eleven_v3", voice: "pierrot" });
+    const alone = buildFanficNarration([{ ...scriptChapter, content: "**PIERROT:** Come in." }], config).parts[1]!;
+    const afterBeat = buildFanficNarration(
+      [{ ...scriptChapter, content: "(He bows.)\n\n**PIERROT:** Come in.\n\n[SFX: Rain.]" }],
+      config,
+    ).parts.find((part) => part.text === "Come in.")!;
+    expect(afterBeat.pauseBeforeMs).toBe(FANFIC_PAUSE_MS.beat);
+    expect(afterBeat.cacheAliases).toEqual(alone.cacheAliases);
   });
 });

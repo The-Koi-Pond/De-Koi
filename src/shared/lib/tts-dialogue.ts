@@ -28,6 +28,8 @@ export interface TTSVoiceRequest {
   voice?: string;
   /** "sound_effect" plays a generated sound described by `text` instead of speaking it. */
   kind?: TtsAudioKind;
+  /** Silence before this part when it's played in a sequence, in milliseconds. Not part of the audio. */
+  pauseBeforeMs?: number;
 }
 
 export interface CachedTTSVoiceRequest extends TTSVoiceRequest {

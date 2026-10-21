@@ -160,6 +160,18 @@ export interface FanficNarrationChapter {
   content: string;
 }
 
+/** Silence before a part, in milliseconds, so lines don't run into each other. */
+export const FANFIC_PAUSE_MS = {
+  /** Between two lines or paragraphs. */
+  line: 700,
+  /** Where a stage direction or a bare cue like "(a pause)" was left out: something happens there. */
+  beat: 1200,
+  /** At a scene break. */
+  scene: 1500,
+  /** Before the next chapter's heading. */
+  chapter: 2000,
+} as const;
+
 export interface FanficNarrationPart extends CachedTTSVoiceRequest {
   chapterNumber: number;
   /** Index into fanficProseBlocks for the chapter, or null for the spoken chapter heading. */
@@ -196,23 +208,47 @@ export function buildFanficNarration(chapters: FanficNarrationChapter[], config:
   const soundEffectsOn = fanficSoundEffectsOn(config);
   const parts: FanficNarrationPart[] = [];
   for (const chapter of chapters) {
-    const pieces: Array<{ text: string; block: number | null; tone?: string; sound?: true }> = [
-      { text: `${chapter.heading}.`, block: null },
+    type Piece = { text: string; block: number | null; tone?: string; sound?: true; pauseBeforeMs?: number };
+    const pieces: Piece[] = [
+      {
+        text: `${chapter.heading}.`,
+        block: null,
+        ...(parts.length > 0 ? { pauseBeforeMs: FANFIC_PAUSE_MS.chapter } : {}),
+      },
     ];
+    // The longest gap owed since the last spoken paragraph: a line break, a left-out stage direction, a scene break.
+    let pending: number = FANFIC_PAUSE_MS.line;
+    const owe = (ms: number) => {
+      pending = Math.max(pending, ms);
+    };
+    const push = (piece: Piece, startsParagraph: boolean) => {
+      if (startsParagraph) {
+        piece.pauseBeforeMs = pending;
+        pending = FANFIC_PAUSE_MS.line;
+      }
+      pieces.push(piece);
+    };
     const blocks = fanficProseBlocks(chapter.content);
     const scriptChapter = isFanficScriptChapter(blocks);
     blocks.forEach((block, index) => {
-      if (FANFIC_SCENE_BREAK.test(block)) return;
+      if (FANFIC_SCENE_BREAK.test(block)) {
+        owe(FANFIC_PAUSE_MS.scene);
+        return;
+      }
       const sound = soundEffectsOn ? fanficSoundEffect(block) : null;
       if (sound) {
-        pieces.push({ text: sound, block: index, sound: true });
+        push({ text: sound, block: index, sound: true }, true);
         return;
       }
       const line = fanficScriptLine(block, cueStyle, scriptChapter);
-      if (!line) return;
+      if (!line) {
+        owe(FANFIC_PAUSE_MS.beat);
+        return;
+      }
       splitTTSChunks(line.text).forEach((text, chunk) => {
-        // A delivery cue belongs to the start of the line, so only its first part carries it.
-        pieces.push({ text, block: index, ...(line.tone && chunk === 0 ? { tone: line.tone } : {}) });
+        // A delivery cue belongs to the start of the line, so only its first part carries it. Parts of one long
+        // paragraph follow each other with no gap, so a sentence never stops halfway.
+        push({ text, block: index, ...(line.tone && chunk === 0 ? { tone: line.tone } : {}) }, chunk === 0);
       });
     });
     const speech = pieces.filter((piece) => !piece.sound);
@@ -233,7 +269,12 @@ export function buildFanficNarration(chapters: FanficNarrationChapter[], config:
             cacheKey: `fanfic-sfx-v1:${hashTTSCacheKey(piece.text.toLowerCase())}`,
           }
         : cached[next++]!;
-      parts.push({ ...request, chapterNumber: chapter.number, block: piece.block });
+      parts.push({
+        ...request,
+        chapterNumber: chapter.number,
+        block: piece.block,
+        ...(piece.pauseBeforeMs ? { pauseBeforeMs: piece.pauseBeforeMs } : {}),
+      });
     }
   }
 
