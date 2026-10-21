@@ -26,6 +26,7 @@ import { useCharacterEditorImportPersona } from "../hooks/use-character-editor-i
 import {
   formatCharacterEditorExtension,
   formatCharacterEditorField,
+  initialCharacterEditorTab,
   normalizeCharacterEditorData,
 } from "../lib/character-editor-model";
 import { estimateCharacterCardTokens } from "../lib/character-token-count";
@@ -90,6 +91,8 @@ export function CharacterEditor() {
   const loadedCharacterIdRef = useRef<string | null>(null);
   const cardLengthWarningCharacterIdRef = useRef<string | null>(null);
 
+  const characterDetailDestinationRef = useRef(characterDetailDestination);
+  characterDetailDestinationRef.current = characterDetailDestination;
   useEffect(() => {
     if (!characterId || characterDetailDestination !== "memories") return;
     setActiveTab("memories");
@@ -177,7 +180,16 @@ export function CharacterEditor() {
 
     loadedCharacterIdRef.current = char.id;
 
-    setFormData(normalizeCharacterEditorData(char.data));
+    const nextFormData = normalizeCharacterEditorData(char.data);
+    // A blank new character opens where you write who they are; otherwise keep the tab the user was on.
+    if (
+      isSwitchingCharacter &&
+      characterDetailDestinationRef.current !== "memories" &&
+      initialCharacterEditorTab(nextFormData) === "description"
+    ) {
+      setActiveTab("description");
+    }
+    setFormData(nextFormData);
     setCharacterComment(char.comment ?? "");
     setMemoryPersistence(char.memoryPersistence === "chat" ? "chat" : "character");
     setBehavioralInterpretation(char.behavioralInterpretation);
