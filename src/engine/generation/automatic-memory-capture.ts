@@ -1729,7 +1729,11 @@ function relabelEscapesUserAssertion(
   const userTokens = (request.userLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
     (token) => token !== "user",
   );
-  const contentTokens = new Set(readString(relabeled.content).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  const contentTokens = new Set(
+    readString(relabeled.content)
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu) ?? [],
+  );
   return userTokens.length === 0 || userTokens.some((token) => contentTokens.has(token));
 }
 

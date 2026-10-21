@@ -628,7 +628,9 @@ describe("automatic memory capture skip reasons", () => {
           ],
         },
       });
-      expect(own.candidates).toEqual([expect.objectContaining({ kind: "plot_state", content: "Pierrot is left-handed." })]);
+      expect(own.candidates).toEqual([
+        expect.objectContaining({ kind: "plot_state", content: "Pierrot is left-handed." }),
+      ]);
     });
 
     it("keeps the evidence_mismatch reason when a label slip is not fixed", async () => {
