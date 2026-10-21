@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ttsConfigSchema, type TTSConfig } from "../../../../engine/contracts/types/tts";
-import { buildFanficNarration, fanficNarrationText, fanficProseBlocks, type FanficNarrationChapter } from "./narration";
+import {
+  buildFanficNarration,
+  fanficNarrationText,
+  fanficProseBlocks,
+  fanficScriptLine,
+  type FanficNarrationChapter,
+} from "./narration";
 
 function ttsConfig(overrides: Partial<TTSConfig> = {}): TTSConfig {
   return ttsConfigSchema.parse({ enabled: true, ...overrides });
@@ -104,5 +110,97 @@ describe("buildFanficNarration", () => {
 
     expect(plan.parts).toEqual([]);
     expect(plan.problem).toMatch(/ElevenLabs voice/);
+  });
+});
+
+const scriptChapter: FanficNarrationChapter = {
+  messageId: "msg-script",
+  number: 1,
+  heading: "Chapter 1",
+  content: [
+    "[SFX: Rain on a window. A phone screen tapping.]",
+    "",
+    "(You open the app. The rain gets louder.)",
+    "",
+    "**PIERROT:** (delighted, softly) Good evening, my dear! (a pause) I missed you.",
+    "",
+    "(a shaky pause)",
+    "",
+    "HARLEQUIN (dry): Must you?",
+    "",
+    "[END OF AUDIO]",
+  ].join("\n"),
+};
+
+describe("fanficScriptLine", () => {
+  it("never speaks production notes, cue-only paragraphs, or speaker labels", () => {
+    expect(fanficScriptLine("[SFX: Rain on a window.]", "inline")).toBeNull();
+    expect(fanficScriptLine("[END OF AUDIO]", "tone")).toBeNull();
+    expect(fanficScriptLine("(a shaky pause)", "inline")).toBeNull();
+    expect(fanficScriptLine("**PIERROT:** (laughs)", "inline")).toBeNull();
+    expect(fanficScriptLine("**Pierrot**: Hello there.", "drop")).toEqual({ text: "Hello there." });
+    expect(fanficScriptLine("PIERROT: Hello there.", "drop")).toEqual({ text: "Hello there." });
+  });
+
+  it("turns delivery cues into ElevenLabs v3 audio tags where they were written", () => {
+    expect(fanficScriptLine("**PIERROT:** (softly) Good evening! (a pause) I missed you.", "inline")).toEqual({
+      text: "[softly] Good evening! [a pause] I missed you.",
+    });
+    expect(fanficScriptLine("HARLEQUIN (dry): Must you?", "inline")).toEqual({ text: "[dry] Must you?" });
+  });
+
+  it("passes the opening cue as a tone, or drops cues, for voices that can't act out tags", () => {
+    expect(fanficScriptLine("**PIERROT:** (softly) Good evening! (a pause) I missed you.", "tone")).toEqual({
+      text: "Good evening! I missed you.",
+      tone: "softly",
+    });
+    expect(fanficScriptLine("**PIERROT:** (softly) Good evening! (a pause) I missed you.", "drop")).toEqual({
+      text: "Good evening! I missed you.",
+    });
+  });
+
+  it("reads parenthesised stage directions as story, and leaves ordinary prose alone", () => {
+    expect(fanficScriptLine("(You open the app. The rain gets louder.)", "inline")).toEqual({
+      text: "You open the app. The rain gets louder.",
+    });
+    for (const prose of [
+      "Note: she never came back.",
+      "He said (quietly) that it was fine.",
+      "The file read [redacted] in red ink.",
+      "The sign on the door said [OPEN] in red.",
+      '"Angel," he said. **"We need to talk."**',
+    ]) {
+      expect(fanficScriptLine(prose, "inline")).toEqual({ text: fanficNarrationText(prose) });
+    }
+  });
+});
+
+describe("buildFanficNarration with an audio-script chapter", () => {
+  it("reads only what a listener should hear, with cues as v3 tags", () => {
+    const plan = buildFanficNarration(
+      [scriptChapter],
+      ttsConfig({ source: "elevenlabs", model: "eleven_v3", voice: "pierrot" }),
+    );
+
+    expect(plan.parts.map(({ text, block, tone }) => ({ text, block, tone }))).toEqual([
+      { text: "Chapter 1.", block: null, tone: undefined },
+      { text: "You open the app. The rain gets louder.", block: 1, tone: undefined },
+      { text: "[delighted, softly] Good evening, my dear! [a pause] I missed you.", block: 2, tone: undefined },
+      { text: "[dry] Must you?", block: 4, tone: undefined },
+    ]);
+  });
+
+  it("sends the opening cue as a tone for other providers, and keys the cache by it", () => {
+    const config = ttsConfig({ source: "openai", voice: "alloy" });
+    const parts = buildFanficNarration([scriptChapter], config).parts;
+    const line = parts.find((part) => part.block === 2)!;
+
+    expect(line).toMatchObject({ text: "Good evening, my dear! I missed you.", tone: "delighted, softly" });
+    const withoutTone = buildFanficNarration(
+      [{ ...scriptChapter, content: "**PIERROT:** Good evening, my dear! I missed you." }],
+      config,
+    ).parts[1]!;
+    expect(withoutTone.text).toBe(line.text);
+    expect(withoutTone.cacheAliases).not.toEqual(line.cacheAliases);
   });
 });
