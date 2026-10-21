@@ -562,6 +562,166 @@ describe("automatic memory capture skip reasons", () => {
     expect(crowded.candidates).toHaveLength(12);
   });
 
+  describe("label slip corrections", () => {
+    function recording(...answers: unknown[]): { llm: LlmGateway; prompts: string[] } {
+      const prompts: string[] = [];
+      return {
+        prompts,
+        llm: {
+          async complete(llmRequest) {
+            prompts.push(llmRequest.messages.map((message) => message.content).join("\n"));
+            return JSON.stringify(answers.shift() ?? {});
+          },
+          async *stream() {
+            yield { type: "done" as const };
+          },
+          async listModels() {
+            return [];
+          },
+        },
+      };
+    }
+
+    it("relabels a kind and evidence slip once, then always verifies it", async () => {
+      const slip = { ...miso, kind: "scene_event" };
+      const { llm, prompts } = recording(
+        { memories: [slip] },
+        {
+          corrections: [
+            {
+              index: 0,
+              content: miso.content,
+              confidence: 0.95,
+              kind: "fact",
+              evidence: "direct_user_assertion",
+              sourceMessageIds: ["user-current"],
+            },
+          ],
+        },
+        { verdicts: [{ index: 0, faithful: true }] },
+      );
+      const result = await extractCanonicalMemoryConsequences({ llm, request: request() });
+
+      expect(result.candidates).toEqual([expect.objectContaining({ kind: "fact", content: miso.content })]);
+      expect(result.correctedCount).toBe(1);
+      expect(prompts).toHaveLength(3);
+      expect(prompts[1]).toContain("Its kind and evidence do not fit its cited rows.");
+      expect(prompts[1]).toContain('evidence: "direct_user_assertion"');
+      expect(prompts[2]).toContain("You verify saved memories");
+    });
+
+    it("lets a relabel drop cited rows but never add one", async () => {
+      const both = { ...miso, sourceMessageIds: ["user-current", "assistant-current"] };
+      const narrowed = await extractCanonicalMemoryConsequences({
+        llm: replies(
+          { memories: [both] },
+          {
+            corrections: [
+              {
+                index: 0,
+                content: miso.content,
+                confidence: 0.95,
+                kind: "fact",
+                evidence: "direct_user_assertion",
+                sourceMessageIds: ["user-current", "user-reference"],
+              },
+            ],
+          },
+          { verdicts: [{ index: 0, faithful: true }] },
+        ),
+        request: request(),
+      });
+      expect(narrowed.candidates).toHaveLength(1);
+      expect(narrowed.candidates[0]?.provenance.messageIds).toEqual(["user-current"]);
+
+      const assistantOnly = { ...miso, sourceMessageIds: ["assistant-current"] };
+      const added = await extractCanonicalMemoryConsequences({
+        llm: replies(
+          { memories: [assistantOnly] },
+          {
+            corrections: [
+              {
+                index: 0,
+                content: miso.content,
+                confidence: 0.95,
+                kind: "fact",
+                evidence: "direct_user_assertion",
+                sourceMessageIds: ["user-current"],
+              },
+            ],
+          },
+        ),
+        request: request(),
+      });
+      expect(added.candidates).toEqual([]);
+      expect(added.skipped).toEqual([expect.objectContaining({ reason: "no_source_rows", afterCorrection: true })]);
+    });
+
+    it("never relabels someone else's claim about the user into another kind", async () => {
+      const claim = {
+        kind: "preference",
+        content: "Celia loves jazz.",
+        confidence: 0.9,
+        evidence: "direct_user_assertion",
+        sourceMessageIds: ["assistant-current"],
+      };
+      const relabel = {
+        corrections: [
+          {
+            index: 0,
+            content: "Celia loves jazz.",
+            confidence: 0.9,
+            kind: "plot_state",
+            evidence: "explicit_exchange",
+            sourceMessageIds: ["assistant-current"],
+          },
+        ],
+      };
+      const result = await extractCanonicalMemoryConsequences({
+        llm: replies({ memories: [claim] }, relabel, { verdicts: [{ index: 0, faithful: true }] }),
+        request: request(),
+      });
+      expect(result.candidates).toEqual([]);
+      expect(result.skipped).toEqual([expect.objectContaining({ reason: "evidence_mismatch", afterCorrection: true })]);
+
+      const selfFact = { ...claim, kind: "fact", content: "Pierrot is left-handed." };
+      const own = await extractCanonicalMemoryConsequences({
+        llm: replies(
+          { memories: [selfFact] },
+          { corrections: [{ ...relabel.corrections[0], content: "Pierrot is left-handed." }] },
+          { verdicts: [{ index: 0, faithful: true }] },
+        ),
+        request: {
+          ...request(),
+          sourceMessages: [
+            request().sourceMessages[0]!,
+            { ...request().sourceMessages[1]!, content: "I'm left-handed too." },
+          ],
+        },
+      });
+      expect(own.candidates).toEqual([
+        expect.objectContaining({ kind: "plot_state", content: "Pierrot is left-handed." }),
+      ]);
+    });
+
+    it("keeps the evidence_mismatch reason when a label slip is not fixed", async () => {
+      const slip = { ...miso, kind: "scene_event" };
+      const missing = await extractCanonicalMemoryConsequences({
+        llm: replies({ memories: [slip] }, { corrections: [] }),
+        request: request(),
+      });
+      expect(missing.skipped).toEqual([expect.objectContaining({ reason: "evidence_mismatch" })]);
+
+      const unchanged = await extractCanonicalMemoryConsequences({
+        llm: replies({ memories: [slip] }, { corrections: [{ index: 0, content: miso.content, confidence: 0.95 }] }),
+        request: request(),
+      });
+      expect(unchanged.skipped).toEqual([
+        expect.objectContaining({ reason: "evidence_mismatch", afterCorrection: true }),
+      ]);
+    });
+  });
+
   it("separates a missing correction, a still-broken correction and a verifier rejection", async () => {
     const pronoun = { ...miso, content: "Celia says her cat is named Miso." };
 
