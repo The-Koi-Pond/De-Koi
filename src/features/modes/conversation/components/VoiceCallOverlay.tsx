@@ -1,6 +1,7 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "../../../../shared/lib/utils";
+import { holdNotificationPingsQuiet } from "../../../../shared/lib/notification-sound";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useReplyWait } from "../../shared/chat-ui/index";
 import { useVoiceCall, type VoiceCallCharacter, type VoiceCallPhase } from "../hooks/use-voice-call";
@@ -29,6 +30,9 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
   // While the character is "thinking", the reply is waiting on the model: show how long once it drags.
   const stepStartedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
   const wait = useReplyWait(phase === "thinking" ? stepStartedAt : null);
+
+  // No new-message chirp while on the call: the reply is being spoken out loud already.
+  useEffect(() => holdNotificationPingsQuiet(), []);
 
   useEffect(() => {
     if (phase === "ended") onClose();

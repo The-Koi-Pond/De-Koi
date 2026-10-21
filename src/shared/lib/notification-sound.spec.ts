@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { playNotificationPing } from "./notification-sound";
+import { holdNotificationPingsQuiet, playNotificationPing } from "./notification-sound";
 
 describe("notification sound playback", () => {
   afterEach(() => {
@@ -28,6 +28,32 @@ describe("notification sound playback", () => {
     playNotificationPing("frog");
 
     expect(audioSources).toEqual(["/sounds/frog-croak.mp3"]);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays silent while a quiet hold is active and plays again once every hold is released", () => {
+    const play = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "Audio",
+      class {
+        preload = "";
+        volume = 1;
+        play = play;
+      },
+    );
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", undefined);
+
+    const releaseCall = holdNotificationPingsQuiet();
+    const releaseOther = holdNotificationPingsQuiet();
+    playNotificationPing("frog");
+    releaseCall();
+    releaseCall(); // releasing twice must not end the other hold early
+    playNotificationPing("frog");
+    expect(play).not.toHaveBeenCalled();
+
+    releaseOther();
+    playNotificationPing("frog");
     expect(play).toHaveBeenCalledTimes(1);
   });
 });

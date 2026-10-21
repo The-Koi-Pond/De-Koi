@@ -178,10 +178,27 @@ function getPlayableNotificationSoundId(
   return soundId === "custom" && customSound?.dataUrl ? "custom" : soundId === "legacy" ? "legacy" : "frog";
 }
 
+let quietHolds = 0;
+
+/**
+ * Keeps notification sounds silent until the returned release function runs (for example while a voice call is open,
+ * so a new-message chirp never talks over the character). Visual alerts still show.
+ */
+export function holdNotificationPingsQuiet(): () => void {
+  quietHolds += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    quietHolds -= 1;
+  };
+}
+
 export function playNotificationPing(
   soundId: NotificationSoundId = DEFAULT_NOTIFICATION_SOUND_ID,
   customSound: CustomNotificationSound | null = null,
 ) {
+  if (quietHolds > 0) return;
   try {
     const playableSoundId = getPlayableNotificationSoundId(soundId, customSound);
     if (playableSoundId === "custom") {
