@@ -17,10 +17,11 @@ const mocks = vi.hoisted(() => ({
   embedded: { current: false },
   health: vi.fn(),
   connections: {
-    current: [{ id: "saved", provider: "openai", model: "gpt" }] as Array<{
+    current: [{ id: "saved", provider: "openai", model: "gpt", hasApiKey: true }] as Array<{
       id: string;
       provider: string;
       model: string;
+      hasApiKey?: boolean;
       isDefault?: boolean;
     }>,
   },
@@ -153,7 +154,7 @@ describe("SetupReadinessJourney", () => {
     mocks.recovery.current = null;
     mocks.runtimeUrl.current = "https://runtime-a.test";
     mocks.sameOriginRuntimeUrl.current = "https://de-koi.test";
-    mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt" }];
+    mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt", hasApiKey: true }];
     mocks.connectionsPending.current = false;
     mocks.chatSummaries.current = [];
     mocks.chatHistoryPending.current = false;
@@ -304,7 +305,7 @@ describe("SetupReadinessJourney", () => {
     mocks.embedded.current = true;
     mocks.connections.current = [
       { id: "sidecar:local", provider: "custom", model: "local" },
-      { id: "saved-default", provider: "openai", model: "gpt", isDefault: true },
+      { id: "saved-default", provider: "openai", model: "gpt", hasApiKey: true, isDefault: true },
     ];
 
     await act(async () => {
@@ -336,8 +337,8 @@ describe("SetupReadinessJourney", () => {
   it("waits for chat history before launching, then uses the recent connection", async () => {
     mocks.embedded.current = true;
     mocks.connections.current = [
-      { id: "first", provider: "openai", model: "gpt" },
-      { id: "recent", provider: "openai", model: "gpt" },
+      { id: "first", provider: "openai", model: "gpt", hasApiKey: true },
+      { id: "recent", provider: "openai", model: "gpt", hasApiKey: true },
     ];
     mocks.chatSummaries.current = [
       { connectionId: "recent", updatedAt: "2026-10-06T00:00:00.000Z", characterIds: ["c1"] },
@@ -370,7 +371,7 @@ describe("SetupReadinessJourney", () => {
     mocks.intent.current = { ...mocks.intent.current!, selectedConnectionId: "sidecar:local" };
     mocks.connections.current = [
       { id: "sidecar:local", provider: "custom", model: "local" },
-      { id: "saved-default", provider: "openai", model: "gpt", isDefault: true },
+      { id: "saved-default", provider: "openai", model: "gpt", hasApiKey: true, isDefault: true },
     ];
 
     await act(async () => {
@@ -427,7 +428,7 @@ describe("SetupReadinessJourney", () => {
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
 
     mocks.runtimeUrl.current = "https://runtime-b.test";
-    mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt" }];
+    mocks.connections.current = [{ id: "saved", provider: "openai", model: "gpt", hasApiKey: true }];
     flushSync(() => root.render(<SetupReadinessJourney />));
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
 

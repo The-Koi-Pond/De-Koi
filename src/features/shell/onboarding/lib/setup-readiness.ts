@@ -1,6 +1,9 @@
 import type { SetupReadinessFacts } from "../../../../engine/onboarding";
 import type { RemoteRuntimeHealthCheck } from "../../../../shared/api/remote-runtime";
-import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
+import {
+  filterLanguageGenerationConnections,
+  isConnectionReadyToReply,
+} from "../../../../shared/lib/connection-filters";
 
 type RuntimeHealthView = RemoteRuntimeHealthCheck | { status: "checking"; message: string };
 
@@ -8,6 +11,7 @@ export interface SetupConnectionFact {
   id: string;
   provider?: string | null;
   model?: string | null;
+  hasApiKey?: boolean | null;
 }
 
 export interface BuildSetupReadinessInput {
@@ -19,7 +23,12 @@ export interface BuildSetupReadinessInput {
 
 function isUsableLanguageConnection(connection: SetupConnectionFact): boolean {
   const provider = connection.provider?.trim().toLowerCase();
-  return !!connection.id?.trim() && provider !== "tts" && provider !== "text_to_speech";
+  return (
+    !!connection.id?.trim() &&
+    provider !== "tts" &&
+    provider !== "text_to_speech" &&
+    isConnectionReadyToReply(connection)
+  );
 }
 
 export function buildSetupReadinessFacts(input: BuildSetupReadinessInput): SetupReadinessFacts {

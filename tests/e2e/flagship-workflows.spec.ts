@@ -9,6 +9,7 @@ const connection = {
   name: "Deterministic Test Model",
   provider: "openai",
   model: "deterministic-e2e",
+  hasApiKey: true,
 };
 const character = {
   id: "character-e2e",

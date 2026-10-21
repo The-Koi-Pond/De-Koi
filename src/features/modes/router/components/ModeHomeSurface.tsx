@@ -2,7 +2,10 @@ import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } fr
 import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
-import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
+import {
+  filterLanguageGenerationConnections,
+  isConnectionReadyToReply,
+} from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
@@ -78,9 +81,14 @@ export function ModeHomeSurface({
   const libraryPresence = useLibraryPresence();
   const languageConnections = useMemo(
     () =>
-      filterLanguageGenerationConnections((connections ?? []) as Array<{ id: string; provider?: string }>).filter(
-        (connection) => !!connection.id,
-      ),
+      filterLanguageGenerationConnections(
+        (connections ?? []) as Array<{
+          id: string;
+          provider?: string;
+          model?: string | null;
+          hasApiKey?: boolean | null;
+        }>,
+      ).filter((connection) => !!connection.id && isConnectionReadyToReply(connection)),
     [connections],
   );
   const hasLanguageConnections = languageConnections.length > 0;
