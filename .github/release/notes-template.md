@@ -36,6 +36,6 @@ macOS and iOS are not part of this release yet.
 
 ## License and source
 
-De-Koi is an unofficial modified fork of Marinara Engine. It is a separate project and is not an official Marinara Engine release, support channel, or distribution. It is not sponsored by, endorsed by, or released on behalf of Marinara Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.
+De-Koi is an unofficial project that began as a fork of Marinara Engine. It is a separate project and is not an official Marinara Engine release, support channel, or distribution. It is not sponsored by, endorsed by, or released on behalf of Marinara Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.
 
 De-Koi is licensed under the GNU Affero General Public License version 3. The complete corresponding source for every file in this release is the source commit above. See [`LICENSE.txt`](https://github.com/{{REPOSITORY}}/blob/{{COMMIT}}/LICENSE.txt) and [`NOTICE.md`](https://github.com/{{REPOSITORY}}/blob/{{COMMIT}}/NOTICE.md).

@@ -3824,7 +3824,7 @@ mod tests {
             .await
             .expect("notice response should be readable");
         let body = String::from_utf8(bytes.to_vec()).expect("notice should be UTF-8 text");
-        assert!(body.contains("De-Koi is an unofficial modified fork"));
+        assert!(body.contains("De-Koi is an unofficial project that began as a fork"));
         assert!(body.contains("not an official Marinara Engine release"));
     }
 
