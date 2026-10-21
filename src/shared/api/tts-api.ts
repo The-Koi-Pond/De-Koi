@@ -6,7 +6,11 @@ export interface TtsSpeakInput {
   speaker?: string;
   tone?: string;
   voice?: string;
+  /** "sound_effect" generates a sound from `text` as a description instead of speaking it (ElevenLabs only). */
+  kind?: TtsAudioKind;
 }
+
+export type TtsAudioKind = "speech" | "sound_effect";
 
 interface TtsSpeakResponse {
   audioBase64?: string;

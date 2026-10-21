@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // TTS Service — Server-proxied audio playback
 // ──────────────────────────────────────────────
-import { ttsApi } from "../api/tts-api";
+import { ttsApi, type TtsAudioKind } from "../api/tts-api";
 import { getOrCreateCachedTTSAudioBlob } from "./tts-audio-cache";
 
 type TTSState = "idle" | "loading" | "playing" | "paused" | "error";
@@ -12,6 +12,7 @@ interface TTSSpeakOptions {
   speaker?: string;
   tone?: string;
   voice?: string;
+  kind?: TtsAudioKind;
   signal?: AbortSignal;
   throwOnError?: boolean;
   playbackRate?: number;
@@ -24,6 +25,11 @@ interface TTSSequenceOptions extends Pick<TTSSpeakOptions, "signal" | "throwOnEr
   lookahead?: number;
   /** Called with the index into `requests` each time a part starts playing. */
   onPartStart?: (index: number) => void;
+  /**
+   * Called once when a sound effect part can't be made. The sequence goes on without it and skips the rest of its
+   * sound effects, so a missing provider permission doesn't stop the reading or retry on every effect.
+   */
+  onSoundEffectsFailed?: (error: Error) => void;
 }
 
 interface TTSSpeakRequest {
@@ -31,6 +37,7 @@ interface TTSSpeakRequest {
   speaker?: string;
   tone?: string;
   voice?: string;
+  kind?: TtsAudioKind;
   cacheKey?: string;
   cacheAliases?: string[];
 }
@@ -84,6 +91,7 @@ class TTSService {
         ...(options.speaker ? { speaker: options.speaker } : {}),
         ...(options.tone ? { tone: options.tone } : {}),
         ...(options.voice ? { voice: options.voice } : {}),
+        ...(options.kind === "sound_effect" ? { kind: options.kind } : {}),
       },
       options.signal,
     );
@@ -199,6 +207,7 @@ class TTSService {
         speaker: request.speaker,
         tone: request.tone,
         voice: request.voice,
+        kind: request.kind,
         signal: abortController.signal,
         cacheKey: request.cacheKey,
         cacheAliases: request.cacheAliases,
@@ -209,6 +218,7 @@ class TTSService {
       return pending;
     };
 
+    let soundEffectsFailed = false;
     try {
       for (let position = 0; position < playableRequests.length; position += 1) {
         if (!this.isCurrentSequence(sequence)) return;
@@ -216,15 +226,28 @@ class TTSService {
           this.setState("idle");
           return;
         }
+        const isSoundEffect = playableRequests[position]!.request.kind === "sound_effect";
+        if (isSoundEffect && soundEffectsFailed) continue;
         this.setState("loading", id ?? null);
 
-        const blob = await blobAt(position);
+        let blob: Blob;
+        try {
+          blob = await blobAt(position);
+        } catch (err) {
+          if (!isSoundEffect || (err instanceof Error && err.name === "AbortError")) throw err;
+          pendingBlobs.delete(position);
+          if (!this.isCurrentSequence(sequence)) return;
+          soundEffectsFailed = true;
+          options.onSoundEffectsFailed?.(err instanceof Error ? err : new Error("Sound effect request failed"));
+          continue;
+        }
         pendingBlobs.delete(position);
         for (
           let ahead = position + 1;
           ahead <= Math.min(position + lookahead, playableRequests.length - 1);
           ahead += 1
         ) {
+          if (soundEffectsFailed && playableRequests[ahead]!.request.kind === "sound_effect") continue;
           void blobAt(ahead);
         }
         if (!this.isCurrentSequence(sequence)) return;
@@ -243,7 +266,8 @@ class TTSService {
         this.cleanup();
         this.currentObjectUrl = objectUrl;
         const audio = new Audio(objectUrl);
-        if (options.playbackRate && options.playbackRate > 0 && options.playbackRate !== 1) {
+        // The speed setting is for voices; a sound effect plays as made.
+        if (!isSoundEffect && options.playbackRate && options.playbackRate > 0 && options.playbackRate !== 1) {
           audio.playbackRate = options.playbackRate;
         }
         this.audio = audio;

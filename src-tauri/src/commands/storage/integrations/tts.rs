@@ -149,7 +149,8 @@ fn default_config() -> Value {
         "autoplayStreaming": false,
         "dialogueOnly": false,
         "dialogueScope": "all",
-        "dialogueCharacterName": ""
+        "dialogueCharacterName": "",
+        "fanficSoundEffects": false
     })
 }
 
@@ -363,6 +364,9 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
         .unwrap_or("openai");
     let base = configured_base_url(&config);
     let api_key = config.get("apiKey").and_then(Value::as_str).unwrap_or("");
+    if body.get("kind").and_then(Value::as_str) == Some("sound_effect") {
+        return sound_effect(&config, source, &base, api_key, &text).await;
+    }
     let configured_voice = config
         .get("voice")
         .and_then(Value::as_str)
@@ -474,6 +478,60 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
         client.post(url).headers(headers).json(&payload)
     };
 
+    audio_response(request, fallback_content_type).await
+}
+
+/// How closely a sound effect follows its description (ElevenLabs default 0.3). A little higher keeps a fic's
+/// "[SFX: a door creaks]" sounding like a door instead of a loose interpretation.
+const SOUND_EFFECT_PROMPT_INFLUENCE: f64 = 0.5;
+
+/// Generates a sound effect from a description with ElevenLabs text-to-sound. Only ElevenLabs offers this.
+async fn sound_effect(
+    config: &Value,
+    source: &str,
+    base: &str,
+    api_key: &str,
+    description: &str,
+) -> AppResult<Value> {
+    if source != "elevenlabs" || is_nano_gpt_base_url(base) {
+        return Err(AppError::invalid_input(
+            "Sound effects need ElevenLabs as the Text to Speech provider",
+        ));
+    }
+    if api_key.is_empty() {
+        return Err(AppError::invalid_input(
+            "ElevenLabs API key is not configured",
+        ));
+    }
+    let url = format!(
+        "{}/v1/sound-generation?output_format=mp3_44100_128",
+        elevenlabs_api_root(base)
+    );
+    validate_tts_provider_url(&url, source).await?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(tts_request_timeout_ms(config)))
+        .build()
+        .map_err(|error| AppError::new("tts_client_error", error.to_string()))?;
+    let request = client
+        .post(url)
+        .headers(elevenlabs_headers(api_key)?)
+        .json(&sound_effect_payload(description));
+    audio_response(request, audio_format_content_type("mp3")).await
+}
+
+fn sound_effect_payload(description: &str) -> Value {
+    json!({
+        "text": description.trim(),
+        "model_id": "eleven_text_to_sound_v2",
+        "prompt_influence": SOUND_EFFECT_PROMPT_INFLUENCE
+    })
+}
+
+/// Sends a provider request and returns its audio as base64, or the provider's error.
+async fn audio_response(
+    request: reqwest::RequestBuilder,
+    fallback_content_type: &str,
+) -> AppResult<Value> {
     let response = request
         .send()
         .await
@@ -1582,5 +1640,59 @@ mod tests {
         let public_config = get_config(&state).expect("public legacy TTS config should load");
         assert_eq!(public_config["apiKey"], TTS_API_KEY_MASK);
         assert!(public_config.get("apiKeyEncrypted").is_none());
+    }
+
+    #[test]
+    fn sound_effect_payload_uses_the_sound_model_and_trimmed_description() {
+        let payload = sound_effect_payload("  Rain on a window.  ");
+        assert_eq!(payload["text"], "Rain on a window.");
+        assert_eq!(payload["model_id"], "eleven_text_to_sound_v2");
+        assert_eq!(payload["prompt_influence"], SOUND_EFFECT_PROMPT_INFLUENCE);
+        assert!(payload.get("voice_settings").is_none());
+    }
+
+    #[tokio::test]
+    async fn sound_effects_need_elevenlabs() {
+        let state = test_state("sound-effect-openai");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({ "value": { "enabled": true, "source": "openai", "voice": "alloy" } }),
+            )
+            .expect("TTS settings should be stored");
+
+        let error = speak(
+            &state,
+            json!({ "text": "A door creaks.", "kind": "sound_effect" }),
+        )
+        .await
+        .expect_err("sound effects should be refused without ElevenLabs");
+
+        assert!(error.message.contains("Sound effects need ElevenLabs"));
+    }
+
+    #[tokio::test]
+    async fn sound_effects_need_an_elevenlabs_key_but_no_voice() {
+        let state = test_state("sound-effect-no-key");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({ "value": { "enabled": true, "source": "elevenlabs", "voice": "" } }),
+            )
+            .expect("TTS settings should be stored");
+
+        let error = speak(
+            &state,
+            json!({ "text": "A door creaks.", "kind": "sound_effect" }),
+        )
+        .await
+        .expect_err("sound effects should be refused without a key");
+
+        // The key check fires, not the voice check: a sound effect has no voice.
+        assert!(error.message.contains("API key is not configured"));
     }
 }

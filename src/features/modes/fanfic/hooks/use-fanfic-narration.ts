@@ -11,6 +11,18 @@ import type { FanficNarrationPart } from "../lib/narration";
 
 export type FanficNarrationStatus = "idle" | "loading" | "playing" | "paused";
 
+/** What to tell the reader when sound effects can't be made; the reading itself goes on. */
+export function fanficSoundEffectsFailureMessage(error: unknown): string {
+  const raw = [
+    error instanceof Error ? error.message : String(error),
+    JSON.stringify((error as { details?: unknown } | null)?.details ?? null),
+  ].join(" ");
+  if (/sound_generation|missing_permissions/i.test(raw)) {
+    return "Sound effects are off for this read: your ElevenLabs API key is missing the Sound Effects permission. Turn it on for the key at elevenlabs.io, then press play again.";
+  }
+  return `Sound effects are off for this read. ${toUserMessage(error, { fallback: "The sound couldn't be made." })}`;
+}
+
 /** Parts fetched ahead of the one playing, so paragraphs follow each other without a pause. */
 const NARRATION_LOOKAHEAD = 2;
 
@@ -63,6 +75,7 @@ export function useFanficNarration(chatId: string) {
           playbackRate: clientSidePlaybackRate(config),
           throwOnError: true,
           onPartStart: setPartIndex,
+          onSoundEffectsFailed: (error) => toast.error(fanficSoundEffectsFailureMessage(error)),
         })
         .catch((error: unknown) => {
           toast.error(`Narration stopped. ${toUserMessage(error, { fallback: "Press play to try again." })}`);
