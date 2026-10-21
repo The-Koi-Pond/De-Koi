@@ -365,7 +365,7 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
     let base = configured_base_url(&config);
     let api_key = config.get("apiKey").and_then(Value::as_str).unwrap_or("");
     if body.get("kind").and_then(Value::as_str) == Some("sound_effect") {
-        return sound_effect(&config, source, &base, api_key, &text).await;
+        return sound_effect(&config, source, &base, api_key, text).await;
     }
     let configured_voice = config
         .get("voice")
