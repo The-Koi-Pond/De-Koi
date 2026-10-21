@@ -15,7 +15,10 @@ describe("prompt snapshots", () => {
     it(`${fixture.name} prompt matches ${fixture.name}.txt`, async () => {
       freezeRuntime();
       const request = await captureFirstModelRequest(snapshotStorage(fixture.db), fixture.input);
-      await expect(renderPromptSnapshot(fixture.title, request)).toMatchFileSnapshot(`./${fixture.name}.txt`);
+      await expect(renderPromptSnapshot(fixture.title, request)).toMatchFileSnapshot(
+        `./${fixture.name}.txt`,
+        "if this prompt change is intended, run pnpm test:prompt-snapshots:update and commit the diff",
+      );
     });
   }
 });
