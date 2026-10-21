@@ -25,8 +25,7 @@ export function SetupJourneyContextBanner({
         {runtime ? "Connect your De-Koi server" : "Add a language model"} to continue setup
       </p>
       <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-        Use the existing {runtime ? "Remote Runtime controls below" : "connection editor"}. Your {mode} request is
-        waiting.
+        {runtime ? "Use the server settings below." : "Add one below."} Your new {mode} starts as soon as it is set up.
       </p>
       <button
         type="button"

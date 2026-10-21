@@ -92,7 +92,7 @@ export function LocalSidecarCard() {
           const message = error instanceof Error ? error.message : "Failed to load Local AI Model status";
           setStatusLoadError(
             isAdminAccessError(error)
-              ? "Local Model status on this server needs Admin Access. Enter the server's ADMIN_SECRET in Settings → Advanced → Admin Access."
+              ? "Running a model on this De-Koi server is an admin setting. If you set up the server, enter its admin secret in Settings → Advanced → Admin Access. Otherwise, add a connection instead."
               : message,
           );
           if (!isAdminAccessError(error)) toast.error(message);
