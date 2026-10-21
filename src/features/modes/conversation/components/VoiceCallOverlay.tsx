@@ -1,5 +1,5 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { cn } from "../../../../shared/lib/utils";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useReplyWait } from "../../shared/chat-ui/index";
@@ -29,6 +29,16 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
   // While the character is "thinking", the reply is waiting on the model: show how long once it drags.
   const stepStartedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
   const wait = useReplyWait(phase === "thinking" ? stepStartedAt : null);
+  // Long replies scroll instead of being cut off; follow the newest words unless the user scrolled up to reread.
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const followTranscriptRef = useRef(true);
+  useEffect(() => {
+    followTranscriptRef.current = true; // each new turn starts at the newest words again
+  }, [call.heard]);
+  useEffect(() => {
+    const box = transcriptRef.current;
+    if (box && followTranscriptRef.current) box.scrollTop = box.scrollHeight;
+  }, [call.heard, call.said]);
 
   useEffect(() => {
     if (phase === "ended") onClose();
@@ -89,7 +99,15 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         )}
       </div>
 
-      <div className="flex w-full max-w-md flex-col gap-2 text-center text-sm">
+      <div
+        ref={transcriptRef}
+        data-testid="voice-call-transcript"
+        onScroll={(event) => {
+          const box = event.currentTarget;
+          followTranscriptRef.current = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+        }}
+        className="flex max-h-[35dvh] min-h-0 w-full max-w-md flex-col gap-2 overflow-y-auto text-center text-sm"
+      >
         {call.error ? (
           <p role="alert" className="text-[var(--destructive)]">
             {call.error}
@@ -97,13 +115,13 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         ) : (
           <>
             {call.heard && (
-              <p className="line-clamp-2 text-[var(--muted-foreground)]">
+              <p className="text-[var(--muted-foreground)]">
                 <span className="font-medium text-[var(--foreground)]/80">You: </span>
                 {call.heard}
               </p>
             )}
             {call.said && (
-              <p className="line-clamp-4 whitespace-pre-line text-[var(--foreground)]">
+              <p className="whitespace-pre-line text-[var(--foreground)]">
                 <span className="font-medium">{character.name}: </span>
                 {call.said}
               </p>
