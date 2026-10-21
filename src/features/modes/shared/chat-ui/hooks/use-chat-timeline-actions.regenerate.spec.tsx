@@ -150,7 +150,7 @@ describe("useChatTimelineActions", () => {
       chatId: "stale-active-chat",
       upToMessageId: "message-1",
     });
-    expect(mocks.toastError).toHaveBeenCalledWith("Branch storage failed");
+    expect(mocks.toastError).toHaveBeenCalledWith("Couldn't create the branch. Try again.");
     expect(useChatStore.getState().activeChatId).toBeNull();
   });
 

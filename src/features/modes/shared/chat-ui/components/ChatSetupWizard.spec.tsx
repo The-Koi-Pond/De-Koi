@@ -426,7 +426,7 @@ describe("ChatSetupWizard Roleplay exits", () => {
     await act(async () => undefined);
     await act(async () => button(container, "Apply & Start").click());
 
-    expect(mocks.toastError).toHaveBeenCalledWith("Could not save preset");
+    expect(mocks.toastError).toHaveBeenCalledWith("Couldn't apply the chat preset. Try again.");
     expect(finish).not.toHaveBeenCalled();
     expect(cancel).not.toHaveBeenCalled();
     expect(button(container, "Apply & Start").disabled).toBe(false);

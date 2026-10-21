@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import {
   useBranchChat,
   useDeleteMessage,
@@ -326,7 +327,7 @@ export function useChatTimelineActions({
         scheduleVisibleWorldStateRefresh(actionId);
       } catch {
         if (swipeActionSeq.current !== actionId) return;
-        toast.error("Could not delete the message.");
+        toast.error("Couldn't delete the message. Try again.");
       }
     })();
   }, [deleteDialogMessageId, deleteMessage, flushTrackerPatchesForTimelineAction, scheduleVisibleWorldStateRefresh]);
@@ -354,7 +355,7 @@ export function useChatTimelineActions({
         scheduleVisibleWorldStateRefresh(actionId);
       } catch {
         if (swipeActionSeq.current !== actionId) return;
-        toast.error("Could not delete the swipe.");
+        toast.error("Couldn't delete the swipe. Try again.");
       }
     })();
   }, [
@@ -433,7 +434,7 @@ export function useChatTimelineActions({
         setSelectionAnchorIndex(null);
       } catch {
         if (swipeActionSeq.current !== actionId) return;
-        toast.error("Could not delete messages.");
+        toast.error("Couldn't delete those messages. Try again.");
       }
     })();
   }, [deleteMessages, flushTrackerPatchesForTimelineAction, scheduleVisibleWorldStateRefresh, selectedMessageIds]);
@@ -636,7 +637,7 @@ export function useChatTimelineActions({
           scheduleVisibleWorldStateRefresh(actionId);
         } catch (error) {
           if (canPersistSwipeRequest()) {
-            toast.error(error instanceof Error ? error.message : "Could not switch swipes.");
+            toast.error(toUserMessage(error, { fallback: "Couldn't switch swipes. Try again." }));
           }
         } finally {
           resolvePendingTransition();
@@ -664,7 +665,7 @@ export function useChatTimelineActions({
         { messageId, content: formattedContent },
         {
           onError: (error) => {
-            toast.error(error instanceof Error ? error.message : "Could not save edit.");
+            toast.error(toUserMessage(error, { fallback: "Couldn't save your edit. Try again." }));
           },
         },
       );
@@ -698,7 +699,7 @@ export function useChatTimelineActions({
         });
         if (newChat) useChatStore.getState().setActiveChatId(newChat.id);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not create branch.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't create the branch. Try again." }));
       } finally {
         pendingBranchMessageIdsRef.current.delete(messageId);
       }

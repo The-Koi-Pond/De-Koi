@@ -787,7 +787,8 @@ export async function readRemoteError(response: Response): Promise<ApiError> {
     return new ApiError(
       body ? `${message} Details: ${body}` : message,
       response.status,
-      retryAfterDetails(retryAfterMs, body ? { body } : undefined),
+      // The message is app copy naming the fix, so screens may show it as is (see toUserMessage).
+      retryAfterDetails(retryAfterMs, { code: "remote_runtime_http_error", ...(body ? { body } : {}) }),
     );
   }
 }

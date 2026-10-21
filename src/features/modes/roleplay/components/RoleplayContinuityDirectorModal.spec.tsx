@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { RoleplayContinuityDirectorState } from "../../../../engine/contracts/types/roleplay-continuity-director";
 import { createDefaultContinuityDirectorState } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
+import { ContinuityDirectorApiError } from "../../../../shared/api/roleplay-continuity-director-api";
 import { RoleplayContinuityDirectorModal } from "./RoleplayContinuityDirectorModal";
 
 const mocks = vi.hoisted(() => ({
@@ -126,7 +127,11 @@ describe("RoleplayContinuityDirectorModal", () => {
 
   it("supports connection selection and preserves visible state during refresh errors", async () => {
     const element = await renderModal({
-      refresh: { mutate: mocks.refresh, isPending: false, error: new Error("Local model timed out") },
+      refresh: {
+        mutate: mocks.refresh,
+        isPending: false,
+        error: new ContinuityDirectorApiError("timeout", "Continuity Director timed out."),
+      },
     });
     const select = element.querySelector<HTMLSelectElement>('select[aria-label="Continuity Director connection"]');
     if (!select) throw new Error("select not found");
@@ -144,7 +149,9 @@ describe("RoleplayContinuityDirectorModal", () => {
 
     await act(async () => click(element.querySelector('button[aria-label="Refresh continuity plan"]')));
     expect(mocks.refresh).toHaveBeenCalled();
-    expect(element.textContent).toContain("Local model timed out");
+    expect(element.textContent).toContain(
+      "The planning model took too long. Try again, or pick a faster planning model.",
+    );
     expect(element.textContent).toContain("Mara reveals the forged seal.");
   });
 
@@ -155,7 +162,8 @@ describe("RoleplayContinuityDirectorModal", () => {
       error: new Error("Continuity metadata could not be read"),
     });
 
-    expect(element.textContent).toContain("Continuity metadata could not be read");
+    expect(element.textContent).toContain("The continuity plan hit a problem. Try again.");
+    expect(element.textContent).not.toContain("Continuity metadata could not be read");
     expect(element.textContent).not.toContain("Loading continuity plan");
     await act(async () => click(element.querySelector('button[aria-label="Retry loading continuity plan"]')));
     expect(mocks.refetch).toHaveBeenCalledTimes(1);
@@ -164,7 +172,8 @@ describe("RoleplayContinuityDirectorModal", () => {
   it("keeps cached state visible when a later state reload fails", async () => {
     const element = await renderModal({ error: new Error("Latest story sources could not be read") });
 
-    expect(element.textContent).toContain("Latest story sources could not be read");
+    expect(element.textContent).toContain("The continuity plan hit a problem. Try again.");
+    expect(element.textContent).not.toContain("Latest story sources could not be read");
     expect(element.textContent).toContain("The forged seal threatens Mara's standing.");
     expect(element.textContent).toContain("Mara reveals the forged seal.");
   });

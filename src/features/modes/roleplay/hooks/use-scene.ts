@@ -4,6 +4,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { chatKeys } from "../../../catalog/chats/index";
 import { llmApi } from "../../../../shared/api/llm-api";
@@ -65,8 +66,7 @@ export function useScene() {
           connectionId: connectionId ?? null,
         } satisfies ScenePlanRequest);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to plan scene";
-        toast.error(msg);
+        toast.error(toUserMessage(err, { fallback: "Couldn't plan the scene. Try again." }));
         return null;
       }
     },
@@ -109,8 +109,7 @@ export function useScene() {
         toast.success(`Scene started: ${res.chatName}`, { icon: "🎬" });
         return res;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to create scene";
-        toast.error(msg);
+        toast.error(toUserMessage(err, { fallback: "Couldn't create the scene. Try again." }));
         return null;
       }
     },
@@ -145,8 +144,7 @@ export function useScene() {
 
         toast.success("Scene concluded — summary added as a memory", { icon: "📖" });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to conclude scene";
-        toast.error(msg);
+        toast.error(toUserMessage(err, { fallback: "Couldn't conclude the scene. Try again." }));
       }
     },
     [qc, setActiveChatId],
@@ -166,8 +164,7 @@ export function useScene() {
 
         toast.success("Scene reopened", { icon: "RP" });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to reopen scene";
-        toast.error(msg);
+        toast.error(toUserMessage(err, { fallback: "Couldn't reopen the scene. Try again." }));
       }
     },
     [qc, setActiveChatId],
@@ -197,8 +194,7 @@ export function useScene() {
 
         toast.success("Scene discarded", { icon: "🗑️" });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to discard scene";
-        toast.error(msg);
+        toast.error(toUserMessage(err, { fallback: "Couldn't discard the scene. Try again." }));
       }
     },
     [qc, setActiveChatId],
@@ -245,8 +241,7 @@ export function useScene() {
         });
         return res;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to fork scene";
-        toast.error(msg);
+        toast.error(toUserMessage(err, { fallback: "Couldn't fork the scene. Try again." }));
         return null;
       } finally {
         isForkingRef.current = false;

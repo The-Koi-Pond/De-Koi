@@ -14,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../../shared/lib/error-message";
 
 import type {
   CanonicalMemoryRecord,
@@ -92,7 +93,8 @@ export function StoryContinuityModal({
       await refresh();
       toast.success(input.type === "build" ? "Existing story build finished." : "Story continuity updated.");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Story continuity action failed."),
+    onError: (error) =>
+      toast.error(toUserMessage(error, { fallback: "That story continuity action didn't finish. Try again." })),
   });
   const counts = useMemo(() => {
     const projections = query.data?.projections ?? [];

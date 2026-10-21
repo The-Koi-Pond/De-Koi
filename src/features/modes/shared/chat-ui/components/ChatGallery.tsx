@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import {
   AlertCircle,
   ImagePlus,
@@ -70,11 +71,11 @@ export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
       upload.mutate(files, {
         onSuccess: ({ failures }) => {
           if (failures.length > 0) {
-            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
+            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)} Try those again.`);
           }
         },
         onError: (error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to upload chat gallery images.");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload the images. Try again." }));
         },
       });
     },
@@ -104,7 +105,7 @@ export function ChatGallery({ chat, onIllustrate }: ChatGalleryProps) {
           toast.success("Image regenerated from the saved prompt.");
         },
         onError: (error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to regenerate image.");
+          toast.error(toUserMessage(error, { fallback: "Couldn't regenerate the image. Try again." }));
         },
       });
     },

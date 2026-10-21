@@ -25,6 +25,16 @@ import { getEffectiveStoryConsolidationEnabled } from "../../../generation/story
 import { persistCompletedSceneStoryEpisode } from "../../../generation/story-consolidation-queue";
 import { characterExtensionsPatch } from "../../../entities/character-extensions-patch";
 
+/** An error whose text is written for the user; the UI shows it as is (code "user_facing"). */
+function userFacingError(message: string): Error {
+  return Object.assign(new Error(message), { code: "user_facing" });
+}
+
+function errorCodeOf(error: unknown): string | undefined {
+  const code = error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+  return typeof code === "string" ? code : undefined;
+}
+
 type JsonRecord = Record<string, unknown>;
 
 type RoleplaySceneCapabilities = {
@@ -195,7 +205,7 @@ export async function createRoleplayScene(
 ): Promise<SceneCreateResponse> {
   const originChatId = input.originChatId.trim();
   if (pendingSceneCreationOrigins.has(originChatId)) {
-    throw new Error("Roleplay scene creation is already in progress for this conversation");
+    throw userFacingError("A scene is already being created for this conversation. Wait for it to finish.");
   }
   pendingSceneCreationOrigins.add(originChatId);
   try {
@@ -213,7 +223,7 @@ async function createRoleplaySceneUnlocked(
   const originChat = await requireChat(storage, input.originChatId);
   const originMeta = parseJsonObject(originChat.metadata);
   if (stringValue(originMeta.activeSceneChatId)) {
-    throw new Error("The origin conversation already has another active scene");
+    throw userFacingError("This conversation already has an active scene. Conclude or discard that scene first.");
   }
   const plan = input.plan;
   const background = null;
@@ -382,7 +392,7 @@ export async function reopenRoleplayScene(
   const originMeta = parseJsonObject(originChat.metadata);
   const activeSceneChatId = stringValue(originMeta.activeSceneChatId);
   if (activeSceneChatId && activeSceneChatId !== input.sceneChatId) {
-    throw new Error("The origin conversation already has another active scene");
+    throw userFacingError("This conversation already has an active scene. Conclude or discard that scene first.");
   }
 
   await patchChatMetadata(storage, input.sceneChatId, { sceneStatus: "active" });
@@ -533,7 +543,10 @@ async function summarizeScene(
       transcriptCharCount: transcriptLines.join("\n").length,
     });
   } catch (error) {
-    throw new Error(`Scene summary generation failed: ${errorMessage(error)}`);
+    // Keep the provider's code so its worded message (with its next step) reaches the user.
+    throw Object.assign(new Error(`Scene summary generation failed: ${errorMessage(error)}`), {
+      code: errorCodeOf(error),
+    });
   }
 }
 
@@ -658,7 +671,8 @@ async function synthesizeSceneSummary(context: SceneFinalSummaryContext): Promis
   );
   result = parseSceneStorySummary(retryRaw);
   summary = result.summary;
-  if (isFinalSceneSummaryTooBrief(summary)) throw new Error("The model returned an incomplete scene summary");
+  if (isFinalSceneSummaryTooBrief(summary))
+    throw userFacingError("The model returned an incomplete scene summary. Try again, or switch to a stronger model.");
   return { ...result, summary: limitFinalSceneSummaryWords(summary) };
 }
 

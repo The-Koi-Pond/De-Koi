@@ -218,7 +218,9 @@ export function useRoleplayTranscriptScroll({
 
     const targetNumber = gotoRequest.messageNumber;
     if (totalMessageCount > 0 && targetNumber > totalMessageCount) {
-      toast.error(`Message #${targetNumber} doesn't exist - this chat has ${totalMessageCount} messages.`);
+      toast.error(
+        `Message #${targetNumber} doesn't exist. This chat has ${totalMessageCount} messages, so pick a number from 1 to ${totalMessageCount}.`,
+      );
       useChatStore.getState().clearGotoRequest();
       return;
     }

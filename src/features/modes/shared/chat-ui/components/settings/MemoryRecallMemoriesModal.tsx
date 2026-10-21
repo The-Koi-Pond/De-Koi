@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../../shared/lib/error-message";
 import { Modal } from "../../../../../../shared/components/ui/Modal";
 import { showConfirmDialog } from "../../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../../shared/lib/utils";
@@ -362,7 +363,7 @@ export function MemoryRecallMemoriesModal({
       await exportMemories.mutateAsync();
       toast.success("Memory Recall exported.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to export Memory Recall.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't export Memory Recall. Try again." }));
     }
   };
 
@@ -379,7 +380,7 @@ export function MemoryRecallMemoriesModal({
       toast.success("Memory added and indexed.");
     } catch (err) {
       if (chatIdRef.current !== requestChatId) return;
-      toast.error(err instanceof Error ? err.message : "Failed to add memory.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't add that memory. Try again." }));
     }
   };
 
@@ -391,7 +392,9 @@ export function MemoryRecallMemoriesModal({
         toast.success(`Imported ${result.imported} memor${result.imported === 1 ? "y" : "ies"}.`);
       else toast.info("No new recall memories were imported.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to import Memory Recall.");
+      toast.error(
+        toUserMessage(err, { fallback: "Couldn't import that file. Pick a Memory Recall export and try again." }),
+      );
     } finally {
       if (importInputRef.current) importInputRef.current.value = "";
     }
@@ -419,7 +422,7 @@ export function MemoryRecallMemoriesModal({
       await updateMemory.mutateAsync({ memoryId: currentMemory.id, content });
       toast.success("Memory updated and re-indexed.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update memory.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't update that memory. Try again." }));
     }
   };
 
@@ -436,7 +439,7 @@ export function MemoryRecallMemoriesModal({
       await softDeleteMemory.mutateAsync(selected.id);
       toast.success("Memory removed from recall.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete memory.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't delete that memory. Try again." }));
     }
   };
 
@@ -446,7 +449,7 @@ export function MemoryRecallMemoriesModal({
       await restoreMemory.mutateAsync(selected.id);
       toast.success("Memory restored and re-indexed.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to restore memory.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't restore that memory. Try again." }));
     }
   };
 
@@ -456,7 +459,7 @@ export function MemoryRecallMemoriesModal({
       await pinMemory.mutateAsync({ memoryId: selected.id, pinned: !selected.pinned });
       toast.success(selected.pinned ? "Memory unpinned." : "Memory pinned for recall.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update pin.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't change the pin. Try again." }));
     }
   };
 
@@ -469,7 +472,7 @@ export function MemoryRecallMemoriesModal({
       });
       toast.success(replacementDraft.trim() ? "Correction saved and indexed." : "Memory marked wrong.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to correct memory.");
+      toast.error(toUserMessage(err, { fallback: "Couldn't correct that memory. Try again." }));
     }
   };
 
@@ -500,7 +503,7 @@ export function MemoryRecallMemoriesModal({
       toast.success("Memory repair complete.");
       setMaintenanceMenuOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Memory repair failed.");
+      toast.error(toUserMessage(error, { fallback: "Memory repair didn't finish. Try again." }));
     }
   };
 

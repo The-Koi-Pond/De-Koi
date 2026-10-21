@@ -4,6 +4,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X, Plus, Trash2, CalendarClock, ChevronRight, ChevronsDownUp, ChevronsUpDown, RefreshCw } from "lucide-react";
 import { cn } from "../../../../../shared/lib/utils";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 import type { Chat, ChatMetadata, DaySummaryEntry, WeekSummaryEntry } from "../../../../../engine/contracts/types/chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { chatKeys, useBackfillConversationSummaries, useUpdateChatSummaries } from "../../../../catalog/chats/index";
@@ -343,7 +344,11 @@ export function SummariesEditorModal({ chat, open, onClose, saveMomentDraft }: S
                   backfillSummaries.isError ? "text-[var(--destructive)]" : "text-[var(--muted-foreground)]",
                 )}
               >
-                {backfillSummaries.isError ? "Backfill failed — check the local app log for details." : backfillNotice}
+                {backfillSummaries.isError
+                  ? toUserMessage(backfillSummaries.error, {
+                      fallback: "Backfill didn't finish. Check this chat's connection, then try again.",
+                    })
+                  : backfillNotice}
               </p>
             )}
           </div>

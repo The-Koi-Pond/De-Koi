@@ -771,7 +771,7 @@ describe("createRoleplayScene", () => {
       connectedChatId: "existing-scene",
     });
 
-    await expect(create).rejects.toThrow("already has another active scene");
+    await expect(create).rejects.toThrow("already has an active scene");
     expect(createdRecords).toHaveLength(0);
   });
 
@@ -806,9 +806,7 @@ describe("createRoleplayScene", () => {
 
     const first = createRoleplayScene(fixture.storage, request);
     await firstCreateReady;
-    await expect(createRoleplayScene(fixture.storage, request)).rejects.toThrow(
-      "scene creation is already in progress",
-    );
+    await expect(createRoleplayScene(fixture.storage, request)).rejects.toThrow("A scene is already being created");
     releaseFirstCreate();
     await expect(first).resolves.toMatchObject({ chatId: "created-1" });
     expect(fixture.createdRecords.filter((record) => record.entity === "chats")).toHaveLength(1);
@@ -1893,7 +1891,7 @@ describe("reopenRoleplayScene", () => {
     });
 
     await expect(reopenRoleplayScene(storage, { sceneChatId: "scene-1" })).rejects.toThrow(
-      "The origin conversation already has another active scene",
+      "This conversation already has an active scene. Conclude or discard that scene first.",
     );
 
     await expect(storage.get("chats", "origin-1")).resolves.toMatchObject({
