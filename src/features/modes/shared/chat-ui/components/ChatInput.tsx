@@ -56,7 +56,7 @@ import {
 import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../../../../shared/lib/chat-macros";
 import { parseChatMetadata } from "../../../../../shared/lib/chat-display";
 import { formatTextQuotes } from "../../../../../shared/lib/dialogue-quotes";
-import { isSendShortcut } from "../../../../../shared/lib/send-shortcuts";
+import { isSendShortcut, sendShortcutHint } from "../../../../../shared/lib/send-shortcuts";
 import { applyTextareaQuoteFormat } from "../../../../../shared/lib/textarea-quotes";
 import { requestChatScrollToBottom } from "../../../../../shared/lib/chat-scroll-events";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../../../../shared/lib/discovery-navigation";
@@ -208,6 +208,8 @@ export const ChatInput = memo(function ChatInput({
   const chatCharacterIds = useMemo(() => chatCharacters?.map((c) => c.id), [chatCharacters]);
   const { applyToUserInput } = useApplyRegex(chatCharacterIds);
   const enterToSend = useUIStore((s) => (mode === "conversation" ? s.enterToSendConvo : s.enterToSendRP));
+  // Roleplay defaults to Enter = new line; say how to send so a first message isn't stuck in the box.
+  const sendShortcut = useMemo(() => sendShortcutHint(enterToSend), [enterToSend]);
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
   const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
@@ -1528,7 +1530,9 @@ export const ChatInput = memo(function ChatInput({
           placeholder={
             activeChatId
               ? mode === "roleplay"
-                ? "Respond here, / for commands"
+                ? sendShortcut
+                  ? `Respond here, ${sendShortcut} to send, / for commands`
+                  : "Respond here, / for commands"
                 : characterNames.length > 0
                   ? characterNames.length > 1
                     ? `Message @${characterNames.join(", @")}, / for commands`
@@ -1623,7 +1627,9 @@ export const ChatInput = memo(function ChatInput({
         <button
           type="button"
           aria-label={sendButtonLabel}
-          title={sendButtonLabel}
+          title={
+            sendButtonLabel === "Send message" && sendShortcut ? `Send message (${sendShortcut})` : sendButtonLabel
+          }
           onClick={isStreaming ? () => useChatStore.getState().stopGeneration() : handleSend}
           disabled={
             (!isStreaming && isReadingAttachments) ||
