@@ -20,6 +20,7 @@ import {
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { fanficSamePassage, fanficSearchableText } from "./quality";
 import { readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 const CHECK_MAX_TOKENS = 6000;
 const VERIFY_MAX_TOKENS = 4000;
@@ -269,18 +270,19 @@ export async function checkFanficChapterVoice(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Voice checks only run for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const voices = state.voices ?? [];
-  if (voices.length === 0) throw new Error("Build the voice sheets first (Voices, at the top of the fic).");
+  if (voices.length === 0) throw userFacingError("Build the voice sheets first (Voices, at the top of the fic).");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection for the voice check.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for the voice check.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection)) throw new Error("The connection was not found.");
+  if (!isRecord(connection))
+    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord));
   const target = chapters.find((chapter) => chapter.messageId === input.messageId);
-  if (!target) throw new Error("That chapter is no longer in this fic.");
+  if (!target) throw userFacingError("That chapter is no longer in this fic.");
   const previous = chapters[target.number - 2] ?? null;
   const names = voices.map((sheet) => sheet.name);
   // Everything goes in whole (sheets, chapter, the end of the one before), so only the reply is sized; the

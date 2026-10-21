@@ -6,6 +6,7 @@ import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
 import { buildFanficChapterGuide, buildFanficRevisionGuide } from "./prompts";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { fanficChapterMaxTokens, fanficStage, readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 export { fanficChapterRefs, type FanficChapterRef };
 
@@ -32,14 +33,14 @@ function assertFanficChat(chat: JsonRecord): FanficState {
   }
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state || fanficStage(state) !== "writing") {
-    throw new Error("Finish the fanfic request and outline before writing chapters.");
+    throw userFacingError("Finish the fanfic request and outline before writing chapters.");
   }
   return state;
 }
 
 function targetChapter(chapters: FanficChapterRef[], messageId: string): FanficChapterRef {
   const chapter = chapters.find((entry) => entry.messageId === messageId);
-  if (!chapter) throw new Error("That chapter is no longer in this fic.");
+  if (!chapter) throw userFacingError("That chapter is no longer in this fic.");
   return chapter;
 }
 
@@ -60,7 +61,7 @@ function fanficGuide(state: FanficState, chapters: FanficChapterRef[], input: St
   const chapter = targetChapter(chapters, readString(input.regenerateMessageId).trim());
   const overused = overusedElsewhere(state, chapters, chapter);
   if (input.fanficKind === "revise") {
-    if (!notes) throw new Error("Say what to change before rewriting the chapter.");
+    if (!notes) throw userFacingError("Say what to change before rewriting the chapter.");
     return {
       guide: buildFanficRevisionGuide(state, chapter.number, notes, chapter.content, overused),
       source: "fanfic_revise" as const,
@@ -84,7 +85,7 @@ export async function* startFanficGeneration(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   const state = assertFanficChat(chat);
   if (input.fanficKind !== "chapter" && !readString(input.regenerateMessageId).trim()) {
-    throw new Error("Pick the chapter to rewrite.");
+    throw userFacingError("Pick the chapter to rewrite.");
   }
   if (input.fanficKind === "chapter" && readString(input.regenerateMessageId).trim()) {
     throw new Error("A new chapter cannot target an existing one.");

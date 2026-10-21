@@ -26,6 +26,7 @@ import {
 } from "./passage";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 /**
  * What the pass scores, drawn from where AI fiction reads as AI (StoryScope, Chakrabarty et al. CHI 2025): stakes that
@@ -236,7 +237,10 @@ async function saveReport(
   liveMessageIds: ReadonlySet<string>,
 ): Promise<void> {
   const update = storage.updateChatIfUnchanged;
-  if (!update) throw new Error("This runtime can't save editor notes safely.");
+  if (!update)
+    throw userFacingError(
+      "This De-Koi server is too old to save editor notes safely. Update and restart it, then try again.",
+    );
   for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
     const chat = await storage.get("chats", chatId);
     if (!isRecord(chat)) throw new Error("Chat was not found.");
@@ -256,7 +260,7 @@ async function saveReport(
     );
     if (updated) return;
   }
-  throw new Error("The editor notes kept changing while saving. Try again.");
+  throw userFacingError("The editor notes kept changing while saving. Try again.");
 }
 
 // ── Running ─────────────────────────────────────
@@ -291,11 +295,12 @@ export async function runFanficEditorPass(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("The editor pass only runs for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection for the editor pass.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for the editor pass.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection)) throw new Error("The connection was not found.");
+  if (!isRecord(connection))
+    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
   const window = effectiveMaxContext(connection, {});
 
   const messages = (await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
@@ -368,13 +373,16 @@ export async function rewriteFanficFlaggedScenes(
     connectionId: input.connectionId,
   });
   const flags = input.flags ?? input.report.flags;
-  if (flags.length === 0) throw new Error("This chapter has no flagged scenes.");
+  if (flags.length === 0) throw userFacingError("This chapter has no flagged scenes.");
   const text = target.chapter.content;
   const placed = flags
     .map((flag) => ({ flag, span: locateFanficScene(text, flag) }))
     .filter((entry): entry is { flag: FanficEditorFlag; span: FanficPassageSpan } => entry.span !== null);
   const skipped = flags.length - placed.length;
-  if (placed.length === 0) throw new Error("None of the flagged scenes could be found in the chapter.");
+  if (placed.length === 0)
+    throw userFacingError(
+      "None of the flagged scenes could be found in the chapter. The chapter may have changed; run the editor pass again.",
+    );
   const edits: Array<FanficPassageSpan & { text: string }> = [];
   onProgress?.({ done: 0, total: placed.length });
   for (const { flag, span } of placed) {

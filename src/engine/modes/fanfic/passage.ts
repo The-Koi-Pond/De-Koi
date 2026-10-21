@@ -36,6 +36,7 @@ import {
 } from "./phrase-bans";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 /** The chapter around the passage, sent whole when it fits: the rewrite must keep every fact it sets up. */
 const BEFORE_CHARS = 30_000;
@@ -133,17 +134,18 @@ export async function loadFanficChapterForEdit(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Passage edits are only for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection for this fic first.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for this fic first.");
   const connection = await loadFanficConnection(storage, connectionId);
-  if (!isRecord(connection)) throw new Error("The connection was not found.");
+  if (!isRecord(connection))
+    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
   const messages = (await storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
   const message = messages.find((entry) => readString(entry.id) === input.messageId);
   const chapter = fanficChapterRefs(messages).find((entry) => entry.messageId === input.messageId);
-  if (!message || !chapter) throw new Error("That chapter is no longer in this fic.");
+  if (!message || !chapter) throw userFacingError("That chapter is no longer in this fic.");
   if (fanficChapterTextKey(chapter.content) !== input.textKey) {
-    throw new Error("The chapter changed since then. Look at it again before rewriting.");
+    throw userFacingError("The chapter changed since then. Look at it again before rewriting.");
   }
   const raw = readString(message.content);
   const fresh = fanficLedgerStatus(readFanficLedger(chat.metadata), fanficChapterRefs(messages)).fresh;
@@ -187,9 +189,10 @@ export async function rewriteFanficPassageText(
   signal?: AbortSignal,
 ): Promise<string> {
   const passage = text.slice(span.start, span.end);
-  if (!passage.trim()) throw new Error("Pick some text to rewrite.");
-  if (passage.length > MAX_PASSAGE_CHARS) throw new Error("That passage is too long to rewrite in one go. Pick less.");
-  if (!instruction.trim()) throw new Error("Say what should change.");
+  if (!passage.trim()) throw userFacingError("Pick some text to rewrite.");
+  if (passage.length > MAX_PASSAGE_CHARS)
+    throw userFacingError("That passage is too long to rewrite in one go. Pick less.");
+  if (!instruction.trim()) throw userFacingError("Say what should change.");
   const build = (before: number, after: number) =>
     buildFanficPassageRewriteMessages({
       state: target.state,
@@ -238,7 +241,7 @@ export async function rewriteFanficPassageText(
         signal,
       );
   const rewritten = cleanFanficPassageReply(raw);
-  if (!rewritten) throw new Error("The rewrite came back empty. Try again.");
+  if (!rewritten) throw userFacingError("The rewrite came back empty. Try again.");
   return rewritten;
 }
 
@@ -253,7 +256,7 @@ export async function saveFanficPassageEdits(
   let floor = Infinity;
   for (const edit of ordered) {
     if (edit.end > floor || edit.start < 0 || edit.end > target.chapter.content.length || edit.start >= edit.end) {
-      throw new Error("Those passages overlap or fall outside the chapter.");
+      throw userFacingError("Those passages overlap or fall outside the chapter. Select them again.");
     }
     text = `${text.slice(0, edit.start)}${edit.text}${text.slice(edit.end)}`;
     floor = edit.start;
@@ -268,10 +271,12 @@ export async function saveFanficPassageEdits(
 /** Where the requester's selection sits in the chapter; it has to be found exactly once (whole words). */
 export function locateFanficSelection(text: string, selected: string): FanficPassageSpan {
   const trimmed = selected.trim();
-  if (trimmed.split(/\s+/).length < 3) throw new Error("Select at least a few words to rewrite.");
+  if (trimmed.split(/\s+/).length < 3) throw userFacingError("Select at least a few words to rewrite.");
   const span = locateFanficPassage(text, trimmed);
   if (!span) {
-    throw new Error("That passage couldn't be pinned down in the chapter (it may appear twice). Select a little more.");
+    throw userFacingError(
+      "That passage couldn't be pinned down in the chapter (it may appear twice). Select a little more.",
+    );
   }
   return withSelectedPunctuation(text, trimmed, span);
 }
@@ -354,7 +359,7 @@ export async function applyFanficPassageRewrite(
   const target = await loadFanficChapterForEdit(storage, input);
   const { start, end, original, text } = input.suggestion;
   if (target.chapter.content.slice(start, end) !== original) {
-    throw new Error("The chapter changed since this version was written. Select the passage again.");
+    throw userFacingError("The chapter changed since this version was written. Select the passage again.");
   }
   return saveFanficPassageEdits(storage, { chatId: input.chatId, target, edits: [{ start, end, text }] });
 }
@@ -373,7 +378,9 @@ export async function removeFanficBannedPhrases(
 ): Promise<{ repaired: number; remaining: number; textKey: string }> {
   const target = await loadFanficChapterForEdit(deps.storage, input);
   if (target.phraseBans.length === 0) {
-    throw new Error("Phrase bans work on a local model connection (the built-in local model or a llama.cpp server).");
+    throw userFacingError(
+      "Phrase bans work on a local model connection (the built-in local model or a llama.cpp server).",
+    );
   }
   const chat = await deps.storage.get("chats", input.chatId);
   const castCards = renderFanficCastCards(
@@ -418,7 +425,7 @@ export async function removeFanficBannedPhrasesFrom(
   const chapter = input.messageId
     ? chapters.find((entry) => entry.messageId === input.messageId)
     : chapters[chapters.length - 1];
-  if (!chapter) throw new Error("That chapter is no longer in this fic.");
+  if (!chapter) throw userFacingError("That chapter is no longer in this fic.");
   const result = await removeFanficBannedPhrases(
     deps,
     {

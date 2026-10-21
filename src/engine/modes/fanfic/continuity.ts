@@ -45,6 +45,7 @@ import {
   readFanficContinuityIssue,
 } from "./quality";
 import { readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 /** Earlier prose sent with the chapter when the window allows: about 150k tokens, well past most fics. */
 const MAX_EARLIER_CHARS = 600_000;
@@ -379,12 +380,15 @@ export async function applyFanficContinuityFixesToChapter(
   const chapter = fanficChapterRefs(messages.filter(isRecord)).find(
     (entry) => entry.messageId === input.check.messageId,
   );
-  if (!message || !chapter) throw new Error("That chapter is no longer in this fic.");
+  if (!message || !chapter) throw userFacingError("That chapter is no longer in this fic.");
   if (fanficChapterTextKey(chapter.content) !== input.check.textKey) {
-    throw new Error("The chapter changed since the check. Check it again before fixing.");
+    throw userFacingError("The chapter changed since the check. Check it again before fixing.");
   }
   const result = applyFanficContinuityFixes(readString(message.content), input.fixes);
-  if (result.applied === 0) throw new Error("None of the fixes could be placed in the chapter.");
+  if (result.applied === 0)
+    throw userFacingError(
+      "None of the fixes could be placed in the chapter. The chapter may have changed; run the check again.",
+    );
   await storage.addChatMessageSwipe(input.chatId, input.check.messageId, result.text, { activate: true });
   return {
     applied: result.applied,
@@ -471,17 +475,18 @@ export async function checkFanficChapterContinuity(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Continuity checks only run for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection for the continuity check.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for the continuity check.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection)) throw new Error("The connection was not found.");
+  if (!isRecord(connection))
+    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord));
   const target = chapters.find((chapter) => chapter.messageId === input.messageId);
-  if (!target) throw new Error("That chapter is no longer in this fic.");
-  if (target.number === 1) throw new Error("Chapter 1 has nothing before it to contradict.");
+  if (!target) throw userFacingError("That chapter is no longer in this fic.");
+  if (target.number === 1) throw userFacingError("Chapter 1 has nothing before it to contradict.");
 
   const budget = checkBudget(connection, state.request, target);
   let context = contextFor(chapters, target, readFanficLedger(chat.metadata), budget.proseChars);
@@ -489,7 +494,8 @@ export async function checkFanficChapterContinuity(
     onPhase?.("updating_ledger");
     const ledger = await updateFanficLedger(deps, { chatId: input.chatId, connectionId }, { signal });
     context = contextFor(chapters, target, ledger, budget.proseChars);
-    if (context === "needs_ledger") throw new Error("The story ledger couldn't cover the earlier chapters.");
+    if (context === "needs_ledger")
+      throw userFacingError("The story ledger couldn't cover the earlier chapters. Try the check again.");
   }
   if (context === "too_small") {
     throw new FanficWindowTooSmallError(`checking chapter ${target.number} against the story ledger`);

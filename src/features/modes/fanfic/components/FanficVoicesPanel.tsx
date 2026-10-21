@@ -6,7 +6,7 @@ import type { FanficVoicePhase } from "../../../../engine/modes/fanfic/voices";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../shared/lib/utils";
 import type { FanficVoicesController } from "../hooks/use-fanfic";
-import { FanficButton, fanficInputClass } from "./fanfic-ui";
+import { FanficButton, FanficWaitNote, fanficInputClass } from "./fanfic-ui";
 
 const PHASE_LABELS: Record<FanficVoicePhase, string> = {
   finding_quotes: "Reading pages that quote the characters…",
@@ -204,10 +204,7 @@ export function FanficVoicesPanel({
       <div className="flex flex-wrap items-center gap-2">
         {controller.running ? (
           <>
-            <p className="text-[0.8125rem] text-[var(--foreground)]" role="status">
-              <Loader2 size="0.85rem" className="mr-1 inline animate-spin" aria-hidden="true" />
-              {controller.phase ? PHASE_LABELS[controller.phase] : "Starting…"}
-            </p>
+            <VoicesStatus key={controller.phase ?? "starting"} phase={controller.phase} />
             <FanficButton onClick={controller.stop}>
               <Square size="0.8rem" aria-hidden="true" />
               Stop
@@ -263,5 +260,19 @@ export function FanficVoicesPanel({
         </div>
       )}
     </section>
+  );
+}
+
+/** One voice-sheet step; keyed by phase, so its clock starts again when the step changes. */
+function VoicesStatus({ phase }: { phase: FanficVoicePhase | null }) {
+  const [startedAt] = useState(() => Date.now());
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="text-[0.8125rem] text-[var(--foreground)]" role="status">
+        <Loader2 size="0.85rem" className="mr-1 inline animate-spin" aria-hidden="true" />
+        {phase ? PHASE_LABELS[phase] : "Starting…"}
+      </p>
+      <FanficWaitNote startedAt={startedAt} stopLabel="Stop" />
+    </div>
   );
 }

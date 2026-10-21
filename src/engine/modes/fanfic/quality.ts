@@ -28,6 +28,7 @@ import { fanficChapterRefs } from "./chapters";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { FANFIC_RATING_LABELS, readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 /**
  * Bumped whenever a judge prompt or the scoring changes, so runs judged differently are never compared as equals.
@@ -709,7 +710,10 @@ async function updateRuns(
   change: (runs: FanficQualityRun[]) => FanficQualityRun[],
 ): Promise<void> {
   const updateChatIfUnchanged = storage.updateChatIfUnchanged;
-  if (!updateChatIfUnchanged) throw new Error("This runtime can't save quality runs safely.");
+  if (!updateChatIfUnchanged)
+    throw userFacingError(
+      "This De-Koi server is too old to save quality checks safely. Update and restart it, then try again.",
+    );
   for (let attempt = 0; attempt < STORE_WRITE_ATTEMPTS; attempt += 1) {
     const chat = await storage.get("chats", chatId);
     if (!isRecord(chat)) throw new Error("Chat was not found.");
@@ -721,7 +725,7 @@ async function updateRuns(
     );
     if (updated) return;
   }
-  throw new Error("The quality runs kept changing while saving. Try again.");
+  throw userFacingError("The quality runs kept changing while saving. Try again.");
 }
 
 /** Saved runs, oldest first. */
@@ -779,19 +783,20 @@ export async function runFanficQualityCheck(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Quality checks only run for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection to judge with.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection to judge with.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection)) throw new Error("The judge connection was not found.");
+  if (!isRecord(connection))
+    throw userFacingError("That judge connection no longer exists. Pick another one to judge with.");
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord)).map((chapter) => chapter.content);
   if (chapters.length === 0 || chapters.every((chapter) => !chapter.trim())) {
-    throw new Error("Write a chapter before checking quality.");
+    throw userFacingError("Write a chapter before checking quality.");
   }
   if (chapters.reduce((sum, chapter) => sum + chapter.length, 0) > FANFIC_QUALITY_MAX_CHARS) {
-    throw new Error("This fic is too long to judge in one pass.");
+    throw userFacingError("This fic is too long to judge in one pass.");
   }
 
   onPhase?.("counting");

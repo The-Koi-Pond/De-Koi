@@ -8,6 +8,7 @@ import { parseGameJsonish } from "../../shared/parsing-jsonish";
 import { fanficLoreScanText } from "./lore";
 import { buildFanficOutlineMessages, renderFanficCastCards } from "./prompts";
 import { normalizeFanficOutline, readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 const OUTLINE_MAX_TOKENS = 6000;
 
@@ -70,9 +71,9 @@ export async function generateFanficOutline(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Outlines are only written for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId) throw new Error("Pick a connection for this fic first.");
+  if (!connectionId) throw userFacingError("Pick a connection for this fic first.");
 
   const [characters, worldInfo] = await Promise.all([
     loadCharacters(deps.storage, chat),

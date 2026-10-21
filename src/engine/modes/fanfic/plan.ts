@@ -19,6 +19,7 @@ import {
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { readFanficState } from "./request";
+import { userFacingError } from "../../shared/user-facing-error";
 
 const PLAN_MAX_TOKENS = 4000;
 const PLAN_VERSION = 1;
@@ -260,13 +261,14 @@ export async function proposeFanficPlan(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Plans are only kept for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state?.outline || !state.outlineApproved) throw new Error("Approve the outline first.");
+  if (!state?.outline || !state.outlineApproved) throw userFacingError("Approve the outline first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection for this fic first.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for this fic first.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection)) throw new Error("The connection was not found.");
+  if (!isRecord(connection))
+    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
   const chapters = fanficChapterRefs((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
-  if (chapters.length === 0) throw new Error("Write the first chapter before re-planning.");
+  if (chapters.length === 0) throw userFacingError("Write the first chapter before re-planning.");
 
   const steer = readString(input.steer).trim().slice(0, STEER_MAX_CHARS);
   const total = state.outline.chapters.length;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { Check, Loader2, RefreshCw, Square, TextSelect, X } from "lucide-react";
 import { chatKeys } from "../../../catalog/chats/index";
 import {
@@ -66,7 +67,7 @@ export function FanficPassageEditor({
     )
       .then((suggestion) => setVersions((current) => [...current, suggestion]))
       .catch((error: unknown) => {
-        if (!isAbort(error)) toast.error(error instanceof Error ? error.message : "The rewrite failed.");
+        if (!isAbort(error)) toast.error(toUserMessage(error, { fallback: "The rewrite didn't finish. Try again." }));
       })
       .finally(() => {
         if (controllerRef.current === controller) controllerRef.current = null;
@@ -86,7 +87,7 @@ export function FanficPassageEditor({
       );
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The passage could not be replaced.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't replace the passage. Try again." }));
     } finally {
       setApplying(null);
     }

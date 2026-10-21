@@ -19,6 +19,7 @@ import { renderFanficCastCards, renderFanficRequestForPrompt } from "./prompts";
 import { fanficSearchableText } from "./quality";
 import { FANFIC_VOICE_LIMITS, normalizeFanficVoices, readFanficState } from "./request";
 import type { FanficWebResearchGateway, FanficWebSource } from "./web-research";
+import { userFacingError } from "../../shared/user-facing-error";
 
 const MAX_QUERIES = 5;
 const SOURCE_CHARS = 8000;
@@ -198,11 +199,11 @@ export async function buildFanficVoiceSheets(
   if (!isRecord(chat)) throw new Error("Chat was not found.");
   if (readString(chat.mode) !== "fanfic") throw new Error("Voice sheets are only kept for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
-  if (!state) throw new Error("Fill in the fanfic request first.");
+  if (!state) throw userFacingError("Fill in the fanfic request first.");
   const characters = fanficVoiceCharacters(state.request);
-  if (characters.length === 0) throw new Error("Name the characters in the request to build voice sheets.");
+  if (characters.length === 0) throw userFacingError("Name the characters in the request to build voice sheets.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw new Error("Pick a connection for this fic first.");
+  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for this fic first.");
 
   let sources: FanficWebSource[] = [];
   if (state.request.research) {
@@ -259,7 +260,10 @@ export async function buildFanficVoiceSheets(
   // Re-read so a request or outline saved meanwhile isn't overwritten with the copy read before the model call.
   const latestChat = await deps.storage.get("chats", input.chatId);
   const latest = isRecord(latestChat) ? readFanficState(parseRecord(latestChat.metadata)) : null;
-  if (!latest) throw new Error("The fanfic request was removed while the voice sheets were being written.");
+  if (!latest)
+    throw userFacingError(
+      "The fanfic request was removed while the voice sheets were being written. Fill it in again, then rebuild the voices.",
+    );
   const next: FanficState = { ...latest, voices };
   await deps.storage.patchChatMetadata(input.chatId, { fanfic: next });
   return { state: next, droppedQuotes, pagesRead: sent.length };
