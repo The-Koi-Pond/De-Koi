@@ -5,6 +5,7 @@ export * from "./hooks/use-start-chat-from-character";
 export { offerCardLintReview } from "./lib/card-lint-target";
 export { runCardCheck, type CardCheckResult } from "./lib/card-check";
 export * from "./lib/character-avatar-url";
+export * from "./lib/blank-character-card";
 export * from "./lib/character-public-profile";
 export * from "./components/CharacterAvatarImage";
 export * from "./components/CharacterPublicProfileCard";

@@ -3,12 +3,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { Modal } from "../../../../../shared/components/ui/Modal";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { ChatSetupWizard } from "./ChatSetupWizard";
 
 const mocks = vi.hoisted(() => ({
   applyChatPreset: vi.fn(async () => undefined),
   applyPendingProfile: vi.fn(async () => true),
   chatPresets: [] as Array<Record<string, unknown>>,
+  createCharacter: vi.fn(async () => ({ id: "character-new" })),
   createMessage: vi.fn(async () => ({ id: "message-1" })),
   toastError: vi.fn(),
   updateChat: vi.fn(),
@@ -34,6 +37,7 @@ vi.mock("../../../../catalog/characters/index", async (importOriginal) => {
     ...actual,
     useCharacterSummaries: () => ({ data: [], isError: false, isFetching: false }),
     useCharacterSummariesByIds: () => ({ data: [] }),
+    useCreateCharacter: () => ({ isPending: false, mutateAsync: mocks.createCharacter }),
   };
 });
 
@@ -117,6 +121,15 @@ function click(container: HTMLElement, label: string): void {
   act(() => button(container, label).click());
 }
 
+function typeInto(element: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setValue = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  act(() => {
+    setValue?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 function advance(container: HTMLElement, count: number): void {
   for (let index = 0; index < count; index += 1) click(container, "Next");
 }
@@ -168,6 +181,72 @@ describe("ChatSetupWizard Roleplay exits", () => {
 
     expect(cancel).toHaveBeenCalledOnce();
     expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("creates a character inside the empty Characters step and adds it to this roleplay", async () => {
+    const { cancel, container, finish } = renderRoleplayWizard();
+    advance(container, 3);
+
+    const nameInput = container.querySelector<HTMLInputElement>('input[placeholder="e.g. Mira"]');
+    const description = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(nameInput, "quick create name field").not.toBeNull();
+    typeInto(nameInput!, "Mira");
+    typeInto(description!, "A cheerful tavern keeper.");
+    await act(async () => {
+      button(container, "Create and add").click();
+    });
+
+    expect(mocks.createCharacter).toHaveBeenCalledOnce();
+    const [input] = mocks.createCharacter.mock.calls[0] as unknown as [{ name: string; data: { description: string } }];
+    expect(input.name).toBe("Mira");
+    expect(input.data.description).toBe("A cheerful tavern keeper.");
+    expect(mocks.updateChat.mock.calls.map(([update]) => update)).toContainEqual(
+      expect.objectContaining({ id: "chat-1", characterIds: ["character-new"], name: "Mira" }),
+    );
+    expect(cancel).not.toHaveBeenCalled();
+    expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("opens character import on top of setup instead of leaving it", () => {
+    const { cancel, container, finish } = renderRoleplayWizard();
+    advance(container, 3);
+
+    click(container, "Import a character card");
+
+    expect(useUIStore.getState().modal?.type).toBe("import-character");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(finish).not.toHaveBeenCalled();
+    act(() => useUIStore.getState().closeModal());
+  });
+
+  it("lets Escape close a modal opened over setup without dismissing setup", () => {
+    const { cancel, container } = renderRoleplayWizard();
+    advance(container, 3);
+    const modalHost = document.createElement("div");
+    document.body.appendChild(modalHost);
+    const modalRoot = createRoot(modalHost);
+    const closeModal = vi.fn();
+    act(() => {
+      modalRoot.render(
+        <Modal open onClose={closeModal} title="Import Character">
+          <p>import</p>
+        </Modal>,
+      );
+    });
+
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+
+    expect(closeModal).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+    act(() => modalRoot.unmount());
+    modalHost.remove();
+
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("uses cancel rather than finish before opening Characters from quick setup", () => {
