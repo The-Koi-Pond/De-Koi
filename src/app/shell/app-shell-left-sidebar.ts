@@ -36,3 +36,19 @@ export function getToggledAppShellLeftSidebarPanel(
 ): AppShellLeftSidebarPanel {
   return currentPanel === requestedPanel ? null : requestedPanel;
 }
+
+/**
+ * On a phone the chat list is a full-screen drawer. With no chats yet it hides the welcome screen and its setup steps,
+ * so start a first-run phone session with the drawer closed. Returning users keep the chat list as their home.
+ */
+export function shouldCloseFirstRunPhoneDrawer({
+  isMobile,
+  chatCount,
+  panel,
+}: {
+  isMobile: boolean;
+  chatCount: number | null;
+  panel: AppShellLeftSidebarPanel;
+}): boolean {
+  return isMobile && chatCount === 0 && panel === "chats";
+}

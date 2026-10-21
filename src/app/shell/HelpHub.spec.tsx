@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HelpHub } from "./HelpHub";
 import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
+import { useChatStore } from "../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 
 const mocks = vi.hoisted(() => ({
@@ -59,6 +61,46 @@ describe("HelpHub feature discovery", () => {
     act(() => root.unmount());
     window.removeEventListener(DISCOVERY_APP_EVENT, onOpenDiscover);
     container.remove();
+  });
+
+  it("Get started goes home and brings back an unfinished, dismissed setup", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onDiscoveryEvent = vi.fn();
+    window.addEventListener(DISCOVERY_APP_EVENT, onDiscoveryEvent);
+    useUIStore.setState({ rightPanelOpen: true, rightPanel: "help" });
+    useChatStore.getState().setActiveChatId("chat-1");
+    useSetupJourneyStore.setState({
+      intent: {
+        journeyId: "journey-1",
+        mode: "roleplay",
+        originCharacterId: null,
+        selectedConnectionId: null,
+        dismissed: true,
+        completed: false,
+      },
+    });
+
+    act(() => {
+      root.render(<HelpHub />);
+    });
+    const button = Array.from(container.querySelectorAll("button")).find((item) =>
+      item.textContent?.includes("Get started"),
+    );
+    act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    expect(useUIStore.getState().rightPanelOpen).toBe(false);
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(useSetupJourneyStore.getState().intent?.dismissed).toBe(false);
+    expect(onDiscoveryEvent.mock.calls.map(([event]) => (event as CustomEvent).detail)).toContainEqual({
+      type: "go-home",
+    });
+
+    act(() => root.unmount());
+    window.removeEventListener(DISCOVERY_APP_EVENT, onDiscoveryEvent);
+    container.remove();
+    useSetupJourneyStore.setState({ intent: null });
   });
 
   it("explains how to recover when support destinations cannot open", async () => {

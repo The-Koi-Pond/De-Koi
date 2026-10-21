@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { ChatSidebarRecoveryView, runChatSidebarNewChatAction, runChatSidebarRecoveryAction } from "./ChatSidebar";
+import {
+  ChatSidebarRecoveryView,
+  runChatSidebarNewChatAction,
+  runChatSidebarRecoveryAction,
+  runChatSidebarRevealSetupAction,
+} from "./ChatSidebar";
 
 function dependencies() {
   return {
@@ -49,6 +54,24 @@ describe("runChatSidebarNewChatAction", () => {
     expect(startNewChat).toHaveBeenCalledOnce();
     expect(startNewChat).toHaveBeenCalledWith(mode);
   });
+});
+
+describe("runChatSidebarRevealSetupAction", () => {
+  it.each([
+    [true, 1],
+    [false, 0],
+  ] as const)(
+    "points back at the setup checklist (mobile: %s) instead of starting another chat",
+    (isMobile, closeCalls) => {
+      const closeSidebar = vi.fn();
+      const revealSetup = vi.fn(() => true);
+
+      runChatSidebarRevealSetupAction({ isMobile, closeSidebar, revealSetup });
+
+      expect(closeSidebar).toHaveBeenCalledTimes(closeCalls);
+      expect(revealSetup).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 describe("ChatSidebarRecoveryView", () => {

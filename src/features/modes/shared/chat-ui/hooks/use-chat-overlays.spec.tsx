@@ -18,6 +18,9 @@ function OverlayHarness() {
       <button data-testid="resume-setup" type="button" onClick={overlays.resumeSetup}>
         Resume setup
       </button>
+      <button data-testid="finish-wizard" type="button" onClick={overlays.finishWizard}>
+        Finish wizard
+      </button>
       <button data-testid="close-settings" type="button" onClick={overlays.closeSettings}>
         {overlays.settingsOpen ? "Close settings" : "Settings closed"}
       </button>
@@ -52,6 +55,17 @@ describe("useChatOverlays discovery reveal lifecycle", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("closes setup into the chat without opening Chat Settings", () => {
+    const resume = container.querySelector<HTMLButtonElement>('[data-testid="resume-setup"]');
+    act(() => resume?.click());
+    expect(container.querySelector('[data-testid="wizard-state"]')?.textContent).toBe("Wizard open");
+
+    act(() => container.querySelector<HTMLButtonElement>('[data-testid="finish-wizard"]')?.click());
+
+    expect(container.querySelector('[data-testid="wizard-state"]')?.textContent).toBe("Wizard closed");
+    expect(container.querySelector('[data-testid="close-settings"]')?.textContent).toBe("Settings closed");
   });
 
   it("lets manual settings supersede a pending fresh-chat setup", () => {

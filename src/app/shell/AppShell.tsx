@@ -21,7 +21,7 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
-import { chatKeys } from "../../features/catalog/chats/index";
+import { chatKeys, useChatSummaries } from "../../features/catalog/chats/index";
 import { dekiSessionsApi } from "./app-shell-deki-sessions";
 import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-history";
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
@@ -52,10 +52,15 @@ import {
   shouldBeginSetupJourney,
 } from "./app-shell-center-surfaces";
 import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
-import { setAppShellLeftSidebarPanel, type AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import {
+  setAppShellLeftSidebarPanel,
+  shouldCloseFirstRunPhoneDrawer,
+  type AppShellLeftSidebarPanel,
+} from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
+import { autonomousUnreadClearKey } from "./app-shell-autonomous-unread";
 import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-performance";
 import { loadModeSurface } from "./mode-surface-loader";
 import { requestIdleWork } from "./idle-work";
@@ -423,6 +428,20 @@ export function AppShell() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
+  // First run on a phone: decide once, after the chat list loads, whether the drawer should start closed.
+  const { data: chatSummariesForDrawer } = useChatSummaries();
+  const firstRunDrawerDecidedRef = useRef(false);
+  useEffect(() => {
+    if (firstRunDrawerDecidedRef.current || !chatSummariesForDrawer) return;
+    firstRunDrawerDecidedRef.current = true;
+    if (
+      shouldCloseFirstRunPhoneDrawer({ isMobile, chatCount: chatSummariesForDrawer.length, panel: leftSidebarPanel })
+    ) {
+      setLeftSidebarPanelState(null);
+      useUIStore.getState().setSidebarOpen(false);
+    }
+  }, [chatSummariesForDrawer, isMobile, leftSidebarPanel]);
+
   // Auto-close right panel when viewport is too narrow for comfort
   useEffect(() => {
     if (isMobile) return; // Mobile uses overlays, no squishing concern
@@ -533,6 +552,8 @@ export function AppShell() {
   const setupJourneyIntent = useSetupJourneyStore((s) => s.intent);
   useEffect(() => {
     if (!pendingNewChatMode) return;
+    // Show the list the new chat will land in, so the sidebar matches the mode being set up.
+    setActiveChatSidebarTab(pendingNewChatMode);
     const intent = useSetupJourneyStore.getState().intent;
     if (shouldBeginSetupJourney(pendingNewChatMode, intent)) {
       useSetupJourneyStore.getState().begin(pendingNewChatMode);
@@ -824,20 +845,29 @@ export function AppShell() {
   useDiscoverHistoryLifecycle(discoverOpen, closeDiscoverFromHistory);
 
   useEffect(() => {
-    if (!activeChatId || isClearingAutonomousUnread) return;
-    const metadata = parseChatMetadata(activeChat?.metadata);
-    const unreadCount = typeof metadata.autonomousUnreadCount === "number" ? metadata.autonomousUnreadCount : 0;
-    const persistedUnread = unreadCount > 0;
-    if (!persistedUnread && !useChatStore.getState().unreadCounts.has(activeChatId)) return;
-    const clearKey = `${activeChatId}:${unreadCount}:${metadata.autonomousUnreadAt ?? ""}`;
-    if (lastAutonomousUnreadClearRef.current === clearKey) return;
+    const clearKey = autonomousUnreadClearKey({
+      activeChatId,
+      isPageActive,
+      isClearing: isClearingAutonomousUnread,
+      metadata: parseChatMetadata(activeChat?.metadata),
+      hasLocalUnread: activeChatId ? useChatStore.getState().unreadCounts.has(activeChatId) : false,
+      lastClearKey: lastAutonomousUnreadClearRef.current,
+    });
+    if (!activeChatId || !clearKey) return;
     clearUnread(activeChatId);
     clearAutonomousUnread(activeChatId, {
       onSuccess: () => {
         lastAutonomousUnreadClearRef.current = clearKey;
       },
     });
-  }, [activeChat?.metadata, activeChatId, clearAutonomousUnread, clearUnread, isClearingAutonomousUnread]);
+  }, [
+    activeChat?.metadata,
+    activeChatId,
+    clearAutonomousUnread,
+    clearUnread,
+    isClearingAutonomousUnread,
+    isPageActive,
+  ]);
 
   const startSidebarResize = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {

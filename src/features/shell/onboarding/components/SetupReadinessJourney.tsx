@@ -13,6 +13,7 @@ import {
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
+import { SETUP_JOURNEY_REGION_ID } from "../../../../shared/lib/setup-journey-reveal";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
@@ -283,7 +284,13 @@ export function SetupReadinessJourney() {
   }
 
   return (
-    <div className="flex w-full justify-center" role="region" aria-label="Setup required">
+    <div
+      id={SETUP_JOURNEY_REGION_ID}
+      tabIndex={-1}
+      className="flex w-full justify-center outline-none"
+      role="region"
+      aria-label="Setup required"
+    >
       <div className="w-full">
         {launchError && (
           <div role="alert" className="mb-3 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-sm">

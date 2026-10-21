@@ -84,6 +84,7 @@ import {
   normalizeOpenAIChatGPTModel,
 } from "../../../../engine/contracts/constants/model-lists";
 import { PROVIDERS, isTauriRuntimeProvider } from "../../../../engine/contracts/constants/providers";
+import { connectionApiKeyHint } from "../lib/connection-api-key-hint";
 import type { APIProvider } from "../../../../engine/contracts/types/connection";
 import type {
   ImageDefaultsService,
@@ -442,6 +443,16 @@ export function ConnectionEditor() {
   const usesCodexSubscriptionImagegen =
     localProvider === "image_generation" && selectedImageService === "codex_subscription";
   const usesLocalAuthProvider = usesLocalChatGptAuth || isClaudeSubscriptionProvider || usesCodexSubscriptionImagegen;
+  const apiKeyHint = connectionApiKeyHint({
+    localAuth: isClaudeSubscriptionProvider
+      ? "claude"
+      : usesLocalChatGptAuth
+        ? "chatgpt"
+        : usesCodexSubscriptionImagegen
+          ? "codex-image"
+          : null,
+    hasSavedKey: (conn as { hasApiKey?: unknown } | undefined)?.hasApiKey === true,
+  });
   const showsConnectionTest = !usesCodexSubscriptionImagegen;
   const embeddingConnectionOptions = useMemo(
     () =>
@@ -1010,6 +1021,47 @@ export function ConnectionEditor() {
           {usesLocalChatGptAuth && <OpenAiChatGptAuthHelp />}
           {usesCodexSubscriptionImagegen && <CodexImagegenAuthHelp />}
 
+          {/* ── API Key ── */}
+          <FieldGroup
+            label="API Key"
+            icon={<Key size="0.875rem" className="text-sky-400" />}
+            help={
+              usesLocalAuthProvider
+                ? "This provider uses your local subscription login instead of a provider API key."
+                : "Your authentication key from the AI provider. You can get one from their website. It's like a password that lets De-Koi talk to the AI service."
+            }
+          >
+            <input
+              value={usesLocalAuthProvider ? "" : localApiKey}
+              onChange={(e) => {
+                setLocalApiKey(e.target.value);
+                markDirty();
+              }}
+              type="password"
+              disabled={usesLocalAuthProvider}
+              className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+              placeholder={apiKeyHint.placeholder}
+            />
+            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">{apiKeyHint.note}</p>
+            {!usesLocalAuthProvider && API_KEY_LINKS[localProvider] && (
+              <a
+                href={API_KEY_LINKS[localProvider]!.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 text-[0.6875rem] font-medium text-sky-400 transition-colors hover:text-sky-300"
+              >
+                <ExternalLink size="0.625rem" />
+                {API_KEY_LINKS[localProvider]!.label}
+              </a>
+            )}
+            {localProvider === "custom" && (
+              <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+                For local models (Ollama, LM Studio, KoboldCpp, etc.) you can leave this empty — just set the Base URL
+                below.
+              </p>
+            )}
+          </FieldGroup>
+
           {/* ── OpenRouter Provider Preference ── */}
           {localProvider === "openrouter" && (
             <FieldGroup
@@ -1040,63 +1092,6 @@ export function ConnectionEditor() {
               </p>
             </FieldGroup>
           )}
-
-          {/* ── API Key ── */}
-          <FieldGroup
-            label="API Key"
-            icon={<Key size="0.875rem" className="text-sky-400" />}
-            help={
-              usesLocalAuthProvider
-                ? "This provider uses your local subscription login instead of a provider API key."
-                : "Your authentication key from the AI provider. You can get one from their website. It's like a password that lets De-Koi talk to the AI service."
-            }
-          >
-            <input
-              value={usesLocalAuthProvider ? "" : localApiKey}
-              onChange={(e) => {
-                setLocalApiKey(e.target.value);
-                markDirty();
-              }}
-              type="password"
-              disabled={usesLocalAuthProvider}
-              className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
-              placeholder={
-                isClaudeSubscriptionProvider
-                  ? "Not used - read from local Claude Code login"
-                  : usesLocalChatGptAuth
-                    ? "Not used - read from local Codex ChatGPT login"
-                    : usesCodexSubscriptionImagegen
-                      ? "Not used - read from local Codex login"
-                      : "••••••••  (leave empty to keep existing key)"
-              }
-            />
-            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-              {isClaudeSubscriptionProvider
-                ? "Authentication is read from your local Claude Code session."
-                : usesLocalChatGptAuth
-                  ? "Authentication is read from your local Codex auth.json credential file; this field stays locked."
-                  : usesCodexSubscriptionImagegen
-                    ? "Image generation is delegated to the local Codex CLI using your Codex subscription login."
-                    : "Your key is encrypted at rest. Leave blank when editing to keep the existing key."}
-            </p>
-            {!usesLocalAuthProvider && API_KEY_LINKS[localProvider] && (
-              <a
-                href={API_KEY_LINKS[localProvider]!.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1.5 inline-flex items-center gap-1 text-[0.6875rem] font-medium text-sky-400 transition-colors hover:text-sky-300"
-              >
-                <ExternalLink size="0.625rem" />
-                {API_KEY_LINKS[localProvider]!.label}
-              </a>
-            )}
-            {localProvider === "custom" && (
-              <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                For local models (Ollama, LM Studio, KoboldCpp, etc.) you can leave this empty — just set the Base URL
-                below.
-              </p>
-            )}
-          </FieldGroup>
 
           {/* ── Base URL ── */}
           <FieldGroup

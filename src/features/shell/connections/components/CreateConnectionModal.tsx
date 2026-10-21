@@ -12,6 +12,7 @@ import type { APIProvider } from "../../../../engine/contracts/types/connection"
 import { cn } from "../../../../shared/lib/utils";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../shared/lib/error-message";
+import { PROVIDER_HINTS, defaultConnectionName, nextScreenNote } from "../lib/provider-hints";
 
 interface Props {
   open: boolean;
@@ -33,12 +34,12 @@ export function CreateConnectionModal({ open, onClose }: Props) {
   };
 
   const handleCreate = async () => {
-    if (!name.trim()) return;
     const providerDef = PROVIDERS[provider];
+    const connectionName = defaultConnectionName(providerDef?.name ?? provider, name);
     const defaultModel = MODEL_LISTS[provider]?.[0];
     try {
       const result = await createConnection.mutateAsync({
-        name: name.trim(),
+        name: connectionName,
         provider,
         baseUrl: providerDef?.defaultBaseUrl ?? "",
         apiKey: "",
@@ -63,18 +64,18 @@ export function CreateConnectionModal({ open, onClose }: Props) {
           </div>
           <div className="flex-1">
             <p className="text-xs text-[var(--muted-foreground)]">
-              Connections define API endpoints and credentials used to communicate with language model providers.
+              A connection links De-Koi to an AI service so your characters can reply.
             </p>
           </div>
         </div>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[var(--muted-foreground)]">Name *</span>
+          <span className="text-xs font-medium text-[var(--muted-foreground)]">Name (optional)</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
-            placeholder="My Connection..."
+            placeholder={PROVIDERS[provider]?.name ?? "My connection"}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleCreate();
             }}
@@ -104,9 +105,10 @@ export function CreateConnectionModal({ open, onClose }: Props) {
               ))}
           </div>
           <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+            {PROVIDER_HINTS[provider] ? `${PROVIDER_HINTS[provider]} ` : ""}
             {provider === "xai"
               ? "Creates an xAI connection prefilled with Grok 4.3 and https://api.x.ai/v1."
-              : "You can adjust the endpoint, key, and model after creating the connection."}
+              : nextScreenNote(provider)}
           </p>
         </div>
 
@@ -122,7 +124,7 @@ export function CreateConnectionModal({ open, onClose }: Props) {
           </button>
           <button
             onClick={handleCreate}
-            disabled={!name.trim() || createConnection.isPending}
+            disabled={createConnection.isPending}
             className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-medium text-[var(--primary-foreground)] transition-all hover:opacity-90 disabled:opacity-50"
           >
             {createConnection.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Link size="0.75rem" />}
