@@ -53,6 +53,7 @@ import {
   useMoveLibraryItem,
   useUpdateLibraryFolder,
 } from "../../library-folders";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type PresetRow = {
   id: string;
@@ -162,7 +163,7 @@ export function PresetsPanel() {
   const selectPreset = async (presetId: string) => {
     if (!activeChat) return;
     if (activeChat.mode === "conversation") {
-      toast.error("Prompt presets are not available in conversation mode.");
+      toast.error("Prompt presets don't apply to Conversation chats. Open a Roleplay chat to use one.");
       return;
     }
     const newId = activePresetId === presetId ? null : presetId;
@@ -188,7 +189,7 @@ export function PresetsPanel() {
         }
       }
       toast.error("Failed to change prompt preset", {
-        description: error instanceof Error ? error.message : "The current preset and choices were kept.",
+        description: toUserMessage(error, { fallback: "The current preset and choices were kept. Try again." }),
       });
       return;
     }
@@ -229,7 +230,7 @@ export function PresetsPanel() {
       exportApi.triggerDownload(await exportApi.promptsBulk([...selectedPresetIds]));
       toast.success(`Exported ${selectedPresetIds.size} preset${selectedPresetIds.size === 1 ? "" : "s"}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to export presets");
+      toast.error(toUserMessage(error, { fallback: "Couldn't export presets. Try again." }));
     } finally {
       setExportingSelected(false);
     }
@@ -260,7 +261,7 @@ export function PresetsPanel() {
 
     if (failedIds.length > 0) {
       setSelectedPresetIds(new Set(failedIds));
-      toast.error(`Failed to delete ${failedIds.length} preset${failedIds.length === 1 ? "" : "s"}`);
+      toast.error(`Couldn't delete ${failedIds.length} preset${failedIds.length === 1 ? "" : "s"}. Try again.`);
       return;
     }
 

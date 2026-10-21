@@ -9,6 +9,7 @@ import { cn } from "../../../../../shared/lib/utils";
 import type { LorebookEntry } from "../../../../../engine/contracts/types/lorebook";
 import { lorebookKeys, useBulkUnvectorizeLorebookEntries } from "../../hooks/use-lorebooks";
 import { readBoolFlag } from "./lorebook-editor-utils";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 const LEGACY_LOCAL_SIDECAR_CONNECTION_ID = "__local_sidecar__";
 
@@ -100,7 +101,7 @@ export function LorebookVectorizeSection({
           : `Vectorized ${data.vectorized} missing entries`,
       });
     } catch (err) {
-      setResult({ success: false, message: err instanceof Error ? err.message : "Vectorization failed" });
+      setResult({ success: false, message: toUserMessage(err, { fallback: "Vectorization failed. Try again." }) });
     } finally {
       setVectorizing(false);
     }
@@ -127,7 +128,7 @@ export function LorebookVectorizeSection({
         message: `Cleared embeddings for ${data.cleared} ${data.cleared === 1 ? "entry" : "entries"}`,
       });
     } catch (err) {
-      setResult({ success: false, message: err instanceof Error ? err.message : "Unvectorize failed" });
+      setResult({ success: false, message: toUserMessage(err, { fallback: "Unvectorize failed. Try again." }) });
     }
   };
 

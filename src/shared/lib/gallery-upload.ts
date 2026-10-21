@@ -25,7 +25,9 @@ export function describeGalleryUploadFailures(failures: GalleryUploadFailure[]):
   const MAX_LISTED = 3;
   const shown = failures.slice(0, MAX_LISTED).map((failure) => `${failure.file.name} — ${failure.reason}`);
   const extra = failures.length - shown.length;
-  return extra > 0 ? `${shown.join("; ")}; and ${extra} more` : shown.join("; ");
+  const text = extra > 0 ? `${shown.join("; ")}; and ${extra} more` : shown.join("; ");
+  // Ends a sentence, so callers can follow it with what to do next.
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 export async function runGalleryUploadBatch<T>(

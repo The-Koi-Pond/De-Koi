@@ -17,6 +17,7 @@ import {
   uniqueIds,
   type LorebookOwnerType,
 } from "../../lib/lorebook-assignment-model";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 type AssignmentDraft = {
   lorebookId: string | null;
@@ -152,7 +153,7 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
       toast.success(`Assigned ${selectedLorebook.name}.`);
       setDraft(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to assign lorebook.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't assign lorebook. Try again." }));
     }
   };
 
@@ -167,7 +168,7 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
       });
       toast.success(`Removed ${lorebook.name}.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove lorebook.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't remove lorebook. Try again." }));
     }
   };
 

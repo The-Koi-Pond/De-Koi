@@ -39,7 +39,7 @@ export function CharacterEditorDialogs({
     onCloseExportDialog();
   };
   const handleExportError = (error: unknown) => {
-    toastExportError(error, "Failed to export character.");
+    toastExportError(error, "Couldn't export the character. Try again.");
   };
 
   return (

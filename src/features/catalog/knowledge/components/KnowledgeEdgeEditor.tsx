@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import type { KnowledgeHolderKind, KnowledgeStance } from "../../../../engine/contracts/types/memory";
 import { useKnowledgeEdgeActions, useKnowledgeEdges, useKnowledgeHolders } from "../hooks/use-knowledge-edges";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 const STANCES: KnowledgeStance[] = ["knows", "believes", "suspects", "disbelieves", "unknown"];
 
@@ -58,7 +59,7 @@ export function KnowledgeEdgeEditor({ memoryId }: { memoryId: string }) {
       });
       toast.success("Knowledge access saved");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save knowledge access.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't save knowledge access. Try again." }));
     }
   };
 

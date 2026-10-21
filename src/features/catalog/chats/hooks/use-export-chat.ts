@@ -33,7 +33,7 @@ export function useExportChat() {
       toast.success(format === "text" ? "Chat transcript exported as text." : "Chat transcript exported as JSONL.");
     },
     onError: (error) => {
-      toast.error(getExportErrorMessage(error, "Failed to export chat transcript."));
+      toast.error(getExportErrorMessage(error, "Couldn't export the chat transcript. Try again."));
     },
   });
 }

@@ -44,6 +44,7 @@ import {
 } from "../lib/agent-import-batch";
 import { normalizeAgentImportPayloads } from "../lib/agent-import-export";
 import { CatalogListRow, CatalogListState } from "../../components/CatalogListPrimitives";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 function formatImportFailureDescription(failures: string[]): string {
   const visible = failures.slice(0, 4);
@@ -265,21 +266,21 @@ export function AgentsPanel() {
       reader.onload = async () => {
         const image = typeof reader.result === "string" ? reader.result : "";
         if (!image) {
-          toast.error("Could not read that image");
+          toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
           return;
         }
         try {
           await uploadAgentImage.mutateAsync({ ...target, image, filename: file.name });
           toast.success("Agent picture updated");
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Failed to upload agent picture");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload agent picture. Try again." }));
         } finally {
           agentImageTargetRef.current = null;
         }
       };
       reader.onerror = () => {
         agentImageTargetRef.current = null;
-        toast.error("Could not read that image");
+        toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
       };
       reader.readAsDataURL(file);
     },

@@ -10,6 +10,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { Loader2, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 const DEFAULT_PARAMS = {
   temperature: 0.9,
@@ -55,7 +56,7 @@ export function CreatePresetModal({ open, onClose }: Props) {
       reset();
       if (presetId) openPresetDetail(presetId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create preset");
+      toast.error(toUserMessage(error, { fallback: "Couldn't create preset. Try again." }));
     }
   };
 
