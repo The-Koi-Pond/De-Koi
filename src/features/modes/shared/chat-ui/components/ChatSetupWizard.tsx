@@ -514,6 +514,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const openModal = useUIStore((s) => s.openModal);
   const [scheduleState, setScheduleState] = useState<"idle" | "generating" | "done">("idle");
   const [isStartingChat, setIsStartingChat] = useState(false);
   const startChatGateRef = useRef(createChatSetupStartGate());
@@ -604,12 +605,12 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
 
   // Build an auto-generated chat name from character IDs
   const buildAutoName = useCallback(
-    (charIds: string[]) => {
+    (charIds: string[], knownNames?: Record<string, string>) => {
       if (charIds.length === 0) return "New Conversation";
       const names = charIds
         .map((id) => {
           const c = characters.find((ch) => ch.id === id);
-          return c ? charName(c) : null;
+          return c ? charName(c) : (knownNames?.[id] ?? null);
         })
         .filter((n): n is string => !!n);
       return names.length > 0 ? names.join(", ") : "New Conversation";
@@ -618,7 +619,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
   );
 
   const toggleCharacter = useCallback(
-    (charId: string) => {
+    (charId: string, knownName?: string) => {
       const current = [...chatCharIds];
       const idx = current.indexOf(charId);
       if (idx >= 0) current.splice(idx, 1);
@@ -626,7 +627,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
 
       // Auto-rename the chat if the user hasn't manually edited the name
       if (!userEditedName) {
-        const autoName = buildAutoName(current);
+        const autoName = buildAutoName(current, knownName ? { [charId]: knownName } : undefined);
         updateChat.mutate({ id: chat.id, characterIds: current, name: autoName });
       } else {
         updateChat.mutate({ id: chat.id, characterIds: current });
@@ -945,6 +946,8 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                         openRightPanel("characters");
                         onFinish();
                       }}
+                      onCharacterCreated={toggleCharacter}
+                      onImportCharacters={() => openModal("import-character")}
                     />
                   )}
                 </div>
@@ -1148,6 +1151,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
   const createMessage = useCreateMessage(chat.id);
   const queryClient = useQueryClient();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const openModal = useUIStore((s) => s.openModal);
 
   // Fetch full preset data to check for choice blocks (variables)
   const { data: presetFull, isLoading: presetFullLoading } = usePresetFull(chat.promptPresetId ?? null);
@@ -1288,9 +1292,9 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
 
   // Build an auto-generated chat name from character IDs
   const buildAutoName = useCallback(
-    (charIds: string[]) => {
+    (charIds: string[], knownNames?: Record<string, string>) => {
       if (charIds.length === 0) return "New Roleplay";
-      const names = charIds.map((id) => charInfoMap.get(id)?.name).filter((n): n is string => !!n);
+      const names = charIds.map((id) => charInfoMap.get(id)?.name ?? knownNames?.[id]).filter((n): n is string => !!n);
       return names.length > 0 ? names.join(", ") : "New Roleplay";
     },
     [charInfoMap],
@@ -1326,7 +1330,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
   );
 
   const toggleCharacter = useCallback(
-    (charId: string) => {
+    (charId: string, knownName?: string) => {
       const current = [...chatCharIds];
       const idx = current.indexOf(charId);
       if (idx >= 0) {
@@ -1344,7 +1348,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
           id: chat.id,
           characterIds: current,
         };
-        if (!userEditedName) updateData.name = buildAutoName(current);
+        if (!userEditedName) updateData.name = buildAutoName(current, knownName ? { [charId]: knownName } : undefined);
         updateChat.mutate(updateData, {
           onSuccess: () => {
             void (async () => {
@@ -1652,6 +1656,8 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                   openRightPanel("characters");
                   cancel();
                 }}
+                onCharacterCreated={toggleCharacter}
+                onImportCharacters={() => openModal("import-character")}
               />
             )}
           </div>
@@ -1947,6 +1953,8 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                           openRightPanel("characters");
                           cancel();
                         }}
+                        onCharacterCreated={toggleCharacter}
+                        onImportCharacters={() => openModal("import-character")}
                       />
                     )}
                   </div>

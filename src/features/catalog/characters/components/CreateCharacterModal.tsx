@@ -9,6 +9,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { Loader2, Sparkles, User, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../shared/lib/error-message";
+import { blankCharacterCreateInput } from "../lib/blank-character-card";
 
 interface Props {
   open: boolean;
@@ -42,27 +43,7 @@ export function CreateCharacterModal({ open, onClose }: Props) {
     if (!trimmedName) return;
 
     try {
-      const result = await createCharacter.mutateAsync({
-        name: trimmedName,
-        data: {
-          name: trimmedName,
-          description: "",
-          personality: "",
-          first_mes: "",
-          scenario: "",
-          system_prompt: "",
-          mes_example: "",
-          creator_notes: "",
-          tags: [],
-          creator: "",
-          character_version: "1.0",
-          extensions: {},
-          alternate_greetings: [],
-          character_book: undefined,
-          post_history_instructions: "",
-        },
-        format: "chara_card_v2" as const,
-      });
+      const result = await createCharacter.mutateAsync(blankCharacterCreateInput(trimmedName));
 
       const charId = (result as { id: string })?.id;
 
