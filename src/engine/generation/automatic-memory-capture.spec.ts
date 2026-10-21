@@ -5,6 +5,7 @@ import {
   automaticCaptureMemoryFailure,
   buildMemoryCaptureReport,
   extractCanonicalMemoryConsequences,
+  oneOnOneAddresseeRule,
   standaloneMemoryFailure,
   type CanonicalConsequenceExtractionRequest,
 } from "./automatic-memory-capture";
@@ -425,6 +426,76 @@ describe("automatic memory consequence extraction", () => {
 
       await expect(extractCanonicalMemoryConsequences({ llm, request: catRequest() })).rejects.toThrow("provider down");
     });
+  });
+});
+
+describe("one-on-one addressee evidence", () => {
+  it("names who you means in a one-on-one conversation", () => {
+    const rule = oneOnOneAddresseeRule(request());
+    expect(rule).toContain("one-on-one chat between Celia and Pierrot");
+    expect(rule).toContain("in Celia's rows that addresses someone means Pierrot");
+    expect(rule).toContain("in Pierrot's rows means Celia");
+    expect(rule).toContain("quoted or reported (my mum says you need to rest)");
+    expect(rule).toContain("a generic you that means people in general, addresses no one in the chat: keep it as you");
+  });
+
+  it("gives no addressee evidence outside a one-on-one conversation", () => {
+    expect(oneOnOneAddresseeRule({ ...request(), mode: "roleplay" })).toBeNull();
+    expect(
+      oneOnOneAddresseeRule({ ...request(), characterLabels: { pierrot: "Pierrot", harlequin: "Harlequin" } }),
+    ).toBeNull();
+    expect(oneOnOneAddresseeRule({ ...request(), userLabel: "{{user}}" })).toBeNull();
+    const base = request();
+    expect(
+      oneOnOneAddresseeRule({
+        ...base,
+        sourceMessages: [base.sourceMessages[0]!, { ...base.sourceMessages[1]!, characterId: "harlequin" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("sends the addressee evidence to the extractor and the verifier", async () => {
+    const requests: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      async complete(llmRequest) {
+        requests.push(llmRequest);
+        return requests.length === 1
+          ? JSON.stringify({
+              memories: [
+                {
+                  kind: "promise",
+                  content: "Celia promises to bring Pierrot a cake on Sunday.",
+                  confidence: 0.9,
+                  evidence: "explicit_promise",
+                  sourceMessageIds: ["user-current"],
+                },
+              ],
+            })
+          : JSON.stringify({ verdicts: [{ index: 0, faithful: true }] });
+      },
+      async *stream() {
+        yield { type: "done" as const };
+      },
+      async listModels() {
+        return [];
+      },
+    };
+    const base = request();
+    await extractCanonicalMemoryConsequences({
+      llm,
+      request: {
+        ...base,
+        sourceMessages: [
+          { ...base.sourceMessages[0]!, content: "I promise I'll bring you a cake on Sunday." },
+          base.sourceMessages[1]!,
+        ],
+      },
+    });
+    expect(requests).toHaveLength(2);
+    for (const sent of requests) {
+      const prompt = sent.messages.map((message) => message.content).join("\n");
+      expect(prompt).toContain("one-on-one chat between Celia and Pierrot");
+    }
   });
 });
 
