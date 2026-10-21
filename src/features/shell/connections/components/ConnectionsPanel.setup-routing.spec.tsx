@@ -62,6 +62,22 @@ describe("ConnectionsPanel setup routing", () => {
     expect(useUIStore.getState().modal?.type).toBe("create-connection");
   });
 
+  // First run used to stack an admin-secret warning, TTS and three "Default for…" cards above the one thing a new
+  // user needs to do.
+  it("leads with Add your first connection and holds back defaults and folders until one exists", () => {
+    useSetupJourneyStore.setState({ intent: null });
+    act(() => root.render(<ConnectionsPanel />));
+
+    const text = host.textContent ?? "";
+    expect(text).toContain("Add your first connection");
+    expect(text).not.toContain("Default for Chats");
+    expect(text).not.toContain("Default for Agents");
+    expect(text).not.toContain("Default for Illustrator");
+    expect(text).not.toContain("New Folder");
+    const buttons = Array.from(host.querySelectorAll("button")).map((button) => button.textContent?.trim());
+    expect(buttons).not.toContain("Add Connection");
+  });
+
   it("keeps recommendation dismissal durable through the UI store", () => {
     useSetupJourneyStore.setState({ intent: null });
     useUIStore.setState({ linkApiBannerDismissed: false });
@@ -102,7 +118,7 @@ describe("ConnectionsPanel setup routing", () => {
     );
     expect(host.textContent).toContain("Add a language model to continue setup");
     expect(host.querySelector('[data-setup-focus="connection"]')).toBeTruthy();
-    expect(host.textContent).toContain("Add Connection");
+    expect(host.textContent).toContain("Add your first connection");
     act(() =>
       Array.from(host.querySelectorAll("button"))
         .find((button) => button.textContent?.includes("Return to setup"))!

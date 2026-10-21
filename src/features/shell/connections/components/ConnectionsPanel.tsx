@@ -750,6 +750,10 @@ export function ConnectionsPanel() {
     );
   };
 
+  // First run: nothing to set defaults for or organize yet, so lead with "Add your first connection" and hold back
+  // the cards that only make sense once a model is connected.
+  const noConnectionsYet = !isLoading && (!connections || (connections as unknown[]).length === 0);
+
   const movingConnection = movingConnectionId
     ? (connectionsList.find((c) => c.id === movingConnectionId) ?? null)
     : null;
@@ -771,62 +775,68 @@ export function ConnectionsPanel() {
         onChange={handleConnectionImageSelected}
       />
 
-      <button
-        onClick={handleAddConnection}
-        className="flex items-center justify-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2.5 text-xs font-medium text-[var(--primary-foreground)] shadow-md transition-all hover:opacity-90 active:scale-[0.98]"
-      >
-        <Plus size="0.8125rem" />
-        Add Connection
-      </button>
+      {noConnectionsYet ? (
+        <>
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-7 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--primary)]/12">
+              <Link size="1.25rem" className="text-[var(--primary)]" />
+            </div>
+            <div className="max-w-[24rem] space-y-1">
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">Connect a language model</h3>
+              <p className="de-koi-body leading-relaxed text-[var(--muted-foreground)]">
+                A connection lets De-Koi send chats and roleplay messages to the model you choose.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddConnection}
+              className="flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+            >
+              <Plus size="0.8125rem" />
+              Add your first connection
+            </button>
+          </div>
+          {/* ── Local Model sidecar ── */}
+          <LocalSidecarCard />
+        </>
+      ) : (
+        <>
+          <button
+            onClick={handleAddConnection}
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-2.5 text-xs font-medium text-[var(--primary-foreground)] shadow-md transition-all hover:opacity-90 active:scale-[0.98]"
+          >
+            <Plus size="0.8125rem" />
+            Add Connection
+          </button>
 
-      {/* ── Local Model sidecar ── */}
-      <LocalSidecarCard />
+          {/* ── Local Model sidecar ── */}
+          <LocalSidecarCard />
 
-      {/* ── Text to Speech ── */}
-      <TTSConfigCard />
+          {/* ── Text to Speech ── */}
+          <TTSConfigCard />
 
-      <DefaultChatConnectionCard connectionsList={connectionsList} />
-      <DefaultAgentConnectionCard connectionsList={connectionsList} />
-      <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
-      <HelperModelsCard />
+          <DefaultChatConnectionCard connectionsList={connectionsList} />
+          <DefaultAgentConnectionCard connectionsList={connectionsList} />
+          <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
+          <HelperModelsCard />
 
-      {/* ── New folder button ── */}
-      <button
-        onClick={handleCreateFolder}
-        disabled={createFolderMut.isPending}
-        className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
-      >
-        <FolderPlus size="0.75rem" />
-        New Folder
-      </button>
+          {/* ── New folder button ── */}
+          <button
+            onClick={handleCreateFolder}
+            disabled={createFolderMut.isPending}
+            className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
+          >
+            <FolderPlus size="0.75rem" />
+            New Folder
+          </button>
+        </>
+      )}
 
       {isLoading && (
         <div className="flex flex-col gap-2 py-2">
           {[1, 2].map((i) => (
             <div key={i} className="shimmer h-14 rounded-xl" />
           ))}
-        </div>
-      )}
-
-      {!isLoading && (!connections || (connections as unknown[]).length === 0) && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-7 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--primary)]/12">
-            <Link size="1.25rem" className="text-[var(--primary)]" />
-          </div>
-          <div className="max-w-[24rem] space-y-1">
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Connect a language model</h3>
-            <p className="de-koi-body leading-relaxed text-[var(--muted-foreground)]">
-              A connection lets De-Koi send chats and roleplay messages to the model you choose.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleAddConnection}
-            className="flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
-          >
-            <Plus size="0.8125rem" />
-            Add your first connection
-          </button>
         </div>
       )}
 
