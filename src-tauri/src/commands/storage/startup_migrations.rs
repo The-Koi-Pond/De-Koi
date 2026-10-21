@@ -1285,7 +1285,7 @@ mod character_version_inline_media_tests {
         let error = migrate_character_version_inline_media(&storage, &root)
             .expect_err("invalid second row should fail");
 
-        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.code, "invalid_image");
         assert_eq!(fs::read(collection).unwrap(), before);
         let asset_dir = root.join("avatars/characters/versions");
         assert!(!asset_dir.exists() || fs::read_dir(asset_dir).unwrap().next().is_none());

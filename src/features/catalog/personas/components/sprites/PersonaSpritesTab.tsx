@@ -123,13 +123,13 @@ export function PersonaSpritesTab({
         setNewExpression("");
         pendingExpressionRef.current = "";
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to upload sprite."));
+        toast.error(getErrorMessage(error, "Couldn't upload sprite. Try again."));
       } finally {
         setUploading(false);
       }
     };
     reader.onerror = () => {
-      toast.error("Failed to read sprite image.");
+      toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
       setUploading(false);
     };
     reader.readAsDataURL(file);
@@ -178,16 +178,16 @@ export function PersonaSpritesTab({
         });
         if (result.failed.length > 0 || skipped > 0) {
           toast.warning(
-            `${result.failed.length + skipped} sprite${result.failed.length + skipped === 1 ? "" : "s"} could not be imported.`,
+            `${result.failed.length + skipped} sprite${result.failed.length + skipped === 1 ? "" : "s"} couldn't be imported. Check those files are images, then try again.`,
           );
         } else {
           toast.success(`Imported ${result.imported} sprite${result.imported === 1 ? "" : "s"}.`);
         }
       } else if (skipped > 0) {
-        toast.error("No sprites could be imported.");
+        toast.error("No sprites could be imported. Check that the files are images, then try again.");
       }
     } catch (error) {
-      toast.error(getErrorMessage(error, "Failed to import sprites."));
+      toast.error(getErrorMessage(error, "Couldn't import sprites. Try again."));
     } finally {
       setFolderProgress(null);
       event.target.value = "";
@@ -205,7 +205,7 @@ export function PersonaSpritesTab({
       });
       setDeleteSpriteRequest(null);
     } catch (error) {
-      toast.error(getErrorMessage(error, "Failed to delete sprite."));
+      toast.error(getErrorMessage(error, "Couldn't delete sprite. Try again."));
     } finally {
       setDeletingSprites(null);
     }
@@ -231,7 +231,7 @@ export function PersonaSpritesTab({
       }
       if (failedCount > 0) {
         toast.warning(
-          `Deleted ${deletedCount} sprite${deletedCount === 1 ? "" : "s"}; ${failedCount} failed to delete.`,
+          `Deleted ${deletedCount} sprite${deletedCount === 1 ? "" : "s"}; ${failedCount} couldn't be deleted. Try those again.`,
         );
       } else {
         toast.success(`Deleted ${deletedCount} sprite${deletedCount === 1 ? "" : "s"}.`);
@@ -252,7 +252,7 @@ export function PersonaSpritesTab({
       try {
         await downloadSpriteFile(sprite);
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to download sprite."));
+        toast.error(getErrorMessage(error, "Couldn't download sprite. Try again."));
       }
     },
     [downloadSpriteFile],
@@ -318,10 +318,12 @@ export function PersonaSpritesTab({
         toast.success(`Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`);
       }
       if (result.failed.length > 0) {
-        toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be cleaned.`);
+        toast.warning(
+          `${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} couldn't be cleaned. Try those again.`,
+        );
       }
     } catch (err) {
-      toast.error(getErrorMessage(err, "Failed to clean saved sprites."));
+      toast.error(getErrorMessage(err, "Couldn't clean saved sprites. Try again."));
     } finally {
       setCleaningSprites(false);
     }
@@ -342,12 +344,14 @@ export function PersonaSpritesTab({
         );
       }
       if (result.failed.length > 0) {
-        toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be restored.`);
+        toast.warning(
+          `${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} couldn't be restored. Try those again.`,
+        );
       } else {
         setLastCleanupRestorePointId(null);
       }
     } catch (err) {
-      toast.error(getErrorMessage(err, "Failed to restore sprite cleanup point."));
+      toast.error(getErrorMessage(err, "Couldn't restore sprite cleanup point. Try again."));
     } finally {
       setRestoringCleanup(false);
     }
@@ -368,7 +372,7 @@ export function PersonaSpritesTab({
         toast.success(`Framed ${displayExpression(framingSprite.expression)} sprite.`);
         setFramingSprite(null);
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to save framed sprite."));
+        toast.error(getErrorMessage(error, "Couldn't save framed sprite. Try again."));
       } finally {
         setSavingFrame(false);
       }
@@ -391,7 +395,7 @@ export function PersonaSpritesTab({
         toast.success(`Cleaned ${displayExpression(wandCleanupSprite.expression)} sprite.`);
         setWandCleanupSprite(null);
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to save cleaned sprite."));
+        toast.error(getErrorMessage(error, "Couldn't save cleaned sprite. Try again."));
       } finally {
         setSavingWandCleanup(false);
       }

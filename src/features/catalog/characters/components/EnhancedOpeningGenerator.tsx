@@ -16,6 +16,7 @@ import {
   type EnhancedOpeningTargetLength,
   type SaveEnhancedOpeningAlternateInput,
 } from "../lib/enhanced-opening-generation";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 interface EnhancedOpeningGeneratorProps {
   data: CharacterData;
@@ -157,7 +158,7 @@ export function EnhancedOpeningGenerator({ data, comment, onSaveAlternate }: Enh
       toast.success("Saved as an alternate greeting.");
       setPreview(null);
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Could not save the alternate greeting.");
+      setSaveError(toUserMessage(error, { fallback: "Couldn't save the alternate greeting. Try again." }));
     } finally {
       setSaving(false);
     }

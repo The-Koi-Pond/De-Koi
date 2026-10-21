@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import { useUploadSprite, useUploadSprites } from "../../sprites/index";
 import { normalizeSpriteExpressionForCategory, type SpriteCategory } from "../lib/character-sprites-model";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 const SPRITE_FOLDER_UPLOAD_BATCH_SIZE = 12;
 
@@ -54,14 +55,14 @@ export function useCharacterSpriteUploads({
         });
         setNewExpression("");
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to upload sprite.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't upload sprite. Try again." }));
       } finally {
         pendingExpressionRef.current = "";
         setUploading(false);
       }
     };
     reader.onerror = () => {
-      toast.error("Failed to read sprite image.");
+      toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
       pendingExpressionRef.current = "";
       setUploading(false);
     };
@@ -135,16 +136,16 @@ export function useCharacterSpriteUploads({
       if (imported > 0 || failed.length > 0) {
         if (failed.length > 0 || skipped > 0) {
           toast.warning(
-            `${failed.length + skipped} sprite${failed.length + skipped === 1 ? "" : "s"} could not be imported.`,
+            `${failed.length + skipped} sprite${failed.length + skipped === 1 ? "" : "s"} couldn't be imported. Check those files are images, then try again.`,
           );
         } else {
           toast.success(`Imported ${imported} sprite${imported === 1 ? "" : "s"}.`);
         }
       } else if (skipped > 0) {
-        toast.error("No sprites could be imported.");
+        toast.error("No sprites could be imported. Check that the files are images, then try again.");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to import sprites.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't import sprites. Try again." }));
     } finally {
       setFolderProgress(null);
       e.target.value = "";

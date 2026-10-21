@@ -11,6 +11,7 @@ import { LorebookAssignmentSection } from "../../lorebooks/assignment";
 import { lorebookKeys, useLorebook } from "../../lorebooks/index";
 import { characterKeys } from "../hooks/use-characters";
 import { CharacterLorebookGenerationButton } from "./CharacterLorebookGenerationButton";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function CharacterLorebookTab({
   characterId,
@@ -55,7 +56,7 @@ export function CharacterLorebookTab({
           : `Imported ${result.entriesImported} embedded lorebook entr${result.entriesImported === 1 ? "y" : "ies"}`,
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to import embedded lorebook");
+      toast.error(toUserMessage(error, { fallback: "Couldn't import embedded lorebook. Try again." }));
     } finally {
       setImporting(false);
     }

@@ -52,7 +52,7 @@ type UserMessageOptions = {
 // Other providers' "*_provider_error" / "*_network_error" messages carry the
 // provider's own explanation, which beats generic copy.
 const USER_WORDED_ERROR_CODE =
-  /^(llm_|models_|openai_chatgpt_|claude_subscription_|remote_runtime_|admin_access_|csrf_)|^(user_facing|rate_limited|remote_auth_required|request_body_too_large)$|_(provider|network)_error$/;
+  /^(llm_|models_|openai_chatgpt_|claude_subscription_|remote_runtime_|admin_access_|csrf_)|^(user_facing|invalid_image|rate_limited|remote_auth_required|request_body_too_large)$|_(provider|network)_error$/;
 
 function readCode(value: unknown): string {
   if (!value || typeof value !== "object") return "";

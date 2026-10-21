@@ -44,6 +44,7 @@ import { PersonaGroupsSection, type PersonaGroupDropTarget } from "./PersonaGrou
 import { PersonaListItem } from "./PersonaListItem";
 import { PersonasFilterBar } from "./PersonasFilterBar";
 import { PersonasSelectionToolbar } from "./PersonasSelectionToolbar";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 const PERSONA_GROUP_DRAG_MIME = "application/x-de-koi-persona-id";
 
@@ -148,7 +149,7 @@ export function PersonasPanel() {
         }
         if (activeTag === tag) setActiveTag(null);
       } catch {
-        toast.error("Failed to remove tag from some personas");
+        toast.error("Couldn't remove the tag from some personas. Try again.");
       }
     },
     [activeTag, rawList, updatePersona],
@@ -388,7 +389,7 @@ export function PersonasPanel() {
         exportApi.triggerDownload(await exportApi.personasBulk([...selectedPersonaIds], format));
         toast.success(`Exported ${selectedPersonaIds.size} persona${selectedPersonaIds.size === 1 ? "" : "s"}`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to export personas");
+        toast.error(toUserMessage(error, { fallback: "Couldn't export personas. Try again." }));
       } finally {
         setExportingSelected(false);
       }

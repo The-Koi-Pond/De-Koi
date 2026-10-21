@@ -7,6 +7,7 @@ import { useCreatePersona } from "../../hooks/use-personas";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { Loader2, User } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 interface Props {
   open: boolean;
@@ -34,7 +35,7 @@ export function CreatePersonaModal({ open, onClose }: Props) {
       reset();
       if (personaId) openPersonaDetail(personaId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create persona");
+      toast.error(toUserMessage(error, { fallback: "Couldn't create persona. Try again." }));
     }
   };
 

@@ -237,7 +237,7 @@ describe("EnhancedOpeningGenerator", () => {
       }),
     );
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(container.textContent).toContain("Disk full");
+    expect(container.textContent).toContain("Couldn't save the alternate greeting. Try again.");
 
     onSaveAlternate.mockResolvedValueOnce(undefined);
     await act(async () => {

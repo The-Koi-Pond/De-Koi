@@ -6,6 +6,7 @@ import { triggerDownloadWithToast } from "../../../shared/lib/export-feedback";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import type { ExportFormatChoice } from "../../../../shared/components/ui/ExportFormatDialog";
 import type { ParsedCharacterRow } from "../lib/characters-panel-model";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function useCharactersPanelSelection({
   sortedCharacters,
@@ -61,7 +62,7 @@ export function useCharactersPanelSelection({
           `Exported ${selectedCharacterIds.size} character${selectedCharacterIds.size === 1 ? "" : "s"}.`,
         );
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to export characters");
+        toast.error(toUserMessage(error, { fallback: "Couldn't export characters. Try again." }));
       } finally {
         setExportingSelected(false);
         setIncludeMemoriesInExport(false);
@@ -95,7 +96,7 @@ export function useCharactersPanelSelection({
 
     if (failedIds.length > 0) {
       setSelectedCharacterIds(new Set(failedIds));
-      toast.error(`Failed to delete ${failedIds.length} character${failedIds.length === 1 ? "" : "s"}`);
+      toast.error(`Couldn't delete ${failedIds.length} character${failedIds.length === 1 ? "" : "s"}. Try again.`);
       return;
     }
 

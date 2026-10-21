@@ -8,6 +8,7 @@ import { useCreateCharacter, useUploadAvatar } from "../hooks/use-characters";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { Loader2, Sparkles, User, Camera } from "lucide-react";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 interface Props {
   open: boolean;
@@ -82,7 +83,7 @@ export function CreateCharacterModal({ open, onClose }: Props) {
         openCharacterDetail(charId);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create character");
+      toast.error(toUserMessage(error, { fallback: "Couldn't create character. Try again." }));
     }
   };
 

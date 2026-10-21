@@ -121,7 +121,11 @@ pub(crate) fn optimize_avatar_image_bytes(bytes: &[u8], mime: &str) -> AppResult
         return Ok(bytes.to_vec());
     };
     let image = image::load_from_memory(bytes).map_err(|error| {
-        AppError::invalid_input(format!("Avatar image could not be decoded: {error}"))
+        AppError::with_details(
+            INVALID_IMAGE_CODE,
+            INVALID_IMAGE_MESSAGE,
+            json!({ "detail": error.to_string() }),
+        )
     })?;
     if image.width() <= MAX_STORED_AVATAR_EDGE && image.height() <= MAX_STORED_AVATAR_EDGE {
         return Ok(bytes.to_vec());
@@ -426,19 +430,28 @@ pub(crate) fn decode_image_payload(value: &str, field_name: &str) -> AppResult<(
     Ok(("image/png".to_string(), bytes))
 }
 
+/// A picked file that isn't a usable image. The message is shown to the user as is (code `invalid_image`).
+const INVALID_IMAGE_CODE: &str = "invalid_image";
+const INVALID_IMAGE_MESSAGE: &str =
+    "That file isn't an image De-Koi can use. Pick a PNG, JPG, WEBP or GIF file.";
+
+fn invalid_image_error() -> AppError {
+    AppError::new(INVALID_IMAGE_CODE, INVALID_IMAGE_MESSAGE)
+}
+
 pub(crate) fn validate_image_bytes_for_mime(mime: Option<&str>, bytes: &[u8]) -> AppResult<()> {
     if bytes.is_empty() {
-        return Err(AppError::invalid_input("Invalid image data"));
+        return Err(invalid_image_error());
     }
     if mime.is_some_and(|value| value.eq_ignore_ascii_case("image/svg+xml")) {
         if bytes_have_svg_root(bytes) {
             return Ok(());
         }
-        return Err(AppError::invalid_input("Invalid image data"));
+        return Err(invalid_image_error());
     }
     image::guess_format(bytes)
         .map(|_| ())
-        .map_err(|_| AppError::invalid_input("Invalid image data"))
+        .map_err(|_| invalid_image_error())
 }
 
 fn bytes_have_svg_root(bytes: &[u8]) -> bool {
@@ -590,8 +603,8 @@ mod tests {
         let Err(error) = result else {
             panic!("fake PNG payload should be rejected");
         };
-        assert_eq!(error.code, "invalid_input");
-        assert!(error.message.contains("Invalid image data"));
+        assert_eq!(error.code, "invalid_image");
+        assert!(error.message.contains("isn't an image De-Koi can use"));
     }
 
     #[test]
@@ -629,7 +642,7 @@ mod tests {
             panic!("fake image source should be rejected");
         };
 
-        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.code, "invalid_image");
         assert!(!state.data_dir.join("avatars").exists());
 
         let _ = fs::remove_dir_all(root);

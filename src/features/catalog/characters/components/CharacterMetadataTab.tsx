@@ -36,6 +36,7 @@ import {
   serializeFavoriteSongsText,
   serializeMusicTextList,
 } from "../lib/character-music-profile";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 function readPublicProfile(value: unknown): CharacterPublicProfile {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as CharacterPublicProfile) : {};
@@ -178,7 +179,9 @@ export function CharacterMetadataTab({
       updatePublicProfile({ [field]: value } as CharacterPublicProfile);
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setPublicProfileGenerationError(err instanceof Error ? err.message : "Public profile generation failed");
+        setPublicProfileGenerationError(
+          toUserMessage(err, { fallback: "Public profile generation failed. Try again." }),
+        );
       }
     } finally {
       if (publicProfileAbortRefs.current.get(field) === abort) {
@@ -217,7 +220,7 @@ export function CharacterMetadataTab({
         updatePublicProfile({ bannerImage: generatedImage });
       }
     } catch (err) {
-      setPublicProfileGenerationError(err instanceof Error ? err.message : "Banner image generation failed");
+      setPublicProfileGenerationError(toUserMessage(err, { fallback: "Banner image generation failed. Try again." }));
     } finally {
       setPublicProfileBannerGenerating(false);
     }

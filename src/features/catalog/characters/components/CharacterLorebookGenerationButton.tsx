@@ -18,6 +18,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { lorebookKeys, useCreateLorebook } from "../../lorebooks/index";
 import { characterKeys } from "../hooks/use-characters";
 import { buildCharacterLorebookPrompt, characterLorebookName } from "../lib/character-lorebook-generation";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type GeneratedLorebook = {
   lorebook_name?: string;
@@ -128,7 +129,7 @@ export function CharacterLorebookGenerationButton({ characterId, data }: Charact
       openLorebookDetail(lorebookId);
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
-        toast.error(error instanceof Error ? error.message : "Failed to generate lorebook.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't generate lorebook. Try again." }));
       }
     } finally {
       if (abortRef.current === abort) {
