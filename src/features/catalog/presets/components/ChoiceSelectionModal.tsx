@@ -247,7 +247,7 @@ export function ChoiceSelectionModal({
   );
 
   return (
-    <Modal open={open} onClose={onClose} title="Configure Preset Variables" width="max-w-lg">
+    <Modal open={open} onClose={onClose} title="Story options" width="max-w-lg">
       {variables.length === 0 ? (
         isLoading ? (
           <div className="flex items-center justify-center p-8">
@@ -257,16 +257,19 @@ export function ChoiceSelectionModal({
       ) : (
         <div className="space-y-4 p-4">
           <p className="text-xs text-[var(--muted-foreground)]">
-            This preset has configurable variables. Select option(s) for each to customize your experience.
+            This preset has a few options for how the story is written. Sensible picks are already selected, so you can
+            confirm right away and change them any time from Chat Settings.
           </p>
 
           {visibleVariables.map((v) => (
             <div key={v.id} className="rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3">
-              <h4 className="mb-1 text-xs font-semibold text-[var(--foreground)]">{v.question}</h4>
-              <div className="mb-2 flex items-center gap-2">
-                <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                  Variable: <code className="text-amber-400">{`{{${v.variableName}}}`}</code>
-                </p>
+              <h4
+                className="mb-1 text-xs font-semibold text-[var(--foreground)]"
+                title={`Preset variable {{${v.variableName}}}`}
+              >
+                {v.question}
+              </h4>
+              <div className="mb-2 flex items-center gap-2 empty:hidden">
                 {v.options.length === 1 && !v.multiSelect && (
                   <span className="flex items-center gap-0.5 rounded bg-purple-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-purple-400">
                     Boolean toggle
@@ -385,7 +388,8 @@ export function ChoiceSelectionModal({
             </div>
           ))}
 
-          <div className="flex items-center justify-between gap-2 pt-2">
+          {/* Pinned to the bottom so Confirm stays reachable without scrolling past every option. */}
+          <div className="sticky -bottom-4 z-10 -mx-9 -mb-8 flex items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--card)] px-9 py-3 backdrop-blur">
             <label className="flex cursor-pointer items-center gap-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
               <button
                 type="button"
