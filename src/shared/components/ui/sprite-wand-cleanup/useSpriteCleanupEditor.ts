@@ -186,7 +186,7 @@ export function useSpriteCleanupEditor({ imageUrl, applying, onApply }: UseSprit
         })
         .catch((err) => {
           if (cancelled) return;
-          setError(getErrorMessage(err, "Sprite image could not be loaded"));
+          setError(getErrorMessage(err, "Sprite image could not be loaded. Try again."));
           setLoading(false);
         });
     };
@@ -621,7 +621,7 @@ export function useSpriteCleanupEditor({ imageUrl, applying, onApply }: UseSprit
       setError(null);
       await onApply(canvas.toDataURL("image/png"));
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to save sprite cleanup"));
+      setError(getErrorMessage(err, "Couldn't save sprite cleanup. Try again."));
     }
   }, [onApply]);
 

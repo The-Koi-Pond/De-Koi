@@ -9,6 +9,7 @@ import { Modal } from "./Modal";
 import { AvatarImage } from "./AvatarImage";
 import { ImagePromptReviewModal, type ImagePromptOverride, type ImagePromptReviewItem } from "./ImagePromptReviewModal";
 import { isDefaultImageGenerationConnection, type ImageGenerationConnectionOption } from "../../types/image-generation";
+import { toUserMessage } from "../../lib/error-message";
 
 type AvatarGenerationModalProps = {
   open: boolean;
@@ -129,7 +130,7 @@ export function AvatarGenerationModal({
       setGeneratedAvatar(result.image);
       setGeneratedPrompt(result.prompt);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Avatar generation failed.");
+      toast.error(toUserMessage(error, { fallback: "Avatar generation failed. Try again." }));
     } finally {
       setReviewSubmitting(false);
       setGenerating(false);
@@ -143,7 +144,7 @@ export function AvatarGenerationModal({
       await onUseAvatar(generatedAvatar);
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save generated avatar.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't save generated avatar. Try again." }));
     } finally {
       setSaving(false);
     }

@@ -2520,7 +2520,7 @@ export function ThemesSettings() {
             setActiveTheme.mutate(null, {
               onError: (err) => {
                 console.error("[ThemesSettings] Failed to reset active theme:", err);
-                toast.error("Failed to reset the active theme.");
+                toast.error("Couldn't reset the active theme. Try again.");
               },
             })
           }
@@ -2556,7 +2556,7 @@ export function ThemesSettings() {
                   setActiveTheme.mutate(t.id, {
                     onError: (err) => {
                       console.error("[ThemesSettings] Failed to activate theme:", err);
-                      toast.error("Failed to activate theme.");
+                      toast.error("Couldn't switch to that theme. Try again.");
                     },
                   })
                 }
@@ -2593,7 +2593,7 @@ export function ThemesSettings() {
                       if (result !== "cancelled") toast.success(`Theme "${t.name}" exported`);
                     } catch (err) {
                       console.error("[ThemesSettings] Failed to export theme:", err);
-                      toast.error("Failed to export theme.");
+                      toast.error("Couldn't export the theme. Try again.");
                     }
                   })();
                 }}
@@ -2610,7 +2610,7 @@ export function ThemesSettings() {
                       toast.success(`Theme "${t.name}" removed`);
                     } catch (err) {
                       console.error("[ThemesSettings] Failed to remove theme:", err);
-                      toast.error("Failed to remove theme.");
+                      toast.error("Couldn't remove the theme. Try again.");
                     }
                   })();
                 }}
@@ -2703,7 +2703,7 @@ export function ExtensionsSettings() {
       );
       setRemovingExtension(null);
     } catch (error) {
-      toast.error(toUserMessage(error, { fallback: "Couldn't remove that extension." }));
+      toast.error(toUserMessage(error, { fallback: "Couldn't remove that extension. Try again." }));
     }
   };
 

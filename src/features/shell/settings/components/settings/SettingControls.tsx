@@ -31,6 +31,7 @@ import {
   type LocalNotificationPermission,
   requestLocalNotificationPermission,
 } from "../../../../../shared/lib/local-notifications";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 export function ConversationSoundSetting() {
   const convoNotificationSound = useUIStore((s) => s.convoNotificationSound);
@@ -467,7 +468,7 @@ function PhoneNotificationsSetting() {
       setEnabled(await phoneNotificationsEnabled());
       setMessage(done);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "That didn't work.");
+      setMessage(toUserMessage(error, { fallback: "That didn't work. Try again." }));
     } finally {
       setBusy(false);
     }

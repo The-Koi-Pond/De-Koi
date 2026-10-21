@@ -341,7 +341,7 @@ function imageDataUrl(base64: string): string {
 }
 
 function getGenerationErrorMessage(err: unknown): string {
-  return getErrorMessage(err, "Image generation failed");
+  return getErrorMessage(err, "Image generation failed. Try again.");
 }
 
 function createGeneratedSpritesFromResult(
@@ -997,7 +997,7 @@ export function SpriteGenerationModal({
       setCells(await cleanupSpriteCells(cells));
       setCleanupApplied(true);
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to apply background cleanup"));
+      setError(getErrorMessage(err, "Couldn't apply background cleanup. Try again."));
     } finally {
       setCleanupApplying(false);
     }
@@ -1065,7 +1065,7 @@ export function SpriteGenerationModal({
       );
       handleCloseCellFrame();
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to frame sprite"));
+      setError(getErrorMessage(err, "Couldn't frame sprite. Try again."));
     } finally {
       setFrameApplying(false);
     }
@@ -1186,7 +1186,7 @@ export function SpriteGenerationModal({
       setFrameAdjustments(DEFAULT_SPRITE_FRAME_ADJUSTMENTS);
       setFramePreviewUrl(null);
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to adjust sprite slices"));
+      setError(getErrorMessage(err, "Couldn't adjust sprite slices. Try again."));
     } finally {
       setSliceApplying(false);
     }
@@ -1251,7 +1251,7 @@ export function SpriteGenerationModal({
       setGenerationProgress(null);
       handleCloseCellFrame();
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to save sprites"));
+      setError(getErrorMessage(err, "Couldn't save sprites. Try again."));
     } finally {
       setSaving(false);
     }
