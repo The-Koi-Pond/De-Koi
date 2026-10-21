@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getAppShellLeftSidebarState, getToggledAppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import {
+  getAppShellLeftSidebarState,
+  getToggledAppShellLeftSidebarPanel,
+  shouldCloseFirstRunPhoneDrawer,
+} from "./app-shell-left-sidebar";
 
 describe("getAppShellLeftSidebarState", () => {
   it("opens the dedicated Deki sidebar without the character chats sidebar", () => {
@@ -63,5 +67,21 @@ describe("setAppShellLeftSidebarPanel", () => {
       ["chat", false],
       ["panel", null],
     ]);
+  });
+});
+
+// A new phone user landed on the chat list drawer, which covered the welcome screen and "Add a model connection".
+describe("shouldCloseFirstRunPhoneDrawer", () => {
+  it("closes the chat drawer on a phone with no chats yet", () => {
+    expect(shouldCloseFirstRunPhoneDrawer({ isMobile: true, chatCount: 0, panel: "chats" })).toBe(true);
+  });
+
+  it.each([
+    ["returning phone user", { isMobile: true, chatCount: 4, panel: "chats" as const }],
+    ["desktop", { isMobile: false, chatCount: 0, panel: "chats" as const }],
+    ["chat list still loading", { isMobile: true, chatCount: null, panel: "chats" as const }],
+    ["drawer already closed", { isMobile: true, chatCount: 0, panel: null }],
+  ])("keeps things as they are for a %s", (_label, input) => {
+    expect(shouldCloseFirstRunPhoneDrawer(input)).toBe(false);
   });
 });

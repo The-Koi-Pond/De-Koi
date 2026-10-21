@@ -21,7 +21,7 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
-import { chatKeys } from "../../features/catalog/chats/index";
+import { chatKeys, useChatSummaries } from "../../features/catalog/chats/index";
 import { dekiSessionsApi } from "./app-shell-deki-sessions";
 import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-history";
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
@@ -52,7 +52,11 @@ import {
   shouldBeginSetupJourney,
 } from "./app-shell-center-surfaces";
 import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
-import { setAppShellLeftSidebarPanel, type AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
+import {
+  setAppShellLeftSidebarPanel,
+  shouldCloseFirstRunPhoneDrawer,
+  type AppShellLeftSidebarPanel,
+} from "./app-shell-left-sidebar";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
@@ -422,6 +426,20 @@ export function AppShell() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  // First run on a phone: decide once, after the chat list loads, whether the drawer should start closed.
+  const { data: chatSummariesForDrawer } = useChatSummaries();
+  const firstRunDrawerDecidedRef = useRef(false);
+  useEffect(() => {
+    if (firstRunDrawerDecidedRef.current || !chatSummariesForDrawer) return;
+    firstRunDrawerDecidedRef.current = true;
+    if (
+      shouldCloseFirstRunPhoneDrawer({ isMobile, chatCount: chatSummariesForDrawer.length, panel: leftSidebarPanel })
+    ) {
+      setLeftSidebarPanelState(null);
+      useUIStore.getState().setSidebarOpen(false);
+    }
+  }, [chatSummariesForDrawer, isMobile, leftSidebarPanel]);
 
   // Auto-close right panel when viewport is too narrow for comfort
   useEffect(() => {
