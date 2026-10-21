@@ -68,10 +68,15 @@ function reasonLabel(reason: LorebookActivationTraceEntry["reason"]): string {
   }
 }
 
-function statusClass(status: LorebookActivationTraceStatus): string {
-  if (status === "included") return "bg-emerald-400 text-emerald-100 border-emerald-400/25";
-  if (status === "matched") return "bg-amber-400 text-amber-100 border-amber-400/25";
-  return "bg-zinc-400 text-zinc-100 border-zinc-400/25";
+// Shape as well as color: included = solid, matched = ring, skipped = bar.
+function traceDotClass(status: LorebookActivationTraceStatus): string {
+  if (status === "included") return "bg-emerald-400";
+  if (status === "matched") return "bg-amber-400 cb-shape-ring";
+  return "bg-zinc-400 cb-shape-bar";
+}
+
+function TraceDot({ status }: { status: LorebookActivationTraceStatus }) {
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${traceDotClass(status)}`} />;
 }
 
 function TraceEntryRow({ entry, content }: { entry: LorebookActivationTraceEntry; content?: string }) {
@@ -81,12 +86,12 @@ function TraceEntryRow({ entry, content }: { entry: LorebookActivationTraceEntry
   return (
     <button
       type="button"
-      className="w-full rounded-lg bg-[var(--secondary)] p-2 text-left text-xs transition-colors hover:bg-[var(--accent)]"
+      className="w-full rounded-lg bg-[var(--secondary)] p-2 text-left text-xs transition-colors [--cb-cutout:var(--secondary)] hover:bg-[var(--accent)] hover:[--cb-cutout:var(--accent)]"
       onClick={() => setExpanded((prev) => !prev)}
     >
       <div className="flex items-center gap-2">
         {expanded ? <ChevronDown size="0.75rem" /> : <ChevronRight size="0.75rem" />}
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusClass(entry.status).split(" ")[0]}`} />
+        <TraceDot status={entry.status} />
         <span className="min-w-0 flex-1 truncate font-medium text-[var(--foreground)]/85">{entry.name}</span>
         <span className="shrink-0 rounded border px-1.5 py-0.5 text-[0.5625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
           {reasonLabel(entry.reason)}
@@ -190,8 +195,9 @@ export function WorldInfoPanel({
         />
       ) : (
         <>
-          <p className="mb-2 text-[0.625rem] text-[var(--muted-foreground)]">
-            {counts.included} included * {counts.matched} matched * {counts.skipped} skipped
+          <p className="mb-2 flex flex-wrap items-center gap-x-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+            <TraceDot status="included" /> {counts.included} included * <TraceDot status="matched" /> {counts.matched}{" "}
+            matched * <TraceDot status="skipped" /> {counts.skipped} skipped
           </p>
           <div className="mb-2 grid grid-cols-4 gap-1 rounded-lg bg-[var(--secondary)] p-1">
             {FILTERS.map((item) => (
