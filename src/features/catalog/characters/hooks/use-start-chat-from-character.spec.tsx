@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
   createChat: { mutate: vi.fn(), isPending: false },
   setPendingNewChatMode: vi.fn(),
+  hasAnyDetailOpen: vi.fn(() => true),
+  closeAllDetails: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
@@ -15,6 +17,11 @@ vi.mock("../../../../shared/stores/chat.store", () => ({
 }));
 vi.mock("../../../../shared/stores/setup-journey.store", () => ({
   useSetupJourneyStore: { getState: () => ({ begin: mocks.begin }) },
+}));
+vi.mock("../../../../shared/stores/ui.store", () => ({
+  useUIStore: {
+    getState: () => ({ hasAnyDetailOpen: mocks.hasAnyDetailOpen, closeAllDetails: mocks.closeAllDetails }),
+  },
 }));
 vi.mock("../../chats/index", () => ({
   chatKeys: { messages: vi.fn() },
@@ -49,6 +56,8 @@ describe("useStartChatFromCharacter", () => {
     mocks.begin.mockReset();
     mocks.createChat.mutate.mockReset();
     mocks.setPendingNewChatMode.mockReset();
+    mocks.closeAllDetails.mockReset();
+    mocks.hasAnyDetailOpen.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -64,5 +73,24 @@ describe("useStartChatFromCharacter", () => {
     expect(mocks.begin).toHaveBeenCalledWith("roleplay", "character-1");
     expect(mocks.setPendingNewChatMode).toHaveBeenCalledWith("roleplay");
     expect(mocks.createChat.mutate).not.toHaveBeenCalled();
+  });
+
+  // On phones the character editor stayed on top of the new chat, so tapping Start Chat looked like it did nothing.
+  it("closes the open character editor so the new chat shows", () => {
+    act(() => root.render(<Harness />));
+
+    act(() => startChatFromCharacter({ characterId: "character-1", characterName: "Pip", mode: "conversation" }));
+
+    expect(mocks.closeAllDetails).toHaveBeenCalledTimes(1);
+    expect(mocks.begin).toHaveBeenCalledWith("conversation", "character-1");
+  });
+
+  it("leaves detail views alone when none is open", () => {
+    mocks.hasAnyDetailOpen.mockReturnValue(false);
+    act(() => root.render(<Harness />));
+
+    act(() => startChatFromCharacter({ characterId: "character-1", characterName: "Pip", mode: "conversation" }));
+
+    expect(mocks.closeAllDetails).not.toHaveBeenCalled();
   });
 });
