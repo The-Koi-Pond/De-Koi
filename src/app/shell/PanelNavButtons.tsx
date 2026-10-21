@@ -27,6 +27,8 @@ export function PanelNavButtons({ className }: { className?: string }) {
         const isActive = rightPanelOpen && rightPanel === panel;
         const preloadPanel = () => preloadRightPanelPanel(panel);
         const accent = SHELL_ACCENT_STYLES[accentRole];
+        const showFailedAgents = panel === "agents" && failedAgentCount > 0;
+        const buttonLabel = showFailedAgents ? `${label} (${failedAgentCount} failed)` : label;
         return (
           <button
             key={panel}
@@ -48,8 +50,8 @@ export function PanelNavButtons({ className }: { className?: string }) {
                 ? cn("mari-titlebar-action-active [&>svg]:stroke-[2.3]", accent.text)
                 : cn("text-[var(--muted-foreground)]", accent.hoverText),
             )}
-            title={label}
-            aria-label={label}
+            title={buttonLabel}
+            aria-label={buttonLabel}
             aria-pressed={isActive}
           >
             <Icon size="0.875rem" />
@@ -61,7 +63,7 @@ export function PanelNavButtons({ className }: { className?: string }) {
                 )}
               />
             ) : null}
-            {panel === "agents" && failedAgentCount > 0 ? (
+            {showFailedAgents ? (
               <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-amber-500 ring-1 ring-[var(--card)]" />
             ) : null}
           </button>

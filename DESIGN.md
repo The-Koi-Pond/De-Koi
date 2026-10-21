@@ -233,7 +233,7 @@ Conversation mode can use familiar message bubbles, but roleplay should feel mor
 - **Do** use the existing semantic tokens (`--primary`, `--background`, `--card`, `--muted`, `--border`) before adding one-off colors.
 - **Do** keep roleplay surfaces immersive, with room for sprites, backgrounds, voice, image prompts, and command results.
 - **Do** make mobile controls touch-friendly and readable, especially settings drawers, prompt editors, maps, logs, and modal workflows.
-- **Do** pair color with labels, icons, shape, or state text for color-blind support.
+- **Do** pair color with labels, icons, shape, or state text for color-blind support. Status dots that differ only by color use the shared shapes: solid, `cb-shape-crescent`, `cb-shape-bar`, `cb-shape-ring` (`presenceDotClass` for presence), with `--cb-cutout` set to the surface behind the dot.
 - **Do** use solid or near-solid surfaces for long text, JSON repair, prompt previews, and advanced parameter fields.
 
 ### Don't:

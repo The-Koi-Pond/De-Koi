@@ -65,6 +65,7 @@ import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../../
 import { parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { isSendShortcut } from "../../../../shared/lib/send-shortcuts";
+import { presenceDotClass } from "../../../../shared/lib/status-shapes";
 import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
 import { requestChatScrollToBottom } from "../../../../shared/lib/chat-scroll-events";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
@@ -1582,15 +1583,6 @@ export function ConversationInput({
     [activeChatId, quoteFormat, setInputDraft, syncInputState],
   );
 
-  const statusDotClass = (status?: string) =>
-    status === "offline"
-      ? "bg-gray-400"
-      : status === "dnd"
-        ? "bg-red-500"
-        : status === "idle"
-          ? "bg-yellow-500"
-          : "bg-green-500";
-
   const renderAttachButton = () => (
     <button
       onClick={() => fileInputRef.current?.click()}
@@ -1929,8 +1921,8 @@ export function ConversationInput({
                       )}
                       <span
                         className={cn(
-                          "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--card)]",
-                          statusDotClass(char.conversationStatus),
+                          "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--card)] [--cb-cutout:var(--card)]",
+                          presenceDotClass(char.conversationStatus),
                         )}
                       />
                     </div>

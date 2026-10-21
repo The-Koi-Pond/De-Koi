@@ -17,7 +17,7 @@ import {
   ToggleButton,
   estimateTokens,
 } from "../shared/LorebookFormFields";
-import { deriveStatus, STATUS_DESCRIPTION, STATUS_DOT_COLOR } from "./lorebook-entry-row-status";
+import { deriveStatus, STATUS_DESCRIPTION, STATUS_DOT_CLASS } from "./lorebook-entry-row-status";
 
 const ENTRY_AUTOSAVE_DELAY_MS = 850;
 
@@ -337,7 +337,7 @@ export function LorebookEntryDrawer({
       }}
     >
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/55 px-3 py-2 text-xs leading-relaxed text-[var(--muted-foreground)]">
-        <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT_COLOR[drawerStatus])} />
+        <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT_CLASS[drawerStatus])} />
         <p>{STATUS_DESCRIPTION[drawerStatus]}</p>
       </div>
 

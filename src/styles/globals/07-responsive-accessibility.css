@@ -250,3 +250,44 @@
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
 }
+
+/* 22. COLOR-BLIND SHAPE CUES
+   Status dots that differ by color also get a shape: crescent, bar or ring.
+   The cut-out is painted in --cb-cutout; set it to the surface behind the dot.
+   Components layer, so a dot's own `absolute` utility still wins over `relative`. */
+@layer components {
+  .cb-shape-crescent,
+  .cb-shape-bar,
+  .cb-shape-ring {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cb-shape-crescent::after,
+  .cb-shape-bar::after,
+  .cb-shape-ring::after {
+    content: "";
+    position: absolute;
+    border-radius: 9999px;
+    background: var(--cb-cutout, var(--background));
+  }
+
+  .cb-shape-crescent::after {
+    width: 64%;
+    height: 64%;
+    top: -10%;
+    left: -10%;
+  }
+
+  .cb-shape-bar::after {
+    left: 18%;
+    right: 18%;
+    top: 50%;
+    height: max(1.5px, 26%);
+    transform: translateY(-50%);
+  }
+
+  .cb-shape-ring::after {
+    inset: 28%;
+  }
+}

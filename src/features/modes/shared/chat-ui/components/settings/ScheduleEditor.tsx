@@ -435,9 +435,10 @@ function LegacyScheduleEditor({
                       {AVAILABILITY_KEYS.map((key) => (
                         <span
                           key={key}
-                          className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]"
+                          className="inline-flex items-center gap-1 rounded-full bg-[var(--secondary)] [--cb-cutout:var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]"
                           title={availabilityLabelForKey(key)}
                         >
+                          <span className={cn("h-1.5 w-1.5 rounded-full", availabilityDotClass(key))} />
                           {summary.counts[key]}
                         </span>
                       ))}
@@ -475,7 +476,7 @@ function LegacyScheduleEditor({
                   </div>
                 </div>
 
-                <details className="rounded-md border border-[var(--border)] bg-[var(--background)]">
+                <details className="rounded-md border border-[var(--border)] bg-[var(--background)] [--cb-cutout:var(--background)]">
                   <summary className="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]">
                     <SlidersHorizontal size="0.6875rem" />
                     Advanced time blocks
@@ -584,7 +585,7 @@ function LegacyScheduleEditor({
                                 return (
                                   <div
                                     key={idx}
-                                    className="flex items-start gap-1.5 rounded-md bg-[var(--secondary)] p-1.5"
+                                    className="flex items-start gap-1.5 rounded-md bg-[var(--secondary)] p-1.5 [--cb-cutout:var(--secondary)]"
                                   >
                                     <span
                                       className={cn(
@@ -678,16 +679,18 @@ function LegacyScheduleEditor({
 
 const AVAILABILITY_KEYS = ["available", "delayed", "busy", "unavailable"] as const satisfies readonly AvailabilityKey[];
 
+// Shapes match the presence dots (solid, crescent, bar, ring) so availability reads without color.
+// Each dot's container sets --cb-cutout to the surface behind it.
 function availabilityDotClass(availabilityKey: AvailabilityKey): string {
   switch (availabilityKey) {
     case "available":
       return "bg-emerald-500";
     case "delayed":
-      return "bg-amber-500";
+      return "bg-amber-500 cb-shape-crescent";
     case "busy":
-      return "bg-rose-500";
+      return "bg-rose-500 cb-shape-bar";
     case "unavailable":
-      return "bg-zinc-400";
+      return "bg-zinc-400 cb-shape-ring";
   }
 }
 

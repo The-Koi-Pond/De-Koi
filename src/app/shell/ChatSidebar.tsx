@@ -90,6 +90,7 @@ import {
 } from "./chat-sidebar-recovery";
 import { buildSupportReportText } from "../../shared/lib/support-report";
 import { toUserMessage } from "../../shared/lib/error-message";
+import { presenceDotClass } from "../../shared/lib/status-shapes";
 type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "fanfic";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
@@ -1016,18 +1017,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
             const isConvoMode = chat.mode === "conversation";
             const statusDot = (status?: string) => {
               if (!isConvoMode) return null;
-              const s = status ?? "online";
-              const color =
-                s === "online"
-                  ? "bg-green-500"
-                  : s === "idle"
-                    ? "bg-yellow-500"
-                    : s === "dnd"
-                      ? "bg-red-500"
-                      : "bg-gray-400";
               return (
                 <span
-                  className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-[1.5px] ring-[var(--sidebar-background)] ${color}`}
+                  className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-[1.5px] ring-[var(--sidebar-background)] [--cb-cutout:var(--sidebar-background)] ${presenceDotClass(status)}`}
                 />
               );
             };

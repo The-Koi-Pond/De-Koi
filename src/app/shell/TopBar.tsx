@@ -16,6 +16,7 @@ import { resolveConversationStatusDisplay } from "../../features/modes/shared/ch
 import { conversationSettingsApi, conversationSettingsKeys } from "../../shared/api/conversation-settings-api";
 import { useTopBarActions } from "../../shared/components/mobile-shell-actions";
 import { cn } from "../../shared/lib/utils";
+import { presenceDotClass } from "../../shared/lib/status-shapes";
 
 type ConversationStatus = "online" | "idle" | "dnd" | "offline";
 
@@ -92,16 +93,7 @@ export function TopBar({
       ? getMobileConversationStatusDetail(firstChar, chatMeta, statusMessagesEnabledByDefault)
       : "";
 
-  const statusColor =
-    status === "online"
-      ? "bg-green-500"
-      : status === "idle"
-        ? "bg-yellow-500"
-        : status === "dnd"
-          ? "bg-red-500"
-          : status === "offline"
-            ? "bg-gray-400"
-            : "";
+  const statusColor = status ? presenceDotClass(status) : "";
 
   const [charPopup, setCharPopup] = useState<number | null>(null);
   const [statusPopupOpen, setStatusPopupOpen] = useState(false);
@@ -111,16 +103,8 @@ export function TopBar({
 
   const charStatusColor = (ext: Record<string, unknown>) => {
     if (!showStatus) return "";
-    const s = ext.conversationStatus;
-    return s === "online"
-      ? "bg-green-500"
-      : s === "idle"
-        ? "bg-yellow-500"
-        : s === "dnd"
-          ? "bg-red-500"
-          : s === "offline"
-            ? "bg-gray-400"
-            : "";
+    const s = readConversationStatus(ext);
+    return s ? presenceDotClass(s) : "";
   };
 
   useEffect(() => {

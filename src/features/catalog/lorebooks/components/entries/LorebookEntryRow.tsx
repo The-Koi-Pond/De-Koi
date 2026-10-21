@@ -41,7 +41,7 @@ import {
   type EntryStatus,
   deriveStatus,
   getNextStatus,
-  STATUS_DOT_COLOR,
+  STATUS_DOT_CLASS,
   STATUS_LABEL,
   statusToFlags,
 } from "./lorebook-entry-row-status";
@@ -386,7 +386,7 @@ export function LorebookEntryRow({
           title={`${STATUS_LABEL[localStatus]} entry. Tap to switch to ${STATUS_LABEL[getNextStatus(localStatus)]}.`}
           aria-label={`${STATUS_LABEL[localStatus]} entry. Tap to switch to ${STATUS_LABEL[getNextStatus(localStatus)]}.`}
         >
-          <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT_COLOR[localStatus])} />
+          <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT_CLASS[localStatus])} />
         </button>
         {previewMatch && (
           <span

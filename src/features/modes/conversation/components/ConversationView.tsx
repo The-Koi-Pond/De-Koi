@@ -58,6 +58,7 @@ import { showLocalChatNotification } from "../../../../shared/lib/local-notifica
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import { cn, type AvatarCropValue } from "../../../../shared/lib/utils";
+import { presenceDotClass } from "../../../../shared/lib/status-shapes";
 import { AvatarImage } from "../../../../shared/components/ui/AvatarImage";
 import {
   SHELL_ACCENT_STYLES,
@@ -1406,17 +1407,6 @@ export function ConversationView({
               }>;
               if (chars.length === 0) return <div />;
 
-              const statusColor = (s?: string) => {
-                const st = s ?? "online";
-                return st === "online"
-                  ? "bg-green-500"
-                  : st === "idle"
-                    ? "bg-yellow-500"
-                    : st === "dnd"
-                      ? "bg-red-500"
-                      : "bg-gray-400";
-              };
-
               if (chars.length === 1) {
                 const c = chars[0]!;
                 const statusDetail = getConversationCharacterStatusDetail(c);
@@ -1440,7 +1430,7 @@ export function ConversationView({
                         </div>
                       )}
                       <span
-                        className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-[1.5px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
+                        className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-[1.5px] ring-[var(--border)] ${presenceDotClass(c.conversationStatus)}`}
                       />
                     </div>
                     <div className="flex flex-col leading-tight">
@@ -1487,7 +1477,7 @@ export function ConversationView({
                             </div>
                           )}
                           <span
-                            className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-[1px] ring-[var(--border)] ${statusColor(c.conversationStatus)}`}
+                            className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-[1px] ring-[var(--border)] ${presenceDotClass(c.conversationStatus)}`}
                           />
                         </button>
                       </div>
