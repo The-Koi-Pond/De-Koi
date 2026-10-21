@@ -21,6 +21,7 @@ import {
   parseFanficContinuityVerdicts,
   parseFanficRubricReply,
   readFanficQualityStore,
+  chooseFanficJudge,
   runFanficQualityCheck,
   scoreFanficMechanics,
   summarizeFanficRubric,
@@ -56,7 +57,7 @@ const injuryIssue = {
   explanation: "The hand heals overnight.",
 };
 
-function storageWith(chapters: string[], metadata: Record<string, unknown> = {}) {
+function storageWith(chapters: string[], metadata: Record<string, unknown> = {}, modelRouting?: unknown) {
   const records: Record<string, Record<string, unknown>> = {
     "chat-1": {
       id: "chat-1",
@@ -74,7 +75,13 @@ function storageWith(chapters: string[], metadata: Record<string, unknown> = {})
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats") return (records[id] ?? null) as T | null;
       if (entity === "connections") return (connections[id] ?? null) as T | null;
+      if (entity === "app-settings" && id === "model-routing" && modelRouting !== undefined) {
+        return { id, value: modelRouting } as T;
+      }
       return null;
+    },
+    async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+      return (entity === "connections" ? Object.values(connections) : []) as T[];
     },
     async listChatMessages<T = unknown>(): Promise<T[]> {
       return [
@@ -466,6 +473,40 @@ describe("runFanficQualityCheck", () => {
     expect(readFanficQualityStore(records["chat-1"].metadata).runs.map((saved) => saved.id)).not.toContain(run.id);
   });
 
+  it("judges with the fanfic judge route when no judge is picked, and with the pick when one is", async () => {
+    const routes = { version: 1, routes: { judge: "conn-2" } };
+    const replies = () => ({
+      rubric: [rubricReply, rubricReply, rubricReply],
+      continuity: ['{"issues": []}', '{"issues": []}'],
+      verify: [],
+    });
+    const routed = judgeLlm(replies());
+    const routedRun = await runFanficQualityCheck(
+      { storage: storageWith([chapterOne], {}, routes).storage, llm: routed },
+      { chatId: "chat-1" },
+    );
+    expect(routedRun.judge).toMatchObject({ connectionId: "conn-2", model: "judge-model" });
+    expect(routed.requests.every((entry) => entry.connectionId === "conn-2")).toBe(true);
+
+    const picked = judgeLlm(replies());
+    const pickedRun = await runFanficQualityCheck(
+      { storage: storageWith([chapterOne], {}, routes).storage, llm: picked },
+      { chatId: "chat-1", connectionId: "conn-1" },
+    );
+    expect(pickedRun.judge.connectionId).toBe("conn-1");
+  });
+
+  it("refuses to judge when the fanfic judge route is broken and no judge is picked", async () => {
+    const llm = judgeLlm({ rubric: [], continuity: [], verify: [] });
+    await expect(
+      runFanficQualityCheck(
+        { storage: storageWith([chapterOne], {}, { version: 1, routes: { judge: "gone" } }).storage, llm },
+        { chatId: "chat-1" },
+      ),
+    ).rejects.toThrow("The Fanfic judge helper is set to a connection that no longer exists.");
+    expect(llm.requests).toHaveLength(0);
+  });
+
   it("keeps a run another tab saved while this one was saving", async () => {
     const harness = storageWith([chapterOne], { fanficQuality: { runs: [savedRun("first")] } });
     harness.interfere(() => {
@@ -537,5 +578,70 @@ describe("fanficTextHolds", () => {
     expect(fanficTextHolds("A caféhe left the room.", "he left the room")).toBe(false);
     expect(fanficTextHolds("He left the rooms.", "he left the room")).toBe(false);
     expect(fanficTextHolds("anything", "")).toBe(false);
+  });
+});
+
+describe("chooseFanficJudge", () => {
+  const connections = [
+    { id: "conn-1", name: "Claude", model: "claude-opus-5-5" },
+    { id: "conn-2", name: "Judge", model: "judge-model" },
+    { id: "conn-3", name: "Blank", model: "" },
+  ];
+  const judgeIds = connections.map((connection) => connection.id);
+  const routing = (routes: Record<string, string>) => ({ version: 1 as const, routes });
+
+  it("keeps the fic's last judge so scores stay comparable", () => {
+    expect(
+      chooseFanficJudge({
+        lastJudgeId: "conn-1",
+        ficConnectionId: "conn-1",
+        judgeIds,
+        routing: routing({ judge: "conn-2" }),
+        connections,
+      }),
+    ).toEqual({ judgeId: "conn-1", routeProblem: null });
+  });
+
+  it("starts a fic without runs on the judge route", () => {
+    expect(
+      chooseFanficJudge({
+        lastJudgeId: null,
+        ficConnectionId: "conn-1",
+        judgeIds,
+        routing: routing({ judge: "conn-2" }),
+        connections,
+      }),
+    ).toEqual({ judgeId: "conn-2", routeProblem: null });
+  });
+
+  it("falls back to the fic's connection, then the first connection, only when nothing is routed", () => {
+    expect(
+      chooseFanficJudge({ lastJudgeId: null, ficConnectionId: "conn-1", judgeIds, routing: routing({}), connections }),
+    ).toEqual({
+      judgeId: "conn-1",
+      routeProblem: null,
+    });
+    expect(
+      chooseFanficJudge({ lastJudgeId: "deleted", ficConnectionId: null, judgeIds, routing: routing({}), connections }),
+    ).toEqual({
+      judgeId: "conn-1",
+      routeProblem: null,
+    });
+  });
+
+  it("picks nothing and says why when the judge route is broken", () => {
+    expect(
+      chooseFanficJudge({
+        lastJudgeId: null,
+        ficConnectionId: "conn-1",
+        judgeIds,
+        routing: routing({ judge: "conn-3" }),
+        connections,
+      }),
+    ).toEqual({
+      judgeId: null,
+      routeProblem:
+        'The Fanfic judge helper is set to "Blank", which has no model picked. Pick another connection, or "Same as today", in Connections → Helper Models.',
+    });
   });
 });

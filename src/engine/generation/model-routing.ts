@@ -12,12 +12,14 @@ import { boolish, readString, type JsonRecord } from "./runtime-records";
 
 export const MODEL_ROUTING_SETTINGS_ID = "model-routing";
 
-export const MODEL_ROUTE_TASKS = ["memory", "summaries"] as const;
+export const MODEL_ROUTE_TASKS = ["memory", "summaries", "habitCheck", "judge"] as const;
 export type ModelRouteTask = (typeof MODEL_ROUTE_TASKS)[number];
 
 export const MODEL_ROUTE_TASK_LABELS: Record<ModelRouteTask, string> = {
   memory: "Memory",
   summaries: "Summaries",
+  habitCheck: "Habit check",
+  judge: "Fanfic judge",
 };
 
 export interface ModelRoutingSettings {

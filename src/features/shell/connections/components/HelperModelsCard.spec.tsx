@@ -78,6 +78,8 @@ describe("HelperModelsCard", () => {
     expect(status("Memory")).toBe(
       "Same as today: Default for Agents (Agents • agent-model), else each chat's connection.",
     );
+    expect(status("Habit check")).toBe("Same as today: each chat's connection.");
+    expect(status("Fanfic judge")).toBe("Same as today: each fic's connection.");
     expect(Array.from(select("Memory").options).map((option) => option.textContent)).toEqual([
       "Same as today",
       "Strong • big-model",

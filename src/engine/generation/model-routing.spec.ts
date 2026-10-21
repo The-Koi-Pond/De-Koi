@@ -35,8 +35,10 @@ function routeError(run: () => unknown): ModelRouteError {
 describe("normalizeModelRoutingSettings", () => {
   it("keeps known tasks with a connection id and drops the rest", () => {
     expect(
-      normalizeModelRoutingSettings({ routes: { memory: " cheap ", summaries: "", replies: "strong", other: 3 } }),
-    ).toEqual({ version: 1, routes: { memory: "cheap" } });
+      normalizeModelRoutingSettings({
+        routes: { memory: " cheap ", summaries: "", habitCheck: "cheap", judge: "strong", replies: "strong", other: 3 },
+      }),
+    ).toEqual({ version: 1, routes: { memory: "cheap", habitCheck: "cheap", judge: "strong" } });
   });
 
   it("reads nothing routed from a missing or malformed value", () => {

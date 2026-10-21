@@ -1,18 +1,23 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Gauge, Loader2, Square, Trash2 } from "lucide-react";
 import { useChat } from "../../../catalog/chats/index";
 import { useConnections } from "../../../catalog/connections/index";
 import type { FanficQualityGroupId, FanficQualityRun } from "../../../../engine/contracts/types/fanfic";
+import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
 import {
   FANFIC_CONTINUITY_CATEGORY_LABELS,
   FANFIC_QUALITY_CRITERIA,
   FANFIC_QUALITY_GROUP_LABELS,
+  chooseFanficJudge,
   fanficTextKey,
   readFanficQualityStore,
   type FanficQualityPhase,
 } from "../../../../engine/modes/fanfic/quality";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
+import { modelRoutingApi, modelRoutingKeys } from "../../../../shared/api/model-routing-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
@@ -399,9 +404,30 @@ export function FanficQualityPanel({
     [connections],
   );
   const lastJudge = runs.at(-1)?.judge.connectionId ?? null;
-  const preferred = [lastJudge, connectionId].find((id) => id && judges.some((judge) => judge.id === id));
+  const routing = useQuery({ queryKey: modelRoutingKeys.settings, queryFn: modelRoutingApi.get });
+  // No judge is chosen until the helper routes load, so a run never starts on a judge the route would replace.
+  const choice = useMemo(
+    () =>
+      routing.data
+        ? chooseFanficJudge({
+            lastJudgeId: lastJudge,
+            ficConnectionId: connectionId,
+            judgeIds: judges.map((judge) => judge.id),
+            routing: routing.data,
+            connections: judges,
+          })
+        : {
+            judgeId: null,
+            routeProblem: routing.isError
+              ? toUserMessage(routing.error, { fallback: "Couldn't load your helper models. Pick a judge." })
+              : null,
+          },
+    [connectionId, judges, lastJudge, routing.data, routing.error, routing.isError],
+  );
   const [judgeId, setJudgeId] = useState<string | null>(null);
-  const activeJudge = judgeId ?? preferred ?? judges[0]?.id ?? null;
+  const activeJudge = judgeId ?? choice.judgeId;
+  // A routed judge can be the Local Model while it is not listed; keep it visible in the picker.
+  const unlistedJudge = activeJudge && !judges.some((judge) => judge.id === activeJudge) ? activeJudge : null;
   const [label, setLabel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { run, remove, phase, stop } = useFanficQuality(chatId);
@@ -459,12 +485,23 @@ export function FanficQualityPanel({
             disabled={run.isPending}
           >
             {judges.length === 0 && <option value="">Add a text model connection first</option>}
+            {judges.length > 0 && !activeJudge && <option value="">Pick a judge</option>}
             {judges.map((judge) => (
               <option key={judge.id} value={judge.id}>
                 {judge.name || judge.model || judge.id}
               </option>
             ))}
+            {unlistedJudge && (
+              <option value={unlistedJudge}>
+                {unlistedJudge === LOCAL_SIDECAR_CONNECTION_ID ? "Local Model" : unlistedJudge}
+              </option>
+            )}
           </select>
+          {!judgeId && choice.routeProblem && (
+            <p role="alert" className="text-xs text-[var(--destructive)]">
+              {choice.routeProblem}
+            </p>
+          )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <label htmlFor="fanfic-quality-label" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">

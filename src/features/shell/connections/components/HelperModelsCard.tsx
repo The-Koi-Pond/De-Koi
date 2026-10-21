@@ -17,6 +17,8 @@ import { boolish, readString, type JsonRecord } from "../../../../engine/generat
 const TASK_SCOPE: Record<ModelRouteTask, string> = {
   memory: "Saving memories, checking them, and cleanup.",
   summaries: "Story recaps, daily chat summaries, and Summarize chat.",
+  habitCheck: "Spotting the habits a character's replies keep repeating.",
+  judge: "The judge a fic's quality check starts on. A fic with earlier runs keeps its last judge.",
 };
 
 function connectionLabel(connection: JsonRecord): string {
@@ -27,7 +29,8 @@ function connectionLabel(connection: JsonRecord): string {
 
 /** What an unrouted task uses, in words: the rule it followed before helper routing existed. */
 function sameAsTodayText(task: ModelRouteTask, agentDefault: JsonRecord | null): string {
-  if (!agentDefault) return "Same as today: each chat's connection.";
+  if (task === "judge") return "Same as today: each fic's connection.";
+  if (task === "habitCheck" || !agentDefault) return "Same as today: each chat's connection.";
   if (task === "memory") {
     return `Same as today: Default for Agents (${connectionLabel(agentDefault)}), else each chat's connection.`;
   }

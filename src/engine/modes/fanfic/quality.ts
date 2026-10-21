@@ -15,6 +15,12 @@ import type {
 } from "../../contracts/types/fanfic";
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import { parseJsonObject } from "../../core/json";
+import {
+  isModelRouteError,
+  resolveModelRoute,
+  resolveStoredModelRoute,
+  type ModelRoutingSettings,
+} from "../../generation/model-routing";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { detectFanficAiIsms } from "./ai-isms";
 import {
@@ -761,9 +767,34 @@ const RUBRIC_MAX_TOKENS = 4000;
 const CONTINUITY_MAX_TOKENS = 6000;
 const VERIFY_MAX_TOKENS = 4000;
 
+/**
+ * The judge the quality panel starts on: the fic's last judge (so scores stay comparable), then the fanfic judge
+ * helper route, then the fic's connection, then the first text connection. A broken route picks nothing and says
+ * why, instead of quietly starting on another connection.
+ */
+export function chooseFanficJudge(input: {
+  lastJudgeId: string | null;
+  ficConnectionId: string | null;
+  judgeIds: readonly string[];
+  routing: ModelRoutingSettings;
+  connections: readonly JsonRecord[];
+}): { judgeId: string | null; routeProblem: string | null } {
+  const listed = (id: string | null): id is string => !!id && input.judgeIds.includes(id);
+  if (listed(input.lastJudgeId)) return { judgeId: input.lastJudgeId, routeProblem: null };
+  try {
+    const routed = resolveModelRoute("judge", input.routing, input.connections);
+    if (routed) return { judgeId: readString(routed.id).trim(), routeProblem: null };
+  } catch (error) {
+    if (isModelRouteError(error)) return { judgeId: null, routeProblem: error.message };
+    throw error;
+  }
+  if (listed(input.ficConnectionId)) return { judgeId: input.ficConnectionId, routeProblem: null };
+  return { judgeId: input.judgeIds[0] ?? null, routeProblem: null };
+}
+
 export interface RunFanficQualityInput {
   chatId: string;
-  /** The judge; defaults to the fic's own connection. */
+  /** The judge; defaults to the fanfic judge helper route, then the fic's own connection. */
   connectionId?: string | null;
   label?: string;
 }
@@ -784,7 +815,11 @@ export async function runFanficQualityCheck(
   if (readString(chat.mode) !== "fanfic") throw new Error("Quality checks only run for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
+  const routedJudge = readString(input.connectionId).trim()
+    ? null
+    : await resolveStoredModelRoute(deps.storage, "judge");
+  const connectionId =
+    readString(input.connectionId).trim() || readString(routedJudge?.id).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection to judge with.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection))
