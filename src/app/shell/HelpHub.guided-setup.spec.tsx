@@ -8,7 +8,8 @@ describe("HelpHub guided setup action", () => {
     const html = renderToStaticMarkup(<HelpHub />);
 
     expect(html).toContain("Show me around");
-    expect(html).toContain("readiness checklist");
+    expect(html).toContain("Get started");
+    expect(html).not.toContain("can be resumed anytime");
     expect(html).not.toContain("Replay onboarding");
   });
 });
