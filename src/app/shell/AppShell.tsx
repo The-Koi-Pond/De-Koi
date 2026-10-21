@@ -56,6 +56,7 @@ import { setAppShellLeftSidebarPanel, type AppShellLeftSidebarPanel } from "./ap
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
+import { autonomousUnreadClearKey } from "./app-shell-autonomous-unread";
 import { shouldUseLowPowerShellMode, syncShellRootAttributes } from "./shell-performance";
 import { loadModeSurface } from "./mode-surface-loader";
 import { requestIdleWork } from "./idle-work";
@@ -824,20 +825,29 @@ export function AppShell() {
   useDiscoverHistoryLifecycle(discoverOpen, closeDiscoverFromHistory);
 
   useEffect(() => {
-    if (!activeChatId || isClearingAutonomousUnread) return;
-    const metadata = parseChatMetadata(activeChat?.metadata);
-    const unreadCount = typeof metadata.autonomousUnreadCount === "number" ? metadata.autonomousUnreadCount : 0;
-    const persistedUnread = unreadCount > 0;
-    if (!persistedUnread && !useChatStore.getState().unreadCounts.has(activeChatId)) return;
-    const clearKey = `${activeChatId}:${unreadCount}:${metadata.autonomousUnreadAt ?? ""}`;
-    if (lastAutonomousUnreadClearRef.current === clearKey) return;
+    const clearKey = autonomousUnreadClearKey({
+      activeChatId,
+      isPageActive,
+      isClearing: isClearingAutonomousUnread,
+      metadata: parseChatMetadata(activeChat?.metadata),
+      hasLocalUnread: activeChatId ? useChatStore.getState().unreadCounts.has(activeChatId) : false,
+      lastClearKey: lastAutonomousUnreadClearRef.current,
+    });
+    if (!activeChatId || !clearKey) return;
     clearUnread(activeChatId);
     clearAutonomousUnread(activeChatId, {
       onSuccess: () => {
         lastAutonomousUnreadClearRef.current = clearKey;
       },
     });
-  }, [activeChat?.metadata, activeChatId, clearAutonomousUnread, clearUnread, isClearingAutonomousUnread]);
+  }, [
+    activeChat?.metadata,
+    activeChatId,
+    clearAutonomousUnread,
+    clearUnread,
+    isClearingAutonomousUnread,
+    isPageActive,
+  ]);
 
   const startSidebarResize = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
