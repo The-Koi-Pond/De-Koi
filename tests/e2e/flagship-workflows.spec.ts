@@ -245,7 +245,8 @@ async function createConversation(page: import("@playwright/test").Page) {
     .selectOption(connection.id);
   await page.getByRole("button", { name: "Start Chatting" }).click();
   await expect(page.getByPlaceholder(/Message/)).toBeVisible();
-  await page.locator("div.absolute.inset-0.z-40").click({ position: { x: 10, y: 10 } });
+  // Setup lands straight on the chat; Chat Settings (and its backdrop) must stay closed.
+  await expect(page.locator("div.absolute.inset-0.z-40")).toHaveCount(0);
 }
 
 test("conversation can be created, streamed, retried, and restored after reload", async ({ page }) => {
