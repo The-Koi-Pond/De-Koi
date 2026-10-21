@@ -1,5 +1,15 @@
 ﻿import type { ReactNode } from "react";
-import { Bug, ClipboardList, Compass, FileQuestion, HeartHandshake, Info, Keyboard, RotateCcw } from "lucide-react";
+import {
+  Bug,
+  ClipboardList,
+  Compass,
+  FileQuestion,
+  HeartHandshake,
+  Info,
+  Keyboard,
+  Rocket,
+  RotateCcw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { APP_VERSION } from "../../engine/contracts/constants/defaults";
 import { SUPPORT_LINKS } from "../../shared/config/support-links";
@@ -7,6 +17,8 @@ import { openExternalUrl } from "../../shared/api/external-link-api";
 import { openBugReport } from "../../shared/lib/support-report";
 import { buildSlashHelpText } from "../../shared/lib/slash-commands";
 import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
+import { useChatStore } from "../../shared/stores/chat.store";
+import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 
 function HelpAction({
@@ -38,6 +50,16 @@ function HelpAction({
 }
 
 export function HelpHub() {
+  // Home shows the chat-type cards and, while setup is unfinished, the setup checklist.
+  const getStarted = () => {
+    const ui = useUIStore.getState();
+    ui.closeRightPanel();
+    ui.closeAllDetails();
+    useChatStore.getState().setActiveChatId(null);
+    window.dispatchEvent(new CustomEvent(DISCOVERY_APP_EVENT, { detail: { type: "go-home" } }));
+    const journey = useSetupJourneyStore.getState();
+    if (journey.intent && !journey.intent.completed) journey.resume();
+  };
   const openHealth = () => {
     const ui = useUIStore.getState();
     ui.openRightPanel("settings");
@@ -79,6 +101,12 @@ export function HelpHub() {
     <div className="p-3">
       <div className="grid gap-3">
         <HelpAction
+          icon={<Rocket size="1rem" aria-hidden />}
+          title="Get started"
+          description="Pick a chat type, connect a model and add a character, step by step. Picks up where you left off if setup isn't finished."
+          onClick={getStarted}
+        />
+        <HelpAction
           icon={<Compass size="1rem" aria-hidden />}
           title="Find a feature"
           description="Search De-Koi by what you want to do and jump to the tool that owns it."
@@ -99,7 +127,7 @@ export function HelpHub() {
         <HelpAction
           icon={<RotateCcw size="1rem" aria-hidden />}
           title="Show me around"
-          description="Take the optional app tour. The readiness checklist handles setup and can be resumed anytime."
+          description="Take the optional tour of De-Koi's main screens. Use Get started above to set up your first chat."
           onClick={replayOnboarding}
         />
         {SUPPORT_LINKS.docsUrl && (
