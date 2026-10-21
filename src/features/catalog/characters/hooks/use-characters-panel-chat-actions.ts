@@ -9,6 +9,7 @@ import { normalizeChatCharacterIds } from "../../../../shared/lib/chat-display";
 import type { CharacterFirstMessageConfirmation } from "../components/CharacterFirstMessageDialog";
 import { type CharacterRow, type ParsedCharacterRow } from "../lib/characters-panel-model";
 import { useStartChatFromCharacter } from "./use-start-chat-from-character";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function useCharactersPanelChatActions() {
   const activeChat = useChatStore((state) => state.activeChat);
@@ -35,7 +36,7 @@ export function useCharactersPanelChatActions() {
         parsed: character.data ?? { name: "Unknown", description: "" },
       };
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load character details.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't load character details. Try again." }));
       return null;
     }
   }, []);
@@ -193,7 +194,7 @@ export function useCharactersPanelChatActions() {
           queryClient.invalidateQueries({ queryKey: chatKeys.messages(confirmation.chatId) });
         }
       } catch {
-        toast.error("Failed to add first message");
+        toast.error("Couldn't add the first message. Try again.");
       } finally {
         setFirstMesConfirm(null);
       }

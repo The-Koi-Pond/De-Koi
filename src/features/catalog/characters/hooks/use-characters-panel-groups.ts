@@ -8,6 +8,7 @@ import {
 } from "../../lib/group-membership-move";
 import { useCreateGroup, useUpdateGroup } from "./use-characters";
 import type { ParsedGroupRow } from "../lib/characters-panel-model";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function useCharactersPanelGroups() {
   const createGroup = useCreateGroup();
@@ -47,7 +48,7 @@ export function useCharactersPanelGroups() {
     } catch (error) {
       setNewGroupName(previousName);
       setCreatingGroup(true);
-      toast.error(error instanceof Error ? error.message : "Failed to create character folder.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't create character folder. Try again." }));
     }
   }, [newGroupName, createGroup]);
 
@@ -64,7 +65,7 @@ export function useCharactersPanelGroups() {
       } catch (error) {
         setEditingGroupId(previousEditingGroupId ?? groupId);
         setEditGroupName(previousEditGroupName);
-        toast.error(error instanceof Error ? error.message : "Failed to rename character folder.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't rename character folder. Try again." }));
       }
     },
     [editGroupName, editingGroupId, updateGroup],

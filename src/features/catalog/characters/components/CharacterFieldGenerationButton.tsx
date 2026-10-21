@@ -12,6 +12,7 @@ import {
   type CharacterFieldGenerationInput,
   type CharacterFieldGenerationValue,
 } from "../lib/character-field-generation";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type CharacterFieldGenerationButtonProps = CharacterFieldGenerationInput & {
   field: CharacterFieldGenerationField;
@@ -62,7 +63,7 @@ export function CharacterFieldGenerationButton({
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        toast.error(err instanceof Error ? err.message : `${label} generation failed.`);
+        toast.error(toUserMessage(err, { fallback: `${label} generation failed. Try again.` }));
       }
     } finally {
       if (abortRef.current === abort) {

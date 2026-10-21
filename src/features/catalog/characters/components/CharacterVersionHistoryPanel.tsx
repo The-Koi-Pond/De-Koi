@@ -17,6 +17,7 @@ import {
   getVersionFieldValue,
   getVersionTitle,
 } from "../lib/character-editor-model";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function CharacterVersionHistoryPanel({
   characterId,
@@ -49,7 +50,7 @@ export function CharacterVersionHistoryPanel({
       toast.success(`Restored ${getVersionTitle(version)}.`);
       setSelectedVersion(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restore character version.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't restore character version. Try again." }));
     }
   };
 
@@ -66,7 +67,7 @@ export function CharacterVersionHistoryPanel({
       toast.success(`Deleted ${getVersionTitle(version)}.`);
       setSelectedVersion((current) => (current?.id === version.id ? null : current));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete character version.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't delete character version. Try again." }));
     }
   };
 
@@ -86,7 +87,7 @@ export function CharacterVersionHistoryPanel({
       await setPinned.mutateAsync({ characterId, versionId: version.id, pinned });
       toast.success(pinned ? "Pinned version." : "Unpinned version.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update version pin.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't update version pin. Try again." }));
     }
   };
 

@@ -11,6 +11,7 @@ import { Sparkles, Loader2, Wand2, CheckCircle, AlertCircle, ChevronDown, User, 
 import { DekiWorkingWindow } from "../../../../../shared/components/ui/DekiWorkingWindow";
 import { generatePersonaMaker } from "../../../../../engine/generation/makers";
 import { llmApi } from "../../../../../shared/api/llm-api";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 interface Props {
   open: boolean;
@@ -85,7 +86,7 @@ export function PersonaMakerModal({ open, onClose }: Props) {
       else setError("Generated text wasn't valid JSON. You can try again.");
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setError(err instanceof Error ? err.message : "Generation failed");
+        setError(toUserMessage(err, { fallback: "Generation failed. Try again." }));
       }
     } finally {
       setStreaming(false);

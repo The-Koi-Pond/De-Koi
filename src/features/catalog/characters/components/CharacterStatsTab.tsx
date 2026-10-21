@@ -7,6 +7,7 @@ import { generateClientId } from "../../../../shared/lib/utils";
 import { DEFAULT_RPG_STATS } from "../lib/character-editor-model";
 import { generateCharacterRpgStatsConfig } from "../lib/character-rpg-stats-generation";
 import { CharacterEditorSectionHeader } from "./CharacterEditorSectionHeader";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function CharacterStatsTab({
   formData,
@@ -60,7 +61,7 @@ export function CharacterStatsTab({
       });
       updateExtension("rpgStats", generated);
     } catch (err) {
-      setGenerationError(err instanceof Error ? err.message : "RPG stats generation failed");
+      setGenerationError(toUserMessage(err, { fallback: "RPG stats generation failed. Try again." }));
     } finally {
       setGeneratingStats(false);
     }

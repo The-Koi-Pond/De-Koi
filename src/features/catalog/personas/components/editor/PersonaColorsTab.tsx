@@ -6,6 +6,7 @@ import { ColorPicker } from "../../../../../shared/components/ui/ColorPicker";
 import { cn } from "../../../../../shared/lib/utils";
 import type { PersonaFormData } from "../../lib/persona-editor-model";
 import { PersonaEditorSectionHeader } from "./PersonaEditorSectionHeader";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 export function PersonaColorsTab({
   formData,
@@ -28,7 +29,7 @@ export function PersonaColorsTab({
       updateField("nameColor", nameColor);
       updateField("boxColor", boxColor);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Avatar color extraction failed.";
+      const message = toUserMessage(error, { fallback: "Avatar color extraction failed. Try again." });
       setExtractError(message);
       toast.error(message);
     } finally {

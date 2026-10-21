@@ -243,7 +243,7 @@ export function CharacterEditor() {
       return true;
     } catch (err) {
       console.error("[CharacterEditor] Save failed:", err);
-      toast.error(getErrorMessage(err, "Failed to save character. Check the console for details."));
+      toast.error(getErrorMessage(err, "Couldn't save character. Try again."));
       return false;
     } finally {
       setSaving(false);
@@ -294,7 +294,7 @@ export function CharacterEditor() {
           if (behavioralInterpretationRevisionRef.current === revision) {
             setBehavioralInterpretation(previous);
           }
-          toast.error(getErrorMessage(error, "Failed to update the behavioral interpretation."));
+          toast.error(getErrorMessage(error, "Couldn't update the behavioral interpretation. Try again."));
         });
     },
     [behavioralInterpretation, characterId, markDirty, updateCharacter],

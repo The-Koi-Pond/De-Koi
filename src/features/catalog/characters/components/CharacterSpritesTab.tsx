@@ -110,7 +110,7 @@ export function CharacterSpritesTab({
       await deleteSprite.mutateAsync({ characterId, expression: deleteSpriteRequest.expression });
       setDeleteSpriteRequest(null);
     } catch (error) {
-      toast.error(getErrorMessage(error, "Failed to delete sprite."));
+      toast.error(getErrorMessage(error, "Couldn't delete sprite. Try again."));
     } finally {
       setDeletingSprites(null);
     }
@@ -132,7 +132,7 @@ export function CharacterSpritesTab({
       }
       if (failedCount > 0) {
         toast.warning(
-          `Deleted ${deletedCount} sprite${deletedCount === 1 ? "" : "s"}; ${failedCount} failed to delete.`,
+          `Deleted ${deletedCount} sprite${deletedCount === 1 ? "" : "s"}; ${failedCount} couldn't be deleted. Try those again.`,
         );
       } else {
         toast.success(`Deleted ${deletedCount} sprite${deletedCount === 1 ? "" : "s"}.`);
@@ -153,7 +153,7 @@ export function CharacterSpritesTab({
       try {
         await downloadSpriteFile(sprite);
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to download sprite."));
+        toast.error(getErrorMessage(error, "Couldn't download sprite. Try again."));
       }
     },
     [downloadSpriteFile],
@@ -177,7 +177,7 @@ export function CharacterSpritesTab({
             : `Exported ${spritesToExport.length} ${category === "full-body" ? "full-body" : "expression"} sprite${spritesToExport.length === 1 ? "" : "s"} as an archive.`,
         );
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to export sprites."));
+        toast.error(getErrorMessage(error, "Couldn't export sprites. Try again."));
       } finally {
         setExporting(false);
       }
@@ -213,10 +213,12 @@ export function CharacterSpritesTab({
         toast.success(`Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`);
       }
       if (result.failed.length > 0) {
-        toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be cleaned.`);
+        toast.warning(
+          `${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} couldn't be cleaned. Try those again.`,
+        );
       }
     } catch (err) {
-      toast.error(getErrorMessage(err, "Failed to clean saved sprites."));
+      toast.error(getErrorMessage(err, "Couldn't clean saved sprites. Try again."));
     } finally {
       setCleaningSprites(false);
     }
@@ -236,12 +238,14 @@ export function CharacterSpritesTab({
         );
       }
       if (result.failed.length > 0) {
-        toast.warning(`${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} could not be restored.`);
+        toast.warning(
+          `${result.failed.length} sprite${result.failed.length === 1 ? "" : "s"} couldn't be restored. Try those again.`,
+        );
       } else {
         setLastCleanupRestorePointId(null);
       }
     } catch (err) {
-      toast.error(getErrorMessage(err, "Failed to restore sprite cleanup point."));
+      toast.error(getErrorMessage(err, "Couldn't restore sprite cleanup point. Try again."));
     } finally {
       setRestoringCleanup(false);
     }
@@ -261,7 +265,7 @@ export function CharacterSpritesTab({
         toast.success(`Framed ${displayExpression(framingSprite.expression)} sprite.`);
         setFramingSprite(null);
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to save framed sprite."));
+        toast.error(getErrorMessage(error, "Couldn't save framed sprite. Try again."));
       } finally {
         setSavingFrame(false);
       }
@@ -283,7 +287,7 @@ export function CharacterSpritesTab({
         toast.success(`Cleaned ${displayExpression(wandCleanupSprite.expression)} sprite.`);
         setWandCleanupSprite(null);
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to save cleaned sprite."));
+        toast.error(getErrorMessage(error, "Couldn't save cleaned sprite. Try again."));
       } finally {
         setSavingWandCleanup(false);
       }

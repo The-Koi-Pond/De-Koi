@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { generateClientId } from "../../../../shared/lib/utils";
 import { useRemoveAvatar, useUploadAvatar } from "./use-characters";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type MutableRef<T> = {
   current: T;
@@ -109,7 +110,7 @@ export function useCharacterEditorAvatar({
           await uploadAvatar.mutateAsync({ id: uploadCharacterId, avatar: dataUrl });
         } catch (error) {
           if (!isCurrentAvatarUpload(uploadToken, uploadCharacterId)) return;
-          toast.error(error instanceof Error ? error.message : "Failed to upload avatar.");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload avatar. Try again." }));
           setAvatarPreview(fallbackAvatarPreview);
           if (shouldClearAvatarCrop) {
             setExtensionValue("avatarCrop", fallbackAvatarCrop);
@@ -123,14 +124,14 @@ export function useCharacterEditorAvatar({
       };
       reader.onerror = () => {
         if (!isCurrentAvatarUpload(uploadToken, uploadCharacterId)) return;
-        toast.error("Failed to read avatar image.");
+        toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
         finishAvatarUpload(uploadToken, uploadCharacterId);
       };
       event.target.value = "";
       try {
         reader.readAsDataURL(file);
       } catch {
-        toast.error("Failed to read avatar image.");
+        toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
         finishAvatarUpload(uploadToken, uploadCharacterId);
       }
     },
@@ -242,7 +243,7 @@ export function useCharacterEditorAvatar({
       }
     } catch (error) {
       if (!isCurrentAvatarUpload(uploadToken, uploadCharacterId)) return;
-      toast.error(error instanceof Error ? error.message : "Failed to remove avatar.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't remove avatar. Try again." }));
       setAvatarPreview(fallbackAvatarPreview);
       if (shouldClearAvatarCrop) {
         setExtensionValue("avatarCrop", fallbackAvatarCrop);

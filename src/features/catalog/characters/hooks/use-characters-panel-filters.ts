@@ -65,9 +65,9 @@ export function useCharactersPanelFilters(parsedCharacters: ParsedCharacterRow[]
         return;
       }
       if (successCount > 0) {
-        toast.warning(`Removed tag from ${successCount} of ${affected.length} characters.`);
+        toast.warning(`Removed tag from ${successCount} of ${affected.length} characters. Try again for the rest.`);
       } else {
-        toast.error("Failed to remove tag from any characters.");
+        toast.error("Couldn't remove the tag. Try again.");
       }
     },
     [parsedCharacters, updateCharacter],

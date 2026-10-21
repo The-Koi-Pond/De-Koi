@@ -9,6 +9,7 @@ import {
 } from "../../../../engine/entities/character-card-lint";
 import { useUpdateCharacter } from "../hooks/use-characters";
 import type { CardLintTarget } from "../lib/card-lint-target";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 const SHOWN_EDITS = 3;
 
@@ -46,7 +47,7 @@ export function CardLintReview({ characterId, name, data: savedData }: CardLintT
       setFixedCount((count) => count + 1);
     } catch (fixError) {
       setError(
-        `Couldn't save the fix: ${fixError instanceof Error ? fixError.message : "unknown error"}. The card is unchanged.`,
+        `${toUserMessage(fixError, { fallback: "Couldn't save the fix." })} The card is unchanged, so try the fix again.`,
       );
     } finally {
       setBusyId(null);

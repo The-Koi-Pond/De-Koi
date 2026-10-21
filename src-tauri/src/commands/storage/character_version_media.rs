@@ -521,7 +521,7 @@ mod tests {
         let malformed_error =
             normalize_character_version_media(&root, &mut malformed, &mut created_files)
                 .expect_err("malformed image should fail");
-        assert_eq!(malformed_error.code, "invalid_input");
+        assert_eq!(malformed_error.code, "invalid_image");
 
         let mut bytes = general_purpose::STANDARD.decode(TINY_PNG).unwrap();
         bytes.resize(MAX_CHARACTER_VERSION_IMAGE_BYTES + 1, 0);
@@ -553,7 +553,7 @@ mod tests {
         let error = normalize_character_version_media(&root, &mut record, &mut created_files)
             .expect_err("truncated image should fail full decode");
 
-        assert_eq!(error.code, "invalid_input");
+        assert_eq!(error.code, "invalid_image");
         assert!(created_files.is_empty());
     }
 

@@ -11,7 +11,7 @@ function normalize(error: unknown): ApiError {
     const status =
       code === "not_found"
         ? 404
-        : code === "invalid_input"
+        : code === "invalid_input" || code === "invalid_image"
           ? 400
           : code === "connection_in_use"
             ? 409

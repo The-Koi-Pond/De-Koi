@@ -2,6 +2,7 @@ import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { parseGameJsonish } from "../shared/parsing-jsonish";
+import { userFacingError } from "../shared/user-facing-error";
 
 type LorebookMakerEntry = {
   name?: string;
@@ -411,7 +412,12 @@ async function* runMakerRequest(
         yield* emitContentParts(token);
       }
     } else if (chunk.type === "error") {
-      throw new Error(llmStreamErrorMessage(chunk));
+      // Keep the provider's code so its worded message (which names the fix) reaches the user.
+      const data = chunk.data && typeof chunk.data === "object" ? (chunk.data as { code?: unknown }) : {};
+      throw Object.assign(
+        new Error(llmStreamErrorMessage(chunk)),
+        typeof data.code === "string" ? { code: data.code } : {},
+      );
     }
   }
   for (const part of thinkingParser.flush()) {
@@ -485,8 +491,8 @@ function normalizeLorebookEntry(entry: LorebookMakerEntry): LorebookMakerEntry {
 
 function assertReady(prompt: string, connectionId: string, signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-  if (!prompt.trim()) throw new Error("Prompt is required.");
-  if (!connectionId.trim()) throw new Error("Connection is required.");
+  if (!prompt.trim()) throw userFacingError("Describe what to make first.");
+  if (!connectionId.trim()) throw userFacingError("Pick a connection to generate with first.");
 }
 
 function clampInteger(value: number, min: number, max: number): number {

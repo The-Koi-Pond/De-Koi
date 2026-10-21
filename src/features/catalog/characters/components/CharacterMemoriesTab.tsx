@@ -40,6 +40,7 @@ import {
   normalizeChatMemoriesForCharacter,
   normalizeCharacterMemoryImportPackage,
 } from "../lib/character-memory-model";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type MemoryFilter = "active" | "pinned" | "deleted" | "all";
 
@@ -159,7 +160,7 @@ export function CharacterMemoriesTab({
       }
     } catch (error) {
       if (characterIdRef.current !== requestCharacterId) return;
-      toast.error(error instanceof Error ? error.message : "Could not add memory.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't add memory. Try again." }));
     }
   };
 
@@ -174,7 +175,7 @@ export function CharacterMemoriesTab({
       toast.success("Memory added and ready for recall");
     } catch (error) {
       if (characterIdRef.current !== requestCharacterId) return;
-      toast.error(error instanceof Error ? error.message : "Recall indexing still failed. Try again.");
+      toast.error(toUserMessage(error, { fallback: "Recall indexing still failed. Try again." }));
     }
   };
 
@@ -214,7 +215,7 @@ export function CharacterMemoriesTab({
         filename: `${safeFilename(characterName)}-memories.json`,
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not export memories.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't export memories. Try again." }));
     }
   };
 
@@ -227,7 +228,7 @@ export function CharacterMemoriesTab({
       await importMemories.mutateAsync(imported);
       toast.success(`Imported ${imported.memories.length} ${imported.memories.length === 1 ? "memory" : "memories"}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not import memories.";
+      const message = toUserMessage(error, { fallback: "Couldn't import memories. Try again." });
       toast.error(message);
       await showAlertDialog({
         title: "Memory import failed",

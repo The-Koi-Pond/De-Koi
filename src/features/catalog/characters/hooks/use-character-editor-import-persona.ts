@@ -8,6 +8,7 @@ import {
 } from "../../../../shared/lib/tracker-card-colors";
 import { urlToDataUrl } from "../../../../shared/lib/url-blob";
 import { useCreatePersona, useUploadPersonaAvatar } from "../../personas/index";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function useCharacterEditorImportPersona({
   avatarPreview,
@@ -79,7 +80,7 @@ export function useCharacterEditorImportPersona({
           });
         } catch (error) {
           console.warn("[CharacterEditor] Failed to copy avatar to imported persona:", error);
-          toast.error("Persona imported, but the avatar could not be copied.");
+          toast.error("Persona imported, but the avatar couldn't be copied. Add it again in the persona's editor.");
           return;
         }
       }
@@ -87,7 +88,7 @@ export function useCharacterEditorImportPersona({
       toast.success(`Imported "${personaName}" as a persona.`);
     } catch (error) {
       console.error("[CharacterEditor] Failed to import character as persona:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to import character as persona.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't import character as persona. Try again." }));
     }
   }, [avatarPreview, createPersona, formData, uploadPersonaAvatar]);
 

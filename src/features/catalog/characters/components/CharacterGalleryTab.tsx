@@ -15,6 +15,7 @@ import {
   useTagCharacterGalleryImage,
   useUploadCharacterGalleryImage,
 } from "../hooks/use-characters";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function CharacterGalleryTab({ characterId, characterName }: { characterId: string; characterName?: string }) {
   const { data: images, isLoading } = useCharacterGalleryImages(characterId);
@@ -73,11 +74,11 @@ export function CharacterGalleryTab({ characterId, characterName }: { characterI
       upload.mutate(files, {
         onSuccess: ({ failures }) => {
           if (failures.length > 0) {
-            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
+            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)} Try those again.`);
           }
         },
         onError: (error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to upload character gallery images.");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload character gallery images. Try again." }));
         },
       });
     },

@@ -24,6 +24,7 @@ import {
   type ConnectionRow,
   type GeneratedCharacterData,
 } from "../lib/character-maker-model";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 interface Props {
   open: boolean;
@@ -107,7 +108,7 @@ export function CharacterMakerModal({ open, onClose }: Props) {
       } else setError("Generated text wasn't valid JSON. You can try again.");
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setError(err instanceof Error ? err.message : "Generation failed");
+        setError(toUserMessage(err, { fallback: "Generation failed. Try again." }));
       }
     } finally {
       setStreaming(false);

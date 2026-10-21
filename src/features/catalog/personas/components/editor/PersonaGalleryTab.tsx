@@ -15,6 +15,7 @@ import {
   useTagPersonaGalleryImage,
   useUploadPersonaGalleryImage,
 } from "../../hooks/use-personas";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 export function PersonaGalleryTab({ personaId, personaName }: { personaId: string; personaName?: string }) {
   const { data: images, isLoading } = usePersonaGalleryImages(personaId);
@@ -73,11 +74,11 @@ export function PersonaGalleryTab({ personaId, personaName }: { personaId: strin
       upload.mutate(files, {
         onSuccess: ({ failures }) => {
           if (failures.length > 0) {
-            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
+            toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)} Try those again.`);
           }
         },
         onError: (error) => {
-          toast.error(error instanceof Error ? error.message : "Failed to upload persona gallery images.");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload persona gallery images. Try again." }));
         },
       });
     },
