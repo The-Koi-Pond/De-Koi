@@ -66,6 +66,21 @@ impl DekiModelMessage {
             images: Vec::new(),
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn role(&self) -> &str {
+        self.role
+    }
+
+    #[cfg(test)]
+    pub(super) fn content(&self) -> &str {
+        &self.content
+    }
+
+    #[cfg(test)]
+    pub(super) fn images(&self) -> &[String] {
+        &self.images
+    }
 }
 
 impl DekiModelClient {

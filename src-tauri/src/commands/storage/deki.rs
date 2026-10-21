@@ -38,6 +38,9 @@ mod memory_edit;
 mod model_client;
 #[path = "deki/prompt.rs"]
 mod prompt;
+#[cfg(test)]
+#[path = "deki/prompt_snapshot.rs"]
+mod prompt_snapshot;
 #[path = "deki/protocol.rs"]
 mod protocol;
 #[path = "deki/source_edit.rs"]

@@ -57,6 +57,10 @@ pages, or screenshots for the current desktop/runtime architecture.
 - At least one install from the previous release has updated to the draft's
   files (or the release notes say this was not tested).
 - The draft is marked to become Latest. Pre-alpha releases never are.
+- If any PR since the last release changed prompt or generation behavior, one
+  quality run per affected mode (1 game + 1 judge pass, release candidate vs
+  the previous release tag) shows no score down 1.0 or more. List the scores in
+  the release notes draft.
 
 ## Screenshots
 

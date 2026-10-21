@@ -71,9 +71,28 @@ function fanficGuide(state: FanficState, chapters: FanficChapterRef[], input: St
 }
 
 /**
- * Writes the next chapter, or a new version of an existing one, through the shared generation pipeline.
- * The chapter instruction rides as a generation guide, so no request text is saved into the fic.
+ * The shared-pipeline input for one fanfic call. The chapter instruction rides as a generation guide,
+ * so no request text is saved into the fic.
  */
+export function fanficGenerationInput(
+  state: FanficState,
+  messages: readonly JsonRecord[],
+  input: StartFanficGenerationInput,
+): StartGenerationInput {
+  const { guide, source } = fanficGuide(state, fanficChapterRefs(messages), input);
+  const { fanficKind: _kind, notes: _notes, ...generationInput } = input;
+  return {
+    ...generationInput,
+    message: undefined,
+    userMessage: null,
+    connectionId: readString(input.connectionId).trim() || null,
+    generationGuide: guide,
+    generationGuideSource: source,
+    parameters: { ...parseRecord(input.parameters), maxTokens: fanficChapterMaxTokens(state.request) },
+  };
+}
+
+/** Writes the next chapter, or a new version of an existing one, through the shared generation pipeline. */
 export async function* startFanficGeneration(
   deps: GenerationEngineDeps,
   input: StartFanficGenerationInput,
@@ -91,21 +110,6 @@ export async function* startFanficGeneration(
     throw new Error("A new chapter cannot target an existing one.");
   }
   const messages = await deps.storage.listChatMessages<JsonRecord>(chatId);
-  const chapters = fanficChapterRefs(messages);
-  const { guide, source } = fanficGuide(state, chapters, input);
-  const { fanficKind: _kind, notes: _notes, ...generationInput } = input;
 
-  yield* startGeneration(
-    deps,
-    {
-      ...generationInput,
-      message: undefined,
-      userMessage: null,
-      connectionId: readString(input.connectionId).trim() || null,
-      generationGuide: guide,
-      generationGuideSource: source,
-      parameters: { ...parseRecord(input.parameters), maxTokens: fanficChapterMaxTokens(state.request) },
-    },
-    signal,
-  );
+  yield* startGeneration(deps, fanficGenerationInput(state, messages, input), signal);
 }
