@@ -109,8 +109,10 @@ to prove the login and generation.
 Each request runs `claude -p` in a fresh private temp directory with
 `--safe-mode` and De-Koi's own system prompt, so Claude Code's instruction files
 (CLAUDE.md, AGENTS.md), skills, and hooks never reach your chats. A Claude Code
-install too old to list `--safe-mode` is refused with an error asking you to run
-`claude update`.
+install older than 2.1.169, the first release with `--safe-mode`, rejects that
+option, and the chat fails with an error asking you to run `claude update`.
+**Test Connection** checks this ahead of time by running `claude -p` with the
+same options and a blank prompt, which uses no tokens.
 
 For timer-driven updates, put the same override setting in the optional systemd
 environment file:

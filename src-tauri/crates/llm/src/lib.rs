@@ -39,6 +39,7 @@ use providers::{
 pub use providers::{
     claude_subscription::{
         check_claude_subscription_available, diagnose_claude_subscription_model,
+        ClaudeSubscriptionCheck,
     },
     google::google_vertex_auth_headers_for_credential,
 };
@@ -6064,23 +6065,69 @@ data: {"type":"content_block_delta","index":0,"delta":{"thinking":"summary witho
     }
 
     #[test]
-    fn claude_subscription_effort_detection_reads_help_text() {
-        assert!(claude_subscription_help_supports_effort(
-            "  --effort <level>   Effort level for the current session (low, medium, high, xhigh, max)"
+    fn claude_subscription_probe_reads_how_claude_code_answered_a_blank_prompt() {
+        let accepted = "\nError: Input contained only whitespace. Provide a prompt with text through stdin or as a prompt argument when using --print";
+        assert!(matches!(
+            claude_subscription_classify_probe(accepted),
+            ClaudeSubscriptionProbe::Accepted {
+                effort_ignored: false
+            }
         ));
-        assert!(!claude_subscription_help_supports_effort(
-            "  --safe-mode   Start with all customizations disabled"
+        assert!(matches!(
+            claude_subscription_classify_probe(&format!(
+                "Warning: Unknown --effort value 'xhigh' — ignoring it and using the default effort.{accepted}"
+            )),
+            ClaudeSubscriptionProbe::Accepted {
+                effort_ignored: true
+            }
+        ));
+        assert!(matches!(
+            claude_subscription_classify_probe("\nerror: unknown option '--safe-mode'"),
+            ClaudeSubscriptionProbe::Rejected(error)
+                if error.code == "claude_subscription_unsupported_cli"
+        ));
+        assert!(matches!(
+            claude_subscription_classify_probe("\nerror: unknown option '--effort'"),
+            ClaudeSubscriptionProbe::Rejected(error)
+                if error.message == CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED
+        ));
+        assert!(matches!(
+            claude_subscription_classify_probe("wrapper: not configured\n"),
+            ClaudeSubscriptionProbe::Inconclusive
+        ));
+        assert!(matches!(
+            claude_subscription_classify_probe("\n"),
+            ClaudeSubscriptionProbe::Inconclusive
         ));
     }
 
     #[test]
-    fn claude_subscription_safe_mode_detection_reads_help_text() {
-        assert!(claude_subscription_help_supports_safe_mode(
-            "  --safe-mode   Start with all customizations disabled"
-        ));
-        assert!(!claude_subscription_help_supports_safe_mode(
-            "  --restricted  Restricted mode"
-        ));
+    fn claude_subscription_version_is_read_from_the_claude_code_line() {
+        let version = claude_subscription_parse_version;
+        assert_eq!(
+            version("2.1.299 (Claude Code)\n"),
+            Some(ClaudeSubscriptionCliVersion(2, 1, 299))
+        );
+        assert_eq!(
+            version("node v22.1.0\nv2.1.300-beta.1 (Claude Code)"),
+            Some(ClaudeSubscriptionCliVersion(2, 1, 300))
+        );
+        assert_eq!(version("2.1.299"), None);
+        assert_eq!(version("wrapper ready (Claude Code)"), None);
+        assert_eq!(version("2.1 (Claude Code)"), None);
+    }
+
+    #[test]
+    fn claude_subscription_rejected_options_ask_for_an_update() {
+        let safe_mode =
+            claude_subscription_rejected_option_error("error: unknown option '--safe-mode'\n")
+                .expect("--safe-mode rejection");
+        assert_eq!(safe_mode.code, "claude_subscription_unsupported_cli");
+        assert!(safe_mode.message.contains("claude update"));
+        let effort = claude_subscription_rejected_option_error("error: unknown option '--effort'")
+            .expect("--effort rejection");
+        assert_eq!(effort.message, CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED);
+        assert!(claude_subscription_rejected_option_error("Not logged in").is_none());
     }
 
     #[test]

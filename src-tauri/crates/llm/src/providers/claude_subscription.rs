@@ -395,18 +395,36 @@ pub(crate) fn claude_subscription_workspace_in(
     Ok(ClaudeSubscriptionWorkspace { path })
 }
 
-pub(crate) fn claude_subscription_help_supports_safe_mode(help: &str) -> bool {
-    help.contains("--safe-mode")
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeSubscriptionCliVersion(pub(crate) u64, pub(crate) u64, pub(crate) u64);
+
+impl std::fmt::Display for ClaudeSubscriptionCliVersion {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}.{}.{}", self.0, self.1, self.2)
+    }
 }
 
-pub(crate) fn claude_subscription_help_supports_effort(help: &str) -> bool {
-    help.contains("--effort")
-}
+/// First release with `--safe-mode`, named in the update message. Support is never decided by the
+/// version: Claude Code rejects options it does not know, which is what the probe and chats rely on.
+pub(crate) const CLAUDE_SUBSCRIPTION_SAFE_MODE_VERSION: ClaudeSubscriptionCliVersion =
+    ClaudeSubscriptionCliVersion(2, 1, 169);
 
-/// Optional Claude Code flags this install understands, read once from `claude --help`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ClaudeSubscriptionCliSupport {
-    pub(crate) effort: bool,
+/// The version on the `2.1.299 (Claude Code)` line of `claude --version`, shown by Test Connection.
+/// Output from a `CLAUDE_CODE_COMMAND` wrapper without that line returns `None`.
+pub(crate) fn claude_subscription_parse_version(
+    output: &str,
+) -> Option<ClaudeSubscriptionCliVersion> {
+    let line = output.lines().find(|line| line.contains("(Claude Code)"))?;
+    let token = line.split_whitespace().next()?;
+    let core = token.strip_prefix('v').unwrap_or(token);
+    let core = core.split(['-', '+']).next()?;
+    let mut parts = core.split('.').map(str::parse::<u64>);
+    let version = ClaudeSubscriptionCliVersion(
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+    );
+    parts.next().is_none().then_some(version)
 }
 
 pub(crate) const CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED: &str = "This Claude Code install does not support --effort, which De-Koi uses to apply this chat's reasoning effort. Run `claude update` (or reinstall @anthropic-ai/claude-code), or set Reasoning Effort back to the default in Chat Settings > Advanced Parameters.";
@@ -426,60 +444,232 @@ pub(crate) fn claude_subscription_effort(model: &str, parameters: &Value) -> Opt
     }
 }
 
-pub(crate) const CLAUDE_SUBSCRIPTION_SAFE_MODE_REQUIRED: &str = "This Claude Code install does not support --safe-mode, which De-Koi needs to keep Claude Code's own instruction files (CLAUDE.md, AGENTS.md), skills, and hooks out of your chats. Run `claude update` (or reinstall @anthropic-ai/claude-code), then try again.";
+/// `install` names what was detected, such as `Claude Code 2.1.150`.
+pub(crate) fn claude_subscription_safe_mode_required(install: &str) -> String {
+    format!(
+        "{install} does not support --safe-mode (added in Claude Code {CLAUDE_SUBSCRIPTION_SAFE_MODE_VERSION}), which De-Koi needs to keep Claude Code's own instruction files (CLAUDE.md, AGENTS.md), skills, and hooks out of your chats. Run `claude update` (or reinstall @anthropic-ai/claude-code), then try again."
+    )
+}
 
-/// `--safe-mode` is what keeps CLAUDE.md/AGENTS.md discovery (including parent directories of the
-/// working directory, which De-Koi cannot control on desktop installs), skills, plugins, and hooks out
-/// of the request, so a CLI without it is refused. Only a positive probe is cached: after the user
-/// updates Claude Code, the next request re-probes.
-fn claude_subscription_require_safe_mode(
-    command_name: &str,
-) -> AppResult<ClaudeSubscriptionCliSupport> {
-    static SUPPORTED: OnceLock<
-        Mutex<std::collections::HashMap<String, ClaudeSubscriptionCliSupport>>,
-    > = OnceLock::new();
-    let cache = SUPPORTED.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    if let Some(support) = cache
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(command_name).copied())
-    {
-        return Ok(support);
+fn claude_subscription_start_failed(error: std::io::Error) -> AppError {
+    AppError::new(
+        "claude_subscription_unavailable",
+        format!(
+            "Claude Code failed to start: {error}. Install @anthropic-ai/claude-code, run `claude login`, or set CLAUDE_CODE_COMMAND."
+        ),
+    )
+}
+
+/// Claude Code exits with `error: unknown option '--safe-mode'` for options it does not know, so an
+/// install too old for a flag De-Koi passes fails closed instead of running without it.
+pub(crate) fn claude_subscription_rejected_option_error(output: &str) -> Option<AppError> {
+    let rejected = |flag: &str| output.contains(&format!("unknown option '{flag}'"));
+    let message = if rejected("--safe-mode") {
+        claude_subscription_safe_mode_required("This Claude Code install")
+    } else if rejected("--effort") {
+        CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED.to_string()
+    } else {
+        return None;
+    };
+    Some(AppError::new(
+        "claude_subscription_unsupported_cli",
+        message,
+    ))
+}
+
+/// Claude Code only warns about an `--effort` level it does not know and uses its default instead.
+pub(crate) fn claude_subscription_effort_ignored(output: &str) -> bool {
+    output.contains("Unknown --effort value")
+}
+
+fn claude_subscription_log_ignored_effort(stderr: &str) {
+    if claude_subscription_effort_ignored(stderr) {
+        eprintln!(
+            "[claude-subscription] Claude Code ignored the requested reasoning effort: {}",
+            redact_sensitive_text(stderr.trim())
+        );
     }
-    let mut command = Command::new(command_name);
-    command
-        .arg("--help")
+}
+
+/// Newest effort level De-Koi sends, so the probe also shows whether this install knows it.
+const CLAUDE_SUBSCRIPTION_PROBE_EFFORT: &str = "xhigh";
+const CLAUDE_SUBSCRIPTION_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// What Claude Code prints for a whitespace-only prompt, after it has accepted every option and
+/// before it makes any model call.
+const CLAUDE_SUBSCRIPTION_PROBE_ACCEPTED: &str = "Input contained only whitespace";
+
+#[derive(Debug)]
+pub(crate) enum ClaudeSubscriptionProbe {
+    Accepted { effort_ignored: bool },
+    Rejected(AppError),
+    Inconclusive,
+}
+
+/// Reads the combined output of the probe: `claude -p` with the chat flags and a blank prompt.
+pub(crate) fn claude_subscription_classify_probe(output: &str) -> ClaudeSubscriptionProbe {
+    if let Some(error) = claude_subscription_rejected_option_error(output) {
+        return ClaudeSubscriptionProbe::Rejected(error);
+    }
+    if output.contains(CLAUDE_SUBSCRIPTION_PROBE_ACCEPTED) {
+        return ClaudeSubscriptionProbe::Accepted {
+            effort_ignored: claude_subscription_effort_ignored(output),
+        };
+    }
+    ClaudeSubscriptionProbe::Inconclusive
+}
+
+/// Stdout and stderr of a probe child, or `None` if it was still running at the timeout and was killed.
+fn claude_subscription_probe_output(
+    mut child: std::process::Child,
+    timeout: std::time::Duration,
+) -> AppResult<Option<String>> {
+    use std::io::Read;
+    fn drain<R: Read + Send + 'static>(
+        pipe: Option<R>,
+    ) -> AppResult<Option<std::thread::JoinHandle<Vec<u8>>>> {
+        pipe.map(|mut pipe| {
+            std::thread::Builder::new()
+                .name("claude-subscription-probe".to_string())
+                .spawn(move || {
+                    let mut buffer = Vec::new();
+                    // A read error keeps what arrived before it; the classifier only needs the text.
+                    let _ = pipe.read_to_end(&mut buffer);
+                    buffer
+                })
+                .map_err(claude_subscription_io_error)
+        })
+        .transpose()
+    }
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let (stdout, stderr) = match (stdout, stderr) {
+        (Ok(stdout), Ok(stderr)) => (stdout, stderr),
+        (Err(error), _) | (_, Err(error)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        // A child that exits before reading the prompt still says why on its output.
+        let _ = stdin.write_all(b" \n");
+    }
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            // The readers are left to finish on their own: a wrapper's own child can keep the
+            // pipes open after the wrapper is killed.
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(None);
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(claude_subscription_io_error(error));
+            }
+        }
+    }
+    let collect = |reader: Option<std::thread::JoinHandle<Vec<u8>>>| {
+        reader
+            .map(|reader| reader.join().unwrap_or_default())
+            .unwrap_or_default()
+    };
+    let mut output = collect(stdout);
+    output.push(b'\n');
+    output.extend(collect(stderr));
+    Ok(Some(String::from_utf8_lossy(&output).into_owned()))
+}
+
+/// Result of Test Connection for a Claude (Subscription) connection.
+#[derive(Debug)]
+pub struct ClaudeSubscriptionCheck {
+    pub message: String,
+    pub warning: bool,
+}
+
+/// Test Connection: runs `claude -p` with the flags a chat sends and a blank prompt, which Claude
+/// Code rejects after checking every option and before any model call, so no tokens are used.
+/// Chats run no such check; they rely on Claude Code rejecting options it does not know.
+pub fn check_claude_subscription_available(
+    model: &str,
+    fast_mode: bool,
+) -> AppResult<ClaudeSubscriptionCheck> {
+    let command_name = claude_subscription_command();
+    let mut version = Command::new(&command_name);
+    version
+        .arg("--version")
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
+        version.creation_flags(0x08000000);
     }
-    let help = command
+    let install = version
         .output()
-        .map(|output| {
-            format!(
-                "{}
-{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            )
+        .ok()
+        .and_then(|output| {
+            claude_subscription_parse_version(&String::from_utf8_lossy(&output.stdout))
         })
-        .unwrap_or_default();
-    if !claude_subscription_help_supports_safe_mode(&help) {
-        return Err(AppError::new(
-            "claude_subscription_unsupported_cli",
-            CLAUDE_SUBSCRIPTION_SAFE_MODE_REQUIRED,
-        ));
-    }
-    let support = ClaudeSubscriptionCliSupport {
-        effort: claude_subscription_help_supports_effort(&help),
+        .map(|version| format!("Claude Code {version}"))
+        .unwrap_or_else(|| "Claude Code".to_string());
+
+    let workspace = claude_subscription_workspace_in(&env::temp_dir())?;
+    let child = claude_subscription_command_for(
+        &command_name,
+        workspace.path(),
+        fast_mode,
+        &claude_subscription_model_selection(model),
+        None,
+        ClaudeSubscriptionOutput::Json,
+        Some(CLAUDE_SUBSCRIPTION_PROBE_EFFORT),
+    )
+    .spawn()
+    .map_err(claude_subscription_start_failed)?;
+    let Some(output) = claude_subscription_probe_output(child, CLAUDE_SUBSCRIPTION_PROBE_TIMEOUT)?
+    else {
+        return Ok(ClaudeSubscriptionCheck {
+            message: format!(
+                "{install} did not answer the option check within {} seconds, so De-Koi could not confirm it supports --safe-mode. Chats will still report it if this install is too old.",
+                CLAUDE_SUBSCRIPTION_PROBE_TIMEOUT.as_secs()
+            ),
+            warning: true,
+        });
     };
-    if let Ok(mut cache) = cache.lock() {
-        cache.insert(command_name.to_string(), support);
+    match claude_subscription_classify_probe(&output) {
+        ClaudeSubscriptionProbe::Rejected(error) => Err(error),
+        ClaudeSubscriptionProbe::Accepted { effort_ignored: false } => Ok(ClaudeSubscriptionCheck {
+            message: format!(
+                "{install} accepts the options De-Koi uses. The first chat will fail if `claude login` has not been run on this host."
+            ),
+            warning: false,
+        }),
+        ClaudeSubscriptionProbe::Accepted { effort_ignored: true } => Ok(ClaudeSubscriptionCheck {
+            message: format!(
+                "{install} accepts --safe-mode but not every reasoning effort level De-Koi sends; it uses its default effort instead. Run `claude update` to get them all."
+            ),
+            warning: true,
+        }),
+        ClaudeSubscriptionProbe::Inconclusive => {
+            let output = match output.trim() {
+                "" => "(none)".to_string(),
+                output => redact_sensitive_text(&output.chars().take(500).collect::<String>()),
+            };
+            Ok(ClaudeSubscriptionCheck {
+                message: format!(
+                    "{install} started, but De-Koi could not confirm it supports --safe-mode. Chats will still report it if this install is too old. Output: {output}"
+                ),
+                warning: true,
+            })
+        }
     }
-    Ok(support)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -557,7 +747,9 @@ pub(crate) fn claude_subscription_command_for(
     command
 }
 
-/// The returned workspace must outlive the child process; dropping it deletes the directory.
+/// The returned workspace must outlive the child process; dropping it deletes the directory. An
+/// install without `--safe-mode` or `--effort` rejects the command when it runs; see
+/// [`claude_subscription_rejected_option_error`].
 fn claude_subscription_isolated_command(
     fast_mode: bool,
     selection: &ClaudeSubscriptionModelSelection,
@@ -566,13 +758,6 @@ fn claude_subscription_isolated_command(
     effort: Option<&str>,
 ) -> AppResult<(Command, ClaudeSubscriptionWorkspace)> {
     let command_name = claude_subscription_command();
-    let support = claude_subscription_require_safe_mode(&command_name)?;
-    if effort.is_some() && !support.effort {
-        return Err(AppError::new(
-            "claude_subscription_unsupported_cli",
-            CLAUDE_SUBSCRIPTION_EFFORT_REQUIRED,
-        ));
-    }
     let workspace = claude_subscription_workspace_in(&env::temp_dir())?;
     let command = claude_subscription_command_for(
         &command_name,
@@ -883,11 +1068,17 @@ pub(crate) fn finish_claude_subscription_stream(
     requested_model: &str,
     emit: &mut (impl FnMut(Value) -> AppResult<()> + Send),
 ) -> AppResult<()> {
+    claude_subscription_log_ignored_effort(&exit.stderr);
     let reported_error = state
         .result
         .as_ref()
         .filter(|result| result.get("is_error").and_then(Value::as_bool) == Some(true));
     if !exit.success || reported_error.is_some() {
+        if !exit.success {
+            if let Some(error) = claude_subscription_rejected_option_error(&exit.stderr) {
+                return Err(error);
+            }
+        }
         let message = reported_error
             .and_then(|result| result.get("result").and_then(Value::as_str))
             .map(str::trim)
@@ -950,44 +1141,6 @@ pub(crate) fn finish_claude_subscription_stream(
         emit(json!({ "type": "usage", "data": usage }))?;
     }
     Ok(())
-}
-
-pub fn check_claude_subscription_available() -> AppResult<String> {
-    let command_name = claude_subscription_command();
-    let mut command = Command::new(&command_name);
-    command
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let output = command.output().map_err(|error| {
-        AppError::new(
-            "claude_subscription_unavailable",
-            format!(
-                "Failed to start Claude Code. Install @anthropic-ai/claude-code, run `claude login`, or set CLAUDE_CODE_COMMAND. Underlying error: {error}"
-            ),
-        )
-    })?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::new(
-            "claude_subscription_unavailable",
-            if stderr.trim().is_empty() {
-                "Claude Code is installed but did not respond to --version.".to_string()
-            } else {
-                stderr.trim().to_string()
-            },
-        ));
-    }
-    claude_subscription_require_safe_mode(&command_name)?;
-    Ok(
-        "Claude Code command is available. The first chat will fail if `claude login` has not been run on this host."
-            .to_string(),
-    )
 }
 
 pub(crate) fn claude_subscription_text_from_json(value: &Value) -> Option<String> {
@@ -1240,6 +1393,9 @@ pub fn diagnose_claude_subscription_model(model: &str, fast_mode: bool) -> AppRe
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     if !output.status.success() {
+        if let Some(error) = claude_subscription_rejected_option_error(&stderr) {
+            return Err(error);
+        }
         return Err(AppError::with_details(
             "claude_subscription_failed",
             if stderr.trim().is_empty() {
@@ -1360,7 +1516,11 @@ pub(crate) async fn complete_claude_subscription_rich(
         stdout.push_str(&line?);
     }
     let exit = running.finish()?;
+    claude_subscription_log_ignored_effort(&exit.stderr);
     if !exit.success {
+        if let Some(error) = claude_subscription_rejected_option_error(&exit.stderr) {
+            return Err(error);
+        }
         return Err(AppError::with_details(
             "claude_subscription_failed",
             if exit.stderr.trim().is_empty() {

@@ -720,7 +720,30 @@ async fn check_connection_without_generation(
             .await
             .map(ConnectionCheckOutcome::success),
         "claude_subscription" => {
-            marinara_llm::check_claude_subscription_available().map(ConnectionCheckOutcome::success)
+            let model = connection
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let fast_mode = connection
+                .get("claudeFastMode")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // The check runs Claude Code and can wait up to its timeout.
+            let check = tokio::task::spawn_blocking(move || {
+                marinara_llm::check_claude_subscription_available(&model, fast_mode)
+            })
+            .await
+            .map_err(|error| {
+                AppError::new(
+                    "claude_subscription_io_error",
+                    format!("Claude Code check did not finish: {error}"),
+                )
+            })??;
+            Ok(ConnectionCheckOutcome {
+                message: check.message,
+                warning: check.warning,
+            })
         }
         "openrouter" => check_openrouter_key(connection)
             .await
