@@ -452,25 +452,25 @@ export function PersonasPanel() {
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <button
           onClick={handleCreate}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 px-3 py-2.5 text-xs font-medium text-white shadow-md shadow-emerald-400/15 transition-all hover:shadow-lg hover:shadow-emerald-400/25 active:scale-[0.98]"
+          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 px-2 py-2.5 text-xs font-medium text-white shadow-md shadow-emerald-400/15 transition-all hover:shadow-lg hover:shadow-emerald-400/25 active:scale-[0.98]"
           title="New"
         >
-          <Plus size="0.8125rem" />
-          <span className="md:hidden">New</span>
+          <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" />
+          <span>New</span>
         </button>
         <button
           onClick={() => openModal("import-persona")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-[var(--secondary)] px-2 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
           title="Import"
         >
-          <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
+          <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Import</span>
         </button>
         <button
           onClick={() => openModal("persona-maker")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-[var(--secondary)] px-2 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
           title="AI Maker"
         >
-          <Sparkles size="0.8125rem" /> <span className="md:hidden">Maker</span>
+          <Sparkles size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Maker</span>
         </button>
         <button
           onClick={() => {
@@ -481,15 +481,16 @@ export function PersonasPanel() {
             }
           }}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
+            "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-all",
             selectionMode
               ? "bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30"
               : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
           )}
+          aria-pressed={selectionMode}
           title="Select"
         >
-          <Check size="0.8125rem" />
-          <span className="md:hidden">Select</span>
+          <Check size="0.8125rem" className="shrink-0" aria-hidden="true" />
+          <span>Select</span>
         </button>
       </div>
 
