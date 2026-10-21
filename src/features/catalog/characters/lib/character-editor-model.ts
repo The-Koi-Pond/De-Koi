@@ -136,3 +136,17 @@ export function formatVersionTimestamp(value: string): string {
 export function getVersionTitle(version: CharacterCardVersion): string {
   return version.version?.trim() ? `v${version.version}` : "Untitled version";
 }
+
+/**
+ * Which editor tab a character opens on. A brand-new, blank character opens on Description (what a first-timer needs
+ * to write); a filled-in character keeps opening on Metadata.
+ */
+export function initialCharacterEditorTab(
+  data: Pick<CharacterData, "description" | "personality" | "scenario" | "first_mes"> | null | undefined,
+): "description" | "metadata" {
+  if (!data) return "metadata";
+  const blank = [data.description, data.personality, data.scenario, data.first_mes].every(
+    (value) => typeof value !== "string" || value.trim().length === 0,
+  );
+  return blank ? "description" : "metadata";
+}
