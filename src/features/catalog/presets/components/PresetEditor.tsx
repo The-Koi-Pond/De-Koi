@@ -78,6 +78,7 @@ import type {
   PromptSection,
 } from "../../../../engine/contracts/types/prompt";
 import { SUPPORTED_MACROS } from "../../../../engine/shared/macros/macro-engine";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type PromptSectionRow = Omit<PromptSection, "enabled" | "isMarker" | "forbidOverrides" | "markerConfig"> & {
   enabled: boolean | string;
@@ -273,7 +274,7 @@ export function PresetEditor() {
       setTimeout(() => setShowSaved(false), 1500);
       return true;
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save preset");
+      setSaveError(toUserMessage(err, { fallback: "Couldn't save preset. Try again." }));
       return false;
     }
   }, [presetDetailId, localName, localDescription, localWrapFormat, localAuthor, localParams, updatePreset]);
@@ -913,7 +914,7 @@ function SectionsTab({
       }
       toast.success(`Duplicated "${section.name}"`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to duplicate prompt block");
+      toast.error(toUserMessage(error, { fallback: "Couldn't duplicate prompt block. Try again." }));
     }
   };
 
@@ -2421,7 +2422,7 @@ function ReviewTab({ presetId }: { presetId: string }) {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Review failed");
+      setError(toUserMessage(err, { fallback: "Review failed. Try again." }));
     } finally {
       setReviewing(false);
     }

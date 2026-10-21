@@ -118,7 +118,7 @@ export function WindowTitleBar({
               : requestGuardedAppClose();
       void next.catch((error) => {
         refreshWindowVisualState();
-        toast.error(toUserMessage(error, { fallback: "That window action didn't work." }));
+        toast.error(toUserMessage(error, { fallback: "That window action didn't work. Try again." }));
       });
     },
     [hasWindowControls, refreshWindowVisualState],

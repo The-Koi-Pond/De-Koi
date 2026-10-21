@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type { Lorebook, LorebookEntry, LorebookFolder } from "../../../../../engine/contracts/types/lorebook";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { collectHiddenFolderIds } from "../../lib/lorebook-folder-tree";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 type TransferOperation = "copy" | "move";
 
@@ -140,7 +141,7 @@ export function useLorebookEntrySelection({
         );
         exitEntrySelectionMode();
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Failed to ${operation} entries.`);
+        toast.error(toUserMessage(error, { fallback: `Couldn't ${operation} entries. Try again.` }));
       }
     },
     [
@@ -178,7 +179,7 @@ export function useLorebookEntrySelection({
       const result = await onUnvectorizeEntries({ lorebookId, entryIds: selectedIds });
       toast.success(`Cleared embeddings for ${result.cleared} ${result.cleared === 1 ? "entry" : "entries"}.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to clear embeddings.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't clear embeddings. Try again." }));
     }
   }, [entries, lorebookId, onUnvectorizeEntries, selectedEntryIds]);
 

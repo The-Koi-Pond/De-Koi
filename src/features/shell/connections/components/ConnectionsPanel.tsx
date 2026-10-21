@@ -61,6 +61,7 @@ import { cn } from "../../../../shared/lib/utils";
 import { resolveEntityImageUrl } from "../../../../shared/api/local-file-api";
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { TTSConfigCard } from "../../../shell/settings/index";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 /** Provider → gradient color pair for connection icons. */
 const PROVIDER_COLORS: Record<string, { from: string; to: string; ring: string; badge: string }> = {
@@ -709,21 +710,21 @@ export function ConnectionsPanel() {
       reader.onload = async () => {
         const image = typeof reader.result === "string" ? reader.result : "";
         if (!image) {
-          toast.error("Could not read that image");
+          toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
           return;
         }
         try {
           await uploadConnectionImage.mutateAsync({ id: connectionId, image, filename: file.name });
           toast.success("Connection picture updated");
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Failed to upload connection picture");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload connection picture. Try again." }));
         } finally {
           connectionImageTargetIdRef.current = null;
         }
       };
       reader.onerror = () => {
         connectionImageTargetIdRef.current = null;
-        toast.error("Could not read that image");
+        toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
       };
       reader.readAsDataURL(file);
     },

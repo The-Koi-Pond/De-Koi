@@ -87,7 +87,7 @@ describe("useUpdateMessageExtra", () => {
 
     options.onError(new Error("Runtime disconnected"), variables, context);
     expect(qc.getQueryData(chatKeys.messages("chat-1"))).toEqual(original);
-    expect(mocks.toastError).toHaveBeenCalledWith("Runtime disconnected");
+    expect(mocks.toastError).toHaveBeenCalledWith("Couldn't update message details. Try again.");
 
     await options.onSettled();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.messages("chat-1") });

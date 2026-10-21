@@ -1,3 +1,4 @@
+import { toUserMessage } from "../../shared/lib/error-message";
 /** Chats per server request: each request is one storage pass, and chunks keep progress moving. */
 export const CHAT_DELETE_BATCH_SIZE = 25;
 
@@ -35,7 +36,7 @@ export class DeleteSelectedChatsError extends Error {
   readonly failedChatId: string | null;
 
   constructor({ cause, deletedCount, totalCount, failedChatId }: DeleteSelectedChatsErrorInput) {
-    const message = cause instanceof Error ? cause.message : "Failed to delete selected chats.";
+    const message = toUserMessage(cause, { fallback: "Couldn't delete selected chats. Try again." });
     super(message);
     this.name = "DeleteSelectedChatsError";
     this.cause = cause;
@@ -49,7 +50,7 @@ export function formatDeleteSelectedChatsError(error: unknown) {
   if (error instanceof DeleteSelectedChatsError && error.deletedCount > 0) {
     return `Deleted ${error.deletedCount} of ${error.totalCount} chats. ${error.message}`;
   }
-  return error instanceof Error ? error.message : "Failed to delete selected chats.";
+  return toUserMessage(error, { fallback: "Couldn't delete selected chats. Try again." });
 }
 
 export async function deleteSingleChatWithConfirmation({

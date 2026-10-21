@@ -99,6 +99,7 @@ import {
   normalizeAgentLorebookWriterEditorState,
 } from "../lib/agent-lorebook-writer-settings";
 import { agentExportFilename, buildAgentExportEnvelope, createCustomAgentType } from "../lib/agent-import-export";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 const SPOTIFY_NATIVE_REDIRECT_URI = "http://127.0.0.1:8754/spotify/callback";
 const SPOTIFY_OAUTH_SETTING_KEYS = [
@@ -641,7 +642,7 @@ export function AgentEditor() {
       setTimeout(() => setSavedFlash(false), 1500);
       return true;
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save agent config");
+      setSaveError(toUserMessage(err, { fallback: "Couldn't save agent config. Try again." }));
       return false;
     }
   }, [
@@ -746,7 +747,7 @@ export function AgentEditor() {
         toast.success("Agent export downloaded.");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to export agent.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't export agent. Try again." }));
     } finally {
       setExporting(false);
     }

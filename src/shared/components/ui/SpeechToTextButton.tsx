@@ -151,7 +151,7 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
 
     const Recognition = getSpeechRecognitionCtor();
     if (!Recognition) {
-      toast.error("Speech recognition is not supported in this browser.");
+      toast.error("This browser can't turn speech into text. Use Chrome or Edge, or type instead.");
       return;
     }
 

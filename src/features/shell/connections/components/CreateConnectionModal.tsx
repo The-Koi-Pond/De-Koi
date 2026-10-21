@@ -11,6 +11,7 @@ import { PROVIDERS, isTauriRuntimeProvider } from "../../../../engine/contracts/
 import type { APIProvider } from "../../../../engine/contracts/types/connection";
 import { cn } from "../../../../shared/lib/utils";
 import { toast } from "sonner";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 interface Props {
   open: boolean;
@@ -49,7 +50,7 @@ export function CreateConnectionModal({ open, onClose }: Props) {
       reset();
       if (connId) openConnectionDetail(connId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create connection");
+      toast.error(toUserMessage(error, { fallback: "Couldn't create connection. Try again." }));
     }
   };
 

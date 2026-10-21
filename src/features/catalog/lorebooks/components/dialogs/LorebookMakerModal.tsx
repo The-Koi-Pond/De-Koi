@@ -18,6 +18,7 @@ import { DekiWorkingWindow } from "../../../../../shared/components/ui/DekiWorki
 import { generateLorebookMaker } from "../../../../../engine/generation/makers";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 interface Props {
   open: boolean;
@@ -185,7 +186,7 @@ export function LorebookMakerModal({ open, onClose }: Props) {
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setError(err instanceof Error ? err.message : "Generation failed");
+        setError(toUserMessage(err, { fallback: "Generation failed. Try again." }));
       }
     } finally {
       setStreaming(false);
@@ -238,7 +239,7 @@ export function LorebookMakerModal({ open, onClose }: Props) {
 
       if (lbId) openLorebookDetail(lbId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save lorebook");
+      setError(toUserMessage(err, { fallback: "Couldn't save lorebook. Try again." }));
     } finally {
       setSaving(false);
     }

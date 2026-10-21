@@ -52,6 +52,7 @@ import {
   type LorebookPanelSort,
 } from "./lorebook-panel-model";
 import { LOREBOOK_PANEL_CATEGORIES, type LorebookPanelCategory } from "./lorebook-panel-config";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 const LOREBOOK_LIBRARY_DRAG_MIME = "application/x-de-koi-lorebook-id";
 
@@ -184,7 +185,7 @@ export function LorebooksPanel() {
         }
         if (activeTag === tag) setActiveTag(null);
       } catch {
-        toast.error("Failed to remove tag from some lorebooks");
+        toast.error("Couldn't remove the tag from some lorebooks. Try again.");
       }
     },
     [lorebooks, updateLorebook, activeTag],
@@ -273,7 +274,7 @@ export function LorebooksPanel() {
         exportApi.triggerDownload(await exportApi.lorebooksBulk([...selectedLorebookIds], format));
         toast.success(`Exported ${selectedLorebookIds.size} lorebook${selectedLorebookIds.size === 1 ? "" : "s"}`);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to export lorebooks");
+        toast.error(toUserMessage(error, { fallback: "Couldn't export lorebooks. Try again." }));
       } finally {
         setExportingSelected(false);
       }
@@ -306,7 +307,7 @@ export function LorebooksPanel() {
 
     if (failedIds.length > 0) {
       setSelectedLorebookIds(new Set(failedIds));
-      toast.error(`Failed to delete ${failedIds.length} lorebook${failedIds.length === 1 ? "" : "s"}`);
+      toast.error(`Couldn't delete ${failedIds.length} lorebook${failedIds.length === 1 ? "" : "s"}. Try again.`);
       return;
     }
 
@@ -451,7 +452,7 @@ export function LorebooksPanel() {
       reader.onload = async () => {
         const image = typeof reader.result === "string" ? reader.result : "";
         if (!image) {
-          toast.error("Could not read that image");
+          toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
           return;
         }
 
@@ -459,14 +460,14 @@ export function LorebooksPanel() {
           await uploadLorebookImage.mutateAsync({ id: lorebookId, image, filename: file.name });
           toast.success("Lorebook picture updated");
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "Failed to upload lorebook picture");
+          toast.error(toUserMessage(error, { fallback: "Couldn't upload lorebook picture. Try again." }));
         } finally {
           imageTargetLorebookIdRef.current = null;
         }
       };
       reader.onerror = () => {
         imageTargetLorebookIdRef.current = null;
-        toast.error("Could not read that image");
+        toast.error("Couldn't read that image. Pick a PNG, JPG or WEBP file and try again.");
       };
       reader.readAsDataURL(file);
     },

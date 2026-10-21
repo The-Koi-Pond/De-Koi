@@ -57,6 +57,7 @@ import { NotepadTabs } from "./components/NotepadTabs";
 import { NotepadToolbar } from "./components/NotepadToolbar";
 import { NotepadBrand, statusToneClass } from "./components/NotepadChrome";
 import "./styles/notepad.css";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 export function MeNotepadModule() {
   const activeChatId = useChatStore((state) => state.activeChatId);
@@ -114,7 +115,7 @@ export function MeNotepadModule() {
       .catch((error) => {
         if (cancelled) return;
         setStatus({
-          message: error instanceof Error ? error.message : "Could not load synced notes.",
+          message: toUserMessage(error, { fallback: "Couldn't load synced notes. Try again." }),
           tone: "error",
         });
       })
@@ -169,7 +170,7 @@ export function MeNotepadModule() {
         if (mountedRef.current) setMemoryDirty(true);
         if (!mountedRef.current) return;
         setStatus({
-          message: error instanceof Error ? error.message : "Could not sync notes.",
+          message: toUserMessage(error, { fallback: "Couldn't sync notes. Try again." }),
           tone: "error",
         });
       });
@@ -442,7 +443,7 @@ export function MeNotepadModule() {
         setPendingImportState(next);
         setActionsMenuOpen(false);
       } catch (error) {
-        showStatus(error instanceof Error ? error.message : "Backup import failed.", "error");
+        showStatus(toUserMessage(error, { fallback: "Backup import failed. Try again." }), "error");
       } finally {
         if (importInputRef.current) importInputRef.current.value = "";
       }

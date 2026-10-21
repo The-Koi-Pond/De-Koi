@@ -1,9 +1,10 @@
 import { toast } from "sonner";
+import { toUserMessage } from "../../../shared/lib/error-message";
 
 import { triggerDownload, type DownloadPayload } from "../../../shared/api/download-payload";
 
 export function getExportErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  return toUserMessage(error, { fallback });
 }
 
 export function toastExportError(error: unknown, fallback: string): void {

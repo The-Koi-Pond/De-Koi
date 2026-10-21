@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { connectionCatalogApi } from "../api/connection-catalog-api";
 import { llmApi } from "../api/llm-api";
+import { toUserMessage } from "../lib/error-message";
 
 const PROMPT_KEY = "magic-rewrite-prompt";
 
@@ -66,7 +67,7 @@ export function useMagicRewrite(value: string) {
       });
       setResult(text.trim());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Magic Rewrite failed");
+      setError(toUserMessage(err, { fallback: "Magic Rewrite failed. Try again." }));
     } finally {
       setLoading(false);
     }

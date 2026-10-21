@@ -67,6 +67,7 @@ export {
   useDeleteChats,
   useUpdateChatMetadata,
 } from "./use-chat-lifecycle";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 export { useChatSummaries, useRecentChatSummaries } from "./use-chat-summaries";
 export type { ChatListItem } from "./use-chat-summaries";
 
@@ -793,7 +794,7 @@ export function useUpdateMessageExtra(chatId: string | null) {
       if (chatId && context?.previous) {
         qc.setQueryData(chatKeys.messages(chatId), context.previous);
       }
-      toast.error(error instanceof Error ? error.message : "Failed to update message details.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't update message details. Try again." }));
     },
     onSettled: async () => {
       if (chatId) {

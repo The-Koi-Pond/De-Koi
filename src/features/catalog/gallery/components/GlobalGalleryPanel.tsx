@@ -33,6 +33,7 @@ import {
   useTagGlobalGalleryImage,
   useUploadGlobalGalleryImages,
 } from "../hooks/use-global-gallery";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 type SortMode = "newest" | "oldest" | "name-asc" | "name-desc";
 
@@ -139,11 +140,11 @@ export function GlobalGalleryPanel() {
         {
           onSuccess: ({ failures }) => {
             if (failures.length > 0) {
-              toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)}`);
+              toast.warning(`Some images didn't upload — ${describeGalleryUploadFailures(failures)} Try those again.`);
             }
           },
           onError: (error) => {
-            toast.error(error instanceof Error ? error.message : "Failed to upload gallery images.");
+            toast.error(toUserMessage(error, { fallback: "Couldn't upload gallery images. Try again." }));
           },
         },
       );
@@ -180,7 +181,7 @@ export function GlobalGalleryPanel() {
     if (!trimmed) return;
     createFolder.mutate(trimmed, {
       onSuccess: (folder) => setActiveFolder(folder.id),
-      onError: () => toast.error("Failed to create folder."),
+      onError: () => toast.error("Couldn't create the folder. Try again."),
     });
   }, [createFolder]);
 
@@ -198,7 +199,7 @@ export function GlobalGalleryPanel() {
     if (!trimmed || trimmed === current.name) return;
     renameFolder.mutate(
       { folderId: current.id, name: trimmed },
-      { onError: () => toast.error("Failed to rename folder.") },
+      { onError: () => toast.error("Couldn't rename the folder. Try again.") },
     );
   }, [activeFolder, folderList, renameFolder]);
 
@@ -222,7 +223,7 @@ export function GlobalGalleryPanel() {
     }
     deleteFolder.mutate(current.id, {
       onSuccess: () => setActiveFolder("all"),
-      onError: () => toast.error("Failed to delete folder."),
+      onError: () => toast.error("Couldn't delete the folder. Try again."),
     });
   }, [activeFolder, countByFolder, deleteFolder, folderList]);
 
