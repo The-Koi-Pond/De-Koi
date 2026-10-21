@@ -44,7 +44,7 @@ function statusTone(status: ContinuityDirectorBeatStatus): string {
   return "bg-amber-500/10 text-amber-300 ring-amber-500/25";
 }
 
-const NEXT_STEP_PATTERN = /(try again|check|pick|switch|reload|enable)/i;
+const NEXT_STEP_PATTERN = /\b(try again|check|pick|switch|reload|enable)\b/i;
 
 /** What went wrong with the plan and what to do; planner errors carry a code that says which. */
 function errorText(error: unknown, fallback = "The continuity plan hit a problem. Try again."): string | null {
