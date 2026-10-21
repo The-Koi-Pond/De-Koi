@@ -586,6 +586,51 @@ describe("automatic memory capture skip reasons", () => {
       expect(added.skipped).toEqual([expect.objectContaining({ reason: "no_source_rows", afterCorrection: true })]);
     });
 
+    it("never relabels someone else's claim about the user into another kind", async () => {
+      const claim = {
+        kind: "preference",
+        content: "Celia loves jazz.",
+        confidence: 0.9,
+        evidence: "direct_user_assertion",
+        sourceMessageIds: ["assistant-current"],
+      };
+      const relabel = {
+        corrections: [
+          {
+            index: 0,
+            content: "Celia loves jazz.",
+            confidence: 0.9,
+            kind: "plot_state",
+            evidence: "explicit_exchange",
+            sourceMessageIds: ["assistant-current"],
+          },
+        ],
+      };
+      const result = await extractCanonicalMemoryConsequences({
+        llm: replies({ memories: [claim] }, relabel, { verdicts: [{ index: 0, faithful: true }] }),
+        request: request(),
+      });
+      expect(result.candidates).toEqual([]);
+      expect(result.skipped).toEqual([expect.objectContaining({ reason: "evidence_mismatch", afterCorrection: true })]);
+
+      const selfFact = { ...claim, kind: "fact", content: "Pierrot is left-handed." };
+      const own = await extractCanonicalMemoryConsequences({
+        llm: replies(
+          { memories: [selfFact] },
+          { corrections: [{ ...relabel.corrections[0], content: "Pierrot is left-handed." }] },
+          { verdicts: [{ index: 0, faithful: true }] },
+        ),
+        request: {
+          ...request(),
+          sourceMessages: [
+            request().sourceMessages[0]!,
+            { ...request().sourceMessages[1]!, content: "I'm left-handed too." },
+          ],
+        },
+      });
+      expect(own.candidates).toEqual([expect.objectContaining({ kind: "plot_state", content: "Pierrot is left-handed." })]);
+    });
+
     it("keeps the evidence_mismatch reason when a label slip is not fixed", async () => {
       const slip = { ...miso, kind: "scene_event" };
       const missing = await extractCanonicalMemoryConsequences({

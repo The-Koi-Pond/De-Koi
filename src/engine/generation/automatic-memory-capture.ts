@@ -1667,6 +1667,10 @@ export async function extractCanonicalMemoryConsequences(input: {
         continue;
       }
       const correctedCandidate = { ...entry.candidate, ...correction };
+      if (relabelEscapesUserAssertion(entry.candidate, correctedCandidate, request)) {
+        skipped.push(captureSkip("evidence_mismatch", correctedCandidate, true));
+        continue;
+      }
       const screened = screen(correctedCandidate);
       if (screened.status === "accepted") {
         // A corrected sentence is new model wording, so the verifier always judges it.
@@ -1709,6 +1713,25 @@ type CandidateCorrection = {
   evidence?: unknown;
   sourceMessageIds?: string[];
 };
+
+const USER_ASSERTION_KINDS = new Set<MemoryKind>(["fact", "preference", "contradiction"]);
+
+// A fact or preference about the user must come from the user's own rows. A relabel must not turn
+// one into another kind, which would let someone else's claim about the user in as canon.
+function relabelEscapesUserAssertion(
+  original: AutomaticMemoryCandidate,
+  relabeled: AutomaticMemoryCandidate,
+  request: CanonicalConsequenceExtractionRequest,
+): boolean {
+  const from = consequenceKind(original);
+  const to = consequenceKind(relabeled);
+  if (!from || !USER_ASSERTION_KINDS.has(from) || (to && USER_ASSERTION_KINDS.has(to))) return false;
+  const userTokens = (request.userLabel.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+    (token) => token !== "user",
+  );
+  const contentTokens = new Set(readString(relabeled.content).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  return userTokens.length === 0 || userTokens.some((token) => contentTokens.has(token));
+}
 
 // A relabel may change kind and evidence and may drop cited source rows, never add one.
 function relabeledFields(
