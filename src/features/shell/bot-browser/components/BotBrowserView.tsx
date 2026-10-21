@@ -80,6 +80,7 @@ import type {
   WyvernCharacter,
   WyvernSearchResponse,
 } from "../types/provider-responses";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 
 // ════════════════════════════════════════════════
 // Types
@@ -1389,7 +1390,9 @@ export function BotBrowserView() {
       setResultNotice(result.notice ?? null);
     } catch (err) {
       if (searchRequestIdRef.current !== requestId || searchCriteriaKeyRef.current !== requestCriteriaKey) return;
-      setError(err instanceof Error ? err.message : "Search failed");
+      setError(
+        toUserMessage(err, { fallback: "Search didn't finish. Check your internet connection, then try again." }),
+      );
       setResultNotice(null);
       setResults([]);
     } finally {
@@ -1432,7 +1435,11 @@ export function BotBrowserView() {
     } catch (err) {
       // A real transport/API failure — surface it with a Retry instead of the benign
       // "no detailed definition" empty state, which only applies to successful-but-empty fetches.
-      setDetailError(err instanceof Error ? err.message : "Failed to load character details");
+      setDetailError(
+        toUserMessage(err, {
+          fallback: "Couldn't load this character. Check your internet connection, then try again.",
+        }),
+      );
     } finally {
       setDetailLoading(false);
     }
@@ -1553,7 +1560,11 @@ export function BotBrowserView() {
         } else throw new Error(data.error ?? "Import failed");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Import failed");
+      toast.error(
+        toUserMessage(err, {
+          fallback: "Couldn't import this character. Check your internet connection, then try again.",
+        }),
+      );
     } finally {
       setImporting(false);
     }
@@ -2688,7 +2699,11 @@ function DetailView({
         toast.success(`${result === "saved" ? "Saved" : "Downloaded"} "${card.name}" as PNG character card!`);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Download failed");
+      toast.error(
+        toUserMessage(err, {
+          fallback: "Couldn't download this character. Check your internet connection, then try again.",
+        }),
+      );
     } finally {
       setDownloading(false);
     }

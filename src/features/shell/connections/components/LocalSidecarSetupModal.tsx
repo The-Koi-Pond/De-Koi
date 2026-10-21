@@ -391,7 +391,7 @@ export function LocalSidecarSetupModal({
   const handleApplyCustomGpuLayers = () => {
     const parsed = Number.parseInt(gpuLayersInput, 10);
     if (!Number.isFinite(parsed) || parsed < 1 || parsed > 1024) {
-      toast.error("GPU layers must be between 1 and 1024");
+      toast.error("GPU layers must be between 1 and 1024. Enter a number in that range.");
       return;
     }
     void savePatch("gpu-layers", { gpuLayers: parsed }, "GPU offload saved");
