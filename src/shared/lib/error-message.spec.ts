@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ModelRouteError } from "../../engine/generation/model-routing";
 import { userFacingError } from "../../engine/shared/user-facing-error";
 import { getErrorMessage, toUserMessage } from "./error-message";
 
@@ -31,6 +32,9 @@ describe("user-facing error messages", () => {
 
     const engine = userFacingError("Pick a connection for this fic first.");
     expect(toUserMessage(engine, { fallback: "Couldn't write the outline." })).toBe(engine.message);
+
+    const route = new ModelRouteError("summaries", "gone", "missing", "gone");
+    expect(toUserMessage(route, { fallback: "Couldn't summarize." })).toBe(route.message);
 
     // Storage and other internal failures keep the contextual copy.
     const storage = Object.assign(new Error("messages/abc not found"), { details: { code: "not_found" } });

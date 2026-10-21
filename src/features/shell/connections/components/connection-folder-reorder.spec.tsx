@@ -42,6 +42,7 @@ vi.mock("../../../catalog/connections", () => {
   };
 });
 vi.mock("./LocalSidecarCard", () => ({ LocalSidecarCard: () => null }));
+vi.mock("./HelperModelsCard", () => ({ HelperModelsCard: () => null }));
 vi.mock("../../../shell/settings/index", () => ({ TTSConfigCard: () => null }));
 
 describe("moveFolder", () => {

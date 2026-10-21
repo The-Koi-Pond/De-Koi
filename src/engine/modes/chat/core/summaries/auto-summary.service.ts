@@ -4,6 +4,7 @@ import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
 import { extractLeadingThinkingBlocks } from "../../../../generation-core/llm/inline-thinking";
 import { resolveGenerationConnection } from "../../../../generation/context";
+import { resolveStoredModelRoute } from "../../../../generation/model-routing";
 import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
@@ -148,7 +149,11 @@ async function resolveSummaryConnection(
   chat: JsonRecord,
   requestedConnectionId?: string | null,
 ): Promise<JsonRecord> {
-  return resolveGenerationConnection(storage, chat, { connectionId: requestedConnectionId });
+  // The requested connection is the reply's, not a pick for summaries, so a summaries route wins.
+  return (
+    (await resolveStoredModelRoute(storage, "summaries")) ??
+    resolveGenerationConnection(storage, chat, { connectionId: requestedConnectionId })
+  );
 }
 
 async function loadScopedMessages(storage: StorageGateway, chatId: string): Promise<ConversationSummaryMessage[]> {

@@ -79,6 +79,53 @@ describe("automatic memory maintenance startup discovery", () => {
     expect(storage.get).toHaveBeenCalledWith("chats", "chat-1", { fields: ["connectionId"] });
   });
 
+  it("uses the memory helper route over the agents default", async () => {
+    const connections = [
+      { id: "chat-connection", provider: "nanogpt", model: "foreground", enabled: true },
+      { id: "background-connection", provider: "openai", model: "background", enabled: true, defaultForAgents: true },
+      { id: "sidecar:local", name: "Local Model", provider: "custom", model: "gemma", synthetic: true },
+    ];
+    const storage = {
+      get: vi.fn(async (entity: string, id: string) => {
+        if (entity === "chats") return { id: "chat-1", connectionId: "chat-connection" };
+        if (entity === "app-settings" && id === "model-routing") {
+          return { id, value: { version: 1, routes: { memory: "sidecar:local" } } };
+        }
+        return null;
+      }),
+    } as unknown as StorageGateway;
+
+    await expect(
+      resolveAutomaticMemoryMaintenanceConnectionId(
+        storage,
+        { store: "chat", scope: { kind: "chat", id: "chat-1" } },
+        async () => connections,
+      ),
+    ).resolves.toBe("sidecar:local");
+  });
+
+  it("refuses to fall back when the memory helper route is broken", async () => {
+    const connections = [
+      { id: "background-connection", provider: "openai", model: "background", enabled: true, defaultForAgents: true },
+      { id: "pictures", name: "Pictures", provider: "image_generation", model: "image" },
+    ];
+    const storage = {
+      get: vi.fn(async (entity: string, id: string) =>
+        entity === "app-settings" && id === "model-routing"
+          ? { id, value: { version: 1, routes: { memory: "pictures" } } }
+          : null,
+      ),
+    } as unknown as StorageGateway;
+
+    await expect(
+      resolveAutomaticMemoryMaintenanceConnectionId(
+        storage,
+        { store: "canonical", scope: { kind: "character", id: "character-1" } },
+        async () => connections,
+      ),
+    ).rejects.toMatchObject({ name: "ModelRouteError", code: "route_unavailable", problem: "not_text" });
+  });
+
   it("discovers existing targets in bounded resumable pages", async () => {
     const chats = Array.from({ length: 125 }, (_, index) => ({
       id: `chat-${String(index).padStart(3, "0")}`,

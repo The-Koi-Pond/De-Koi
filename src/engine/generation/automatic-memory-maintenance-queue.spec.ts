@@ -8,6 +8,7 @@ import type {
   MemoryCleanupTarget,
 } from "../contracts/types/memory-maintenance";
 import { beginForegroundGeneration } from "./background-generation-coordinator";
+import { ModelRouteError } from "./model-routing";
 
 const analyzeMemoryCleanup = vi.hoisted(() => vi.fn());
 const analyzeAutomaticMemoryClarity = vi.hoisted(() => vi.fn());
@@ -538,6 +539,23 @@ describe("automatic memory maintenance queue", () => {
       attempts: 1,
       nextAttemptAt: null,
       lastErrorCode: "configuration_error",
+    });
+  });
+
+  it("fails once with the helper-route copy when the memory route is broken", async () => {
+    const test = harness();
+    test.dependencies.resolveConnectionId.mockRejectedValue(new ModelRouteError("memory", "gone", "missing", "gone"));
+
+    const result = await processAutomaticMemoryMaintenanceQueue(test.dependencies);
+
+    expect(analyzeMemoryCleanup).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ failed: 1, retryable: 0 });
+    expect(test.jobs.get("job-1")).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      nextAttemptAt: null,
+      lastErrorCode: "route_unavailable",
+      lastError: expect.stringContaining("Connections → Helper Models"),
     });
   });
 

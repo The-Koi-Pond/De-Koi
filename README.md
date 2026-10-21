@@ -162,13 +162,14 @@ it.
 </details>
 
 <details>
-<summary><b>Advanced</b> (12)</summary>
+<summary><b>Advanced</b> (13)</summary>
 
 - **Regex Scripts**: Manage SillyTavern-style find/replace scripts that change what you see, what the AI reads, or both.
 - **Slash Commands**: Type / in the chat input to see command autocomplete for actions such as help, dice rolls, reminders, guided replies, response amendments, private scene illustration guidance, and impersonation.
 - **Discord Mirror**: Mirror chat messages into a Discord channel through a webhook while keeping character names and narration labels readable.
 - **Inline Model Reasoning**: Optionally show reasoning returned by the model in a separate collapsible panel beneath character replies while keeping final answers primary.
 - **Recommended Generation Profiles**: Let De-Koi choose stable generation and prompt-budget settings for each chat mode and model, or switch to explicit Custom values.
+- **Helper Models**: Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup) and for summaries (story recaps, daily chat summaries, Summarize chat). Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.
 - **Prompt Overrides**: Customize selected prompt templates for specialized generation behavior without editing core source.
 - **Quick Replies**: Optional input actions for posting without generation, guiding a reply, impersonating a character, or saving custom slash-command buttons from mode input toolbars.
 - **Chat Settings Presets**: Save, apply, import, export, rename, and delete reusable chat settings bundles for repeated chat setups.

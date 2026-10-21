@@ -35,6 +35,7 @@ import type { ConnectionFolder } from "../../../../engine/contracts/types/connec
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { LocalSidecarCard } from "./LocalSidecarCard";
+import { HelperModelsCard } from "./HelperModelsCard";
 import { useConnectionFolderReorder } from "./connection-folder-reorder";
 import { SetupJourneyContextBanner } from "../../onboarding/shell";
 import {
@@ -787,6 +788,7 @@ export function ConnectionsPanel() {
       <DefaultChatConnectionCard connectionsList={connectionsList} />
       <DefaultAgentConnectionCard connectionsList={connectionsList} />
       <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
+      <HelperModelsCard />
 
       {/* ── New folder button ── */}
       <button

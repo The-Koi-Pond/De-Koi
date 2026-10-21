@@ -9,6 +9,7 @@ import {
   type AutomaticMemoryMaintenanceDependencies,
 } from "../../engine/generation/automatic-memory-maintenance-queue";
 import { selectBackgroundTextConnection } from "../../engine/generation/background-llm-connection";
+import { readModelRoutingSettings, resolveModelRoute } from "../../engine/generation/model-routing";
 import { resumeQueuedContinuityDirectorRefreshes } from "../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
 import { resumeQueuedCharacterInterpretations } from "../../engine/generation/behavioral-interpretation-background";
 import {
@@ -147,7 +148,10 @@ export async function resolveAutomaticMemoryMaintenanceConnectionId(
     const chat = (await storage.get<JsonRecord>("chats", target.scope.id, { fields: ["connectionId"] })) ?? {};
     fallbackConnectionId = readString(chat.connectionId).trim() || null;
   }
-  const connection = selectBackgroundTextConnection(await listConnections(), fallbackConnectionId);
+  const connections = await listConnections();
+  const routed = resolveModelRoute("memory", await readModelRoutingSettings(storage), connections);
+  if (routed) return readString(routed.id).trim();
+  const connection = selectBackgroundTextConnection(connections, fallbackConnectionId);
   if (!connection) throw new Error("No text connection is available");
   return readString(connection.id).trim();
 }

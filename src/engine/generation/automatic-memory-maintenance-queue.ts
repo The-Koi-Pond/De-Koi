@@ -21,6 +21,7 @@ import {
 import { analyzeAutomaticMemoryClarity } from "./memory-clarity";
 import { analyzeMemoryCleanup } from "./memory-cleanup";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
+import { isModelRouteError } from "./model-routing";
 import { nowIso, parseArray, parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 
 const JOBS_COLLECTION: StorageEntity = "memory-maintenance-jobs";
@@ -293,6 +294,8 @@ function safeErrorMessage(code: string): string {
   if (code === "stale_state") return "Memory changed during automatic maintenance.";
   if (code === "unknown_command") return "Automatic memory maintenance is unavailable in this runtime.";
   if (code === "configuration_error") return "Automatic memory maintenance needs a valid model configuration.";
+  if (code === "route_unavailable")
+    return "Helper Models sends memory to a connection that's missing or not ready. Fix it in Connections → Helper Models.";
   return "Automatic memory maintenance could not finish.";
 }
 
@@ -691,7 +694,9 @@ export async function processAutomaticMemoryMaintenanceQueue(
           : providerFailure
             ? "provider_unavailable"
             : errorCode(originalError);
-        const terminal = configurationFailure || (!providerFailure && attempts >= maxAttempts);
+        // A broken helper route fails the same way on every retry; the user has to fix the route.
+        const terminal =
+          configurationFailure || isModelRouteError(originalError) || (!providerFailure && attempts >= maxAttempts);
         const nextAttemptAt = terminal ? null : retryTime(now, attempts);
         await updateJob(dependencies.maintenance, leaseId, id, {
           status: terminal ? "failed" : "retryable",
