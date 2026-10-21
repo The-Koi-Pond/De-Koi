@@ -5,6 +5,7 @@ import {
   fanficNarrationText,
   fanficProseBlocks,
   fanficScriptLine,
+  isFanficScriptChapter,
   fanficSoundEffect,
   type FanficNarrationChapter,
 } from "./narration";
@@ -160,10 +161,12 @@ describe("fanficScriptLine", () => {
     });
   });
 
-  it("reads parenthesised stage directions as story, and leaves ordinary prose alone", () => {
+  it("reads a parenthesised paragraph in prose, skips it in a script, and leaves ordinary prose alone", () => {
     expect(fanficScriptLine("(You open the app. The rain gets louder.)", "inline")).toEqual({
       text: "You open the app. The rain gets louder.",
     });
+    expect(fanficScriptLine("(You cross the apartment. The latch turns. The door opens.)", "inline", true)).toBeNull();
+    expect(fanficScriptLine("**PIERROT:** (softly) Come in.", "inline", true)).toEqual({ text: "[softly] Come in." });
     for (const prose of [
       "Note: she never came back.",
       "He said (quietly) that it was fine.",
@@ -172,7 +175,24 @@ describe("fanficScriptLine", () => {
       '"Angel," he said. **"We need to talk."**',
     ]) {
       expect(fanficScriptLine(prose, "inline")).toEqual({ text: fanficNarrationText(prose) });
+      expect(fanficScriptLine(prose, "inline", true)).toEqual({ text: fanficNarrationText(prose) });
     }
+  });
+});
+
+describe("isFanficScriptChapter", () => {
+  it("spots an audio script by its sound notes or repeated speaker labels, not by one stray label", () => {
+    expect(isFanficScriptChapter(["[SFX: Rain.]", "Plain words."])).toBe(true);
+    expect(isFanficScriptChapter(["**PIERROT:** Hi.", "(He bows.)", "PIERROT (softly): Come in."])).toBe(true);
+    expect(isFanficScriptChapter(["NOTE: she left.", "(Not that she'd ever admit it.)", "The end."])).toBe(false);
+  });
+
+  it("keeps a prose chapter's parenthesised aside in the reading", () => {
+    const plan = buildFanficNarration(
+      [{ ...chapter, content: "She left.\n\n(Not that she'd ever admit it.)" }],
+      ttsConfig({ voice: "alloy" }),
+    );
+    expect(plan.parts.map((part) => part.text)).toContain("Not that she'd ever admit it.");
   });
 });
 
@@ -185,7 +205,6 @@ describe("buildFanficNarration with an audio-script chapter", () => {
 
     expect(plan.parts.map(({ text, block, tone }) => ({ text, block, tone }))).toEqual([
       { text: "Chapter 1.", block: null, tone: undefined },
-      { text: "You open the app. The rain gets louder.", block: 1, tone: undefined },
       { text: "[delighted, softly] Good evening, my dear! [a pause] I missed you.", block: 2, tone: undefined },
       { text: "[dry] Must you?", block: 4, tone: undefined },
     ]);
@@ -216,7 +235,6 @@ describe("buildFanficNarration with sound effects", () => {
     expect(plan.parts.map(({ text, block, kind }) => ({ text, block, kind }))).toEqual([
       { text: "Chapter 1.", block: null, kind: undefined },
       { text: "Rain on a window. A phone screen tapping.", block: 0, kind: "sound_effect" },
-      { text: "You open the app. The rain gets louder.", block: 1, kind: undefined },
       { text: "[delighted, softly] Good evening, my dear! [a pause] I missed you.", block: 2, kind: undefined },
       { text: "[dry] Must you?", block: 4, kind: undefined },
     ]);
