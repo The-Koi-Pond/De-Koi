@@ -191,7 +191,9 @@ describe("deleteSelectedChatsSequentially", () => {
       totalCount: 2,
       failedChatId: "chat-b",
     });
-    expect(formatDeleteSelectedChatsError(captured)).toBe("Deleted 1 of 2 chats. storage delete failed");
+    expect(formatDeleteSelectedChatsError(captured)).toBe(
+      "Deleted 1 of 2 chats. Couldn't delete selected chats. Try again.",
+    );
     expect(deleteChats).toHaveBeenCalledTimes(2);
     expect(setActiveChatId).toHaveBeenCalledWith(null);
     expect(exitMultiSelect).toHaveBeenCalledTimes(1);

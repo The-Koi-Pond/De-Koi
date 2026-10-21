@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { checkRemoteRuntimeHealth, sameOriginRemoteRuntimeUrl } from "../../shared/api/remote-runtime";
 import { recordClientDiagnostic } from "../../shared/lib/client-diagnostics";
 import { useUIStore } from "../../shared/stores/ui.store";
+import { toUserMessage } from "../../shared/lib/error-message";
 
 export function useRemoteRuntimeStartupHealthCheck() {
   useEffect(() => {
@@ -35,7 +36,7 @@ export function useRemoteRuntimeStartupHealthCheck() {
         .catch((error) => {
           if (controller.signal.aborted) return;
           if (sameOriginCandidate) return;
-          const message = error instanceof Error ? error.message : "Remote runtime health check failed.";
+          const message = toUserMessage(error, { fallback: "Remote runtime health check failed. Try again." });
           recordClientDiagnostic({
             level: "error",
             source: "remote-runtime",

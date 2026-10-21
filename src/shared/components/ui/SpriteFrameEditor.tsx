@@ -57,7 +57,7 @@ export function SpriteFrameEditor({ imageUrl, label, applying = false, onApply, 
       .catch((err) => {
         if (!cancelled) {
           setPreviewUrl(imageUrl);
-          setError(getErrorMessage(err, "Frame preview failed"));
+          setError(getErrorMessage(err, "Frame preview failed. Try again."));
         }
       });
 
@@ -89,7 +89,7 @@ export function SpriteFrameEditor({ imageUrl, label, applying = false, onApply, 
     try {
       await onApply(await cropSpriteDataUrl(imageUrl, frame));
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to frame sprite"));
+      setError(getErrorMessage(err, "Couldn't frame sprite. Try again."));
     }
   }, [frame, imageUrl, onApply]);
 

@@ -166,7 +166,7 @@ export function BackupExportSettings() {
         );
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't export browser-local state");
+      toast.error(toUserMessage(error, { fallback: "Couldn't export browser-local state. Try again." }));
     } finally {
       setExportingLocalState(false);
     }

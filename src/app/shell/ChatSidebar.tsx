@@ -89,6 +89,7 @@ import {
   type ChatSidebarRecoveryActionId,
 } from "./chat-sidebar-recovery";
 import { buildSupportReportText } from "../../shared/lib/support-report";
+import { toUserMessage } from "../../shared/lib/error-message";
 type ChatSortOption = ChatSidebarSortOption;
 export type ChatSidebarTab = "conversation" | "roleplay" | "fanfic";
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
@@ -622,7 +623,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       });
       void copyToClipboard(report).then((copied) => {
         if (copied) toast.success("Support details copied.");
-        else toast.error("Support details could not be copied.");
+        else toast.error("Couldn't copy the support details. Try again, or copy them from Health.");
       });
     },
   };
@@ -839,7 +840,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           setActiveChatId,
         });
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to delete chat.");
+        toast.error(toUserMessage(error, { fallback: "Couldn't delete chat. Try again." }));
         return false;
       }
     },

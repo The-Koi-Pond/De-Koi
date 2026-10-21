@@ -32,6 +32,7 @@ import type {
 } from "../../../../../engine/contracts/types/tts";
 import { ELEVENLABS_TTS_LANGUAGE_OPTIONS, TTS_API_KEY_MASK } from "../../../../../engine/contracts/types/tts";
 import { LabelWithHelp } from "../../../../../shared/components/ui/HelpTooltip";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 // ── Sub-components ───────────────────────────────
 
@@ -473,7 +474,7 @@ export function TTSConfigCard() {
         await saveNow(payload);
       } catch {
         setSaveStatus("error");
-        toast.error("Failed to save TTS settings.");
+        toast.error("Couldn't save the voice settings. Try again.");
       }
     }, 600);
   };
@@ -552,7 +553,7 @@ export function TTSConfigCard() {
           playbackRate: clientSidePlaybackRate(payload),
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "TTS preview failed.";
+        const message = toUserMessage(error, { fallback: "TTS preview failed. Try again." });
         setPreviewError(message);
         toast.error(message);
       }

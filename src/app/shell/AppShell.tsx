@@ -91,6 +91,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { toUserMessage } from "../../shared/lib/error-message";
 
 const ModeSurface = lazy(loadModeSurface);
 const BackgroundAutonomousPollingHost = lazy(() =>
@@ -591,7 +592,7 @@ export function AppShell() {
         if (active) syncDekiSessionState(state);
       })
       .catch((error) => {
-        const message = error instanceof Error ? error.message : "Deki-senpai chats could not be loaded.";
+        const message = toUserMessage(error, { fallback: "Deki-senpai chats could not be loaded. Try again." });
         toast.error(message);
       });
     return () => {
@@ -644,7 +645,7 @@ export function AppShell() {
         markDekiSessionRead(sessionId);
         openDekiShell();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Deki-senpai chat could not be opened.";
+        const message = toUserMessage(error, { fallback: "Deki-senpai chat could not be opened. Try again." });
         toast.error(message);
       } finally {
         if (pendingDekiSessionIdRef.current === sessionId) pendingDekiSessionIdRef.current = null;
@@ -659,7 +660,7 @@ export function AppShell() {
       syncDekiSessionState(state);
       openDekiShell();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Deki-senpai chat could not be created.";
+      const message = toUserMessage(error, { fallback: "Deki-senpai chat could not be created. Try again." });
       toast.error(message);
     }
   }, [openDekiShell, syncDekiSessionState]);
@@ -672,7 +673,7 @@ export function AppShell() {
         markDekiSessionRead(sessionId);
         if (dekiOpen) setDekiOpen(true);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Deki-senpai chat could not be deleted.";
+        const message = toUserMessage(error, { fallback: "Deki-senpai chat could not be deleted. Try again." });
         toast.error(message);
       }
     },
@@ -687,7 +688,7 @@ export function AppShell() {
         markDekiSessionsRead(sessionIds);
         if (dekiOpen) setDekiOpen(true);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Deki-senpai chats could not be deleted.";
+        const message = toUserMessage(error, { fallback: "Deki-senpai chats could not be deleted. Try again." });
         toast.error(message);
       }
     },
