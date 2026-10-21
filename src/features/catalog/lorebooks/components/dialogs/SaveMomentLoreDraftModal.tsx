@@ -9,6 +9,7 @@ import {
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useCreateLorebookEntry, useLorebooks } from "../../hooks/use-lorebooks";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 export interface SaveMomentLoreDraftModalProps {
   open: boolean;
@@ -68,7 +69,7 @@ export function SaveMomentLoreDraftModal({ open, onClose, source }: SaveMomentLo
       if (entryId) openLorebookEntryDetail(targetLorebookId, entryId);
       toast.success("Lore draft created");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create lore draft");
+      toast.error(toUserMessage(error, { fallback: "Couldn't create lore draft. Try again." }));
     }
   };
 

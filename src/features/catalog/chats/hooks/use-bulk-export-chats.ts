@@ -58,7 +58,7 @@ export function useBulkExportChats() {
       toast.success(`Exported ${count} chat${count === 1 ? "" : "s"}.`);
     },
     onError: (error) => {
-      toast.error(getExportErrorMessage(error, "Failed to export chats."));
+      toast.error(getExportErrorMessage(error, "Couldn't export the chats. Try again."));
     },
   });
 }

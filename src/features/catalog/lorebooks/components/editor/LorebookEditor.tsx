@@ -50,6 +50,7 @@ import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shar
 import { useLorebookEditorDragDrop } from "./use-lorebook-editor-drag-drop";
 import { useLorebookEntrySelection } from "./use-lorebook-entry-selection";
 import { useLorebookOverviewForm } from "./use-lorebook-overview-form";
+import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 // ──────────────────────────────────────────────
 // Folder collapse state lives in localStorage — purely a UI preference, not
@@ -529,7 +530,7 @@ export function LorebookEditor() {
   useEffect(() => {
     if (!lorebookId) return;
     if (isError) {
-      toast.error("Lorebook not found — it may have been deleted");
+      toast.error("This lorebook no longer exists. It may have been deleted; pick another from the Lorebooks list.");
       closeDetail();
     }
   }, [lorebookId, isError, closeDetail]);
@@ -550,7 +551,7 @@ export function LorebookEditor() {
       await deleteLorebook.mutateAsync(lorebookId);
       closeDetail();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete lorebook.");
+      toast.error(toUserMessage(error, { fallback: "Couldn't delete lorebook. Try again." }));
     }
   }, [lorebookId, deleteLorebook, closeDetail]);
 
@@ -562,7 +563,7 @@ export function LorebookEditor() {
         triggerDownloadWithToast(payload, "Lorebook exported.");
         setExportDialogOpen(false);
       } catch (error) {
-        toastExportError(error, "Failed to export lorebook.");
+        toastExportError(error, "Couldn't export the lorebook. Try again.");
       }
     },
     [lorebookId],

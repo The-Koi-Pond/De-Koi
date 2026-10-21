@@ -294,7 +294,7 @@ export function PersonaEditor() {
           void exportApi
             .persona(personaId, format)
             .then((payload) => triggerDownloadWithToast(payload, "Persona exported."))
-            .catch((error) => toastExportError(error, "Failed to export persona."));
+            .catch((error) => toastExportError(error, "Couldn't export the persona. Try again."));
         }}
       />
       <AvatarGenerationModal
