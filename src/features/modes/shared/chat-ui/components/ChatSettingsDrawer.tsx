@@ -1984,11 +1984,15 @@ function ChatSettingsDrawerInner({
             onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
           />
 
-          {isRoleplayMode && (
+          {(isRoleplayMode || isConversation) && (
             <Section
-              label="Roleplay Quality"
+              label={isConversation ? "Texting Quality" : "Roleplay Quality"}
               icon={<Sparkles size="0.875rem" />}
-              help="Quiet protection against high-confidence prose and strict-agency problems."
+              help={
+                isConversation
+                  ? "Keeps the character from falling into the same sign-offs, jokes and nags."
+                  : "Quiet protection against repeated habits and high-confidence prose and strict-agency problems."
+              }
             >
               <button
                 type="button"
@@ -2008,10 +2012,13 @@ function ChatSettingsDrawerInner({
                 )}
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-xs font-medium">Automatic high-confidence correction</span>
+                  <span className="text-xs font-medium">
+                    {isConversation ? "Habit check" : "Automatic high-confidence correction"}
+                  </span>
                   <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-                    Clean replies stay fast and use no extra model call. De-Koi reviews only replies with strong local
-                    evidence and keeps the original whenever a correction is uncertain or fails.
+                    {isConversation
+                      ? "After each text, one small background model call looks for habits the character keeps repeating, so the next text drops them."
+                      : "After each reply, one small background model call looks for habits the replies keep repeating, so the next reply drops them. De-Koi corrects a reply only on strong local evidence and keeps the original whenever a correction is uncertain or fails."}
                   </p>
                 </div>
                 <div

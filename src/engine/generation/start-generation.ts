@@ -131,7 +131,7 @@ import {
   scheduleSparseCharacterInterpretations,
 } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
-import { scheduleRoleplayHabitScan } from "./roleplay-habit-scan";
+import { scheduleHabitScan, type HabitScanMode } from "./habit-scan";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -4858,7 +4858,7 @@ async function holdPostReplyJobs(
       holdLorebookKeeperBackfill(deps, input, chat, connection),
       holdContinuityDirectorRefresh(deps, chat),
       holdPostReplyAgents(deps, input, chat, connection, postReplyAgentsTurnId),
-      holdRoleplayHabitScan(deps, input, chat, connection),
+      holdHabitScan(deps, input, chat, connection),
     ])
   ).filter((hold): hold is TurnJobHold => hold !== null);
   return {
@@ -4870,25 +4870,35 @@ async function holdPostReplyJobs(
 
 // The habit scan only steers later turns, so it is not stored as a job: once the turn has written everything, it
 // runs in this tab if due. If it never runs, it is still due after the next reply.
-function holdRoleplayHabitScan(
+function holdHabitScan(
   deps: GenerationEngineDeps,
   input: StartGenerationInput,
   chat: JsonRecord,
   connection: JsonRecord,
 ): TurnJobHold | null {
   const chatId = readString(chat.id).trim();
-  if (!chatId || !automaticRoleplayQualityCorrectionEnabled(chat, input)) return null;
+  const mode = habitScanMode(chat, input);
+  if (!chatId || !mode) return null;
   return {
     async release(replySaved) {
       if (!replySaved) return;
-      scheduleRoleplayHabitScan({
+      scheduleHabitScan({
         storage: deps.storage,
         llm: deps.llm,
         chatId,
+        mode,
         connectionId: readString(connection.id) || input.connectionId || null,
       });
     },
   };
+}
+
+// Conversation shares the Roleplay switch (shown there as "Habit check"), so the extra call can be turned off.
+function habitScanMode(chat: JsonRecord, input: StartGenerationInput): HabitScanMode | null {
+  if (automaticRoleplayQualityCorrectionEnabled(chat, input)) return "roleplay";
+  const mode = readString(chat.mode || chat.chatMode).trim();
+  if (mode !== "conversation" || input.impersonate === true) return null;
+  return parseRecord(chat.metadata).automaticRoleplayQualityCorrection !== false ? "conversation" : null;
 }
 
 // Stores the characters' pending interpretations on the runtime, so closing the tab can't drop them.

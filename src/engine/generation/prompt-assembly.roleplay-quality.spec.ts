@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
-import { assembleGenerationPrompt, ROLEPLAY_HABITS_NOTE_HEADER } from "./prompt-assembly";
+import { assembleGenerationPrompt, ROLEPLAY_FILLER_NOTE, ROLEPLAY_HABITS_NOTE_HEADER } from "./prompt-assembly";
 import { withModeProseShapeGuidance } from "./prose-shape-guidance";
 
 const CHARACTER_FIRST_MESSAGE = "MIRA_FIRST_MESSAGE_SENTINEL: The archive doors complain before Mira does.";
@@ -180,6 +180,7 @@ describe("Roleplay quality prompt guidance", () => {
     const latestUser = result.messages.filter((message) => message.role === "user").at(-1);
     expect(latestUser?.content).toContain(ROLEPLAY_HABITS_NOTE_HEADER);
     expect(latestUser?.content).toContain('The stock phrase "for a long moment"');
+    expect(latestUser?.content).toContain(ROLEPLAY_FILLER_NOTE);
     expect(
       result.messages.filter((message) => message.role === "system" && message.content.includes("Habits to avoid")),
     ).toEqual([]);
@@ -206,6 +207,7 @@ describe("Roleplay quality prompt guidance", () => {
     });
 
     expect(promptText(result)).not.toContain(ROLEPLAY_HABITS_NOTE_HEADER);
+    expect(promptText(result)).not.toContain(ROLEPLAY_FILLER_NOTE);
     expect(promptText(result)).not.toContain("roleplay_quality");
     expect(result.contextAttributionItems).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ sourceId: "core-roleplay-quality" })]),
@@ -224,5 +226,40 @@ describe("Roleplay quality prompt guidance", () => {
     const text = promptText(result);
     expect(text).toContain('The stock phrase "for a long moment"');
     expect(text).not.toContain("Don't end this reply with another question");
+  });
+
+  it("puts the habit scan in the Conversation freshness note", async () => {
+    const result = await assembleGenerationPrompt(storage(), {
+      chat: {
+        id: "chat-new",
+        mode: "conversation",
+        characterIds: ["mira"],
+        metadata: {
+          habitScan: {
+            version: 2,
+            throughMessageId: "assistant-2",
+            scannedReplies: 2,
+            habits: [{ habit: "Ending on a bedtime order", replies: 2, quotes: ["Go to bed."] }],
+            scannedAt: "2026-10-20T12:00:00.000Z",
+          },
+        },
+      },
+      storedMessages: [
+        { id: "assistant-1", role: "assistant", content: "ok. go to bed." },
+        { id: "user-1", role: "user", content: "no" },
+        { id: "assistant-2", role: "assistant", content: "fine. go to bed." },
+        { id: "user-2", role: "user", content: "what are you doing" },
+      ],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "what are you doing",
+    });
+
+    const latestUser = result.messages.filter((message) => message.role === "user").at(-1);
+    expect(latestUser?.content).toContain("conversation_freshness");
+    expect(latestUser?.content).toContain(
+      '- Ending on a bedtime order (in 2 of the last 2 replies, e.g. "Go to bed."). Leave it out of this reply',
+    );
+    expect(promptText(result)).not.toContain(ROLEPLAY_HABITS_NOTE_HEADER);
   });
 });
