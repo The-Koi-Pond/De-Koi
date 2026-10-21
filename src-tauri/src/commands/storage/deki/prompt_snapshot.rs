@@ -86,8 +86,12 @@ fn render(messages: &[(String, String, usize)]) -> String {
     out
 }
 
+const SNAPSHOT_FILE: &str = "tests/unit/prompt-snapshots/deki.txt";
+
 fn snapshot_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/unit/prompt-snapshots/deki.txt")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(SNAPSHOT_FILE)
 }
 
 /// A short line diff (longest common subsequence) so a failure reads like a text diff.
@@ -109,12 +113,12 @@ fn line_diff(expected: &str, actual: &str) -> String {
         if i < old.len() && j < new.len() && old[i] == new[j] {
             i += 1;
             j += 1;
-        } else if j < new.len() && (i == old.len() || lcs[i][j + 1] >= lcs[i + 1][j]) {
-            out.push(format!("+ {}", new[j]));
-            j += 1;
-        } else {
+        } else if i < old.len() && (j == new.len() || lcs[i + 1][j] >= lcs[i][j + 1]) {
             out.push(format!("- {}", old[i]));
             i += 1;
+        } else {
+            out.push(format!("+ {}", new[j]));
+            j += 1;
         }
     }
     out.join("\n")
@@ -143,8 +147,7 @@ fn deki_first_request_matches_snapshot() {
         .replace("\r\n", "\n");
     assert!(
         expected == actual,
-        "Deki prompt snapshot changed ({}).\nIf the change is intended, run: {UPDATE_COMMAND}\n\n{}",
-        path.display(),
+        "Deki prompt snapshot changed ({SNAPSHOT_FILE}).\nIf the change is intended, run: {UPDATE_COMMAND}\n\n{}",
         line_diff(&expected, &actual)
     );
 }
