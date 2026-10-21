@@ -81,7 +81,7 @@ export function SetupReadinessChecklist({
             Finish setting up De-Koi
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            We’ll keep your intended chat ready while you handle prerequisites.
+            Your chat starts as soon as these steps are done.
           </p>
         </div>
         <button
