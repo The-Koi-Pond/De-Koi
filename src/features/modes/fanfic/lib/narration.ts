@@ -63,6 +63,22 @@ const SPEAKER_LABEL =
 const DELIVERY_CUE = /\(([^()\n]{1,60})\)/g;
 /** A paragraph that is only a short lowercase cue, like "(a pause)" or "(softly)". */
 const CUE_ONLY_BLOCK = /^\(\s*[a-z][^()\n]{0,60}\)$/;
+/** A paragraph wrapped whole in brackets, like "(You cross the apartment. The door opens.)". */
+const WHOLE_PARENTHETICAL = /^\([\s\S]*\)$/;
+
+/**
+ * Whether a chapter is written as an audio script rather than prose: it has a bracketed production note paragraph
+ * ("[SFX: …]") or at least two speaker-labelled lines. One stray "NOTE:" in prose doesn't make it a script.
+ */
+export function isFanficScriptChapter(blocks: readonly string[]): boolean {
+  let labels = 0;
+  for (const block of blocks) {
+    const raw = block.trim();
+    if (SCRIPT_NOTE_BLOCK.test(raw)) return true;
+    if (SPEAKER_LABEL.test(raw) && ++labels >= 2) return true;
+  }
+  return false;
+}
 
 function cleanCue(cue: string): string {
   return cue
@@ -76,19 +92,24 @@ function cleanCue(cue: string): string {
  * and speaker labels are never spoken, delivery cues direct the voice instead of being read, and plain prose is
  * unchanged. Returns null for a paragraph with nothing to say.
  */
-export function fanficScriptLine(block: string, cueStyle: FanficCueStyle): { text: string; tone?: string } | null {
+export function fanficScriptLine(
+  block: string,
+  cueStyle: FanficCueStyle,
+  scriptChapter = false,
+): { text: string; tone?: string } | null {
   const raw = block.trim();
   if (SCRIPT_NOTE_BLOCK.test(raw)) return null;
 
   const withoutNotes = raw.replace(SCRIPT_NOTE_INLINE, " ");
   const label = withoutNotes.match(SPEAKER_LABEL);
   if (!label) {
+    const prose = fanficNarrationText(withoutNotes);
     // A cue with no words to act on has nothing to say.
-    if (CUE_ONLY_BLOCK.test(fanficNarrationText(withoutNotes))) return null;
-    // Stage directions written as a whole parenthesised paragraph are the story told to the listener: read them.
-    const text = fanficNarrationText(withoutNotes)
-      .replace(/^\((.*)\)$/, "$1")
-      .trim();
+    if (CUE_ONLY_BLOCK.test(prose)) return null;
+    // In a script, a whole parenthesised paragraph is a stage direction for the listener, not a line. In prose it can
+    // be an aside that belongs to the story, so it's read there.
+    if (scriptChapter && WHOLE_PARENTHETICAL.test(prose)) return null;
+    const text = prose.replace(/^\((.*)\)$/, "$1").trim();
     return text ? { text } : null;
   }
 
@@ -178,14 +199,16 @@ export function buildFanficNarration(chapters: FanficNarrationChapter[], config:
     const pieces: Array<{ text: string; block: number | null; tone?: string; sound?: true }> = [
       { text: `${chapter.heading}.`, block: null },
     ];
-    fanficProseBlocks(chapter.content).forEach((block, index) => {
+    const blocks = fanficProseBlocks(chapter.content);
+    const scriptChapter = isFanficScriptChapter(blocks);
+    blocks.forEach((block, index) => {
       if (FANFIC_SCENE_BREAK.test(block)) return;
       const sound = soundEffectsOn ? fanficSoundEffect(block) : null;
       if (sound) {
         pieces.push({ text: sound, block: index, sound: true });
         return;
       }
-      const line = fanficScriptLine(block, cueStyle);
+      const line = fanficScriptLine(block, cueStyle, scriptChapter);
       if (!line) return;
       splitTTSChunks(line.text).forEach((text, chunk) => {
         // A delivery cue belongs to the start of the line, so only its first part carries it.
