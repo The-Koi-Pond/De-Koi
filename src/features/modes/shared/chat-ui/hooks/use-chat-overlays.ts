@@ -279,9 +279,10 @@ export function useChatOverlays(activeChatId: string) {
     closeSettings: () => setSettingsOpen(false),
     closeFiles: () => setFilesOpen(false),
     closeGallery: () => setGalleryOpen(false),
+    // Leave the chat in view after setup: the wizard already covered the essentials, and opening
+    // Chat Settings here buried the composer right when a new user was about to send a message.
     finishWizard: () => {
       setWizardOpen(false);
-      setSettingsOpen(true);
       setNewChatSetupChatId(null);
     },
     toggleSpriteArrange: () => setSpriteArrangeMode((current) => !current),
