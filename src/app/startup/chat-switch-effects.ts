@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useTrackerStateStore } from "../../features/runtime/world-state/index";
+import { useTrackerStateStore } from "../../features/runtime/world-state/store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useChatStore } from "../../shared/stores/chat.store";
 

@@ -3,7 +3,7 @@ import { normalizeTemperatureUnit, type TemperatureUnit } from "../../lib/temper
 import type { QuoteFormat } from "../../lib/dialogue-quotes";
 import type { CustomNotificationSound, NotificationSoundId } from "../../lib/notification-sound";
 import type { CustomTextBlipSound, TextBlipMode } from "../../lib/text-blip-sound";
-import type { ImageStyleProfileSettings } from "../../../engine/generation/image-style-profiles";
+import type { ImageStyleProfileSettings } from "../../../engine/generation/image-style-profile-settings";
 
 export type { QuoteFormat, TextBlipMode };
 

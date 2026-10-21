@@ -2,7 +2,6 @@
 // Layout: Main App Shell (Discord-like three-column)
 // --------------------------------------------------------------
 import { ChatSidebar, type ChatSidebarTab } from "./ChatSidebar";
-import { DekiSidebar } from "./DekiSidebar";
 import { AppFindOverlay } from "./AppFindOverlay";
 import { TopBar } from "./TopBar";
 import { TopBarActionsProvider } from "../../shared/components/mobile-shell-actions";
@@ -23,7 +22,7 @@ import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useClearAutonomousUnread } from "../../features/catalog/chats/autonomous-unread";
 import { chatKeys } from "../../features/catalog/chats/index";
-import { dekiApi } from "../../shared/api/deki-api";
+import { dekiSessionsApi } from "./app-shell-deki-sessions";
 import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-history";
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
 import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
@@ -33,7 +32,8 @@ import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
 import { watchVisualViewportHeightVar } from "../../shared/lib/visual-viewport";
 import { HELP_REQUEST_EVENT } from "../../shared/lib/help-events";
-import { useLocalNotificationNavigation } from "../../features/shell/actions";
+// Not the package index: that also loads the client session reset and its tracker helpers.
+import { useLocalNotificationNavigation } from "../../features/shell/actions/chat-navigation";
 import { markPerformanceMilestoneOnce } from "../../shared/lib/performance-diagnostics";
 import { onDesktopWindowCloseRequested } from "../../shared/api/window-controls-api";
 import {
@@ -115,6 +115,7 @@ const OnboardingTutorial = lazy(() =>
 const SetupReadinessJourney = lazy(() =>
   import("../../features/shell/onboarding/shell").then((module) => ({ default: module.SetupReadinessJourney })),
 );
+const DekiSidebar = lazy(() => import("./DekiSidebar").then((module) => ({ default: module.DekiSidebar })));
 const DekiSurface = lazy(() =>
   import("../../features/shell/deki/shell").then((module) => ({ default: module.DekiSurface })),
 );
@@ -344,6 +345,12 @@ export function AppShell() {
   const liveRightPanelWidth = rightPanelDragWidth ?? sidebarDragWidth ?? sharedPanelWidth;
   const chatSidebarVisible = leftSidebarPanel === "chats";
   const dekiSidebarVisible = leftSidebarPanel === "deki";
+  // Deki-senpai's sidebar and session list load the first time Deki is opened,
+  // not with the home screen. Nothing reads them before then.
+  const [dekiUsed, setDekiUsed] = useState(false);
+  useEffect(() => {
+    if (dekiSidebarVisible || dekiOpen) setDekiUsed(true);
+  }, [dekiOpen, dekiSidebarVisible]);
   const trackerPanelWidth = getTrackerPanelWidthForProfile(trackerPanelSizeProfile);
   const mobileTrackerPanelWidth = getMobileTrackerPanelWidthForProfile(trackerPanelSizeProfile);
   const lowPowerShellMode = shouldUseLowPowerShellMode({
@@ -538,13 +545,15 @@ export function AppShell() {
   const [trackerPanelToggleAnchorY, setTrackerPanelToggleAnchorY] = useState<number | null>(null);
   const lastAutonomousUnreadClearRef = useRef<string | null>(null);
 
+  const dekiSessionSyncCountRef = useRef(0);
   const syncDekiSessionState = useCallback((state: DekiSessionsState) => {
+    dekiSessionSyncCountRef.current += 1;
     setDekiSessions(state.sessions);
     setActiveDekiSessionId(state.activeSessionId);
   }, []);
 
   const refreshDekiSessions = useCallback(async () => {
-    const state = await dekiApi.sessions.list();
+    const state = await dekiSessionsApi.list();
     syncDekiSessionState(state);
   }, [syncDekiSessionState]);
 
@@ -585,11 +594,15 @@ export function AppShell() {
   }, [activeDekiSessionId, dekiOpen, markDekiSessionRead]);
 
   useEffect(() => {
+    if (!dekiUsed) return;
     let active = true;
-    void dekiApi.sessions
+    // The first list can still be loading when someone creates or picks a chat;
+    // a newer session state wins over this older read.
+    const syncCountAtStart = dekiSessionSyncCountRef.current;
+    void dekiSessionsApi
       .list()
       .then((state) => {
-        if (active) syncDekiSessionState(state);
+        if (active && dekiSessionSyncCountRef.current === syncCountAtStart) syncDekiSessionState(state);
       })
       .catch((error) => {
         const message = toUserMessage(error, { fallback: "Deki-senpai chats could not be loaded. Try again." });
@@ -598,7 +611,7 @@ export function AppShell() {
     return () => {
       active = false;
     };
-  }, [syncDekiSessionState]);
+  }, [dekiUsed, syncDekiSessionState]);
 
   const setLeftSidebarPanel = useCallback((requestedPanel: AppShellLeftSidebarPanel) => {
     setAppShellLeftSidebarPanel(requestedPanel, {
@@ -640,7 +653,7 @@ export function AppShell() {
 
       pendingDekiSessionIdRef.current = sessionId;
       try {
-        const state = await dekiApi.sessions.select(sessionId);
+        const state = await dekiSessionsApi.select(sessionId);
         syncDekiSessionState(state);
         markDekiSessionRead(sessionId);
         openDekiShell();
@@ -656,7 +669,7 @@ export function AppShell() {
 
   const createDekiSession = useCallback(async () => {
     try {
-      const state = await dekiApi.sessions.create();
+      const state = await dekiSessionsApi.create();
       syncDekiSessionState(state);
       openDekiShell();
     } catch (error) {
@@ -668,7 +681,7 @@ export function AppShell() {
   const deleteDekiSession = useCallback(
     async (sessionId: string) => {
       try {
-        const state = await dekiApi.sessions.delete(sessionId);
+        const state = await dekiSessionsApi.delete(sessionId);
         syncDekiSessionState(state);
         markDekiSessionRead(sessionId);
         if (dekiOpen) setDekiOpen(true);
@@ -683,7 +696,7 @@ export function AppShell() {
   const deleteDekiSessions = useCallback(
     async (sessionIds: string[]) => {
       try {
-        const state = await dekiApi.sessions.deleteMany(sessionIds);
+        const state = await dekiSessionsApi.deleteMany(sessionIds);
         syncDekiSessionState(state);
         markDekiSessionsRead(sessionIds);
         if (dekiOpen) setDekiOpen(true);
@@ -1513,17 +1526,21 @@ export function AppShell() {
             }}
           >
             <div className="h-full" style={{ width: isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth }}>
-              <DekiSidebar
-                sessions={dekiSessions}
-                activeSessionId={activeDekiSessionId}
-                unreadSessionIds={unreadDekiSessionIds}
-                dekiOpen={dekiOpen}
-                onOpenSession={(sessionId) => void openDekiSession(sessionId)}
-                onCreateSession={() => void createDekiSession()}
-                onDeleteSession={(sessionId) => void deleteDekiSession(sessionId)}
-                onDeleteSessions={(sessionIds) => void deleteDekiSessions(sessionIds)}
-                onClose={() => setLeftSidebarPanel(null)}
-              />
+              {dekiUsed && (
+                <Suspense fallback={<SidePanelFallback />}>
+                  <DekiSidebar
+                    sessions={dekiSessions}
+                    activeSessionId={activeDekiSessionId}
+                    unreadSessionIds={unreadDekiSessionIds}
+                    dekiOpen={dekiOpen}
+                    onOpenSession={(sessionId) => void openDekiSession(sessionId)}
+                    onCreateSession={() => void createDekiSession()}
+                    onDeleteSession={(sessionId) => void deleteDekiSession(sessionId)}
+                    onDeleteSessions={(sessionIds) => void deleteDekiSessions(sessionIds)}
+                    onClose={() => setLeftSidebarPanel(null)}
+                  />
+                </Suspense>
+              )}
             </div>
           </aside>{" "}
           {!isMobile && leftSidebarPanel !== null && (

@@ -9,7 +9,7 @@ import { normalizeCustomTextBlipSound } from "../lib/text-blip-sound";
 import {
   createDefaultImageStyleProfileSettings,
   normalizeImageStyleProfileSettings,
-} from "../../engine/generation/image-style-profiles";
+} from "../../engine/generation/image-style-profile-settings";
 import {
   DEFAULT_SUMMARY_POPOVER_SETTINGS,
   RIGHT_PANEL_WIDTH_MAX,

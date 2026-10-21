@@ -9,7 +9,9 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // shell and mode surface. Measured 704.7 KiB when the home screen pulled the
   // whole chat UI and generation engine through a barrel import, 367.4 KiB
   // after (#1339), and 275.2 KiB once framer-motion was gone and the memory
-  // and summary engines left the boot shell.
+  // and summary engines left the boot shell. It grew back to 282.0 KiB, then
+  // fell to 253.3 KiB once the Deki-senpai API and sidebar, the image prompt
+  // compiler, and the tracker helpers behind two package indexes left it.
   homeJs: 300 * 1024,
   // Measured 1695.2 KiB after dropping framer-motion (#1343) and @dnd-kit
   // before it (down from 1730.4 KiB). Spend this margin on features before
@@ -18,6 +20,9 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // the ceiling moved from 1731 KiB to 1740 KiB. Fanfic narration, the prose
   // check, and online research then brought it to 1742.4 KiB (research's
   // planning steps and notes UI are about 5 KiB), so it moved to 1750 KiB.
+  // Main measured 1531.8 KiB on 2026-10-21. Moving code out of the home load
+  // costs a little here, because each new shared chunk compresses on its own:
+  // the homeJs cut above measured 1540.4 KiB.
   totalJs: 1750 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,

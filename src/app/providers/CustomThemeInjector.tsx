@@ -3,8 +3,7 @@
 // CSS and enabled extension CSS/JS into the DOM
 // ──────────────────────────────────────────────
 import { useEffect, useState } from "react";
-import { useThemes } from "../../features/shell/settings/index";
-import { useExtensions } from "../../features/shell/settings/index";
+import { useExtensions, useThemes } from "../../features/shell/settings/customization";
 import { stripDangerousCss } from "../../shared/lib/chat-css";
 import { extensionHasRunnableJavaScript } from "../../shared/lib/extension-import";
 import { executeCustomExtensionJavaScript } from "./extension-runtime";
