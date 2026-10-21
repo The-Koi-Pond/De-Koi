@@ -1069,70 +1069,75 @@ export function TTSConfigCard() {
             </div>
           </FieldRow>
 
-          {voiceMode === "single" && (
-            <FieldRow
-              label="Narrator Voice"
-              help="Use a separate voice for prose outside quotes while quoted dialogue keeps the character voice."
-            >
-              <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-2">
-                <ToggleRow
-                  label="Split quoted dialogue from narration"
-                  checked={narratorVoiceEnabled}
-                  onChange={(enabled) => {
-                    const nextNarratorVoice = narratorVoice.trim() || voice.trim();
-                    if (enabled && !nextNarratorVoice) {
-                      setNarratorVoiceEnabled(false);
-                      mark({ narratorVoiceEnabled: false });
-                      return;
-                    }
+          {/* Shown in both modes: Fanfic read-aloud always uses this voice. */}
+          <FieldRow
+            label="Narrator Voice"
+            help={
+              voiceMode === "single"
+                ? "Use a separate voice for prose outside quotes while quoted dialogue keeps the character voice. Fanfic chapters are read aloud in this voice too."
+                : "The voice that reads Fanfic chapters aloud. Characters keep the voices assigned below."
+            }
+          >
+            <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-2">
+              <ToggleRow
+                label={
+                  voiceMode === "single" ? "Split quoted dialogue from narration" : "Use a narrator voice for Fanfic"
+                }
+                checked={narratorVoiceEnabled}
+                onChange={(enabled) => {
+                  const nextNarratorVoice = narratorVoice.trim() || voice.trim();
+                  if (enabled && !nextNarratorVoice) {
+                    setNarratorVoiceEnabled(false);
+                    mark({ narratorVoiceEnabled: false });
+                    return;
+                  }
 
-                    setNarratorVoiceEnabled(enabled);
-                    if (enabled && nextNarratorVoice !== narratorVoice) setNarratorVoice(nextNarratorVoice);
-                    mark({
-                      narratorVoiceEnabled: enabled,
-                      narratorVoice: enabled ? nextNarratorVoice : narratorVoice,
-                    });
-                  }}
-                />
-                {narratorVoiceEnabled &&
-                  (source === "pockettts" ? (
-                    <>
-                      <input
-                        value={narratorVoice}
-                        list="pockettts-voices"
-                        aria-label="Narrator voice selection"
-                        onChange={(e) => {
-                          handleNarratorVoiceChange(e.target.value);
-                        }}
-                        className={INPUT_CLS}
-                        placeholder={voice || "Narrator voice"}
-                      />
-                    </>
-                  ) : (
-                    <select
+                  setNarratorVoiceEnabled(enabled);
+                  if (enabled && nextNarratorVoice !== narratorVoice) setNarratorVoice(nextNarratorVoice);
+                  mark({
+                    narratorVoiceEnabled: enabled,
+                    narratorVoice: enabled ? nextNarratorVoice : narratorVoice,
+                  });
+                }}
+              />
+              {narratorVoiceEnabled &&
+                (source === "pockettts" ? (
+                  <>
+                    <input
                       value={narratorVoice}
+                      list="pockettts-voices"
                       aria-label="Narrator voice selection"
                       onChange={(e) => {
                         handleNarratorVoiceChange(e.target.value);
                       }}
-                      disabled={fetchingVoices || voiceOptions.length === 0}
-                      className={cn(INPUT_CLS, "cursor-pointer appearance-none")}
-                    >
-                      {source === "elevenlabs" && <option value="">Select narrator voice</option>}
-                      {fetchingVoices && <option value="">Loading voices&hellip;</option>}
-                      {!fetchingVoices && voiceOptions.length === 0 && (
-                        <option value="">Save config to load voices</option>
-                      )}
-                      {voiceOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.name === option.id ? option.id : `${option.name} (${option.id})`}
-                        </option>
-                      ))}
-                    </select>
-                  ))}
-              </div>
-            </FieldRow>
-          )}
+                      className={INPUT_CLS}
+                      placeholder={voice || "Narrator voice"}
+                    />
+                  </>
+                ) : (
+                  <select
+                    value={narratorVoice}
+                    aria-label="Narrator voice selection"
+                    onChange={(e) => {
+                      handleNarratorVoiceChange(e.target.value);
+                    }}
+                    disabled={fetchingVoices || voiceOptions.length === 0}
+                    className={cn(INPUT_CLS, "cursor-pointer appearance-none")}
+                  >
+                    {source === "elevenlabs" && <option value="">Select narrator voice</option>}
+                    {fetchingVoices && <option value="">Loading voices&hellip;</option>}
+                    {!fetchingVoices && voiceOptions.length === 0 && (
+                      <option value="">Save config to load voices</option>
+                    )}
+                    {voiceOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name === option.id ? option.id : `${option.name} (${option.id})`}
+                      </option>
+                    ))}
+                  </select>
+                ))}
+            </div>
+          </FieldRow>
 
           {voiceMode === "per-character" && (
             <FieldRow label="Character Voices" help="Assign voices to specific characters from your Characters tab.">
