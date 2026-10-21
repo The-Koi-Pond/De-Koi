@@ -80,7 +80,8 @@ export function CharacterEditor() {
     [connectionsList],
   );
 
-  const [activeTab, setActiveTab] = useState<CharacterEditorTabId>("metadata");
+  // Open on what shapes replies; name and avatar are already in the header.
+  const [activeTab, setActiveTab] = useState<CharacterEditorTabId>("description");
   const [formData, setFormData] = useState<CharacterData | null>(null);
   const [characterComment, setCharacterComment] = useState("");
   const [memoryPersistence, setMemoryPersistence] = useState<CharacterMemoryPersistence>("character");

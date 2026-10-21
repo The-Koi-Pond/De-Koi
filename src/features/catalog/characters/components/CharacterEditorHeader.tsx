@@ -148,7 +148,8 @@ export function CharacterEditorHeader({
 
   return (
     <div className="flex min-h-12 flex-shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-0 max-md:gap-2 max-md:px-3">
-      <div className="flex min-w-0 flex-1 items-center gap-3 max-md:min-w-full">
+      {/* Keep room for the avatar and name so narrow panes wrap the actions instead of overlapping them. */}
+      <div className="flex min-w-[min(100%,14rem)] flex-1 items-center gap-3 max-md:min-w-full">
         <button
           type="button"
           onClick={onBack}
