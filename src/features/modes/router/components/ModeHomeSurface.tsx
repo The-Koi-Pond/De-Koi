@@ -164,7 +164,7 @@ export function ModeHomeSurface({
 
             <div
               className={cn(
-                "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 sm:max-w-[32rem] sm:gap-4",
+                "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 @xl:max-w-[32rem] @xl:gap-4",
                 showQuickStartEntranceEffects && "stagger-children",
               )}
             >
@@ -214,7 +214,7 @@ export function ModeHomeSurface({
               </h4>
               <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 @md:grid-cols-2 @xl:grid-cols-3">
               {homeSuggestions.map((suggestion) => {
                 const Icon =
                   suggestion.destination === "server-setup"
@@ -376,7 +376,7 @@ function QuickStartCard({
       aria-label={`${comingSoon && !onClick ? "Show status for" : "Start"} ${label} chat`}
       className={cn(
         "koi-start-card group card-3d-tilt btn-scanlines koi-ripple relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border p-2.5 text-center transition-all",
-        "aspect-square min-h-[6rem] sm:gap-3 sm:p-5",
+        "aspect-square min-h-[6rem] @xl:gap-3 @xl:p-5",
         "cursor-pointer hover:-translate-y-1",
       )}
       style={quickStartStyle}
@@ -387,12 +387,12 @@ function QuickStartCard({
         </span>
       )}
       <div
-        className="koi-start-icon flex h-10 w-10 items-center justify-center rounded-xl transition-transform group-hover:scale-110 sm:h-16 sm:w-16 sm:rounded-2xl"
+        className="koi-start-icon flex h-10 w-10 items-center justify-center rounded-xl transition-transform group-hover:scale-110 @xl:h-16 @xl:w-16 @xl:rounded-2xl"
         style={{ background: bg, color: iconColor }}
       >
         {icon}
       </div>
-      <span className="koi-start-label text-[0.7rem] font-bold sm:text-lg">{label}</span>
+      <span className="koi-start-label text-[0.7rem] font-bold @xl:text-lg">{label}</span>
     </button>
   );
 }
