@@ -141,6 +141,8 @@ export const ttsConfigSchema = z.object({
   dialogueOnly: z.boolean().default(false),
   dialogueScope: ttsDialogueScopeSchema.default("all"),
   dialogueCharacterName: z.string().default(""),
+  /** ElevenLabs only: Fanfic read-aloud plays "[SFX: …]" paragraphs as generated sound effects. */
+  fanficSoundEffects: z.boolean().default(false),
 });
 
 export type TTSConfig = z.infer<typeof ttsConfigSchema>;

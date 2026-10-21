@@ -4,6 +4,7 @@
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
 import {
+  hashTTSCacheKey,
   resolveTTSNarratorVoice,
   splitTTSChunks,
   withTTSVoiceRequestCacheKeys,
@@ -42,7 +43,10 @@ export function fanficCueStyle(config: Pick<TTSConfig, "source" | "model">): Fan
   return /v3/i.test(config.model ?? "") ? "inline" : "drop";
 }
 
-/** A paragraph that is only a bracketed production note, like "[SFX: Rain on a window.]" or "[END OF AUDIO]". */
+/**
+ * A paragraph that is only a bracketed production note, like "[SFX: Rain on a window.]" or "[END OF AUDIO]".
+ * Sound cues are played instead when sound effects are on (see fanficSoundEffect).
+ */
 const SCRIPT_NOTE_BLOCK = /^\[[^\]]*\]$/;
 /**
  * A labelled note written inside a line, like "[SFX: a door]" or "[Sound effect: rain]". Bare capitals like "[OPEN]"
@@ -112,6 +116,22 @@ export function fanficScriptLine(block: string, cueStyle: FanficCueStyle): { tex
   return tone ? { text, tone } : { text };
 }
 
+/** A paragraph that is only a sound cue, like "[SFX: Rain on a window.]": its description, or null. */
+export function fanficSoundEffect(block: string): string | null {
+  const match = block.trim().match(/^\[\s*(?:SFX|FX|SOUND(?:\s+EFFECTS?)?)\s*:\s*([^\]]+)\]$/i);
+  const description = match?.[1]?.replace(/\s+/g, " ").trim();
+  return description || null;
+}
+
+/** Whether "[SFX: …]" paragraphs are played as sounds with these settings. */
+export function fanficSoundEffectsOn(config: Pick<TTSConfig, "source" | "baseUrl" | "fanficSoundEffects">): boolean {
+  return (
+    config.source === "elevenlabs" &&
+    config.fanficSoundEffects &&
+    !(config.baseUrl ?? "").toLowerCase().includes("nano-gpt.com")
+  );
+}
+
 export interface FanficNarrationChapter {
   messageId: string;
   number: number;
@@ -127,7 +147,10 @@ export interface FanficNarrationPart extends CachedTTSVoiceRequest {
 
 export interface FanficNarrationPlan {
   parts: FanficNarrationPart[];
+  /** Characters of speech, which is what the provider bills. */
   characters: number;
+  /** Sound effects in the plan; each one is generated once, then replayed from the cache. */
+  soundEffects: number;
   /** Set when the plan cannot be read aloud with the current voice settings. */
   problem: string | null;
 }
@@ -140,17 +163,28 @@ export interface FanficNarrationPlan {
 export function buildFanficNarration(chapters: FanficNarrationChapter[], config: TTSConfig): FanficNarrationPlan {
   const voice = resolveTTSNarratorVoice(config);
   if (config.source === "elevenlabs" && !voice) {
-    return { parts: [], characters: 0, problem: "Pick an ElevenLabs voice under Connections → Text to Speech first." };
+    return {
+      parts: [],
+      characters: 0,
+      soundEffects: 0,
+      problem: "Pick an ElevenLabs voice under Connections → Text to Speech first.",
+    };
   }
 
   const cueStyle = fanficCueStyle(config);
+  const soundEffectsOn = fanficSoundEffectsOn(config);
   const parts: FanficNarrationPart[] = [];
   for (const chapter of chapters) {
-    const pieces: Array<{ text: string; block: number | null; tone?: string }> = [
+    const pieces: Array<{ text: string; block: number | null; tone?: string; sound?: true }> = [
       { text: `${chapter.heading}.`, block: null },
     ];
     fanficProseBlocks(chapter.content).forEach((block, index) => {
       if (FANFIC_SCENE_BREAK.test(block)) return;
+      const sound = soundEffectsOn ? fanficSoundEffect(block) : null;
+      if (sound) {
+        pieces.push({ text: sound, block: index, sound: true });
+        return;
+      }
       const line = fanficScriptLine(block, cueStyle);
       if (!line) return;
       splitTTSChunks(line.text).forEach((text, chunk) => {
@@ -158,16 +192,34 @@ export function buildFanficNarration(chapters: FanficNarrationChapter[], config:
         pieces.push({ text, block: index, ...(line.tone && chunk === 0 ? { tone: line.tone } : {}) });
       });
     });
+    const speech = pieces.filter((piece) => !piece.sound);
     const cached = withTTSVoiceRequestCacheKeys(
-      pieces.map(({ text, tone }) => ({ text, speaker: "Narrator", voice, ...(tone ? { tone } : {}) })),
+      speech.map(({ text, tone }) => ({ text, speaker: "Narrator", voice, ...(tone ? { tone } : {}) })),
       config,
       `fanfic:${chapter.messageId}`,
     );
-    cached.forEach((request, index) => {
-      parts.push({ ...request, chapterNumber: chapter.number, block: pieces[index]!.block });
-    });
+    let next = 0;
+    for (const piece of pieces) {
+      const request: CachedTTSVoiceRequest = piece.sound
+        ? {
+            text: piece.text,
+            speaker: "Sound effect",
+            kind: "sound_effect",
+            // Keyed by the description alone, so the same sound anywhere in any fic is made once and voice changes
+            // don't pay for it again.
+            cacheKey: `fanfic-sfx-v1:${hashTTSCacheKey(piece.text.toLowerCase())}`,
+          }
+        : cached[next++]!;
+      parts.push({ ...request, chapterNumber: chapter.number, block: piece.block });
+    }
   }
 
-  const characters = parts.reduce((sum, part) => sum + part.text.length, 0);
-  return { parts, characters, problem: parts.length === 0 ? "There is nothing to read yet." : null };
+  const speechParts = parts.filter((part) => part.kind !== "sound_effect");
+  const characters = speechParts.reduce((sum, part) => sum + part.text.length, 0);
+  return {
+    parts,
+    characters,
+    soundEffects: parts.length - speechParts.length,
+    problem: parts.length === 0 ? "There is nothing to read yet." : null,
+  };
 }

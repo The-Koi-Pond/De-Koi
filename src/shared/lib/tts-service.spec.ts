@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const speak = vi.fn<(input: { text: string }) => Promise<Blob>>();
+const speak = vi.fn<(input: { text: string; kind?: string }) => Promise<Blob>>();
 
-vi.mock("../api/tts-api", () => ({ ttsApi: { speak: (input: { text: string }) => speak(input) } }));
+vi.mock("../api/tts-api", () => ({ ttsApi: { speak: (input: { text: string; kind?: string }) => speak(input) } }));
 
 const { ttsService } = await import("./tts-service");
 
@@ -116,5 +116,60 @@ describe("ttsService.speakSequence", () => {
     FakeAudio.playing[0]!.onended?.();
     await expect(done).rejects.toThrow("quota exceeded");
     expect(ttsService.getState()).toBe("error");
+  });
+
+  it("asks for sound effect parts as sounds and plays them at normal speed", async () => {
+    speak.mockResolvedValue(new Blob(["a"]));
+    void ttsService.speakSequence([{ text: "Rain on a window.", kind: "sound_effect" }], "seq", { playbackRate: 1.5 });
+    await flush();
+
+    expect(speak.mock.calls[0]![0]).toMatchObject({ text: "Rain on a window.", kind: "sound_effect" });
+    expect(FakeAudio.playing[0]!.playbackRate).toBe(1);
+  });
+
+  it("keeps reading when a sound effect fails, reports it once, and skips the rest of the sounds", async () => {
+    speak.mockImplementation(({ kind }) =>
+      kind === "sound_effect" ? Promise.reject(new Error("missing_permissions")) : Promise.resolve(new Blob(["a"])),
+    );
+    const failures: string[] = [];
+    const started: number[] = [];
+    const done = ttsService.speakSequence(
+      [
+        { text: "Rain.", kind: "sound_effect" },
+        { text: "Good evening." },
+        { text: "A door.", kind: "sound_effect" },
+        { text: "Come in." },
+      ],
+      "seq",
+      {
+        throwOnError: true,
+        onPartStart: (index) => started.push(index),
+        onSoundEffectsFailed: (error) => failures.push(error.message),
+      },
+    );
+    await flush();
+    await flush();
+    FakeAudio.playing[0]!.onended?.();
+    await flush();
+    await flush();
+    FakeAudio.playing[1]!.onended?.();
+    await done;
+
+    expect(failures).toEqual(["missing_permissions"]);
+    expect(started).toEqual([1, 3]);
+    expect(speak.mock.calls.filter(([input]) => input.kind === "sound_effect")).toHaveLength(1);
+    expect(ttsService.getState()).toBe("idle");
+  });
+
+  it("still stops on a failed speech part", async () => {
+    speak.mockRejectedValue(new Error("quota exceeded"));
+    const failures: string[] = [];
+    await expect(
+      ttsService.speakSequence([{ text: "one" }], "seq", {
+        throwOnError: true,
+        onSoundEffectsFailed: (error) => failures.push(error.message),
+      }),
+    ).rejects.toThrow("quota exceeded");
+    expect(failures).toEqual([]);
   });
 });

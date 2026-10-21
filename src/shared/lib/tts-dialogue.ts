@@ -1,4 +1,5 @@
 import type { TTSConfig } from "../../engine/contracts/types/tts";
+import type { TtsAudioKind } from "../api/tts-api";
 import {
   DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE,
   DIALOGUE_QUOTE_PATTERN_SOURCE,
@@ -25,6 +26,8 @@ export interface TTSVoiceRequest {
   speaker?: string;
   tone?: string;
   voice?: string;
+  /** "sound_effect" plays a generated sound described by `text` instead of speaking it. */
+  kind?: TtsAudioKind;
 }
 
 export interface CachedTTSVoiceRequest extends TTSVoiceRequest {
@@ -87,7 +90,7 @@ function stableTTSIndex(seed: string, length: number): number {
   return Math.abs(hash) % length;
 }
 
-function hashTTSCacheKey(value: string): string {
+export function hashTTSCacheKey(value: string): string {
   let hash = 5381;
   for (let index = 0; index < value.length; index += 1) {
     hash = (hash * 33) ^ value.charCodeAt(index);

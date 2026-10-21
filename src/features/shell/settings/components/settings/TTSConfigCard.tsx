@@ -346,6 +346,7 @@ export function TTSConfigCard() {
   const [autoplayGame, setAutoplayGame] = useState(false);
   const [autoplayStreaming, setAutoplayStreaming] = useState(false);
   const [dialogueOnly, setDialogueOnly] = useState(false);
+  const [fanficSoundEffects, setFanficSoundEffects] = useState(false);
   const [speechInputProvider, setSpeechInputProvider] = useState(false);
   const [sttModel, setSttModel] = useState("");
 
@@ -398,6 +399,7 @@ export function TTSConfigCard() {
     setAutoplayGame(savedConfig.autoplayGame);
     setAutoplayStreaming(savedConfig.autoplayStreaming ?? false);
     setDialogueOnly(savedConfig.dialogueOnly ?? false);
+    setFanficSoundEffects(savedConfig.fanficSoundEffects ?? false);
     setSaveStatus("idle");
   }, [savedConfig]);
 
@@ -446,6 +448,7 @@ export function TTSConfigCard() {
     autoplayGame,
     autoplayStreaming,
     dialogueOnly,
+    fanficSoundEffects,
     dialogueScope: "all",
     dialogueCharacterName: "",
     speechInputProvider,
@@ -1379,6 +1382,24 @@ export function TTSConfigCard() {
               }}
             />
           </div>
+
+          {source === "elevenlabs" && (
+            <FieldRow
+              label="Fanfic Sound Effects"
+              help="Plays [SFX: …] lines in Fanfic read-aloud as sounds made by ElevenLabs. Each new sound costs credits the first time, then replays free. The API key needs the Sound Effects permission."
+            >
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-2">
+                <ToggleRow
+                  label="Play sound effects in Fanfic read-aloud"
+                  checked={fanficSoundEffects}
+                  onChange={(v) => {
+                    setFanficSoundEffects(v);
+                    mark({ fanficSoundEffects: v });
+                  }}
+                />
+              </div>
+            </FieldRow>
+          )}
 
           {/* Actions */}
           <div className="flex items-center gap-2 pt-1">

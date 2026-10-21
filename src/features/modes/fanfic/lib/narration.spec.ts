@@ -5,6 +5,7 @@ import {
   fanficNarrationText,
   fanficProseBlocks,
   fanficScriptLine,
+  fanficSoundEffect,
   type FanficNarrationChapter,
 } from "./narration";
 
@@ -202,5 +203,55 @@ describe("buildFanficNarration with an audio-script chapter", () => {
     ).parts[1]!;
     expect(withoutTone.text).toBe(line.text);
     expect(withoutTone.cacheAliases).not.toEqual(line.cacheAliases);
+  });
+});
+
+describe("buildFanficNarration with sound effects", () => {
+  const soundConfig = (overrides: Partial<TTSConfig> = {}) =>
+    ttsConfig({ source: "elevenlabs", model: "eleven_v3", voice: "pierrot", fanficSoundEffects: true, ...overrides });
+
+  it("plays [SFX: …] paragraphs as sounds in reading order and counts them apart from speech", () => {
+    const plan = buildFanficNarration([scriptChapter], soundConfig());
+
+    expect(plan.parts.map(({ text, block, kind }) => ({ text, block, kind }))).toEqual([
+      { text: "Chapter 1.", block: null, kind: undefined },
+      { text: "Rain on a window. A phone screen tapping.", block: 0, kind: "sound_effect" },
+      { text: "You open the app. The rain gets louder.", block: 1, kind: undefined },
+      { text: "[delighted, softly] Good evening, my dear! [a pause] I missed you.", block: 2, kind: undefined },
+      { text: "[dry] Must you?", block: 4, kind: undefined },
+    ]);
+    expect(plan.soundEffects).toBe(1);
+    expect(plan.characters).toBe(
+      plan.parts.filter((part) => part.kind !== "sound_effect").reduce((sum, part) => sum + part.text.length, 0),
+    );
+  });
+
+  it("keys a sound by its description only, so voice changes and other chapters reuse it", () => {
+    const sound = (config: TTSConfig, messageId: string) =>
+      buildFanficNarration([{ ...scriptChapter, messageId }], config).parts.find((part) => part.kind)!;
+
+    const first = sound(soundConfig(), "msg-a");
+    expect(sound(soundConfig({ voice: "freddy", speed: 2 }), "msg-b").cacheKey).toBe(first.cacheKey);
+    expect(first.cacheKey).toMatch(/^fanfic-sfx-v1:/);
+  });
+
+  it("stays silent for sound cues when the setting is off, the provider isn't ElevenLabs, or it goes through NanoGPT", () => {
+    for (const config of [
+      soundConfig({ fanficSoundEffects: false }),
+      ttsConfig({ source: "openai", voice: "alloy", fanficSoundEffects: true }),
+      soundConfig({ baseUrl: "https://nano-gpt.com/api/v1" }),
+    ]) {
+      const plan = buildFanficNarration([scriptChapter], config);
+      expect(plan.soundEffects).toBe(0);
+      expect(plan.parts.some((part) => /Rain on a window/.test(part.text))).toBe(false);
+    }
+  });
+
+  it("only treats a whole sound-cue paragraph as a sound", () => {
+    expect(fanficSoundEffect("[SFX: A door creaks.]")).toBe("A door creaks.");
+    expect(fanficSoundEffect("[Sound effect:   distant   thunder]")).toBe("distant thunder");
+    expect(fanficSoundEffect("[END OF AUDIO]")).toBeNull();
+    expect(fanficSoundEffect("She heard it. [SFX: A door creaks.]")).toBeNull();
+    expect(fanficSoundEffect("[SFX: ]")).toBeNull();
   });
 });

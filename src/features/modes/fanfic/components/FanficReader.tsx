@@ -852,7 +852,11 @@ function NarrationBar({
         <span className="text-xs text-[var(--muted-foreground)]">
           {plan.problem ??
             (elevenLabs
-              ? `About ${plan.characters.toLocaleString()} ElevenLabs characters the first time. Replays are free.`
+              ? `About ${plan.characters.toLocaleString()} ElevenLabs characters${
+                  plan.soundEffects > 0
+                    ? ` and ${plan.soundEffects} sound effect${plan.soundEffects === 1 ? "" : "s"}`
+                    : ""
+                } the first time. Replays are free.`
               : `About ${plan.characters.toLocaleString()} characters.`)}
         </span>
       </div>
