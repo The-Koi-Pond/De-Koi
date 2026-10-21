@@ -1,6 +1,7 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { cn } from "../../../../shared/lib/utils";
+import { holdNotificationPingsQuiet } from "../../../../shared/lib/notification-sound";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useReplyWait } from "../../shared/chat-ui/index";
 import { useVoiceCall, type VoiceCallCharacter, type VoiceCallPhase } from "../hooks/use-voice-call";
@@ -39,6 +40,9 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
     const box = transcriptRef.current;
     if (box && followTranscriptRef.current) box.scrollTop = box.scrollHeight;
   }, [call.heard, call.said]);
+
+  // No new-message chirp while on the call: the reply is being spoken out loud already.
+  useEffect(() => holdNotificationPingsQuiet(), []);
 
   useEffect(() => {
     if (phase === "ended") onClose();
