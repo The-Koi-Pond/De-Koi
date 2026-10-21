@@ -352,8 +352,10 @@ export function CharacterEditor() {
     closeDetail();
   }, [avatarUploading, closeDetail, setDirtyState]);
 
-  const handleStartChat = () => {
+  const handleStartChat = async () => {
     if (!characterId || !formData) return;
+    // Starting a chat closes the editor, so keep unsaved edits by saving first.
+    if (dirty && !(await handleSave())) return;
     startChatFromCharacter({
       characterId,
       characterName: formData.name,
