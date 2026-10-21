@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_SPLASH_TEXTS, ModeHomeSurface, pickHomeSplashText } from "./ModeHomeSurface";
 
 const { connectionRows, createChatMutate } = vi.hoisted(() => ({
-  connectionRows: { current: [] as Array<{ id: string; provider: string }> },
+  connectionRows: { current: [] as Array<{ id: string; provider: string; model?: string; hasApiKey?: boolean }> },
   createChatMutate: vi.fn(),
 }));
 const { embeddedRuntime } = vi.hoisted(() => ({ embeddedRuntime: { current: true } }));
@@ -274,5 +274,23 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     act(() => button!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(beginSetupJourney).toHaveBeenCalledWith("roleplay");
     expect(createChatMutate).not.toHaveBeenCalled();
+  });
+
+  it("keeps offering Add a model connection while the only connection has no model yet", async () => {
+    connectionRows.current = [{ id: "new", provider: "openrouter", model: "" }];
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    expect(container!.textContent).toContain("Add a model connection");
+  });
+
+  it("drops Add a model connection once a connection has a model", async () => {
+    connectionRows.current = [{ id: "ready", provider: "openrouter", model: "openrouter/auto", hasApiKey: true }];
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    expect(container!.textContent).not.toContain("Add a model connection");
   });
 });
