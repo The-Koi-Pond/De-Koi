@@ -27,6 +27,7 @@ import {
   X,
   Star,
   Loader2,
+  ListChecks,
   Feather,
 } from "lucide-react";
 import {
@@ -50,6 +51,7 @@ import {
 import { useChatSurfaceCharacterSummariesByIds } from "../../features/catalog/characters/index";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
+import { revealSetupJourney } from "../../shared/lib/setup-journey-reveal";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
@@ -109,6 +111,20 @@ export function runChatSidebarNewChatAction({
 }) {
   if (isMobile) closeSidebar();
   startNewChat(mode);
+}
+
+export function runChatSidebarRevealSetupAction({
+  isMobile,
+  closeSidebar,
+  revealSetup,
+}: {
+  isMobile: boolean;
+  closeSidebar: () => void;
+  revealSetup: () => boolean;
+}) {
+  // On phones the sidebar drawer covers the checklist, so get it out of the way first.
+  if (isMobile) closeSidebar();
+  revealSetup();
 }
 
 export type ChatSidebarRecoveryActionDependencies = {
@@ -595,6 +611,13 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       startNewChat,
     });
   }, [activeTab, onRequestClose, startNewChat]);
+  const handleRevealSetup = useCallback(() => {
+    runChatSidebarRevealSetupAction({
+      isMobile: window.innerWidth < 768,
+      closeSidebar: onRequestClose,
+      revealSetup: revealSetupJourney,
+    });
+  }, [onRequestClose]);
 
   const clearChatFilters = useCallback(() => {
     setSearchQuery("");
@@ -612,7 +635,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
   const recoveryActions: ChatSidebarRecoveryActionDependencies = {
     retry: () => void refetchChats(),
-    create: handleNewChatFromTab,
+    create: newChatJourneyPending ? handleRevealSetup : handleNewChatFromTab,
     clearFilters: clearChatFilters,
     connectServer: () => openSettingsTab("advanced"),
     openConnections: () => openRightPanel("connections"),
@@ -1330,14 +1353,14 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           </div>
 
           <div className="grid grid-cols-2 gap-1.5">
+            {/* While the setup checklist is open, point back at it instead of showing a spinner for minutes. */}
             <button
-              onClick={handleNewChatFromTab}
-              disabled={newChatJourneyPending}
-              aria-busy={newChatJourneyPending}
+              onClick={newChatJourneyPending ? handleRevealSetup : handleNewChatFromTab}
+              title={newChatJourneyPending ? "Your new chat opens once setup is finished" : undefined}
               className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
             >
-              {newChatJourneyPending ? <Loader2 size="0.8rem" className="animate-spin" /> : <Plus size="0.8rem" />}
-              {newChatJourneyPending ? "Starting..." : `New ${SIDEBAR_TAB_NOUNS[activeTab].newLabel}`}
+              {newChatJourneyPending ? <ListChecks size="0.8rem" /> : <Plus size="0.8rem" />}
+              {newChatJourneyPending ? "Finish setup" : `New ${SIDEBAR_TAB_NOUNS[activeTab].newLabel}`}
             </button>
             <button
               onClick={handleCreateFolder}

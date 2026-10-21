@@ -533,6 +533,8 @@ export function AppShell() {
   const setupJourneyIntent = useSetupJourneyStore((s) => s.intent);
   useEffect(() => {
     if (!pendingNewChatMode) return;
+    // Show the list the new chat will land in, so the sidebar matches the mode being set up.
+    setActiveChatSidebarTab(pendingNewChatMode);
     const intent = useSetupJourneyStore.getState().intent;
     if (shouldBeginSetupJourney(pendingNewChatMode, intent)) {
       useSetupJourneyStore.getState().begin(pendingNewChatMode);
