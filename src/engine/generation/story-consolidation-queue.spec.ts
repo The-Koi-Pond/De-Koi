@@ -238,6 +238,54 @@ describe("story consolidation queue", () => {
     ]);
   });
 
+  it("carries the previous episode's open threads into the summary and stores the updated list", async () => {
+    const test = harness();
+    const previous = episodeMemory(1);
+    const lesson = { kind: "promise" as const, text: "Ilvane will teach Pim to read a survey map before Sallow." };
+    await test.storage.createMemory!({ ...previous, payload: { ...previous.payload, openThreads: [lesson] } });
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 3)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const updated = [lesson, { kind: "hook" as const, text: "Who sent the unsigned letter is still unknown." }];
+    const complete = vi.fn(async () => JSON.stringify({ ...JSON.parse(llmResult("message-3")), openThreads: updated }));
+
+    await processStoryConsolidationQueue(
+      { storage: test.storage, llm: { complete } as unknown as LlmGateway },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
+
+    const prompt = String(complete.mock.calls[0]?.[0]?.messages?.[1]?.content);
+    expect(prompt).toContain(
+      "Open threads carried over:\n- [promise] Ilvane will teach Pim to read a survey map before Sallow.",
+    );
+    const episode = Array.from(test.memories.values()).find((memory) => memory.id !== "episode-1");
+    expect(episode?.payload).toMatchObject({ openThreads: updated });
+  });
+
+  it("keeps carrying open threads forward when the summarizer leaves the list out", async () => {
+    const test = harness();
+    const previous = episodeMemory(1);
+    const lesson = { kind: "promise" as const, text: "Ilvane will teach Pim to read a survey map before Sallow." };
+    await test.storage.createMemory!({ ...previous, payload: { ...previous.payload, openThreads: [lesson] } });
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 3)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = { complete: vi.fn(async () => llmResult("message-3")) } as unknown as LlmGateway;
+
+    await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+
+    const episode = Array.from(test.memories.values()).find((memory) => memory.id !== "episode-1");
+    expect(episode?.payload).toMatchObject({
+      openThreads: [lesson, { kind: "hook", text: "A concrete story beat occurred." }],
+    });
+  });
+
   it("summarizes on the queued reply connection when summaries are not routed", async () => {
     const test = harness();
     await enqueueStoryEpisodeJob(test.storage, {

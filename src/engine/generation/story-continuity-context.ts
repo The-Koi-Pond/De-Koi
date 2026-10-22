@@ -1,6 +1,6 @@
 import type { StorageGateway } from "../capabilities/storage";
 import type { GenerationContextAttributionItem } from "../contracts/types/chat";
-import type { CanonicalMemoryRecord, StoryProjectionPayload } from "../contracts/types/memory";
+import type { CanonicalMemoryRecord, StoryOpenThread, StoryProjectionPayload } from "../contracts/types/memory";
 import { parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import { getEffectiveMemoryRecallEnabled } from "../contracts/types/chat";
 import { isStoryProjectionMemory } from "./story-projections";
@@ -29,6 +29,9 @@ const DEFAULT_BUDGET_TOKENS = 360;
 const MIN_BUDGET_TOKENS = 100;
 const MAX_BUDGET_TOKENS = 800;
 const CONTEXT_SHARE = 0.07;
+// Open threads come from the newest episode's carried-forward list and get their own small allowance.
+const MAX_OPEN_THREADS = 6;
+const OPEN_THREAD_BUDGET_TOKENS = 220;
 
 function payload(memory: CanonicalMemoryRecord): StoryProjectionPayload | null {
   return isStoryProjectionMemory(memory) ? (memory.payload as StoryProjectionPayload) : null;
@@ -76,6 +79,25 @@ function removeRepresentedSentences(content: string, represented: Set<string>): 
     })
     .join(" ")
     .trim();
+}
+
+function episodeEnd(memory: CanonicalMemoryRecord, story: StoryProjectionPayload): string {
+  return readString(story.sourceMessages?.at(-1)?.createdAt).trim() || memory.createdAt;
+}
+
+function packOpenThreads(threads: StoryOpenThread[], represented: Set<string>): StoryOpenThread[] {
+  const packed: StoryOpenThread[] = [];
+  let used = 30;
+  for (const thread of threads) {
+    if (packed.length >= MAX_OPEN_THREADS) break;
+    const normalized = normalizeSentence(thread.text);
+    if (!normalized || represented.has(normalized)) continue;
+    const tokens = estimateTokens(thread.text) + 4;
+    if (used + tokens > OPEN_THREAD_BUDGET_TOKENS) continue;
+    packed.push(thread);
+    used += tokens;
+  }
+  return packed;
 }
 
 function budget(input: StoryContinuityContextInput): number {
@@ -199,10 +221,31 @@ export async function buildStoryContinuityContext(
     input.representedText ?? [],
     budget(input),
   );
-  if (packed.length === 0 && excluded.length === 0) return null;
+  // Once part of the chat has left the raw window, show the newest open-thread list. It may come from an
+  // episode still inside the window: the list it carries covers the whole story so far.
+  const ledger =
+    episodes.length === 0
+      ? undefined
+      : queried
+          .filter((memory) => memory.status === "active" || memory.status === "pinned")
+          .filter((memory) => accessByMemoryId.get(memory.id)?.admitted !== false)
+          .flatMap((memory) => {
+            const story = payload(memory);
+            return story?.level === "episode" && story.openThreads?.length ? [{ memory, story }] : [];
+          })
+          .sort((left, right) =>
+            episodeEnd(right.memory, right.story).localeCompare(episodeEnd(left.memory, left.story)),
+          )[0];
+  const threads = ledger
+    ? packOpenThreads(
+        ledger.story.openThreads ?? [],
+        sentenceSet([...(input.representedText ?? []), ...packed.map(({ content }) => content)]),
+      )
+    : [];
+  if (packed.length === 0 && threads.length === 0 && excluded.length === 0) return null;
 
   const block =
-    packed.length > 0
+    packed.length > 0 || threads.length > 0
       ? [
           "<story_continuity>",
           "The following are non-authoritative narrative projections. Recent transcript and canonical atomic memories win conflicts.",
@@ -210,6 +253,14 @@ export async function buildStoryContinuityContext(
             const story = payload(memory)!;
             return `- [${story.level}] ${memory.title ?? "Untitled"}: ${content}`;
           }),
+          ...(threads.length > 0
+            ? [
+                "Open threads the story has not closed yet. Raise one only when the scene gives it room.",
+                ...threads.map(
+                  (thread) => `- [${thread.kind === "promise" ? "promise" : "unresolved"}] ${thread.text}`,
+                ),
+              ]
+            : []),
           "</story_continuity>",
         ].join("\n")
       : "";
@@ -254,6 +305,24 @@ export async function buildStoryContinuityContext(
           epistemicDecisions: accessByMemoryId.get(memory.id)?.decisions ?? [],
         },
       })),
+      ...threads.map(
+        (thread, index) =>
+          ({
+            kind: "story_projection",
+            label: `Open thread ${index + 1}`,
+            status: "injected",
+            sourceId: ledger!.memory.id,
+            sourceCollection: "canonical-memories",
+            snippet: thread.text,
+            metadata: {
+              projectionLevel: "episode",
+              openThread: thread.kind,
+              epistemicPolicyVersion: accessByMemoryId.has(ledger!.memory.id) ? 1 : undefined,
+              epistemicReason: accessByMemoryId.get(ledger!.memory.id)?.reason,
+              epistemicEdgeIds: accessByMemoryId.get(ledger!.memory.id)?.edgeIds,
+            },
+          }) satisfies GenerationContextAttributionItem,
+      ),
     ],
   };
 }
