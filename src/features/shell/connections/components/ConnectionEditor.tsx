@@ -982,7 +982,9 @@ export function ConnectionEditor() {
             icon={<Globe size="0.875rem" className="text-sky-400" />}
             help="The AI service you want to connect to. Each provider has its own models, pricing, and features. OpenAI and Anthropic are the most popular."
           >
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {/* Columns follow the editor pane's own width, not the window's: beside the chat list and Connections panel the
+                pane is narrow even on a wide screen, and long names wrap instead of being cut off. */}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
               {providerEntries.map(([key, info]) => (
                 <button
                   key={key}
@@ -1007,7 +1009,7 @@ export function ConnectionEditor() {
                     markDirty();
                   }}
                   className={cn(
-                    "truncate rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
+                    "rounded-xl px-3 py-2.5 text-xs leading-tight font-medium break-words transition-all",
                     localProvider === key
                       ? SELECTED_PROVIDER_OPTION_CLASS
                       : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
