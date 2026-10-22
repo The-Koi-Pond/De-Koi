@@ -68,6 +68,7 @@ pub(super) fn storage_list_projection_fields_for_read(
     } else {
         fields.to_vec()
     };
+    append_connection_secret_projection_fields(entity, fields, &mut projection);
     append_storage_list_sort_projection_fields(&mut projection, options);
     projection
 }
@@ -156,6 +157,18 @@ pub(super) fn storage_get_projection_fields_for_read(
         fields.to_vec()
     };
 
+    append_connection_secret_projection_fields(entity, fields, &mut projection);
+    projection
+}
+
+/// `hasApiKey` is derived from the stored key fields when a connection is masked for read, so a projection that
+/// asks for it (or for the masked `apiKey`) has to load them. Without this a projected read reports every key as
+/// missing.
+fn append_connection_secret_projection_fields(
+    entity: &str,
+    fields: &[String],
+    projection: &mut Vec<String>,
+) {
     if entity == "connections"
         && fields
             .iter()
@@ -167,8 +180,6 @@ pub(super) fn storage_get_projection_fields_for_read(
             }
         }
     }
-
-    projection
 }
 
 pub(super) fn compare_json_values(

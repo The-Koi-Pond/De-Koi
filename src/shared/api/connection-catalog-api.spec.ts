@@ -68,6 +68,15 @@ describe("connectionCatalogApi", () => {
     });
   });
 
+  // Setup's "Connect a language model" step reads this list; without hasApiKey no keyed connection ever counted.
+  it("asks for hasApiKey so setup can tell a keyed connection is ready", async () => {
+    await connectionCatalogApi.listAvailable();
+
+    expect(vi.mocked(storageApi.list).mock.calls[0]?.[1]).toMatchObject({
+      fields: expect.arrayContaining(["model", "hasApiKey"]),
+    });
+  });
+
   it("keeps a configured stored default ahead of the runtime-only fallback", () => {
     expect(
       connectionCatalogApi.selectDefaultTextConnectionId([

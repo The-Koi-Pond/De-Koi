@@ -8445,6 +8445,54 @@ mod tests {
         assert!(read.get("apiKeyEncrypted").is_none());
     }
 
+    // Setup reads the connection list with a field projection; before this, every keyed connection came back
+    // with hasApiKey false, so "Connect a language model" never completed for OpenRouter, OpenAI, Anthropic...
+    #[test]
+    fn projected_connection_list_reports_saved_key_without_returning_it() {
+        let state = test_state("connection-secret-projected-list");
+        for (id, api_key) in [("keyed", "sk-secret"), ("keyless", "")] {
+            storage_create_inner(
+                &state,
+                "connections".to_string(),
+                json!({
+                    "id": id,
+                    "name": id,
+                    "provider": "openrouter",
+                    "model": "openai/gpt-4o-mini",
+                    "apiKey": api_key
+                }),
+            )
+            .expect("connection should be created");
+        }
+
+        let rows = storage_list_inner(
+            &state,
+            "connections".to_string(),
+            Some(json!({ "fields": ["id", "model", "hasApiKey"] })),
+        )
+        .expect("projected connection list should read");
+        let rows = rows.as_array().expect("list should be an array");
+        let row = |id: &str| {
+            rows.iter()
+                .find(|row| row["id"] == id)
+                .expect("connection should be listed")
+                .clone()
+        };
+
+        assert_eq!(row("keyed")["hasApiKey"], true);
+        assert_eq!(row("keyless")["hasApiKey"], false);
+        for row in rows {
+            assert!(
+                row.get("apiKey").is_none(),
+                "unrequested apiKey leaked: {row}"
+            );
+            assert!(
+                row.get("apiKeyEncrypted").is_none(),
+                "apiKeyEncrypted leaked: {row}"
+            );
+        }
+    }
+
     #[test]
     fn blank_connection_api_key_update_preserves_existing_secret() {
         let state = test_state("connection-secret-preserve");
