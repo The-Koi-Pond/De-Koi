@@ -269,6 +269,20 @@ describe("ChatSetupWizard Roleplay exits", () => {
     expect(finish).not.toHaveBeenCalled();
   });
 
+  it("tells people the Done button they can see is how to skip the workflow step", () => {
+    const { container } = renderRoleplayWizard();
+    advance(container, 5);
+
+    expect(container.textContent).toContain("Choose a Workflow Profile");
+    expect(button(container, "Done")).toBeDefined();
+    expect(container.textContent).toContain("To skip, press Done.");
+    expect(container.textContent).not.toContain("ledger rows");
+
+    click(container, "Pick workflow profile");
+
+    expect(button(container, "Apply & finish")).toBeDefined();
+  });
+
   it("applies a picked workflow profile before finishing instead of dropping it", async () => {
     mocks.applyPendingProfile.mockResolvedValueOnce(true);
     const { container, finish } = renderRoleplayWizard();
