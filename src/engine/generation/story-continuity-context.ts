@@ -29,9 +29,10 @@ const DEFAULT_BUDGET_TOKENS = 360;
 const MIN_BUDGET_TOKENS = 100;
 const MAX_BUDGET_TOKENS = 800;
 const CONTEXT_SHARE = 0.07;
-// Open threads come from the newest episode's carried-forward list and get their own small allowance.
-const MAX_OPEN_THREADS = 6;
-const OPEN_THREAD_BUDGET_TOKENS = 220;
+// Open threads come from the newest episode's carried-forward list and get their own small allowance:
+// up to three promises, then up to three unanswered questions.
+const MAX_OPEN_THREADS_PER_KIND = 3;
+const OPEN_THREAD_BUDGET_TOKENS = 240;
 
 function payload(memory: CanonicalMemoryRecord): StoryProjectionPayload | null {
   return isStoryProjectionMemory(memory) ? (memory.payload as StoryProjectionPayload) : null;
@@ -89,8 +90,12 @@ function episodeEnd(memory: CanonicalMemoryRecord, story: StoryProjectionPayload
 function packOpenThreads(threads: StoryOpenThread[], represented: Set<string>): StoryOpenThread[] {
   const packed: StoryOpenThread[] = [];
   let used = 30;
-  for (const thread of threads) {
-    if (packed.length >= MAX_OPEN_THREADS) break;
+  const ordered = [
+    ...threads.filter((thread) => thread.kind === "promise"),
+    ...threads.filter((thread) => thread.kind !== "promise"),
+  ];
+  for (const thread of ordered) {
+    if (packed.filter((entry) => entry.kind === thread.kind).length >= MAX_OPEN_THREADS_PER_KIND) continue;
     const normalized = normalizeSentence(thread.text);
     if (!normalized || represented.has(normalized)) continue;
     const tokens = estimateTokens(thread.text) + 4;

@@ -267,6 +267,27 @@ describe("story consolidation queue", () => {
     expect(episode?.payload).toMatchObject({ openThreads: updated });
   });
 
+  it("keeps a promise when unanswered questions fill the list ahead of it", async () => {
+    const test = harness();
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const hooks = Array.from({ length: 8 }, (_, index) => ({ kind: "hook", text: `Who left mark ${index}?` }));
+    const lesson = { kind: "promise", text: "Ilvane will teach Pim to read a survey map before Sallow." };
+    const llm = {
+      complete: vi.fn(async () => JSON.stringify({ ...JSON.parse(llmResult()), openThreads: [...hooks, lesson] })),
+    } as unknown as LlmGateway;
+
+    await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+
+    const threads = Array.from(test.memories.values())[0]?.payload.openThreads as Array<{ kind: string }>;
+    expect(threads[0]).toEqual(lesson);
+    expect(threads.filter((thread) => thread.kind === "hook")).toHaveLength(6);
+  });
+
   it("keeps carrying open threads forward when the summarizer leaves the list out", async () => {
     const test = harness();
     const previous = episodeMemory(1);
