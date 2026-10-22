@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 // with a `// @vitest-environment jsdom` docblock on its first line.
 export default defineConfig({
   test: {
+    setupFiles: ["tests/unit/setup/flush-ui-storage-writes.ts"],
     projects: [
       {
         extends: true,
