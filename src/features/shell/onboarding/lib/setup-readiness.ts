@@ -31,6 +31,11 @@ function isUsableLanguageConnection(connection: SetupConnectionFact): boolean {
   );
 }
 
+/** True when at least one saved connection counts as setup's "Connect a language model" step being done. */
+export function hasUsableLanguageConnection(connections?: readonly SetupConnectionFact[] | null): boolean {
+  return filterLanguageGenerationConnections(connections).some(isUsableLanguageConnection);
+}
+
 export function buildSetupReadinessFacts(input: BuildSetupReadinessInput): SetupReadinessFacts {
   const usableConnections = filterLanguageGenerationConnections(input.connections).filter(isUsableLanguageConnection);
 

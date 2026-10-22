@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   updateAsync: vi.fn(),
   markConnection: vi.fn(),
   markCompleted: vi.fn(),
+  rightPanel: { current: null as string | null },
+  closeRightPanel: vi.fn(),
   recordRecovery: vi.fn(),
   clearRecovery: vi.fn(),
   applyPreset: vi.fn(),
@@ -112,6 +114,13 @@ vi.mock("../../../../shared/stores/ui.store", () => {
     },
     setSettingsTab: vi.fn(),
     openRightPanel: vi.fn(),
+    get rightPanelOpen() {
+      return mocks.rightPanel.current !== null;
+    },
+    get rightPanel() {
+      return mocks.rightPanel.current;
+    },
+    closeRightPanel: mocks.closeRightPanel,
   };
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
   useUIStore.getState = () => state;
@@ -148,6 +157,8 @@ describe("SetupReadinessJourney", () => {
       health: { ok: true, writable: true },
     });
     mocks.mutateAsync.mockReset().mockResolvedValue({ id: "chat-1" });
+    mocks.rightPanel.current = null;
+    mocks.closeRightPanel.mockReset();
     mocks.markCompleted.mockReset();
     mocks.markConnection.mockReset();
     mocks.applyPreset.mockReset().mockResolvedValue(undefined);
@@ -299,6 +310,33 @@ describe("SetupReadinessJourney", () => {
     expect(mocks.mutateAsync).toHaveBeenCalledOnce();
     expect(mocks.markCompleted).toHaveBeenCalled();
     expect(container.textContent).not.toContain("Finish setting up De-Koi");
+  });
+
+  // On a phone the Connections panel fills the screen, so leaving it open hid the roleplay setup had just started.
+  it("closes the Connections panel setup sent people to once the chat starts", async () => {
+    mocks.rightPanel.current = "connections";
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.markCompleted).toHaveBeenCalled();
+    expect(mocks.closeRightPanel).toHaveBeenCalledOnce();
+  });
+
+  it("leaves other right panels alone when the chat starts", async () => {
+    mocks.rightPanel.current = "characters";
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.markCompleted).toHaveBeenCalled();
+    expect(mocks.closeRightPanel).not.toHaveBeenCalled();
   });
 
   it("uses the stored default when Local Model is listed first", async () => {
