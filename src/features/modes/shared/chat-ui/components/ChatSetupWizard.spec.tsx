@@ -81,7 +81,7 @@ interface WizardFixture {
 
 const fixtures: WizardFixture[] = [];
 
-function renderRoleplayWizard(): WizardFixture {
+function renderRoleplayWizard(metadata: Record<string, unknown> = {}): WizardFixture {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -94,7 +94,7 @@ function renderRoleplayWizard(): WizardFixture {
       root.render(
         <QueryClientProvider client={queryClient}>
           <ChatSetupWizard
-            chat={{ id: chatId, mode: "roleplay", metadata: "{}" } as never}
+            chat={{ id: chatId, mode: "roleplay", metadata: JSON.stringify(metadata) } as never}
             onFinish={finish}
             onCancel={cancel}
           />
@@ -231,6 +231,15 @@ describe("ChatSetupWizard Roleplay exits", () => {
 
     expect(container.querySelector('input[placeholder="Search lorebooks…"]')).not.toBeNull();
     expect(container.textContent).toContain("Sky Isles");
+    expect(container.textContent).not.toContain("No lorebooks yet.");
+  });
+
+  it("does not say there are none while an attached lorebook is listed", () => {
+    mocks.lorebooks.push({ id: "lorebook-off", name: "Old Notes", enabled: false });
+    const { container } = renderRoleplayWizard({ activeLorebookIds: ["lorebook-off"] });
+    advance(container, 4);
+
+    expect(container.textContent).toContain("Old Notes");
     expect(container.textContent).not.toContain("No lorebooks yet.");
   });
 

@@ -1699,7 +1699,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
           </div>
         )}
 
-        {selectableLorebooks.length === 0 ? (
+        {selectableLorebooks.length === 0 && activeLorebookIds.length === 0 ? (
           <p className="rounded-lg bg-[var(--card)] px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
             No lorebooks yet. They are optional, so you can press Next to skip this step.
           </p>
