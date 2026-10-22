@@ -615,6 +615,26 @@ describe("startGeneration Memory Recall preflight", () => {
     ).toContain("jasmine tea");
   });
 
+  // A brand-new chat has no earlier turns to recall, so the notice only covered the first reply on a new user's screen.
+  it("holds the local-matching notice until the chat has an earlier turn", async () => {
+    const harness = memoryRecallStorage({ embeddingModel: "" });
+    const deps = { storage: harness.storage, llm: memoryAwareLlm([]), integrations: {} as IntegrationGateway };
+    const embeddingWarning = expect.objectContaining({
+      type: "agent_warning",
+      data: expect.objectContaining({ code: "memory_embedding_unavailable" }),
+    });
+
+    const firstTurn = await collectEvents(
+      startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage: "Hi Mira." }),
+    );
+    expect(firstTurn).not.toEqual(expect.arrayContaining([embeddingWarning]));
+
+    const secondTurn = await collectEvents(
+      startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage: "Any tea left?" }),
+    );
+    expect(secondTurn).toEqual(expect.arrayContaining([embeddingWarning]));
+  });
+
   it("passes the saved user and assistant messages to automatic memory refresh", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage();

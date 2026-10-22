@@ -484,6 +484,11 @@ function memoryEmbeddingUnavailableWarning(
   };
 }
 
+// The opening turn has no earlier conversation to recall, so the local-matching notice waits for the next one.
+function hasEarlierUserTurn(messages: readonly JsonRecord[]): boolean {
+  return messages.filter((message) => readString(message.role) === "user").length > 1;
+}
+
 function hasPromptAgentData(agentData: Record<string, string> | null | undefined): agentData is Record<string, string> {
   return Object.values(agentData ?? {}).some((value) => readString(value).trim().length > 0);
 }
@@ -5348,7 +5353,7 @@ async function* startGenerationImpl(
   const connection = foregroundConnection.connection;
   const embeddingConfiguration = await resolveEffectiveEmbeddingConfiguration(deps.storage, chat, connection);
   throwIfAborted(signal);
-  if (!embeddingConfiguration.available && shouldRefreshMemoryRecall(chat)) {
+  if (!embeddingConfiguration.available && shouldRefreshMemoryRecall(chat) && hasEarlierUserTurn(generationMessages)) {
     yield { type: "agent_warning", data: memoryEmbeddingUnavailableWarning(embeddingConfiguration) };
   }
   for (const warning of [
