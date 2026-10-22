@@ -1106,6 +1106,57 @@ describe("automatic memory capture queue", () => {
     );
   });
 
+  it("shows the extractor the memories it saved before, including ones with knowledge edges", async () => {
+    const harness = queueStorage();
+    const saved = {
+      id: "memory-saved",
+      kind: "fact",
+      status: "active",
+      scope: { kind: "character", id: "char-1" },
+      content: "Celia's sister Mireille runs a lamp shop.",
+      confidence: 0.9,
+      provenance: { sourceChatId: "chat-1", messageIds: ["older-1"] },
+      tags: [],
+      payload: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const secret = { ...saved, id: "memory-secret", content: "The crate holds Quell's stolen bell." };
+    harness.canonicalMemories.set(saved.id, saved);
+    harness.canonicalMemories.set(secret.id, secret);
+    const edge = (memoryId: string, holderId: string) => ({
+      id: `edge-${memoryId}`,
+      memoryId,
+      holder: { kind: "character", id: holderId },
+      stance: "knows",
+      status: "active",
+      provenance: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const edges = [edge("memory-saved", "char-1"), edge("memory-secret", "char-2")];
+    const allRows = harness.storage.queryMemories!;
+    Object.assign(harness.storage, {
+      // Like the Rust boundary: a query without the epistemic policy hides every memory with knowledge edges.
+      queryMemories: async (body: Parameters<typeof allRows>[0]) =>
+        (await allRows(body)).filter(
+          (memory) => body?.epistemicPolicyVersion === 1 || !edges.some((row) => row.memoryId === memory.id),
+        ),
+      queryKnowledgeEdges: async () => edges,
+    });
+    await harness.enqueue();
+    const prompts: string[] = [];
+    const llm = passingValueReviewLlm(async (request) => {
+      prompts.push(String(request.messages.at(-1)?.content));
+      return JSON.stringify({ memories: [] });
+    });
+
+    await processAutomaticMemoryCaptureQueue({ storage: harness.storage, llm }, { now: "2026-01-01T00:03:00.000Z" });
+
+    expect(prompts[0]).toContain("memory-saved | fact | active | Celia's sister Mireille runs a lamp shop.");
+    expect(prompts[0]).not.toContain("Quell's stolen bell");
+  });
+
   it("completes a pending capture job with the queued source exchange", async () => {
     const harness = queueStorage();
     const job = await harness.enqueue();

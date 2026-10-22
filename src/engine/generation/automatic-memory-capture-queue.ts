@@ -24,6 +24,8 @@ import { isTerminalBackgroundGenerationError } from "./background-generation-err
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
 import { knowledgeEdgesForCapturedMemory } from "./automatic-memory-knowledge";
+import { resolveEpistemicAccess, type EpistemicSubject } from "./epistemic-access";
+import { loadEpistemicContext } from "./epistemic-context";
 import {
   publishMemoryCaptureCompletion,
   publishMemoryCaptureStatus,
@@ -330,12 +332,48 @@ function jobScope(job: JsonRecord): MemoryScope | null {
   return { kind: kind as MemoryScope["kind"], id };
 }
 
+// Capture gives every memory it saves knowledge edges, and a query without the epistemic policy hides every
+// memory that has them. Without the policy the extractor never saw what it had already saved: it re-extracted
+// old facts from the reference rows, cited those rows, and had them rejected, and it could never supersede an
+// earlier capture. Opt into the policy and keep what the replying character may know.
 async function eligibleCanonicalMemories(
   storage: StorageGateway,
   scope: MemoryScope,
+  job: JsonRecord,
 ): Promise<CanonicalMemoryRecord[]> {
   if (!storage.queryMemories) return [];
-  const memories = await storage.queryMemories({ scope, statuses: ["active", "pinned"] });
+  const characterId = readString(job.characterId).trim();
+  const subjects: EpistemicSubject[] = characterId ? [{ kind: "character", id: characterId }] : [];
+  const legacyQuery = () => storage.queryMemories!({ scope, statuses: ["active", "pinned"] });
+  let memories: CanonicalMemoryRecord[];
+  try {
+    const epistemic = await loadEpistemicContext(storage, subjects);
+    if (!epistemic.enabled || !storage.queryKnowledgeEdges) {
+      memories = await legacyQuery();
+    } else {
+      const policyRows = await storage.queryMemories({
+        scope,
+        statuses: ["active", "pinned"],
+        epistemicPolicyVersion: 1,
+      });
+      const edges =
+        policyRows.length > 0
+          ? await storage.queryKnowledgeEdges({ memoryIds: policyRows.map((memory) => memory.id) })
+          : [];
+      memories = policyRows.filter(
+        (memory) =>
+          resolveEpistemicAccess({
+            memoryId: memory.id,
+            edges,
+            subjects: epistemic.subjects,
+            groups: epistemic.groups,
+          }).admitted,
+      );
+    }
+  } catch {
+    // Knowledge edges unavailable: fall back to the memories without edges rather than reveal any.
+    memories = await legacyQuery();
+  }
   return memories
     .filter(canonicalMemoryEligibleForConsequences)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -361,7 +399,7 @@ async function extractConsequences(args: {
   if (!scope || !jobId || !chatId || sourceMessages.length === 0) {
     throw new Error("Automatic memory capture job is incomplete");
   }
-  const eligibleMemories = await eligibleCanonicalMemories(args.storage, scope);
+  const eligibleMemories = await eligibleCanonicalMemories(args.storage, scope, args.job);
   const extraction = await extractCanonicalMemoryConsequences({
     llm: args.llm,
     request: {
