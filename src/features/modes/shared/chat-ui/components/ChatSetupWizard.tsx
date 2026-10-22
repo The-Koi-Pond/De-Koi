@@ -121,7 +121,7 @@ const ALL_STEPS: WizardStep[] = [
   {
     key: "workflow-profile",
     title: "Choose a Workflow Profile",
-    body: "Optional: pick a ready-made set of Roleplay helpers. Only the checked ledger rows are written, when you press Apply & finish.",
+    body: "Optional: pick a ready-made set of Roleplay helpers. Picking one turns Done into Apply & finish, which saves it. To skip, press Done.",
     sprite: ASSISTANT_MARK_URL,
   },
 ];
