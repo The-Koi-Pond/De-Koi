@@ -146,6 +146,45 @@ describe("story continuity prompt context", () => {
     expect(result).toBeNull();
   });
 
+  it("shows no open threads when an earlier episode is hidden from the responder", async () => {
+    const opening = projection("ep-opening", "episode", ["m0"], "The party left the abbey at dawn.", {
+      createdAt: "2025-12-31T00:00:00Z",
+    });
+    const secret = projection("ep-secret", "episode", ["m1", "m2"], "Alice hid the crown under the chapel.", {
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    const later = projection("ep-later", "episode", ["m3", "m4"], "The party crossed the frozen lake.", {
+      createdAt: "2026-01-02T00:00:00Z",
+      openThreads: [{ kind: "hook", text: "Whether anyone finds the crown under the chapel is open." }],
+    });
+    const edge: KnowledgeEdge = {
+      id: "edge-alice",
+      memoryId: secret.id,
+      holder: { kind: "character", id: "alice" },
+      stance: "knows",
+      status: "active",
+      provenance: [{ kind: "scene_witness", author: "system", messageIds: ["m1"], createdAt: "2026-08-30T12:00:00Z" }],
+      createdAt: "2026-08-30T12:00:00Z",
+      updatedAt: "2026-08-30T12:00:00Z",
+    };
+    const epistemicStorage = {
+      ...storage([opening, secret, later]),
+      list: async () => [],
+      queryKnowledgeEdges: async () => [edge],
+    } as unknown as StorageGateway;
+
+    const result = await buildStoryContinuityContext(epistemicStorage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      retainedRawMessageIds: ["m4"],
+      latestUserInput: "We keep rowing.",
+      epistemicSubjects: [{ kind: "character", id: "bob", name: "Bob" }],
+    });
+
+    expect(result?.selectedMemoryIds).toEqual(["ep-opening"]);
+    expect(result?.block ?? "").not.toContain("crown");
+  });
+
   it("filters classified story projections for the responding character", async () => {
     const row = projection("secret-episode", "episode", ["m1"], "Alice hid the crown under the chapel.");
     const edge: KnowledgeEdge = {

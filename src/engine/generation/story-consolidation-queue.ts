@@ -535,17 +535,18 @@ function sectionThreads(sections: StoryProjectionSections): StoryOpenThread[] {
 // The open threads the previous episode left, so this episode can close what it resolves and keep the rest.
 async function carriedOpenThreads(storage: StorageGateway, job: StoryProjectionJob): Promise<StoryOpenThread[]> {
   if (job.level !== "episode") return [];
-  const startsAt = readString(job.sourceMessages[0]?.createdAt).trim();
+  // Parsed, not compared as text: stored timestamps mix "Z" and "+00:00" forms.
+  const startsAt = Date.parse(readString(job.sourceMessages[0]?.createdAt));
   const ownMessageIds = new Set(job.sourceMessageIds);
   const previous = (await storyMemories(storage, job.ownerChatId))
     .filter((memory) => memory.status === "active" || memory.status === "pinned")
     .flatMap((memory) => {
       const story = storyPayload(memory);
       if (story?.level !== "episode" || story.messageIds.some((id) => ownMessageIds.has(id))) return [];
-      const endedAt = readString(story.sourceMessages?.at(-1)?.createdAt).trim() || memory.createdAt;
-      return startsAt && endedAt > startsAt ? [] : [{ story, endedAt }];
+      const endedAt = Date.parse(readString(story.sourceMessages?.at(-1)?.createdAt) || memory.createdAt) || 0;
+      return Number.isFinite(startsAt) && endedAt > startsAt ? [] : [{ story, endedAt }];
     })
-    .sort((left, right) => right.endedAt.localeCompare(left.endedAt))[0];
+    .sort((left, right) => right.endedAt - left.endedAt)[0];
   if (!previous) return [];
   // Episodes summarized before open threads existed: start from their own promises and unresolved hooks.
   return openThreadList(previous.story.openThreads ?? sectionThreads(previous.story.sections));

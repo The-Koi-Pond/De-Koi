@@ -81,8 +81,9 @@ function removeRepresentedSentences(content: string, represented: Set<string>): 
     .trim();
 }
 
-function episodeEnd(memory: CanonicalMemoryRecord, story: StoryProjectionPayload): string {
-  return readString(story.sourceMessages?.at(-1)?.createdAt).trim() || memory.createdAt;
+// Parsed, not compared as text: stored timestamps mix "Z" and "+00:00" forms.
+function episodeEnd(memory: CanonicalMemoryRecord, story: StoryProjectionPayload): number {
+  return Date.parse(readString(story.sourceMessages?.at(-1)?.createdAt) || memory.createdAt) || 0;
 }
 
 function packOpenThreads(threads: StoryOpenThread[], represented: Set<string>): StoryOpenThread[] {
@@ -223,25 +224,33 @@ export async function buildStoryContinuityContext(
   );
   // Once part of the chat has left the raw window, show the newest open-thread list. It may come from an
   // episode still inside the window: the list it carries covers the whole story so far.
+  const activeEpisodes = queried
+    .filter((memory) => memory.status === "active" || memory.status === "pinned")
+    .flatMap((memory) => {
+      const story = payload(memory);
+      return story?.level === "episode" ? [{ memory, story, endedAt: episodeEnd(memory, story) }] : [];
+    });
   const ledger =
     episodes.length === 0
       ? undefined
-      : queried
-          .filter((memory) => memory.status === "active" || memory.status === "pinned")
-          .filter((memory) => accessByMemoryId.get(memory.id)?.admitted !== false)
-          .flatMap((memory) => {
-            const story = payload(memory);
-            return story?.level === "episode" && story.openThreads?.length ? [{ memory, story }] : [];
-          })
-          .sort((left, right) =>
-            episodeEnd(right.memory, right.story).localeCompare(episodeEnd(left.memory, left.story)),
-          )[0];
-  const threads = ledger
-    ? packOpenThreads(
-        ledger.story.openThreads ?? [],
-        sentenceSet([...(input.representedText ?? []), ...packed.map(({ content }) => content)]),
-      )
-    : [];
+      : activeEpisodes
+          .filter((entry) => entry.story.openThreads?.length)
+          .filter((entry) => accessByMemoryId.get(entry.memory.id)?.admitted !== false)
+          .sort((left, right) => right.endedAt - left.endedAt)[0];
+  // The list carries threads forward from earlier episodes. If any of those is hidden from this responder, a
+  // carried thread could repeat its secret, so show none.
+  const ledgerRepeatsHidden =
+    !!ledger &&
+    activeEpisodes.some(
+      (entry) => entry.endedAt <= ledger.endedAt && accessByMemoryId.get(entry.memory.id)?.admitted === false,
+    );
+  const threads =
+    ledger && !ledgerRepeatsHidden
+      ? packOpenThreads(
+          ledger.story.openThreads ?? [],
+          sentenceSet([...(input.representedText ?? []), ...packed.map(({ content }) => content)]),
+        )
+      : [];
   if (packed.length === 0 && threads.length === 0 && excluded.length === 0) return null;
 
   const block =

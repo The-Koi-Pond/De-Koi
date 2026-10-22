@@ -250,7 +250,9 @@ describe("story consolidation queue", () => {
       model: "model-1",
     });
     const updated = [lesson, { kind: "hook" as const, text: "Who sent the unsigned letter is still unknown." }];
-    const complete = vi.fn(async () => JSON.stringify({ ...JSON.parse(llmResult("message-3")), openThreads: updated }));
+    const complete = vi.fn(async (_request: Parameters<LlmGateway["complete"]>[0]) =>
+      JSON.stringify({ ...JSON.parse(llmResult("message-3")), openThreads: updated }),
+    );
 
     await processStoryConsolidationQueue(
       { storage: test.storage, llm: { complete } as unknown as LlmGateway },
