@@ -84,7 +84,7 @@ describe("ConnectionEditor header", () => {
     const grid = providerButton!.parentElement!;
 
     expect(grid.className).toContain("grid-cols-[repeat(auto-fill,");
-    expect(grid.className).not.toMatch(/(sm|md|lg):grid-cols-/);
+    expect(grid.className).not.toMatch(/\b(sm|md|lg):grid-cols-/);
     for (const option of grid.querySelectorAll("button")) {
       expect(option.className.split(/\s+/)).not.toContain("truncate");
     }
