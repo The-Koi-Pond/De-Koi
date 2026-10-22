@@ -29,12 +29,16 @@ export function discoveryActionReplacesCenterSurface(type: string): boolean {
 export function getSetupJourneyHost({
   activeChatId,
   detailViewOpen,
+  connectionEditorOpen,
   mainSurfaceVisible,
 }: {
   activeChatId: string | null;
   detailViewOpen: boolean;
+  connectionEditorOpen: boolean;
   mainSurfaceVisible: boolean;
-}): "home" | "shell" {
+}): "home" | "shell" | "none" {
+  // The connection editor is where setup's "Connect a language model" step gets done, so setup must not cover it.
+  if (connectionEditorOpen) return "none";
   return !activeChatId && !detailViewOpen && mainSurfaceVisible ? "home" : "shell";
 }
 

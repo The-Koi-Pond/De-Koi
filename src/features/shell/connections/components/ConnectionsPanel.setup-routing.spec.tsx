@@ -127,4 +127,20 @@ describe("ConnectionsPanel setup routing", () => {
     await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     expect(document.activeElement?.id).toBe("setup-step-connection");
   });
+  // After Create, the new connection's editor is open. Return to setup has to close it too, or setup stays hidden
+  // behind the editor.
+  it("Return to setup closes the open connection editor as well as the panel", () => {
+    act(() => useUIStore.getState().openConnectionDetail("conn-1"));
+    useUIStore.setState({ rightPanelOpen: true, rightPanel: "connections" });
+    act(() => root.render(<ConnectionsPanel />));
+
+    act(() =>
+      Array.from(host.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Return to setup"))!
+        .click(),
+    );
+
+    expect(useUIStore.getState().connectionDetailId).toBeNull();
+    expect(useUIStore.getState().rightPanelOpen).toBe(false);
+  });
 });

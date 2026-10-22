@@ -764,7 +764,11 @@ export function ConnectionsPanel() {
         <SetupJourneyContextBanner
           owner="connection"
           mode={setupIntent.mode}
-          onReturn={() => useUIStore.getState().closeRightPanel()}
+          onReturn={() => {
+            const ui = useUIStore.getState();
+            ui.closeConnectionDetail();
+            ui.closeRightPanel();
+          }}
         />
       )}
       <input
