@@ -86,6 +86,15 @@ export interface StoryProjectionSections {
   currentState: StoryProjectionCitation[];
 }
 
+/**
+ * A promise or unanswered question still open when an episode was summarized. Each episode carries the
+ * previous episode's list forward, closing what it resolved, so long-running threads survive.
+ */
+export interface StoryOpenThread {
+  kind: "promise" | "hook";
+  text: string;
+}
+
 export interface StoryProjectionPayload extends Record<string, unknown> {
   storyProjectionVersion: 1;
   level: StoryProjectionLevel;
@@ -99,6 +108,8 @@ export interface StoryProjectionPayload extends Record<string, unknown> {
   boundaryReason?: StoryEpisodeBoundaryReason | null;
   sourceEpisodeIds: string[];
   sections: StoryProjectionSections;
+  /** Episodes only; absent on episodes summarized before open threads existed. */
+  openThreads?: StoryOpenThread[];
   summarizer: {
     version: string;
     connectionId?: string | null;

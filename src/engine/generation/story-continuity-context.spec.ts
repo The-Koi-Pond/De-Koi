@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StorageGateway } from "../capabilities/storage";
-import type { CanonicalMemoryRecord, KnowledgeEdge, StoryProjectionPayload } from "../contracts/types/memory";
+import type {
+  CanonicalMemoryRecord,
+  KnowledgeEdge,
+  StoryOpenThread,
+  StoryProjectionPayload,
+} from "../contracts/types/memory";
 import { buildStoryContinuityContext } from "./story-continuity-context";
 
 function projection(
@@ -8,7 +13,12 @@ function projection(
   level: "episode" | "arc",
   messageIds: string[],
   content: string,
-  options: { status?: CanonicalMemoryRecord["status"]; sourceEpisodeIds?: string[]; createdAt?: string } = {},
+  options: {
+    status?: CanonicalMemoryRecord["status"];
+    sourceEpisodeIds?: string[];
+    createdAt?: string;
+    openThreads?: StoryOpenThread[];
+  } = {},
 ): CanonicalMemoryRecord {
   const payload: StoryProjectionPayload = {
     storyProjectionVersion: 1,
@@ -30,6 +40,7 @@ function projection(
       unresolvedHooks: [],
       currentState: [],
     },
+    ...(options.openThreads ? { openThreads: options.openThreads } : {}),
     summarizer: { version: "story-projection-v1", completedAt: options.createdAt ?? "2026-01-01T00:00:00.000Z" },
   };
   return {
@@ -78,6 +89,100 @@ describe("story continuity prompt context", () => {
     });
     expect(result?.selectedMemoryIds).toEqual(["ep-3", "ep-1", "arc-2"]);
     expect(result?.attributionItems[0]?.kind).toBe("story_projection");
+  });
+
+  it("lists the newest episode's open threads once part of the chat has left the raw window", async () => {
+    const rows = [
+      projection("ep-1", "episode", ["m1", "m2"], "Mara found the brass key.", {
+        createdAt: "2026-01-01T00:00:00Z",
+        openThreads: [{ kind: "promise", text: "Mara will return the brass key to the abbess." }],
+      }),
+      projection("ep-2", "episode", ["m3", "m4"], "The party crossed the frozen lake.", {
+        createdAt: "2026-01-02T00:00:00Z",
+        openThreads: [
+          { kind: "promise", text: "Mara will return the brass key to the abbess." },
+          { kind: "hook", text: "Who rang the drowned bell is unknown." },
+        ],
+      }),
+    ];
+
+    const result = await buildStoryContinuityContext(storage(rows), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      retainedRawMessageIds: ["m4"],
+      latestUserInput: "We keep rowing.",
+    });
+
+    expect(result?.selectedMemoryIds).toEqual(["ep-1"]);
+    expect(result?.block).toContain(
+      "Open threads the story has not closed yet. Raise one only when the scene gives it room.\n" +
+        "- [promise] Mara will return the brass key to the abbess.\n" +
+        "- [unresolved] Who rang the drowned bell is unknown.",
+    );
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        kind: "story_projection",
+        label: "Open thread 2",
+        sourceId: "ep-2",
+        snippet: "Who rang the drowned bell is unknown.",
+      }),
+    );
+  });
+
+  it("leaves open threads out while the whole chat is still in the raw window", async () => {
+    const rows = [
+      projection("ep-1", "episode", ["m1", "m2"], "Mara found the brass key.", {
+        openThreads: [{ kind: "promise", text: "Mara will return the brass key to the abbess." }],
+      }),
+    ];
+
+    const result = await buildStoryContinuityContext(storage(rows), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      retainedRawMessageIds: ["m2"],
+      latestUserInput: "We keep rowing.",
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("shows no open threads when an earlier episode is hidden from the responder", async () => {
+    const opening = projection("ep-opening", "episode", ["m0"], "The party left the abbey at dawn.", {
+      createdAt: "2025-12-31T00:00:00Z",
+    });
+    const secret = projection("ep-secret", "episode", ["m1", "m2"], "Alice hid the crown under the chapel.", {
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    const later = projection("ep-later", "episode", ["m3", "m4"], "The party crossed the frozen lake.", {
+      createdAt: "2026-01-02T00:00:00Z",
+      openThreads: [{ kind: "hook", text: "Whether anyone finds the crown under the chapel is open." }],
+    });
+    const edge: KnowledgeEdge = {
+      id: "edge-alice",
+      memoryId: secret.id,
+      holder: { kind: "character", id: "alice" },
+      stance: "knows",
+      status: "active",
+      provenance: [{ kind: "scene_witness", author: "system", messageIds: ["m1"], createdAt: "2026-08-30T12:00:00Z" }],
+      createdAt: "2026-08-30T12:00:00Z",
+      updatedAt: "2026-08-30T12:00:00Z",
+    };
+    const epistemicStorage = {
+      ...storage([opening, secret, later]),
+      list: async () => [],
+      queryKnowledgeEdges: async () => [edge],
+    } as unknown as StorageGateway;
+
+    const result = await buildStoryContinuityContext(epistemicStorage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      retainedRawMessageIds: ["m4"],
+      latestUserInput: "We keep rowing.",
+      epistemicSubjects: [{ kind: "character", id: "bob", name: "Bob" }],
+    });
+
+    expect(result?.selectedMemoryIds).toEqual(["ep-opening"]);
+    expect(result?.block ?? "").not.toContain("crown");
   });
 
   it("filters classified story projections for the responding character", async () => {
