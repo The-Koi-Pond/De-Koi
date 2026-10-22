@@ -141,6 +141,11 @@ function applyRegexScriptsToPromptText(
   return result;
 }
 
+/**
+ * Runs prompt regex scripts over the chat history in an outgoing prompt. Placements name chat messages
+ * (User Input and AI Output, as in SillyTavern), so the system prompt, cards, memory and continuity blocks,
+ * lore and injections are left alone: a script that cleans chat text must not strip De-Koi's own markup.
+ */
 export function applyRegexScriptsToPromptMessages<T extends RegexMessageLike>(
   messages: T[],
   scripts: RegexScriptLike[],
@@ -150,6 +155,7 @@ export function applyRegexScriptsToPromptMessages<T extends RegexMessageLike>(
   const totalMessages = messages.length;
   for (let index = 0; index < totalMessages; index++) {
     const message = messages[index]!;
+    if (message.contextKind !== "history") continue;
     const placement = message.role === "user" ? "user_input" : "ai_output";
     const depth = totalMessages - 1 - index;
     const transformedContent = applyRegexScriptsToPromptText(message.content, scripts, placement, depth, options);
