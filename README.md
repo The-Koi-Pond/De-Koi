@@ -7,10 +7,10 @@ De-Koi downloads and runs for you.
 ![A roleplay scene in De-Koi: Captain Elias Marr in the chart room of the Halcyon, over a stormy sea painting](docs/screenshots/readme/roleplay.jpg)
 
 > [!IMPORTANT]
-> De-Koi is an unofficial modified fork of
-> [Marinara Engine](https://github.com/Pasta-Devs/Marinara-Engine).
-> It is a separate project and is not an official Marinara Engine release,
-> support channel, or distribution.
+> De-Koi is an unofficial project that began as a fork of
+> [Marinara Engine](https://github.com/Pasta-Devs/Marinara-Engine) and has
+> been substantially reworked since. It is a separate project and is not an
+> official Marinara Engine release, support channel, or distribution.
 >
 > De-Koi is not sponsored by, endorsed by, or released on behalf of Marinara
 > Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.

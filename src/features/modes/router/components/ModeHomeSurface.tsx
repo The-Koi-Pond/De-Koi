@@ -264,7 +264,7 @@ export function ModeHomeSurface({
 
           <div className="flex w-full max-w-2xl flex-col items-center gap-2">
             <p className="max-w-[36rem] px-1 text-center text-[0.625rem] leading-snug text-[var(--muted-foreground)]/55 sm:text-xs">
-              De-Koi is an unofficial modified fork of{" "}
+              De-Koi is an unofficial project that began as a fork of{" "}
               <a
                 href="https://github.com/Pasta-Devs/Marinara-Engine"
                 target="_blank"

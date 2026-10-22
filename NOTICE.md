@@ -1,6 +1,7 @@
 # NOTICE
 
-De-Koi is an unofficial modified fork of Marinara Engine.
+De-Koi is an unofficial project that began as a fork of Marinara Engine and
+has been substantially reworked since.
 
 The original project is Marinara Engine, available at:
 
