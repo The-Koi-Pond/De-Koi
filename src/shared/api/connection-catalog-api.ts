@@ -9,6 +9,8 @@ export type AvailableConnectionSummary = {
   provider: string;
   synthetic?: boolean;
   model?: string | null;
+  /** Whether a key is saved; setup only counts a keyed connection once it has one. Never the key itself. */
+  hasApiKey?: boolean | null;
   baseUrl?: string | null;
   maxContext?: number | null;
   capabilities?: Record<string, unknown> | null;
@@ -36,6 +38,7 @@ const CONNECTION_SUMMARY_OPTIONS = {
     "name",
     "provider",
     "model",
+    "hasApiKey",
     "baseUrl",
     "maxContext",
     "capabilities",
