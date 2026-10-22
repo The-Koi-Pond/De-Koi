@@ -2388,6 +2388,11 @@ interface RecalledMemoryForPrompt {
   sourceContent: string;
   similarity: number;
   lexicalScore: number;
+  // similarity plus the distinctive-word match, which orders the recall.
+  rankScore: number;
+  // What the relevance floor sees: provider similarity stays as it is; without an embedding model the hashed
+  // lexical similarity is only a word-overlap proxy, so the distinctive-word match counts there too.
+  admitScore: number;
 }
 
 interface MemoryRecallPromptContext {
@@ -2497,18 +2502,16 @@ async function buildMemoryRecallBlock(
       const lexicalScore = memoryRecallLexicalOverlap(queryTokens, tokens);
       const distinctiveScore = distinctiveMatch(queryFocus, tokens, termWeights);
       const pinBoost = boolish(memory.pinned, false) ? 0.15 : 0;
-      const similarity =
-        cosineSimilarity(baseQueryVector, vector) +
-        Math.min(0.2, lexicalScore * 0.025) +
-        MEMORY_RECALL_DISTINCTIVE_MATCH_WEIGHT * distinctiveScore +
-        pinBoost;
-      return { id: memory.id, content, sourceContent, similarity, lexicalScore };
+      const similarity = cosineSimilarity(baseQueryVector, vector) + Math.min(0.2, lexicalScore * 0.025) + pinBoost;
+      const rankScore = similarity + MEMORY_RECALL_DISTINCTIVE_MATCH_WEIGHT * distinctiveScore;
+      const admitScore = providerVector ? similarity : rankScore;
+      return { id: memory.id, content, sourceContent, similarity, lexicalScore, rankScore, admitScore };
     })
     .filter(
       (memory): memory is RecalledMemoryForPrompt =>
-        !!memory && passesMemoryRecallRelevanceFloor(memory.similarity, queryTokens.length, memory.lexicalScore),
+        !!memory && passesMemoryRecallRelevanceFloor(memory.admitScore, queryTokens.length, memory.lexicalScore),
     )
-    .sort((a, b) => b.similarity - a.similarity)
+    .sort((a, b) => b.rankScore - a.rankScore)
     .slice(0, 8);
   if (recalled.length === 0) return null;
 

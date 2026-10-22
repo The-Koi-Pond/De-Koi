@@ -1343,6 +1343,35 @@ describe("long-chat recall ranking", () => {
     );
     expect(recalled[0]?.snippet).toContain("I can't eat eel");
   });
+  it("keeps the embedding relevance floor when a provider model scores the exchange", async () => {
+    const unrelated = {
+      id: "memory-eel",
+      chatId: "chat-1",
+      content: '{{user}}: "I can\'t eat eel." Odile Ferrant: *She nods.*',
+      status: "active",
+      messageIds: ["old-eel"],
+      embedding: [0, 1],
+      createdAt: "2026-06-30T10:00:00.000Z",
+      lastMessageAt: "2026-06-30T10:00:00.000Z",
+    };
+    const result = await assembleGenerationPrompt(promptStorage([], [unrelated]), {
+      chat: {
+        id: "chat-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: { enableMemoryRecall: true, enableCanonicalMemoryRecall: false },
+      },
+      storedMessages: [...storyMessages, { id: "message-new", role: "user", content: question }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: question,
+      embeddingSource: { embed: async () => [[1, 0]] },
+    });
+
+    expect(
+      result.contextAttributionItems.filter((item) => item.kind === "memory_recall" && item.status === "injected"),
+    ).toEqual([]);
+  });
 });
 
 describe("prompt assembly canonical memory integration", () => {
