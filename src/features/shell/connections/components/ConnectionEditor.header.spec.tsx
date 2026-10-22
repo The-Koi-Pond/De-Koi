@@ -71,4 +71,22 @@ describe("ConnectionEditor header", () => {
 
     expect(container.querySelector('button[aria-label="Delete connection"]')).not.toBeNull();
   });
+
+  // Beside the chat list and Connections panel the editor pane is ~300px even on a 1024px window, where a 4-column
+  // grid sized from the window width cut 10 of 13 provider names to "Open…", "Anthr…". jsdom has no layout, so this
+  // pins the two things that fixed it: columns from the grid's own width, and names that wrap instead of truncating.
+  it("sizes provider columns from the editor's width and wraps long names instead of cutting them off", () => {
+    const container = renderEditor();
+    const providerButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Custom (OAI-Compatible)",
+    );
+    expect(providerButton, "provider option").toBeDefined();
+    const grid = providerButton!.parentElement!;
+
+    expect(grid.className).toContain("grid-cols-[repeat(auto-fill,");
+    expect(grid.className).not.toMatch(/(sm|md|lg):grid-cols-/);
+    for (const option of grid.querySelectorAll("button")) {
+      expect(option.className.split(/\s+/)).not.toContain("truncate");
+    }
+  });
 });
