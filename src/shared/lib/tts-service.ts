@@ -38,8 +38,24 @@ interface TTSSpeakRequest {
   tone?: string;
   voice?: string;
   kind?: TtsAudioKind;
+  /** Silence before this part, in milliseconds. Ignored for the first part played. */
+  pauseBeforeMs?: number;
   cacheKey?: string;
   cacheAliases?: string[];
+}
+
+/** Waits `ms`, or less if `signal` aborts first. */
+function waitMs(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 class TTSService {
@@ -219,6 +235,7 @@ class TTSService {
     };
 
     let soundEffectsFailed = false;
+    let playedAny = false;
     try {
       for (let position = 0; position < playableRequests.length; position += 1) {
         if (!this.isCurrentSequence(sequence)) return;
@@ -228,6 +245,17 @@ class TTSService {
         }
         const isSoundEffect = playableRequests[position]!.request.kind === "sound_effect";
         if (isSoundEffect && soundEffectsFailed) continue;
+        // The gap before a part is silence between lines; its audio downloads meanwhile. Still "playing" to listeners.
+        const pause = playedAny ? (playableRequests[position]!.request.pauseBeforeMs ?? 0) : 0;
+        if (pause > 0) {
+          void blobAt(position);
+          await waitMs(pause, abortController.signal);
+          if (!this.isCurrentSequence(sequence)) return;
+          if (abortController.signal.aborted) {
+            this.setState("idle");
+            return;
+          }
+        }
         this.setState("loading", id ?? null);
 
         let blob: Blob;
@@ -272,6 +300,7 @@ class TTSService {
         }
         this.audio = audio;
         this.setState("playing", id ?? null);
+        playedAny = true;
         options.onPartStart?.(playableRequests[position]!.index);
 
         const playbackResult = await new Promise<"ended" | "aborted">((resolve, reject) => {
