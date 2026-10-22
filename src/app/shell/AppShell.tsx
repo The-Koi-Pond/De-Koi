@@ -1014,6 +1014,7 @@ export function AppShell() {
   const setupJourneyHost = getSetupJourneyHost({
     activeChatId,
     detailViewOpen: hasDetailView,
+    connectionEditorOpen: connectionDetailId != null,
     mainSurfaceVisible,
   });
   useEffect(() => {

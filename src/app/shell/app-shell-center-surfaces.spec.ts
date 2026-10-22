@@ -130,7 +130,14 @@ describe("getAppShellCenterSurfaceState", () => {
 
 describe("getSetupJourneyHost", () => {
   it("keeps setup inline only on the visible Home surface", () => {
-    expect(getSetupJourneyHost({ activeChatId: null, detailViewOpen: false, mainSurfaceVisible: true })).toBe("home");
+    expect(
+      getSetupJourneyHost({
+        activeChatId: null,
+        detailViewOpen: false,
+        connectionEditorOpen: false,
+        mainSurfaceVisible: true,
+      }),
+    ).toBe("home");
   });
 
   it.each([
@@ -138,8 +145,27 @@ describe("getSetupJourneyHost", () => {
     { label: "detail view", activeChatId: null, detailViewOpen: true, mainSurfaceVisible: true },
     { label: "full-view overlay", activeChatId: null, detailViewOpen: false, mainSurfaceVisible: false },
   ])("uses the shell host for $label", ({ activeChatId, detailViewOpen, mainSurfaceVisible }) => {
-    expect(getSetupJourneyHost({ activeChatId, detailViewOpen, mainSurfaceVisible })).toBe("shell");
+    expect(getSetupJourneyHost({ activeChatId, detailViewOpen, connectionEditorOpen: false, mainSurfaceVisible })).toBe(
+      "shell",
+    );
   });
+
+  it.each([
+    { label: "on Home", activeChatId: null },
+    { label: "over a chat", activeChatId: "chat-1" },
+  ])(
+    "leaves the connection editor uncovered $label, since that is where the setup step gets done",
+    ({ activeChatId }) => {
+      expect(
+        getSetupJourneyHost({
+          activeChatId,
+          detailViewOpen: true,
+          connectionEditorOpen: true,
+          mainSurfaceVisible: true,
+        }),
+      ).toBe("none");
+    },
+  );
 });
 
 describe("shouldBeginSetupJourney", () => {
