@@ -56,6 +56,7 @@ import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint"
 import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import { buildStoryContinuityContext } from "./story-continuity-context";
+import { distinctiveMatch, distinctiveTermWeights, queryTermFocus } from "./distinctive-terms";
 import { epistemicSubjectsForGeneration } from "./epistemic-context";
 import {
   buildBehavioralExamplePool,
@@ -2046,6 +2047,9 @@ const MEMORY_RECALL_SIMILARITY_THRESHOLD = 0.28;
 const MAX_MEMORY_RECALL_SCORING_CHUNKS = 500;
 const MIN_MEMORY_RECALL_MULTI_TOKEN_STRONG_LEXICAL_TOKENS = 2;
 const MIN_MEMORY_RECALL_STRONG_LEXICAL_COVERAGE = 0.66;
+// Without an embedding model the hashed lexical vectors score nearly every long exchange alike (about 0.5),
+// so sharing the latest message's rare words decides the ranking. See distinctive-terms.ts.
+const MEMORY_RECALL_DISTINCTIVE_MATCH_WEIGHT = 0.8;
 const DEFAULT_MEMORY_RECALL_READ_BEHIND_MESSAGES = 1;
 const MAX_MEMORY_RECALL_READ_BEHIND_MESSAGES = 100;
 const RECALL_TRUNCATION_MARKER = "\n...[recalled memory truncated]...\n";
@@ -2467,20 +2471,37 @@ async function buildMemoryRecallBlock(
   }
   const queryVector = lexicalMemoryEmbedding(latestUserInput);
   const queryTokens = memoryRecallQueryTokens(latestUserInput);
-  const recalled = memories
-    .filter(memoryRecallRetrievable)
-    .map((memory) => {
-      const rawContent = readString(memory.content);
-      const sourceContent = prepareMemoryPromptContent(rawContent);
-      if (!sourceContent) return null;
-      const content = prepareMemoryPromptContent(resolveMemoryUserIdentity(rawContent, personaName));
-      if (!content) return null;
+  const candidates = memories.filter(memoryRecallRetrievable).flatMap((memory) => {
+    const rawContent = readString(memory.content);
+    const sourceContent = prepareMemoryPromptContent(rawContent);
+    if (!sourceContent) return [];
+    const content = prepareMemoryPromptContent(resolveMemoryUserIdentity(rawContent, personaName));
+    if (!content) return [];
+    return [{ memory, content, sourceContent, tokens: memoryRecallTokenSet(content) }];
+  });
+  const queryFocus = queryTermFocus(latestUserInput, memoryRecallQueryTokens);
+  const latestInput = latestUserInput.trim();
+  const termWeights = distinctiveTermWeights([
+    ...candidates.map((candidate) => candidate.tokens),
+    // The chat's own messages mark the story's everyday words as common (see distinctive-terms.ts).
+    ...memoryRecallEligibleMessages(storedMessages)
+      .map((message) => readString(message.content).trim())
+      .filter((content) => content !== latestInput)
+      .map(memoryRecallTokenSet),
+  ]);
+  const recalled = candidates
+    .map(({ memory, content, sourceContent, tokens }) => {
       const providerVector = semanticQueryVector ? memoryVector(memory, semanticQueryVector.length) : null;
       const vector = providerVector ?? memoryVector(memory, MEMORY_EMBEDDING_DIMS) ?? lexicalMemoryEmbedding(content);
       const baseQueryVector = providerVector && semanticQueryVector ? semanticQueryVector : queryVector;
-      const lexicalScore = memoryRecallLexicalOverlap(queryTokens, memoryRecallTokenSet(content));
+      const lexicalScore = memoryRecallLexicalOverlap(queryTokens, tokens);
+      const distinctiveScore = distinctiveMatch(queryFocus, tokens, termWeights);
       const pinBoost = boolish(memory.pinned, false) ? 0.15 : 0;
-      const similarity = cosineSimilarity(baseQueryVector, vector) + Math.min(0.2, lexicalScore * 0.025) + pinBoost;
+      const similarity =
+        cosineSimilarity(baseQueryVector, vector) +
+        Math.min(0.2, lexicalScore * 0.025) +
+        MEMORY_RECALL_DISTINCTIVE_MATCH_WEIGHT * distinctiveScore +
+        pinBoost;
       return { id: memory.id, content, sourceContent, similarity, lexicalScore };
     })
     .filter(
