@@ -358,6 +358,13 @@ docker run --rm -p 127.0.0.1:8787:8787 -v "$(pwd)/.docker-de-koi-data:/data" de-
               <td>Run focused Vitest coverage. This fails if no tests are collected.</td>
             </tr>
             <tr>
+              <td><code>pnpm test:prompt-snapshots:update</code></td>
+              <td>
+                Rewrite the prompt snapshots in <code>tests/unit/prompt-snapshots/</code> after an intended prompt
+                change, then commit the diff so reviewers see exactly what the model will read.
+              </td>
+            </tr>
+            <tr>
               <td><code>pnpm test:ui</code></td>
               <td>
                 Build the frontend, start a fresh preview server on port 4175 by default, and run Playwright browser

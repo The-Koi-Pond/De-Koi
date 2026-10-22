@@ -84,22 +84,32 @@ struct DekiCommandRoundOutput {
     ran_out_of_time: bool,
 }
 
+/// The messages a turn's first model call starts from: the system prompt with
+/// the command protocol and guides, then the task prompt with its images.
+pub(super) fn initial_messages(
+    system_prompt: &str,
+    task_prompt: String,
+    task_images: Vec<String>,
+) -> Vec<DekiModelMessage> {
+    vec![
+        DekiModelMessage::system(format!(
+            "{}\n\n{}\n\n{}\n\n{}",
+            system_prompt.trim(),
+            JSON_PROTOCOL_PROMPT,
+            super::commands::JSON_COMMAND_GUIDE,
+            super::data_cli::DEKI_DATA_GUIDE,
+        )),
+        DekiModelMessage::user(task_prompt).with_images(task_images),
+    ]
+}
+
 pub(super) async fn run_json_command_runtime(
     input: DekiJsonRuntimeInput<'_>,
 ) -> AppResult<DekiJsonRuntimeOutput> {
     let model = DekiModelClient::new(input.connection);
     let budget = DekiRuntimeBudget::default();
     let mut evidence_budget = DekiEvidenceBudget::for_context(input.max_context_tokens);
-    let mut messages = vec![
-        DekiModelMessage::system(format!(
-            "{}\n\n{}\n\n{}\n\n{}",
-            input.system_prompt.trim(),
-            JSON_PROTOCOL_PROMPT,
-            super::commands::JSON_COMMAND_GUIDE,
-            super::data_cli::DEKI_DATA_GUIDE,
-        )),
-        DekiModelMessage::user(input.task_prompt).with_images(input.task_images),
-    ];
+    let mut messages = initial_messages(&input.system_prompt, input.task_prompt, input.task_images);
     let mut trace = Vec::new();
     let mut usage = Vec::new();
     let mut trace_chars = 0usize;

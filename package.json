@@ -52,6 +52,7 @@
     "check": "pnpm check:deterministic && pnpm check:rust && pnpm check:unused",
     "test": "vitest run",
     "test:allow-empty": "vitest run --passWithNoTests",
+    "test:prompt-snapshots:update": "node scripts/update-prompt-snapshots.mjs",
     "test:scripts": "node --test scripts/check-bundle-budgets.test.mjs scripts/check-discovery-metadata.test.mjs scripts/check-min-text-size.test.mjs scripts/check-rust-advisory-boundaries.test.mjs scripts/check-windows-rust-paths.test.mjs scripts/lighthouse-config.test.mjs scripts/release-updater-manifest.test.mjs",
     "test:ui": "pnpm build && playwright test",
     "test:ui:run": "playwright test",
