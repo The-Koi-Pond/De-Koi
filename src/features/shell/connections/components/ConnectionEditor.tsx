@@ -890,7 +890,7 @@ export function ConnectionEditor() {
           )}
           {savedFlash && !dirty && (
             <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
-              <Check size="0.6875rem" /> <span className="max-md:hidden">Saved</span>
+              <Check size="0.6875rem" /> <span>Saved</span>
             </span>
           )}
           {dirty && !saveError && (
@@ -901,10 +901,12 @@ export function ConnectionEditor() {
             disabled={updateConnection.isPending || saveConnectionDefaults.isPending}
             className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
           >
-            <Save size="0.8125rem" /> <span className="max-md:hidden">Save</span>
+            <Save size="0.8125rem" /> <span>Save</span>
           </button>
           <button
             onClick={handleDelete}
+            aria-label="Delete connection"
+            title="Delete connection"
             className="rounded-xl p-2 transition-all hover:bg-[var(--destructive)]/15 active:scale-95"
           >
             <Trash2 size="0.9375rem" className="text-[var(--destructive)]" />
