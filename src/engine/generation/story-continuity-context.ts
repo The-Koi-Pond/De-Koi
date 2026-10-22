@@ -3,7 +3,7 @@ import type { GenerationContextAttributionItem } from "../contracts/types/chat";
 import type { CanonicalMemoryRecord, StoryProjectionPayload } from "../contracts/types/memory";
 import { parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import { getEffectiveMemoryRecallEnabled } from "../contracts/types/chat";
-import { STORY_PROJECTION_VERSION } from "./story-projections";
+import { isStoryProjectionMemory } from "./story-projections";
 import { resolveEpistemicAccess, type EpistemicAccessResult, type EpistemicSubject } from "./epistemic-access";
 import { loadEpistemicContext } from "./epistemic-context";
 
@@ -31,11 +31,7 @@ const MAX_BUDGET_TOKENS = 800;
 const CONTEXT_SHARE = 0.07;
 
 function payload(memory: CanonicalMemoryRecord): StoryProjectionPayload | null {
-  const candidate = parseRecord(memory.payload);
-  return candidate.storyProjectionVersion === STORY_PROJECTION_VERSION &&
-    (candidate.level === "episode" || candidate.level === "arc")
-    ? (memory.payload as StoryProjectionPayload)
-    : null;
+  return isStoryProjectionMemory(memory) ? (memory.payload as StoryProjectionPayload) : null;
 }
 
 function timestamp(memory: CanonicalMemoryRecord): number {

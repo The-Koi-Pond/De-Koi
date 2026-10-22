@@ -1,7 +1,20 @@
 import { getEffectiveMemoryRecallEnabled, type ChatMetadata } from "../contracts/types/chat";
+import type { CanonicalMemoryRecord } from "../contracts/types/memory";
 import { hiddenFromAi, parseRecord, readString, type JsonRecord } from "./runtime-records";
 
 export const STORY_PROJECTION_VERSION = 1 as const;
+
+/**
+ * True for a story episode or arc summary. They live in the canonical-memories collection, but Story
+ * Continuity owns how they reach the prompt; atomic canonical recall leaves them alone.
+ */
+export function isStoryProjectionMemory(memory: Pick<CanonicalMemoryRecord, "payload">): boolean {
+  const payload = parseRecord(memory.payload);
+  return (
+    payload.storyProjectionVersion === STORY_PROJECTION_VERSION &&
+    (payload.level === "episode" || payload.level === "arc")
+  );
+}
 const STORY_EPISODE_MESSAGE_THRESHOLD = 24;
 const STORY_ARC_EPISODE_THRESHOLD = 4;
 

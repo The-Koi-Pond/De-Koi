@@ -19,6 +19,7 @@ import {
   type EpistemicSubject,
 } from "./epistemic-access";
 import { loadEpistemicContext } from "./epistemic-context";
+import { isStoryProjectionMemory } from "./story-projections";
 
 type MemoryIndexSource = "index" | "lexical";
 
@@ -694,7 +695,9 @@ export async function buildCanonicalMemoryContext(
     if (!collectedIds.has(match.memory.id)) rows.push({ memory: match.memory, source: "index" });
   }
   const candidates = rows
-    .filter((row) => validMemoryRecord(row.memory))
+    // Episodes and arcs reach the prompt only through Story Continuity, which keeps them out of the raw
+    // window and dedupes them; here they would also eat the atomic-memory budget.
+    .filter((row) => validMemoryRecord(row.memory) && !isStoryProjectionMemory(row.memory))
     .map((row) =>
       scoreCandidate(
         row.memory,

@@ -1198,9 +1198,103 @@ describe("canonical memory context", () => {
       expect(storage.queryMemoryIndex).not.toHaveBeenCalled();
     }
   });
+
+  it("leaves story episode and arc projections to Story Continuity", async () => {
+    const promise = memory({
+      id: "memory-promise",
+      kind: "promise",
+      content: "Mara promised to return the brass key.",
+    });
+    const episode = storyProjection("memory-episode", "episode", "Mara found the brass key in the frozen lake.");
+    const arc = storyProjection("memory-arc", "arc", "Mara and the brass key crossed the whole valley.");
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [promise, episode, arc] }), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key Mara found?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+    });
+
+    expect(result?.block).toContain("Mara promised to return the brass key.");
+    expect(result?.block).not.toContain("frozen lake");
+    expect(result?.block).not.toContain("whole valley");
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-promise"]);
+  });
 });
 
+function storyProjection(id: string, level: "episode" | "arc", content: string): CanonicalMemoryRecord {
+  return memory({
+    id,
+    kind: level === "episode" ? "episode" : "summary",
+    title: level === "episode" ? "The lake" : "The valley",
+    content,
+    tags: ["story-continuity", level],
+    confidence: 0.9,
+    payload: {
+      storyProjectionVersion: 1,
+      level,
+      ownerChatId: "chat-1",
+      coverageId: `coverage-${id}`,
+      sourceFingerprint: `fingerprint-${id}`,
+      messageIds: ["message-old"],
+      firstMessageId: "message-old",
+      lastMessageId: "message-old",
+      sourceEpisodeIds: [],
+      sections: {
+        events: [],
+        choices: [],
+        relationshipShifts: [],
+        promises: [],
+        reveals: [],
+        unresolvedHooks: [],
+        currentState: [],
+      },
+      summarizer: { version: "story-projection-v1", completedAt: "2026-07-01T10:00:00.000Z" },
+    },
+  });
+}
+
 describe("prompt assembly canonical memory integration", () => {
+  it("injects a relevant story episode once, through Story Continuity", async () => {
+    const promise = memory({
+      id: "memory-promise",
+      kind: "promise",
+      content: "Mara promised to return the brass key.",
+    });
+    const episode = storyProjection("memory-episode", "episode", "Mara found the brass key in the frozen lake.");
+    const base = storageWithMemories({ indexed: [promise, episode], fallback: [promise, episode] });
+    const storage: StorageGateway = {
+      ...base,
+      async list<T = unknown>(): Promise<T[]> {
+        return asStorageValue<T[]>([]);
+      },
+      async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "characters" && id === "char-1") {
+          return asStorageValue<T>({ id: "char-1", name: "Mira", description: "Mira core.", tags: [] });
+        }
+        return null;
+      },
+    };
+
+    const result = await assembleGenerationPrompt(storage, {
+      chat: { id: "chat-1", mode: "roleplay", characterIds: ["char-1"], metadata: { enableMemoryRecall: true } },
+      storedMessages: [{ id: "message-new", role: "user", content: "Where is the brass key Mara found?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "Where is the brass key Mara found?",
+    });
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText.split("Mara found the brass key in the frozen lake.").length - 1).toBe(1);
+    expect(promptText).toContain("Mara promised to return the brass key.");
+    expect(result.contextAttributionItems).toContainEqual(
+      expect.objectContaining({ kind: "story_projection", sourceId: "memory-episode", status: "injected" }),
+    );
+    expect(result.contextAttributionItems).not.toContainEqual(
+      expect.objectContaining({ kind: "memory_recall", sourceId: "memory-episode" }),
+    );
+  });
+
   it("resolves the chat persona in transcript recall while retaining stored attribution text", async () => {
     const base = promptStorage(
       [],
