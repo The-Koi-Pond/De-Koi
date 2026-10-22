@@ -3,6 +3,7 @@ import { ttsConfigSchema, type TTSConfig } from "../../../../engine/contracts/ty
 import {
   FANFIC_PAUSE_MS,
   buildFanficNarration,
+  fanficCueStyle,
   fanficNarrationText,
   fanficProseBlocks,
   fanficScriptLine,
@@ -327,5 +328,24 @@ describe("buildFanficNarration pauses", () => {
     ).parts.find((part) => part.text === "Come in.")!;
     expect(afterBeat.pauseBeforeMs).toBe(FANFIC_PAUSE_MS.beat);
     expect(afterBeat.cacheAliases).toEqual(alone.cacheAliases);
+  });
+});
+
+describe("fanficCueStyle", () => {
+  it("sends cues as audio tags to every ElevenLabs model that performs them, and drops them for older ones", () => {
+    const style = (model: string) => fanficCueStyle({ source: "elevenlabs", model });
+    for (const model of ["eleven_v3", "eleven_v4", "eleven_v4_turbo", "Elevenlabs-V3", "eleven_ttv_v3"]) {
+      expect(style(model)).toBe("inline");
+    }
+    for (const model of [
+      "eleven_multilingual_v2",
+      "eleven_flash_v2_5",
+      "eleven_turbo_v2_5",
+      "eleven_monolingual_v1",
+      "",
+    ]) {
+      expect(style(model)).toBe("drop");
+    }
+    expect(fanficCueStyle({ source: "openai", model: "gpt-4o-mini-tts" })).toBe("tone");
   });
 });
