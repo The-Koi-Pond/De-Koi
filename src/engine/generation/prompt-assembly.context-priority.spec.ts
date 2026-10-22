@@ -111,7 +111,7 @@ describe("prompt context priority", () => {
           id: "mira",
           data: {
             name: "Mira",
-            description: "Mira is a guide. REMOVE_THIS_PRIVATE_NOTE {{// REMOVE_THIS_PROMPT_COMMENT}}",
+            description: "Mira is a guide. {{// REMOVE_THIS_PROMPT_COMMENT}}",
           },
         },
         memories: [],
@@ -120,7 +120,7 @@ describe("prompt context priority", () => {
             id: "remove-private-note",
             enabled: true,
             promptOnly: true,
-            placement: ["ai_output"],
+            placement: ["user_input"],
             findRegex: "REMOVE_THIS_PRIVATE_NOTE",
             replaceString: "",
             flags: "g",
@@ -143,11 +143,11 @@ describe("prompt context priority", () => {
               content: `Old answer ${index}. ${"detail ".repeat(40)}`,
             },
           ]).flat(),
-          { id: "current", role: "user", content: "Continue safely." },
+          { id: "current", role: "user", content: "Continue safely. REMOVE_THIS_PRIVATE_NOTE" },
         ],
         connection: { maxContext: 2_000 },
         request: {},
-        latestUserInput: "Continue safely.",
+        latestUserInput: "Continue safely. REMOVE_THIS_PRIVATE_NOTE",
       },
     );
 
