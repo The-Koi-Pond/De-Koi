@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   chatPresets: [] as Array<Record<string, unknown>>,
   createCharacter: vi.fn(async () => ({ id: "character-new" })),
   createMessage: vi.fn(async () => ({ id: "message-1" })),
+  lorebooks: [] as Array<Record<string, unknown>>,
   toastError: vi.fn(),
   updateChat: vi.fn(),
   updateMetadata: vi.fn(),
@@ -39,6 +40,11 @@ vi.mock("../../../../catalog/characters/index", async (importOriginal) => {
     useCharacterSummariesByIds: () => ({ data: [] }),
     useCreateCharacter: () => ({ isPending: false, mutateAsync: mocks.createCharacter }),
   };
+});
+
+vi.mock("../../../../catalog/lorebooks/index", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../catalog/lorebooks/index")>();
+  return { ...actual, useLorebooks: () => ({ data: mocks.lorebooks }) };
 });
 
 vi.mock("../../../../catalog/chat-presets/index", async (importOriginal) => {
@@ -75,7 +81,7 @@ interface WizardFixture {
 
 const fixtures: WizardFixture[] = [];
 
-function renderRoleplayWizard(): WizardFixture {
+function renderRoleplayWizard(metadata: Record<string, unknown> = {}): WizardFixture {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -88,7 +94,7 @@ function renderRoleplayWizard(): WizardFixture {
       root.render(
         <QueryClientProvider client={queryClient}>
           <ChatSetupWizard
-            chat={{ id: chatId, mode: "roleplay", metadata: "{}" } as never}
+            chat={{ id: chatId, mode: "roleplay", metadata: JSON.stringify(metadata) } as never}
             onFinish={finish}
             onCancel={cancel}
           />
@@ -150,6 +156,7 @@ afterEach(() => {
   }
   vi.clearAllMocks();
   mocks.chatPresets.length = 0;
+  mocks.lorebooks.length = 0;
 });
 
 describe("ChatSetupWizard Roleplay exits", () => {
@@ -205,6 +212,35 @@ describe("ChatSetupWizard Roleplay exits", () => {
     );
     expect(cancel).not.toHaveBeenCalled();
     expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("says there are no lorebooks yet instead of claiming they were all added", () => {
+    const { container } = renderRoleplayWizard();
+    advance(container, 4);
+
+    expect(container.textContent).toContain("Attach Lorebooks");
+    expect(container.textContent).toContain("No lorebooks yet.");
+    expect(container.textContent).not.toContain("All lorebooks already added.");
+    expect(container.querySelector('input[placeholder="Search lorebooks…"]')).toBeNull();
+  });
+
+  it("still lists lorebooks to add when the library has some", () => {
+    mocks.lorebooks.push({ id: "lorebook-1", name: "Sky Isles", enabled: true });
+    const { container } = renderRoleplayWizard();
+    advance(container, 4);
+
+    expect(container.querySelector('input[placeholder="Search lorebooks…"]')).not.toBeNull();
+    expect(container.textContent).toContain("Sky Isles");
+    expect(container.textContent).not.toContain("No lorebooks yet.");
+  });
+
+  it("does not say there are none while an attached lorebook is listed", () => {
+    mocks.lorebooks.push({ id: "lorebook-off", name: "Old Notes", enabled: false });
+    const { container } = renderRoleplayWizard({ activeLorebookIds: ["lorebook-off"] });
+    advance(container, 4);
+
+    expect(container.textContent).toContain("Old Notes");
+    expect(container.textContent).not.toContain("No lorebooks yet.");
   });
 
   it("opens character import on top of setup instead of leaving it", () => {

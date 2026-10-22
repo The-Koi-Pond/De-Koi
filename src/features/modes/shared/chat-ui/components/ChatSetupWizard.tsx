@@ -1699,38 +1699,43 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
           </div>
         )}
 
-        {/* Search + add */}
-        <div className="rounded-lg ring-1 ring-[var(--border)] bg-[var(--card)] overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
-            <Search size="0.75rem" className="text-[var(--muted-foreground)]" />
-            <input
-              value={lbSearch}
-              onChange={(e) => setLbSearch(e.target.value)}
-              placeholder="Search lorebooks…"
-              className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
-            />
+        {selectableLorebooks.length === 0 && activeLorebookIds.length === 0 ? (
+          <p className="rounded-lg bg-[var(--card)] px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+            No lorebooks yet. They are optional, so you can press Next to skip this step.
+          </p>
+        ) : (
+          <div className="rounded-lg ring-1 ring-[var(--border)] bg-[var(--card)] overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
+              <Search size="0.75rem" className="text-[var(--muted-foreground)]" />
+              <input
+                value={lbSearch}
+                onChange={(e) => setLbSearch(e.target.value)}
+                placeholder="Search lorebooks…"
+                className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
+              />
+            </div>
+            <div className="max-h-32 overflow-y-auto">
+              {available.map((lb) => (
+                <button
+                  key={lb.id}
+                  onClick={() => toggleLorebook(lb.id)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]"
+                >
+                  <BookOpen size="0.875rem" className="text-[var(--muted-foreground)]" />
+                  <span className="flex-1 truncate text-xs">{lb.name}</span>
+                  <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
+                </button>
+              ))}
+              {available.length === 0 && (
+                <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
+                  {selectableLorebooks.filter((lb) => !activeLorebookIds.includes(lb.id)).length === 0
+                    ? "All lorebooks already added."
+                    : "No matches."}
+                </p>
+              )}
+            </div>
           </div>
-          <div className="max-h-32 overflow-y-auto">
-            {available.map((lb) => (
-              <button
-                key={lb.id}
-                onClick={() => toggleLorebook(lb.id)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]"
-              >
-                <BookOpen size="0.875rem" className="text-[var(--muted-foreground)]" />
-                <span className="flex-1 truncate text-xs">{lb.name}</span>
-                <Plus size="0.75rem" className="text-[var(--muted-foreground)]" />
-              </button>
-            ))}
-            {available.length === 0 && (
-              <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                {selectableLorebooks.filter((lb) => !activeLorebookIds.includes(lb.id)).length === 0
-                  ? "All lorebooks already added."
-                  : "No matches."}
-              </p>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     );
   }
