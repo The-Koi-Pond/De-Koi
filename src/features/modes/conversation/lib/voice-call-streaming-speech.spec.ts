@@ -26,13 +26,14 @@ describe("completeSpeechEnd", () => {
   });
 });
 
-function harness() {
+function harness(prefetchAhead?: number) {
   const played: string[][] = [];
   const prefetched: string[] = [];
   let release: (() => void) | null = null;
   const controller = new AbortController();
   const speaker = new StreamingSpeaker<string>({
     signal: controller.signal,
+    prefetchAhead,
     toRequests: (text) =>
       text
         .split(/\n+/)
@@ -55,7 +56,14 @@ function harness() {
       }
     }
   };
-  return { speaker, played, prefetched, controller, finishPlaying };
+  const releaseOne = async () => {
+    for (let guard = 0; guard < 5 && !release; guard += 1) await Promise.resolve();
+    const done = release;
+    release = null;
+    done?.();
+    for (let guard = 0; guard < 5; guard += 1) await Promise.resolve();
+  };
+  return { speaker, played, prefetched, controller, finishPlaying, releaseOne };
 }
 
 describe("StreamingSpeaker", () => {
@@ -113,6 +121,42 @@ describe("StreamingSpeaker", () => {
     controller.abort();
     speaker.push("one.\ntwo.\nthree.\n");
     const done = speaker.finish("one.\ntwo.\nthree.\nfour.");
+    await finishPlaying();
+    await done;
+    expect(played).toEqual([]);
+  });
+
+  it("with a limit, fetches audio only a couple of pieces ahead of the one playing", async () => {
+    const { speaker, prefetched, releaseOne } = harness(2);
+    let text = "";
+    for (const line of ["one.", "two.", "three.", "four."]) {
+      text += `${line}\n`;
+      speaker.push(text);
+    }
+    expect(prefetched).toEqual(["one.", "two."]); // nothing playing yet: the first piece and the next
+    await Promise.resolve();
+    expect(prefetched).toEqual(["one.", "two.", "three."]); // "one." playing: two ahead, "four." waits
+    await releaseOne();
+    expect(prefetched).toEqual(["one.", "two.", "three.", "four."]);
+  });
+
+  it("holds the next piece while paused and plays it on resume", async () => {
+    const { speaker, played, finishPlaying } = harness();
+    speaker.pause();
+    speaker.push("one.\n");
+    await finishPlaying();
+    expect(played).toEqual([]);
+    speaker.resume();
+    await finishPlaying();
+    expect(played).toEqual([["one."]]);
+  });
+
+  it("a stop while paused drops what was waiting", async () => {
+    const { speaker, played, controller, finishPlaying } = harness();
+    speaker.pause();
+    speaker.push("one.\ntwo.\n");
+    const done = speaker.finish("one.\ntwo.");
+    controller.abort();
     await finishPlaying();
     await done;
     expect(played).toEqual([]);

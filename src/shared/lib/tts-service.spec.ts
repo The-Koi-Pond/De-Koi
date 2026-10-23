@@ -220,4 +220,39 @@ describe("ttsService.speakSequence", () => {
       vi.useRealTimers();
     }
   });
+
+  it("a pause between parts holds the next part until resume", async () => {
+    const pending = deferred();
+    speak.mockResolvedValueOnce(new Blob(["1"])).mockReturnValueOnce(pending.promise);
+    const done = ttsService.speakSequence([{ text: "one" }, { text: "two" }], "seq", { lookahead: 1 });
+    await flush();
+    expect(FakeAudio.playing).toHaveLength(1);
+    FakeAudio.playing[0]!.onended?.();
+    await flush();
+
+    // "two" is still downloading when the pause comes in: it must not start playing over the listener.
+    ttsService.pause();
+    expect(ttsService.getState()).toBe("paused");
+    pending.resolve(new Blob(["2"]));
+    await flush();
+    expect(FakeAudio.playing).toHaveLength(1);
+
+    ttsService.resume();
+    await flush();
+    expect(FakeAudio.playing).toHaveLength(2);
+    FakeAudio.playing[1]!.onended?.();
+    await done;
+  });
+
+  it("stop releases a held part without playing it", async () => {
+    const pending = deferred();
+    speak.mockReturnValueOnce(pending.promise);
+    const done = ttsService.speakSequence([{ text: "one" }], "seq");
+    await flush();
+    ttsService.pause();
+    ttsService.stop();
+    pending.resolve(new Blob(["1"]));
+    await done;
+    expect(FakeAudio.playing).toHaveLength(0);
+  });
 });

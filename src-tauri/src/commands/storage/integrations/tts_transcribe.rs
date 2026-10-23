@@ -8,6 +8,19 @@ const MAX_AUDIO_BYTES: usize = 20 * 1024 * 1024;
 const DEFAULT_OPENAI_STT_MODEL: &str = "whisper-1";
 const DEFAULT_ELEVENLABS_STT_MODEL: &str = "scribe_v1";
 
+/// The upload request. The provider header helpers set `Content-Type: application/json` for their JSON calls, and
+/// reqwest's `multipart()` appends its own Content-Type instead of replacing it, so providers read the JSON one and
+/// rejected the audio ("Request body contains invalid UTF-8 encoding"). Only the multipart type may go out.
+fn upload_request(
+    client: &reqwest::Client,
+    url: String,
+    mut headers: reqwest::header::HeaderMap,
+    form: reqwest::multipart::Form,
+) -> reqwest::RequestBuilder {
+    headers.remove(reqwest::header::CONTENT_TYPE);
+    client.post(url).headers(headers).multipart(form)
+}
+
 fn audio_file_name(mime_type: &str) -> &'static str {
     let mime = mime_type.split(';').next().unwrap_or("").trim();
     match mime {
@@ -120,10 +133,7 @@ pub(super) async fn transcribe(state: &AppState, body: Value) -> AppResult<Value
         .timeout(Duration::from_millis(tts_request_timeout_ms(&config)))
         .build()
         .map_err(|error| AppError::new("stt_client_error", error.to_string()))?;
-    let response = client
-        .post(url)
-        .headers(headers)
-        .multipart(form)
+    let response = upload_request(&client, url, headers, form)
         .send()
         .await
         .map_err(|error| AppError::new("stt_provider_error", error.to_string()))?;
@@ -159,6 +169,42 @@ pub(super) async fn transcribe(state: &AppState, body: Value) -> AppResult<Value
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_uploads_carry_only_the_multipart_content_type() {
+        let client = reqwest::Client::new();
+        for headers in [
+            elevenlabs_headers("key").unwrap(),
+            openai_headers("key").unwrap(),
+        ] {
+            let form = reqwest::multipart::Form::new().text("model_id", "scribe_v1");
+            let request = upload_request(
+                &client,
+                "https://example.com/v1/speech-to-text".into(),
+                headers,
+                form,
+            )
+            .build()
+            .unwrap();
+            let types: Vec<_> = request
+                .headers()
+                .get_all(reqwest::header::CONTENT_TYPE)
+                .iter()
+                .map(|value| value.to_str().unwrap().to_string())
+                .collect();
+            assert_eq!(types.len(), 1, "{types:?}");
+            assert!(
+                types[0].starts_with("multipart/form-data; boundary="),
+                "{types:?}"
+            );
+            assert!(
+                request.headers().contains_key("xi-api-key")
+                    || request
+                        .headers()
+                        .contains_key(reqwest::header::AUTHORIZATION)
+            );
+        }
+    }
 
     #[test]
     fn recorded_audio_gets_a_file_name_the_provider_recognizes() {

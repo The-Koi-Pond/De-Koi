@@ -1,4 +1,5 @@
 import { createJSONStorage } from "zustand/middleware";
+import { trackPendingUiStorageFlush } from "./pending-ui-storage-writes";
 import type { SetupJourneyIntent, SetupJourneyRecovery } from "../../../engine/onboarding";
 import {
   normalizeImageStyleProfileSettings,
@@ -97,6 +98,7 @@ export function createDebouncedUiStorage() {
       }
     };
 
+    trackPendingUiStorageFlush(flush);
     if (typeof window !== "undefined") {
       window.addEventListener("beforeunload", flush);
       document.addEventListener("visibilitychange", () => {

@@ -3,7 +3,7 @@
 Download De-Koi from [GitHub Releases](https://github.com/The-Koi-Pond/De-Koi/releases/latest). That page is the
 only official download source. Each release lists its files, its source commit and its license notices.
 
-De-Koi is an unofficial modified fork of Marinara Engine. It is not an official Marinara Engine release or support
+De-Koi is an unofficial project that began as a fork of Marinara Engine. It is not an official Marinara Engine release or support
 channel.
 
 ## Which file do I need?

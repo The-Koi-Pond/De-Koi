@@ -1244,3 +1244,94 @@ describe("maybeRefreshConversationStatusMessages", () => {
     ).rejects.toThrow("storage unavailable");
   });
 });
+
+describe("status blurbs helper route", () => {
+  function routingSeed(routing?: Record<string, unknown>) {
+    return {
+      "app-settings": {
+        conversation: { id: "conversation", value: { statusMessagesEnabledByDefault: true } },
+        ...(routing ? { "model-routing": { id: "model-routing", value: routing } } : {}),
+      },
+      chats: {
+        chat1: { id: "chat1", mode: "conversation", connectionId: "conn1", characterIds: ["char1"], metadata: {} },
+      },
+      connections: {
+        conn1: { id: "conn1", name: "Chat", provider: "openai", model: "chat-model" },
+        cheap: { id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" },
+        local: {
+          id: "local",
+          name: "Local",
+          provider: "custom",
+          model: "local-model",
+          baseUrl: "http://127.0.0.1:1234/v1",
+        },
+      },
+      characters: {
+        char1: {
+          id: "char1",
+          data: { name: "Ari", extensions: { conversationStatus: "online", conversationActivity: "free time" } },
+        },
+      },
+    };
+  }
+
+  function recordingLlm() {
+    const requests: Array<{ connectionId?: string | null; model?: string | null }> = [];
+    const llm = {
+      async complete(request: { connectionId?: string | null; model?: string | null }) {
+        requests.push(request);
+        return JSON.stringify({ message: "quietly reading" });
+      },
+    } as unknown as LlmGateway;
+    return { llm, requests };
+  }
+
+  it("keeps the chat's connection when the task is not routed", async () => {
+    const { llm, requests } = recordingLlm();
+    await maybeRefreshConversationStatusMessages(
+      { storage: memoryStorage(routingSeed({ version: 1, routes: { memory: "cheap" } })), llm },
+      { chatId: "chat1", now },
+    );
+    expect(requests.map((request) => request.connectionId)).toEqual(["conn1"]);
+  });
+
+  it("writes blurbs on the routed connection instead of the chat's", async () => {
+    const { llm, requests } = recordingLlm();
+    const result = await maybeRefreshConversationStatusMessages(
+      { storage: memoryStorage(routingSeed({ version: 1, routes: { status: "cheap" } })), llm },
+      { chatId: "chat1", now },
+    );
+    expect(result.refreshed).toEqual(["char1"]);
+    expect(requests).toEqual([expect.objectContaining({ connectionId: "cheap", model: "cheap-model" })]);
+  });
+
+  it("stops on a route to a deleted connection instead of falling back", async () => {
+    const { llm, requests } = recordingLlm();
+    await expect(
+      maybeRefreshConversationStatusMessages(
+        { storage: memoryStorage(routingSeed({ version: 1, routes: { status: "gone" } })), llm },
+        { chatId: "chat1", now },
+      ),
+    ).rejects.toMatchObject({ name: "ModelRouteError", code: "route_unavailable", problem: "missing" });
+    expect(requests).toEqual([]);
+  });
+
+  it("never sends a local-only task to a remote connection", async () => {
+    for (const routes of [{}, { status: "cheap" }]) {
+      const { llm, requests } = recordingLlm();
+      await expect(
+        maybeRefreshConversationStatusMessages(
+          { storage: memoryStorage(routingSeed({ version: 1, routes, localOnly: ["status"] })), llm },
+          { chatId: "chat1", now },
+        ),
+      ).rejects.toMatchObject({ name: "ModelRouteError" });
+      expect(requests).toEqual([]);
+    }
+    const { llm, requests } = recordingLlm();
+    await maybeRefreshConversationStatusMessages(
+      { storage: memoryStorage(routingSeed({ version: 1, routes: { status: "local" }, localOnly: ["status"] })), llm },
+      { chatId: "chat1", now },
+    );
+    expect(requests.map((request) => request.connectionId)).toEqual(["local"]);
+  });
+});

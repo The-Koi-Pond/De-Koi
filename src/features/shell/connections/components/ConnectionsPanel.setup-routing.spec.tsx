@@ -6,11 +6,13 @@ import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.st
 import { SetupReadinessChecklist } from "../../onboarding/shell";
 import { ConnectionsPanel } from "./ConnectionsPanel";
 
+const listed = vi.hoisted(() => ({ connections: [] as Array<Record<string, unknown>> }));
+
 vi.mock("../../../catalog/connections", () => {
   const mutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
   const empty: never[] = [];
   return {
-    useConnections: () => ({ data: empty, isLoading: false }),
+    useConnections: () => ({ data: listed.connections, isLoading: false }),
     isSyntheticConnection: () => false,
     useDuplicateConnection: mutation,
     useDeleteConnection: mutation,
@@ -42,6 +44,50 @@ describe("ConnectionsPanel setup routing", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    listed.connections = [];
+  });
+
+  // After Save the editor stays open until people leave it, and setup only launches then. The banner above it used to
+  // keep saying "Add a language model" even though the model was already connected.
+  it("says the model is connected once a saved connection can reply", () => {
+    listed.connections = [
+      {
+        id: "conn-1",
+        name: "OpenRouter",
+        provider: "openrouter",
+        model: "deepseek/deepseek-v4.1-flash",
+        hasApiKey: true,
+      },
+    ];
+    act(() => useUIStore.getState().openConnectionDetail("conn-1"));
+    useUIStore.setState({ rightPanelOpen: true, rightPanel: "connections" });
+    act(() => root.render(<ConnectionsPanel />));
+
+    expect(host.textContent).toContain("Your model is connected");
+    expect(host.textContent).not.toContain("Add a language model to continue setup");
+    act(() =>
+      Array.from(host.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Continue setup")!
+        .click(),
+    );
+    expect(useUIStore.getState().connectionDetailId).toBeNull();
+    expect(useUIStore.getState().rightPanelOpen).toBe(false);
+  });
+
+  it("keeps asking for a model while the saved connection still has no key", () => {
+    listed.connections = [
+      {
+        id: "conn-1",
+        name: "OpenRouter",
+        provider: "openrouter",
+        model: "deepseek/deepseek-v4.1-flash",
+        hasApiKey: false,
+      },
+    ];
+    act(() => root.render(<ConnectionsPanel />));
+
+    expect(host.textContent).toContain("Add a language model to continue setup");
+    expect(host.textContent).not.toContain("Your model is connected");
   });
 
   it("teaches the first task and keeps provider guidance optional", () => {
@@ -126,5 +172,21 @@ describe("ConnectionsPanel setup routing", () => {
     );
     await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     expect(document.activeElement?.id).toBe("setup-step-connection");
+  });
+  // After Create, the new connection's editor is open. Return to setup has to close it too, or setup stays hidden
+  // behind the editor.
+  it("Return to setup closes the open connection editor as well as the panel", () => {
+    act(() => useUIStore.getState().openConnectionDetail("conn-1"));
+    useUIStore.setState({ rightPanelOpen: true, rightPanel: "connections" });
+    act(() => root.render(<ConnectionsPanel />));
+
+    act(() =>
+      Array.from(host.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Return to setup"))!
+        .click(),
+    );
+
+    expect(useUIStore.getState().connectionDetailId).toBeNull();
+    expect(useUIStore.getState().rightPanelOpen).toBe(false);
   });
 });

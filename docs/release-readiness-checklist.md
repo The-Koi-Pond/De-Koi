@@ -6,7 +6,7 @@ pages, or screenshots for the current desktop/runtime architecture.
 ## Release Identity
 
 - Release page points to `The-Koi-Pond/De-Koi`.
-- Release notes state that De-Koi is an unofficial modified fork of Marinara
+- Release notes state that De-Koi is an unofficial project that began as a fork of Marinara
   Engine, not an official Marinara Engine release or support channel.
 - Release notes identify the exact source commit or tag for the artifacts.
 - `LICENSE.txt` and `NOTICE.md` are linked from the release notes.

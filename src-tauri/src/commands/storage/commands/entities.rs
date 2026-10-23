@@ -933,6 +933,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                             | "fanficQuality"
                             | "roleplayContinuityDirector"
                             | "roleplayWorkflowApplication"
+                            | "roleplayWorldTick"
                     ) {
                         return Err(AppError::invalid_input(format!(
                             "Conditional chat {label} does not support metadata.{metadata_field}"
@@ -2113,6 +2114,43 @@ mod tests {
         .expect_err("missing chats must not look like stale writes");
 
         assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
+    fn conditional_chat_world_tick_review_saves_only_against_the_state_it_read() {
+        let state = test_state("conditional-chat-world-tick");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "mode": "roleplay", "metadata": { "tags": ["keep"] } }),
+            )
+            .expect("chat should seed");
+        let unset = json!({ "metadata": { "roleplayWorldTick": null } });
+
+        let first = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unset.clone(),
+            json!({ "metadata": { "roleplayWorldTick": { "version": 1, "revision": 1 } } }),
+        )
+        .expect("a time skip review can be opened");
+        assert_eq!(first["updated"], json!(true));
+        assert_eq!(first["chat"]["metadata"]["tags"], json!(["keep"]));
+
+        // A second window that read the chat before the review opened must not overwrite it.
+        let second = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unset,
+            json!({ "metadata": { "roleplayWorldTick": { "version": 1, "revision": 9 } } }),
+        )
+        .expect("a stale write reports the current chat");
+        assert_eq!(second["updated"], json!(false));
+        assert_eq!(
+            second["chat"]["metadata"]["roleplayWorldTick"]["revision"],
+            json!(1)
+        );
     }
 
     #[test]
@@ -8443,6 +8481,54 @@ mod tests {
         assert_eq!(read["hasApiKey"], true);
         assert_eq!(read["apiKey"], connection_secrets::API_KEY_MASK);
         assert!(read.get("apiKeyEncrypted").is_none());
+    }
+
+    // Setup reads the connection list with a field projection; before this, every keyed connection came back
+    // with hasApiKey false, so "Connect a language model" never completed for OpenRouter, OpenAI, Anthropic...
+    #[test]
+    fn projected_connection_list_reports_saved_key_without_returning_it() {
+        let state = test_state("connection-secret-projected-list");
+        for (id, api_key) in [("keyed", "sk-secret"), ("keyless", "")] {
+            storage_create_inner(
+                &state,
+                "connections".to_string(),
+                json!({
+                    "id": id,
+                    "name": id,
+                    "provider": "openrouter",
+                    "model": "openai/gpt-4o-mini",
+                    "apiKey": api_key
+                }),
+            )
+            .expect("connection should be created");
+        }
+
+        let rows = storage_list_inner(
+            &state,
+            "connections".to_string(),
+            Some(json!({ "fields": ["id", "model", "hasApiKey"] })),
+        )
+        .expect("projected connection list should read");
+        let rows = rows.as_array().expect("list should be an array");
+        let row = |id: &str| {
+            rows.iter()
+                .find(|row| row["id"] == id)
+                .expect("connection should be listed")
+                .clone()
+        };
+
+        assert_eq!(row("keyed")["hasApiKey"], true);
+        assert_eq!(row("keyless")["hasApiKey"], false);
+        for row in rows {
+            assert!(
+                row.get("apiKey").is_none(),
+                "unrequested apiKey leaked: {row}"
+            );
+            assert!(
+                row.get("apiKeyEncrypted").is_none(),
+                "apiKeyEncrypted leaked: {row}"
+            );
+        }
     }
 
     #[test]

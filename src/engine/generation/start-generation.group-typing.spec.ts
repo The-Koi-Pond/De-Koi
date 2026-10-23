@@ -900,3 +900,106 @@ describe("startGeneration group typing", () => {
     expect(assistantMessages[0]?.characterId).toBeNull();
   });
 });
+
+describe("group responder helper route", () => {
+  const cheap = { id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" };
+
+  function routedGroupStorage(routing: Record<string, unknown> | null) {
+    const base = groupTypingStorage({ groupResponseOrder: "smart" });
+    const storage: StorageGateway = {
+      ...base.storage,
+      async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "app-settings" && id === "model-routing") return (routing ? { id, value: routing } : null) as T;
+        if (entity === "connections" && id === "cheap") return cheap as T;
+        return base.storage.get<T>(entity, id);
+      },
+      async list<T = unknown>(entity: StorageEntity, options?: never): Promise<T[]> {
+        const rows = await base.storage.list<T>(entity, options);
+        return entity === "connections" ? ([...rows, cheap] as T[]) : rows;
+      },
+    };
+    return { ...base, storage };
+  }
+
+  function recordingGroupLlm() {
+    const completes: LlmRequest[] = [];
+    const streams: LlmRequest[] = [];
+    const llm: LlmGateway = {
+      complete: vi.fn(async (request: LlmRequest) => {
+        completes.push(request);
+        const prompt = request.messages.map((message) => message.content).join("\n");
+        if (prompt.includes("hidden continuation orchestrator")) return '{"shouldRespond":true,"reason":"more"}';
+        return '{"characterIds":["char-b","char-a"],"reason":"both"}';
+      }),
+      async *stream(request: LlmRequest) {
+        streams.push(request);
+        yield { type: "token", text: "hey there" };
+      },
+      listModels: vi.fn(async () => []),
+    };
+    const orchestration = () =>
+      completes.filter((request) =>
+        request.messages.some((message) => /hidden (response|continuation) orchestrator/.test(message.content)),
+      );
+    return { llm, completes, streams, orchestration };
+  }
+
+  async function run(routing: Record<string, unknown> | null) {
+    const { storage, messages } = routedGroupStorage(routing);
+    const recorded = recordingGroupLlm();
+    let thrown: unknown = null;
+    let events: GenerationEvent[] = [];
+    try {
+      events = await collectEvents(
+        startGeneration(
+          { storage, llm: recorded.llm, integrations: {} as IntegrationGateway },
+          {
+            chatId: "chat-1",
+            connectionId: "conn-1",
+            userMessage: "what do you both think?",
+            impersonateBlockAgents: true,
+          },
+        ),
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    const assistants = messages.filter((message) => message.role === "assistant");
+    return { ...recorded, events, thrown, assistants };
+  }
+
+  it("keeps the reply's connection for picking responders when the task is not routed", async () => {
+    const { orchestration, assistants } = await run({ version: 1, routes: { status: "cheap" } });
+    expect(assistants.map((message) => message.characterId)).toEqual(["char-b", "char-a"]);
+    expect(orchestration().length).toBe(2);
+    expect(new Set(orchestration().map((request) => request.connectionId))).toEqual(new Set(["conn-1"]));
+  });
+
+  it("picks responders on the routed connection while replies stay on the chat's", async () => {
+    const { orchestration, streams, assistants } = await run({ version: 1, routes: { responder: "cheap" } });
+    expect(assistants.map((message) => message.characterId)).toEqual(["char-b", "char-a"]);
+    // The first pick, then the "does the next one still have something to add" check.
+    expect(orchestration().map((request) => [request.connectionId, request.model])).toEqual([
+      ["cheap", "cheap-model"],
+      ["cheap", "cheap-model"],
+    ]);
+    expect(streams.length).toBe(2);
+    expect(new Set(streams.map((request) => request.connectionId))).toEqual(new Set(["conn-1"]));
+  });
+
+  it.each([
+    ["a deleted connection", { version: 1, routes: { responder: "gone" } }],
+    ["a local-only task with no route", { version: 1, routes: {}, localOnly: ["responder"] }],
+    [
+      "a local-only task routed to a remote connection",
+      { version: 1, routes: { responder: "cheap" }, localOnly: ["responder"] },
+    ],
+  ])("stops the turn on %s instead of falling back to turn order", async (_label, routing) => {
+    const { orchestration, streams, assistants, events, thrown } = await run(routing);
+    expect(orchestration()).toEqual([]);
+    expect(streams).toEqual([]);
+    expect(assistants).toEqual([]);
+    expect(events.some((event) => event.type === "group_turn")).toBe(false);
+    expect(thrown).toMatchObject({ name: "ModelRouteError", task: "responder", code: "route_unavailable" });
+  });
+});

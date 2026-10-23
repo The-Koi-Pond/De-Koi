@@ -7,10 +7,10 @@ De-Koi downloads and runs for you.
 ![A roleplay scene in De-Koi: Captain Elias Marr in the chart room of the Halcyon, over a stormy sea painting](docs/screenshots/readme/roleplay.jpg)
 
 > [!IMPORTANT]
-> De-Koi is an unofficial modified fork of
-> [Marinara Engine](https://github.com/Pasta-Devs/Marinara-Engine).
-> It is a separate project and is not an official Marinara Engine release,
-> support channel, or distribution.
+> De-Koi is an unofficial project that began as a fork of
+> [Marinara Engine](https://github.com/Pasta-Devs/Marinara-Engine) and has
+> been substantially reworked since. It is a separate project and is not an
+> official Marinara Engine release, support channel, or distribution.
 >
 > De-Koi is not sponsored by, endorsed by, or released on behalf of Marinara
 > Engine, Spicy Marinara, Pasta Devs, or the Marinara Engine project.
@@ -89,7 +89,7 @@ it.
 <!-- features:start (generated from the Discover registry by `pnpm docs:readme-features`; do not edit) -->
 
 <details>
-<summary><b>Chat modes</b> (9)</summary>
+<summary><b>Chat modes</b> (10)</summary>
 
 - **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.
 - **Message Reactions**: React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.
@@ -99,6 +99,7 @@ it.
 - **Roleplay workflow profiles**: Choose a setup for your roleplay: Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visuals matter, or Local Helpers once your local model is ready. Before applying one, you see what it adds and how many extra model calls it makes. Your main writing connection stays as it is.
 - **Roleplay Context Panels**: Use roleplay helper panels for author notes, context injections, active world info, sprites, and HUD state.
 - **Roleplay Continuity Director**: Plans a long roleplay as a story: arcs, open threads, and upcoming beats you can see. Apply and confirm the Long-Running Story profile to turn it on. If that newly turns on the Director and there's no saved plan yet, it makes one extra planning call to your model right away; after that it makes one more in the background every 10 replies, without holding up the chat. New beats stay proposed until you approve them, and a badge shows when some are waiting. The Director only plans: your writer model still writes, and your character's choices stay yours.
+- **Let time pass**: Skip ahead in a Roleplay chat and see what the world got up to. Say how much time passes, optionally steer it, and your chat's model suggests a few things that happened off-screen. Nothing changes until you review each suggestion: accept, edit, put off for later, or reject it, and add your own. Applying adds one narrator message with the time skip and the events you accepted, so the next reply picks up from there. Suggestions that decide anything for your character are left out. It makes one model call per suggestion round and never runs on its own.
 - **Character Web Research**: Let characters look things up on the public web when they need current facts. The research can stay in the background or show up as in-character narration; De-Koi asks your permission first and lists the sources, collapsed, at the end.
 
 </details>
@@ -139,7 +140,7 @@ it.
 <summary><b>Media</b> (4)</summary>
 
 - **Text-to-Speech**: Configure voice providers and let chats, narration, or characters speak with assigned voices.
-- **Voice Calls And Voice Input**: Call a Conversation character: talk, and they answer out loud in their Text to Speech voice, hands-free, with every turn kept in the chat as texts. The mic button and calls can transcribe with your Text to Speech provider (OpenAI Whisper or ElevenLabs Scribe) instead of the browser. Needs microphone access, so hosted installs need an https:// address.
+- **Voice Calls And Voice Input**: Call a Conversation character: talk, and they answer out loud in their Text to Speech voice, hands-free, with every turn kept in the chat as texts. With provider transcription (OpenAI Whisper or ElevenLabs Scribe, also used by the mic button) you can talk over them to cut in. A mic light shows whenever the microphone is on and where your voice is sent. Needs microphone access, so hosted installs need an https:// address.
 - **Image Generation**: Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.
 - **Music Player**: Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.
 
@@ -169,7 +170,7 @@ it.
 - **Discord Mirror**: Mirror chat messages into a Discord channel through a webhook while keeping character names and narration labels readable.
 - **Inline Model Reasoning**: Optionally show reasoning returned by the model in a separate collapsible panel beneath character replies while keeping final answers primary.
 - **Recommended Generation Profiles**: Let De-Koi choose stable generation and prompt-budget settings for each chat mode and model, or switch to explicit Custom values.
-- **Helper Models**: Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, and the judge a fanfic quality check starts on. Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.
+- **Helper Models**: Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, and character reads (how a thin Roleplay card acts). Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.
 - **Prompt Overrides**: Customize selected prompt templates for specialized generation behavior without editing core source.
 - **Quick Replies**: Optional input actions for posting without generation, guiding a reply, impersonating a character, or saving custom slash-command buttons from mode input toolbars.
 - **Chat Settings Presets**: Save, apply, import, export, rename, and delete reusable chat settings bundles for repeated chat setups.

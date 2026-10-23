@@ -364,7 +364,7 @@ function llmWithRawResponse(content: string): LlmGateway & { requests: LlmReques
   };
 }
 
-function scheduleStorageGateway(): StorageGateway {
+function scheduleStorageGateway(extra: Partial<Record<StorageEntity, JsonRecord[]>> = {}): StorageGateway {
   const rows: Partial<Record<StorageEntity, JsonRecord[]>> = {
     chats: [
       {
@@ -389,6 +389,7 @@ function scheduleStorageGateway(): StorageGateway {
     connections: [{ id: "conn-1", model: "test-model" }],
     lorebooks: [],
     "lorebook-entries": [],
+    ...extra,
   };
 
   return {
@@ -686,5 +687,61 @@ describe("generateConversationSchedules availability output", () => {
       { time: "12:00-17:00", activity: "focused research", status: "offline" },
       { time: "17:00-23:00", activity: "sleeping", status: "offline" },
     ]);
+  });
+});
+
+describe("generateConversationSchedules helper route", () => {
+  const connections: JsonRecord[] = [
+    { id: "conn-1", name: "Chat", provider: "openai", model: "test-model" },
+    { id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" },
+    { id: "local", name: "Local", provider: "custom", model: "local-model", baseUrl: "http://localhost:1234/v1" },
+  ];
+  function routedStorage(routing: JsonRecord): StorageGateway {
+    return scheduleStorageGateway({
+      connections,
+      "app-settings": [{ id: "model-routing", value: routing }],
+    });
+  }
+
+  it("keeps the chat's connection when the task is not routed", async () => {
+    const llm = llmWithRawResponse(generatedConversationRoutineJson());
+    await generateConversationSchedules(
+      { storage: routedStorage({ version: 1, routes: { status: "cheap" } }), llm },
+      { chatId: "chat-1", forceRefresh: true },
+    );
+    expect(new Set(llm.requests.map((request) => request.connectionId))).toEqual(new Set(["conn-1"]));
+  });
+
+  it("writes schedules on the routed connection instead of the chat's", async () => {
+    const llm = llmWithRawResponse(generatedConversationRoutineJson());
+    await generateConversationSchedules(
+      { storage: routedStorage({ version: 1, routes: { schedules: "cheap" } }), llm },
+      { chatId: "chat-1", forceRefresh: true },
+    );
+    expect(llm.requests.length).toBeGreaterThan(0);
+    expect(new Set(llm.requests.map((request) => request.connectionId))).toEqual(new Set(["cheap"]));
+  });
+
+  it("stops on a route to a deleted connection, and keeps a local-only task off remote connections", async () => {
+    for (const routing of [
+      { version: 1, routes: { schedules: "gone" } },
+      { version: 1, routes: {}, localOnly: ["schedules"] },
+      { version: 1, routes: { schedules: "cheap" }, localOnly: ["schedules"] },
+    ]) {
+      const llm = llmWithRawResponse(generatedConversationRoutineJson());
+      await expect(
+        generateConversationSchedules(
+          { storage: routedStorage(routing), llm },
+          { chatId: "chat-1", forceRefresh: true },
+        ),
+      ).rejects.toMatchObject({ name: "ModelRouteError", code: "route_unavailable" });
+      expect(llm.requests).toEqual([]);
+    }
+    const llm = llmWithRawResponse(generatedConversationRoutineJson());
+    await generateConversationSchedules(
+      { storage: routedStorage({ version: 1, routes: { schedules: "local" }, localOnly: ["schedules"] }), llm },
+      { chatId: "chat-1", forceRefresh: true },
+    );
+    expect(new Set(llm.requests.map((request) => request.connectionId))).toEqual(new Set(["local"]));
   });
 });

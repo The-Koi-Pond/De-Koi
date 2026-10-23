@@ -112,6 +112,9 @@ export function SetupReadinessJourney() {
           shortcutMode: claim.originCharacterId !== null,
         });
         useSetupJourneyStore.getState().markCompleted(claim.journeyId);
+        // Setup sent people to Connections for its model step. Leaving it open would cover the chat that just started.
+        const ui = useUIStore.getState();
+        if (ui.rightPanelOpen && ui.rightPanel === "connections") ui.closeRightPanel();
       },
     });
   }

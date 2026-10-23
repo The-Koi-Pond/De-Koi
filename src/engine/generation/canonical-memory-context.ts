@@ -19,6 +19,13 @@ import {
   type EpistemicSubject,
 } from "./epistemic-access";
 import { loadEpistemicContext } from "./epistemic-context";
+import { isStoryProjectionMemory } from "./story-projections";
+import {
+  distinctiveMatch,
+  distinctiveTermWeights,
+  queryTermFocus,
+  type DistinctiveTermWeights,
+} from "./distinctive-terms";
 
 type MemoryIndexSource = "index" | "lexical";
 
@@ -35,6 +42,7 @@ interface CanonicalMemoryCandidate {
   indexSource: MemoryIndexSource;
   lexicalScore: number;
   semanticScore: number;
+  distinctiveScore: number;
   metadataScore: number;
   score: number;
   reasons: string[];
@@ -76,6 +84,11 @@ const SEMANTIC_SIMILARITY_THRESHOLD = 0.28;
 const STRONG_SEMANTIC_RELEVANCE_THRESHOLD = 0.4;
 const MIN_LEXICAL_QUERY_COVERAGE = 0.5;
 const SEMANTIC_CANDIDATE_LIMIT = 24;
+// Sharing the latest message's rare words is the strongest relevance signal when there is no embedding
+// model. Weighted to outrank the static boosts (name mentions, confidence, importance), which otherwise
+// return the same name-heavy facts every turn of a long chat.
+const DISTINCTIVE_MATCH_WEIGHT = 1;
+const DISTINCTIVE_MATCH_REASON_THRESHOLD = 0.3;
 // An explicit "do you remember..." turn admits its best moderate semantic matches,
 // which the cross-chat gate above would otherwise drop.
 const MAX_RECALL_REQUEST_MEMORIES = 3;
@@ -174,8 +187,8 @@ function tokenSet(text: string): Set<string> {
   return new Set(lexicalTokens(text));
 }
 
-function lexicalOverlap(queryTokens: string[], memory: CanonicalMemoryRecord): number {
-  const haystack = tokenSet(
+function memoryTokens(memory: CanonicalMemoryRecord): Set<string> {
+  return tokenSet(
     [
       memory.content,
       memory.title ?? "",
@@ -184,6 +197,21 @@ function lexicalOverlap(queryTokens: string[], memory: CanonicalMemoryRecord): n
       readString(memory.kind),
     ].join(" "),
   );
+}
+
+// The chat's own messages tell which words are just the story's everyday vocabulary. Memories alone are too
+// few and too short: in 400 one-line facts even "far" or "count" looks rare.
+function chatWordSets(storedMessages: JsonRecord[], latestUserInput: string): Set<string>[] {
+  const latest = latestUserInput.trim();
+  return storedMessages
+    .filter((message) => !hiddenFromAi(message))
+    .map((message) => readString(message.content).trim())
+    .filter((content) => content && content !== latest)
+    .map(tokenSet);
+}
+
+function lexicalOverlap(queryTokens: string[], memory: CanonicalMemoryRecord): number {
+  const haystack = memoryTokens(memory);
   return queryTokens.reduce((score, token) => score + (haystack.has(token) ? 1 : 0), 0);
 }
 
@@ -243,10 +271,13 @@ function scoreCandidate(
   input: CanonicalMemoryContextInput,
   queryTokens: string[],
   indexSource: MemoryIndexSource,
+  queryFocus: ReadonlyMap<string, number>,
+  termWeights: DistinctiveTermWeights,
   semanticMatch?: CanonicalMemorySemanticMatch,
   semanticFallback?: string,
 ): CanonicalMemoryCandidate {
   const lexicalScore = lexicalOverlap(queryTokens, memory);
+  const distinctiveScore = distinctiveMatch(queryFocus, memoryTokens(memory), termWeights);
   const lexicalCoverage = queryTokens.length > 0 ? lexicalScore / queryTokens.length : 0;
   const entityTokens = metadataEntityTokens(input);
   const entityScore = entityTokens.length > 0 ? lexicalOverlap(entityTokens, memory) / entityTokens.length : 0;
@@ -263,12 +294,13 @@ function scoreCandidate(
     Math.min(0.12, memory.confidence * 0.12) +
     Math.min(0.1, importance * 0.1) +
     recencyScore(memory);
-  const score = semanticScore + metadataScore;
+  const score = semanticScore + DISTINCTIVE_MATCH_WEIGHT * distinctiveScore + metadataScore;
   const reasons = [
     ...(indexSource === "index" ? ["index_candidate"] : ["lexical_fallback"]),
     ...(semanticScore >= SEMANTIC_SIMILARITY_THRESHOLD ? ["semantic_match"] : []),
     ...(semanticFallback ? ["semantic_unavailable"] : []),
     ...(lexicalScore > 0 ? ["keyword_match"] : []),
+    ...(distinctiveScore >= DISTINCTIVE_MATCH_REASON_THRESHOLD ? ["distinctive_match"] : []),
     ...(entityScore > 0 ? ["entity_match"] : []),
     ...(characterMatch(memory, input.characters) ? ["active_character_match"] : []),
     ...(sceneScopeMatches(memory, input.chat) ? ["scene_scope"] : []),
@@ -289,6 +321,7 @@ function scoreCandidate(
     indexSource,
     lexicalScore,
     semanticScore,
+    distinctiveScore,
     metadataScore,
     score,
     reasons,
@@ -567,6 +600,7 @@ function attributionForCandidate(
       confidence: candidate.memory.confidence,
       lexicalScore: candidate.lexicalScore,
       semanticScore: candidate.semanticScore,
+      distinctiveScore: candidate.distinctiveScore,
       retrievalSource: candidate.retrievalSource,
       semanticProvider: candidate.semanticEvidence?.provider,
       semanticModel: candidate.semanticEvidence?.model,
@@ -693,18 +727,26 @@ export async function buildCanonicalMemoryContext(
   for (const match of semanticById.values()) {
     if (!collectedIds.has(match.memory.id)) rows.push({ memory: match.memory, source: "index" });
   }
-  const candidates = rows
-    .filter((row) => validMemoryRecord(row.memory))
-    .map((row) =>
-      scoreCandidate(
-        row.memory,
-        input,
-        queryTokens,
-        row.source,
-        semanticById.get(row.memory.id),
-        semanticResult.fallback,
-      ),
-    );
+  // Episodes and arcs reach the prompt only through Story Continuity, which keeps them out of the raw
+  // window and dedupes them; here they would also eat the atomic-memory budget.
+  const validRows = rows.filter((row) => validMemoryRecord(row.memory) && !isStoryProjectionMemory(row.memory));
+  const termWeights = distinctiveTermWeights([
+    ...new Map(validRows.map((row) => [row.memory.id, memoryTokens(row.memory)])).values(),
+    ...chatWordSets(input.storedMessages, input.latestUserInput),
+  ]);
+  const queryFocus = queryTermFocus(input.latestUserInput, lexicalTokens);
+  const candidates = validRows.map((row) =>
+    scoreCandidate(
+      row.memory,
+      input,
+      queryTokens,
+      row.source,
+      queryFocus,
+      termWeights,
+      semanticById.get(row.memory.id),
+      semanticResult.fallback,
+    ),
+  );
   const consideredCount = candidates.length;
   const ordinaryRanked = dedupeAndFilterCandidates(candidates, input);
   const supersededBeliefs = candidates.filter(

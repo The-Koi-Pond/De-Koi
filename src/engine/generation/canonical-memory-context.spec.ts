@@ -1198,9 +1198,223 @@ describe("canonical memory context", () => {
       expect(storage.queryMemoryIndex).not.toHaveBeenCalled();
     }
   });
+
+  it("leaves story episode and arc projections to Story Continuity", async () => {
+    const promise = memory({
+      id: "memory-promise",
+      kind: "promise",
+      content: "Mara promised to return the brass key.",
+    });
+    const episode = storyProjection("memory-episode", "episode", "Mara found the brass key in the frozen lake.");
+    const arc = storyProjection("memory-arc", "arc", "Mara and the brass key crossed the whole valley.");
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [promise, episode, arc] }), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where is the brass key Mara found?",
+      characters: [{ id: "char-1", name: "Mira", tags: [] }],
+    });
+
+    expect(result?.block).toContain("Mara promised to return the brass key.");
+    expect(result?.block).not.toContain("frozen lake");
+    expect(result?.block).not.toContain("whole valley");
+    expect(result?.attributionItems.map((item) => item.sourceId)).toEqual(["memory-promise"]);
+  });
+});
+
+function storyProjection(id: string, level: "episode" | "arc", content: string): CanonicalMemoryRecord {
+  return memory({
+    id,
+    kind: level === "episode" ? "episode" : "summary",
+    title: level === "episode" ? "The lake" : "The valley",
+    content,
+    tags: ["story-continuity", level],
+    confidence: 0.9,
+    payload: {
+      storyProjectionVersion: 1,
+      level,
+      ownerChatId: "chat-1",
+      coverageId: `coverage-${id}`,
+      sourceFingerprint: `fingerprint-${id}`,
+      messageIds: ["message-old"],
+      firstMessageId: "message-old",
+      lastMessageId: "message-old",
+      sourceEpisodeIds: [],
+      sections: {
+        events: [],
+        choices: [],
+        relationshipShifts: [],
+        promises: [],
+        reveals: [],
+        unresolvedHooks: [],
+        currentState: [],
+      },
+      summarizer: { version: "story-projection-v1", completedAt: "2026-07-01T10:00:00.000Z" },
+    },
+  });
+}
+
+describe("long-chat recall ranking", () => {
+  // A long roleplay: many saved facts name the character and reuse the story's everyday words, and the chat's
+  // own messages use those words constantly. The fact the player asks about shares one rare word with the turn.
+  const character = { id: "odile", name: "Odile Ferrant", tags: [] };
+  const storyMessages = Array.from({ length: 40 }, (_, index) => ({
+    id: `story-${index}`,
+    role: index % 2 ? "assistant" : "user",
+    content: `Odile Ferrant holds the barge steady on the river while the reach turns past bank ${index}.`,
+    createdAt: `2026-07-01T10:${String(index).padStart(2, "0")}:00.000Z`,
+  }));
+  const plantMessage = {
+    id: "story-eel",
+    role: "user",
+    content: "I can't eat eel. It closes my throat.",
+    createdAt: "2026-07-01T09:00:00.000Z",
+  };
+  const question =
+    '*Smoke drifts off a stall on the river bank as the barge slides past.* "Odile, is that eel they\'re frying?"';
+
+  it("ranks the asked-about fact above name-heavy facts that share only common words", async () => {
+    const crowd = Array.from({ length: 14 }, (_, index) =>
+      memory({
+        id: `memory-crowd-${index}`,
+        content: `Odile Ferrant keeps the barge off the river bank at mooring ${index}.`,
+        confidence: 0.95,
+        payload: { importance: 0.9 },
+      }),
+    );
+    const target = memory({
+      id: "memory-eel",
+      content: "Cass says eel closes Cass's throat.",
+      confidence: 0.6,
+    });
+
+    const result = await buildCanonicalMemoryContext(storageWithMemories({ indexed: [...crowd, target] }), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [plantMessage, ...storyMessages, { id: "message-new", role: "user", content: question }],
+      latestUserInput: question,
+      characters: [character],
+      maxContext: 32768,
+    });
+
+    expect(result?.attributionItems[0]).toMatchObject({
+      sourceId: "memory-eel",
+      metadata: expect.objectContaining({ reasons: expect.arrayContaining(["distinctive_match"]) }),
+    });
+  });
+
+  it("recalls the exchange that shares the question's rare word over longer exchanges full of scenery", async () => {
+    const exchange = (id: string, content: string, minute: number) => ({
+      id,
+      chatId: "chat-1",
+      content,
+      status: "active",
+      messageIds: [`old-${id}`],
+      createdAt: `2026-06-30T10:${String(minute).padStart(2, "0")}:00.000Z`,
+      lastMessageAt: `2026-06-30T10:${String(minute).padStart(2, "0")}:00.000Z`,
+    });
+    const scenery = Array.from({ length: 10 }, (_, index) =>
+      exchange(
+        `memory-scenery-${index}`,
+        `{{user}}: *I sight along the river bank from the barge at mooring ${index} and call the bearing.* ` +
+          `Odile Ferrant: *She holds the barge off the bank while the smoke from the cookpot drifts past.*`,
+        index,
+      ),
+    );
+    const target = exchange(
+      "memory-eel",
+      '{{user}}: "I can\'t eat eel. It closes my throat." Odile Ferrant: *She nods once and takes the eel off the fire.*',
+      30,
+    );
+    const result = await assembleGenerationPrompt(promptStorage([], [...scenery, target]), {
+      chat: {
+        id: "chat-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: { enableMemoryRecall: true, enableCanonicalMemoryRecall: false },
+      },
+      storedMessages: [...storyMessages, { id: "message-new", role: "user", content: question }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: question,
+    });
+
+    const recalled = result.contextAttributionItems.filter(
+      (item) => item.kind === "memory_recall" && item.status === "injected",
+    );
+    expect(recalled[0]?.snippet).toContain("I can't eat eel");
+  });
+  it("keeps the embedding relevance floor when a provider model scores the exchange", async () => {
+    const unrelated = {
+      id: "memory-eel",
+      chatId: "chat-1",
+      content: '{{user}}: "I can\'t eat eel." Odile Ferrant: *She nods.*',
+      status: "active",
+      messageIds: ["old-eel"],
+      embedding: [0, 1],
+      createdAt: "2026-06-30T10:00:00.000Z",
+      lastMessageAt: "2026-06-30T10:00:00.000Z",
+    };
+    const result = await assembleGenerationPrompt(promptStorage([], [unrelated]), {
+      chat: {
+        id: "chat-1",
+        mode: "roleplay",
+        characterIds: ["char-1"],
+        metadata: { enableMemoryRecall: true, enableCanonicalMemoryRecall: false },
+      },
+      storedMessages: [...storyMessages, { id: "message-new", role: "user", content: question }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: question,
+      embeddingSource: { embed: async () => [[1, 0]] },
+    });
+
+    expect(
+      result.contextAttributionItems.filter((item) => item.kind === "memory_recall" && item.status === "injected"),
+    ).toEqual([]);
+  });
 });
 
 describe("prompt assembly canonical memory integration", () => {
+  it("injects a relevant story episode once, through Story Continuity", async () => {
+    const promise = memory({
+      id: "memory-promise",
+      kind: "promise",
+      content: "Mara promised to return the brass key.",
+    });
+    const episode = storyProjection("memory-episode", "episode", "Mara found the brass key in the frozen lake.");
+    const base = storageWithMemories({ indexed: [promise, episode], fallback: [promise, episode] });
+    const storage: StorageGateway = {
+      ...base,
+      async list<T = unknown>(): Promise<T[]> {
+        return asStorageValue<T[]>([]);
+      },
+      async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "characters" && id === "char-1") {
+          return asStorageValue<T>({ id: "char-1", name: "Mira", description: "Mira core.", tags: [] });
+        }
+        return null;
+      },
+    };
+
+    const result = await assembleGenerationPrompt(storage, {
+      chat: { id: "chat-1", mode: "roleplay", characterIds: ["char-1"], metadata: { enableMemoryRecall: true } },
+      storedMessages: [{ id: "message-new", role: "user", content: "Where is the brass key Mara found?" }],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "Where is the brass key Mara found?",
+    });
+
+    const promptText = result.messages.map((message) => message.content).join("\n");
+    expect(promptText.split("Mara found the brass key in the frozen lake.").length - 1).toBe(1);
+    expect(promptText).toContain("Mara promised to return the brass key.");
+    expect(result.contextAttributionItems).toContainEqual(
+      expect.objectContaining({ kind: "story_projection", sourceId: "memory-episode", status: "injected" }),
+    );
+    expect(result.contextAttributionItems).not.toContainEqual(
+      expect.objectContaining({ kind: "memory_recall", sourceId: "memory-episode" }),
+    );
+  });
+
   it("resolves the chat persona in transcript recall while retaining stored attribution text", async () => {
     const base = promptStorage(
       [],

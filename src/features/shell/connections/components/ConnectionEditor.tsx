@@ -890,7 +890,7 @@ export function ConnectionEditor() {
           )}
           {savedFlash && !dirty && (
             <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
-              <Check size="0.6875rem" /> <span className="max-md:hidden">Saved</span>
+              <Check size="0.6875rem" /> <span>Saved</span>
             </span>
           )}
           {dirty && !saveError && (
@@ -901,10 +901,12 @@ export function ConnectionEditor() {
             disabled={updateConnection.isPending || saveConnectionDefaults.isPending}
             className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
           >
-            <Save size="0.8125rem" /> <span className="max-md:hidden">Save</span>
+            <Save size="0.8125rem" /> <span>Save</span>
           </button>
           <button
             onClick={handleDelete}
+            aria-label="Delete connection"
+            title="Delete connection"
             className="rounded-xl p-2 transition-all hover:bg-[var(--destructive)]/15 active:scale-95"
           >
             <Trash2 size="0.9375rem" className="text-[var(--destructive)]" />
@@ -980,7 +982,9 @@ export function ConnectionEditor() {
             icon={<Globe size="0.875rem" className="text-sky-400" />}
             help="The AI service you want to connect to. Each provider has its own models, pricing, and features. OpenAI and Anthropic are the most popular."
           >
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {/* Columns follow the editor pane's own width, not the window's: beside the chat list and Connections panel the
+                pane is narrow even on a wide screen, and long names wrap instead of being cut off. */}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
               {providerEntries.map(([key, info]) => (
                 <button
                   key={key}
@@ -1005,7 +1009,7 @@ export function ConnectionEditor() {
                     markDirty();
                   }}
                   className={cn(
-                    "truncate rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
+                    "rounded-xl px-3 py-2.5 text-xs leading-tight font-medium break-words transition-all",
                     localProvider === key
                       ? SELECTED_PROVIDER_OPTION_CLASS
                       : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",

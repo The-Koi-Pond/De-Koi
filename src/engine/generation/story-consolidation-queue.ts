@@ -3,6 +3,7 @@ import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type {
   CanonicalMemoryInput,
   CanonicalMemoryRecord,
+  StoryOpenThread,
   StoryProjectionCitation,
   StoryProjectionJob,
   StoryProjectionPayload,
@@ -32,6 +33,12 @@ const LEASE_HEARTBEAT_MS = 10_000;
 const ABANDONED_PROCESSING_MS = 60_000;
 const STORY_SUMMARY_MAX_TOKENS = 1800;
 const STORY_SUMMARY_RETRY_MAX_TOKENS = 8192;
+// Promises and unanswered questions get separate room: questions churn every episode, and in one shared list
+// they pushed out a long-running promise. Promises stay oldest first: the newest are still in the raw window,
+// the old ones are the ones a story forgets.
+const MAX_OPEN_PROMISES = 8;
+const MAX_OPEN_HOOKS = 6;
+const MAX_OPEN_THREAD_CHARS = 300;
 const workerId = `story-consolidation-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
@@ -59,6 +66,7 @@ type StructuredStorySummary = {
   title: string;
   summary: string;
   sections: StoryProjectionSections;
+  openThreads?: StoryOpenThread[];
 };
 
 function storySummaryParameters(maxTokens: number): Record<string, unknown> {
@@ -500,6 +508,58 @@ function citation(
   };
 }
 
+function openThreadList(entries: Array<{ kind?: unknown; text?: unknown }>): StoryOpenThread[] {
+  const seen = new Set<string>();
+  const promises: StoryOpenThread[] = [];
+  const hooks: StoryOpenThread[] = [];
+  for (const entry of entries) {
+    const text = readString(entry.text).trim().slice(0, MAX_OPEN_THREAD_CHARS);
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    if (readString(entry.kind).trim() === "promise") {
+      if (promises.length < MAX_OPEN_PROMISES) promises.push({ kind: "promise", text });
+    } else if (hooks.length < MAX_OPEN_HOOKS) {
+      hooks.push({ kind: "hook", text });
+    }
+  }
+  return [...promises, ...hooks];
+}
+
+function parseOpenThreads(value: unknown): StoryOpenThread[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return openThreadList(
+    value.map((entry) => (typeof entry === "string" ? { kind: "hook", text: entry } : parseRecord(entry))),
+  );
+}
+
+function sectionThreads(sections: StoryProjectionSections): StoryOpenThread[] {
+  return [
+    ...sections.promises.map((entry) => ({ kind: "promise" as const, text: entry.text })),
+    ...sections.unresolvedHooks.map((entry) => ({ kind: "hook" as const, text: entry.text })),
+  ];
+}
+
+// The open threads the previous episode left, so this episode can close what it resolves and keep the rest.
+async function carriedOpenThreads(storage: StorageGateway, job: StoryProjectionJob): Promise<StoryOpenThread[]> {
+  if (job.level !== "episode") return [];
+  // Parsed, not compared as text: stored timestamps mix "Z" and "+00:00" forms.
+  const startsAt = Date.parse(readString(job.sourceMessages[0]?.createdAt));
+  const ownMessageIds = new Set(job.sourceMessageIds);
+  const previous = (await storyMemories(storage, job.ownerChatId))
+    .filter((memory) => memory.status === "active" || memory.status === "pinned")
+    .flatMap((memory) => {
+      const story = storyPayload(memory);
+      if (story?.level !== "episode" || story.messageIds.some((id) => ownMessageIds.has(id))) return [];
+      const endedAt = Date.parse(readString(story.sourceMessages?.at(-1)?.createdAt) || memory.createdAt) || 0;
+      return Number.isFinite(startsAt) && endedAt > startsAt ? [] : [{ story, endedAt }];
+    })
+    .sort((left, right) => right.endedAt - left.endedAt)[0];
+  if (!previous) return [];
+  // Episodes summarized before open threads existed: start from their own promises and unresolved hooks.
+  return openThreadList(previous.story.openThreads ?? sectionThreads(previous.story.sections));
+}
+
 function parseSummary(raw: string, job: StoryProjectionJob): StructuredStorySummary {
   const unfenced = raw
     .trim()
@@ -529,10 +589,11 @@ function parseSummary(raw: string, job: StoryProjectionJob): StructuredStorySumm
   if (Object.values(sections).every((entries) => entries.length === 0)) {
     throw new Error("Story summarizer returned no source-backed details");
   }
-  return { title, summary, sections };
+  const openThreads = job.level === "episode" ? parseOpenThreads(record.openThreads) : undefined;
+  return { title, summary, sections, ...(openThreads ? { openThreads } : {}) };
 }
 
-function summarizerPrompt(job: StoryProjectionJob): string {
+function summarizerPrompt(job: StoryProjectionJob, carried: StoryOpenThread[]): string {
   const sources =
     job.level === "episode"
       ? job.sourceMessages.map((message) => `[${message.id}] ${message.role}: ${message.content}`).join("\n\n")
@@ -547,6 +608,16 @@ function summarizerPrompt(job: StoryProjectionJob): string {
     `Every section item must be {"text": string, "${citationField}": string[]} and cite only IDs shown below.`,
     "Capture concrete events and current state without inventing facts. Narrative projections are not authoritative over atomic memories.",
     "Keep summary readable, third-person, and under 260 words.",
+    ...(job.level === "episode"
+      ? [
+          'Also return openThreads: what is still open at the end of these messages, as [{"text": string, "kind": "promise" | "hook"}].',
+          'A "promise" is a commitment someone made: to do something later, a deal, a debt, an offer. A "hook" is an unanswered question or unresolved situation.',
+          "Start from the open threads carried over from earlier in the story. Keep every carried promise, in its carried order and wording, unless these messages show it kept, broken, or released, or its time or place has passed (a promise for tonight, or before a place already reached). Then add new promises after them, oldest first. Keep hooks that are still unresolved and drop the ones these messages answer, then add new hooks. Leave out anything trivial.",
+          `At most ${MAX_OPEN_PROMISES} promises and ${MAX_OPEN_HOOKS} hooks.`,
+          carried.length > 0 ? "Open threads carried over:" : "Open threads carried over: none.",
+          ...carried.map((thread) => `- [${thread.kind}] ${thread.text}`),
+        ]
+      : []),
     "",
     sources,
   ].join("\n");
@@ -693,6 +764,7 @@ async function projectionInput(
     boundaryReason: job.boundaryReason ?? null,
     sourceEpisodeIds: job.sourceEpisodeIds,
     sections: summary.sections,
+    ...(summary.openThreads ? { openThreads: summary.openThreads } : {}),
     summarizer: {
       version: STORY_SUMMARIZER_VERSION,
       connectionId: job.connectionId ?? null,
@@ -815,19 +887,25 @@ export async function processStoryConsolidationQueue(
               model: readString(routed.model).trim() || null,
             }
           : job;
-        const structured = parseSummary(
+        const carried = await carriedOpenThreads(storage, job);
+        const parsed = parseSummary(
           await withStoryLeaseHeartbeat(storage, leaseId, () =>
             completeStorySummary(llm, {
               connectionId: summaryJob.connectionId ?? null,
               model: summaryJob.model ?? null,
               messages: [
                 { role: "system", content: "You produce auditable long-form story continuity as strict JSON." },
-                { role: "user", content: summarizerPrompt(job) },
+                { role: "user", content: summarizerPrompt(job, carried) },
               ],
             }),
           ),
           job,
         );
+        // A summarizer that leaves openThreads out still carries the old list forward, plus this episode's own.
+        const structured: StructuredStorySummary =
+          job.level === "episode" && !parsed.openThreads
+            ? { ...parsed, openThreads: openThreadList([...carried, ...sectionThreads(parsed.sections)]) }
+            : parsed;
         const input = await projectionInput(summaryJob, structured, now);
         const currentMemories = await storyMemories(storage, job.ownerChatId);
         assertProjectionOverlapAllowed(job, input, currentMemories);

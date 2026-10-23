@@ -37,7 +37,7 @@ import { Modal } from "../../../../shared/components/ui/Modal";
 import { LocalSidecarCard } from "./LocalSidecarCard";
 import { HelperModelsCard } from "./HelperModelsCard";
 import { useConnectionFolderReorder } from "./connection-folder-reorder";
-import { SetupJourneyContextBanner } from "../../onboarding/shell";
+import { hasUsableLanguageConnection, SetupJourneyContextBanner } from "../../onboarding/shell";
 import {
   Plus,
   Trash2,
@@ -764,7 +764,12 @@ export function ConnectionsPanel() {
         <SetupJourneyContextBanner
           owner="connection"
           mode={setupIntent.mode}
-          onReturn={() => useUIStore.getState().closeRightPanel()}
+          ready={hasUsableLanguageConnection(connections)}
+          onReturn={() => {
+            const ui = useUIStore.getState();
+            ui.closeConnectionDetail();
+            ui.closeRightPanel();
+          }}
         />
       )}
       <input
