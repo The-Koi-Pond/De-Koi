@@ -1,5 +1,6 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import type { VoiceMicState } from "../../../../engine/shared/voice-session/voice-session";
 import { cn } from "../../../../shared/lib/utils";
 import { holdNotificationPingsQuiet } from "../../../../shared/lib/notification-sound";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -12,6 +13,7 @@ const PHASE_TEXT: Record<VoiceCallPhase, string> = {
   transcribing: "Catching that…",
   thinking: "Thinking…",
   speaking: "Talking",
+  interrupted: "Paused for you",
   ended: "Call ended",
   error: "Call dropped",
 };
@@ -19,14 +21,55 @@ const PHASE_TEXT: Record<VoiceCallPhase, string> = {
 export interface VoiceCallOverlayProps {
   chatId: string;
   character: VoiceCallCharacter & { avatarUrl?: string | null };
-  sendText: (text: string) => Promise<unknown>;
+  sendText: (text: string) => Promise<boolean>;
   onClose: () => void;
+}
+
+const MIC_TEXT: Record<VoiceMicState, string> = {
+  off: "Mic off",
+  opening: "Turning the mic on…",
+  listening: "Mic on · listening",
+  sending: "Mic on · sending",
+};
+
+/** Always on screen: whether the microphone is open, and when your voice is on its way to someone. */
+function MicIndicator({ mic, destination }: { mic: VoiceMicState; destination: string }) {
+  const on = mic === "listening" || mic === "sending";
+  const text = mic === "sending" && destination ? `Mic on · sending to ${destination}` : MIC_TEXT[mic];
+  return (
+    <p
+      role="status"
+      data-testid="voice-call-mic"
+      data-mic={mic}
+      title={
+        destination
+          ? `Your speech goes to ${destination} to be turned into text. De-Koi doesn't keep the audio.`
+          : undefined
+      }
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
+        on ? "bg-red-600/15 text-red-700 dark:text-red-300" : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
+      )}
+    >
+      {on ? (
+        <span aria-hidden className={cn("h-2 w-2 rounded-full bg-red-600", mic === "sending" && "animate-pulse")} />
+      ) : (
+        <MicOff aria-hidden size="0.8rem" />
+      )}
+      {text}
+    </p>
+  );
 }
 
 /** Full-screen voice call with one Conversation character. Every turn is also saved in the chat as texts. */
 export function VoiceCallOverlay({ chatId, character, sendText, onClose }: VoiceCallOverlayProps) {
   const call = useVoiceCall({ chatId, character, sendText });
   const { hangUp, phase } = call;
+  const endCall = useCallback(() => {
+    hangUp();
+    onClose();
+  }, [hangUp, onClose]);
+  const canInterrupt = !call.stopping && (phase === "thinking" || phase === "speaking" || phase === "interrupted");
   // While the character is "thinking", the reply is waiting on the model: show how long once it drags.
   const stepStartedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
   const wait = useReplyWait(phase === "thinking" ? stepStartedAt : null);
@@ -45,21 +88,18 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
   useEffect(() => holdNotificationPingsQuiet(), []);
 
   useEffect(() => {
-    if (phase === "ended") onClose();
-  }, [onClose, phase]);
-
-  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        hangUp();
+        endCall();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hangUp]);
+  }, [endCall]);
 
-  const ring = phase === "listening" ? 1 + call.level * 0.35 : phase === "speaking" ? 1.12 : 1;
+  const ring =
+    phase === "listening" || phase === "interrupted" ? 1 + call.level * 0.35 : phase === "speaking" ? 1.12 : 1;
   return (
     <div
       role="dialog"
@@ -70,8 +110,9 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
       <div className="flex flex-col items-center gap-2 pt-6 text-center">
         <p className="text-xs uppercase tracking-widest text-[var(--muted-foreground)]">Voice call</p>
         <h2 className="text-2xl font-semibold text-[var(--foreground)]">{character.name}</h2>
+        <MicIndicator mic={call.mic} destination={call.destination} />
         <p aria-live="polite" className="text-sm text-[var(--muted-foreground)]">
-          {PHASE_TEXT[phase]}
+          {call.stopping ? `Stopping ${character.name}…` : PHASE_TEXT[phase]}
           {call.muted && phase === "listening" ? " (muted)" : ""}
           {wait.elapsed ? (
             <span className="tabular-nums" aria-hidden="true">
@@ -81,7 +122,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
           ) : null}
         </p>
         {wait.slow && (
-          <p className="text-xs text-[var(--muted-foreground)]">Still waiting on the model. Hang up to cancel.</p>
+          <p className="text-xs text-[var(--muted-foreground)]">Still waiting on the model. Interrupt to cancel.</p>
         )}
       </div>
 
@@ -130,6 +171,17 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
                 {call.said}
               </p>
             )}
+            {call.bargeIn === "button" && (phase === "thinking" || phase === "speaking") && (
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Tap Interrupt to cut in: this voice input can't listen while {character.name} talks.
+              </p>
+            )}
+            {call.bargeIn === "speakers" && (
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Your mic kept hearing {character.name}'s voice, so talking over them is off for this call. Tap Interrupt
+                to cut in, or use headphones.
+              </p>
+            )}
             {!call.voiceReplies && (
               <p className="text-xs text-[var(--muted-foreground)]">
                 Replies show as text: turn on Text to Speech in Connections to hear them.
@@ -142,7 +194,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
       <div className="flex items-center gap-6 pb-4">
         <button
           type="button"
-          onClick={() => call.setMuted((value) => !value)}
+          onClick={call.toggleMute}
           aria-pressed={call.muted}
           aria-label={call.muted ? "Unmute" : "Mute"}
           className={cn(
@@ -156,7 +208,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         </button>
         <button
           type="button"
-          onClick={hangUp}
+          onClick={endCall}
           aria-label="Hang up"
           className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg transition-transform active:scale-95"
         >
@@ -165,7 +217,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         <button
           type="button"
           onClick={call.interrupt}
-          disabled={phase !== "speaking"}
+          disabled={!canInterrupt}
           aria-label="Interrupt"
           className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--secondary)] text-[var(--foreground)] transition-opacity disabled:opacity-30"
         >

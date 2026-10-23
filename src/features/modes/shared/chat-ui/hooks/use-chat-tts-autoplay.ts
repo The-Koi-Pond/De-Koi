@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useTTSConfig } from "../../../../../shared/hooks/use-tts";
+import { chatAutoplayHeld, subscribeChatAutoplayHolds } from "../../../../../shared/lib/chat-autoplay-hold";
 import {
   buildTTSVoiceRequests,
   clientSidePlaybackRate,
@@ -43,7 +44,12 @@ export function useChatTtsAutoplay({ chatId, mode, messages, characterMap, isStr
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const prevIsStreamingRef = useRef(false);
+  // A voice call in this chat speaks the replies itself.
+  const heldByCall = useSyncExternalStore(subscribeChatAutoplayHolds, () => chatAutoplayHeld(chatId));
+  const heldByCallRef = useRef(heldByCall);
+  heldByCallRef.current = heldByCall;
   const streamingTTSEnabled = Boolean(
+    !heldByCall &&
     ttsConfig?.enabled &&
     ttsConfig.autoplayStreaming &&
     (mode === "roleplay" ? ttsConfig.autoplayRP : ttsConfig.autoplayConvo),
@@ -92,7 +98,7 @@ export function useChatTtsAutoplay({ chatId, mode, messages, characterMap, isStr
     if (!wasStreaming || isStreaming) return;
 
     const config = ttsConfigRef.current;
-    if (!config?.enabled) return;
+    if (!config?.enabled || heldByCallRef.current) return;
 
     const currentMode = modeRef.current;
     const shouldAutoplay = currentMode === "roleplay" ? config.autoplayRP : config.autoplayConvo;

@@ -88,6 +88,37 @@ export interface UtteranceOptions {
   onLevel?: (level: number) => void;
   /** Fires when speech starts (the call screen uses it to interrupt the character). */
   onSpeechStart?: () => void;
+  /**
+   * Checked on every frame until speech starts. While it returns true (the character's voice is playing), speech
+   * has to be louder and last longer to count, so the speakers don't start an utterance.
+   */
+  guarded?: () => boolean;
+}
+
+/** While guarded, speech has to be this many times louder than `speechLevel`... */
+const GUARDED_LEVEL_FACTOR = 2;
+/**
+ * ...in this many of the last `GUARDED_WINDOW_FRAMES` frames (50 ms each). Not in a row: real speech dips between
+ * words, and "8 in a row" took 2.5 s to notice someone talking.
+ */
+const GUARDED_LOUD_FRAMES = 4;
+const GUARDED_WINDOW_FRAMES = 6;
+/** Unguarded, speech starts after this many loud frames in a row. */
+const LOUD_FRAMES = 4;
+
+/**
+ * Fed one level per 50 ms frame; returns true on the frame where speech counts as started. Guarded frames (the
+ * reply's voice is playing) need louder speech in most of a short window; others need a few loud frames in a row.
+ */
+export function createSpeechStartDetector(speechLevel: number): (level: number, guarded: boolean) => boolean {
+  let loudInARow = 0;
+  const recentGuardedLoud: boolean[] = [];
+  return (level, guarded) => {
+    loudInARow = level >= speechLevel ? loudInARow + 1 : 0;
+    recentGuardedLoud.push(level >= speechLevel * GUARDED_LEVEL_FACTOR);
+    if (recentGuardedLoud.length > GUARDED_WINDOW_FRAMES) recentGuardedLoud.shift();
+    return guarded ? recentGuardedLoud.filter(Boolean).length >= GUARDED_LOUD_FRAMES : loudInARow >= LOUD_FRAMES;
+  };
 }
 
 /**
@@ -114,7 +145,7 @@ export function recordUtterance(
     const startedAt = performance.now();
     let speechStartedAt: number | null = null;
     let lastSpeechAt = 0;
-    let loudFrames = 0;
+    const speechStarts = createSpeechStartDetector(speechLevel);
     let settled = false;
 
     const finish = async (result: "speech" | "silence" | "abort") => {
@@ -139,16 +170,12 @@ export function recordUtterance(
       const level = Math.sqrt(sum / samples.length);
       options.onLevel?.(Math.min(1, level * 8));
       const now = performance.now();
-      if (level >= speechLevel) {
-        loudFrames += 1;
-        lastSpeechAt = now;
-        // A few loud frames in a row, so a click or a cough doesn't start an utterance.
-        if (speechStartedAt === null && loudFrames >= 4) {
-          speechStartedAt = now;
-          options.onSpeechStart?.();
-        }
-      } else {
-        loudFrames = 0;
+      if (level >= speechLevel) lastSpeechAt = now;
+      // A few loud frames, so a click or a cough doesn't start an utterance.
+      const started = speechStarts(level, speechStartedAt === null && options.guarded?.() === true);
+      if (speechStartedAt === null && started) {
+        speechStartedAt = now;
+        options.onSpeechStart?.();
       }
       if (speechStartedAt !== null && (now - lastSpeechAt > endSilenceMs || now - speechStartedAt > maxUtteranceMs)) {
         void finish("speech");

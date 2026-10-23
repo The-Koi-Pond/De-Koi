@@ -68,6 +68,8 @@ class TTSService {
   /** ID of the entity (e.g. message id) currently being spoken */
   private activeId: string | null = null;
   private listeners = new Set<StateListener>();
+  /** Set by `pause()` between parts (nothing playing yet): the next part waits here until `resume()`. */
+  private holdWaiters: Array<() => void> | null = null;
 
   // ── Listeners ─────────────────────────────────
 
@@ -149,6 +151,10 @@ class TTSService {
     }
 
     if (!this.isCurrentSequence(sequence)) return;
+    if (this.holdWaiters) {
+      await this.whileHeld(abortController.signal);
+      if (!this.isCurrentSequence(sequence)) return;
+    }
     if (this.abortController === abortController) {
       this.abortController = null;
     }
@@ -279,6 +285,8 @@ class TTSService {
           void blobAt(ahead);
         }
         if (!this.isCurrentSequence(sequence)) return;
+        if (this.holdWaiters) await this.whileHeld(abortController.signal);
+        if (!this.isCurrentSequence(sequence)) return;
         if (abortController.signal.aborted) {
           this.setState("idle");
           return;
@@ -375,6 +383,7 @@ class TTSService {
     this.sequence += 1;
     this.abortController?.abort();
     this.abortController = null;
+    this.releaseHold();
 
     if (this.audio) {
       this.audio.pause();
@@ -388,15 +397,29 @@ class TTSService {
     this.setState("idle");
   }
 
-  /** Pause the current generated audio without clearing it. */
+  /**
+   * Pause the current generated audio without clearing it. Between parts (the next one still downloading, or the
+   * silence before it), the next part is held back instead until `resume()`.
+   */
   pause(): void {
-    if (this.state !== "playing" || !this.audio) return;
-    this.audio.pause();
-    this.setState("paused");
+    if (this.state === "playing" && this.audio) {
+      this.audio.pause();
+      this.setState("paused");
+      return;
+    }
+    if (this.abortController && !this.audio && !this.holdWaiters) {
+      this.holdWaiters = [];
+      this.setState("paused");
+    }
   }
 
   /** Resume paused generated audio. */
   resume(): void {
+    if (this.holdWaiters) {
+      this.releaseHold();
+      this.setState("loading");
+      return;
+    }
     if (this.state !== "paused" || !this.audio) return;
     const audio = this.audio;
     this.setState("playing");
@@ -422,6 +445,21 @@ class TTSService {
       this.lastError = error.message;
       this.setState("error");
     });
+  }
+
+  private whileHeld(signal: AbortSignal): Promise<void> {
+    const waiters = this.holdWaiters;
+    if (!waiters || signal.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      waiters.push(resolve);
+      signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+  }
+
+  private releaseHold(): void {
+    const waiters = this.holdWaiters;
+    this.holdWaiters = null;
+    for (const resolve of waiters ?? []) resolve();
   }
 
   private cleanup(): void {

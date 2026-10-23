@@ -10,8 +10,13 @@ vi.mock("../hooks/use-voice-call", () => ({
     said: "Lumpy, as always.",
     error: null,
     muted: false,
-    setMuted: vi.fn(),
+    toggleMute: vi.fn(),
     voiceReplies: true,
+    mic: "listening",
+    destination: "ElevenLabs",
+    bargeIn: "voice",
+    stopping: false,
+    sessionId: 1,
     hangUp: vi.fn(),
     interrupt: vi.fn(),
   }),
@@ -59,7 +64,7 @@ describe("VoiceCallOverlay notification sounds", () => {
         <VoiceCallOverlay
           chatId="chat-1"
           character={{ id: "character-1", name: "Gravy Freddy" } as never}
-          sendText={async () => undefined}
+          sendText={async () => true}
           onClose={() => {}}
         />,
       );

@@ -49,6 +49,11 @@ export interface StreamingSpeakerDeps<Request> {
   /** Plays requests in order; resolves when they finish or are stopped. */
   play: (requests: Request[]) => Promise<void>;
   signal: AbortSignal;
+  /**
+   * How many pieces after the one playing get their audio fetched ahead of time (default: all of them). Pieces past
+   * that wait their turn, so a reply that is cut off doesn't leave a pile of audio requests running.
+   */
+  prefetchAhead?: number;
 }
 
 export class StreamingSpeaker<Request> {
@@ -57,6 +62,12 @@ export class StreamingSpeaker<Request> {
   private pieces = 0;
   private playing: Promise<void> = Promise.resolve();
   private failure: unknown = null;
+  /** Pieces with something to say, in order. */
+  private queue: Request[][] = [];
+  private playingIndex = -1;
+  private prefetchedThrough = -1;
+  private paused = false;
+  private resumeWaiters: Array<() => void> = [];
 
   constructor(private readonly deps: StreamingSpeakerDeps<Request>) {}
 
@@ -75,6 +86,18 @@ export class StreamingSpeaker<Request> {
     if (end <= this.consumed) return;
     this.say(text.slice(this.consumed, end));
     this.consumed = end;
+  }
+
+  /** Holds the next piece back until `resume()` (the piece already playing is paused by whoever plays it). */
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+    const waiters = this.resumeWaiters;
+    this.resumeWaiters = [];
+    for (const resolve of waiters) resolve();
   }
 
   /** Speak what is left once the reply is saved, then wait until everything queued has been said. */
@@ -104,14 +127,40 @@ export class StreamingSpeaker<Request> {
     const requests = this.deps.toRequests(text, this.pieces);
     this.pieces += 1;
     if (!requests.length) return;
-    for (const request of requests) this.deps.prefetch(request);
+    const index = this.queue.push(requests) - 1;
+    this.prefetchUpcoming();
     this.playing = this.playing.then(async () => {
       if (this.deps.signal.aborted || this.failure) return;
+      if (this.paused) {
+        await this.whilePaused();
+        if (this.deps.signal.aborted || this.failure) return;
+      }
+      this.playingIndex = index;
+      this.prefetchUpcoming();
       try {
         await this.deps.play(requests);
       } catch (error) {
         this.failure = error;
       }
+    });
+  }
+
+  private prefetchUpcoming(): void {
+    if (this.deps.signal.aborted) return;
+    const ahead = this.deps.prefetchAhead;
+    const last =
+      ahead === undefined ? this.queue.length - 1 : Math.min(this.queue.length - 1, this.playingIndex + ahead);
+    while (this.prefetchedThrough < last) {
+      this.prefetchedThrough += 1;
+      for (const request of this.queue[this.prefetchedThrough]!) this.deps.prefetch(request);
+    }
+  }
+
+  private whilePaused(): Promise<void> {
+    if (this.deps.signal.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.resumeWaiters.push(resolve);
+      this.deps.signal.addEventListener("abort", () => resolve(), { once: true });
     });
   }
 }
