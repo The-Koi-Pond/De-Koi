@@ -979,7 +979,7 @@
     "id": "helper-models",
     "title": "Helper Models",
     "category": "Advanced",
-    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, and character reads (how a thin Roleplay card acts). Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.",
+    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, character reads (how a thin Roleplay card acts), fanfic planning (research, outline, voice sheets, outline updates) and fanfic checks (story ledger, continuity and voice checks, editor pass); fanfic chapters stay on the fic's connection. Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now and where it last ran and why (also shown in the fanfic panels), and a helper set to a missing connection stops with a clear message instead of quietly using another.",
     "keywords": [
       "helper models",
       "model routing",
@@ -995,7 +995,10 @@
       "status blurbs",
       "schedules",
       "local only",
-      "privacy"
+      "privacy",
+      "fanfic planning",
+      "fanfic checks",
+      "last run"
     ],
     "audience": "Users who want a strong model for replies and a cheaper or local one for background helpers.",
     "where": "Title bar > Connections > Helper Models.",

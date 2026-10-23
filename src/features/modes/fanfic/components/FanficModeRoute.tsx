@@ -10,6 +10,7 @@ import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { HelperRunNote } from "../../../catalog/connections/index";
 import {
   useFanficChat,
   useFanficGenerationState,
@@ -32,6 +33,8 @@ export interface FanficModeRouteProps {
   activeChatId: string;
 }
 
+const PLANNING_NOTE = "mt-1 text-xs leading-snug text-[var(--muted-foreground)]";
+
 function errorText(error: unknown, fallback = "That didn't work. Try again."): string | null {
   if (!error) return null;
   if (error instanceof DOMException && error.name === "AbortError") return null;
@@ -46,11 +49,12 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const outline = useFanficOutline(activeChatId);
   const connectionId = chat?.connectionId ?? null;
   const write = useFanficWriter(activeChatId, connectionId);
-  const ledger = useFanficLedger(activeChatId, connectionId);
+  // Helpers pick their own connection (Helper Models route, else the fic's); only the writer takes the fic's here.
+  const ledger = useFanficLedger(activeChatId);
   const { update: updateLedger } = ledger;
-  const voices = useFanficVoices(activeChatId, connectionId);
-  const editor = useFanficEditor(activeChatId, connectionId);
-  const plan = useFanficPlan(activeChatId, connectionId);
+  const voices = useFanficVoices(activeChatId);
+  const editor = useFanficEditor(activeChatId);
+  const plan = useFanficPlan(activeChatId);
   const { propose: proposePlan } = plan;
   const phraseBans = useFanficPhraseBans(activeChatId, connectionId);
   const { remove: removeBannedPhrases, supported: bansSupported } = phraseBans;
@@ -89,23 +93,20 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   useEffect(() => {
     chapterCount.current = chapters.length;
   }, [chapters.length]);
-  const startOutline = useCallback(
-    (nextConnectionId: string | null) => {
-      outlineAbort.current?.abort();
-      const controller = new AbortController();
-      outlineAbort.current = controller;
-      outline.mutate(
-        { connectionId: nextConnectionId, signal: controller.signal },
-        {
-          // With outline review skipped the plan arrives approved: go straight to chapter 1.
-          onSuccess: (planned) => {
-            if (planned.outlineApproved && chapterCount.current === 0) runWrite({ kind: "chapter" });
-          },
+  const startOutline = useCallback(() => {
+    outlineAbort.current?.abort();
+    const controller = new AbortController();
+    outlineAbort.current = controller;
+    outline.mutate(
+      { signal: controller.signal },
+      {
+        // With outline review skipped the plan arrives approved: go straight to chapter 1.
+        onSuccess: (planned) => {
+          if (planned.outlineApproved && chapterCount.current === 0) runWrite({ kind: "chapter" });
         },
-      );
-    },
-    [outline, runWrite],
-  );
+      },
+    );
+  }, [outline, runWrite]);
 
   // The only place planning starts: a saved request with no outline yet (fresh submit, or a reload
   // mid-plan) plans once per submit. It waits for the request save, so the planner reads the new request.
@@ -117,18 +118,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     const key = `${activeChatId}:${planToken}`;
     if (planningStartedFor.current === key) return;
     planningStartedFor.current = key;
-    startOutline(connectionId);
-  }, [
-    activeChatId,
-    connectionId,
-    editingRequest,
-    outline.isError,
-    outline.isPending,
-    planToken,
-    savingRequest,
-    stage,
-    startOutline,
-  ]);
+    startOutline();
+  }, [activeChatId, editingRequest, outline.isError, outline.isPending, planToken, savingRequest, stage, startOutline]);
 
   useEffect(() => () => outlineAbort.current?.abort(), []);
 
@@ -202,7 +193,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
 
   const replan = () => {
     outline.reset();
-    startOutline(connectionId);
+    startOutline();
   };
 
   if (error && !chat) {
@@ -265,7 +256,21 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
               canBuild={fanficVoiceCharacters(state.request).length > 0}
               busy={updateMetadata.isPending}
               onSave={saveVoices}
+              helperNote={
+                <HelperRunNote
+                  task="fanficPlanning"
+                  job="voice sheets"
+                  chatId={activeChatId}
+                  className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+                />
+              }
             />
+          }
+          helperNote={
+            <>
+              <HelperRunNote task="fanficPlanning" job="research" chatId={activeChatId} className={PLANNING_NOTE} />
+              <HelperRunNote task="fanficPlanning" job="outline" chatId={activeChatId} className={PLANNING_NOTE} />
+            </>
           }
           saving={updateMetadata.isPending}
           onApprove={(approved, notes) => void approveOutline(approved, notes)}

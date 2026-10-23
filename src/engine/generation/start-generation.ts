@@ -132,7 +132,7 @@ import {
 } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import { scheduleHabitScan, type HabitScanMode } from "./habit-scan";
-import { resolveStoredModelRoute } from "./model-routing";
+import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -2122,8 +2122,21 @@ async function smartRoleplayGroupTarget(args: {
 }
 
 /** The reply's connection is not a pick for the "who answers" helper, so a group responder route wins. */
-async function groupResponderConnection(deps: GenerationEngineDeps, replyConnection: JsonRecord): Promise<JsonRecord> {
-  return (await resolveStoredModelRoute(deps.storage, "responder")) ?? replyConnection;
+async function groupResponderConnection(
+  deps: GenerationEngineDeps,
+  replyConnection: JsonRecord,
+  chatId: string,
+): Promise<JsonRecord> {
+  const routed = await resolveHelperRoute(deps.storage, "responder", { chatId });
+  const connection = routed ?? replyConnection;
+  await noteHelperRun(deps.storage, {
+    task: "responder",
+    rule: routed ? "route" : "chat",
+    connectionId: readString(connection.id).trim(),
+    connection,
+    chatId,
+  });
+  return connection;
 }
 
 async function smartRoleplayGroupTargets(args: {
@@ -2168,7 +2181,7 @@ async function smartRoleplayGroupTargets(args: {
     )
     .join("\n");
   // Outside the try: a broken route stops the turn instead of quietly falling back to turn order.
-  const connection = await groupResponderConnection(args.deps, args.connection);
+  const connection = await groupResponderConnection(args.deps, args.connection, args.input.chatId);
   let raw = "";
   try {
     raw = await args.deps.llm.complete(
@@ -2362,7 +2375,7 @@ async function* runIndividualGroupTurnLoop(args: {
   // Resolved before the first reply, so a broken route stops the turn before anything is written.
   const responderConnection =
     args.revalidateLaterResponders && args.turnIds.length > 1
-      ? await groupResponderConnection(args.deps, args.connection)
+      ? await groupResponderConnection(args.deps, args.connection, args.input.chatId)
       : args.connection;
   for (let index = 0; index < args.turnIds.length; index += 1) {
     throwIfAborted(args.signal);

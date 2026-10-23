@@ -1,4 +1,5 @@
 import type { StorageGateway } from "../capabilities/storage";
+import type { HelperRunRule } from "./helper-runs";
 import { boolish, readString, type JsonRecord } from "./runtime-records";
 
 function isEnabledTextConnection(connection: JsonRecord): boolean {
@@ -28,6 +29,15 @@ export function selectBackgroundTextConnection(
     available[0] ??
     null
   );
+}
+
+/** Which step of {@link selectBackgroundTextConnection} picked `connection`, for helper run notes. */
+export function backgroundConnectionRule(connection: JsonRecord, fallbackConnectionId?: string | null): HelperRunRule {
+  if (boolish(connection.defaultForAgents, false)) return "agentDefault";
+  const id = readString(connection.id).trim();
+  if (id && id === readString(fallbackConnectionId).trim()) return "chat";
+  if (boolish(connection.isDefault, false) || boolish(connection.default, false)) return "appDefault";
+  return "first";
 }
 
 export async function resolveBackgroundTextConnection(

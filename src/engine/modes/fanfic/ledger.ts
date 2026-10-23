@@ -16,7 +16,10 @@ import {
   FanficWindowTooSmallError,
   parseFanficJsonReply,
   type FanficCallBudget,
-  loadFanficConnection,
+  isFanficNoConnectionError,
+  noteFanficHelperRun,
+  pickFanficHelperConnection,
+  type FanficHelperPick,
 } from "./llm-json";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { readFanficState } from "./request";
@@ -379,15 +382,26 @@ export async function updateFanficLedger(
       continue;
     }
 
-    const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-    if (!connectionId || connectionId === "random") {
-      if (input.onlyIfInUse) return ledger;
-      throw userFacingError("Pick a connection for the story ledger.");
+    const pickInput = {
+      chatId: input.chatId,
+      connectionId: input.connectionId,
+      job: "story ledger",
+      missing: "Pick a connection for the story ledger.",
+      gone: "That story ledger connection no longer exists. Pick another one for the ledger.",
+      note: false,
+    };
+    let pick: FanficHelperPick;
+    try {
+      pick = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
+    } catch (error) {
+      // The quiet update after a chapter skips a fic with no connection; a broken route still says why.
+      if (input.onlyIfInUse && isFanficNoConnectionError(error)) return ledger;
+      throw error;
     }
-    const connection = await loadFanficConnection(deps.storage, connectionId);
-    if (!isRecord(connection))
-      throw userFacingError("That story ledger connection no longer exists. Pick another one for the ledger.");
+    const { connectionId, connection } = pick;
+    if (!connection) throw userFacingError(pickInput.missing);
     if (input.onlyIfInUse && !fanficLedgerInUse(saved, chapters, connection)) return ledger;
+    await noteFanficHelperRun(deps.storage, "fanficChecks", pickInput, pick);
 
     const toRead = chapters.slice(status.fresh.length);
     const window = effectiveMaxContext(connection, {});

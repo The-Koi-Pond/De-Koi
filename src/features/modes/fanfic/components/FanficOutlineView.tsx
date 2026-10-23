@@ -129,6 +129,7 @@ export function FanficOutlineReview({
   outline,
   research,
   voicesPanel,
+  helperNote,
   saving,
   onApprove,
   onReplan,
@@ -138,6 +139,8 @@ export function FanficOutlineReview({
   research: FanficResearch | null;
   /** The fic's voice sheets, editable here before chapter 1. */
   voicesPanel?: ReactNode;
+  /** Where this helper last ran for this fic, and why (Helper Models). */
+  helperNote?: ReactNode;
   saving: boolean;
   onApprove: (outline: FanficOutline, researchNotes: string | null) => void;
   onReplan: () => void;
@@ -161,6 +164,7 @@ export function FanficOutlineReview({
         <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
           Change anything you like. Chapters follow these beats, so this is the place to steer.
         </p>
+        {helperNote}
       </header>
 
       <FanficSection title="Title & summary">

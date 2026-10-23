@@ -20,9 +20,9 @@ import {
   isModelRouteError,
   readModelRoutingSettings,
   resolveModelRoute,
-  resolveStoredModelRoute,
   type ModelRoutingSettings,
 } from "../../generation/model-routing";
+import { noteHelperRun, resolveHelperRoute, type HelperRunRule } from "../../generation/helper-runs";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { detectFanficAiIsms } from "./ai-isms";
 import {
@@ -780,28 +780,34 @@ export function chooseFanficJudge(input: {
   judgeIds: readonly string[];
   routing: ModelRoutingSettings;
   connections: readonly JsonRecord[];
-}): { judgeId: string | null; routeProblem: string | null } {
+}): { judgeId: string | null; routeProblem: string | null; rule: FanficJudgeRule | null } {
   const listed = (id: string | null): id is string => !!id && input.judgeIds.includes(id);
   try {
     if (listed(input.lastJudgeId)) {
       const lastJudge = input.connections.find((connection) => readString(connection.id).trim() === input.lastJudgeId);
       assertLocalOnlyConnection("judge", input.routing, input.lastJudgeId, lastJudge);
-      return { judgeId: input.lastJudgeId, routeProblem: null };
+      return { judgeId: input.lastJudgeId, routeProblem: null, rule: "lastJudge" };
     }
     const routed = resolveModelRoute("judge", input.routing, input.connections);
-    if (routed) return { judgeId: readString(routed.id).trim(), routeProblem: null };
+    if (routed) return { judgeId: readString(routed.id).trim(), routeProblem: null, rule: "route" };
   } catch (error) {
-    if (isModelRouteError(error)) return { judgeId: null, routeProblem: error.message };
+    if (isModelRouteError(error)) return { judgeId: null, routeProblem: error.message, rule: null };
     throw error;
   }
-  if (listed(input.ficConnectionId)) return { judgeId: input.ficConnectionId, routeProblem: null };
-  return { judgeId: input.judgeIds[0] ?? null, routeProblem: null };
+  if (listed(input.ficConnectionId)) return { judgeId: input.ficConnectionId, routeProblem: null, rule: "chat" };
+  const first = input.judgeIds[0] ?? null;
+  return { judgeId: first, routeProblem: null, rule: first ? "first" : null };
 }
+
+/** Why the quality panel's judge is the one it is; "picked" once the requester changes it. */
+export type FanficJudgeRule = Extract<HelperRunRule, "lastJudge" | "route" | "chat" | "first" | "picked">;
 
 export interface RunFanficQualityInput {
   chatId: string;
   /** The judge; defaults to the fanfic judge helper route, then the fic's own connection. */
   connectionId?: string | null;
+  /** Why `connectionId` is the judge (see chooseFanficJudge); a judge passed without one counts as picked by hand. */
+  rule?: FanficJudgeRule | null;
   label?: string;
 }
 
@@ -821,17 +827,25 @@ export async function runFanficQualityCheck(
   if (readString(chat.mode) !== "fanfic") throw new Error("Quality checks only run for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
-  const routedJudge = readString(input.connectionId).trim()
-    ? null
-    : await resolveStoredModelRoute(deps.storage, "judge");
-  const connectionId =
-    readString(input.connectionId).trim() || readString(routedJudge?.id).trim() || readString(chat.connectionId).trim();
+  const picked = readString(input.connectionId).trim();
+  const note = { task: "judge" as const, chatId: input.chatId };
+  const routedJudge = picked ? null : await resolveHelperRoute(deps.storage, "judge", note);
+  const connectionId = picked || readString(routedJudge?.id).trim() || readString(chat.connectionId).trim();
+  const rule: FanficJudgeRule = picked ? (input.rule ?? "picked") : routedJudge ? "route" : "chat";
   if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection to judge with.");
   const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection))
     throw userFacingError("That judge connection no longer exists. Pick another one to judge with.");
-  // A judge picked by hand outranks the route, but a local-only judge still stays local.
-  assertLocalOnlyConnection("judge", await readModelRoutingSettings(deps.storage), connectionId, connection);
+  try {
+    // A judge picked by hand outranks the route, but a local-only judge still stays local.
+    assertLocalOnlyConnection("judge", await readModelRoutingSettings(deps.storage), connectionId, connection);
+  } catch (error) {
+    if (isModelRouteError(error)) {
+      await noteHelperRun(deps.storage, { ...note, rule, connectionId, connection, problem: error.message });
+    }
+    throw error;
+  }
+  await noteHelperRun(deps.storage, { ...note, rule, connectionId, connection });
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord)).map((chapter) => chapter.content);

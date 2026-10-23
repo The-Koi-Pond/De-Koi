@@ -610,7 +610,7 @@ describe("chooseFanficJudge", () => {
         routing: routing({ judge: "conn-2" }),
         connections,
       }),
-    ).toEqual({ judgeId: "conn-1", routeProblem: null });
+    ).toEqual({ judgeId: "conn-1", routeProblem: null, rule: "lastJudge" });
   });
 
   it("starts a fic without runs on the judge route", () => {
@@ -622,7 +622,7 @@ describe("chooseFanficJudge", () => {
         routing: routing({ judge: "conn-2" }),
         connections,
       }),
-    ).toEqual({ judgeId: "conn-2", routeProblem: null });
+    ).toEqual({ judgeId: "conn-2", routeProblem: null, rule: "route" });
   });
 
   it("falls back to the fic's connection, then the first connection, only when nothing is routed", () => {
@@ -631,12 +631,14 @@ describe("chooseFanficJudge", () => {
     ).toEqual({
       judgeId: "conn-1",
       routeProblem: null,
+      rule: "chat",
     });
     expect(
       chooseFanficJudge({ lastJudgeId: "deleted", ficConnectionId: null, judgeIds, routing: routing({}), connections }),
     ).toEqual({
       judgeId: "conn-1",
       routeProblem: null,
+      rule: "first",
     });
   });
 
@@ -655,6 +657,7 @@ describe("chooseFanficJudge", () => {
       routeProblem: expect.stringContaining(
         'The Fanfic judge helper must stay on your device, but "Claude" sends work off it.',
       ),
+      rule: null,
     });
     expect(
       chooseFanficJudge({
@@ -664,7 +667,7 @@ describe("chooseFanficJudge", () => {
         routing: { version: 1, routes: { judge: "local" }, localOnly: ["judge"] },
         connections: [...connections, local],
       }),
-    ).toEqual({ judgeId: "local", routeProblem: null });
+    ).toEqual({ judgeId: "local", routeProblem: null, rule: "lastJudge" });
   });
 
   it("picks nothing and says why when the judge route is broken", () => {
@@ -680,6 +683,7 @@ describe("chooseFanficJudge", () => {
       judgeId: null,
       routeProblem:
         'The Fanfic judge helper is set to "Blank", which has no model picked. Pick another connection, or "Same as today", in Connections → Helper Models.',
+      rule: null,
     });
   });
 });

@@ -15,7 +15,7 @@ import {
   foregroundGenerationActive,
 } from "./background-generation-coordinator";
 import { sha256MemoryId } from "./deterministic-memory-id";
-import { resolveStoredModelRoute } from "./model-routing";
+import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
 import { nowIso, parseArray, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import {
   getEffectiveStoryConsolidationEnabled,
@@ -878,7 +878,7 @@ export async function processStoryConsolidationQueue(
         }
         // A summaries route replaces the reply's connection for this run only; the job
         // keeps its queued connection, so clearing the route goes back to it.
-        const routed = await resolveStoredModelRoute(storage, "summaries");
+        const routed = await resolveHelperRoute(storage, "summaries", { job: "story recap", chatId: job.ownerChatId });
         const summaryJob: StoryProjectionJob = routed
           ? {
               ...job,
@@ -887,6 +887,14 @@ export async function processStoryConsolidationQueue(
               model: readString(routed.model).trim() || null,
             }
           : job;
+        await noteHelperRun(storage, {
+          task: "summaries",
+          rule: routed ? "route" : "chat",
+          connectionId: readString(summaryJob.connectionId).trim(),
+          connection: routed,
+          job: "story recap",
+          chatId: job.ownerChatId,
+        });
         const carried = await carriedOpenThreads(storage, job);
         const parsed = parseSummary(
           await withStoryLeaseHeartbeat(storage, leaseId, () =>

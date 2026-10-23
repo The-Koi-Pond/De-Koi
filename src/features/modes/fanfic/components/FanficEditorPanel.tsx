@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { HelperRunNote } from "../../../catalog/connections/index";
 import { Loader2, PenTool, RefreshCw, Square, Wand2 } from "lucide-react";
 import { useChat } from "../../../catalog/chats/index";
 import {
@@ -173,6 +174,12 @@ export function FanficEditorPanel({
           make hard choices, does it show its theme instead of saying it, and is the exposition lean. Scenes that drag a
           chapter down can be rewritten on their own.
         </p>
+        <HelperRunNote
+          task="fanficChecks"
+          job="editor pass"
+          chatId={chatId}
+          className="mt-1 text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+        />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {working ? (

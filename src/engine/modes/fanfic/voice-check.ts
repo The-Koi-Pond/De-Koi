@@ -15,7 +15,8 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
-  loadFanficConnection,
+  FANFIC_CONNECTION_GONE,
+  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { fanficSamePassage, fanficSearchableText } from "./quality";
@@ -273,11 +274,13 @@ export async function checkFanficChapterVoice(
   if (!state) throw userFacingError("Fill in the fanfic request first.");
   const voices = state.voices ?? [];
   if (voices.length === 0) throw userFacingError("Build the voice sheets first (Voices, at the top of the fic).");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for the voice check.");
-  const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection))
-    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
+  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, {
+    chatId: input.chatId,
+    connectionId: input.connectionId,
+    job: "voice check",
+    missing: "Pick a connection for the voice check.",
+    gone: FANFIC_CONNECTION_GONE,
+  });
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord));
@@ -288,7 +291,7 @@ export async function checkFanficChapterVoice(
   // Everything goes in whole (sheets, chapter, the end of the one before), so only the reply is sized; the
   // double-check adds its notes.
   const frame = buildFanficVoiceCheckMessages({ request: state.request, voices, target, previous });
-  const budget = fanficCallBudget(effectiveMaxContext(connection, {}), {
+  const budget = fanficCallBudget(connection ? effectiveMaxContext(connection, {}) : 0, {
     maxReplyTokens: CHECK_MAX_TOKENS,
     fixedChars: fanficMessageChars(frame) + MAX_ISSUES * 700,
     defaultChars: 0,
