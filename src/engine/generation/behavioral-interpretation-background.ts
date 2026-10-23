@@ -18,6 +18,7 @@ import {
   validateBehavioralInterpretation,
 } from "./behavioral-interpretation";
 import { createBackgroundJobQueue } from "./background-job-queue";
+import { isModelRouteError, resolveStoredModelRoute } from "./model-routing";
 import { parseRecord, readString } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
 
@@ -213,10 +214,14 @@ function failedInterpretation(
 async function deriveAndSave(
   deps: { storage: StorageGateway; llm: LlmGateway },
   characterId: string,
-  connectionId: string,
+  queuedConnectionId: string,
 ): Promise<void> {
   const character = await deps.storage.get<Character>("characters", characterId);
   if (!character || !needsDerivation(character)) return;
+  // The queued connection is the reply's, not a pick for this helper, so a route wins. A broken
+  // route throws before the try below: it is a setting to fix, not a failed read to save on the card.
+  const routed = await resolveStoredModelRoute(deps.storage, "interpretations");
+  const connectionId = routed ? readString(routed.id).trim() : queuedConnectionId;
   const sourceHash = behavioralInterpretationSourceHash(character.data);
   try {
     const profile = await deriveCharacterBehavioralInterpretation(
@@ -302,7 +307,17 @@ const characterInterpretationQueue = createBackgroundJobQueue<InterpretationDeps
   async run(job, deps) {
     const connectionId = clean(readString(parseRecord(job.payload).connectionId));
     if (!connectionId) return "failed";
-    await deriveAndSave(deps, job.key, connectionId);
+    try {
+      await deriveAndSave(deps, job.key, connectionId);
+    } catch (error) {
+      // Retrying cannot fix a route; the card still needs a read, so the next reply queues it again.
+      if (!isModelRouteError(error)) throw error;
+      console.warn("[generation] behavioral interpretation stopped by its helper route", {
+        characterId: job.key,
+        error: error.message,
+      });
+      return "failed";
+    }
     return "done";
   },
 });

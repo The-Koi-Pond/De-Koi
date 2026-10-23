@@ -3,6 +3,7 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import type { LorebookEntry } from "../../../contracts/types/lorebook";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { loadLorebookEntriesForActivationBatch } from "../../../generation/active-lorebook-scanner";
+import { resolveStoredModelRoute } from "../../../generation/model-routing";
 import { boolish } from "../../../generation/runtime-records";
 import type { BaseLLMProvider, ChatMessage } from "../../../generation-core/llm/base-provider.js";
 import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
@@ -148,7 +149,10 @@ export async function generateConversationSchedules(
   if (!chat) throw new Error("Chat not found");
   if (chat.mode !== "conversation") throw new Error("Not a conversation chat");
 
-  const connection = await resolveScheduleConnection(capabilities.storage, stringValue(chat.connectionId));
+  // A schedules route wins over the chat's connection; a broken one stops here.
+  const connection =
+    (await resolveStoredModelRoute(capabilities.storage, "schedules")) ??
+    (await resolveScheduleConnection(capabilities.storage, stringValue(chat.connectionId)));
   const connectionId = stringValue(connection.id);
   if (!connectionId) throw new Error("No connection configured");
 

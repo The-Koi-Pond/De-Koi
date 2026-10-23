@@ -1,11 +1,16 @@
 import type { StorageGateway } from "../../../../capabilities/storage";
-import { readModelRoutingSettings, resolveModelRoute } from "../../../../generation/model-routing";
+import {
+  assertLocalOnlyConnection,
+  readModelRoutingSettings,
+  resolveModelRoute,
+} from "../../../../generation/model-routing";
 import { boolish, readString, type JsonRecord } from "../../../../generation/runtime-records";
 
 /**
  * The connection for Summarize chat: the Chat Summary agent's own connection,
  * then the summaries helper route, then Default for Agents, the chat's
- * connection, and the app default.
+ * connection, and the app default. A local-only Summaries helper stays local even
+ * on the agent's own connection.
  */
 export async function resolveChatSummaryConnectionId(
   storage: Pick<StorageGateway, "get" | "list">,
@@ -18,9 +23,14 @@ export async function resolveChatSummaryConnectionId(
   const summaryAgent = agents.find(
     (agent) => readString(agent.id).trim() === "chat-summary" || readString(agent.type).trim() === "chat-summary",
   );
+  const settings = await readModelRoutingSettings(storage);
   const summaryConnectionId = readString(summaryAgent?.connectionId).trim();
-  if (summaryConnectionId) return summaryConnectionId;
-  const routed = resolveModelRoute("summaries", await readModelRoutingSettings(storage), connections);
+  if (summaryConnectionId) {
+    const own = connections.find((connection) => readString(connection.id).trim() === summaryConnectionId);
+    assertLocalOnlyConnection("summaries", settings, summaryConnectionId, own);
+    return summaryConnectionId;
+  }
+  const routed = resolveModelRoute("summaries", settings, connections);
   if (routed) return readString(routed.id).trim();
   const agentDefault = connections.find((connection) => boolish(connection.defaultForAgents, false));
   const agentDefaultId = readString(agentDefault?.id).trim();

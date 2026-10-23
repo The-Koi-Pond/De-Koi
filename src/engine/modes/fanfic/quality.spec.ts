@@ -507,6 +507,17 @@ describe("runFanficQualityCheck", () => {
     expect(llm.requests).toHaveLength(0);
   });
 
+  it("refuses a hand-picked remote judge when the judge must stay on this device", async () => {
+    const llm = judgeLlm({ rubric: [], continuity: [], verify: [] });
+    await expect(
+      runFanficQualityCheck(
+        { storage: storageWith([chapterOne], {}, { version: 1, routes: {}, localOnly: ["judge"] }).storage, llm },
+        { chatId: "chat-1", connectionId: "conn-1" },
+      ),
+    ).rejects.toMatchObject({ name: "ModelRouteError", problem: "not_local" });
+    expect(llm.requests).toHaveLength(0);
+  });
+
   it("keeps a run another tab saved while this one was saving", async () => {
     const harness = storageWith([chapterOne], { fanficQuality: { runs: [savedRun("first")] } });
     harness.interfere(() => {
@@ -627,6 +638,33 @@ describe("chooseFanficJudge", () => {
       judgeId: "conn-1",
       routeProblem: null,
     });
+  });
+
+  it("does not keep a remote last judge when the judge must stay on this device", () => {
+    const local = { id: "local", name: "Local", provider: "custom", model: "m", baseUrl: "http://localhost:1/v1" };
+    expect(
+      chooseFanficJudge({
+        lastJudgeId: "conn-1",
+        ficConnectionId: "conn-1",
+        judgeIds: [...judgeIds, "local"],
+        routing: { version: 1, routes: { judge: "local" }, localOnly: ["judge"] },
+        connections: [...connections, local],
+      }),
+    ).toEqual({
+      judgeId: null,
+      routeProblem: expect.stringContaining(
+        'The Fanfic judge helper must stay on your device, but "Claude" sends work off it.',
+      ),
+    });
+    expect(
+      chooseFanficJudge({
+        lastJudgeId: "local",
+        ficConnectionId: "conn-1",
+        judgeIds: [...judgeIds, "local"],
+        routing: { version: 1, routes: { judge: "local" }, localOnly: ["judge"] },
+        connections: [...connections, local],
+      }),
+    ).toEqual({ judgeId: "local", routeProblem: null });
   });
 
   it("picks nothing and says why when the judge route is broken", () => {

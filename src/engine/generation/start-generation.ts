@@ -132,6 +132,7 @@ import {
 } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import { scheduleHabitScan, type HabitScanMode } from "./habit-scan";
+import { resolveStoredModelRoute } from "./model-routing";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -2120,6 +2121,11 @@ async function smartRoleplayGroupTarget(args: {
   );
 }
 
+/** The reply's connection is not a pick for the "who answers" helper, so a group responder route wins. */
+async function groupResponderConnection(deps: GenerationEngineDeps, replyConnection: JsonRecord): Promise<JsonRecord> {
+  return (await resolveStoredModelRoute(deps.storage, "responder")) ?? replyConnection;
+}
+
 async function smartRoleplayGroupTargets(args: {
   deps: GenerationEngineDeps;
   input: StartGenerationInput;
@@ -2161,13 +2167,15 @@ async function smartRoleplayGroupTargets(args: {
       }),
     )
     .join("\n");
+  // Outside the try: a broken route stops the turn instead of quietly falling back to turn order.
+  const connection = await groupResponderConnection(args.deps, args.connection);
   let raw = "";
   try {
     raw = await args.deps.llm.complete(
       {
-        connectionId: readString(args.connection.id).trim() || args.input.connectionId || null,
-        provider: readString(args.connection.provider).trim() || null,
-        model: readString(args.connection.model).trim() || null,
+        connectionId: readString(connection.id).trim() || args.input.connectionId || null,
+        provider: readString(connection.provider).trim() || null,
+        model: readString(connection.model).trim() || null,
         parameters: { maxTokens: 256 },
         messages: [
           {
@@ -2351,6 +2359,11 @@ async function* runIndividualGroupTurnLoop(args: {
 }): AsyncGenerator<GenerationEvent> {
   const priorResponderContributions: SameSendPeerContribution[] = [];
   const priorResponderContributionIndexByMessageId = new Map<string, number>();
+  // Resolved before the first reply, so a broken route stops the turn before anything is written.
+  const responderConnection =
+    args.revalidateLaterResponders && args.turnIds.length > 1
+      ? await groupResponderConnection(args.deps, args.connection)
+      : args.connection;
   for (let index = 0; index < args.turnIds.length; index += 1) {
     throwIfAborted(args.signal);
     const characterId = args.turnIds[index]!;
@@ -2360,7 +2373,7 @@ async function* runIndividualGroupTurnLoop(args: {
       const shouldRespond = await shouldKeepSmartConversationResponder({
         deps: args.deps,
         input: args.input,
-        connection: args.connection,
+        connection: responderConnection,
         storedMessages,
         characterId,
         characterName,
