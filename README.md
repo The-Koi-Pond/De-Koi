@@ -89,7 +89,7 @@ it.
 <!-- features:start (generated from the Discover registry by `pnpm docs:readme-features`; do not edit) -->
 
 <details>
-<summary><b>Chat modes</b> (9)</summary>
+<summary><b>Chat modes</b> (10)</summary>
 
 - **Conversation Mode**: Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.
 - **Message Reactions**: React to a character's text with a quick tapback (❤️ 😂 😮 😢 👍 👎) from the message's action bar, and characters can react to yours too. Reactions show under the message, and the character sees how its texts landed. Tap your reaction again to take it back.
@@ -99,6 +99,7 @@ it.
 - **Roleplay workflow profiles**: Choose a setup for your roleplay: Simple Roleplay for a short or casual chat, Long-Running Story for a campaign across scenes or sessions, Cinematic Roleplay when visuals matter, or Local Helpers once your local model is ready. Before applying one, you see what it adds and how many extra model calls it makes. Your main writing connection stays as it is.
 - **Roleplay Context Panels**: Use roleplay helper panels for author notes, context injections, active world info, sprites, and HUD state.
 - **Roleplay Continuity Director**: Plans a long roleplay as a story: arcs, open threads, and upcoming beats you can see. Apply and confirm the Long-Running Story profile to turn it on. If that newly turns on the Director and there's no saved plan yet, it makes one extra planning call to your model right away; after that it makes one more in the background every 10 replies, without holding up the chat. New beats stay proposed until you approve them, and a badge shows when some are waiting. The Director only plans: your writer model still writes, and your character's choices stay yours.
+- **Let time pass**: Skip ahead in a Roleplay chat and see what the world got up to. Say how much time passes, optionally steer it, and your chat's model suggests a few things that happened off-screen. Nothing changes until you review each suggestion: accept, edit, put off for later, or reject it, and add your own. Applying adds one narrator message with the time skip and the events you accepted, so the next reply picks up from there. Suggestions that decide anything for your character are left out. It makes one model call per suggestion round and never runs on its own.
 - **Character Web Research**: Let characters look things up on the public web when they need current facts. The research can stay in the background or show up as in-character narration; De-Koi asks your permission first and lists the sources, collapsed, at the end.
 
 </details>

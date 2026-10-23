@@ -7,6 +7,7 @@ import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js
 import type { LorebookActivationTrace } from "./lorebook.js";
 import type { MemoryKind, MemoryStatus } from "./memory.js";
 import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-director.js";
+import type { RoleplayWorldTickState } from "./roleplay-world-tick.js";
 
 /** The primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "fanfic";
@@ -353,6 +354,8 @@ export interface ChatMetadata {
   automaticRoleplayQualityCorrection?: boolean;
   /** Visible, user-controlled Roleplay story plan. Missing means disabled. */
   roleplayContinuityDirector?: RoleplayContinuityDirectorState;
+  /** Roleplay "Let time pass" review and applied time skips. Missing means none yet. */
+  roleplayWorldTick?: RoleplayWorldTickState;
   /** Optional token budget for canonical memory prompt context. Missing uses a bounded context-share default. */
   canonicalMemoryRecallTokenBudget?: number | null;
   /** Optional token budget for ordinary recalled-memory prompt context. Missing uses a bounded context-share default. */

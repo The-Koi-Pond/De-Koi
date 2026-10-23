@@ -933,6 +933,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                             | "fanficQuality"
                             | "roleplayContinuityDirector"
                             | "roleplayWorkflowApplication"
+                            | "roleplayWorldTick"
                     ) {
                         return Err(AppError::invalid_input(format!(
                             "Conditional chat {label} does not support metadata.{metadata_field}"
@@ -2113,6 +2114,43 @@ mod tests {
         .expect_err("missing chats must not look like stale writes");
 
         assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
+    fn conditional_chat_world_tick_review_saves_only_against_the_state_it_read() {
+        let state = test_state("conditional-chat-world-tick");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({ "id": "chat-1", "mode": "roleplay", "metadata": { "tags": ["keep"] } }),
+            )
+            .expect("chat should seed");
+        let unset = json!({ "metadata": { "roleplayWorldTick": null } });
+
+        let first = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unset.clone(),
+            json!({ "metadata": { "roleplayWorldTick": { "version": 1, "revision": 1 } } }),
+        )
+        .expect("a time skip review can be opened");
+        assert_eq!(first["updated"], json!(true));
+        assert_eq!(first["chat"]["metadata"]["tags"], json!(["keep"]));
+
+        // A second window that read the chat before the review opened must not overwrite it.
+        let second = chat_update_if_unchanged_inner(
+            &state,
+            "chat-1".to_string(),
+            unset,
+            json!({ "metadata": { "roleplayWorldTick": { "version": 1, "revision": 9 } } }),
+        )
+        .expect("a stale write reports the current chat");
+        assert_eq!(second["updated"], json!(false));
+        assert_eq!(
+            second["chat"]["metadata"]["roleplayWorldTick"]["revision"],
+            json!(1)
+        );
     }
 
     #[test]
