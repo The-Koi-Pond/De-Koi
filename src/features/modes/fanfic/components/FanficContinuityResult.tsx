@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Loader2, ShieldCheck, Square, Wand2, X } from "lucide-react";
 import type {
   FanficChapterContinuityCheck,
@@ -59,6 +60,7 @@ export function FanficContinuityResult({
   onFix,
   onRewrite,
   onDismiss,
+  helperNote,
 }: {
   check: FanficChapterContinuityCheck;
   /** The chapter as it reads now, heading stripped. */
@@ -67,6 +69,8 @@ export function FanficContinuityResult({
   onFix: (issues: FanficChapterContinuityIssue[]) => void;
   onRewrite: (notes: string) => void;
   onDismiss: () => void;
+  /** Where this helper last ran for this fic, and why (Helper Models). */
+  helperNote?: ReactNode;
 }) {
   const stale = fanficChapterTextKey(chapterText) !== check.textKey;
   const fixable = check.issues.filter((issue) => issue.fix);
@@ -96,6 +100,7 @@ export function FanficContinuityResult({
           <X size="0.9rem" aria-hidden="true" />
         </button>
       </div>
+      {helperNote}
       {stale && (
         <p className="text-xs text-[var(--muted-foreground)]">
           The chapter changed since this check, so the fixes are off. Check it again to see where it stands.

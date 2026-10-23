@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Loader2, MessageSquareQuote, RefreshCw, Save, Square, X } from "lucide-react";
 import type { FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
 import { FANFIC_VOICE_LIMITS } from "../../../../engine/modes/fanfic/request";
@@ -150,6 +150,7 @@ export function FanficVoicesPanel({
   canBuild,
   busy,
   onSave,
+  helperNote,
 }: {
   voices: FanficVoiceSheet[];
   controller: FanficVoicesController;
@@ -157,6 +158,8 @@ export function FanficVoicesPanel({
   canBuild: boolean;
   busy: boolean;
   onSave: (voices: FanficVoiceSheet[]) => Promise<void>;
+  /** Where this helper last ran for this fic, and why (Helper Models). */
+  helperNote?: ReactNode;
 }) {
   const [draft, setDraft] = useState(voices);
   const [saving, setSaving] = useState(false);
@@ -200,6 +203,7 @@ export function FanficVoicesPanel({
           How each character talks. Chapters are written to these, and Check voice measures lines against them. Canon
           lines come from pages research read, never from character cards.
         </p>
+        {helperNote}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {controller.running ? (

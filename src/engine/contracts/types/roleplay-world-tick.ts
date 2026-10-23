@@ -7,8 +7,24 @@ export type WorldTickEventSource = "model" | "user";
  */
 export type WorldTickEventStatus = "proposed" | "accepted" | "rejected" | "deferred";
 
-/** What started a tick. The first slice only supports the user's explicit request. */
-type WorldTickTrigger = "manual";
+/**
+ * What started a tick: the user's own request, or an offer the app made at a clear story boundary
+ * (a formal scene ended, or the user's message jumped ahead in time). Offers are never applied on
+ * their own; the user still reviews every event.
+ */
+export type WorldTickTrigger = "manual" | "scene_concluded" | "time_skip";
+
+/** An offer to let time pass, made at a story boundary. It costs nothing until the user takes it. */
+export interface WorldTickOffer {
+  /** The boundary this offer is for; one boundary is only ever offered once. */
+  id: string;
+  trigger: Exclude<WorldTickTrigger, "manual">;
+  /** Suggested amount of time, from the user's own words when there were any. May be empty. */
+  elapsed: string;
+  /** What happened, in a few words: the scene's name, or the time-skip phrase. */
+  label: string;
+  createdAt: string;
+}
 
 export interface WorldTickEvent {
   id: string;
@@ -29,6 +45,8 @@ export interface WorldTickEvent {
 export interface PendingWorldTick {
   id: string;
   trigger: WorldTickTrigger;
+  /** The offered boundary this tick answers, or null for a manual tick. */
+  boundaryKey: string | null;
   /** How much time passes, in the user's own words ("three days", "until nightfall"). */
   elapsed: string;
   /** Optional steer the user gave the proposer. */
@@ -44,6 +62,7 @@ export interface PendingWorldTick {
 export interface AppliedWorldTick {
   id: string;
   trigger: WorldTickTrigger;
+  boundaryKey: string | null;
   elapsed: string;
   /** The narrator message that carries the accepted events into the chat. */
   messageId: string;
@@ -61,6 +80,12 @@ export interface RoleplayWorldTickState {
   deferred: WorldTickEvent[];
   /** Newest last, bounded. */
   timeline: AppliedWorldTick[];
+  /** Per-chat switch for offers at scene ends and time skips. The manual button always works. */
+  offersEnabled: boolean;
+  /** The offer waiting for the user, if any. */
+  offer: WorldTickOffer | null;
+  /** Boundaries already offered (taken, dismissed or replaced), newest last, bounded. */
+  offeredBoundaries: string[];
   updatedAt: string;
 }
 
@@ -69,4 +94,6 @@ export type WorldTickCommand =
   | { type: "edit_event"; eventId: string; text: string }
   | { type: "add_event"; text: string }
   | { type: "set_elapsed"; elapsed: string }
-  | { type: "discard_pending" };
+  | { type: "discard_pending" }
+  | { type: "dismiss_offer"; offerId: string }
+  | { type: "set_offers_enabled"; enabled: boolean };

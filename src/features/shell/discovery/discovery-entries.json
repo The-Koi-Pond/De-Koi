@@ -981,7 +981,7 @@
     "id": "helper-models",
     "title": "Helper Models",
     "category": "Advanced",
-    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, and character reads (how a thin Roleplay card acts). Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now, and a helper set to a missing connection stops with a clear message instead of quietly using another.",
+    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, character reads (how a thin Roleplay card acts), fanfic planning (research, outline, voice sheets, outline updates) and fanfic checks (story ledger, continuity and voice checks, editor pass); fanfic chapters stay on the fic's connection. Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now and where it last ran and why (also shown in the fanfic panels), and a helper set to a missing connection stops with a clear message instead of quietly using another.",
     "keywords": [
       "helper models",
       "model routing",
@@ -997,7 +997,10 @@
       "status blurbs",
       "schedules",
       "local only",
-      "privacy"
+      "privacy",
+      "fanfic planning",
+      "fanfic checks",
+      "last run"
     ],
     "audience": "Users who want a strong model for replies and a cheaper or local one for background helpers.",
     "where": "Title bar > Connections > Helper Models.",
@@ -1533,7 +1536,7 @@
     "id": "roleplay-world-tick",
     "title": "Let time pass",
     "category": "Chat modes",
-    "summary": "Skip ahead in a Roleplay chat and see what the world got up to. Say how much time passes, optionally steer it, and your chat's model suggests a few things that happened off-screen. Nothing changes until you review each suggestion: accept, edit, put off for later, or reject it, and add your own. Applying adds one narrator message with the time skip and the events you accepted, so the next reply picks up from there. Suggestions that decide anything for your character are left out. It makes one model call per suggestion round and never runs on its own.",
+    "summary": "Skip ahead in a Roleplay chat and see what the world got up to. Say how much time passes, optionally steer it, and your chat's model suggests a few things that happened off-screen. Nothing changes until you review each suggestion: accept, edit, put off for later, or reject it, and add your own. Applying adds one narrator message with the time skip and the events you accepted, so the next reply picks up from there. Suggestions that decide anything for your character are left out. When a formal scene ends, or your own message skips ahead (\"Three days later...\"), a small bar offers to let time pass; offers cost no model call, you can turn them off per chat, and nothing happens until you review. It makes one model call per suggestion round and never runs on its own.",
     "keywords": [
       "time skip",
       "skip time",
@@ -1543,7 +1546,9 @@
       "off-screen events",
       "meanwhile",
       "time passes",
-      "living world"
+      "living world",
+      "time skip offer",
+      "scene ends"
     ],
     "audience": "Roleplay users who want the world to keep moving between scenes without losing control of what becomes canon.",
     "where": "Open a Roleplay chat > Let time pass (hourglass in the toolbar, or the ... menu on a phone).",

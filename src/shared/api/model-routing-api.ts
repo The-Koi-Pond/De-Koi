@@ -7,6 +7,7 @@ import {
   type ModelRouteTask,
   type ModelRoutingSettings,
 } from "../../engine/generation/model-routing";
+import { readHelperRuns } from "../../engine/generation/helper-runs";
 import { transformAppSettings } from "./app-settings-api";
 import { storageApi } from "./storage-api";
 
@@ -43,10 +44,13 @@ function setLocalOnly(task: ModelRouteTask, localOnly: boolean): Promise<ModelRo
 
 export const modelRoutingKeys = {
   settings: ["model-routing"] as const,
+  /** Where each helper last ran and why (Helper Models, and the fic panels). */
+  runs: ["model-routing", "runs"] as const,
 };
 
 export const modelRoutingApi = {
   get: () => readModelRoutingSettings(storageApi),
+  runs: () => readHelperRuns(storageApi),
   setRoute,
   setLocalOnly,
 };

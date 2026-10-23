@@ -13,7 +13,9 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
-  loadFanficConnection,
+  FANFIC_CONNECTION_GONE,
+  FANFIC_NO_CONNECTION,
+  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficCastCards, renderFanficRequestForPrompt } from "./prompts";
 import { fanficSearchableText } from "./quality";
@@ -202,8 +204,13 @@ export async function buildFanficVoiceSheets(
   if (!state) throw userFacingError("Fill in the fanfic request first.");
   const characters = fanficVoiceCharacters(state.request);
   if (characters.length === 0) throw userFacingError("Name the characters in the request to build voice sheets.");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for this fic first.");
+  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficPlanning", chat, {
+    chatId: input.chatId,
+    connectionId: input.connectionId,
+    job: "voice sheets",
+    missing: FANFIC_NO_CONNECTION,
+    gone: FANFIC_CONNECTION_GONE,
+  });
 
   let sources: FanficWebSource[] = [];
   if (state.request.research) {
@@ -225,7 +232,6 @@ export async function buildFanficVoiceSheets(
   const castCards = renderFanficCastCards(cards);
   const researchNotes = state.research?.notes ?? "";
   // Pages go in whole, in the order read, while they fit the connection's window.
-  const connection = await loadFanficConnection(deps.storage, connectionId);
   const frame = buildFanficVoiceMessages({ request: state.request, characters, castCards, researchNotes, sources: [] });
   const budget = fanficCallBudget(isRecord(connection) ? effectiveMaxContext(connection, {}) : 0, {
     maxReplyTokens: VOICES_MAX_TOKENS,

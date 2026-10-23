@@ -32,7 +32,8 @@ export function fanficNarrationText(block: string): string {
 
 /**
  * How delivery cues like "(softly)" reach the voice:
- * - "inline": ElevenLabs v3 acts out bracketed audio tags, so each cue becomes "[softly]" where it was written.
+ * - "inline": ElevenLabs v3 and later (v4, v4 turbo) act out bracketed audio tags, so each cue becomes "[softly]"
+ *   where it was written.
  * - "tone": providers that take a tone get the line's opening cue as one; cues later in the line are dropped.
  * - "drop": older ElevenLabs models would read a tag out loud, so cues are left out.
  */
@@ -40,8 +41,14 @@ export type FanficCueStyle = "inline" | "tone" | "drop";
 
 export function fanficCueStyle(config: Pick<TTSConfig, "source" | "model">): FanficCueStyle {
   if (config.source !== "elevenlabs") return "tone";
-  return /v3/i.test(config.model ?? "") ? "inline" : "drop";
+  return ELEVENLABS_AUDIO_TAG_MODEL.test(config.model ?? "") ? "inline" : "drop";
 }
+
+/**
+ * ElevenLabs models that perform audio tags: generation 3 and later ("eleven_v3", "eleven_v4", "eleven_v4_turbo",
+ * NanoGPT's "Elevenlabs-V3"). Older ones ("eleven_multilingual_v2", "eleven_flash_v2_5") would read a tag aloud.
+ */
+const ELEVENLABS_AUDIO_TAG_MODEL = /(?:^|[-_])v(?:[3-9]|[1-9]\d)(?:$|[-_])/i;
 
 /**
  * A paragraph that is only a bracketed production note, like "[SFX: Rain on a window.]" or "[END OF AUDIO]".

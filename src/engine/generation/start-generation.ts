@@ -33,6 +33,7 @@ import {
   queueContinuityDirectorRefresh,
   scheduleContinuityDirectorRefresh,
 } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
+import { offerWorldTickForUserMessage } from "../modes/roleplay/world-tick/world-tick-offers";
 import {
   cancelConversationSummaryBackfill,
   queueConversationSummaryBackfill,
@@ -132,7 +133,7 @@ import {
 } from "./behavioral-interpretation-background";
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import { scheduleHabitScan, type HabitScanMode } from "./habit-scan";
-import { resolveStoredModelRoute } from "./model-routing";
+import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -635,6 +636,37 @@ function savedUserMessageForTimeline(saved: unknown, chatId: string): JsonRecord
   if (readString(saved.role).trim() !== "user") return null;
   if (!readString(saved.content).trim()) return null;
   return saved;
+}
+
+/**
+ * A Roleplay message that jumps ahead in time ("*Three days later*") gets an offer to let time pass.
+ * The offer is only a note on the chat; it never holds up or changes this reply. If recording it
+ * fails, the event carries the error so the app can say so instead of the reply failing.
+ */
+async function offerWorldTickForSavedUserMessage(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  savedUserMessage: unknown,
+  messagesBeforeSave: JsonRecord[] | null,
+): Promise<GenerationEvent | null> {
+  if (readString(chat.mode).trim() !== "roleplay" || !isRecord(savedUserMessage)) return null;
+  const chatId = readString(chat.id).trim();
+  const content = readString(savedUserMessage.content);
+  if (!chatId || !content.trim()) return null;
+  try {
+    const outcome = await offerWorldTickForUserMessage(storage, {
+      chatId,
+      content,
+      previousMessageId: readString(messagesBeforeSave?.at(-1)?.id).trim() || null,
+    });
+    if (!outcome?.offered) return null;
+    return { type: "world_tick_offer", data: { chatId, offerId: outcome.offer.id } };
+  } catch (error) {
+    return {
+      type: "world_tick_offer",
+      data: { chatId, offerId: null, error: error instanceof Error ? error.message : String(error) },
+    };
+  }
 }
 
 function discordWebhookUrl(chat: JsonRecord): string {
@@ -2122,8 +2154,21 @@ async function smartRoleplayGroupTarget(args: {
 }
 
 /** The reply's connection is not a pick for the "who answers" helper, so a group responder route wins. */
-async function groupResponderConnection(deps: GenerationEngineDeps, replyConnection: JsonRecord): Promise<JsonRecord> {
-  return (await resolveStoredModelRoute(deps.storage, "responder")) ?? replyConnection;
+async function groupResponderConnection(
+  deps: GenerationEngineDeps,
+  replyConnection: JsonRecord,
+  chatId: string,
+): Promise<JsonRecord> {
+  const routed = await resolveHelperRoute(deps.storage, "responder", { chatId });
+  const connection = routed ?? replyConnection;
+  await noteHelperRun(deps.storage, {
+    task: "responder",
+    rule: routed ? "route" : "chat",
+    connectionId: readString(connection.id).trim(),
+    connection,
+    chatId,
+  });
+  return connection;
 }
 
 async function smartRoleplayGroupTargets(args: {
@@ -2168,7 +2213,7 @@ async function smartRoleplayGroupTargets(args: {
     )
     .join("\n");
   // Outside the try: a broken route stops the turn instead of quietly falling back to turn order.
-  const connection = await groupResponderConnection(args.deps, args.connection);
+  const connection = await groupResponderConnection(args.deps, args.connection, args.input.chatId);
   let raw = "";
   try {
     raw = await args.deps.llm.complete(
@@ -2362,7 +2407,7 @@ async function* runIndividualGroupTurnLoop(args: {
   // Resolved before the first reply, so a broken route stops the turn before anything is written.
   const responderConnection =
     args.revalidateLaterResponders && args.turnIds.length > 1
-      ? await groupResponderConnection(args.deps, args.connection)
+      ? await groupResponderConnection(args.deps, args.connection, args.input.chatId)
       : args.connection;
   for (let index = 0; index < args.turnIds.length; index += 1) {
     throwIfAborted(args.signal);
@@ -5325,6 +5370,8 @@ async function* startGenerationImpl(
   }
   throwIfAborted(signal);
   if (savedUserMessage) yield { type: "user_message", data: savedGenerationEventData(savedUserMessage) };
+  const worldTickOffer = await offerWorldTickForSavedUserMessage(deps.storage, chat, savedUserMessage, storedMessages);
+  if (worldTickOffer) yield worldTickOffer;
   const saveUserMessageTiming = generationTimingEvent("save-user-message", saveUserMessageStartedAt, {
     savedUserMessage: !!savedUserMessage,
   });

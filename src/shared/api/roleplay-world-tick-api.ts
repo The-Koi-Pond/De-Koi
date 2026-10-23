@@ -17,7 +17,7 @@ export interface RoleplayWorldTickApi {
   getState(chatId: string): Promise<RoleplayWorldTickState>;
   propose(
     chatId: string,
-    input: { elapsed: string; guidance?: string; replacePending?: boolean },
+    input: { elapsed: string; guidance?: string; replacePending?: boolean; offerId?: string | null },
   ): Promise<ProposeWorldTickResult>;
   command(chatId: string, command: WorldTickCommand, expectedRevision?: number): Promise<RoleplayWorldTickState>;
   apply(chatId: string, tickId: string, expectedRevision?: number): Promise<RoleplayWorldTickState>;

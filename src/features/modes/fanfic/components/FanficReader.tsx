@@ -29,6 +29,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { useChat, useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
+import { HelperRunNote } from "../../../catalog/connections/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
 import type { FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
 import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
@@ -743,6 +744,14 @@ function ChapterTools({
           }
           onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
           onDismiss={() => continuity.dismiss(message.id)}
+          helperNote={
+            <HelperRunNote
+              task="fanficChecks"
+              job="continuity check"
+              chatId={chatId}
+              className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+            />
+          }
         />
       )}
       {voiceCheck.running === message.id && <FanficVoiceProgress phase={voiceCheck.phase} onStop={voiceCheck.stop} />}
@@ -759,6 +768,14 @@ function ChapterTools({
           }
           onRewrite={(rewriteNotes) => onWrite({ kind: "revise", messageId: message.id, notes: rewriteNotes })}
           onDismiss={() => voiceCheck.dismiss(message.id)}
+          helperNote={
+            <HelperRunNote
+              task="fanficChecks"
+              job="voice check"
+              chatId={chatId}
+              className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+            />
+          }
         />
       )}
       {mode === "idle" && phraseBans.supported && (
@@ -1050,8 +1067,8 @@ export function FanficReader({
   const { data: chat } = useChat(chatId);
   const chapterRefs = useMemo(() => fanficChapterViewRefs(chapters), [chapters]);
   const proposal = useMemo(() => readFanficPlan(chat?.metadata, chapterRefs), [chat?.metadata, chapterRefs]);
-  const continuity = useFanficContinuity(chatId, null);
-  const voiceCheck = useFanficVoiceCheck(chatId, null);
+  const continuity = useFanficContinuity(chatId);
+  const voiceCheck = useFanficVoiceCheck(chatId);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
   const writingNew = generating && !regeneratingMessageId;
@@ -1167,6 +1184,14 @@ export function FanficReader({
           canBuild={fanficVoiceCharacters(state.request).length > 0}
           busy={generating}
           onSave={onSaveVoices}
+          helperNote={
+            <HelperRunNote
+              task="fanficPlanning"
+              job="voice sheets"
+              chatId={chatId}
+              className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+            />
+          }
         />
       )}
       {/* Hidden rather than unmounted, so a check still running shows its progress (and blocks a second run) when reopened. */}
@@ -1271,6 +1296,14 @@ export function FanficReader({
           proposal={proposal}
           controller={plan}
           busy={generating}
+          helperNote={
+            <HelperRunNote
+              task="fanficPlanning"
+              job="living outline"
+              chatId={chatId}
+              className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+            />
+          }
           onUse={async (used) => {
             if (used.mode === "next") {
               setNextNotes(fanficPlanNotes(used));

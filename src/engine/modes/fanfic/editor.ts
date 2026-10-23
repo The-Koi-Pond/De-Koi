@@ -16,7 +16,8 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
-  loadFanficConnection,
+  FANFIC_CONNECTION_GONE,
+  pickFanficHelperConnection,
 } from "./llm-json";
 import {
   loadFanficChapterForEdit,
@@ -296,12 +297,14 @@ export async function runFanficEditorPass(
   if (readString(chat.mode) !== "fanfic") throw new Error("The editor pass only runs for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for the editor pass.");
-  const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection))
-    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
-  const window = effectiveMaxContext(connection, {});
+  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, {
+    chatId: input.chatId,
+    connectionId: input.connectionId,
+    job: "editor pass",
+    missing: "Pick a connection for the editor pass.",
+    gone: FANFIC_CONNECTION_GONE,
+  });
+  const window = connection ? effectiveMaxContext(connection, {}) : 0;
 
   const messages = (await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
   const chapters = fanficChapterRefs(messages);
