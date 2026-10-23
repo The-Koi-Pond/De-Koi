@@ -16,6 +16,7 @@ import {
 import type { SpritePlacement, SpriteSide } from "../../../../engine/contracts/types/chat";
 import type { SceneForkMode } from "../../../../engine/contracts/types/scene";
 import { countProposedContinuityDirectorBeats } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
+import { readWorldTickOffer } from "../../../../engine/modes/roleplay/world-tick/world-tick-state";
 import {
   FolderOpen,
   Image,
@@ -143,6 +144,11 @@ const RoleplayContinuityDirectorModal = lazy(async () => {
 const RoleplayWorldTickModal = lazy(async () => {
   const module = await import("./RoleplayWorldTickModal");
   return { default: module.RoleplayWorldTickModal };
+});
+
+const RoleplayWorldTickOfferBar = lazy(async () => {
+  const module = await import("./RoleplayWorldTickOfferBar");
+  return { default: module.RoleplayWorldTickOfferBar };
 });
 
 const PANEL_BACKDROP =
@@ -951,6 +957,7 @@ export function ChatRoleplaySurface({
   const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
   const isConcludedScene = chatMeta.sceneStatus === "concluded";
   const continuityReviewCount = countProposedContinuityDirectorBeats(chatMeta.roleplayContinuityDirector);
+  const worldTickOffer = isConcludedScene ? null : readWorldTickOffer(chatMeta.roleplayWorldTick);
   const [addonsReady, setAddonsReady] = useState(false);
   const messageActions = isConcludedScene
     ? {
@@ -1498,6 +1505,15 @@ export function ChatRoleplaySurface({
               )}
             >
               <div className={cn("pointer-events-auto relative", centerCompact ? "px-3" : "px-3 md:px-[12%]")}>
+                {chat && worldTickOffer && !worldTickOpen && (
+                  <Suspense fallback={null}>
+                    <RoleplayWorldTickOfferBar
+                      chatId={chat.id}
+                      offer={worldTickOffer}
+                      onOpen={() => setWorldTickOpen(true)}
+                    />
+                  </Suspense>
+                )}
                 {chatMeta.sceneStatus === "active" && (
                   <EndSceneBar
                     sceneChatId={activeChatId}

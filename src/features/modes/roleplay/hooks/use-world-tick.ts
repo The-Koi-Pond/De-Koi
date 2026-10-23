@@ -32,7 +32,7 @@ export function useWorldTick(chatId: string | null | undefined, api: RoleplayWor
   };
 
   const propose = useMutation({
-    mutationFn: (input: { elapsed: string; guidance?: string; replacePending?: boolean }) =>
+    mutationFn: (input: { elapsed: string; guidance?: string; replacePending?: boolean; offerId?: string | null }) =>
       api.propose(normalizedChatId, input),
     onSuccess: async (result) => {
       await publish(result.state);

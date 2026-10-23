@@ -1531,7 +1531,7 @@
     "id": "roleplay-world-tick",
     "title": "Let time pass",
     "category": "Chat modes",
-    "summary": "Skip ahead in a Roleplay chat and see what the world got up to. Say how much time passes, optionally steer it, and your chat's model suggests a few things that happened off-screen. Nothing changes until you review each suggestion: accept, edit, put off for later, or reject it, and add your own. Applying adds one narrator message with the time skip and the events you accepted, so the next reply picks up from there. Suggestions that decide anything for your character are left out. It makes one model call per suggestion round and never runs on its own.",
+    "summary": "Skip ahead in a Roleplay chat and see what the world got up to. Say how much time passes, optionally steer it, and your chat's model suggests a few things that happened off-screen. Nothing changes until you review each suggestion: accept, edit, put off for later, or reject it, and add your own. Applying adds one narrator message with the time skip and the events you accepted, so the next reply picks up from there. Suggestions that decide anything for your character are left out. When a formal scene ends, or your own message skips ahead (\"Three days later...\"), a small bar offers to let time pass; offers cost no model call, you can turn them off per chat, and nothing happens until you review. It makes one model call per suggestion round and never runs on its own.",
     "keywords": [
       "time skip",
       "skip time",
@@ -1541,7 +1541,9 @@
       "off-screen events",
       "meanwhile",
       "time passes",
-      "living world"
+      "living world",
+      "time skip offer",
+      "scene ends"
     ],
     "audience": "Roleplay users who want the world to keep moving between scenes without losing control of what becomes canon.",
     "where": "Open a Roleplay chat > Let time pass (hourglass in the toolbar, or the ... menu on a phone).",
