@@ -255,4 +255,25 @@ describe("ttsService.speakSequence", () => {
     await done;
     expect(FakeAudio.playing).toHaveLength(0);
   });
+
+  it("pause, resume and stop with an id leave someone else's audio alone", async () => {
+    speak.mockResolvedValue(new Blob(["a"]));
+    const done = ttsService.speakSequence([{ text: "read aloud" }], "message-1");
+    await flush();
+    expect(ttsService.getState()).toBe("playing");
+
+    // A voice call cutting off its own reply must not pause or stop a read-aloud started after it.
+    ttsService.pause("voice-call:turn-1");
+    expect(ttsService.getState()).toBe("playing");
+    ttsService.stop("voice-call:turn-1");
+    expect(ttsService.getState()).toBe("playing");
+
+    ttsService.pause("message-1");
+    expect(ttsService.getState()).toBe("paused");
+    ttsService.resume("message-1");
+    expect(ttsService.getState()).toBe("playing");
+    ttsService.stop("message-1");
+    expect(ttsService.getState()).toBe("idle");
+    await done;
+  });
 });

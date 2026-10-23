@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const callState = vi.hoisted(() => ({
   heard: "",
   said: "",
+  reaction: { activity: "speaking", expression: "happy" },
+  sprites: [] as Array<{ expression: string; url: string }>,
 }));
 
 vi.mock("../hooks/use-voice-call", () => ({
@@ -22,9 +24,14 @@ vi.mock("../hooks/use-voice-call", () => ({
     bargeIn: "voice",
     stopping: false,
     sessionId: 1,
+    reaction: callState.reaction,
     hangUp: vi.fn(),
     interrupt: vi.fn(),
   }),
+}));
+
+vi.mock("../../../catalog/sprites/index", () => ({
+  useSprites: () => ({ data: callState.sprites }),
 }));
 
 vi.mock("../../shared/chat-ui/index", () => ({
@@ -46,6 +53,8 @@ describe("VoiceCallOverlay transcript", () => {
     root = createRoot(container);
     callState.heard = "Freddy, how's the gravy today?";
     callState.said = LONG_REPLY;
+    callState.reaction = { activity: "speaking", expression: "happy" };
+    callState.sprites = [];
   });
 
   afterEach(() => {
@@ -96,5 +105,25 @@ describe("VoiceCallOverlay transcript", () => {
     callState.said = `${LONG_REPLY} One more line.`;
     render();
     expect(box.scrollTop).toBe(100);
+  });
+
+  it("shows the character's sprite for the call's reaction, and the avatar when there are no sprites", () => {
+    render();
+    expect(container.querySelector('[data-testid="voice-call-face"]')).toBeNull();
+
+    callState.sprites = [
+      { expression: "neutral", url: "neutral.png" },
+      { expression: "happy", url: "happy.png" },
+      { expression: "full_happy", url: "full-happy.png" },
+    ];
+    render();
+    const face = () => container.querySelector<HTMLImageElement>('[data-testid="voice-call-face"]');
+    expect(face()?.getAttribute("src")).toBe("happy.png");
+
+    // No "thinking" sprite: the neutral one, never a full-body pose in the call's face.
+    callState.reaction = { activity: "thinking", expression: "thinking" };
+    render();
+    expect(face()?.getAttribute("src")).toBe("neutral.png");
+    expect(face()?.dataset.activity).toBe("thinking");
   });
 });

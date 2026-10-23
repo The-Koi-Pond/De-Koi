@@ -4,6 +4,7 @@
 // The session lives here rather than in a component, so a remount of the call screen (React's development
 // double-mount included) picks the same call back up instead of opening a second microphone. When nothing has held
 // a session for a moment it is ended, which closes its microphone.
+import { followVoiceReactions, type VoiceReactions } from "../../../../engine/shared/voice-session/voice-reactions";
 import { createVoiceSession, type VoiceSession } from "../../../../engine/shared/voice-session/voice-session";
 import { holdChatAutoplay } from "../../../../shared/lib/chat-autoplay-hold";
 import { createVoiceCallPorts, type VoiceCallContext } from "./voice-call-ports";
@@ -16,6 +17,8 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>();
+/** Each call's face, following it from the start so a remounted call screen picks up the current expression. */
+const reactionsBySession = new WeakMap<VoiceSession, VoiceReactions>();
 
 /** The chat's call, created if there is none (or the last one has ended). Not started until held. */
 export function voiceCallSessionFor(context: VoiceCallContext): VoiceSession {
@@ -26,8 +29,16 @@ export function voiceCallSessionFor(context: VoiceCallContext): VoiceSession {
   }
   const entry: Entry = { session: null as unknown as VoiceSession, context, holders: 0, releaseTimer: null };
   entry.session = createVoiceSession(createVoiceCallPorts(() => entry.context));
+  reactionsBySession.set(entry.session, followVoiceReactions(entry.session));
   entries.set(context.chatId, entry);
   return entry.session;
+}
+
+/** What the character's face shows on `session`'s call. */
+export function voiceCallReactionsFor(session: VoiceSession): VoiceReactions {
+  const reactions = reactionsBySession.get(session);
+  if (!reactions) throw new Error("This voice call wasn't started through voiceCallSessionFor.");
+  return reactions;
 }
 
 /** Starts the call (once) and keeps it alive until the returned release runs. */

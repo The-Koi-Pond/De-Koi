@@ -15,9 +15,59 @@ type CachedVoiceLine = {
   size: number;
 };
 
+/**
+ * One voice line being made. Everyone who asks for it while it is on its way shares the request, but each caller
+ * waits with their own signal: a caller that gives up stops only its own wait, and the request itself is cancelled
+ * once nobody is waiting for it any more.
+ */
+interface PendingLine {
+  readonly keys: string[];
+  readonly controller: AbortController;
+  readonly promise: Promise<Blob>;
+  waiters: number;
+}
+
 const memoryCache = new Map<string, Blob>();
-const inFlight = new Map<string, Promise<Blob>>();
+const inFlight = new Map<string, PendingLine>();
 let dbPromise: Promise<IDBDatabase | null> | null = null;
+
+function abortError(): DOMException {
+  return new DOMException("The operation was aborted.", "AbortError");
+}
+
+function forgetPendingLine(line: PendingLine) {
+  for (const key of line.keys) {
+    if (inFlight.get(key) === line) inFlight.delete(key);
+  }
+}
+
+/** Waits for a shared line on behalf of one caller. Without a signal the caller waits until it is made. */
+function waitForLine(line: PendingLine, signal: AbortSignal | undefined): Promise<Blob> {
+  if (signal?.aborted) return Promise.reject(abortError());
+  line.waiters += 1;
+  if (!signal) return line.promise;
+  return new Promise<Blob>((resolve, reject) => {
+    const onAbort = () => {
+      reject(abortError());
+      line.waiters -= 1;
+      if (line.waiters > 0) return;
+      // Nobody wants this line any more: cancel its request, and let the next caller start a fresh one.
+      forgetPendingLine(line);
+      line.controller.abort();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    line.promise.then(
+      (blob) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(blob);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
 
 function rememberInMemory(key: string, blob: Blob) {
   memoryCache.delete(key);
@@ -129,10 +179,16 @@ async function getCachedTTSAudioBlob(key: string): Promise<Blob | null> {
   return persisted;
 }
 
+/**
+ * The cached audio for `key` (or one of its aliases), made with `create` when there is none. A line already being
+ * made for any of the keys is shared. `signal` is this caller's own: aborting it rejects only this call (with an
+ * AbortError), and `create`'s signal aborts once every caller waiting for the line has given up.
+ */
 export async function getOrCreateCachedTTSAudioBlob(
   key: string,
-  create: () => Promise<Blob>,
+  create: (signal: AbortSignal) => Promise<Blob>,
   aliases: string[] = [],
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const keys = [...new Set([key, ...aliases].filter(Boolean))];
 
@@ -146,17 +202,21 @@ export async function getOrCreateCachedTTSAudioBlob(
       return cached;
     }
   }
+  if (signal?.aborted) throw abortError();
 
   for (const cacheKey of keys) {
     const pending = inFlight.get(cacheKey);
     if (pending) {
-      const blob = await pending;
-      rememberInMemory(key, blob);
-      await putPersistentBlob(key, blob);
+      const blob = await waitForLine(pending, signal);
+      if (!pending.keys.includes(key)) {
+        rememberInMemory(key, blob);
+        await putPersistentBlob(key, blob);
+      }
       return blob;
     }
   }
 
+  const controller = new AbortController();
   const promise = (async () => {
     for (const cacheKey of keys) {
       const secondLook = await getCachedTTSAudioBlob(cacheKey);
@@ -168,21 +228,21 @@ export async function getOrCreateCachedTTSAudioBlob(
         return secondLook;
       }
     }
+    if (controller.signal.aborted) throw abortError();
 
-    const blob = await create();
+    const blob = await create(controller.signal);
     for (const cacheKey of keys) {
       rememberInMemory(cacheKey, blob);
       await putPersistentBlob(cacheKey, blob);
     }
     return blob;
-  })().finally(() => {
-    for (const cacheKey of keys) {
-      inFlight.delete(cacheKey);
-    }
-  });
+  })().finally(() => forgetPendingLine(line));
+  // Every waiter reads the outcome itself; a line nobody waits for any more must not report an unhandled rejection.
+  promise.catch(() => undefined);
+  const line: PendingLine = { keys, controller, promise, waiters: 0 };
 
   for (const cacheKey of keys) {
-    inFlight.set(cacheKey, promise);
+    inFlight.set(cacheKey, line);
   }
-  return promise;
+  return waitForLine(line, signal);
 }

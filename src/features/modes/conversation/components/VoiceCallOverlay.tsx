@@ -1,9 +1,13 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { VoiceReaction } from "../../../../engine/shared/voice-session/voice-reactions";
 import type { VoiceMicState } from "../../../../engine/shared/voice-session/voice-session";
 import { cn } from "../../../../shared/lib/utils";
 import { holdNotificationPingsQuiet } from "../../../../shared/lib/notification-sound";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useSprites } from "../../../catalog/sprites/index";
+import { isFullBodySpriteExpression } from "../../../runtime/visuals/sprite-display-modes";
+import { spriteUrlForExpression } from "../../../runtime/visuals/sprite-expression-lookup";
 import { useReplyWait } from "../../shared/chat-ui/index";
 import { useVoiceCall, type VoiceCallCharacter, type VoiceCallPhase } from "../hooks/use-voice-call";
 
@@ -58,6 +62,40 @@ function MicIndicator({ mic, destination }: { mic: VoiceMicState; destination: s
       )}
       {text}
     </p>
+  );
+}
+
+/**
+ * The character's face on the call. With expression sprites it follows the call (listening, thinking, the reply's
+ * mood while speaking, startled when cut off); without them it is the avatar.
+ */
+function CallFace({ character, reaction }: { character: VoiceCallOverlayProps["character"]; reaction: VoiceReaction }) {
+  const { data: sprites } = useSprites(character.id);
+  const expressionSprites = useMemo(
+    () => (sprites ?? []).filter((sprite) => !isFullBodySpriteExpression(sprite.expression)),
+    [sprites],
+  );
+  const spriteUrl = spriteUrlForExpression([expressionSprites], reaction.expression);
+  if (spriteUrl) {
+    // One image whose picture changes in place: a fade on every change would flicker each time the call moves on.
+    return (
+      <img
+        src={spriteUrl}
+        alt=""
+        data-testid="voice-call-face"
+        data-activity={reaction.activity}
+        data-expression={reaction.expression}
+        className="relative h-56 max-h-[32dvh] w-auto object-contain drop-shadow-[0_0_16px_rgba(0,0,0,0.35)]"
+      />
+    );
+  }
+  if (character.avatarUrl) {
+    return <img src={character.avatarUrl} alt="" className="relative h-36 w-36 rounded-full object-cover shadow-lg" />;
+  }
+  return (
+    <div className="relative flex h-36 w-36 items-center justify-center rounded-full bg-[var(--secondary)] text-4xl font-semibold text-[var(--foreground)]">
+      {character.name.slice(0, 1)}
+    </div>
   );
 }
 
@@ -135,13 +173,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
           )}
           style={{ transform: `scale(${ring})` }}
         />
-        {character.avatarUrl ? (
-          <img src={character.avatarUrl} alt="" className="relative h-36 w-36 rounded-full object-cover shadow-lg" />
-        ) : (
-          <div className="relative flex h-36 w-36 items-center justify-center rounded-full bg-[var(--secondary)] text-4xl font-semibold text-[var(--foreground)]">
-            {character.name.slice(0, 1)}
-          </div>
-        )}
+        <CallFace character={character} reaction={call.reaction} />
       </div>
 
       <div
