@@ -33,6 +33,7 @@ import {
   queueContinuityDirectorRefresh,
   scheduleContinuityDirectorRefresh,
 } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
+import { offerWorldTickForUserMessage } from "../modes/roleplay/world-tick/world-tick-offers";
 import {
   cancelConversationSummaryBackfill,
   queueConversationSummaryBackfill,
@@ -635,6 +636,37 @@ function savedUserMessageForTimeline(saved: unknown, chatId: string): JsonRecord
   if (readString(saved.role).trim() !== "user") return null;
   if (!readString(saved.content).trim()) return null;
   return saved;
+}
+
+/**
+ * A Roleplay message that jumps ahead in time ("*Three days later*") gets an offer to let time pass.
+ * The offer is only a note on the chat; it never holds up or changes this reply. If recording it
+ * fails, the event carries the error so the app can say so instead of the reply failing.
+ */
+async function offerWorldTickForSavedUserMessage(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  savedUserMessage: unknown,
+  messagesBeforeSave: JsonRecord[] | null,
+): Promise<GenerationEvent | null> {
+  if (readString(chat.mode).trim() !== "roleplay" || !isRecord(savedUserMessage)) return null;
+  const chatId = readString(chat.id).trim();
+  const content = readString(savedUserMessage.content);
+  if (!chatId || !content.trim()) return null;
+  try {
+    const outcome = await offerWorldTickForUserMessage(storage, {
+      chatId,
+      content,
+      previousMessageId: readString(messagesBeforeSave?.at(-1)?.id).trim() || null,
+    });
+    if (!outcome?.offered) return null;
+    return { type: "world_tick_offer", data: { chatId, offerId: outcome.offer.id } };
+  } catch (error) {
+    return {
+      type: "world_tick_offer",
+      data: { chatId, offerId: null, error: error instanceof Error ? error.message : String(error) },
+    };
+  }
 }
 
 function discordWebhookUrl(chat: JsonRecord): string {
@@ -5338,6 +5370,8 @@ async function* startGenerationImpl(
   }
   throwIfAborted(signal);
   if (savedUserMessage) yield { type: "user_message", data: savedGenerationEventData(savedUserMessage) };
+  const worldTickOffer = await offerWorldTickForSavedUserMessage(deps.storage, chat, savedUserMessage, storedMessages);
+  if (worldTickOffer) yield worldTickOffer;
   const saveUserMessageTiming = generationTimingEvent("save-user-message", saveUserMessageStartedAt, {
     savedUserMessage: !!savedUserMessage,
   });

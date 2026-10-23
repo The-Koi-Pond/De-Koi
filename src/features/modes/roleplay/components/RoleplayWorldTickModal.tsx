@@ -7,12 +7,14 @@ import type {
   WorldTickCommand,
   WorldTickEvent,
   WorldTickEventStatus,
+  WorldTickOffer,
 } from "../../../../engine/contracts/types/roleplay-world-tick";
 import { WORLD_TICK_LIMITS } from "../../../../engine/modes/roleplay/world-tick/world-tick-state";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn } from "../../../../shared/lib/utils";
 import { useWorldTick } from "../hooks/use-world-tick";
+import { worldTickOfferText } from "./RoleplayWorldTickOfferBar";
 
 interface RoleplayWorldTickModalProps {
   chatId: string;
@@ -288,7 +290,9 @@ function ReviewStep({
             {undecided > 0
               ? "Apply"
               : accepted === 0
-                ? "Apply: just move the clock"
+                ? pending.trigger === "time_skip"
+                  ? "Apply: nothing happened meanwhile"
+                  : "Apply: just move the clock"
                 : `Apply: add ${accepted === 1 ? "1 event" : `${accepted} events`} to the chat`}
           </button>
         </div>
@@ -297,25 +301,73 @@ function ReviewStep({
   );
 }
 
+function OffersToggle({
+  enabled,
+  busy,
+  onChange,
+}: {
+  enabled: boolean;
+  busy: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-2 border-t border-[var(--border)] pt-3 text-[0.6875rem] text-[var(--muted-foreground)]">
+      <input
+        type="checkbox"
+        checked={enabled}
+        disabled={busy}
+        onChange={(change) => onChange(change.target.checked)}
+        className="mt-0.5"
+      />
+      <span>
+        Offer this in this chat when a scene ends or my message skips ahead in time. It only asks; nothing happens until
+        you review it.
+      </span>
+    </label>
+  );
+}
+
 function StartStep({
   busy,
   deferredCount,
+  offer,
+  offersEnabled,
   onPropose,
+  onDismissOffer,
+  onToggleOffers,
 }: {
   busy: boolean;
   deferredCount: number;
-  onPropose: (input: { elapsed: string; guidance: string }) => void;
+  offer: WorldTickOffer | null;
+  offersEnabled: boolean;
+  onPropose: (input: { elapsed: string; guidance: string; offerId?: string | null }) => void;
+  onDismissOffer: (offerId: string) => void;
+  onToggleOffers: (enabled: boolean) => void;
 }) {
-  const [elapsed, setElapsed] = useState("");
+  const [elapsed, setElapsed] = useState(offer?.elapsed ?? "");
   const [guidance, setGuidance] = useState("");
   return (
     <form
       className="space-y-3"
       onSubmit={(submit) => {
         submit.preventDefault();
-        if (elapsed.trim()) onPropose({ elapsed: elapsed.trim(), guidance: guidance.trim() });
+        if (elapsed.trim())
+          onPropose({ elapsed: elapsed.trim(), guidance: guidance.trim(), offerId: offer?.id ?? null });
       }}
     >
+      {offer && (
+        <div className="flex items-start gap-2 rounded-lg bg-lime-500/10 px-3 py-2 text-[0.6875rem] text-[var(--foreground)] ring-1 ring-lime-500/25">
+          <span className="flex-1">{worldTickOfferText(offer)}</span>
+          <button
+            type="button"
+            onClick={() => onDismissOffer(offer.id)}
+            disabled={busy}
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[var(--muted-foreground)] hover:bg-[var(--accent)] disabled:opacity-40"
+          >
+            Not now
+          </button>
+        </div>
+      )}
       <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
         Skip ahead and see what the world got up to. You review every suggestion first; only what you accept is added to
         the chat, and nothing is decided for your character.
@@ -380,6 +432,7 @@ function StartStep({
         )}
         {busy ? "Asking what happens…" : "Suggest what happens"}
       </button>
+      <OffersToggle enabled={offersEnabled} busy={busy} onChange={onToggleOffers} />
     </form>
   );
 }
@@ -403,7 +456,7 @@ export function RoleplayWorldTickModal({
     );
   };
 
-  const propose = (input: { elapsed: string; guidance: string; replacePending?: boolean }) => {
+  const propose = (input: { elapsed: string; guidance: string; replacePending?: boolean; offerId?: string | null }) => {
     worldTick.propose.mutate(input, {
       onSuccess: (result) => {
         if (result.rejectedUnsafeEvents > 0) {
@@ -459,7 +512,16 @@ export function RoleplayWorldTickModal({
           }
         />
       ) : (
-        <StartStep busy={busy} deferredCount={state.deferred.length} onPropose={propose} />
+        <StartStep
+          key={state.offer?.id ?? "manual"}
+          busy={busy}
+          deferredCount={state.deferred.length}
+          offer={state.offer}
+          offersEnabled={state.offersEnabled}
+          onPropose={propose}
+          onDismissOffer={(offerId) => command({ type: "dismiss_offer", offerId })}
+          onToggleOffers={(enabled) => command({ type: "set_offers_enabled", enabled })}
+        />
       )}
     </Modal>
   );

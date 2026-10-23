@@ -80,5 +80,7 @@ export type GenerationEvent =
   | { type: "illustration"; data: unknown }
   | { type: "illustration_error"; data: unknown }
   | { type: "scene_created"; data: unknown }
+  /** The user's message jumped ahead in time and the chat now offers to let time pass (or failed to). */
+  | { type: "world_tick_offer"; data: { chatId: string; offerId: string | null; error?: string } }
   | { type: "message_reaction"; data: unknown }
   | { type: "done"; data?: unknown };

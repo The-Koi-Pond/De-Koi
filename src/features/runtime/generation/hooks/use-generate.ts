@@ -46,6 +46,7 @@ import type { AvatarCropValue } from "../../../../shared/lib/utils";
 import { useTrackerStateStore } from "../../world-state/index";
 import { worldStateApi, type WorldStateTarget } from "../../world-state/index";
 import { chatKeys, sanitizeTimelineMessageRecord } from "../../../catalog/chats/index";
+import { roleplayWorldTickKeys } from "../../../../shared/api/roleplay-world-tick-query-keys";
 import { characterKeys } from "../../../catalog/characters/index";
 import { personaKeys } from "../../../catalog/personas/index";
 import type { GenerationReplayInput } from "../../../../engine/generation/generation-replay";
@@ -1926,6 +1927,18 @@ export async function runGenerationWithUi(
         case "illustration_error": {
           const data = parseMaybeRecord(event.data);
           toast.error(readString(data.error, "Illustration generation failed."));
+          break;
+        }
+        case "world_tick_offer": {
+          const offerChatId = readString(event.data.chatId).trim() || chatId;
+          if (event.data.error) {
+            toast.warning("Couldn't offer to let time pass", {
+              description: `${event.data.error} Your reply is unaffected; use Let time pass in the toolbar instead.`,
+            });
+            break;
+          }
+          void queryClient.invalidateQueries({ queryKey: chatKeys.detail(offerChatId) });
+          void queryClient.invalidateQueries({ queryKey: roleplayWorldTickKeys.state(offerChatId) });
           break;
         }
         case "scene_created": {

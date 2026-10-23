@@ -19,6 +19,8 @@ import {
   reopenRoleplayScene,
 } from "../../../../engine/modes/roleplay/scene/scene-service";
 import { scheduleContinuityDirectorRefresh } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
+import { offerWorldTickAfterScene } from "../../../../engine/modes/roleplay/world-tick/world-tick-offers";
+import { roleplayWorldTickKeys } from "../../../../shared/api/roleplay-world-tick-query-keys";
 import type {
   SceneCreateRequest,
   SceneCreateResponse,
@@ -138,6 +140,19 @@ export function useScene() {
           chatId: res.originChatId,
           trigger: "scene_concluded",
         });
+
+        // A Roleplay chat the scene returns to offers to let time pass (offers only; nothing is applied).
+        try {
+          const offer = await offerWorldTickAfterScene(storageApi, { originChatId: res.originChatId, sceneChatId });
+          if (offer.offered) {
+            qc.invalidateQueries({ queryKey: chatKeys.detail(res.originChatId) });
+            qc.invalidateQueries({ queryKey: roleplayWorldTickKeys.state(res.originChatId) });
+          }
+        } catch (offerError) {
+          toast.warning("Scene concluded, but couldn't offer to let time pass", {
+            description: toUserMessage(offerError, { fallback: "Use Let time pass in the toolbar instead." }),
+          });
+        }
 
         // Navigate back to the origin conversation
         setActiveChatId(res.originChatId);
