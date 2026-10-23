@@ -58,6 +58,8 @@ export type VoiceSessionEvent =
   | { type: "phase"; sessionId: number; phase: VoiceSessionPhase }
   | { type: "mic"; sessionId: number; mic: VoiceMicState }
   | { type: "heard"; sessionId: number; turn: number; text: string }
+  /** The turn's reply so far: as it streams, then as saved. */
+  | { type: "reply"; sessionId: number; turn: number; text: string }
   | { type: "interrupted"; sessionId: number; turn: number; by: "voice" | "button" }
   | { type: "resumed"; sessionId: number; turn: number; reason: "silence" | "echo" }
   | { type: "error"; sessionId: number; message: string }
@@ -284,12 +286,14 @@ class Session<Utterance> implements VoiceSession {
         await this.until("unmute");
         continue;
       }
-      if (this.turn) {
-        await this.turn.over;
-        continue;
-      }
+      // A cut-off turn is over before the session lets go of it (that waits for its reply to fully stop), so wait
+      // for the stop first: waiting on the finished turn again would spin without ever yielding.
       if (this.stopping) {
         await this.stopping.catch(() => undefined);
+        continue;
+      }
+      if (this.turn) {
+        await this.turn.over;
         continue;
       }
       this.update({ phase: "listening", mic: "sending" });
@@ -428,7 +432,7 @@ class Session<Utterance> implements VoiceSession {
     const live = () => this.turn === turn && !turn.cancelled && !this.over;
     turn.handle = this.ports.reply.send(text, (streamed) => {
       if (!live()) return;
-      turn.replyText = streamed;
+      this.setReplyText(turn, streamed);
       speaker?.push(streamed);
       this.update(speaker?.started && !turn.pausedForUser ? { said: streamed, phase: "speaking" } : { said: streamed });
     });
@@ -453,7 +457,7 @@ class Session<Utterance> implements VoiceSession {
     }
     if (!live()) return;
     if (saved) {
-      turn.replyText = saved;
+      this.setReplyText(turn, saved);
       this.update({ said: saved });
     }
     if (turn.speaker) {
@@ -461,6 +465,12 @@ class Session<Utterance> implements VoiceSession {
       await turn.speaker.finish(saved);
     }
     if (live()) this.endTurn(turn);
+  }
+
+  private setReplyText(turn: Turn, text: string): void {
+    if (turn.replyText === text) return;
+    turn.replyText = text;
+    this.emit({ type: "reply", turn: turn.id, text });
   }
 
   private endTurn(turn: Turn): void {

@@ -85,9 +85,13 @@ export const ttsApi = {
   updateConfig: async (config: TTSConfig) =>
     invokeTauri<void>("tts_update_config", { config: ttsConfigSchema.parse(config) }),
   voices: () => invokeTauri<TTSVoicesResponse>("tts_voices"),
+  /**
+   * `signal` cancels the request on the hosted runtime. The desktop app's IPC call can't be cancelled, so there its
+   * audio is dropped when it arrives.
+   */
   speak: async (input: TtsSpeakInput, signal?: AbortSignal): Promise<Blob> => {
     throwIfAborted(signal);
-    const response = await invokeTauri<TtsSpeakResponse>("tts_speak", { input });
+    const response = await invokeTauri<TtsSpeakResponse>("tts_speak", { input }, { signal });
     throwIfAborted(signal);
     if (!isTtsSpeakResponse(response)) {
       throw new Error(ttsFailureMessage(response));
