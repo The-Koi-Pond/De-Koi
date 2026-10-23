@@ -574,7 +574,12 @@ export function ConversationView({
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [voiceCallOpen, setVoiceCallOpen] = useState(false);
+  // The chat a voice call was started in. Switching chats ends the call instead of carrying it into another chat.
+  const [voiceCallChatId, setVoiceCallChatId] = useState<string | null>(null);
+  const voiceCallOpen = voiceCallChatId === chatId;
+  useEffect(() => {
+    setVoiceCallChatId((current) => (current === chatId ? current : null));
+  }, [chatId]);
   const { generate: generateForCall } = useGenerate();
   const callCharacterId = chatCharIds[0] ?? null;
   const callCharacterInfo = callCharacterId ? characterMap.get(callCharacterId) : undefined;
@@ -931,7 +936,7 @@ export function ConversationView({
             onClick={() => {
               setMoreMenuOpen(false);
               setToolsSheetOpen(false);
-              setVoiceCallOpen(true);
+              setVoiceCallChatId(chatId);
             }}
             className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--muted-foreground)] transition-all active:scale-90 hover:bg-[var(--accent)]/30 hover:text-[var(--foreground)]"
             title={`Voice call with ${callCharacter.name}`}
@@ -977,7 +982,7 @@ export function ConversationView({
     return () => {
       setRightSlot(null);
     };
-  }, [callCharacter, moreMenuOpen, toolsSheetOpen, setRightSlot]);
+  }, [callCharacter, chatId, moreMenuOpen, toolsSheetOpen, setRightSlot]);
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Build message list with day separators ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   // Assistant messages with multiple lines are split into separate visual
@@ -1522,7 +1527,7 @@ export function ConversationView({
               {callCharacter && (
                 <button
                   type="button"
-                  onClick={() => setVoiceCallOpen(true)}
+                  onClick={() => setVoiceCallChatId(chatId)}
                   className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
                   title={`Voice call with ${callCharacter.name}`}
                   aria-label={`Voice call with ${callCharacter.name}`}
@@ -2007,7 +2012,7 @@ export function ConversationView({
           chatId={chatId}
           character={callCharacter}
           sendText={sendCallText}
-          onClose={() => setVoiceCallOpen(false)}
+          onClose={() => setVoiceCallChatId(null)}
         />
       )}
     </div>
