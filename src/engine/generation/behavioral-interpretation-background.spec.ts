@@ -505,3 +505,104 @@ describe("sparse character behavioral interpretation background", () => {
     });
   });
 });
+
+describe("character reads helper route", () => {
+  const readyClaims = {
+    claims: [
+      {
+        statement: "Mira may resist direct questions about the letter.",
+        evidenceClass: "tentative",
+        evidence: [{ field: "description", quote: "avoids direct answers about the missing letter" }],
+      },
+    ],
+  };
+  const connections = [
+    { id: "connection-1", name: "Reply", provider: "openai", model: "reply-model" },
+    { id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" },
+    { id: "local", name: "Local", provider: "custom", model: "local-model", baseUrl: "http://192.168.1.9:8080/v1" },
+  ];
+
+  function routedStorage(routing: Record<string, unknown> | null) {
+    const fake = createFakeBackgroundJobs();
+    let mira = structuredClone(character());
+    const storage = {
+      backgroundJobs: fake.gateway,
+      get: vi.fn(async (entity: string, id: string) => {
+        if (entity === "app-settings") return id === "model-routing" && routing ? { id, value: routing } : null;
+        return id === mira.id ? structuredClone(mira) : null;
+      }),
+      list: vi.fn(async (entity: string) => (entity === "connections" ? connections : [])),
+      update: vi.fn(async (_entity: string, _id: string, patch: Record<string, unknown>) => {
+        mira = { ...mira, ...patch } as Character;
+        return structuredClone(mira);
+      }),
+    } as unknown as StorageGateway;
+    return { fake, storage, mira: () => mira };
+  }
+
+  async function runQueued(routing: Record<string, unknown> | null) {
+    const { fake, storage, mira } = routedStorage(routing);
+    const requests: LlmRequest[] = [];
+    const llm = llmReturning(readyClaims, requests);
+    await queueSparseCharacterInterpretations(
+      { storage, llm },
+      { characterIds: ["mira"], connectionId: "connection-1" },
+    );
+    await vi.waitFor(() => expect(fake.finished).toHaveLength(1));
+    return { requests, finished: fake.finished, mira: mira() };
+  }
+
+  it("keeps the reply's connection when the task is not routed", async () => {
+    const { requests, mira } = await runQueued({ version: 1, routes: { status: "cheap" } });
+    expect(requests.map((request) => request.connectionId)).toEqual(["connection-1"]);
+    expect(mira.behavioralInterpretation).toMatchObject({ status: "ready", generatorConnectionId: "connection-1" });
+  });
+
+  it("reads the card on the routed connection instead of the reply's", async () => {
+    const { requests, mira } = await runQueued({ version: 1, routes: { interpretations: "cheap" } });
+    expect(requests.map((request) => request.connectionId)).toEqual(["cheap"]);
+    expect(mira.behavioralInterpretation).toMatchObject({ status: "ready", generatorConnectionId: "cheap" });
+  });
+
+  it("routes the in-tab path too", async () => {
+    const { storage, mira } = routedStorage({ version: 1, routes: { interpretations: "cheap" } });
+    const requests: LlmRequest[] = [];
+    scheduleSparseCharacterInterpretations(
+      {
+        storage: { ...storage, backgroundJobs: undefined } as StorageGateway,
+        llm: llmReturning(readyClaims, requests),
+      },
+      { characterIds: ["mira"], connectionId: "connection-1" },
+    );
+    await vi.waitFor(() => expect(mira().behavioralInterpretation?.status).toBe("ready"));
+    expect(requests.map((request) => request.connectionId)).toEqual(["cheap"]);
+  });
+
+  it.each([
+    ["a deleted connection", { version: 1, routes: { interpretations: "gone" } }],
+    ["a local-only task with no route", { version: 1, routes: {}, localOnly: ["interpretations"] }],
+    [
+      "a local-only task routed to a remote connection",
+      { version: 1, routes: { interpretations: "cheap" }, localOnly: ["interpretations"] },
+    ],
+  ])(
+    "stops on %s without a model call or a saved failure, so the card is read once the route is fixed",
+    async (_label, routing) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const { requests, finished, mira } = await runQueued(routing);
+      expect(requests).toEqual([]);
+      expect(finished).toEqual([{ jobId: "character-interpretation:mira", outcome: "failed", error: null }]);
+      expect(mira.behavioralInterpretation).toBeUndefined();
+      warning.mockRestore();
+    },
+  );
+
+  it("runs a local-only task on its local route", async () => {
+    const { requests } = await runQueued({
+      version: 1,
+      routes: { interpretations: "local" },
+      localOnly: ["interpretations"],
+    });
+    expect(requests.map((request) => request.connectionId)).toEqual(["local"]);
+  });
+});

@@ -10,6 +10,8 @@ import {
   MODEL_ROUTE_TASKS,
   checkModelRoute,
   modelRouteProblemSentence,
+  type ModelRouteCheck,
+  type ModelRouteProblem,
   type ModelRouteTask,
 } from "../../../../engine/generation/model-routing";
 import { boolish, readString, type JsonRecord } from "../../../../engine/generation/runtime-records";
@@ -19,6 +21,10 @@ const TASK_SCOPE: Record<ModelRouteTask, string> = {
   summaries: "Story recaps, daily chat summaries, and Summarize chat.",
   habitCheck: "Spotting the habits a character's replies keep repeating.",
   judge: "The judge a fic's quality check starts on. A fic with earlier runs keeps its last judge.",
+  responder: "Picking who answers in a group chat, and whether the next one still has something to add.",
+  status: "The short status lines under each Conversation character.",
+  schedules: "Writing each Conversation character's weekly schedule.",
+  interpretations: "Reading a thin Roleplay character card to pin down how they act.",
 };
 
 function connectionLabel(connection: JsonRecord): string {
@@ -30,32 +36,49 @@ function connectionLabel(connection: JsonRecord): string {
 /** What an unrouted task uses, in words: the rule it followed before helper routing existed. */
 function sameAsTodayText(task: ModelRouteTask, agentDefault: JsonRecord | null): string {
   if (task === "judge") return "Same as today: each fic's connection.";
-  if (task === "habitCheck" || !agentDefault) return "Same as today: each chat's connection.";
-  if (task === "memory") {
+  if (task === "memory" && agentDefault) {
     return `Same as today: Default for Agents (${connectionLabel(agentDefault)}), else each chat's connection.`;
   }
-  return `Same as today: each chat's connection. Summarize chat uses Default for Agents (${connectionLabel(agentDefault)}) first.`;
+  if (task === "summaries" && agentDefault) {
+    return `Same as today: each chat's connection. Summarize chat uses Default for Agents (${connectionLabel(agentDefault)}) first.`;
+  }
+  return "Same as today: each chat's connection.";
+}
+
+function problemHint(problem: ModelRouteProblem): string {
+  return problem === "not_local" || problem === "no_local_route"
+    ? `It won't run until you pick a connection on this device or network, or untick "Keep on my device".`
+    : `It won't run until you pick another connection or "Same as today".`;
 }
 
 function HelperRouteRow({
   task,
   routedId,
+  localOnly,
   connections,
   agentDefault,
   saving,
   onChange,
+  onLocalOnlyChange,
 }: {
   task: ModelRouteTask;
   routedId: string | null;
+  localOnly: boolean;
   connections: JsonRecord[];
   agentDefault: JsonRecord | null;
   saving: boolean;
   onChange: (connectionId: string | null) => void;
+  onLocalOnlyChange: (localOnly: boolean) => void;
 }) {
   const selectId = useId();
   const statusId = useId();
+  const localId = useId();
   const label = MODEL_ROUTE_TASK_LABELS[task];
-  const check = routedId ? checkModelRoute(routedId, connections) : null;
+  const check: ModelRouteCheck | null = routedId
+    ? checkModelRoute(routedId, connections, { localOnly })
+    : localOnly
+      ? { ok: false, problem: "no_local_route" }
+      : null;
   const textConnections = connections.filter((connection) => readString(connection.provider) !== "image_generation");
   const routedListed = !!routedId && textConnections.some((connection) => readString(connection.id) === routedId);
   const named = routedId ? connections.find((connection) => readString(connection.id) === routedId) : undefined;
@@ -86,6 +109,17 @@ function HelperRouteRow({
           </option>
         )}
       </select>
+      <label htmlFor={localId} className="flex items-center gap-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+        <input
+          id={localId}
+          type="checkbox"
+          checked={localOnly}
+          disabled={saving}
+          onChange={(event) => onLocalOnlyChange(event.target.checked)}
+          className="h-3 w-3 accent-emerald-500 disabled:cursor-wait"
+        />
+        Keep on my device
+      </label>
       <p
         id={statusId}
         className={
@@ -98,7 +132,7 @@ function HelperRouteRow({
           ? sameAsTodayText(task, agentDefault)
           : check.ok
             ? `Uses ${connectionLabel(check.connection)}.`
-            : `${modelRouteProblemSentence(task, check.problem, readString(named?.name).trim() || routedId!)} It won't run until you pick another connection or "Same as today".`}
+            : `${modelRouteProblemSentence(task, check.problem, readString(named?.name).trim() || routedId || "")} ${problemHint(check.problem)}`}
       </p>
     </div>
   );
@@ -120,6 +154,12 @@ export function HelperModelsCard() {
   const saveRoute = useMutation({
     mutationFn: ({ task, connectionId }: { task: ModelRouteTask; connectionId: string | null }) =>
       modelRoutingApi.setRoute(task, connectionId),
+    onSuccess: (next) => queryClient.setQueryData(modelRoutingKeys.settings, next),
+    meta: { errorMessage: "Couldn't save the helper model. Try again." },
+  });
+  const saveLocalOnly = useMutation({
+    mutationFn: ({ task, localOnly }: { task: ModelRouteTask; localOnly: boolean }) =>
+      modelRoutingApi.setLocalOnly(task, localOnly),
     onSuccess: (next) => queryClient.setQueryData(modelRoutingKeys.settings, next),
     meta: { errorMessage: "Couldn't save the helper model. Try again." },
   });
@@ -171,14 +211,20 @@ export function HelperModelsCard() {
               key={task}
               task={task}
               routedId={settings.routes[task] ?? null}
+              localOnly={settings.localOnly?.includes(task) ?? false}
               connections={connections}
               agentDefault={agentDefault}
-              saving={saveRoute.isPending}
+              saving={saveRoute.isPending || saveLocalOnly.isPending}
               onChange={(connectionId) => saveRoute.mutate({ task, connectionId })}
+              onLocalOnlyChange={(localOnly) => saveLocalOnly.mutate({ task, localOnly })}
             />
           ))}
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
             An agent with its own connection keeps it, including the Chat Summary agent for Summarize chat.
+          </p>
+          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+            Keep on my device: that helper only runs on the Local Model or a connection on this computer or home
+            network. With no such connection picked, it stops instead of sending anything elsewhere.
           </p>
         </div>
       )}

@@ -16,7 +16,9 @@ import type {
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import { parseJsonObject } from "../../core/json";
 import {
+  assertLocalOnlyConnection,
   isModelRouteError,
+  readModelRoutingSettings,
   resolveModelRoute,
   resolveStoredModelRoute,
   type ModelRoutingSettings,
@@ -769,8 +771,8 @@ const VERIFY_MAX_TOKENS = 4000;
 
 /**
  * The judge the quality panel starts on: the fic's last judge (so scores stay comparable), then the fanfic judge
- * helper route, then the fic's connection, then the first text connection. A broken route picks nothing and says
- * why, instead of quietly starting on another connection.
+ * helper route, then the fic's connection, then the first text connection. A broken route, or a local-only judge
+ * whose pick is not local, picks nothing and says why, instead of quietly starting on another connection.
  */
 export function chooseFanficJudge(input: {
   lastJudgeId: string | null;
@@ -780,8 +782,12 @@ export function chooseFanficJudge(input: {
   connections: readonly JsonRecord[];
 }): { judgeId: string | null; routeProblem: string | null } {
   const listed = (id: string | null): id is string => !!id && input.judgeIds.includes(id);
-  if (listed(input.lastJudgeId)) return { judgeId: input.lastJudgeId, routeProblem: null };
   try {
+    if (listed(input.lastJudgeId)) {
+      const lastJudge = input.connections.find((connection) => readString(connection.id).trim() === input.lastJudgeId);
+      assertLocalOnlyConnection("judge", input.routing, input.lastJudgeId, lastJudge);
+      return { judgeId: input.lastJudgeId, routeProblem: null };
+    }
     const routed = resolveModelRoute("judge", input.routing, input.connections);
     if (routed) return { judgeId: readString(routed.id).trim(), routeProblem: null };
   } catch (error) {
@@ -824,6 +830,8 @@ export async function runFanficQualityCheck(
   const connection = await loadFanficConnection(deps.storage, connectionId);
   if (!isRecord(connection))
     throw userFacingError("That judge connection no longer exists. Pick another one to judge with.");
+  // A judge picked by hand outranks the route, but a local-only judge still stays local.
+  assertLocalOnlyConnection("judge", await readModelRoutingSettings(deps.storage), connectionId, connection);
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord)).map((chapter) => chapter.content);

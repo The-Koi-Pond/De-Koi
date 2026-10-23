@@ -18,7 +18,7 @@ vi.mock("../../../catalog/connections", () => ({
 
 vi.mock("../../../../shared/api/model-routing-api", () => ({
   modelRoutingKeys: { settings: ["model-routing"] },
-  modelRoutingApi: { get: vi.fn(), setRoute: vi.fn() },
+  modelRoutingApi: { get: vi.fn(), setRoute: vi.fn(), setLocalOnly: vi.fn() },
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -80,6 +80,9 @@ describe("HelperModelsCard", () => {
     );
     expect(status("Habit check")).toBe("Same as today: each chat's connection.");
     expect(status("Fanfic judge")).toBe("Same as today: each fic's connection.");
+    for (const name of ["Group responder", "Status blurbs", "Schedules", "Character reads"]) {
+      expect(status(name)).toBe("Same as today: each chat's connection.");
+    }
     expect(Array.from(select("Memory").options).map((option) => option.textContent)).toEqual([
       "Same as today",
       "Strong • big-model",
@@ -157,5 +160,42 @@ describe("HelperModelsCard", () => {
 
     expect(modelRoutingApi.setRoute).toHaveBeenCalledWith("memory", null);
     expect(select("Memory").value).toBe("");
+  });
+
+  function keepLocal(name: string): HTMLInputElement {
+    return select(name).parentElement!.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  }
+
+  it("marks a helper to stay on this device and says it needs a local connection", async () => {
+    vi.mocked(modelRoutingApi.get).mockResolvedValue({ version: 1, routes: {} });
+    vi.mocked(modelRoutingApi.setLocalOnly).mockResolvedValue({ version: 1, routes: {}, localOnly: ["status"] });
+    await render();
+
+    expect(keepLocal("Status blurbs").checked).toBe(false);
+    await act(async () => {
+      keepLocal("Status blurbs").click();
+    });
+    await flush();
+
+    expect(modelRoutingApi.setLocalOnly).toHaveBeenCalledWith("status", true);
+    expect(keepLocal("Status blurbs").checked).toBe(true);
+    expect(status("Status blurbs")).toBe(
+      `The Status blurbs helper must stay on your device, but has no connection on your device picked. It won't run until you pick a connection on this device or network, or untick "Keep on my device".`,
+    );
+    expect(status("Schedules")).toBe("Same as today: each chat's connection.");
+  });
+
+  it("flags a local-only helper routed off the device, and accepts the Local Model", async () => {
+    vi.mocked(modelRoutingApi.get).mockResolvedValue({
+      version: 1,
+      routes: { responder: "cheap", interpretations: "sidecar:local" },
+      localOnly: ["responder", "interpretations"],
+    });
+    await render();
+
+    expect(status("Group responder")).toBe(
+      `The Group responder helper must stay on your device, but "Cheap" sends work off it. It won't run until you pick a connection on this device or network, or untick "Keep on my device".`,
+    );
+    expect(status("Character reads")).toBe("Uses Local Model • local-sidecar.");
   });
 });

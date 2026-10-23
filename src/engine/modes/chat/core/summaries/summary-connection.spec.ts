@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import type { StorageGateway } from "../../../../capabilities/storage";
 import { resolveChatSummaryConnectionId } from "./summary-connection";
 
-function storage(input: { agents?: unknown[]; connections: unknown[]; routes?: Record<string, string> }) {
+function storage(input: {
+  agents?: unknown[];
+  connections: unknown[];
+  routes?: Record<string, string>;
+  localOnly?: string[];
+}) {
   return {
     async get(entity: string, id: string) {
       return entity === "app-settings" && id === "model-routing" && input.routes
-        ? { id, value: { version: 1, routes: input.routes } }
+        ? { id, value: { version: 1, routes: input.routes, localOnly: input.localOnly } }
         : null;
     },
     async list(entity: string) {
@@ -50,6 +55,25 @@ describe("resolveChatSummaryConnectionId", () => {
         { connectionId: "chat-connection" },
       ),
     ).resolves.toBe("chat-connection");
+  });
+
+  it("keeps a local-only Summaries helper off the agent's own remote connection", async () => {
+    const withLocal = [
+      ...connections,
+      { id: "ollama", provider: "custom", model: "m", baseUrl: "http://ollama:11434" },
+    ];
+    const ask = (agentConnectionId: string) =>
+      resolveChatSummaryConnectionId(
+        storage({
+          agents: [{ id: "chat-summary", connectionId: agentConnectionId }],
+          connections: withLocal,
+          routes: { summaries: "ollama" },
+          localOnly: ["summaries"],
+        }),
+        { connectionId: "chat-connection" },
+      );
+    await expect(ask("chat-connection")).rejects.toMatchObject({ name: "ModelRouteError", problem: "not_local" });
+    await expect(ask("ollama")).resolves.toBe("ollama");
   });
 
   it("refuses a broken summaries route instead of using Default for Agents", async () => {
