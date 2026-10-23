@@ -53,6 +53,8 @@ import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { fanficResearchApi } from "../../../../shared/api/fanfic-research-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { llmApi } from "../../../../shared/api/llm-api";
+import { modelRoutingKeys } from "../../../../shared/api/model-routing-api";
+import type { FanficJudgeRule } from "../../../../engine/modes/fanfic/quality";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 
@@ -162,17 +164,20 @@ export function useFanficRequestSave(chatId: string) {
   });
 }
 
-/** Plans the fic (research first when the request asked for it) and reports which step is running. */
+/**
+ * Plans the fic (research first when the request asked for it) and reports which step is running. Planning runs on
+ * the Fanfic planning helper route, else the fic's connection.
+ */
 export function useFanficOutline(chatId: string) {
   const queryClient = useQueryClient();
   const updateChat = useUpdateChat();
   const [phase, setPhase] = useState<FanficPlanningPhase | null>(null);
   const mutation = useMutation({
     meta: { handlesOwnErrors: true },
-    mutationFn: ({ connectionId, signal }: { connectionId: string | null; signal?: AbortSignal }) =>
+    mutationFn: ({ signal }: { signal?: AbortSignal }) =>
       planFanfic(
         { storage: storageApi, llm: llmApi, web: fanficResearchApi },
-        { chatId, connectionId },
+        { chatId },
         { signal, onPhase: setPhase, onWarning: (message) => toast.warning(message) },
       ).finally(() => setPhase(null)),
     onSuccess: async (state: FanficState) => {
@@ -187,6 +192,7 @@ export function useFanficOutline(chatId: string) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       toast.error(toUserMessage(error, { fallback: "The outline couldn't be written. Try again." }));
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs }),
   });
   return { ...mutation, phase };
 }
@@ -199,12 +205,20 @@ export function useFanficQuality(chatId: string) {
   const refresh = () => queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
   const run = useMutation({
     meta: { handlesOwnErrors: true },
-    mutationFn: ({ connectionId, label }: { connectionId: string | null; label: string }) => {
+    mutationFn: ({
+      connectionId,
+      rule,
+      label,
+    }: {
+      connectionId: string | null;
+      rule: FanficJudgeRule | null;
+      label: string;
+    }) => {
       const controller = new AbortController();
       controllerRef.current = controller;
       return runFanficQualityCheck(
         { storage: storageApi, llm: llmApi },
-        { chatId, connectionId, label },
+        { chatId, connectionId, rule, label },
         { signal: controller.signal, onPhase: setPhase },
       ).finally(() => {
         setPhase(null);
@@ -216,6 +230,7 @@ export function useFanficQuality(chatId: string) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       toast.error(toUserMessage(error, { fallback: "The quality check couldn't finish. Try again." }));
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs }),
   });
   const remove = useMutation({
     meta: { handlesOwnErrors: true },
@@ -242,8 +257,11 @@ export interface FanficLedgerController {
   progress: FanficLedgerProgress | null;
 }
 
-/** Keeps the story ledger current; one per open fic so the reader panel and after-chapter updates share progress. */
-export function useFanficLedger(chatId: string, connectionId: string | null): FanficLedgerController {
+/**
+ * Keeps the story ledger current; one per open fic so the reader panel and after-chapter updates share progress. Runs
+ * on the Fanfic checks helper route, else the fic's connection.
+ */
+export function useFanficLedger(chatId: string): FanficLedgerController {
   const queryClient = useQueryClient();
   const [progress, setProgress] = useState<FanficLedgerProgress | null>(null);
   const [running, setRunning] = useState(false);
@@ -256,7 +274,7 @@ export function useFanficLedger(chatId: string, connectionId: string | null): Fa
       setRunning(true);
       void updateFanficLedger(
         { storage: storageApi, llm: llmApi },
-        { chatId, connectionId, onlyIfInUse: quiet },
+        { chatId, onlyIfInUse: quiet },
         { signal: controller.signal, onProgress: setProgress },
       )
         .catch((error: unknown) => {
@@ -270,9 +288,10 @@ export function useFanficLedger(chatId: string, connectionId: string | null): Fa
           setRunning(false);
           setProgress(null);
           void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+          void queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs });
         });
     },
-    [chatId, connectionId, queryClient],
+    [chatId, queryClient],
   );
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   useEffect(() => () => controllerRef.current?.abort(), [chatId]);
@@ -335,6 +354,7 @@ function useFanficChapterCheck<Result extends FanficChapterCheckResult, Phase ex
           setPhase(null);
           // A continuity check can update the ledger first.
           void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+          void queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs });
         });
     },
     [chatId, copy.failed, queryClient],
@@ -390,32 +410,24 @@ export type FanficContinuityController = FanficChapterCheckController<
 const CONTINUITY_COPY = { failed: "The continuity check failed.", one: "slip", many: "slips" };
 const VOICE_COPY = { failed: "The voice check failed.", one: "line", many: "lines" };
 
-/** Per-chapter continuity checks for the open fic, kept while the reader is open. */
-export function useFanficContinuity(chatId: string, connectionId: string | null): FanficContinuityController {
+/** Per-chapter continuity checks for the open fic, kept while the reader is open; on the Fanfic checks route. */
+export function useFanficContinuity(chatId: string): FanficContinuityController {
   const run = useCallback(
     (messageId: string, signal: AbortSignal, onPhase: (phase: FanficContinuityPhase) => void) =>
-      checkFanficChapterContinuity(
-        { storage: storageApi, llm: llmApi },
-        { chatId, messageId, connectionId },
-        { signal, onPhase },
-      ),
-    [chatId, connectionId],
+      checkFanficChapterContinuity({ storage: storageApi, llm: llmApi }, { chatId, messageId }, { signal, onPhase }),
+    [chatId],
   );
   return useFanficChapterCheck(chatId, run, CONTINUITY_COPY);
 }
 
 export type FanficVoiceCheckController = FanficChapterCheckController<FanficChapterVoiceCheck, FanficVoiceCheckPhase>;
 
-/** Per-chapter out-of-character checks against the fic's voice sheets. */
-export function useFanficVoiceCheck(chatId: string, connectionId: string | null): FanficVoiceCheckController {
+/** Per-chapter out-of-character checks against the fic's voice sheets; on the Fanfic checks route. */
+export function useFanficVoiceCheck(chatId: string): FanficVoiceCheckController {
   const run = useCallback(
     (messageId: string, signal: AbortSignal, onPhase: (phase: FanficVoiceCheckPhase) => void) =>
-      checkFanficChapterVoice(
-        { storage: storageApi, llm: llmApi },
-        { chatId, messageId, connectionId },
-        { signal, onPhase },
-      ),
-    [chatId, connectionId],
+      checkFanficChapterVoice({ storage: storageApi, llm: llmApi }, { chatId, messageId }, { signal, onPhase }),
+    [chatId],
   );
   return useFanficChapterCheck(chatId, run, VOICE_COPY);
 }
@@ -435,8 +447,8 @@ export interface FanficVoicesController {
   phase: FanficVoicePhase | null;
 }
 
-/** Builds (or rebuilds) the fic's voice sheets, reporting the step. */
-export function useFanficVoices(chatId: string, connectionId: string | null): FanficVoicesController {
+/** Builds (or rebuilds) the fic's voice sheets, reporting the step; on the Fanfic planning route. */
+export function useFanficVoices(chatId: string): FanficVoicesController {
   const queryClient = useQueryClient();
   const [phase, setPhase] = useState<FanficVoicePhase | null>(null);
   const [running, setRunning] = useState(false);
@@ -448,7 +460,7 @@ export function useFanficVoices(chatId: string, connectionId: string | null): Fa
     setRunning(true);
     void buildFanficVoiceSheets(
       { storage: storageApi, llm: llmApi, web: fanficResearchApi },
-      { chatId, connectionId },
+      { chatId },
       { signal: controller.signal, onPhase: setPhase },
     )
       .then((result) => toast.success(voicesReadyMessage(result)))
@@ -461,8 +473,9 @@ export function useFanficVoices(chatId: string, connectionId: string | null): Fa
         setRunning(false);
         setPhase(null);
         void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+        void queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs });
       });
-  }, [chatId, connectionId, queryClient]);
+  }, [chatId, queryClient]);
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   useEffect(() => () => controllerRef.current?.abort(), [chatId]);
   return { build, stop, running, phase };
@@ -479,8 +492,11 @@ export interface FanficEditorController {
   progress: FanficLedgerProgress | null;
 }
 
-/** The editor pass and its scene rewrites for the open fic; one job at a time. */
-export function useFanficEditor(chatId: string, connectionId: string | null): FanficEditorController {
+/**
+ * The editor pass and its scene rewrites for the open fic; one job at a time. The pass runs on the Fanfic checks
+ * route; rewrites are writing, so they stay on the fic's connection.
+ */
+export function useFanficEditor(chatId: string): FanficEditorController {
   const queryClient = useQueryClient();
   const [running, setRunning] = useState<"pass" | string | null>(null);
   const [progress, setProgress] = useState<FanficLedgerProgress | null>(null);
@@ -506,6 +522,7 @@ export function useFanficEditor(chatId: string, connectionId: string | null): Fa
           setProgress(null);
           void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
           void queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
+          void queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs });
         });
     },
     [chatId, queryClient],
@@ -518,14 +535,14 @@ export function useFanficEditor(chatId: string, connectionId: string | null): Fa
         async (signal) => {
           await runFanficEditorPass(
             { storage: storageApi, llm: llmApi },
-            { chatId, connectionId, messageIds },
+            { chatId, messageIds },
             { signal, onProgress: setProgress },
           );
           return null;
         },
         "The editor pass failed.",
       ),
-    [chatId, connectionId, start],
+    [chatId, start],
   );
 
   const rewrite = useCallback(
@@ -535,7 +552,7 @@ export function useFanficEditor(chatId: string, connectionId: string | null): Fa
         async (signal) => {
           const { rewritten, skipped } = await rewriteFanficFlaggedScenes(
             { storage: storageApi, llm: llmApi },
-            { chatId, report, connectionId },
+            { chatId, report },
             { signal, onProgress: setProgress },
           );
           await queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
@@ -545,7 +562,7 @@ export function useFanficEditor(chatId: string, connectionId: string | null): Fa
         },
         "The rewrite failed.",
       ),
-    [chatId, connectionId, queryClient, start],
+    [chatId, queryClient, start],
   );
 
   const stop = useCallback(() => controllerRef.current?.abort(), []);
@@ -562,8 +579,8 @@ export interface FanficPlanController {
   dismiss: () => Promise<void>;
 }
 
-/** The living outline: suggestions for the rest of the plan, made after each chapter or on request. */
-export function useFanficPlan(chatId: string, connectionId: string | null): FanficPlanController {
+/** The living outline: suggestions for the rest of the plan, made after each chapter or on request (planning route). */
+export function useFanficPlan(chatId: string): FanficPlanController {
   const queryClient = useQueryClient();
   const [running, setRunning] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
@@ -573,11 +590,7 @@ export function useFanficPlan(chatId: string, connectionId: string | null): Fanf
       const controller = new AbortController();
       controllerRef.current = controller;
       setRunning(true);
-      void proposeFanficPlan(
-        { storage: storageApi, llm: llmApi },
-        { chatId, connectionId, steer },
-        { signal: controller.signal },
-      )
+      void proposeFanficPlan({ storage: storageApi, llm: llmApi }, { chatId, steer }, { signal: controller.signal })
         .catch((error: unknown) => {
           if (isAbort(error)) return;
           const message = toUserMessage(error, { fallback: "The plan couldn't be updated. Try again." });
@@ -588,9 +601,10 @@ export function useFanficPlan(chatId: string, connectionId: string | null): Fanf
           if (controllerRef.current === controller) controllerRef.current = null;
           setRunning(false);
           void queryClient.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+          void queryClient.invalidateQueries({ queryKey: modelRoutingKeys.runs });
         });
     },
-    [chatId, connectionId, queryClient],
+    [chatId, queryClient],
   );
   const stop = useCallback(() => controllerRef.current?.abort(), []);
   useEffect(() => () => controllerRef.current?.abort(), [chatId]);

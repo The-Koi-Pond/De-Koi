@@ -15,7 +15,9 @@ import {
   fanficMessageChars,
   FanficReplyParseError,
   parseFanficJsonReply,
-  loadFanficConnection,
+  FANFIC_CONNECTION_GONE,
+  FANFIC_NO_CONNECTION,
+  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { readFanficState } from "./request";
@@ -262,11 +264,13 @@ export async function proposeFanficPlan(
   if (readString(chat.mode) !== "fanfic") throw new Error("Plans are only kept for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state?.outline || !state.outlineApproved) throw userFacingError("Approve the outline first.");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for this fic first.");
-  const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection))
-    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
+  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficPlanning", chat, {
+    chatId: input.chatId,
+    connectionId: input.connectionId,
+    job: "living outline",
+    missing: FANFIC_NO_CONNECTION,
+    gone: FANFIC_CONNECTION_GONE,
+  });
   const chapters = fanficChapterRefs((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
   if (chapters.length === 0) throw userFacingError("Write the first chapter before re-planning.");
 
@@ -278,7 +282,7 @@ export async function proposeFanficPlan(
       ? state.outline.chapters.filter((chapter) => chapter.number > chapters.length).map((chapter) => chapter.number)
       : [chapters.length + 1];
   const frame = buildFanficPlanMessages({ state, written: chapters.length, story: "", steer });
-  const budget = fanficCallBudget(effectiveMaxContext(connection, {}), {
+  const budget = fanficCallBudget(connection ? effectiveMaxContext(connection, {}) : 0, {
     maxReplyTokens: PLAN_MAX_TOKENS,
     fixedChars: fanficMessageChars(frame),
     defaultChars: 400_000,

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { BookMarked, Loader2, Square } from "lucide-react";
 import { useChat } from "../../../catalog/chats/index";
+import { HelperRunNote } from "../../../catalog/connections/index";
 import type { FanficLedgerEntry, FanficLedgerFact } from "../../../../engine/contracts/types/fanfic";
 import { fanficLedgerStatus, readFanficLedger } from "../../../../engine/modes/fanfic/ledger";
 import { fanficChapterViewRefs, type FanficChapterView, type FanficLedgerController } from "../hooks/use-fanfic";
@@ -46,6 +47,8 @@ function StandingFacts({ entry }: { entry: FanficLedgerEntry }) {
     </div>
   );
 }
+
+const NOTE_CLASS = "mt-1 text-[0.6875rem] leading-snug text-[var(--muted-foreground)]";
 
 /**
  * The story ledger: where things stand after the latest chapter it covers, and a line per chapter. Chapters are
@@ -99,6 +102,7 @@ export function FanficLedgerPanel({
           When a fic gets too long for the model to read every chapter, it gets the ledger and the latest chapters
           instead.
         </p>
+        <HelperRunNote task="fanficChecks" job="story ledger" chatId={chatId} className={NOTE_CLASS} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[0.8125rem] text-[var(--foreground)]" role="status">

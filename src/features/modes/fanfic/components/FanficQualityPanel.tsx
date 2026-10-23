@@ -23,6 +23,7 @@ import { applyInlineMarkdown } from "../../../../shared/lib/markdown";
 import { cn } from "../../../../shared/lib/utils";
 import { useFanficQuality } from "../hooks/use-fanfic";
 import { FanficButton, fanficInputClass } from "./fanfic-ui";
+import { HelperRunNote } from "../../../catalog/connections/index";
 
 const PHASE_LABELS: Record<FanficQualityPhase, string> = {
   counting: "Counting habits and repeats…",
@@ -421,6 +422,7 @@ export function FanficQualityPanel({
             routeProblem: routing.isError
               ? toUserMessage(routing.error, { fallback: "Couldn't load your helper models. Pick a judge." })
               : null,
+            rule: null,
           },
     [connectionId, judges, lastJudge, routing.data, routing.error, routing.isError],
   );
@@ -502,6 +504,7 @@ export function FanficQualityPanel({
               {choice.routeProblem}
             </p>
           )}
+          <HelperRunNote task="judge" chatId={chatId} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <label htmlFor="fanfic-quality-label" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
@@ -529,7 +532,8 @@ export function FanficQualityPanel({
             disabled={busy || !activeJudge || chapterTexts.length === 0}
             onClick={() =>
               run.mutate(
-                { connectionId: activeJudge, label },
+                // A judge changed by hand is "picked"; otherwise it's whatever chooseFanficJudge started on.
+                { connectionId: activeJudge, rule: judgeId ? "picked" : choice.rule, label },
                 {
                   onSuccess: () => {
                     setLabel("");

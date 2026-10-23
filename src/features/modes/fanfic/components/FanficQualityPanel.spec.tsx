@@ -12,6 +12,7 @@ vi.mock("../../../catalog/chats/index", () => ({
 }));
 
 vi.mock("../../../catalog/connections/index", () => ({
+  HelperRunNote: () => null,
   useConnections: () => ({
     data: [
       { id: "conn-1", name: "Writer", provider: "anthropic", model: "big" },
@@ -81,7 +82,7 @@ describe("FanficQualityPanel judge choice", () => {
 
     expect(judgeSelect().value).toBe("conn-2");
     act(() => scoreButton().click());
-    expect(mutate).toHaveBeenCalledWith({ connectionId: "conn-2", label: "" }, expect.anything());
+    expect(mutate).toHaveBeenCalledWith({ connectionId: "conn-2", rule: "route", label: "" }, expect.anything());
   });
 
   it("starts on the fic's connection when the judge is not routed", async () => {
@@ -107,5 +108,8 @@ describe("FanficQualityPanel judge choice", () => {
     });
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(scoreButton().disabled).toBe(false);
+    // A judge changed by hand is noted as picked for this run, not as the route.
+    act(() => scoreButton().click());
+    expect(mutate).toHaveBeenCalledWith({ connectionId: "conn-1", rule: "picked", label: "" }, expect.anything());
   });
 });

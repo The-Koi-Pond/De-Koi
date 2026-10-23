@@ -28,7 +28,9 @@ import {
   FanficWindowTooSmallError,
   parseFanficJsonReply,
   type FanficCallBudget,
-  loadFanficConnection,
+  FANFIC_CONNECTION_GONE,
+  noteFanficHelperRun,
+  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, stripFanficChapterHeading } from "./prompts";
 import {
@@ -476,11 +478,18 @@ export async function checkFanficChapterContinuity(
   if (readString(chat.mode) !== "fanfic") throw new Error("Continuity checks only run for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for the continuity check.");
-  const connection = await loadFanficConnection(deps.storage, connectionId);
-  if (!isRecord(connection))
-    throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
+  // Noted after any ledger update below, so the last run names this check, not the ledger it waited on.
+  const pickInput = {
+    chatId: input.chatId,
+    connectionId: input.connectionId,
+    job: "continuity check",
+    missing: "Pick a connection for the continuity check.",
+    gone: FANFIC_CONNECTION_GONE,
+    note: false,
+  };
+  const pick = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
+  const { connectionId, connection } = pick;
+  if (!connection) throw userFacingError(pickInput.missing);
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord));
@@ -492,7 +501,12 @@ export async function checkFanficChapterContinuity(
   let context = contextFor(chapters, target, readFanficLedger(chat.metadata), budget.proseChars);
   if (context === "needs_ledger") {
     onPhase?.("updating_ledger");
-    const ledger = await updateFanficLedger(deps, { chatId: input.chatId, connectionId }, { signal });
+    // The ledger makes the same pick itself, unless this check was handed a connection.
+    const ledger = await updateFanficLedger(
+      deps,
+      { chatId: input.chatId, connectionId: pick.rule === "picked" ? connectionId : null },
+      { signal },
+    );
     context = contextFor(chapters, target, ledger, budget.proseChars);
     if (context === "needs_ledger")
       throw userFacingError("The story ledger couldn't cover the earlier chapters. Try the check again.");
@@ -502,6 +516,7 @@ export async function checkFanficChapterContinuity(
   }
   const checkContext = context;
 
+  await noteFanficHelperRun(deps.storage, "fanficChecks", pickInput, pick);
   onPhase?.("checking");
   const sweeps = await Promise.all(
     FANFIC_CONTINUITY_SWEEPS.map((categories) =>
