@@ -31,6 +31,7 @@ import {
   ArrowRightLeft,
   GitBranch,
   Globe,
+  Hourglass,
   Sparkles,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
@@ -137,6 +138,11 @@ const AuthorNotesPanel = lazy(async () => {
 const RoleplayContinuityDirectorModal = lazy(async () => {
   const module = await import("./RoleplayContinuityDirectorModal");
   return { default: module.RoleplayContinuityDirectorModal };
+});
+
+const RoleplayWorldTickModal = lazy(async () => {
+  const module = await import("./RoleplayWorldTickModal");
+  return { default: module.RoleplayWorldTickModal };
 });
 
 const PANEL_BACKDROP =
@@ -396,6 +402,25 @@ export function ContinuityDirectorReviewEntryPoint({
       </div>
       <span className="text-sm font-medium text-[var(--foreground)]">{title}</span>
       <ContinuityDirectorReviewBadge count={count} decorative />
+    </button>
+  );
+}
+
+export function WorldTickEntryPoint({ onOpen, variant }: { onOpen: () => void; variant: "desktop" | "mobile" }) {
+  const title = "Let time pass";
+  if (variant === "desktop") {
+    return <RpToolbarButton icon={<Hourglass size="0.875rem" />} title={title} ariaLabel={title} onClick={onOpen} />;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+    >
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-lime-500 to-green-600 text-white shadow-sm">
+        <Hourglass size="0.9rem" />
+      </div>
+      <span className="text-sm font-medium text-[var(--foreground)]">{title}</span>
     </button>
   );
 }
@@ -889,6 +914,7 @@ export function ChatRoleplaySurface({
 }: RoleplaySurfaceProps) {
   const [summaryDraft, setSummaryDraft] = useState<SaveMomentSummaryDraft | null>(null);
   const [continuityDirectorOpen, setContinuityDirectorOpen] = useState(false);
+  const [worldTickOpen, setWorldTickOpen] = useState(false);
   const [profilePopover, setProfilePopover] = useState<{
     characterId: string;
     anchorRect: CharacterPublicProfilePopoverAnchor | null;
@@ -1226,6 +1252,9 @@ export function ChatRoleplaySurface({
                         variant="desktop"
                         onOpen={() => setContinuityDirectorOpen(true)}
                       />
+                    )}
+                    {chat && !isConcludedScene && (
+                      <WorldTickEntryPoint variant="desktop" onOpen={() => setWorldTickOpen(true)} />
                     )}
                     <SummaryButton
                       chatId={chat?.id ?? null}
@@ -1651,6 +1680,17 @@ export function ChatRoleplaySurface({
                     />
                   )}
 
+                  {/* Let time pass */}
+                  {chat && !isConcludedScene && (
+                    <WorldTickEntryPoint
+                      variant="mobile"
+                      onOpen={() => {
+                        setMoreMenuOpen(false);
+                        setWorldTickOpen(true);
+                      }}
+                    />
+                  )}
+
                   {/* Summary */}
                   <SummaryButton
                     chatId={chat?.id ?? null}
@@ -1826,6 +1866,17 @@ export function ChatRoleplaySurface({
             chatId={chat.id}
             open={continuityDirectorOpen}
             onClose={() => setContinuityDirectorOpen(false)}
+          />
+        </Suspense>
+      )}
+      {chat && worldTickOpen && (
+        <Suspense fallback={null}>
+          <RoleplayWorldTickModal
+            chatId={chat.id}
+            open={worldTickOpen}
+            onClose={() => setWorldTickOpen(false)}
+            latestMessageId={messages?.at(-1)?.id ?? null}
+            replyInProgress={isStreaming}
           />
         </Suspense>
       )}
