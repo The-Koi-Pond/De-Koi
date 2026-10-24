@@ -26,6 +26,7 @@ vi.mock("../../../catalog/connections", async (importOriginal) => {
     useDiagnoseClaudeSubscription: idle,
     useFetchModels: idle,
     useSaveConnectionDefaults: idle,
+    useRefreshConnection: () => vi.fn(),
   };
 });
 

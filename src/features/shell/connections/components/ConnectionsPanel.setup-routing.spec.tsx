@@ -13,6 +13,8 @@ vi.mock("../../../catalog/connections", () => {
   const empty: never[] = [];
   return {
     useConnections: () => ({ data: listed.connections, isLoading: false }),
+    useCreateConnection: mutation,
+    useRefreshConnection: () => vi.fn(),
     isSyntheticConnection: () => false,
     useDuplicateConnection: mutation,
     useDeleteConnection: mutation,
