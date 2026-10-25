@@ -32,6 +32,7 @@ const handIssue = {
   explanation: "The hand was cut the day before.",
   fix: { find: "flexed both hands, neither of them hurt,", replace: "flexed his good hand, the left still bandaged," },
 };
+const CHECKER = { connectionId: "conn-c", name: "Checker", model: "check-model" };
 const rentIssue = {
   category: "timeline",
   subtype: "date changes",
@@ -188,7 +189,7 @@ describe("fanfic continuity fixes", () => {
 
   it("saves the fixed chapter as a new version, and refuses if the chapter changed since the check", async () => {
     const { storage, messages } = storageWith([chapterOne, chapterTwo, chapterThree]);
-    const check = { messageId: "m3", textKey: fanficChapterTextKey(chapterThree) };
+    const check = { messageId: "m3", textKey: fanficChapterTextKey(chapterThree), model: CHECKER };
 
     const saved = await applyFanficContinuityFixesToChapter(storage, {
       chatId: "chat-1",
@@ -208,9 +209,41 @@ describe("fanfic continuity fixes", () => {
       applyFanficContinuityFixesToChapter(storage, { chatId: "chat-1", check, fixes: [handIssue.fix] }),
     ).rejects.toThrow(/changed since the check/);
   });
+
+  it("saves the fixes as a version written by the chapter's models and then the model that wrote the fixes", async () => {
+    const { storage, messages } = storageWith([chapterOne, chapterTwo, chapterThree]);
+    const writer = { connectionId: "conn-w", name: "Writer", model: "big-model" };
+    Object.assign(messages[2]!, {
+      activeSwipeIndex: 0,
+      extra: { fanficVersion: { models: [writer], origin: { kind: "chapter", notes: "" }, unfinished: null } },
+    });
+    const check = { messageId: "m3", textKey: fanficChapterTextKey(chapterThree), model: CHECKER };
+
+    await applyFanficContinuityFixesToChapter(storage, { chatId: "chat-1", check, fixes: [rentIssue.fix] });
+
+    expect(storage.addChatMessageSwipe.mock.calls[0]?.[3]).toEqual({
+      activate: true,
+      extra: {
+        fanficVersion: {
+          models: [writer, CHECKER],
+          origin: { kind: "revise", notes: "", baseVersion: 0 },
+          unfinished: null,
+        },
+      },
+    });
+  });
 });
 
 describe("checkFanficChapterContinuity", () => {
+  it("names the model that ran the check, so the fixes it wrote can be credited to it", async () => {
+    const { storage } = storageWith([chapterOne, chapterTwo, chapterThree], { connection: { name: "Checker" } });
+    const { llm } = judgeLlm({ timeline: [rentIssue] });
+
+    const check = await checkFanficChapterContinuity({ storage, llm }, { chatId: "chat-1", messageId: "m3" });
+
+    expect(check.model).toEqual({ connectionId: "conn-1", name: "Checker", model: "m" });
+  });
+
   it("reads every earlier chapter, grounds the quotes, and returns confirmed slips with their fixes", async () => {
     const { storage } = storageWith([chapterOne, chapterTwo, chapterThree]);
     const { llm, requests } = judgeLlm({ timeline: [rentIssue], detail: [handIssue] });

@@ -358,6 +358,104 @@ describe("startFanficGeneration", () => {
     expect(prompt).not.toContain("[assistant] Draft one.");
   });
 
+  it("writes, rewrites and revises through the connection the fic was switched to, leaving the story as it was", async () => {
+    const { storage, messages, records } = fanficStorage();
+    records["conn-2"] = { id: "conn-2", name: "Drafter", provider: "test-provider", model: "other-model" };
+    const llm = proseLlm(["Snow fell on Soho.", "They finally talked.", "Snow, again.", "Snow, snarkier."]);
+    const deps = { storage, llm, integrations: {} as IntegrationGateway };
+    // The route writes with the fic's saved connection.
+    const ficConnection = () => String(records["chat-1"]!.connectionId);
+
+    await drain(
+      startFanficGeneration(deps, { chatId: "chat-1", connectionId: ficConnection(), fanficKind: "chapter" }),
+    );
+    const storyBefore = structuredClone((records["chat-1"]!.metadata as { fanfic: FanficState }).fanfic);
+    const chapterBefore = structuredClone(messages[0]);
+
+    // What the reader's model picker saves.
+    await storage.update("chats", "chat-1", { connectionId: "conn-2" });
+    expect((records["chat-1"]!.metadata as { fanfic: FanficState }).fanfic).toEqual(storyBefore);
+    expect(storyBefore).toMatchObject({ outlineApproved: true, outline: approvedState.outline });
+    expect(messages).toEqual([chapterBefore]);
+
+    const chapterId = messages[0]!.id;
+    await drain(
+      startFanficGeneration(deps, { chatId: "chat-1", connectionId: ficConnection(), fanficKind: "chapter" }),
+    );
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: ficConnection(),
+        fanficKind: "regenerate",
+        regenerateMessageId: chapterId,
+      }),
+    );
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: ficConnection(),
+        fanficKind: "revise",
+        regenerateMessageId: chapterId,
+        notes: "Make Crowley snarkier.",
+      }),
+    );
+
+    expect(llm.requests.map((request) => request.connectionId)).toEqual(["conn-1", "conn-2", "conn-2", "conn-2"]);
+    expect(llm.requests.slice(1).map((request) => request.model)).toEqual([
+      "other-model",
+      "other-model",
+      "other-model",
+    ]);
+    const drafter = [{ connectionId: "conn-2", name: "Drafter", model: "other-model" }];
+    expect(messages[1]!.swipes[0]!.extra?.fanficVersion).toMatchObject({ models: drafter });
+    expect(messages[0]!.swipes.map((swipe) => (swipe.extra?.fanficVersion as { models?: unknown })?.models)).toEqual([
+      [{ connectionId: "conn-1", name: "", model: "test-model" }],
+      drafter,
+      drafter,
+    ]);
+  });
+
+  it("records the model and how each version was made on chapters, rewrites and revisions", async () => {
+    const { storage, messages, records } = fanficStorage();
+    records["conn-1"] = { ...records["conn-1"], name: "Writer" };
+    const llm = proseLlm(["Draft one.", "Draft two.", "Draft three, snarkier."]);
+    const deps = { storage, llm, integrations: {} as IntegrationGateway };
+    const writer = [{ connectionId: "conn-1", name: "Writer", model: "test-model" }];
+
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        fanficKind: "chapter",
+        notes: "  Let Aziraphale win the argument.  ",
+      }),
+    );
+    const chapterId = messages[0]!.id;
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        fanficKind: "regenerate",
+        regenerateMessageId: chapterId,
+      }),
+    );
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        fanficKind: "revise",
+        regenerateMessageId: chapterId,
+        notes: "Make Crowley snarkier.",
+      }),
+    );
+
+    expect(messages[0]!.swipes.map((swipe) => swipe.extra?.fanficVersion)).toEqual([
+      { models: writer, origin: { kind: "chapter", notes: "Let Aziraphale win the argument." }, unfinished: null },
+      { models: writer, origin: { kind: "regenerate", notes: "" }, unfinished: null },
+      { models: writer, origin: { kind: "revise", notes: "Make Crowley snarkier.", baseVersion: 1 }, unfinished: null },
+    ]);
+  });
+
   it("keeps the story ledger when a small window drops the oldest chapter's prose", async () => {
     const { storage, messages, records } = fanficStorage();
     const prose = (n: number) => `Chapter ${n} marker. ${"The snow kept falling on Soho. ".repeat(260)}`;

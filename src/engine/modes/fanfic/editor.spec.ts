@@ -47,7 +47,8 @@ function storageWith(chapters: string[]) {
   const storage = {
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === "chat-1") return chat as T;
-      if (entity === "connections") return { id, provider: "claude_subscription" } as T;
+      if (entity === "connections")
+        return { id, provider: "claude_subscription", name: "Editor", model: "edit-model" } as T;
       return null;
     },
     async listChatMessages<T = unknown>(): Promise<T[]> {
@@ -210,6 +211,34 @@ describe("rewriteFanficFlaggedScenes", () => {
       "The rain kept on all morning and the tent leaked in three places. Pierrot wrung out the same rag for the third time. Harlequin watched him do it and didn't laugh. The show started an hour late, and nobody asked why.",
     );
     expect(result.textKey).toBe(fanficChapterTextKey(messages[1]!.content));
+  });
+
+  it("saves the rewritten scenes as a version written by the chapter's models and then the rewriting model", async () => {
+    const { storage, messages } = storageWith([chapterOne, chapterTwo]);
+    const writer = { connectionId: "conn-w", name: "Writer", model: "big-model" };
+    Object.assign(messages[1]!, {
+      activeSwipeIndex: 0,
+      extra: { fanficVersion: { models: [writer], origin: { kind: "chapter", notes: "" }, unfinished: null } },
+    });
+    const { llm } = scriptedLlm(() => "Pierrot wrung out the same rag again.");
+
+    await rewriteFanficFlaggedScenes({ storage, llm }, { chatId: "chat-1", report });
+
+    expect(storage.addChatMessageSwipe.mock.calls[0]?.[3]).toEqual({
+      activate: true,
+      extra: {
+        fanficVersion: {
+          models: [writer, { connectionId: "conn-1", name: "Editor", model: "edit-model" }],
+          origin: {
+            kind: "revise",
+            notes:
+              "Shows its theme: Says the feeling out loud. Show it.\nStakes build: Nothing rises. Make the show start late.",
+            baseVersion: 0,
+          },
+          unfinished: null,
+        },
+      },
+    });
   });
 
   it("refuses when the chapter changed since its report", async () => {

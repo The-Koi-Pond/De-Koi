@@ -1,0 +1,100 @@
+// ──────────────────────────────────────────────
+// Fanfic chapter versions: which models wrote each version, and how it was made
+// ──────────────────────────────────────────────
+import {
+  FANFIC_UNFINISHED_REASONS,
+  FANFIC_VERSION_ORIGIN_KINDS,
+  type FanficModelRecord,
+  type FanficUnfinished,
+  type FanficUnfinishedReason,
+  type FanficVersion,
+  type FanficVersionOriginKind,
+} from "../../contracts/types/fanfic";
+import {
+  isRecord,
+  parseRecord,
+  readNonNegativeInteger,
+  readString,
+  type JsonRecord,
+} from "../../generation/runtime-records";
+
+const isString = (value: unknown): value is string => typeof value === "string";
+
+function readModelRecord(value: unknown): FanficModelRecord | null {
+  if (!isRecord(value) || !isString(value.connectionId) || !value.connectionId.trim()) return null;
+  if (!isString(value.name) || !isString(value.model) || !(value.name.trim() || value.model.trim())) return null;
+  return { connectionId: value.connectionId, name: value.name, model: value.model };
+}
+
+function readOrigin(value: unknown): FanficVersion["origin"] {
+  const origin = parseRecord(value);
+  const kind = FANFIC_VERSION_ORIGIN_KINDS.includes(origin.kind as FanficVersionOriginKind)
+    ? (origin.kind as FanficVersionOriginKind)
+    : null;
+  if (!kind || !isString(origin.notes)) return { kind: "chapter", notes: "" };
+  const baseVersion = origin.baseVersion;
+  return Number.isInteger(baseVersion) && (baseVersion as number) >= 0
+    ? { kind, notes: origin.notes, baseVersion: baseVersion as number }
+    : { kind, notes: origin.notes };
+}
+
+/** An unreadable reason still marks the version unfinished: a cut chapter must never read as finished. */
+function readUnfinished(value: unknown): FanficUnfinished | null {
+  if (!isRecord(value)) return null;
+  const reason = FANFIC_UNFINISHED_REASONS.includes(value.reason as FanficUnfinishedReason)
+    ? (value.reason as FanficUnfinishedReason)
+    : "failure";
+  return {
+    reason,
+    message: isString(value.message) ? value.message : null,
+    code: isString(value.code) ? value.code : null,
+  };
+}
+
+/** The version record on one swipe's extra, or null for a version written before records were kept. */
+export function readFanficVersion(extra: unknown): FanficVersion | null {
+  const raw = parseRecord(extra).fanficVersion;
+  if (!isRecord(raw)) return null;
+  const models = Array.isArray(raw.models)
+    ? raw.models.map(readModelRecord).filter((record): record is FanficModelRecord => record !== null)
+    : [];
+  return { models, origin: readOrigin(raw.origin), unfinished: readUnfinished(raw.unfinished) };
+}
+
+/** A connection's record for text it writes: its id, and its name and model id as it shows them now. */
+export function fanficModelRecord(connection: JsonRecord): FanficModelRecord {
+  return {
+    connectionId: readString(connection.id),
+    name: readString(connection.name).trim(),
+    model: readString(connection.model).trim(),
+  };
+}
+
+/** Which stored version of a chapter message is on screen. */
+export function fanficVersionIndex(message: JsonRecord): number {
+  return readNonNegativeInteger(message.activeSwipeIndex, 0);
+}
+
+/**
+ * A version made by changing part of another one: the source version's models, then the model that wrote the change.
+ * A source written before models were recorded adds none.
+ */
+export function fanficRewrittenVersion(source: JsonRecord, rewriter: FanficModelRecord, notes: string): FanficVersion {
+  return {
+    models: [...(readFanficVersion(source.extra)?.models ?? []), rewriter],
+    origin: { kind: "revise", notes: notes.trim(), baseVersion: fanficVersionIndex(source) },
+    unfinished: null,
+  };
+}
+
+/** "Writer • big-model → Drafter • small-model": each run of one model once, in writing order; null with none. */
+export function fanficModelLabel(records: readonly FanficModelRecord[]): string | null {
+  const runs = records.filter(
+    (record, index) =>
+      index === 0 ||
+      record.connectionId !== records[index - 1]!.connectionId ||
+      record.model !== records[index - 1]!.model,
+  );
+  if (runs.length === 0) return null;
+  return runs.map((record) => [record.name.trim(), record.model.trim()].filter(Boolean).join(" • ")).join(" → ");
+}

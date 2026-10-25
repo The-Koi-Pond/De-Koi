@@ -1,8 +1,10 @@
-import type { FanficState } from "../../contracts/types/fanfic";
+import type { FanficState, FanficVersion } from "../../contracts/types/fanfic";
+import { resolveGenerationConnection } from "../../generation/context";
 import type { GenerationEngineDeps, StartGenerationInput } from "../../generation/start-generation";
 import { startGeneration } from "../../generation/start-generation";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { fanficModelRecord, fanficVersionIndex } from "./versions";
 import { buildFanficChapterGuide, buildFanficRevisionGuide } from "./prompts";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { fanficChapterMaxTokens, fanficStage, readFanficState } from "./request";
@@ -92,6 +94,24 @@ export function fanficGenerationInput(
   };
 }
 
+/** The record a new version starts with: the connection that writes it, named as it is now, and what was asked. */
+function fanficWriteVersion(
+  connection: JsonRecord,
+  messages: readonly JsonRecord[],
+  input: StartFanficGenerationInput,
+): FanficVersion {
+  // A plain redo has no instructions; its guide ignores any notes.
+  const notes = input.fanficKind === "regenerate" ? "" : readString(input.notes).trim();
+  const revised =
+    input.fanficKind === "revise"
+      ? messages.find((message) => message.id === readString(input.regenerateMessageId).trim())
+      : undefined;
+  const origin: FanficVersion["origin"] = revised
+    ? { kind: input.fanficKind, notes, baseVersion: fanficVersionIndex(revised) }
+    : { kind: input.fanficKind, notes };
+  return { models: [fanficModelRecord(connection)], origin, unfinished: null };
+}
+
 /** Writes the next chapter, or a new version of an existing one, through the shared generation pipeline. */
 export async function* startFanficGeneration(
   deps: GenerationEngineDeps,
@@ -110,6 +130,10 @@ export async function* startFanficGeneration(
     throw new Error("A new chapter cannot target an existing one.");
   }
   const messages = await deps.storage.listChatMessages<JsonRecord>(chatId);
+  const generationInput = fanficGenerationInput(state, messages, input);
+  // The same lookup the shared pipeline makes, so the record names the connection that actually writes.
+  const connection = await resolveGenerationConnection(deps.storage, chat, generationInput);
+  const savedExtra = { fanficVersion: fanficWriteVersion(connection, messages, input) };
 
-  yield* startGeneration(deps, fanficGenerationInput(state, messages, input), signal);
+  yield* startGeneration(deps, { ...generationInput, savedExtra }, signal);
 }

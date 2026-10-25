@@ -3624,6 +3624,7 @@ async function saveAssistantMessage(args: {
         characterId: null,
         thinking: thinking || undefined,
         generationReplay,
+        savedExtra: args.input.savedExtra,
         chatSummaryFingerprint: args.chatSummaryFingerprint,
         promptSnapshot,
         providerMetadata,
@@ -3637,6 +3638,7 @@ async function saveAssistantMessage(args: {
       characterId: null,
       content,
       extra: {
+        ...args.input.savedExtra,
         isGenerated: true,
         ...(thinking ? { thinking } : {}),
         ...(generationReplay ? { generationReplay } : {}),
@@ -3661,6 +3663,7 @@ async function saveAssistantMessage(args: {
       characterId: null,
       thinking: thinking || undefined,
       generationReplay,
+      savedExtra: args.input.savedExtra,
       chatSummaryFingerprint: args.chatSummaryFingerprint,
       promptSnapshot,
       providerMetadata,
@@ -3679,6 +3682,7 @@ async function saveAssistantMessage(args: {
       ...(characterId ? { characterId } : {}),
       thinking: thinking || undefined,
       generationReplay,
+      savedExtra: args.input.savedExtra,
       chatSummaryFingerprint: args.chatSummaryFingerprint,
       promptSnapshot,
       providerMetadata,
@@ -3694,6 +3698,7 @@ async function saveAssistantMessage(args: {
     characterId,
     content,
     extra: {
+      ...args.input.savedExtra,
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
       ...(thinking ? { thinking } : {}),
       ...(providerMetadata ? { providerMetadata } : {}),
@@ -3720,6 +3725,7 @@ async function saveRegeneratedMessage(args: {
   characterId?: string | null;
   thinking?: string | null;
   generationReplay: GenerationReplay | null;
+  savedExtra?: Record<string, unknown>;
   chatSummaryFingerprint: string | null;
   promptSnapshot: GenerationPromptSnapshot | null;
   providerMetadata?: Record<string, unknown> | null;
@@ -3727,7 +3733,7 @@ async function saveRegeneratedMessage(args: {
   agentExtra?: Record<string, unknown> | null;
   generationInfo?: Record<string, unknown> | null;
 }): Promise<unknown | null> {
-  const swipeExtra = swipeScopedGenerationExtra({
+  const engineSwipeExtra = swipeScopedGenerationExtra({
     generationReplay: args.generationReplay,
     chatSummaryFingerprint: args.chatSummaryFingerprint,
     thinking: args.thinking,
@@ -3737,6 +3743,7 @@ async function saveRegeneratedMessage(args: {
     agentExtra: args.agentExtra,
     generationInfo: args.generationInfo,
   });
+  const swipeExtra = { ...args.savedExtra, ...engineSwipeExtra };
   await args.storage.addChatMessageSwipe(
     args.chatId,
     args.messageId,
@@ -3753,7 +3760,7 @@ async function saveRegeneratedMessage(args: {
     agentExtra: args.agentExtra,
     generationInfo: args.generationInfo,
   });
-  return args.storage.patchChatMessageExtra(args.messageId, extraPatch);
+  return args.storage.patchChatMessageExtra(args.messageId, { ...args.savedExtra, ...extraPatch });
 }
 
 function swipeOptionsWithCharacterId(

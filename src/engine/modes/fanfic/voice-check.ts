@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
-import type { FanficRequest, FanficVoiceSheet } from "../../contracts/types/fanfic";
+import type { FanficModelRecord, FanficRequest, FanficVoiceSheet } from "../../contracts/types/fanfic";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
 import { locateFanficPassage, type FanficContinuityFix } from "./continuity";
@@ -21,6 +21,7 @@ import {
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { fanficSamePassage, fanficSearchableText } from "./quality";
 import { readFanficState } from "./request";
+import { fanficModelRecord } from "./versions";
 import { userFacingError } from "../../shared/user-facing-error";
 
 const CHECK_MAX_TOKENS = 6000;
@@ -67,6 +68,8 @@ export interface FanficChapterVoiceCheck {
   ungrounded: number;
   rejected: number;
   merged: number;
+  /** The model that ran the check and wrote its fixes; a version saved from them credits it. */
+  model: FanficModelRecord;
 }
 
 export type FanficVoiceCheckPhase = "checking" | "verifying";
@@ -352,5 +355,6 @@ export async function checkFanficChapterVoice(
     ungrounded: dropped,
     rejected: grounded.length - confirmed.length - merged,
     merged: merged + repeats,
+    model: fanficModelRecord(connection ?? { id: connectionId }),
   };
 }

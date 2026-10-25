@@ -41,6 +41,8 @@ export interface StartGenerationInput extends JsonRecord {
   userActivity?: string;
   streaming?: boolean;
   trimIncompleteModelOutput?: boolean;
+  /** The caller's keys for the saved reply's extra (new message, new version, or kept partial); keys the engine writes win. */
+  savedExtra?: Record<string, unknown>;
   imagePromptSettings?: {
     includeAppearances?: boolean;
     format?: "descriptive" | "tags";
@@ -139,6 +141,7 @@ const startGenerationInputSchema = z
     userActivity: z.string().max(120).optional().default(""),
     streaming: z.boolean().optional().default(true),
     trimIncompleteModelOutput: z.boolean().optional().default(false),
+    savedExtra: z.preprocess((value) => (value == null ? undefined : value), z.record(z.unknown()).optional()),
     imagePromptSettings: optionalImagePromptSettingsSchema,
     debugMode: z.boolean().optional().default(false),
     hideAutomatedSummarySourceMessages: z.boolean().optional().default(false),

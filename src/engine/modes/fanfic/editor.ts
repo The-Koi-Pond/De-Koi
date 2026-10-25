@@ -387,13 +387,20 @@ export async function rewriteFanficFlaggedScenes(
       "None of the flagged scenes could be found in the chapter. The chapter may have changed; run the editor pass again.",
     );
   const edits: Array<FanficPassageSpan & { text: string }> = [];
+  const instructions: string[] = [];
   onProgress?.({ done: 0, total: placed.length });
   for (const { flag, span } of placed) {
     const instruction = `${FANFIC_EDITOR_LABELS[flag.dimension]}: ${flag.problem} ${flag.direction}`;
     const rewritten = await rewriteFanficPassageText(deps.llm, target, text, span, instruction, signal);
     edits.push({ ...span, text: rewritten });
+    instructions.push(instruction);
     onProgress?.({ done: edits.length, total: placed.length });
   }
-  const { textKey } = await saveFanficPassageEdits(deps.storage, { chatId: input.chatId, target, edits });
+  const { textKey } = await saveFanficPassageEdits(deps.storage, {
+    chatId: input.chatId,
+    target,
+    edits,
+    rewrite: { notes: instructions.join("\n"), rewriter: target.rewriter },
+  });
   return { rewritten: edits.length, skipped, textKey };
 }

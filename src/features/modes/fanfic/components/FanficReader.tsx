@@ -83,6 +83,8 @@ import { FanficLedgerPanel } from "./FanficLedgerPanel";
 import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
+import { FanficChapterHeading } from "./FanficChapterHeading";
+import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
@@ -196,6 +198,8 @@ function Prose({ text, keyBase, activeBlock = null }: { text: string; keyBase: s
 }
 
 function WorkHeader({
+  chatId,
+  busy,
   state,
   chatName,
   chapterCount,
@@ -212,6 +216,8 @@ function WorkHeader({
   showEditor,
   onToggleEditor,
 }: {
+  chatId: string;
+  busy: boolean;
   state: FanficState;
   chatName: string;
   chapterCount: number;
@@ -273,6 +279,9 @@ function WorkHeader({
           )}
         </div>
       )}
+      <div className="mt-3 max-w-xs">
+        <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
+      </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <FanficButton onClick={onToggleOutline} aria-expanded={showOutline}>
           <ListOrdered size="0.9rem" aria-hidden="true" />
@@ -1137,6 +1146,8 @@ export function FanficReader({
   return (
     <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-4 pb-10">
       <WorkHeader
+        chatId={chatId}
+        busy={generating}
         state={state}
         chatName={chatName}
         chapterCount={chapterCount}
@@ -1247,9 +1258,7 @@ export function FanficReader({
             className="flex flex-col gap-3"
             aria-labelledby={`fanfic-ch-${chapter.number}`}
           >
-            <h3 id={`fanfic-ch-${chapter.number}`} className="text-lg font-bold text-[var(--foreground)]">
-              {heading}
-            </h3>
+            <FanficChapterHeading id={`fanfic-ch-${chapter.number}`} heading={heading} extra={chapter.message.extra} />
             <div data-fanfic-prose={chapter.message.id}>
               <Prose
                 text={chapter.message.content}

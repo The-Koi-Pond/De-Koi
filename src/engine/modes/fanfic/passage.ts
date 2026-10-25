@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
-import type { FanficState } from "../../contracts/types/fanfic";
+import type { FanficModelRecord, FanficState } from "../../contracts/types/fanfic";
 import { effectiveMaxContext } from "../../generation/context-window";
 import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
@@ -36,6 +36,7 @@ import {
 } from "./phrase-bans";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { readFanficState } from "./request";
+import { fanficModelRecord, fanficRewrittenVersion } from "./versions";
 import { userFacingError } from "../../shared/user-facing-error";
 
 /** The chapter around the passage, sent whole when it fits: the rewrite must keep every fact it sets up. */
@@ -117,6 +118,10 @@ export interface FanficChapterForEdit {
   /** The fic's banned phrases when the connection can keep them out while writing (a local model); else empty. */
   phraseBans: string[];
   connectionId: string;
+  /** The record of the connection rewrites run on, for the version they save. */
+  rewriter: FanficModelRecord;
+  /** The chapter message as loaded; its version on screen is the one an edit changes. */
+  source: JsonRecord;
   window: number;
 }
 
@@ -172,6 +177,8 @@ export async function loadFanficChapterForEdit(
     ),
     phraseBans: fanficConnectionSupportsPhraseBans(connection) ? fanficBannedPhrases(state) : [],
     connectionId,
+    rewriter: fanficModelRecord(connection),
+    source: message,
     window: effectiveMaxContext(connection, {}),
   };
 }
@@ -245,10 +252,19 @@ export async function rewriteFanficPassageText(
   return rewritten;
 }
 
-/** Splices replacements into the chapter text (spans must not overlap) and saves it as a new version. */
+/**
+ * Splices replacements into the chapter text (spans must not overlap) and saves it as a new version, credited to the
+ * edited version's models and then the model that wrote the replacements.
+ */
 export async function saveFanficPassageEdits(
   storage: StorageGateway,
-  input: { chatId: string; target: FanficChapterForEdit; edits: Array<FanficPassageSpan & { text: string }> },
+  input: {
+    chatId: string;
+    target: FanficChapterForEdit;
+    edits: Array<FanficPassageSpan & { text: string }>;
+    /** What the change was asked to do ("" when nobody asked in words), and the model that wrote it. */
+    rewrite: { notes: string; rewriter: FanficModelRecord };
+  },
 ): Promise<{ textKey: string }> {
   const { target } = input;
   const ordered = [...input.edits].sort((a, b) => b.start - a.start);
@@ -262,7 +278,11 @@ export async function saveFanficPassageEdits(
     floor = edit.start;
   }
   const content = `${target.raw.slice(0, target.offset)}${text}`;
-  await storage.addChatMessageSwipe(input.chatId, target.chapter.messageId, content, { activate: true });
+  const fanficVersion = fanficRewrittenVersion(target.source, input.rewrite.rewriter, input.rewrite.notes);
+  await storage.addChatMessageSwipe(input.chatId, target.chapter.messageId, content, {
+    activate: true,
+    extra: { fanficVersion },
+  });
   return { textKey: fanficChapterTextKey(stripFanficChapterHeading(content)) };
 }
 
@@ -316,6 +336,9 @@ export interface FanficPassageSuggestion extends FanficPassageSpan {
   /** The passage as it reads in the chapter now. */
   original: string;
   text: string;
+  /** The requester's note this version followed, and the model that wrote it; the saved version credits them. */
+  instruction: string;
+  rewriter: FanficModelRecord;
 }
 
 /**
@@ -348,7 +371,13 @@ export async function suggestFanficPassageRewrite(
     withEarlierTries(input.instruction, input.earlierTries ?? []),
     options.signal,
   );
-  return { ...span, original: text.slice(span.start, span.end), text: rewritten };
+  return {
+    ...span,
+    original: text.slice(span.start, span.end),
+    text: rewritten,
+    instruction: input.instruction,
+    rewriter: target.rewriter,
+  };
 }
 
 /** Puts the chosen version in place and saves the chapter as a new version (the current one stays one tap back). */
@@ -357,11 +386,16 @@ export async function applyFanficPassageRewrite(
   input: { chatId: string; messageId: string; textKey: string; suggestion: FanficPassageSuggestion },
 ): Promise<{ textKey: string }> {
   const target = await loadFanficChapterForEdit(storage, input);
-  const { start, end, original, text } = input.suggestion;
+  const { start, end, original, text, instruction, rewriter } = input.suggestion;
   if (target.chapter.content.slice(start, end) !== original) {
     throw userFacingError("The chapter changed since this version was written. Select the passage again.");
   }
-  return saveFanficPassageEdits(storage, { chatId: input.chatId, target, edits: [{ start, end, text }] });
+  return saveFanficPassageEdits(storage, {
+    chatId: input.chatId,
+    target,
+    edits: [{ start, end, text }],
+    rewrite: { notes: instruction, rewriter },
+  });
 }
 
 // ── Phrase bans on a finished chapter (local models) ──
@@ -411,6 +445,7 @@ export async function removeFanficBannedPhrases(
     chatId: input.chatId,
     target,
     edits: [{ start: 0, end: target.chapter.content.length, text: result.text }],
+    rewrite: { notes: "", rewriter: target.rewriter },
   });
   return { repaired: result.repaired, remaining: result.remaining.length, textKey };
 }

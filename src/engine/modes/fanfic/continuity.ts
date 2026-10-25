@@ -8,6 +8,7 @@ import type {
   FanficContinuityIssue,
   FanficLedger,
   FanficLedgerEntry,
+  FanficModelRecord,
   FanficRequest,
 } from "../../contracts/types/fanfic";
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
@@ -33,6 +34,7 @@ import {
   pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, stripFanficChapterHeading } from "./prompts";
+import { fanficModelRecord, fanficRewrittenVersion } from "./versions";
 import {
   confirmedFanficContinuityIssues,
   FANFIC_CONTINUITY_CATEGORY_LABELS,
@@ -84,6 +86,8 @@ export interface FanficChapterContinuityCheck {
   ungrounded: number;
   rejected: number;
   merged: number;
+  /** The model that ran the check and wrote its fixes; a version saved from them credits it. */
+  model: FanficModelRecord;
 }
 
 export type FanficContinuityPhase = "updating_ledger" | "checking" | "verifying";
@@ -373,7 +377,7 @@ export async function applyFanficContinuityFixesToChapter(
   storage: StorageGateway,
   input: {
     chatId: string;
-    check: Pick<FanficChapterContinuityCheck, "messageId" | "textKey">;
+    check: Pick<FanficChapterContinuityCheck, "messageId" | "textKey" | "model">;
     fixes: FanficContinuityFix[];
   },
 ): Promise<{ applied: number; skipped: number; appliedIndexes: number[]; textKey: string }> {
@@ -391,7 +395,11 @@ export async function applyFanficContinuityFixesToChapter(
     throw userFacingError(
       "None of the fixes could be placed in the chapter. The chapter may have changed; run the check again.",
     );
-  await storage.addChatMessageSwipe(input.chatId, input.check.messageId, result.text, { activate: true });
+  // The fixes' wording came from the model that ran the check, so the new version credits it.
+  await storage.addChatMessageSwipe(input.chatId, input.check.messageId, result.text, {
+    activate: true,
+    extra: { fanficVersion: fanficRewrittenVersion(message, input.check.model, "") },
+  });
   return {
     applied: result.applied,
     skipped: result.skipped,
@@ -569,5 +577,6 @@ export async function checkFanficChapterContinuity(
     ungrounded: dropped,
     rejected: grounded.length - confirmed.length - merged,
     merged: merged + repeats,
+    model: fanficModelRecord(connection),
   };
 }

@@ -5,7 +5,7 @@ import { toUserMessage } from "../../../../shared/lib/error-message";
 import { chatKeys, useChat, useChatMessages, useUpdateChat } from "../../../catalog/chats/index";
 import { runGenerationWithUi, type GenerateArgs } from "../../../runtime/generation/index";
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
-import type { FanficState } from "../../../../engine/contracts/types/fanfic";
+import type { FanficModelRecord, FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
   startFanficGeneration,
   type FanficGenerationKind,
@@ -302,6 +302,8 @@ interface FanficChapterCheckResult {
   messageId: string;
   textKey: string;
   issues: Array<{ fix: FanficContinuityFix | null }>;
+  /** The model that wrote the fixes; the version they save credits it. */
+  model: FanficModelRecord;
 }
 
 export interface FanficChapterCheckController<Result extends FanficChapterCheckResult, Phase extends string> {
