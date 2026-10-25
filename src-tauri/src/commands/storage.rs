@@ -85,6 +85,8 @@ pub(crate) mod memory_maintenance;
 pub(crate) mod message_search;
 #[path = "storage/message_swipes.rs"]
 pub(crate) mod message_swipes;
+#[path = "storage/openrouter_login.rs"]
+pub(crate) mod openrouter_login;
 #[path = "storage/personas.rs"]
 pub(crate) mod personas;
 #[path = "storage/profile.rs"]

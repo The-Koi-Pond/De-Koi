@@ -49,11 +49,12 @@ type UserMessageOptions = {
 // Error codes whose messages are already written for the person using De-Koi and name the fix: model provider
 // failures (worded in src-tauri/crates/llm/src/provider_errors.rs) and De-Koi server problems (worded in
 // src/shared/api/remote-runtime.ts), engine errors marked `user_facing` because their text is user copy, and
-// helper-model route errors (`route_unavailable`, src/engine/generation/model-routing.ts), which name the fix.
+// helper-model route errors (`route_unavailable`, src/engine/generation/model-routing.ts), which name the fix, and
+// "Log in with OpenRouter" errors (`openrouter_login_*`, src-tauri/src/commands/storage/openrouter_login.rs).
 // Other providers' "*_provider_error" / "*_network_error" messages carry the
 // provider's own explanation, which beats generic copy.
 const USER_WORDED_ERROR_CODE =
-  /^(llm_|models_|openai_chatgpt_|claude_subscription_|remote_runtime_|admin_access_|csrf_)|^(user_facing|route_unavailable|invalid_image|rate_limited|remote_auth_required|request_body_too_large)$|_(provider|network)_error$/;
+  /^(llm_|models_|openai_chatgpt_|claude_subscription_|remote_runtime_|admin_access_|csrf_|openrouter_login_)|^(user_facing|route_unavailable|invalid_image|rate_limited|remote_auth_required|request_body_too_large)$|_(provider|network)_error$/;
 
 function readCode(value: unknown): string {
   if (!value || typeof value !== "object") return "";
