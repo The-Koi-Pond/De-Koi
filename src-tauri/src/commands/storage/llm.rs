@@ -362,6 +362,7 @@ pub(crate) async fn llm_stream_events(
     if *cancellation.borrow() {
         return Ok(());
     }
+    let report_restarts = llm_stream_reports_restarts(&body)?;
     let _sidecar_lease = if llm_body_uses_sidecar_connection(&body) {
         match sidecar::begin_inference_request(state, true).await {
             Ok(lease) => Some(lease),
@@ -384,12 +385,29 @@ pub(crate) async fn llm_stream_events(
     if *cancellation.borrow() {
         return Ok(());
     }
-    let result = tokio::select! {
-        result = marinara_llm::stream_events(request, &mut emit) => result,
-        _ = cancellation.changed() => Ok(()),
+    let result = if report_restarts {
+        tokio::select! {
+            result = marinara_llm::stream_events_with_restarts(request, &mut emit) => result,
+            _ = cancellation.changed() => Ok(()),
+        }
+    } else {
+        tokio::select! {
+            result = marinara_llm::stream_events(request, &mut emit) => result,
+            _ = cancellation.changed() => Ok(()),
+        }
     };
     release_unused_llm_request_memory();
     result
+}
+
+/// A caller that can drop text it already showed asks for `text_reset` events instead of a failed
+/// reply when the provider starts the reply over.
+fn llm_stream_reports_restarts(body: &Value) -> AppResult<bool> {
+    match body.get("reportRestarts") {
+        Some(Value::Bool(report)) => Ok(*report),
+        Some(_) => Err(AppError::invalid_input("reportRestarts must be a boolean")),
+        None => Ok(false),
+    }
 }
 
 pub(crate) fn llm_stream_cancel(state: &AppState, stream_id: &str) -> AppResult<Value> {
@@ -3214,6 +3232,43 @@ mod tests {
         assert!(!state
             .cancel_llm_stream(stream_id)
             .expect("completed stream should be unregistered"));
+        state.unregister_llm_stream(stream_id);
+    }
+
+    #[test]
+    fn llm_stream_reports_restarts_only_when_the_request_asks() {
+        assert!(llm_stream_reports_restarts(&json!({ "reportRestarts": true })).unwrap());
+        assert!(!llm_stream_reports_restarts(&json!({ "reportRestarts": false })).unwrap());
+        assert!(!llm_stream_reports_restarts(&json!({})).unwrap());
+        assert_eq!(
+            llm_stream_reports_restarts(&json!({ "reportRestarts": "yes" }))
+                .expect_err("a non-boolean flag is a bad request")
+                .code,
+            "invalid_input"
+        );
+    }
+
+    #[tokio::test]
+    async fn llm_stream_rejects_a_non_boolean_restart_flag_before_the_provider_call() {
+        let state = test_state("stream-bad-restart-flag");
+        let stream_id = "bad-restart-flag";
+
+        let error = llm_stream_events(
+            &state,
+            stream_id.to_string(),
+            json!({
+                "reportRestarts": 1,
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            |_| Ok(()),
+        )
+        .await
+        .expect_err("invalid restart flag should fail before provider call");
+
+        assert_eq!(error.code, "invalid_input");
+        assert!(!state
+            .cancel_llm_stream(stream_id)
+            .expect("failed stream should be unregistered"));
         state.unregister_llm_stream(stream_id);
     }
 

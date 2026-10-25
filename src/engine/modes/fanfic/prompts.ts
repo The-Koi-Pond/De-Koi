@@ -187,6 +187,16 @@ export function buildFanficRevisionGuide(
     .join("\n\n");
 }
 
+/** Picking up a chapter that was cut off: the text so far goes last, and only what follows it is written. */
+export function buildFanficContinueGuide(label: string, textSoFar: string): string {
+  return [
+    `Continue chapter ${label} from exactly where it stops: the next word, mid-sentence if it stops mid-sentence. The text so far is below; do not repeat any of it, recap it, or start the chapter over. Write on until the chapter reaches its end.`,
+    PLAIN_PROSE_REMINDER,
+    "Output only the new prose that follows the text so far.",
+    `Chapter ${label} so far:\n"""\n${textSoFar.trim()}\n"""`,
+  ].join("\n\n");
+}
+
 /**
  * Plotting rules for the first outline. Lab judges scored "Unsurprising" and "Compelling Plot" lowest on every fic:
  * the first plan took the most obvious route, replayed canon plots, and resolved obstacles as soon as they appeared.

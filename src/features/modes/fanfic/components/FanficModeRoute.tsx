@@ -11,6 +11,8 @@ import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/researc
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { HelperRunNote } from "../../../catalog/connections/index";
+import { isReportedGenerationFailure } from "../../../runtime/generation/index";
+import { fanficFollowUps, type FanficFinishedChapter } from "../lib/write-outcome";
 import {
   useFanficChat,
   useFanficGenerationState,
@@ -72,21 +74,43 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
   }, [activeChatId]);
 
+  // The reader streams a continue after the chapter's text so far instead of as a new chapter.
+  const [continuing, setContinuing] = useState<{ messageId: string; textSoFar: string } | null>(null);
+  const chaptersRef = useRef(chapters);
+  useEffect(() => {
+    chaptersRef.current = chapters;
+  }, [chapters]);
+  // Once a chapter is finished (written, continued, reset or kept as is), the same follow-ups run for its kind.
+  const afterChapterFinished = useCallback(
+    (chapter: FanficFinishedChapter) => {
+      const followUps = fanficFollowUps(chapter);
+      // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
+      if (bansSupported) removeBannedPhrases({ messageId: followUps.phraseBansFor, quiet: true });
+      // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
+      updateLedger({ quiet: true });
+      // Living outline: after each new chapter, check the rest of the plan against what was written.
+      if (followUps.proposePlan) proposePlan({ quiet: true });
+    },
+    [bansSupported, proposePlan, removeBannedPhrases, updateLedger],
+  );
   const runWrite = useCallback(
     (args: FanficWriteArgs) => {
       lastWrite.current = args;
-      // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
-      void write(args).then((written) => {
-        if (!written) return;
-        // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
-        if (bansSupported)
-          removeBannedPhrases({ messageId: args.kind === "chapter" ? null : args.messageId, quiet: true });
-        updateLedger({ quiet: true });
-        // Living outline: after each new chapter, check the rest of the plan against what was written.
-        if (args.kind === "chapter") proposePlan({ quiet: true });
-      });
+      const continued =
+        args.kind === "continue" ? chaptersRef.current.find((chapter) => chapter.message.id === args.messageId) : null;
+      setContinuing(continued ? { messageId: continued.message.id, textSoFar: continued.message.content } : null);
+      void write(args)
+        .then((finished) => {
+          if (finished) afterChapterFinished(finished);
+        })
+        .catch((error: unknown) => {
+          // The write's own failures are already on screen, and a Stop needs no message.
+          if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) return;
+          toast.error(toUserMessage(error, { fallback: "That write didn't finish. Try again." }));
+        })
+        .finally(() => setContinuing(null));
     },
-    [bansSupported, proposePlan, removeBannedPhrases, updateLedger, write],
+    [afterChapterFinished, write],
   );
 
   const chapterCount = useRef(chapters.length);
@@ -287,7 +311,9 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           streamText={generation.streamText}
           phase={generation.phase}
           regeneratingMessageId={generation.regeneratingMessageId}
+          continuing={continuing}
           onWrite={runWrite}
+          onChapterFinished={afterChapterFinished}
           onRetry={() => runWrite(lastWrite.current)}
           onStop={generation.stop}
           ledger={ledger}

@@ -9,6 +9,7 @@ describe("focused storage ports", () => {
       "bulkDeleteChatMessages",
       "createChatMessage",
       "deleteChatMessage",
+      "deleteChatMessageSwipe",
       "evictPromptSnapshots",
       "getChatMessage",
       "listChatMessages",

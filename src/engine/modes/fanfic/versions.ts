@@ -75,16 +75,60 @@ export function fanficVersionIndex(message: JsonRecord): number {
   return readNonNegativeInteger(message.activeSwipeIndex, 0);
 }
 
+/** The models after `record` wrote another part: added unless the same connection and model wrote the last part. */
+export function fanficModelsWith(models: readonly FanficModelRecord[], record: FanficModelRecord): FanficModelRecord[] {
+  const last = models.at(-1);
+  const same = last?.connectionId === record.connectionId && last.model === record.model;
+  return same ? [...models] : [...models, record];
+}
+
 /**
  * A version made by changing part of another one: the source version's models, then the model that wrote the change.
  * A source written before models were recorded adds none.
  */
 export function fanficRewrittenVersion(source: JsonRecord, rewriter: FanficModelRecord, notes: string): FanficVersion {
   return {
-    models: [...(readFanficVersion(source.extra)?.models ?? []), rewriter],
+    models: fanficModelsWith(readFanficVersion(source.extra)?.models ?? [], rewriter),
     origin: { kind: "revise", notes: notes.trim(), baseVersion: fanficVersionIndex(source) },
     unfinished: null,
   };
+}
+
+const PROVIDER_RESET_CODES = new Set(["llm_stream_text_reset", "claude_subscription_stream_replaced"]);
+const GEMINI_BLOCKED_FINISHES = new Set(["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION"]);
+
+function classifyFailure(cause: unknown): FanficUnfinished {
+  const error = parseRecord(cause);
+  const details = parseRecord(error.details);
+  const code = readString(error.code || details.code).trim() || null;
+  const message = readString(error.message).trim() || null;
+  const unfinished = (reason: FanficUnfinishedReason): FanficUnfinished => ({ reason, code, message });
+  // OpenAI Responses reports why an incomplete response stopped; Gemini reports its blocked finish.
+  const incompleteReason = readString(parseRecord(parseRecord(details.response).incomplete_details).reason);
+  if (code && PROVIDER_RESET_CODES.has(code)) return unfinished("provider_reset");
+  if (GEMINI_BLOCKED_FINISHES.has(readString(details.finishReason).trim().toUpperCase())) {
+    return unfinished("content_filter");
+  }
+  if (incompleteReason === "content_filter") return unfinished("content_filter");
+  if (code === "llm_stream_length" || incompleteReason === "max_output_tokens") return unfinished("length");
+  return unfinished("failure");
+}
+
+/**
+ * Why a chapter write stopped early: from the error it ended with, or, for a reply that ended normally, from the
+ * provider's stop reason. Null when the chapter finished. An OpenAI-compatible length stop already arrives as an error.
+ */
+export function classifyFanficInterruption(cause: unknown, providerMetadata: unknown): FanficUnfinished | null {
+  if (cause != null) return classifyFailure(cause);
+  const metadata = parseRecord(providerMetadata);
+  const finishReason = readString(metadata.finishReason).trim();
+  const stopReason = readString(metadata.stopReason).trim();
+  if (finishReason === "content_filter") return { reason: "content_filter", code: finishReason, message: null };
+  if (stopReason === "refusal") return { reason: "content_filter", code: stopReason, message: null };
+  if (stopReason === "max_tokens" || stopReason === "MAX_TOKENS") {
+    return { reason: "length", code: stopReason, message: null };
+  }
+  return null;
 }
 
 /** "Writer • big-model → Drafter • small-model": each run of one model once, in writing order; null with none. */

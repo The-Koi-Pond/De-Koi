@@ -7,7 +7,7 @@ import type { FanficModelRecord, FanficState } from "../../contracts/types/fanfi
 import { effectiveMaxContext } from "../../generation/context-window";
 import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { assertNoFanficUnfinishedChapter, fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
 import { locateFanficPassage } from "./continuity";
 import { fanficChapterTextKey, fanficLedgerStatus, readFanficLedger, renderFanficLedgerState } from "./ledger";
 import {
@@ -146,6 +146,8 @@ export async function loadFanficChapterForEdit(
   if (!isRecord(connection))
     throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
   const messages = (await storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
+  // Every edit loaded here ends in a new version.
+  assertNoFanficUnfinishedChapter(messages);
   const message = messages.find((entry) => readString(entry.id) === input.messageId);
   const chapter = fanficChapterRefs(messages).find((entry) => entry.messageId === input.messageId);
   if (!message || !chapter) throw userFacingError("That chapter is no longer in this fic.");

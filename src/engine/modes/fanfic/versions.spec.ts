@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { FanficModelRecord } from "../../contracts/types/fanfic";
-import { fanficModelLabel, readFanficVersion } from "./versions";
+import {
+  classifyFanficInterruption,
+  fanficModelLabel,
+  fanficModelsWith,
+  fanficRewrittenVersion,
+  readFanficVersion,
+} from "./versions";
 
 const WRITER: FanficModelRecord = { connectionId: "conn-a", name: "Writer", model: "big-model" };
 const DRAFTER: FanficModelRecord = { connectionId: "conn-b", name: "Drafter", model: "small-model" };
@@ -92,6 +98,116 @@ describe("readFanficVersion", () => {
   it("reads a missing or null unfinished state as finished", () => {
     expect(readFanficVersion({ fanficVersion: { models: [WRITER] } })?.unfinished).toBeNull();
     expect(readFanficVersion({ fanficVersion: { models: [WRITER], unfinished: null } })?.unfinished).toBeNull();
+  });
+});
+
+describe("fanficModelsWith", () => {
+  it("adds a model that picks up after another one", () => {
+    expect(fanficModelsWith([WRITER], DRAFTER)).toEqual([WRITER, DRAFTER]);
+    expect(fanficModelsWith([WRITER, DRAFTER], WRITER)).toEqual([WRITER, DRAFTER, WRITER]);
+  });
+
+  it("doesn't add the model that wrote the last part again", () => {
+    expect(fanficModelsWith([WRITER], { ...WRITER, name: "Renamed" })).toEqual([WRITER]);
+  });
+
+  it("adds the same connection on another model", () => {
+    expect(fanficModelsWith([WRITER], { ...WRITER, model: "bigger-model" })).toEqual([
+      WRITER,
+      { ...WRITER, model: "bigger-model" },
+    ]);
+  });
+});
+
+describe("fanficRewrittenVersion", () => {
+  const source = (models: FanficModelRecord[]) => ({
+    activeSwipeIndex: 1,
+    extra: { fanficVersion: { models, origin: { kind: "chapter", notes: "" }, unfinished: null } },
+  });
+
+  it("credits the rewriting model after the source version's models", () => {
+    expect(fanficRewrittenVersion(source([WRITER]), DRAFTER, " Snarkier. ")).toEqual({
+      models: [WRITER, DRAFTER],
+      origin: { kind: "revise", notes: "Snarkier.", baseVersion: 1 },
+      unfinished: null,
+    });
+  });
+
+  it("credits a rewrite by the model that wrote the version once", () => {
+    expect(fanficRewrittenVersion(source([DRAFTER, WRITER]), WRITER, "").models).toEqual([DRAFTER, WRITER]);
+  });
+});
+
+describe("classifyFanficInterruption", () => {
+  const failure = (message: string, fields: Record<string, unknown>) => Object.assign(new Error(message), fields);
+
+  it.each([
+    ["a provider restart", failure("Restarted.", { code: "llm_stream_text_reset" }), "provider_reset"],
+    [
+      "a Claude subscription reply that was replaced",
+      failure("Replaced.", { code: "claude_subscription_stream_replaced" }),
+      "provider_reset",
+    ],
+    ...["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION"].map((finishReason) => [
+      `a Gemini ${finishReason} block`,
+      failure("Blocked.", { code: "llm_stream_incomplete", details: { code: "llm_stream_incomplete", finishReason } }),
+      "content_filter",
+    ]),
+    [
+      "an OpenAI Responses content filter",
+      failure("Filtered.", {
+        code: "llm_provider_error",
+        details: { response: { incomplete_details: { reason: "content_filter" } } },
+      }),
+      "content_filter",
+    ],
+    ["a length stop", failure("Too long.", { code: "llm_stream_length" }), "length"],
+    [
+      "an OpenAI Responses output limit",
+      failure("Cut.", {
+        code: "llm_provider_error",
+        details: { response: { incomplete_details: { reason: "max_output_tokens" } } },
+      }),
+      "length",
+    ],
+    [
+      "a Gemini stream that ended without a finish reason",
+      failure("Ended.", { code: "llm_stream_incomplete" }),
+      "failure",
+    ],
+    ["a runtime timeout", failure("Timed out.", { details: { code: "remote_runtime_stream_timeout" } }), "failure"],
+    ["an error without a code", new Error("Something broke."), "failure"],
+  ] as Array<[string, Error, string]>)(
+    "files %s under its reason with the error's code and message",
+    (_label, error, reason) => {
+      const parsed = error as Error & { code?: string; details?: { code?: string } };
+      expect(classifyFanficInterruption(error, null)).toEqual({
+        reason,
+        code: parsed.code ?? parsed.details?.code ?? null,
+        message: error.message,
+      });
+    },
+  );
+
+  it("files an error that is not an Error object as a failure", () => {
+    expect(classifyFanficInterruption("offline", null)).toEqual({ reason: "failure", code: null, message: null });
+  });
+
+  it.each([
+    [{ finishReason: "content_filter" }, "content_filter", "content_filter"],
+    [{ stopReason: "refusal" }, "content_filter", "refusal"],
+    [{ stopReason: "max_tokens" }, "length", "max_tokens"],
+    [{ stopReason: "MAX_TOKENS" }, "length", "MAX_TOKENS"],
+  ])("files a reply that ended with %o under %s", (providerMetadata, reason, code) => {
+    expect(classifyFanficInterruption(null, providerMetadata)).toEqual({ reason, code, message: null });
+  });
+
+  it.each([
+    ["no metadata", null],
+    ["a normal stop", { finishReason: "stop", stopReason: "end_turn" }],
+    ["a Gemini normal stop", { stopReason: "STOP" }],
+  ])("reads a reply that ended with %s as finished", (_label, providerMetadata) => {
+    expect(classifyFanficInterruption(null, providerMetadata)).toBeNull();
   });
 });
 

@@ -284,6 +284,17 @@ describe("checkFanficChapterVoice", () => {
     expect(check.model).toEqual({ connectionId: "conn-1", name: "Checker", model: "check-model" });
   });
 
+  it.each([null, "random"])("asks for a connection when the fic's connection is %s", async (connectionId) => {
+    const { storage, records } = storageWith(voiced, messages);
+    records["chat-1"]!.connectionId = connectionId;
+    const { llm, requests } = scriptedLlm([JSON.stringify({ issues: [] })]);
+
+    await expect(checkFanficChapterVoice({ storage, llm }, { chatId: "chat-1", messageId: "m1" })).rejects.toThrow(
+      "Pick a connection for the voice check.",
+    );
+    expect(requests).toHaveLength(0);
+  });
+
   it("asks for voice sheets first", async () => {
     const { storage } = storageWith(createFanficState(request), messages);
     const { llm } = scriptedLlm([]);

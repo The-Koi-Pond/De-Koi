@@ -27,6 +27,7 @@ function ReportRow({
   report,
   stale,
   busy,
+  blocked,
   rewriting,
   controller,
   onRewritten,
@@ -34,6 +35,7 @@ function ReportRow({
   report: FanficEditorReport;
   stale: boolean;
   busy: boolean;
+  blocked: string | null;
   rewriting: boolean;
   controller: FanficEditorController;
   onRewritten: (report: FanficEditorReport) => void;
@@ -99,7 +101,8 @@ function ReportRow({
               report.flags.length > 0 && (
                 <FanficButton
                   tone="primary"
-                  disabled={busy}
+                  disabled={busy || Boolean(blocked)}
+                  title={blocked ?? undefined}
                   onClick={() => controller.rewrite(report, () => onRewritten(report))}
                 >
                   {rewriting ? (
@@ -112,7 +115,10 @@ function ReportRow({
               )
             )}
           </div>
-          {!stale && report.flags.length > 0 && (
+          {!stale && report.flags.length > 0 && blocked && (
+            <p className="text-[0.6875rem] text-[var(--muted-foreground)]">{blocked}</p>
+          )}
+          {!stale && report.flags.length > 0 && !blocked && (
             <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
               Only the flagged scenes change; the rest of the chapter stays word for word. It saves as a new version, so
               the current one is one tap back, and the chapter's continuity is checked right after, so a slip the
@@ -134,12 +140,15 @@ export function FanficEditorPanel({
   chapters,
   controller,
   busy,
+  blocked = null,
   onRewritten,
 }: {
   chatId: string;
   chapters: FanficChapterView[];
   controller: FanficEditorController;
   busy: boolean;
+  /** Why scene rewrites wait (a chapter is unfinished); scoring still runs. */
+  blocked?: string | null;
   /** A chapter's flagged scenes were rewritten and saved. */
   onRewritten: (report: FanficEditorReport) => void;
 }) {
@@ -222,6 +231,7 @@ export function FanficEditorPanel({
                   report={report}
                   stale={stale}
                   busy={busy || working}
+                  blocked={blocked}
                   rewriting={controller.running === report.messageId}
                   controller={controller}
                   onRewritten={onRewritten}

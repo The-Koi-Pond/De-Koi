@@ -5,6 +5,7 @@ import {
   Ban,
   BookMarked,
   BookOpen,
+  Check,
   Compass,
   ChevronLeft,
   ChevronRight,
@@ -20,9 +21,11 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Square,
+  StepForward,
   TextSelect,
   X,
   Trash2,
@@ -31,7 +34,14 @@ import {
 import { useChat, useDeleteMessage, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { HelperRunNote } from "../../../catalog/connections/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
-import type { FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
+import type {
+  FanficState,
+  FanficUnfinished,
+  FanficUnfinishedReason,
+  FanficVoiceSheet,
+} from "../../../../engine/contracts/types/fanfic";
+import { fanficUnfinishedChapter, fanficUnfinishedReason } from "../../../../engine/modes/fanfic/chapter-refs";
+import { readFanficVersion } from "../../../../engine/modes/fanfic/versions";
 import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
 import {
   buildFanficAiIsmCleanupNotes,
@@ -45,6 +55,7 @@ import { findFanficBannedPhrases } from "../../../../engine/modes/fanfic/phrase-
 import { fanficPlanNotes, readFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
+import { joinContinuation } from "../../../../engine/shared/text/continuation";
 import {
   detectFanficRepetition,
   fanficRepetitionNames,
@@ -58,6 +69,7 @@ import { cn } from "../../../../shared/lib/utils";
 import {
   fanficChapterViewRefs,
   useFanficContinuity,
+  useFanficKeepVersion,
   useFanficVoiceCheck,
   type FanficChapterView,
   type FanficContinuityController,
@@ -70,6 +82,7 @@ import {
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { useFanficNarration, type FanficNarrationStatus } from "../hooks/use-fanfic-narration";
+import type { FanficFinishedChapter } from "../lib/write-outcome";
 import {
   buildFanficNarration,
   FANFIC_SCENE_BREAK,
@@ -102,7 +115,11 @@ interface FanficReaderProps {
   streamText: string;
   phase: string | null;
   regeneratingMessageId: string | null;
+  /** The chapter a running Continue adds to, with its text when the Continue started; the new text streams after it. */
+  continuing: { messageId: string; textSoFar: string } | null;
   onWrite: (args: FanficWriteArgs) => void;
+  /** A chapter was finished outside a write (Keep as is); it gets the same follow-ups as a finished write. */
+  onChapterFinished: (chapter: FanficFinishedChapter) => void;
   onRetry: () => void;
   onStop: () => void;
   ledger: FanficLedgerController;
@@ -461,6 +478,65 @@ function BannedPhraseNotice({
   );
 }
 
+const UNFINISHED_REASON_TEXT: Record<FanficUnfinishedReason, string> = {
+  provider_reset: "The provider started its reply over, so this chapter stopped where it was.",
+  content_filter: "The provider's content filter stopped this chapter.",
+  failure: "The write failed before this chapter was finished.",
+  length: "This chapter hit the length limit before it was finished.",
+};
+
+/** A chapter whose shown version stopped early: why, and the ways to resolve it (or a model change first). */
+function UnfinishedChapterNotice({
+  chatId,
+  unfinished,
+  busy,
+  keeping,
+  onReset,
+  onContinue,
+  onKeep,
+}: {
+  chatId: string;
+  unfinished: FanficUnfinished;
+  busy: boolean;
+  keeping: boolean;
+  onReset: () => void;
+  onContinue: () => void;
+  onKeep: () => void;
+}) {
+  return (
+    <section
+      aria-label="Unfinished chapter"
+      className="flex flex-col gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3"
+    >
+      <p className="text-[0.8125rem] font-semibold text-[var(--foreground)]">This chapter is unfinished</p>
+      <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+        {UNFINISHED_REASON_TEXT[unfinished.reason]} Reset writes it again, Continue picks up where it stops, and Keep as
+        is leaves it as it reads now.
+      </p>
+      {unfinished.message && (
+        <p className="text-xs italic leading-relaxed text-[var(--muted-foreground)]">{unfinished.message}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <FanficButton disabled={busy} onClick={onReset}>
+          <RotateCcw size="0.9rem" aria-hidden="true" />
+          Reset
+        </FanficButton>
+        <FanficButton tone="primary" disabled={busy} onClick={onContinue}>
+          <StepForward size="0.9rem" aria-hidden="true" />
+          Continue
+        </FanficButton>
+        <FanficButton disabled={busy || keeping} onClick={onKeep}>
+          <Check size="0.9rem" aria-hidden="true" />
+          Keep as is
+        </FanficButton>
+        <div className="min-w-40 max-w-xs flex-1">
+          <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ProseCheckNotice({
   chapterTexts,
   chapterIndex,
@@ -543,12 +619,16 @@ function ProseCheckNotice({
 
 function ChapterTools({
   chatId,
+  state,
   chapter,
   chapterTexts,
   names,
   isLast,
   busy,
+  blocked,
   onWrite,
+  onKeep,
+  keeping,
   continuity,
   voiceCheck,
   hasVoices,
@@ -558,12 +638,17 @@ function ChapterTools({
   phraseBans,
 }: {
   chatId: string;
+  state: FanficState;
   chapter: FanficChapterView;
   chapterTexts: string[];
   names: string[];
   isLast: boolean;
   busy: boolean;
+  /** Why chapter writes wait (a chapter is unfinished); null when they can run. */
+  blocked: string | null;
   onWrite: (args: FanficWriteArgs) => void;
+  onKeep: () => void;
+  keeping: boolean;
   continuity: FanficContinuityController;
   voiceCheck: FanficVoiceCheckController;
   hasVoices: boolean;
@@ -573,7 +658,7 @@ function ChapterTools({
   bannedPhrases: string[];
   phraseBans: FanficPhraseBanController;
 }) {
-  const [mode, setMode] = useState<"idle" | "revise" | "edit" | "passage">("idle");
+  const [mode, setMode] = useState<"idle" | "revise" | "reset" | "edit" | "passage">("idle");
   const [passage, setPassage] = useState("");
   const [notes, setNotes] = useState("");
   const [editText, setEditText] = useState("");
@@ -585,6 +670,17 @@ function ChapterTools({
   const version = Math.min(versions, (message.activeSwipeIndex ?? 0) + 1);
   const continuityCheck = continuity.results[message.id];
   const voiceResult = voiceCheck.results[message.id];
+  const shown = readFanficVersion(message.extra);
+  const unfinished = shown?.unfinished ?? null;
+  // Writes that save a version wait while a chapter is unfinished; reading, checks and version switching don't.
+  const writeBusy = busy || Boolean(blocked);
+  const replacesVersion = version - 1;
+  // A Reset reopens the box of the write that made the version: the next-chapter box, or the revise box.
+  const resetsNewChapter = shown?.origin.kind === "chapter" || shown?.origin.kind === "extra";
+  const startReset = () => {
+    setNotes(shown?.origin.notes ?? "");
+    setMode("reset");
+  };
 
   const deleteChapter = async () => {
     const confirmed = await showConfirmDialog({
@@ -626,6 +722,31 @@ function ChapterTools({
 
   return (
     <div className="flex flex-col gap-2">
+      {unfinished && mode !== "reset" && (
+        <UnfinishedChapterNotice
+          chatId={chatId}
+          unfinished={unfinished}
+          busy={busy}
+          keeping={keeping}
+          onReset={startReset}
+          onContinue={() => onWrite({ kind: "continue", messageId: message.id })}
+          onKeep={onKeep}
+        />
+      )}
+      {mode === "reset" && resetsNewChapter && (
+        <NextChapterPanel
+          state={state}
+          nextNumber={chapter.number}
+          busy={busy}
+          onWrite={(args) => {
+            onWrite({ kind: "chapter", messageId: message.id, replacesVersion, notes: args.notes });
+            setMode("idle");
+          }}
+          notes={notes}
+          setNotes={setNotes}
+          onCancel={() => setMode("idle")}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {versions > 1 && (
           <div className="flex items-center gap-1" aria-label="Chapter versions">
@@ -650,11 +771,19 @@ function ChapterTools({
             </FanficButton>
           </div>
         )}
-        <FanficButton disabled={busy} onClick={() => setMode(mode === "revise" ? "idle" : "revise")}>
+        <FanficButton
+          disabled={writeBusy}
+          title={blocked ?? undefined}
+          onClick={() => setMode(mode === "revise" ? "idle" : "revise")}
+        >
           <Wand2 size="0.9rem" aria-hidden="true" />
           Rewrite with notes
         </FanficButton>
-        <FanficButton disabled={busy} onClick={() => onWrite({ kind: "regenerate", messageId: message.id })}>
+        <FanficButton
+          disabled={writeBusy}
+          title={blocked ?? undefined}
+          onClick={() => onWrite({ kind: "regenerate", messageId: message.id })}
+        >
           <RefreshCw size="0.9rem" aria-hidden="true" />
           Redo
         </FanficButton>
@@ -695,6 +824,7 @@ function ChapterTools({
           </FanficButton>
         )}
       </div>
+      {blocked && !unfinished && <p className="text-xs text-[var(--muted-foreground)]">{blocked}</p>}
       {mode === "idle" && selection && (
         <div
           role="group"
@@ -706,7 +836,8 @@ function ChapterTools({
           </p>
           <FanficButton
             tone="primary"
-            disabled={busy}
+            disabled={writeBusy}
+            title={blocked ?? undefined}
             onClick={() => {
               setPassage(selection);
               setMode("passage");
@@ -733,7 +864,7 @@ function ChapterTools({
           chapterNumber={chapter.number}
           textKey={fanficChapterTextKey(stripFanficChapterHeading(message.content))}
           selected={passage}
-          busy={busy}
+          busy={writeBusy}
           onClose={() => setMode("idle")}
         />
       )}
@@ -744,7 +875,7 @@ function ChapterTools({
         <FanficContinuityResult
           check={continuityCheck}
           chapterText={stripFanficChapterHeading(message.content)}
-          busy={busy || continuity.fixing}
+          busy={writeBusy || continuity.fixing}
           onFix={(issues) =>
             void continuity.applyFixes(
               continuityCheck,
@@ -768,7 +899,7 @@ function ChapterTools({
         <FanficVoiceResult
           check={voiceResult}
           chapterText={stripFanficChapterHeading(message.content)}
-          busy={busy || voiceCheck.fixing}
+          busy={writeBusy || voiceCheck.fixing}
           onFix={(issues) =>
             void voiceCheck.applyFixes(
               voiceResult,
@@ -791,7 +922,7 @@ function ChapterTools({
         <BannedPhraseNotice
           text={stripFanficChapterHeading(message.content)}
           phrases={bannedPhrases}
-          busy={busy || phraseBans.running !== null}
+          busy={writeBusy || phraseBans.running !== null}
           running={phraseBans.running === message.id}
           onRemove={() => phraseBans.remove({ messageId: message.id })}
         />
@@ -801,17 +932,23 @@ function ChapterTools({
           chapterTexts={chapterTexts}
           chapterIndex={chapter.number - 1}
           names={names}
-          busy={busy}
+          busy={writeBusy}
           onCleanUp={(cleanupNotes) => onWrite({ kind: "revise", messageId: message.id, notes: cleanupNotes })}
         />
       )}
-      {mode === "revise" && (
+      {(mode === "revise" || (mode === "reset" && !resetsNewChapter)) && (
         <form
           className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!notes.trim()) return;
-            onWrite({ kind: "revise", messageId: message.id, notes });
+            if (mode === "reset") {
+              // Notes make it a rewrite of the version a revision started from; without them it is a plain redo.
+              const kind = notes.trim() && shown?.origin.kind === "revise" ? "revise" : "regenerate";
+              onWrite({ kind, messageId: message.id, replacesVersion, notes: notes.trim() ? notes : "" });
+            } else {
+              if (!notes.trim()) return;
+              onWrite({ kind: "revise", messageId: message.id, notes });
+            }
             setNotes("");
             setMode("idle");
           }}
@@ -827,13 +964,21 @@ function ChapterTools({
             placeholder="More pining before the kiss. Crowley is too nice here, make him snarkier."
           />
           <p className="text-xs text-[var(--muted-foreground)]">
-            The rewrite is added as a new version, so you can flip back. Later chapters stay as they are.
+            {mode === "reset"
+              ? "The chapter is written again in place of the unfinished version. With no notes it's a plain redo."
+              : "The rewrite is added as a new version, so you can flip back. Later chapters stay as they are."}
           </p>
           <div className="flex justify-end gap-2">
             <FanficButton onClick={() => setMode("idle")}>Cancel</FanficButton>
-            <FanficButton type="submit" tone="primary" disabled={!notes.trim()}>
-              Rewrite chapter {chapter.number}
-            </FanficButton>
+            {mode === "reset" ? (
+              <FanficButton type="submit" tone="primary" disabled={busy}>
+                Write chapter {chapter.number} again
+              </FanficButton>
+            ) : (
+              <FanficButton type="submit" tone="primary" disabled={!notes.trim()}>
+                Rewrite chapter {chapter.number}
+              </FanficButton>
+            )}
           </div>
         </form>
       )}
@@ -924,14 +1069,26 @@ function StreamingChapter({
   text,
   phase,
   onStop,
+  waiting = false,
 }: {
   chatId: string;
   heading: string;
   text: string;
   phase: string | null;
   onStop: () => void;
+  /** The text shown is the chapter so far and the new words haven't started yet. */
+  waiting?: boolean;
 }) {
   const startedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
+  const status = (
+    <div className="flex flex-col gap-1">
+      <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+        <Loader2 size="1rem" className="animate-spin text-[var(--primary)]" aria-hidden="true" />
+        {phase || "Writing…"}
+      </p>
+      <FanficWaitNote startedAt={startedAt} stopLabel="Stop" />
+    </div>
+  );
   return (
     <article aria-busy="true" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -941,17 +1098,8 @@ function StreamingChapter({
           Stop
         </FanficButton>
       </div>
-      {text.trim() ? (
-        <Prose text={text} keyBase="fanfic-stream" />
-      ) : (
-        <div className="flex flex-col gap-1">
-          <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-            <Loader2 size="1rem" className="animate-spin text-[var(--primary)]" aria-hidden="true" />
-            {phase || "Writing…"}
-          </p>
-          <FanficWaitNote startedAt={startedAt} stopLabel="Stop" />
-        </div>
-      )}
+      {text.trim() ? <Prose text={text} keyBase="fanfic-stream" /> : status}
+      {text.trim() && waiting && status}
     </article>
   );
 }
@@ -960,28 +1108,40 @@ function NextChapterPanel({
   state,
   nextNumber,
   busy,
+  blocked = null,
   onWrite,
   notes,
   setNotes,
   onPlanAhead,
-  planning,
+  planning = false,
+  onCancel,
 }: {
   state: FanficState;
   nextNumber: number;
   busy: boolean;
+  /** Why the chapter can't be written yet; the write button waits. */
+  blocked?: string | null;
   onWrite: (args: FanficWriteArgs) => void;
   notes: string;
   setNotes: (notes: string) => void;
   /** Re-plans the rest (or suggests the next chapter) from what's written. */
-  onPlanAhead: () => void;
-  planning: boolean;
+  onPlanAhead?: () => void;
+  planning?: boolean;
+  /** Set when the box writes an unfinished chapter again (Reset) instead of the next one. */
+  onCancel?: () => void;
 }) {
   const planned = fanficPlannedChapterCount(state);
   const complete = nextNumber > planned;
   const title = fanficChapterTitle(state, nextNumber);
+  const notesId = onCancel ? "fanfic-reset-notes" : "fanfic-next-notes";
   return (
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 sm:p-4">
-      {complete ? (
+      {onCancel ? (
+        <p className="text-sm font-semibold text-[var(--foreground)]">
+          Write chapter {nextNumber}
+          {title ? `: ${title}` : ""} again
+        </p>
+      ) : complete ? (
         <p className="text-sm font-semibold text-[var(--foreground)]">
           <span aria-hidden="true">✦ </span>Complete. All {planned} planned chapters are written.
         </p>
@@ -991,24 +1151,29 @@ function NextChapterPanel({
           {title ? `: ${title}` : ""}
         </p>
       )}
-      <label htmlFor="fanfic-next-notes" className="mt-2 block text-xs text-[var(--muted-foreground)]">
+      <label htmlFor={notesId} className="mt-2 block text-xs text-[var(--muted-foreground)]">
         Notes for this chapter (optional)
       </label>
       <textarea
-        id="fanfic-next-notes"
+        id={notesId}
         className={cn(fanficInputClass, "mt-1 min-h-14 resize-y")}
         value={notes}
         onChange={(event) => setNotes(event.target.value)}
         placeholder={complete ? "An epilogue five years later…" : "Give Aziraphale a bigger moment here."}
       />
+      {blocked && <p className="mt-2 text-xs text-[var(--muted-foreground)]">{blocked}</p>}
       <div className="mt-2 flex flex-wrap justify-end gap-2">
-        <FanficButton disabled={busy || planning} onClick={onPlanAhead}>
-          <Compass size="0.9rem" aria-hidden="true" />
-          {complete ? "Suggest what's next" : "Re-plan the rest"}
-        </FanficButton>
+        {onCancel && <FanficButton onClick={onCancel}>Cancel</FanficButton>}
+        {onPlanAhead && (
+          <FanficButton disabled={busy || planning} onClick={onPlanAhead}>
+            <Compass size="0.9rem" aria-hidden="true" />
+            {complete ? "Suggest what's next" : "Re-plan the rest"}
+          </FanficButton>
+        )}
         <FanficButton
           tone="primary"
-          disabled={busy}
+          disabled={busy || Boolean(blocked)}
+          title={blocked ?? undefined}
           className="min-h-11 px-5"
           onClick={() => {
             onWrite({ kind: "chapter", notes });
@@ -1032,7 +1197,9 @@ export function FanficReader({
   streamText,
   phase,
   regeneratingMessageId,
+  continuing,
   onWrite,
+  onChapterFinished,
   onRetry,
   onStop,
   ledger,
@@ -1078,9 +1245,22 @@ export function FanficReader({
   const proposal = useMemo(() => readFanficPlan(chat?.metadata, chapterRefs), [chat?.metadata, chapterRefs]);
   const continuity = useFanficContinuity(chatId);
   const voiceCheck = useFanficVoiceCheck(chatId);
+  const keepVersion = useFanficKeepVersion(chatId);
+  // The engine refuses other writes while a chapter is unfinished; the reader disables them with the same reason.
+  const blocked = useMemo(() => {
+    const unfinished = fanficUnfinishedChapter(
+      chapters.map(({ message }) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        extra: message.extra,
+      })),
+    );
+    return unfinished ? fanficUnfinishedReason(unfinished) : null;
+  }, [chapters]);
   const topRef = useRef<HTMLDivElement>(null);
   const previousCount = useRef(chapterCount);
-  const writingNew = generating && !regeneratingMessageId;
+  const writingNew = generating && !regeneratingMessageId && !continuing;
   const narration = useFanficNarration(chatId);
   const { stop: stopNarration } = narration;
 
@@ -1173,6 +1353,7 @@ export function FanficReader({
           chapters={chapters}
           controller={editor}
           busy={generating}
+          blocked={blocked}
           onRewritten={(report) => {
             // Open the rewritten chapter and check it against the story, so a slip the rewrite made is caught.
             changeView(report.chapter);
@@ -1239,14 +1420,16 @@ export function FanficReader({
 
       {visible.map((chapter) => {
         const regenerating = generating && regeneratingMessageId === chapter.message.id;
+        const continued = generating && continuing?.messageId === chapter.message.id ? continuing : null;
         const heading = chapterHeading(state, chapter.number);
-        if (regenerating) {
+        if (regenerating || continued) {
           return (
             <StreamingChapter
               key={chapter.message.id}
               chatId={chatId}
               heading={heading}
-              text={streamText}
+              text={continued ? joinContinuation(continued.textSoFar, streamText) : streamText}
+              waiting={Boolean(continued) && !streamText.trim()}
               phase={phase}
               onStop={onStop}
             />
@@ -1269,12 +1452,24 @@ export function FanficReader({
             <div className="border-t border-[var(--border)] pt-3">
               <ChapterTools
                 chatId={chatId}
+                state={state}
                 chapter={chapter}
                 chapterTexts={chapterTexts}
                 names={repetitionNames}
                 isLast={chapter.number === chapterCount}
                 busy={generating}
+                blocked={blocked}
                 onWrite={onWrite}
+                onKeep={() =>
+                  keepVersion.mutate(chapter.message.id, {
+                    onSuccess: () =>
+                      onChapterFinished({
+                        messageId: chapter.message.id,
+                        origin: readFanficVersion(chapter.message.extra)?.origin.kind ?? "chapter",
+                      }),
+                  })
+                }
+                keeping={keepVersion.isPending}
                 continuity={continuity}
                 voiceCheck={voiceCheck}
                 hasVoices={(state.voices?.length ?? 0) > 0}
@@ -1329,6 +1524,7 @@ export function FanficReader({
           state={state}
           nextNumber={chapterCount + 1}
           busy={generating}
+          blocked={blocked}
           onWrite={onWrite}
           notes={nextNotes}
           setNotes={setNextNotes}

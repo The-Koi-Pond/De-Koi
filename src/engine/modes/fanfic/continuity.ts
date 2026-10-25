@@ -14,7 +14,7 @@ import type {
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { effectiveMaxContext } from "../../generation/context-window";
-import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { assertNoFanficUnfinishedChapter, fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
 import {
   fanficChapterTextKey,
   fanficLedgerStatus,
@@ -382,6 +382,7 @@ export async function applyFanficContinuityFixesToChapter(
   },
 ): Promise<{ applied: number; skipped: number; appliedIndexes: number[]; textKey: string }> {
   const messages = await storage.listChatMessages<JsonRecord>(input.chatId);
+  assertNoFanficUnfinishedChapter(messages.filter(isRecord));
   const message = messages.filter(isRecord).find((entry) => readString(entry.id) === input.check.messageId);
   const chapter = fanficChapterRefs(messages.filter(isRecord)).find(
     (entry) => entry.messageId === input.check.messageId,

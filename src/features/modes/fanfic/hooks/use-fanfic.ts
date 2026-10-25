@@ -7,6 +7,7 @@ import { runGenerationWithUi, type GenerateArgs } from "../../../runtime/generat
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type { FanficModelRecord, FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
+  keepFanficVersion,
   startFanficGeneration,
   type FanficGenerationKind,
   type StartFanficGenerationInput,
@@ -24,6 +25,7 @@ import { removeFanficBannedPhrasesFrom } from "../../../../engine/modes/fanfic/p
 import { fanficConnectionSupportsPhraseBans } from "../../../../engine/modes/fanfic/phrase-bans";
 import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
 import { useConnection } from "../../../catalog/connections/index";
+import { trackFanficWriteFinished, type FanficFinishedChapter } from "../lib/write-outcome";
 import {
   rewriteFanficFlaggedScenes,
   runFanficEditorPass,
@@ -121,33 +123,60 @@ export interface FanficWriteArgs {
   kind: FanficGenerationKind;
   messageId?: string | null;
   notes?: string | null;
+  /** Reset: the unfinished version of `messageId` the write replaces. */
+  replacesVersion?: number;
 }
 
+/** Writes a chapter; resolves with it only when it saved a finished one, so follow-ups skip one kept unfinished. */
 export function useFanficWriter(chatId: string, connectionId: string | null) {
   const queryClient = useQueryClient();
   return useCallback(
-    ({ kind, messageId = null, notes = null }: FanficWriteArgs): Promise<boolean> => {
+    async ({
+      kind,
+      messageId = null,
+      notes = null,
+      replacesVersion,
+    }: FanficWriteArgs): Promise<FanficFinishedChapter | null> => {
+      // A Reset of a new chapter rewrites that chapter's message, so it runs (and streams) like a redo.
+      const rewrites = kind === "regenerate" || kind === "revise" || replacesVersion !== undefined;
       const args: GenerateArgs & StartFanficGenerationInput = {
         chatId,
         connectionId,
         fanficKind: kind,
         notes,
-        regenerateMessageId: kind === "chapter" ? null : messageId,
+        regenerateMessageId: rewrites ? messageId : null,
+        ...(kind === "continue" && messageId ? { continueMessageId: messageId } : {}),
+        ...(replacesVersion !== undefined ? { replacesVersion } : {}),
         userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
-      return runGenerationWithUi(
-        queryClient,
-        args,
-        (streamArgs, signal) =>
+      let finished = (): FanficFinishedChapter | null => null;
+      const written = await runGenerationWithUi(queryClient, args, (streamArgs, signal) => {
+        const tracked = trackFanficWriteFinished(
           startFanficGeneration(
             { storage: storageApi, llm: llmApi, integrations: integrationGateway },
             streamArgs as GenerateArgs & StartFanficGenerationInput,
             signal,
           ) as AsyncGenerator<StreamEvent>,
-      );
+        );
+        finished = tracked.finished;
+        return tracked.events;
+      });
+      return written ? finished() : null;
     },
     [chatId, connectionId, queryClient],
   );
+}
+
+/** Keep as is: marks a chapter's unfinished version finished, its text untouched. */
+export function useFanficKeepVersion(chatId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (messageId: string) => keepFanficVersion(storageApi, { chatId, messageId }),
+    onError: (error) =>
+      toast.error(toUserMessage(error, { fallback: "Couldn't keep the chapter as it is. Try again." })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) }),
+  });
 }
 
 /** Saves a submitted request (connection, linked cards, request) as one unit; see saveFanficRequest. */

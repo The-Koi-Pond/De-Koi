@@ -681,6 +681,7 @@ pub(crate) fn process_google_sse_block(
             .filter(|reason| !reason.is_empty())
         {
             ensure_google_finish_reason_allows_complete(reason)?;
+            emit(json!({ "type": "provider_metadata", "data": { "stopReason": reason } }))?;
             return Ok(SseBlockStatus::Complete);
         }
     }
@@ -691,10 +692,11 @@ pub(crate) fn ensure_google_finish_reason_allows_complete(reason: &str) -> AppRe
     if matches!(reason.to_ascii_uppercase().as_str(), "STOP" | "MAX_TOKENS") {
         return Ok(());
     }
-    Err(AppError::new(
+    Err(AppError::with_details(
         "llm_stream_incomplete",
         format!(
             "Google/Gemini stopped before completing the response (finishReason: {reason}). The provider response may be incomplete; retry the request."
         ),
+        json!({ "finishReason": reason }),
     ))
 }

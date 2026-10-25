@@ -15,13 +15,14 @@ import type { TrackerState } from "../contracts/types/tracker-state";
 import { normalizeGeneratedImageResult } from "../contracts/generated-image";
 import type { EventGateway } from "../capabilities/events";
 import type { IntegrationGateway } from "../capabilities/integrations";
-import type { LlmGateway, LlmMessage } from "../capabilities/llm";
+import type { LlmChunk, LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { AddChatMessageSwipeOptions, ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { BackgroundJobOutcome, ClaimedBackgroundJob } from "../capabilities/background-jobs";
 import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
 import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
+import { joinContinuation } from "../shared/text/continuation";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactPromptSnapshotPreview } from "../shared/prompt-snapshot-preview";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
@@ -1647,7 +1648,7 @@ export async function loadMessagesForGenerationTarget(args: {
   targetMessageId?: string | null;
 }): Promise<JsonRecord[]> {
   const options = generationMessageLoadOptions(args.chat, args.input);
-  const targetId = readString(args.targetMessageId ?? args.input.regenerateMessageId).trim();
+  const targetId = readString(args.targetMessageId ?? generationTargetMessageId(args.input)).trim();
   if (!targetId) return loadChatMessages(args.storage, args.chatId, options);
 
   const target = await loadChatMessage(args.storage, targetId).catch(() => null);
@@ -1861,6 +1862,11 @@ function visibleTranscript(messages: JsonRecord[]): string {
     .slice(-24)
     .map((message) => `${readString(message.role, "message")}: ${readString(message.content)}`)
     .join("\n");
+}
+
+/** The message a regenerate or a continue writes into; the prompt's history stops before it. */
+function generationTargetMessageId(input: StartGenerationInput): string {
+  return readString(input.regenerateMessageId).trim() || readString(input.continueMessageId).trim();
 }
 
 function messagesBeforeRegenerationTarget(
@@ -3579,6 +3585,16 @@ async function saveAssistantMessage(args: {
   assertVisibleGeneratedContent(content, args.attachments, args.webResearchRequest);
   const thinking = collapseExcessBlankLines(readString(args.thinking).trim());
   const providerMetadata = args.input.impersonate === true ? null : providerMetadataRecord(args.providerMetadata);
+  const continueMessageId = readString(args.input.continueMessageId).trim();
+  if (continueMessageId) {
+    return saveContinuedMessage({
+      storage: args.storage,
+      messageId: continueMessageId,
+      content,
+      savedExtra: args.input.savedExtra,
+      providerMetadata,
+    });
+  }
   const promptSnapshot = buildSavedGenerationPromptSnapshot({
     connection: args.connection,
     promptSnapshot: args.promptSnapshot,
@@ -3715,6 +3731,30 @@ async function saveAssistantMessage(args: {
     generationInfo,
   });
   return saved;
+}
+
+/**
+ * Appends a reply to the displayed version of the message it continues, in one message update the runtime also
+ * writes into that version. The version keeps its other extra; the stop reason is the continuation's.
+ */
+async function saveContinuedMessage(args: {
+  storage: StorageGateway;
+  messageId: string;
+  content: string;
+  savedExtra?: Record<string, unknown>;
+  providerMetadata: Record<string, unknown> | null;
+}): Promise<unknown> {
+  const message = await args.storage.getChatMessage<JsonRecord>(args.messageId);
+  if (!isRecord(message)) throw new Error("The message to continue is no longer in this chat.");
+  const { providerMetadata: _continued, ...extra } = parseRecord(message.extra);
+  return args.storage.updateChatMessage(args.messageId, {
+    content: joinContinuation(readString(message.content), args.content),
+    extra: {
+      ...extra,
+      ...args.savedExtra,
+      ...(args.providerMetadata ? { providerMetadata: args.providerMetadata } : {}),
+    },
+  });
 }
 
 async function saveRegeneratedMessage(args: {
@@ -3862,8 +3902,9 @@ interface StreamPartialSink {
 
 /**
  * Persist whatever the model has already produced when a Stop or known stream
- * interruption ends the turn. Returns the saved row (so the caller can emit an
- * `assistant_message` event for it) or null when there is nothing worth saving.
+ * interruption ends the turn (any failure with `keepStreamedTextOnFailure`).
+ * Returns the saved row (so the caller can emit an `assistant_message` event
+ * for it) or null when there is nothing worth saving.
  */
 async function persistPartialOnFailure(args: {
   deps: GenerationEngineDeps;
@@ -3880,10 +3921,10 @@ async function persistPartialOnFailure(args: {
   regenerationTarget?: JsonRecord | null;
 }): Promise<unknown | null> {
   const interruption = generationInterruption(args.cause);
-  if (!args.signal?.aborted && !interruption) return null;
+  if (!args.signal?.aborted && !interruption && args.input.keepStreamedTextOnFailure !== true) return null;
   if (!args.partial.content.trim()) return null;
   try {
-    return await saveAssistantMessage({
+    const saved = await saveAssistantMessage({
       storage: args.deps.storage,
       chat: args.chat,
       characters: args.characters,
@@ -3902,9 +3943,34 @@ async function persistPartialOnFailure(args: {
       regenerationTarget: args.regenerationTarget,
       generationInterrupted: interruption,
     });
-  } catch {
-    return null;
+    if (saved && typeof args.cause === "object" && args.cause !== null) failuresWithSavedPartial.add(args.cause);
+    return saved;
+  } catch (saveError) {
+    if (args.input.keepStreamedTextOnFailure !== true || args.signal?.aborted) return null;
+    throw partialNotSavedError(args.cause, saveError);
   }
+}
+
+/** Failures whose text so far the engine saved as the reply, before passing the failure on. */
+const failuresWithSavedPartial = new WeakSet<object>();
+
+/**
+ * True when the engine saved the text received before this failure as the reply. A failure without it, after a reply
+ * was saved, came from the work that runs after a whole reply (agents, trackers, illustrations).
+ */
+export function isFailureWithSavedPartial(error: unknown): boolean {
+  return typeof error === "object" && error !== null && failuresWithSavedPartial.has(error);
+}
+
+/** The caller asked to keep the streamed text, so losing it must be said, along with why the reply stopped. */
+function partialNotSavedError(cause: unknown, saveError: unknown): Error & { code: string; cause: unknown } {
+  const stopped = readString(parseRecord(cause).message).trim() || "The reply stopped early.";
+  const notSaved = readString(parseRecord(saveError).message).trim() || "unknown storage error";
+  return Object.assign(new Error(`${stopped} The text received so far could not be saved (${notSaved}).`), {
+    code: "generation_partial_not_saved",
+    cause,
+    details: { saveError: notSaved },
+  });
 }
 
 function generationInterruption(cause: unknown): {
@@ -5084,7 +5150,7 @@ export async function* dryRunGeneration(
     chatId,
     regenerationTarget,
   );
-  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
   const storedImageDelivery = await resolveStoredImageAttachmentsForPrompt(deps.storage, generationMessages);
   generationMessages = storedImageDelivery.messages;
   const storedImageConnectionSupport = applyStoredImageAttachmentConnectionSupport(generationMessages, connection);
@@ -5401,7 +5467,7 @@ async function* startGenerationImpl(
     chatId,
     regenerationTarget,
   );
-  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
   const skippedStoredImageMessageIds = new Set(
     [readString(savedTimelineMessage?.id).trim()].filter((id): id is string => id.length > 0),
   );
@@ -5540,7 +5606,7 @@ async function* startGenerationImpl(
       throwIfAborted(signal);
       storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
       regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
-      generationMessages = messagesBeforeRegenerationTarget(storedMessages, input.regenerateMessageId);
+      generationMessages = messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
       const delayedStoredImageDelivery = await resolveStoredImageAttachmentsForPrompt(
         deps.storage,
         generationMessages,
@@ -6751,12 +6817,18 @@ async function* streamMainGenerationLoop(args: {
           messages: providerRequestMessages,
           parameters: requestParameters,
           tools: requestTools,
+          ...(input.keepStreamedTextOnFailure === true ? { reportRestarts: true } : {}),
         },
         signal,
       )) {
         throwIfAborted(signal);
-        const chunkProviderMetadata =
-          chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
+        if (chunk.type === "text_reset" && input.keepStreamedTextOnFailure === true) {
+          // Throw before anything is dropped, so the partial sink still holds the text the user saw.
+          throw Object.assign(new Error("The provider restarted the reply, so it stopped at the text shown so far."), {
+            code: "llm_stream_text_reset",
+          });
+        }
+        const chunkProviderMetadata = streamChunkProviderMetadata(chunk, input.keepStreamedTextOnFailure === true);
         if (chunkProviderMetadata != null) {
           turnProviderMetadata = mergeProviderMetadata(turnProviderMetadata, chunkProviderMetadata);
           providerMetadata = mergeProviderMetadata(providerMetadata, chunkProviderMetadata);
@@ -6985,6 +7057,17 @@ async function* streamMainGenerationLoop(args: {
     webResearchRequest,
     webResearchSources,
   };
+}
+
+/**
+ * A chunk's provider metadata. The provider's `stopReason` is kept only for a caller that keeps streamed text and
+ * reads how a reply ended; other replies save, replay and snapshot the metadata they always did.
+ */
+function streamChunkProviderMetadata(chunk: LlmChunk, keepStopReason: boolean): unknown {
+  const metadata = chunk.type === "provider_metadata" ? (chunk.data ?? chunk.providerMetadata) : chunk.providerMetadata;
+  if (keepStopReason || !isRecord(metadata) || !("stopReason" in metadata)) return metadata;
+  const { stopReason: _stopReason, ...rest } = metadata;
+  return Object.keys(rest).length > 0 ? rest : null;
 }
 
 /** Phase text for a provider's running estimate of hidden thinking, so a long think does not look stuck. */

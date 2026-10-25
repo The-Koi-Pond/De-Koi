@@ -277,13 +277,15 @@ export async function checkFanficChapterVoice(
   if (!state) throw userFacingError("Fill in the fanfic request first.");
   const voices = state.voices ?? [];
   if (voices.length === 0) throw userFacingError("Build the voice sheets first (Voices, at the top of the fic).");
-  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, {
+  const pickInput = {
     chatId: input.chatId,
     connectionId: input.connectionId,
     job: "voice check",
     missing: "Pick a connection for the voice check.",
     gone: FANFIC_CONNECTION_GONE,
-  });
+  };
+  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
+  if (!connection) throw userFacingError(pickInput.missing);
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
   const chapters = fanficChapterRefs(messages.filter(isRecord));
@@ -294,7 +296,7 @@ export async function checkFanficChapterVoice(
   // Everything goes in whole (sheets, chapter, the end of the one before), so only the reply is sized; the
   // double-check adds its notes.
   const frame = buildFanficVoiceCheckMessages({ request: state.request, voices, target, previous });
-  const budget = fanficCallBudget(connection ? effectiveMaxContext(connection, {}) : 0, {
+  const budget = fanficCallBudget(effectiveMaxContext(connection, {}), {
     maxReplyTokens: CHECK_MAX_TOKENS,
     fixedChars: fanficMessageChars(frame) + MAX_ISSUES * 700,
     defaultChars: 0,
@@ -355,6 +357,6 @@ export async function checkFanficChapterVoice(
     ungrounded: dropped,
     rejected: grounded.length - confirmed.length - merged,
     merged: merged + repeats,
-    model: fanficModelRecord(connection ?? { id: connectionId }),
+    model: fanficModelRecord(connection),
   };
 }

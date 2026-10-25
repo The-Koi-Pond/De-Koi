@@ -315,7 +315,23 @@ pub(crate) fn process_anthropic_sse_block(
             provider_unreadable_reply_message(error),
         )
     })?;
-    process_anthropic_stream_event(&value, event_name, emit)
+    let status = process_anthropic_stream_event(&value, event_name, emit)?;
+    // Here rather than in the shared event handler, so Claude subscription streams stay unchanged.
+    if value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or(event_name)
+        == "message_delta"
+    {
+        if let Some(reason) = value
+            .pointer("/delta/stop_reason")
+            .and_then(Value::as_str)
+            .filter(|reason| !reason.is_empty())
+        {
+            emit(json!({ "type": "provider_metadata", "data": { "stopReason": reason } }))?;
+        }
+    }
+    Ok(status)
 }
 
 /// Handles one parsed Messages API stream event. Claude Code's `stream-json` output wraps these same
