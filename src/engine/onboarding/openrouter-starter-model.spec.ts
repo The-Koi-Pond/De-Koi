@@ -6,23 +6,23 @@ import {
 } from "./openrouter-starter-model";
 
 describe("pickOpenRouterStarterModel", () => {
-  it("takes the best preferred free model the account can see", () => {
+  it("starts on OpenRouter's free router when it is listed", () => {
     const pick = pickOpenRouterStarterModel([
       { id: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5", context: 1_000_000 },
-      { id: OPENROUTER_STARTER_MODEL_PREFERENCE[1], name: "Inkling (free)", context: 1_048_576 },
+      { id: OPENROUTER_STARTER_MODEL_PREFERENCE[0], name: "Gemma 4 31B (free)", context: 262_144 },
       { id: OPENROUTER_FREE_ROUTER_MODEL, name: "Free Models Router", context: 200_000 },
     ]);
 
-    expect(pick).toEqual({ id: OPENROUTER_STARTER_MODEL_PREFERENCE[1], name: "Inkling (free)", context: 1_048_576 });
+    expect(pick).toEqual({ id: OPENROUTER_FREE_ROUTER_MODEL, name: "Free Models Router", context: 200_000 });
   });
 
-  it("falls back to OpenRouter's free router, then any free model", () => {
+  it("falls back to the best named free model, then any free model", () => {
     expect(
       pickOpenRouterStarterModel([
         { id: "someone/new-model:free", context: 32_000 },
-        { id: OPENROUTER_FREE_ROUTER_MODEL, context: 200_000 },
+        { id: OPENROUTER_STARTER_MODEL_PREFERENCE[1], name: "Inkling (free)", context: 1_048_576 },
       ])?.id,
-    ).toBe(OPENROUTER_FREE_ROUTER_MODEL);
+    ).toBe(OPENROUTER_STARTER_MODEL_PREFERENCE[1]);
 
     expect(pickOpenRouterStarterModel([{ id: "someone/new-model:free", context: 0 }])).toEqual({
       id: "someone/new-model:free",

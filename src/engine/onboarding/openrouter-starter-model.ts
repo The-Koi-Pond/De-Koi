@@ -5,14 +5,18 @@
  * Update the preference list when these leave OpenRouter; the router fallback keeps working meanwhile.
  */
 
-/** Free chat models worth starting on, best first (checked 2026-10-24). */
+/**
+ * Named free models to fall back on when the router isn't listed, best first. Checked 2026-10-25 with a fresh
+ * login: Gemma was rate-limited (429), Inkling only serves agentic apps (403), Nemotron returned 404. So these
+ * come after the router.
+ */
 export const OPENROUTER_STARTER_MODEL_PREFERENCE = [
   "google/gemma-4-31b-it:free",
   "thinkingmachines/inkling:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
 ] as const;
 
-/** OpenRouter's own router across its free models. Its pick can change between replies, so it comes after named models. */
+/** OpenRouter's own router across its free models. It sends each reply to a free model that is up, so it goes first. */
 export const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 
 export interface StarterModelCandidate {
@@ -42,12 +46,12 @@ function pickFrom(candidate: StarterModelCandidate): StarterModelPick {
  */
 export function pickOpenRouterStarterModel(models: readonly StarterModelCandidate[]): StarterModelPick | null {
   const byId = new Map(models.map((model) => [model.id, model]));
+  const router = byId.get(OPENROUTER_FREE_ROUTER_MODEL);
+  if (router) return pickFrom(router);
   for (const id of OPENROUTER_STARTER_MODEL_PREFERENCE) {
     const model = byId.get(id);
     if (model) return pickFrom(model);
   }
-  const router = byId.get(OPENROUTER_FREE_ROUTER_MODEL);
-  if (router) return pickFrom(router);
   const anyFree = models.find((model) => model.id.endsWith(":free"));
   return anyFree ? pickFrom(anyFree) : null;
 }
