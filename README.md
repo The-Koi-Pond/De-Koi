@@ -107,7 +107,7 @@ it.
 <details>
 <summary><b>Getting started</b> (3)</summary>
 
-- **Connections**: Configure and organize model providers, API keys, local endpoints, managed Local Model setup, subscription image generation, voice providers, separate chat, agent, and Illustrator defaults, and per-chat vision connections for image input.
+- **Connections**: Configure and organize model providers, API keys, local endpoints, managed Local Model setup, subscription image generation, voice providers, separate chat, agent, and Illustrator defaults, and per-chat vision connections for image input. New to AI apps? Log in with OpenRouter: De-Koi saves the key for you and starts on a free model.
 - **Imports**: Bring in characters, personas, lorebooks, presets, SillyTavern data, and Marinara profile exports.
 - **Backups And Profile Export**: Create managed backups, download backup files, export a native profile JSON, and restore data through profile import.
 

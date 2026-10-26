@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 // React Query: Connection hooks
 // ──────────────────────────────────────────────
+import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { connectionKeys } from "../query-keys";
@@ -95,6 +96,20 @@ export function useUpdateConnection() {
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });
     },
   });
+}
+
+/** Re-reads one connection and the list after something outside these hooks changed it, like a login saving a key. */
+export function useRefreshConnection() {
+  const qc = useQueryClient();
+  return useCallback(
+    async (id: string) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: connectionKeys.list() }),
+        qc.invalidateQueries({ queryKey: connectionKeys.detail(id) }),
+      ]);
+    },
+    [qc],
+  );
 }
 
 export function useDuplicateConnection() {
