@@ -285,6 +285,33 @@ describe("continuity grounding", () => {
     }
   });
 
+  it("reads 3.10 as chapter 3.10, never 3.1, and names no chapter for a label nobody read", () => {
+    const labels = ["3", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10"];
+    const reply = (earlierChapter: unknown, laterChapter: unknown) =>
+      parseFanficContinuityReply(
+        JSON.stringify({ issues: [{ ...injuryIssue, earlierChapter, laterChapter }] }),
+        labels,
+      );
+
+    expect(reply("3.10", "Chapter 3.5")[0]).toMatchObject({ earlierChapter: 7, laterChapter: 2 });
+    // A JSON number can't say 3.10: 3.1 is no chapter here, so the quote decides.
+    expect(reply(3.1, 3)[0]).toMatchObject({ earlierChapter: 0, laterChapter: 1 });
+    expect(reply("3.11", "0")[0]).toMatchObject({ earlierChapter: 0, laterChapter: 0 });
+  });
+
+  it("grounds an issue naming no chapter it read by its quotes alone", () => {
+    const [issue] = parseFanficContinuityReply(
+      JSON.stringify({ issues: [{ ...injuryIssue, earlierChapter: "1.7", laterChapter: "1.7" }] }),
+      ["1", "1.5", "2"],
+    );
+    const { grounded, dropped } = groundFanficContinuityIssues(
+      [issue!, { ...issue!, subtype: "made up", earlierQuote: "a line nobody ever wrote down" }],
+      [chapterOne, "An extra.", chapterTwo],
+    );
+    expect(grounded).toEqual([expect.objectContaining({ earlierChapter: 1, laterChapter: 3 })]);
+    expect(dropped).toBe(1);
+  });
+
   it("needs a verdict on every note, and folds a confirmed repeat into the note it repeats", () => {
     const verdicts = parseFanficContinuityVerdicts(
       JSON.stringify({
@@ -364,6 +391,22 @@ describe("judge prompts", () => {
       expect(text).toContain("### Chapter 2");
       expect(text).not.toMatch(/<\/?[a-z_]+>/i);
     }
+  });
+
+  it("asks the sweep for chapter labels as text once an extra is among the chapters, and numbers otherwise", () => {
+    const [plain] = buildFanficContinuityMessages({ request, chapters: [chapterOne, chapterTwo], labels: ["1", "2"] });
+    expect(plain.content).toContain('"earlierChapter": number, "earlierQuote": string, "laterChapter": number');
+    expect(plain.content).not.toContain('e.g. "3.5"');
+
+    const [labelled] = buildFanficContinuityMessages({
+      request,
+      chapters: [chapterOne, "An extra.", chapterTwo],
+      labels: ["1", "1.5", "2"],
+    });
+    expect(labelled.content).toContain('"earlierChapter": string, "earlierQuote": string, "laterChapter": string');
+    expect(labelled.content).toContain(
+      'Write earlierChapter and laterChapter as their headings number them, e.g. "3.5".',
+    );
   });
 
   it("splits the continuity sweep so every category is covered exactly once", () => {
@@ -451,6 +494,70 @@ describe("runFanficQualityCheck", () => {
     expect(readFanficQualityStore(records["chat-1"].metadata).runs.map((saved) => saved.id)).toEqual([run.id]);
     // The fic's own state is untouched.
     expect((records["chat-1"].metadata as { fanfic: unknown }).fanfic).toBeTruthy();
+  });
+
+  it("judges the main chapters and canon extras in reading order, leaving side stories out", async () => {
+    const { storage } = storageWith([]);
+    const extra = (id: string, canon: boolean, content: string) => ({
+      id,
+      role: "assistant",
+      content,
+      extra: { fanficExtra: { parentChapter: 1, canon } },
+    });
+    const canonExtra = "Harlequin counted the knives twice before bed.";
+    storage.listChatMessages = async <T>() =>
+      [
+        { id: "m1", role: "assistant", content: chapterOne },
+        { id: "m2", role: "assistant", content: chapterTwo },
+        extra("x1", true, canonExtra),
+        extra("x2", false, "A side story nobody else reads."),
+      ] as T[];
+    const llm = judgeLlm({
+      rubric: [rubricReply, rubricReply],
+      continuity: ['{"issues": []}', '{"issues": []}'],
+      verify: [],
+    });
+
+    const run = await runFanficQualityCheck({ storage, llm }, { chatId: "chat-1" });
+
+    expect(run.chapterCount).toBe(3);
+    expect(run.textKey).toBe(fanficTextKey([chapterOne, canonExtra, chapterTwo]));
+    const sent = llm.requests.map((entry) => JSON.stringify(entry.messages)).join("\n");
+    expect(sent).toContain(canonExtra);
+    expect(sent).not.toContain("A side story nobody else reads.");
+  });
+
+  it("numbers a canon extra by its label and stores the message ids of both chapters on each issue", async () => {
+    const { storage } = storageWith([]);
+    // The bandage line is in chapter 1 and in 1.5; the judge names 1.5.
+    const canonExtra = `Harlequin counted the knives twice before bed. ${injuryIssue.earlierQuote}.`;
+    storage.listChatMessages = async <T>() =>
+      [
+        { id: "m1", role: "assistant", content: chapterOne },
+        { id: "m2", role: "assistant", content: chapterTwo },
+        { id: "x1", role: "assistant", content: canonExtra, extra: { fanficExtra: { parentChapter: 1, canon: true } } },
+      ] as T[];
+    const llm = judgeLlm({
+      rubric: [rubricReply, rubricReply],
+      continuity: [JSON.stringify({ issues: [{ ...injuryIssue, earlierChapter: "1.5" }] }), '{"issues": []}'],
+      verify: [JSON.stringify({ verdicts: [{ note: 1, contradiction: true }] })],
+    });
+
+    const run = await runFanficQualityCheck({ storage, llm }, { chatId: "chat-1" });
+
+    for (const entry of llm.requests)
+      expect(entry.messages.at(-1)!.content).toContain(`### Chapter 1.5\n\n${canonExtra}`);
+    const verify = llm.requests.find((entry) => entry.messages[0]!.content.startsWith("You double-check"))!;
+    expect(verify.messages[0]!.content).toContain(`1. Chapter 1.5: "${injuryIssue.earlierQuote}" vs chapter 2:`);
+    expect(run.continuity.issues).toEqual([
+      expect.objectContaining({ earlierChapter: 1, earlierMessageId: "x1", laterChapter: 2, laterMessageId: "m2" }),
+    ]);
+  });
+
+  it("reads a saved issue without message ids as before", () => {
+    const issue = injuryIssue as FanficContinuityIssue;
+    const run = savedRun("old", { continuity: { ...savedRun("old").continuity, issues: [issue] } });
+    expect(readFanficQualityStore({ fanficQuality: { runs: [run] } }).runs[0]!.continuity.issues).toEqual([issue]);
   });
 
   it("retries a malformed judge reply once, skips verification with nothing to verify, and caps the history", async () => {

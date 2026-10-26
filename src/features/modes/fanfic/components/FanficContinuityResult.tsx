@@ -6,7 +6,7 @@ import type {
   FanficContinuityPhase,
 } from "../../../../engine/modes/fanfic/continuity";
 import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
-import { FANFIC_CONTINUITY_CATEGORY_LABELS } from "../../../../engine/modes/fanfic/quality";
+import { FANFIC_CONTINUITY_CATEGORY_LABELS, fanficIssueChapterLabel } from "../../../../engine/modes/fanfic/quality";
 import { FanficButton } from "./fanfic-ui";
 
 const PHASE_LABELS: Record<FanficContinuityPhase, string> = {
@@ -37,15 +37,31 @@ export function FanficContinuityProgress({
   );
 }
 
-function earlierRange(check: FanficChapterContinuityCheck): string {
+/** An extra reads its own write context, so it is named by its current label rather than as a range of mains. */
+function earlierRange(check: FanficChapterContinuityCheck, label: string): string {
   const before = check.chapter - 1;
-  const span = before === 1 ? "chapter 1" : `chapters 1–${before}`;
+  const span =
+    check.label !== String(check.chapter)
+      ? `the chapters before chapter ${label}`
+      : before === 1
+        ? "chapter 1"
+        : `chapters 1–${before}`;
   return check.basis === "ledger" ? `${span} (the oldest from the story ledger)` : span;
 }
 
+/** The earlier chapter's label now; null once it is deleted. */
+function earlierLabel(issue: FanficChapterContinuityIssue, labels: ReadonlyMap<string, string>): string | null {
+  return fanficIssueChapterLabel(labels, issue.earlierMessageId, issue.earlierChapter);
+}
+
+function earlierChapterName(issue: FanficChapterContinuityIssue, labels: ReadonlyMap<string, string>): string {
+  const label = earlierLabel(issue, labels);
+  return label ? `Ch ${label}:` : "A deleted chapter:";
+}
+
 /** Notes for a full rewrite, for a slip whose fix is more than a sentence or two. */
-function fanficContinuityRewriteNotes(issue: FanficChapterContinuityIssue): string {
-  const source = issue.earlierChapter === 0 ? "the story ledger" : `chapter ${issue.earlierChapter}`;
+function fanficContinuityRewriteNotes(issue: FanficChapterContinuityIssue, earlier: string | null): string {
+  const source = issue.earlierChapter === 0 ? "the story ledger" : earlier ? `chapter ${earlier}` : "a deleted chapter";
   return `Fix a continuity slip and change nothing else. Earlier, ${source} says: "${issue.earlierQuote}". This chapter says: "${issue.laterQuote}". ${issue.explanation} Keep the earlier fact.`;
 }
 
@@ -55,6 +71,7 @@ function fanficContinuityRewriteNotes(issue: FanficChapterContinuityIssue): stri
  */
 export function FanficContinuityResult({
   check,
+  labels,
   chapterText,
   busy,
   onFix,
@@ -63,6 +80,8 @@ export function FanficContinuityResult({
   helperNote,
 }: {
   check: FanficChapterContinuityCheck;
+  /** Each chapter's label in the current layout, by message id, so renumbered extras show their new number. */
+  labels: ReadonlyMap<string, string>;
   /** The chapter as it reads now, heading stripped. */
   chapterText: string;
   busy: boolean;
@@ -79,6 +98,7 @@ export function FanficContinuityResult({
     check.rejected ? `${check.rejected} the double-check ruled out` : "",
     check.merged ? `${check.merged} ${check.merged === 1 ? "repeat" : "repeats"}` : "",
   ].filter(Boolean);
+  const range = earlierRange(check, labels.get(check.messageId) ?? check.label);
   return (
     <section
       aria-label="Continuity check"
@@ -88,8 +108,8 @@ export function FanficContinuityResult({
         <p className="flex-1 text-[0.8125rem] font-semibold text-[var(--foreground)]">
           <ShieldCheck size="0.9rem" className="mr-1 inline" aria-hidden="true" />
           {check.issues.length === 0
-            ? `No continuity slips against ${earlierRange(check)}.`
-            : `${check.issues.length} continuity ${check.issues.length === 1 ? "slip" : "slips"} against ${earlierRange(check)}`}
+            ? `No continuity slips against ${range}.`
+            : `${check.issues.length} continuity ${check.issues.length === 1 ? "slip" : "slips"} against ${range}`}
         </p>
         <button
           type="button"
@@ -121,9 +141,13 @@ export function FanficContinuityResult({
                 <span className="font-semibold text-[var(--foreground)]">
                   {issue.earlierChapter === 0
                     ? "Story ledger:"
-                    : issue.earlierChapter === check.chapter
+                    : (
+                          issue.earlierMessageId
+                            ? issue.earlierMessageId === check.messageId
+                            : issue.earlierChapter === check.chapter
+                        )
                       ? "Earlier in this chapter:"
-                      : `Ch ${issue.earlierChapter}:`}
+                      : earlierChapterName(issue, labels)}
                 </span>{" "}
                 “{issue.earlierQuote}”
               </p>
@@ -148,7 +172,7 @@ export function FanficContinuityResult({
                 <FanficButton
                   className="mt-2"
                   disabled={busy || stale}
-                  onClick={() => onRewrite(fanficContinuityRewriteNotes(issue))}
+                  onClick={() => onRewrite(fanficContinuityRewriteNotes(issue, earlierLabel(issue, labels)))}
                 >
                   <Wand2 size="0.85rem" aria-hidden="true" />
                   Rewrite with this note

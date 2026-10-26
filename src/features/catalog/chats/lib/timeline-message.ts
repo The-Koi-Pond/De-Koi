@@ -46,6 +46,8 @@ const CHAT_MESSAGE_TIMELINE_EXTRA_FIELDS = [
   "isConversationStart",
   "generationError",
   "translation",
+  "fanficVersion",
+  "fanficExtra",
 ];
 
 type TimelineMessageOptions = ChatMessageListOptions;

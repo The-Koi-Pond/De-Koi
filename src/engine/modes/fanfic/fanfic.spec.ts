@@ -7,8 +7,8 @@ import {
 } from "../../contracts/types/agent";
 import { getEffectiveMemoryRecallEnabled } from "../../contracts/types/chat";
 import type { FanficState } from "../../contracts/types/fanfic";
-import { fanficChapterRefs } from "./chapters";
-import { buildFanficHtml, buildFanficMarkdown } from "./export";
+import { fanficChapterLayout } from "./chapter-refs";
+import { buildFanficHtml, buildFanficMarkdown, fanficExportChapters } from "./export";
 import {
   approveFanficOutline,
   FanficOutlineCountError,
@@ -138,7 +138,8 @@ describe("fanfic prompts", () => {
   });
 
   it("sends the previous draft and the notes for a rewrite", () => {
-    const guide = buildFanficRevisionGuide(writingState(), 1, "Snarkier Crowley.", "Old draft text.");
+    const chapter = { label: "1", mainNumber: 1, extra: null };
+    const guide = buildFanficRevisionGuide(writingState(), chapter, "Snarkier Crowley.", "Old draft text.");
     expect(guide).toContain("Requester's notes:\nSnarkier Crowley.");
     expect(guide).toContain('Previous draft:\n"""\nOld draft text.\n"""');
   });
@@ -161,6 +162,30 @@ describe("fanfic prompts", () => {
     expect(stripFanficChapterHeading("“Chapter one,” he read aloud.")).toBe("“Chapter one,” he read aloud.");
   });
 
+  it("labels an extra in the history by the main chapter it follows, without an outline title", () => {
+    const extra = (id: string, content: string) => ({
+      id,
+      role: "assistant",
+      content,
+      extra: { fanficExtra: { parentChapter: 1, canon: true } },
+    });
+    const labeled = labelFanficChapterHistory(
+      [
+        { id: "m1", role: "assistant", content: "Snow fell." },
+        extra("x1", "A flashback."),
+        extra("x2", "Another."),
+        { id: "m2", role: "assistant", content: "They talked." },
+      ],
+      writingState().outline,
+    );
+    expect(labeled.filter((message) => message.role === "user").map((message) => message.content)).toEqual([
+      "Write chapter 1: First Flakes.",
+      "Write chapter 1.5.",
+      "Write chapter 1.6.",
+      "Write chapter 2: Thaw.",
+    ]);
+  });
+
   it("renders library cards as canon reference without roleplay placeholders", () => {
     const cards = renderFanficCastCards([
       { name: "Crowley", description: "{{char}} teases {{user}}.", personality: "", mesExample: "" },
@@ -170,11 +195,11 @@ describe("fanfic prompts", () => {
 
   it("numbers chapters from assistant messages only", () => {
     expect(
-      fanficChapterRefs([
+      fanficChapterLayout([
         { id: "a", role: "assistant", content: "One" },
         { id: "u", role: "user", content: "ignored" },
         { id: "b", role: "assistant", content: "Two" },
-      ]).map((chapter) => [chapter.number, chapter.messageId]),
+      ]).mains.map((chapter) => [chapter.mainNumber, chapter.messageId]),
     ).toEqual([
       [1, "a"],
       [2, "b"],
@@ -219,10 +244,19 @@ describe("fanfic outline prompt", () => {
 });
 
 describe("fanfic export", () => {
+  const rows = (...contents: string[]) =>
+    contents.map((content, index) => ({ id: `m${index + 1}`, role: "assistant", content }));
+  const extraRow = (id: string, content: string, parentChapter: number, canon: boolean) => ({
+    id,
+    role: "assistant",
+    content,
+    extra: { fanficExtra: { parentChapter, canon } },
+  });
+
   it("escapes prose and tags in HTML and keeps AO3-style headers", () => {
     const file = buildFanficHtml({
       state: writingState({ tags: ["<script>"] }),
-      chapters: ["He said *hi* & <left>.", "Second."],
+      chapters: fanficExportChapters(rows("He said *hi* & <left>.", "Second.")),
     });
     expect(file.filename).toBe("snow-day.html");
     expect(file.content).toContain("<dd>&lt;script&gt;, Third person limited</dd>");
@@ -232,9 +266,51 @@ describe("fanfic export", () => {
   });
 
   it("writes markdown chapters with headings and progress", () => {
-    const file = buildFanficMarkdown({ state: writingState(), chapters: ["## Chapter 1\n\nSnow fell."] });
+    const file = buildFanficMarkdown({
+      state: writingState(),
+      chapters: fanficExportChapters(rows("## Chapter 1\n\nSnow fell.")),
+    });
     expect(file.content).toContain("**Chapters:** 1/2");
     expect(file.content).toContain("## Chapter 1: First Flakes\n\nSnow fell.");
+  });
+
+  it("exports a fic without extras exactly as before", () => {
+    const chapters = fanficExportChapters(
+      rows("## Chapter 1\n\nSnow fell.\n\n* * *\n\nIt *kept* falling.", "Chapter 2: Thaw\n\nThey talked."),
+    );
+    expect(buildFanficMarkdown({ state: writingState(), chapters }).content).toBe(
+      "# Snow Day\n\n**Rating:** Teen And Up Audiences  \n**Archive Warning:** No Archive Warnings Apply  \n**Fandom:** Good Omens  \n**Relationships:** Aziraphale/Crowley  \n**Additional Tags:** Third person limited  \n**Chapters:** 2/2  \n\n> Neither of them will admit it's on purpose.\n\n## Chapter 1: First Flakes\n\nSnow fell.\n\n* * *\n\nIt *kept* falling.\n\n## Chapter 2: Thaw\n\nThey talked.\n",
+    );
+    expect(buildFanficHtml({ state: writingState(), chapters }).content).toContain(
+      '<dt>Chapters:</dt><dd>2/2</dd>\n</dl>\n<h1>Snow Day</h1>\n<p class="summary">Neither of them will admit it&#39;s on purpose.</p>\n<section class="chapter">\n<h2>Chapter 1: First Flakes</h2>\n<p>Snow fell.</p>\n<hr />\n<p>It <em>kept</em> falling.</p>\n</section>\n<section class="chapter">\n<h2>Chapter 2: Thaw</h2>\n<p>They talked.</p>\n</section>\n</body>',
+    );
+  });
+
+  it("exports extras in reading order with their numbers, marking side stories", () => {
+    // Written out of order: 3.5 and 3.6 after chapter 4.
+    const chapters = fanficExportChapters([
+      ...rows("One.", "Two.", "Three."),
+      { id: "m4", role: "assistant", content: "Four." },
+      extraRow("x35", "Side.", 3, false),
+      extraRow("x36", "Later side.", 3, false),
+      extraRow("x15", "Canon extra.", 1, true),
+      extraRow("x95", "Its chapter is gone.", 9, false),
+    ]);
+    const markdown = buildFanficMarkdown({ state: writingState(), chapters }).content;
+    expect([...markdown.matchAll(/^## (.+)$/gm)].map((match) => match[1])).toEqual([
+      "Chapter 1: First Flakes",
+      "Chapter 1.5",
+      "Chapter 2: Thaw",
+      "Chapter 3",
+      "Chapter 3.5 (side story)",
+      "Chapter 3.6 (side story)",
+      "Chapter 4",
+    ]);
+    expect(markdown).toContain("## Chapter 3.5 (side story)\n\nSide.\n");
+    expect(markdown).toContain("**Chapters:** 4/2");
+    expect(buildFanficHtml({ state: writingState(), chapters }).content).toContain(
+      "<h2>Chapter 3.5 (side story)</h2>\n<p>Side.</p>",
+    );
   });
 });
 

@@ -366,7 +366,7 @@ const TIMELINE_MESSAGE_FIELDS: [&str; 14] = [
     "createdAt",
 ];
 
-const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 23] = [
+const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 25] = [
     "displayText",
     "isGenerated",
     "tokenCount",
@@ -390,6 +390,8 @@ const TIMELINE_MESSAGE_EXTRA_FIELDS: [&str; 23] = [
     "generationError",
     "translation",
     "reactions",
+    "fanficVersion",
+    "fanficExtra",
 ];
 
 pub(crate) fn project_timeline_message(mut message: Value) -> Value {
@@ -470,7 +472,7 @@ pub(crate) fn synthesize_legacy_prompt_snapshot(message: &mut Value) {
     }
 }
 
-const SWIPE_SCOPED_EXTRA_KEYS: [&str; 16] = [
+const SWIPE_SCOPED_EXTRA_KEYS: [&str; 17] = [
     "displayText",
     "isGenerated",
     "tokenCount",
@@ -487,6 +489,7 @@ const SWIPE_SCOPED_EXTRA_KEYS: [&str; 16] = [
     "attachments",
     "reasoning",
     "reasoning_content",
+    "fanficVersion",
 ];
 
 pub(crate) fn clear_swipe_scoped_extra(base: Option<&Value>) -> Value {
@@ -2096,6 +2099,42 @@ mod tests {
             json!("second reasoning")
         );
         assert!(message["extra"]["cachedPrompt"].is_null());
+    }
+
+    #[test]
+    fn project_timeline_message_shows_the_active_swipes_fanfic_version() {
+        let message = json!({
+            "id": "chapter-1",
+            "role": "assistant",
+            "content": "second draft",
+            "activeSwipeIndex": 0,
+            "extra": {
+                "fanficVersion": { "models": [{ "connectionId": "conn-b", "name": "Drafter", "model": "small" }] }
+            },
+            "swipes": [
+                {
+                    "content": "first draft",
+                    "extra": {
+                        "fanficVersion": { "models": [{ "connectionId": "conn-a", "name": "Writer", "model": "big" }] }
+                    }
+                },
+                { "content": "second draft" }
+            ]
+        });
+
+        let projected = project_timeline_message(message);
+
+        assert_eq!(
+            projected["extra"]["fanficVersion"]["models"][0]["name"],
+            json!("Writer")
+        );
+    }
+
+    #[test]
+    fn merge_active_swipe_extra_drops_a_fanfic_version_the_switched_to_swipe_lacks() {
+        let stale = json!({ "fanficVersion": { "models": [] } });
+        let switched = merge_active_swipe_extra(Some(&stale), json!({}));
+        assert!(switched.get("fanficVersion").is_none());
     }
 
     #[test]

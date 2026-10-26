@@ -41,6 +41,14 @@ export interface StartGenerationInput extends JsonRecord {
   userActivity?: string;
   streaming?: boolean;
   trimIncompleteModelOutput?: boolean;
+  /** The caller's keys for the saved reply's extra (new message, new version, or kept partial); keys the engine writes win. */
+  savedExtra?: Record<string, unknown>;
+  /** Save the streamed text after any non-Stop failure and fail on a provider restart instead of starting over. */
+  keepStreamedTextOnFailure?: boolean;
+  /** Append the reply to this message's displayed version instead of saving a new reply; history stops before it. */
+  continueMessageId?: string;
+  /** The prompt's history: exactly these stored messages, in this order, instead of everything before the target. */
+  historyMessageIds?: string[];
   imagePromptSettings?: {
     includeAppearances?: boolean;
     format?: "descriptive" | "tags";
@@ -139,6 +147,10 @@ const startGenerationInputSchema = z
     userActivity: z.string().max(120).optional().default(""),
     streaming: z.boolean().optional().default(true),
     trimIncompleteModelOutput: z.boolean().optional().default(false),
+    savedExtra: z.preprocess((value) => (value == null ? undefined : value), z.record(z.unknown()).optional()),
+    keepStreamedTextOnFailure: z.boolean().optional(),
+    continueMessageId: z.preprocess((value) => (value == null ? undefined : value), z.string().optional()),
+    historyMessageIds: z.preprocess((value) => (value == null ? undefined : value), z.array(z.string()).optional()),
     imagePromptSettings: optionalImagePromptSettingsSchema,
     debugMode: z.boolean().optional().default(false),
     hideAutomatedSummarySourceMessages: z.boolean().optional().default(false),

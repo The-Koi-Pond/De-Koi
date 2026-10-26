@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../shared/lib/error-message";
-import { chatKeys, useChat, useChatMessages, useUpdateChat } from "../../../catalog/chats/index";
+import { chatKeys, useChat, useChatMessages, useDeleteMessages, useUpdateChat } from "../../../catalog/chats/index";
 import { runGenerationWithUi, type GenerateArgs } from "../../../runtime/generation/index";
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
-import type { FanficState } from "../../../../engine/contracts/types/fanfic";
+import type { FanficModelRecord, FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
+  keepFanficVersion,
   startFanficGeneration,
   type FanficGenerationKind,
   type StartFanficGenerationInput,
@@ -18,12 +19,14 @@ import {
   type FanficContinuityFix,
   type FanficContinuityPhase,
 } from "../../../../engine/modes/fanfic/continuity";
+import { deleteFanficChapter, setFanficChainCanon, setFanficExtraCanon } from "../../../../engine/modes/fanfic/extras";
 import { updateFanficLedger, type FanficLedgerProgress } from "../../../../engine/modes/fanfic/ledger";
 import { clearFanficPlan, proposeFanficPlan } from "../../../../engine/modes/fanfic/plan";
 import { removeFanficBannedPhrasesFrom } from "../../../../engine/modes/fanfic/passage";
 import { fanficConnectionSupportsPhraseBans } from "../../../../engine/modes/fanfic/phrase-bans";
 import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
 import { useConnection } from "../../../catalog/connections/index";
+import { trackFanficWriteFinished, type FanficFinishedChapter } from "../lib/write-outcome";
 import {
   rewriteFanficFlaggedScenes,
   runFanficEditorPass,
@@ -34,8 +37,7 @@ import {
   runFanficQualityCheck,
   type FanficQualityPhase,
 } from "../../../../engine/modes/fanfic/quality";
-import type { FanficChapterRef } from "../../../../engine/modes/fanfic/chapter-refs";
-import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
+import { fanficChapterLayout } from "../../../../engine/modes/fanfic/chapter-refs";
 import { readFanficState } from "../../../../engine/modes/fanfic/request";
 import { planFanfic, type FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
 import {
@@ -63,17 +65,14 @@ const FANFIC_MESSAGE_PAGE_SIZE = 200;
 const DEFAULT_CHAT_NAME = /^New Fanfic$/;
 
 export interface FanficChapterView {
+  /** The main chapter's number; for an extra, the main chapter it follows. Labels come from the chapter layout. */
   number: number;
   message: Message;
 }
 
-/** The reader's chapters in the engine's shape (heading stripped), for ledger freshness and continuity fixes. */
-export function fanficChapterViewRefs(chapters: readonly FanficChapterView[]): FanficChapterRef[] {
-  return chapters.map((chapter) => ({
-    number: chapter.number,
-    messageId: chapter.message.id,
-    content: stripFanficChapterHeading(chapter.message.content),
-  }));
+/** The fields of a message the chapter layout reads. */
+function layoutRow(message: Message): Record<string, unknown> {
+  return { id: message.id, role: message.role, content: message.content, extra: message.extra };
 }
 
 export function useFanficChat(chatId: string) {
@@ -90,9 +89,12 @@ export function useFanficChat(chatId: string) {
   const chapters = useMemo<FanficChapterView[]>(() => {
     const pages = messagesQuery.data?.pages ?? [];
     const ordered = [...pages].reverse().flat() as Message[];
-    return ordered
-      .filter((message) => message.role === "assistant")
-      .map((message, index) => ({ number: index + 1, message }));
+    const byId = new Map(ordered.map((message) => [message.id, message]));
+    // Reading order: each main chapter, then its extras; extras whose main chapter is gone come last.
+    return fanficChapterLayout(ordered.map(layoutRow)).chapters.map((chapter) => ({
+      number: chapter.mainNumber,
+      message: byId.get(chapter.messageId)!,
+    }));
   }, [messagesQuery.data]);
 
   return {
@@ -121,33 +123,96 @@ export interface FanficWriteArgs {
   kind: FanficGenerationKind;
   messageId?: string | null;
   notes?: string | null;
+  /** Reset: the unfinished version of `messageId` the write replaces. */
+  replacesVersion?: number;
+  /** A new extra: the main chapter it follows. */
+  parentChapter?: number;
 }
 
+/** Writes a chapter; resolves with it only when it saved a finished one, so follow-ups skip one kept unfinished. */
 export function useFanficWriter(chatId: string, connectionId: string | null) {
   const queryClient = useQueryClient();
   return useCallback(
-    ({ kind, messageId = null, notes = null }: FanficWriteArgs): Promise<boolean> => {
+    async ({
+      kind,
+      messageId = null,
+      notes = null,
+      replacesVersion,
+      parentChapter,
+    }: FanficWriteArgs): Promise<FanficFinishedChapter | null> => {
+      // A Reset of a new chapter or extra rewrites that chapter's message, so it runs (and streams) like a redo.
+      const rewrites = kind === "regenerate" || kind === "revise" || replacesVersion !== undefined;
       const args: GenerateArgs & StartFanficGenerationInput = {
         chatId,
         connectionId,
         fanficKind: kind,
         notes,
-        regenerateMessageId: kind === "chapter" ? null : messageId,
+        regenerateMessageId: rewrites ? messageId : null,
+        ...(kind === "continue" && messageId ? { continueMessageId: messageId } : {}),
+        ...(replacesVersion !== undefined ? { replacesVersion } : {}),
+        ...(kind === "extra" && !rewrites && parentChapter !== undefined ? { parentChapter } : {}),
         userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
-      return runGenerationWithUi(
-        queryClient,
-        args,
-        (streamArgs, signal) =>
+      let finished = (): FanficFinishedChapter | null => null;
+      const written = await runGenerationWithUi(queryClient, args, (streamArgs, signal) => {
+        const tracked = trackFanficWriteFinished(
           startFanficGeneration(
             { storage: storageApi, llm: llmApi, integrations: integrationGateway },
             streamArgs as GenerateArgs & StartFanficGenerationInput,
             signal,
           ) as AsyncGenerator<StreamEvent>,
-      );
+        );
+        finished = tracked.finished;
+        return tracked.events;
+      });
+      return written ? finished() : null;
     },
     [chatId, connectionId, queryClient],
   );
+}
+
+/** Keep as is: marks a chapter's unfinished version finished, its text untouched. */
+export function useFanficKeepVersion(chatId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (messageId: string) => keepFanficVersion(storageApi, { chatId, messageId }),
+    onError: (error) =>
+      toast.error(toUserMessage(error, { fallback: "Couldn't keep the chapter as it is. Try again." })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) }),
+  });
+}
+
+/** One extra's canon checkbox, or the "continues from" switch that sets all of chapter N's extras canon or none. */
+export type FanficCanonChange = { messageId: string; canon: boolean } | { parentChapter: number; canon: boolean };
+
+/** Marks extras canon or side stories; after a failure the reader shows the flags as they now read. */
+export function useFanficExtraCanon(chatId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (change: FanficCanonChange) =>
+      "messageId" in change
+        ? setFanficExtraCanon(storageApi, chatId, change.messageId, change.canon)
+        : setFanficChainCanon(storageApi, chatId, change.parentChapter, change.canon),
+    onError: (error) =>
+      toast.error(toUserMessage(error, { fallback: "Couldn't change which chapters are canon. Try again." })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) }),
+  });
+}
+
+/** Deletes a chapter as its delete plan says: an extra alone, or the last main chapter with its extras. */
+export function useFanficDeleteChapter(chatId: string) {
+  const queryClient = useQueryClient();
+  const deleteMessages = useDeleteMessages(chatId);
+  return useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (messageId: string) =>
+      deleteFanficChapter({ storage: storageApi, deleteMessages: deleteMessages.mutateAsync }, chatId, messageId),
+    onError: (error) => toast.error(toUserMessage(error, { fallback: "Couldn't delete the chapter. Try again." })),
+    // The flags may have been written even when the delete failed.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) }),
+  });
 }
 
 /** Saves a submitted request (connection, linked cards, request) as one unit; see saveFanficRequest. */
@@ -302,6 +367,8 @@ interface FanficChapterCheckResult {
   messageId: string;
   textKey: string;
   issues: Array<{ fix: FanficContinuityFix | null }>;
+  /** The model that wrote the fixes; the version they save credits it. */
+  model: FanficModelRecord;
 }
 
 export interface FanficChapterCheckController<Result extends FanficChapterCheckResult, Phase extends string> {
@@ -550,7 +617,7 @@ export function useFanficEditor(chatId: string): FanficEditorController {
       start(
         report.messageId,
         async (signal) => {
-          const { rewritten, skipped } = await rewriteFanficFlaggedScenes(
+          const { rewritten, skipped, label } = await rewriteFanficFlaggedScenes(
             { storage: storageApi, llm: llmApi },
             { chatId, report },
             { signal, onProgress: setProgress },
@@ -558,7 +625,7 @@ export function useFanficEditor(chatId: string): FanficEditorController {
           await queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
           onDone?.();
           const left = skipped ? ` (${skipped} couldn't be found)` : "";
-          return `Rewrote ${rewritten} ${rewritten === 1 ? "scene" : "scenes"} in chapter ${report.chapter}${left}. Saved as a new version; checking it against the rest of the story now.`;
+          return `Rewrote ${rewritten} ${rewritten === 1 ? "scene" : "scenes"} in chapter ${label}${left}. Saved as a new version; checking it against the rest of the story now.`;
         },
         "The rewrite failed.",
       ),

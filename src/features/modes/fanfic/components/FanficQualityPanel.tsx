@@ -10,11 +10,12 @@ import {
   FANFIC_QUALITY_CRITERIA,
   FANFIC_QUALITY_GROUP_LABELS,
   chooseFanficJudge,
+  fanficIssueChapterLabel,
   fanficTextKey,
   readFanficQualityStore,
   type FanficQualityPhase,
 } from "../../../../engine/modes/fanfic/quality";
-import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
+import { fanficCanonLine, type FanficChapterLayout } from "../../../../engine/modes/fanfic/chapter-refs";
 import { modelRoutingApi, modelRoutingKeys } from "../../../../shared/api/model-routing-api";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { toUserMessage } from "../../../../shared/lib/error-message";
@@ -132,7 +133,20 @@ function Tile({
   );
 }
 
-function RunDetails({ run, prior }: { run: FanficQualityRun; prior: FanficQualityRun | null }) {
+function slipChapter(labels: ReadonlyMap<string, string>, messageId: string | undefined, chapter: number): string {
+  const label = fanficIssueChapterLabel(labels, messageId, chapter);
+  return label ? `Ch ${label}:` : "A deleted chapter:";
+}
+
+function RunDetails({
+  run,
+  prior,
+  labels,
+}: {
+  run: FanficQualityRun;
+  prior: FanficQualityRun | null;
+  labels: ReadonlyMap<string, string>;
+}) {
   const [open, setOpen] = useState<"notes" | "scores" | null>(null);
   const { mechanics, rubric, continuity } = run;
   const notCounted = [
@@ -147,7 +161,8 @@ function RunDetails({ run, prior }: { run: FanficQualityRun; prior: FanficQualit
     <div className="flex flex-col gap-3">
       <p className="text-xs text-[var(--muted-foreground)]">
         {run.label ? <span className="font-semibold text-[var(--foreground)]">{run.label} · </span> : null}
-        {formatDate(run.createdAt)} · {run.chapterCount} {run.chapterCount === 1 ? "chapter" : "chapters"},{" "}
+        {/* The chapters the judge read: main chapters and canon extras, so it can differ from the reader's count. */}
+        {formatDate(run.createdAt)} · {run.chapterCount} {run.chapterCount === 1 ? "chapter" : "chapters"} judged,{" "}
         {mechanics.words.toLocaleString()} words · judged by {judgeName(run)}
         {rubric.passes > 1 ? `, ${rubric.passes} reads ${rubric.spread} apart` : ""}
         {prior ? ` · compared with ${prior.label || formatDate(prior.createdAt)}${sameText ? " (same text)" : ""}` : ""}
@@ -217,12 +232,16 @@ function RunDetails({ run, prior }: { run: FanficQualityRun; prior: FanficQualit
                 {issue.subtype ? ` · ${issue.subtype}` : ""}
               </p>
               <p className="mt-1 text-[var(--muted-foreground)]">
-                <span className="font-semibold text-[var(--foreground)]">Ch {issue.earlierChapter}:</span> “
-                {issue.earlierQuote}”
+                <span className="font-semibold text-[var(--foreground)]">
+                  {slipChapter(labels, issue.earlierMessageId, issue.earlierChapter)}
+                </span>{" "}
+                “{issue.earlierQuote}”
               </p>
               <p className="text-[var(--muted-foreground)]">
-                <span className="font-semibold text-[var(--foreground)]">Ch {issue.laterChapter}:</span> “
-                {issue.laterQuote}”
+                <span className="font-semibold text-[var(--foreground)]">
+                  {slipChapter(labels, issue.laterMessageId, issue.laterChapter)}
+                </span>{" "}
+                “{issue.laterQuote}”
               </p>
               <p className="mt-1 text-[var(--foreground)]/85">{issue.explanation}</p>
             </li>
@@ -341,7 +360,7 @@ function History({
                     </button>
                     <span className="block text-[0.6875rem] text-[var(--muted-foreground)]">
                       {run.label ? `${formatDate(run.createdAt)} · ` : ""}
-                      {run.chapterCount} ch{sameText ? " · same text" : ""}
+                      {run.chapterCount} ch judged{sameText ? " · same text" : ""}
                       {judges.size > 1 ? ` · ${judgeName(run)}` : ""}
                     </span>
                   </td>
@@ -386,13 +405,16 @@ function History({
  */
 export function FanficQualityPanel({
   chatId,
-  chapterTexts,
+  layout,
   busy,
 }: {
   chatId: string;
-  chapterTexts: string[];
+  /** The judge reads the canon line; slips name chapters by their label in this layout. */
+  layout: FanficChapterLayout;
   busy: boolean;
 }) {
+  const canonLine = useMemo(() => fanficCanonLine(layout), [layout]);
+  const labels = useMemo(() => new Map(layout.chapters.map((ref) => [ref.messageId, ref.label])), [layout]);
   const { data: chat } = useChat(chatId);
   const connectionId = chat?.connectionId ?? null;
   const runs = useMemo(() => readFanficQualityStore(chat?.metadata).runs, [chat?.metadata]);
@@ -440,10 +462,7 @@ export function FanficQualityPanel({
   const previous = shown
     ? ([...runs.slice(0, Math.max(0, shownIndex))].reverse().find((entry) => comparable(entry, shown)) ?? null)
     : null;
-  const currentKey = useMemo(
-    () => fanficTextKey(chapterTexts.map((text) => stripFanficChapterHeading(text))),
-    [chapterTexts],
-  );
+  const currentKey = useMemo(() => fanficTextKey(canonLine.map((ref) => ref.content)), [canonLine]);
   const latest = runs.at(-1);
   const deleteRun = async (id: string) => {
     const confirmed = await showConfirmDialog({
@@ -529,7 +548,7 @@ export function FanficQualityPanel({
           <FanficButton
             tone="primary"
             className="min-h-10"
-            disabled={busy || !activeJudge || chapterTexts.length === 0}
+            disabled={busy || !activeJudge || canonLine.length === 0}
             onClick={() =>
               run.mutate(
                 // A judge changed by hand is "picked"; otherwise it's whatever chooseFanficJudge started on.
@@ -559,7 +578,7 @@ export function FanficQualityPanel({
       )}
 
       {shown ? (
-        <RunDetails key={shown.id} run={shown} prior={previous} />
+        <RunDetails key={shown.id} run={shown} prior={previous} labels={labels} />
       ) : (
         !run.isPending && <p className="text-xs text-[var(--muted-foreground)]">No runs yet.</p>
       )}

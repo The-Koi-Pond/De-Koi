@@ -49,7 +49,8 @@ function storageWith(fanfic: FanficState, messages: Array<Record<string, unknown
       return [] as T[];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
-      if (entity === "connections") return { id, provider: "claude_subscription" } as T;
+      if (entity === "connections")
+        return { id, provider: "claude_subscription", name: "Checker", model: "check-model" } as T;
       return (entity === "chats" ? (records[id] ?? null) : null) as T | null;
     },
     async listChatMessages<T = unknown>(): Promise<T[]> {
@@ -272,6 +273,26 @@ describe("checkFanficChapterVoice", () => {
     // Not in the chapter, and a character without a sheet.
     expect(check.ungrounded).toBe(2);
     expect(check.merged).toBe(1);
+  });
+
+  it("names the model that ran the voice check, so the fixes it wrote can be credited to it", async () => {
+    const { storage } = storageWith(voiced, messages);
+    const { llm } = scriptedLlm([JSON.stringify({ issues: [] })]);
+
+    const check = await checkFanficChapterVoice({ storage, llm }, { chatId: "chat-1", messageId: "m1" });
+
+    expect(check.model).toEqual({ connectionId: "conn-1", name: "Checker", model: "check-model" });
+  });
+
+  it.each([null, "random"])("asks for a connection when the fic's connection is %s", async (connectionId) => {
+    const { storage, records } = storageWith(voiced, messages);
+    records["chat-1"]!.connectionId = connectionId;
+    const { llm, requests } = scriptedLlm([JSON.stringify({ issues: [] })]);
+
+    await expect(checkFanficChapterVoice({ storage, llm }, { chatId: "chat-1", messageId: "m1" })).rejects.toThrow(
+      "Pick a connection for the voice check.",
+    );
+    expect(requests).toHaveLength(0);
   });
 
   it("asks for voice sheets first", async () => {

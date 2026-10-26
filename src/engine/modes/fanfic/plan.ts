@@ -7,7 +7,7 @@ import type { FanficOutline, FanficOutlineChapter, FanficState } from "../../con
 import { parseJsonObject } from "../../core/json";
 import { effectiveMaxContext } from "../../generation/context-window";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { fanficCanonLine, fanficChapterLayout, type FanficChapterLayout, type FanficChapterRef } from "./chapter-refs";
 import { fanficChapterTextKey, fanficLedgerStatus, readFanficLedger, renderFanficLedgerState } from "./ledger";
 import {
   completeFanficJson,
@@ -52,7 +52,10 @@ export interface FanficPlanChapter {
 export interface FanficPlanProposal {
   version: 1;
   mode: "replan" | "next";
-  /** Chapters written when it was made, and the last one's text: a new or rewritten chapter makes it stale. */
+  /**
+   * Main chapters written when it was made, and the text of the last chapter the story it read ended with (the last
+   * main chapter, or a canon extra after it): a new or rewritten chapter, or a canon change there, makes it stale.
+   */
   afterChapter: number;
   lastTextKey: string;
   /** The outline it was made against: editing the outline makes it stale too. */
@@ -178,16 +181,13 @@ function isPlanChapter(value: unknown): value is FanficPlanChapter {
 }
 
 /** The stored suggestion, only while it still matches the chapters as they are. */
-export function readFanficPlan(
-  metadata: unknown,
-  chapters: ReadonlyArray<Pick<FanficChapterRef, "content">>,
-): FanficPlanProposal | null {
+export function readFanficPlan(metadata: unknown, layout: FanficChapterLayout): FanficPlanProposal | null {
   const raw = parseJsonObject(metadata).fanficPlan;
   if (!isRecord(raw) || raw.version !== PLAN_VERSION) return null;
   if (raw.mode !== "replan" && raw.mode !== "next") return null;
   if (!Array.isArray(raw.chapters) || !raw.chapters.every(isPlanChapter)) return null;
-  if (raw.afterChapter !== chapters.length) return null;
-  const last = chapters[chapters.length - 1];
+  if (raw.afterChapter !== layout.mains.length) return null;
+  const last = fanficCanonLine(layout).at(-1);
   if (!last || raw.lastTextKey !== fanficChapterTextKey(last.content)) return null;
   const outline = readFanficState(parseRecord(metadata))?.outline;
   if (!outline || raw.outlineKey !== fanficOutlineKey(outline)) return null;
@@ -217,12 +217,13 @@ function storySoFar(chapters: FanficChapterRef[], metadata: unknown, room: numbe
   const fresh = fanficLedgerStatus(readFanficLedger(metadata), chapters).fresh;
   if (fresh.length === chapters.length && fresh.length > 0) {
     const latest = fresh[fresh.length - 1]!;
-    const summaries = fresh.map((entry) => `Chapter ${entry.chapter}: ${entry.summary}`).join("\n");
-    const ledger = `${summaries}\n\nWhere things stand after chapter ${latest.chapter}:\n${renderFanficLedgerState(latest)}`;
-    // The latest chapter in full too, when it fits: the next one picks up from its last page.
+    // Entries are positional over the chapters; each is named by its chapter's label.
+    const summaries = fresh.map((entry, index) => `Chapter ${chapters[index]!.label}: ${entry.summary}`).join("\n");
     const last = chapters[chapters.length - 1]!;
+    const ledger = `${summaries}\n\nWhere things stand after chapter ${last.label}:\n${renderFanficLedgerState(latest)}`;
+    // The latest chapter in full too, when it fits: the next one picks up from its last page.
     return ledger.length + last.content.length <= room
-      ? `${ledger}\n\n### Chapter ${last.number} in full\n${last.content.trim()}`
+      ? `${ledger}\n\n### Chapter ${last.label} in full\n${last.content.trim()}`
       : ledger;
   }
   // No ledger: as many chapters in full as fit, newest kept.
@@ -235,8 +236,10 @@ function storySoFar(chapters: FanficChapterRef[], metadata: unknown, room: numbe
   }
   const skipped = chapters.length - kept.length;
   return [
-    skipped > 0 ? `(Chapters 1 to ${skipped} are too long to include; build the story ledger to cover them.)` : "",
-    ...kept.map((chapter) => `### Chapter ${chapter.number}\n${chapter.content.trim()}`),
+    skipped > 0
+      ? `(Chapters 1 to ${chapters[skipped - 1]!.label} are too long to include; build the story ledger to cover them.)`
+      : "",
+    ...kept.map((chapter) => `### Chapter ${chapter.label}\n${chapter.content.trim()}`),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -271,8 +274,12 @@ export async function proposeFanficPlan(
     missing: FANFIC_NO_CONNECTION,
     gone: FANFIC_CONNECTION_GONE,
   });
-  const chapters = fanficChapterRefs((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
-  if (chapters.length === 0) throw userFacingError("Write the first chapter before re-planning.");
+  const layout = fanficChapterLayout((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
+  // Only main chapters use up the outline; the story read is every chapter later ones build on.
+  const chapters = layout.mains;
+  const story = fanficCanonLine(layout);
+  const last = story.at(-1);
+  if (chapters.length === 0 || !last) throw userFacingError("Write the first chapter before re-planning.");
 
   const steer = readString(input.steer).trim().slice(0, STEER_MAX_CHARS);
   const total = state.outline.chapters.length;
@@ -292,7 +299,7 @@ export async function proposeFanficPlan(
   const messages = buildFanficPlanMessages({
     state,
     written: chapters.length,
-    story: storySoFar(chapters, chat.metadata, budget.proseChars),
+    story: storySoFar(story, chat.metadata, budget.proseChars),
     steer,
   });
   const parsed = await completeFanficJson(
@@ -305,7 +312,7 @@ export async function proposeFanficPlan(
     version: PLAN_VERSION,
     mode,
     afterChapter: chapters.length,
-    lastTextKey: fanficChapterTextKey(chapters[chapters.length - 1]!.content),
+    lastTextKey: fanficChapterTextKey(last.content),
     outlineKey: fanficOutlineKey(state.outline),
     note: parsed.note,
     steer,

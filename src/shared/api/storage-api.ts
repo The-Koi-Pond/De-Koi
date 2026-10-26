@@ -490,6 +490,7 @@ export const storageApi: StorageGateway = {
       },
       { timeoutMs: null },
     ),
+  deleteChatMessageSwipe: (chatId, messageId, index) => chatCommandApi.deleteSwipe(chatId, messageId, index),
   evictPromptSnapshots: (chatId, keepLast) =>
     invokeTauri("chat_evict_prompt_snapshots", { chatId, keepLast }) as Promise<{ evicted: number }>,
   patchChatMetadata: (chatId, patch) => storageApi.update("chats", chatId, { metadata: patch }),
@@ -599,6 +600,7 @@ export const chatTranscriptStorageApi: ChatTranscriptPort = {
   resolveImageAttachmentDataUrl: (...args) => storageApi.resolveImageAttachmentDataUrl?.(...args) as never,
   evictPromptSnapshots: (...args) => storageApi.evictPromptSnapshots?.(...args) as never,
   addChatMessageSwipe: (...args) => storageApi.addChatMessageSwipe(...args),
+  deleteChatMessageSwipe: (...args) => storageApi.deleteChatMessageSwipe?.(...args) as never,
 };
 
 export const chatMetadataStorageApi: ChatMetadataPort = {

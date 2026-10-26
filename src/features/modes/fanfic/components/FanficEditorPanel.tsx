@@ -8,9 +8,10 @@ import {
   readFanficEditorStore,
   type FanficEditorReport,
 } from "../../../../engine/modes/fanfic/editor";
+import type { FanficChapterRef } from "../../../../engine/modes/fanfic/chapter-refs";
 import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
 import { cn } from "../../../../shared/lib/utils";
-import { fanficChapterViewRefs, type FanficChapterView, type FanficEditorController } from "../hooks/use-fanfic";
+import type { FanficEditorController } from "../hooks/use-fanfic";
 import { FanficButton } from "./fanfic-ui";
 
 function scoreTone(value: number): string {
@@ -25,15 +26,20 @@ function average(report: FanficEditorReport): number {
 
 function ReportRow({
   report,
+  label,
   stale,
   busy,
+  blocked,
   rewriting,
   controller,
   onRewritten,
 }: {
   report: FanficEditorReport;
+  /** The chapter's label now; the report's own number is its main chapter's. */
+  label: string;
   stale: boolean;
   busy: boolean;
+  blocked: string | null;
   rewriting: boolean;
   controller: FanficEditorController;
   onRewritten: (report: FanficEditorReport) => void;
@@ -42,7 +48,7 @@ function ReportRow({
     <li>
       <details className="group rounded-lg border border-[var(--border)] px-2.5 py-2">
         <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1.5 text-xs">
-          <span className="w-12 shrink-0 font-semibold text-[var(--foreground)]">Ch {report.chapter}</span>
+          <span className="w-12 shrink-0 font-semibold text-[var(--foreground)]">Ch {label}</span>
           <span className="flex flex-wrap gap-1">
             {FANFIC_EDITOR_DIMENSIONS.map((dimension) => (
               <span
@@ -99,7 +105,8 @@ function ReportRow({
               report.flags.length > 0 && (
                 <FanficButton
                   tone="primary"
-                  disabled={busy}
+                  disabled={busy || Boolean(blocked)}
+                  title={blocked ?? undefined}
                   onClick={() => controller.rewrite(report, () => onRewritten(report))}
                 >
                   {rewriting ? (
@@ -112,7 +119,10 @@ function ReportRow({
               )
             )}
           </div>
-          {!stale && report.flags.length > 0 && (
+          {!stale && report.flags.length > 0 && blocked && (
+            <p className="text-[0.6875rem] text-[var(--muted-foreground)]">{blocked}</p>
+          )}
+          {!stale && report.flags.length > 0 && !blocked && (
             <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
               Only the flagged scenes change; the rest of the chapter stays word for word. It saves as a new version, so
               the current one is one tap back, and the chapter's continuity is checked right after, so a slip the
@@ -134,19 +144,22 @@ export function FanficEditorPanel({
   chapters,
   controller,
   busy,
+  blocked = null,
   onRewritten,
 }: {
   chatId: string;
-  chapters: FanficChapterView[];
+  /** The chapters it scores, in reading order, with their labels. */
+  chapters: FanficChapterRef[];
   controller: FanficEditorController;
   busy: boolean;
+  /** Why scene rewrites wait (a chapter is unfinished); scoring still runs. */
+  blocked?: string | null;
   /** A chapter's flagged scenes were rewritten and saved. */
   onRewritten: (report: FanficEditorReport) => void;
 }) {
   const { data: chat } = useChat(chatId);
-  const refs = useMemo(() => fanficChapterViewRefs(chapters), [chapters]);
   const store = useMemo(() => readFanficEditorStore(chat?.metadata), [chat?.metadata]);
-  const rows = refs.map((chapter) => {
+  const rows = chapters.map((chapter) => {
     const report = store.reports.find((entry) => entry.messageId === chapter.messageId) ?? null;
     return { chapter, report, stale: !!report && report.textKey !== fanficChapterTextKey(chapter.content) };
   });
@@ -220,8 +233,10 @@ export function FanficEditorPanel({
                 <ReportRow
                   key={chapter.messageId}
                   report={report}
+                  label={chapter.label}
                   stale={stale}
                   busy={busy || working}
+                  blocked={blocked}
                   rewriting={controller.running === report.messageId}
                   controller={controller}
                   onRewritten={onRewritten}
@@ -231,7 +246,7 @@ export function FanficEditorPanel({
                   key={chapter.messageId}
                   className="rounded-lg border border-dashed border-[var(--border)] px-2.5 py-2 text-xs text-[var(--muted-foreground)]"
                 >
-                  Ch {chapter.number}: not scored yet
+                  Ch {chapter.label}: not scored yet
                 </li>
               ),
             )}

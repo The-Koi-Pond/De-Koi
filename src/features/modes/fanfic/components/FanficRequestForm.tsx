@@ -37,6 +37,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { FanficCombobox, type FanficComboOption } from "./FanficCombobox";
+import { FanficConnectionSelect } from "./FanficConnectionSelect";
 import { FanficButton, FanficField, FanficSection, FanficSegmented, fanficInputClass } from "./fanfic-ui";
 
 const TROPE_SUGGESTIONS = [
@@ -658,23 +659,12 @@ export function FanficRequestForm({
           </span>
         </label>
         {languageConnections.length > 1 && (
-          <FanficField label="Model connection" htmlFor="fanfic-connection">
-            <select
-              id="fanfic-connection"
-              className={fanficInputClass}
-              value={connectionId ?? ""}
-              onChange={(event) => setConnectionId(event.target.value || null)}
-            >
-              {!languageConnections.some((connection) => connection.id === connectionId) && (
-                <option value="">Choose a connection</option>
-              )}
-              {languageConnections.map((connection) => (
-                <option key={connection.id} value={connection.id}>
-                  {connection.name || connection.id}
-                </option>
-              ))}
-            </select>
-          </FanficField>
+          <FanficConnectionSelect
+            id="fanfic-connection"
+            connections={languageConnections}
+            value={connectionId}
+            onChange={setConnectionId}
+          />
         )}
       </FanficSection>
 

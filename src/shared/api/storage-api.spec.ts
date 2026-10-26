@@ -294,6 +294,25 @@ describe("storageApi remote request deadlines", () => {
 });
 
 describe("storageApi deletes", () => {
+  it("deletes one version of a message through the chat swipe command", async () => {
+    invokeTauriMock.mockResolvedValue({ id: "message-1", swipeCount: 1 });
+    const { chatTranscriptStorageApi, storageApi } = await import("./storage-api");
+
+    await storageApi.deleteChatMessageSwipe?.("chat-1", "message-1", 2);
+    await chatTranscriptStorageApi.deleteChatMessageSwipe?.("chat-1", "message-1", 0);
+
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(1, "chat_message_delete_swipe", {
+      chatId: "chat-1",
+      messageId: "message-1",
+      index: "2",
+    });
+    expect(invokeTauriMock).toHaveBeenNthCalledWith(2, "chat_message_delete_swipe", {
+      chatId: "chat-1",
+      messageId: "message-1",
+      index: "0",
+    });
+  });
+
   it("forwards force deletes to the storage runtime", async () => {
     invokeTauriMock.mockResolvedValueOnce({ deleted: true });
 

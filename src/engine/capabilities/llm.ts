@@ -35,6 +35,8 @@ export interface LlmRequest {
   messages: LlmMessage[];
   parameters?: Record<string, unknown>;
   tools?: LlmToolDefinition[];
+  /** Ask the stream to send `text_reset` when the provider starts the reply over, instead of failing. */
+  reportRestarts?: boolean;
 }
 
 export interface LlmCompletion {
@@ -52,7 +54,10 @@ export interface LlmEmbeddingRequest {
 }
 
 export interface LlmChunk {
-  /** `thinking_progress` carries `{ estimatedTokens }` when a provider hides its thinking text. */
+  /**
+   * `thinking_progress` carries `{ estimatedTokens }` when a provider hides its thinking text.
+   * `text_reset` (only with `reportRestarts`) means the text streamed so far was dropped by the provider.
+   */
   type:
     | "start"
     | "token"
@@ -61,6 +66,7 @@ export interface LlmChunk {
     | "tool_call"
     | "usage"
     | "provider_metadata"
+    | "text_reset"
     | "done"
     | "error";
   text?: string;

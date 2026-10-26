@@ -946,6 +946,7 @@ const SWIPE_SCOPED_EXTRA_KEYS = new Set([
   "attachments",
   "reasoning",
   "reasoning_content",
+  "fanficVersion",
 ]);
 
 function extraForActiveSwipe(baseExtra: unknown, swipeExtra: Record<string, unknown>): Record<string, unknown> {
