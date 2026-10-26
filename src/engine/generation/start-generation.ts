@@ -1879,6 +1879,34 @@ function messagesBeforeRegenerationTarget(
   return targetIndex >= 0 ? storedMessages.slice(0, targetIndex) : storedMessages;
 }
 
+/**
+ * The history the prompt is built from: the caller's `historyMessageIds` in their order when given, else the stored
+ * messages before the target. A named message outside the loaded window is read on its own; one that is gone means
+ * the request is stale, so it fails instead of writing from a different history.
+ */
+async function generationHistoryMessages(
+  storage: StorageGateway,
+  chatId: string,
+  storedMessages: JsonRecord[],
+  input: StartGenerationInput,
+): Promise<JsonRecord[]> {
+  if (!input.historyMessageIds) {
+    return messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
+  }
+  const loaded = new Map(storedMessages.map((message) => [readString(message.id), message]));
+  return Promise.all(
+    input.historyMessageIds.map(async (id) => {
+      const listed = loaded.get(id);
+      if (listed) return listed;
+      const message = await loadChatMessage(storage, id);
+      if (!targetBelongsToChat(message, chatId)) {
+        throw new Error(`The generation history names a message that is no longer in this chat (${id}).`);
+      }
+      return message;
+    }),
+  );
+}
+
 function regenerationTargetFromMessages(
   storedMessages: JsonRecord[],
   regenerateMessageId: string | null | undefined,
@@ -5150,7 +5178,7 @@ export async function* dryRunGeneration(
     chatId,
     regenerationTarget,
   );
-  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
+  let generationMessages = await generationHistoryMessages(deps.storage, chatId, storedMessages, input);
   const storedImageDelivery = await resolveStoredImageAttachmentsForPrompt(deps.storage, generationMessages);
   generationMessages = storedImageDelivery.messages;
   const storedImageConnectionSupport = applyStoredImageAttachmentConnectionSupport(generationMessages, connection);
@@ -5467,7 +5495,7 @@ async function* startGenerationImpl(
     chatId,
     regenerationTarget,
   );
-  let generationMessages = messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
+  let generationMessages = await generationHistoryMessages(deps.storage, chatId, storedMessages, input);
   const skippedStoredImageMessageIds = new Set(
     [readString(savedTimelineMessage?.id).trim()].filter((id): id is string => id.length > 0),
   );
@@ -5606,7 +5634,7 @@ async function* startGenerationImpl(
       throwIfAborted(signal);
       storedMessages = await loadMessagesForGenerationTarget({ storage: deps.storage, chatId, chat, input });
       regenerationTarget = regenerationTargetFromMessages(storedMessages, input.regenerateMessageId);
-      generationMessages = messagesBeforeRegenerationTarget(storedMessages, generationTargetMessageId(input));
+      generationMessages = await generationHistoryMessages(deps.storage, chatId, storedMessages, input);
       const delayedStoredImageDelivery = await resolveStoredImageAttachmentsForPrompt(
         deps.storage,
         generationMessages,

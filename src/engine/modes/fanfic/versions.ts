@@ -26,12 +26,13 @@ function readModelRecord(value: unknown): FanficModelRecord | null {
   return { connectionId: value.connectionId, name: value.name, model: value.model };
 }
 
+/** An origin that can't be read is unknown, never a guess: it would pick the wrong Reset box and follow-ups. */
 function readOrigin(value: unknown): FanficVersion["origin"] {
   const origin = parseRecord(value);
   const kind = FANFIC_VERSION_ORIGIN_KINDS.includes(origin.kind as FanficVersionOriginKind)
     ? (origin.kind as FanficVersionOriginKind)
     : null;
-  if (!kind || !isString(origin.notes)) return { kind: "chapter", notes: "" };
+  if (!kind || !isString(origin.notes)) return null;
   const baseVersion = origin.baseVersion;
   return Number.isInteger(baseVersion) && (baseVersion as number) >= 0
     ? { kind, notes: origin.notes, baseVersion: baseVersion as number }

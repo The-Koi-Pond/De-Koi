@@ -6,11 +6,13 @@ import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficState, FanficVersion } from "../../contracts/types/fanfic";
 import type { GenerationEvent } from "../../generation/generation-events";
 import {
+  fanficGenerationInput,
   keepFanficVersion,
   settleFanficWrite,
   startFanficGeneration,
   type StartFanficGenerationInput,
 } from "./chapters";
+import { fanficChapterLayout } from "./chapter-refs";
 import { applyFanficContinuityFixesToChapter } from "./continuity";
 import { rewriteFanficFlaggedScenes, type FanficEditorReport } from "./editor";
 import { fanficChapterTextKey } from "./ledger";
@@ -376,6 +378,42 @@ describe("startFanficGeneration", () => {
     expect(nextChapter).toContain('Calling someone "Angel" (12 times so far): once or twice at most in this chapter.');
     expect(nextChapter).not.toContain('Calling someone "Crowley"');
     expect(promptText(llm.requests[2])).not.toContain('Calling someone "Angel"');
+  });
+
+  it("shows the next chapter or a redo the canon extras before it, numbered N.x, and never a side story", async () => {
+    const { storage, messages } = fanficStorage();
+    const llm = proseLlm(["Snow fell on Soho.", "They finally talked.", "Talked again.", "A third chapter."]);
+    const deps = { storage, llm, integrations: {} as IntegrationGateway };
+    await drain(startFanficGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" }));
+    await drain(startFanficGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" }));
+    // Written after chapter 2, for chapter 1.
+    const extra = (content: string, canon: boolean) =>
+      storage.createChatMessage("chat-1", {
+        role: "assistant",
+        content,
+        extra: { fanficExtra: { parentChapter: 1, canon } },
+      });
+    await extra("A canon flashback.", true);
+    await extra("A side story.", false);
+
+    await drain(
+      startFanficGeneration(deps, {
+        chatId: "chat-1",
+        connectionId: "conn-1",
+        fanficKind: "regenerate",
+        regenerateMessageId: messages[1]!.id,
+      }),
+    );
+    await drain(startFanficGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", fanficKind: "chapter" }));
+
+    const redo = promptText(llm.requests[2]);
+    expect(redo).toContain(
+      "[user] Write chapter 1: First Flakes.\n[assistant] Snow fell on Soho.\n[user] Write chapter 1.5.\n[assistant] A canon flashback.",
+    );
+    expect(redo).not.toContain("They finally talked.");
+    const next = promptText(llm.requests[3]);
+    expect(next).toContain("[assistant] A canon flashback.\n[user] Write chapter 2: Thaw.\n[assistant] Talked again.");
+    for (const prompt of [redo, next]) expect(prompt).not.toContain("A side story.");
   });
 
   it("rewrites a chapter with notes as a new version of the same message", async () => {
@@ -817,6 +855,164 @@ describe("startFanficGeneration when a write is cut off", () => {
   });
 });
 
+describe("startFanficGeneration writing an extra chapter", () => {
+  /** Main chapters 1 to 4, written before any extra; writes default to a new extra after chapter 3. */
+  async function fourChapters() {
+    const fic = fanficStorage();
+    for (const n of ["one", "two", "three", "four"]) {
+      await fic.storage.createChatMessage("chat-1", { role: "assistant", content: `Chapter ${n}.` });
+    }
+    const write = (llm: LlmGateway, input: Partial<StartFanficGenerationInput>) =>
+      drain(
+        startFanficGeneration(
+          { storage: fic.storage, llm, integrations: {} as IntegrationGateway },
+          { chatId: "chat-1", connectionId: "conn-1", fanficKind: "extra", parentChapter: 3, ...input },
+        ),
+      );
+    const labels = () => fanficChapterLayout(fic.messages).chapters.map((chapter) => chapter.label);
+    return { ...fic, write, labels };
+  }
+
+  it("writes an extra after chapter 3 while chapter 4 exists as chapter 3.5, a side story", async () => {
+    const fic = await fourChapters();
+    const llm = proseLlm(["Mira remembers."]);
+
+    await fic.write(llm, { notes: "A flashback from Mira's point of view." });
+
+    const extra = fic.messages[4]!;
+    expect(extra.content).toBe("Mira remembers.");
+    expect(extra.extra.fanficExtra).toEqual({ parentChapter: 3, canon: false });
+    expect(readFanficVersion(extra.extra)).toMatchObject({
+      origin: { kind: "extra", notes: "A flashback from Mira's point of view." },
+      unfinished: null,
+    });
+    expect(fic.labels()).toEqual(["1", "2", "3", "3.5", "4"]);
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("[assistant] Chapter three.\n[user] Write chapter 3.5 now");
+    expect(prompt).toContain("from the end of chapter 3.");
+    expect(prompt).toContain("A flashback from Mira's point of view.");
+    expect(prompt).not.toContain("Chapter four.");
+  });
+
+  it("chains a second extra after the first, and leaves its subject to the model without an instruction", async () => {
+    const fic = await fourChapters();
+    await fic.write(proseLlm(["Mira remembers."]), {});
+    const llm = proseLlm(["Mira sleeps."]);
+
+    await fic.write(llm, {});
+
+    expect(fic.labels()).toEqual(["1", "2", "3", "3.5", "3.6", "4"]);
+    expect(fic.messages[5]!.extra.fanficExtra).toEqual({ parentChapter: 3, canon: false });
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("[user] Write chapter 3.5.\n[assistant] Mira remembers.\n[user] Write chapter 3.6 now");
+    expect(prompt).toContain("from the end of chapter 3.5.");
+    expect(prompt).toContain("choose what this extra chapter is about");
+    expect(prompt).not.toContain("Requester's notes");
+  });
+
+  it("redoes and rewrites an extra as an extra, reading only what came before it", async () => {
+    const fic = await fourChapters();
+    await fic.write(proseLlm(["Mira remembers."]), {});
+    await fic.write(proseLlm(["Mira sleeps."]), {});
+    const extra = fic.messages[4]!;
+    const llm = proseLlm(["Mira remembers again.", "Mira remembers, darker."]);
+
+    await fic.write(llm, { fanficKind: "regenerate", regenerateMessageId: extra.id });
+    await fic.write(llm, { fanficKind: "revise", regenerateMessageId: extra.id, notes: "Darker." });
+
+    expect(extra.swipes.map((swipe) => swipe.content)).toEqual([
+      "Mira remembers.",
+      "Mira remembers again.",
+      "Mira remembers, darker.",
+    ]);
+    expect(extra.extra.fanficExtra).toEqual({ parentChapter: 3, canon: false });
+    expect(fic.labels()).toEqual(["1", "2", "3", "3.5", "3.6", "4"]);
+    const redo = promptText(llm.requests[0]);
+    expect(redo).toContain("[assistant] Chapter three.\n[user] Write chapter 3.5 now");
+    const revise = promptText(llm.requests[1]);
+    expect(revise).toContain("Rewrite chapter 3.5 using the requester's notes.");
+    expect(revise).toContain("extra chapter after chapter 3");
+    for (const prompt of [redo, revise]) {
+      expect(prompt).not.toContain("goes past the outline");
+      expect(prompt).not.toContain("[assistant] Mira remembers.");
+      expect(prompt).not.toContain("Mira sleeps.");
+      expect(prompt).not.toContain("Chapter four.");
+    }
+  });
+
+  it("never counts an extra as a main chapter: the next chapter is still chapter 5", async () => {
+    const fic = await fourChapters();
+    await fic.write(proseLlm(["Mira remembers."]), {});
+    const llm = proseLlm(["Chapter five."]);
+
+    await fic.write(llm, { fanficKind: "chapter" });
+
+    expect(fic.labels()).toEqual(["1", "2", "3", "3.5", "4", "5"]);
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("[assistant] Chapter four.\n[user] Write chapter 5 now");
+    expect(prompt).not.toContain("Mira remembers.");
+  });
+
+  it("refuses an extra after a chapter the fic doesn't have", async () => {
+    const fic = await fourChapters();
+    const llm = proseLlm(["Never."]);
+
+    for (const parentChapter of [7, 0, 1.5, undefined]) {
+      await expect(fic.write(llm, { parentChapter }), String(parentChapter)).rejects.toMatchObject({
+        code: "user_facing",
+        message: "That chapter is no longer in this fic.",
+      });
+    }
+    expect(llm.requests).toHaveLength(0);
+  });
+});
+
+describe("fanficGenerationInput history", () => {
+  const mains = [
+    { id: "m1", role: "assistant", content: "Chapter one." },
+    { id: "m2", role: "assistant", content: "Chapter two." },
+  ];
+  const base = { chatId: "chat-1", connectionId: "conn-1" };
+  const input = (overrides: Partial<StartFanficGenerationInput>) =>
+    ({ ...base, fanficKind: "chapter", ...overrides }) as StartFanficGenerationInput;
+
+  it("leaves the history to the shared engine for every write of a fic without extras", () => {
+    const writes: Array<Partial<StartFanficGenerationInput>> = [
+      { fanficKind: "chapter" },
+      { fanficKind: "regenerate", regenerateMessageId: "m1" },
+      { fanficKind: "revise", regenerateMessageId: "m1", notes: "Darker." },
+      { fanficKind: "continue", continueMessageId: "m2" },
+      { fanficKind: "regenerate", regenerateMessageId: "m2", replacesVersion: 0, notes: "Again." },
+      { fanficKind: "chapter", regenerateMessageId: "m2", replacesVersion: 0, notes: "Again." },
+    ];
+    for (const write of writes) {
+      expect(fanficGenerationInput(approvedState, mains, input(write)), JSON.stringify(write)).not.toHaveProperty(
+        "historyMessageIds",
+      );
+    }
+  });
+
+  it("names the history of a fic's first extra, and of every write once the fic has one", () => {
+    expect(
+      fanficGenerationInput(approvedState, mains, input({ fanficKind: "extra", parentChapter: 1 })).historyMessageIds,
+    ).toEqual(["m1"]);
+    const withExtra = [
+      ...mains,
+      {
+        id: "x1",
+        role: "assistant",
+        content: "A side story.",
+        extra: { fanficExtra: { parentChapter: 1, canon: false } },
+      },
+    ];
+    expect(fanficGenerationInput(approvedState, withExtra, input({})).historyMessageIds).toEqual(["m1", "m2"]);
+    expect(
+      fanficGenerationInput(approvedState, withExtra, input({ fanficKind: "regenerate", regenerateMessageId: "m2" }))
+        .historyMessageIds,
+    ).toEqual(["m1"]);
+  });
+});
+
 describe("startFanficGeneration continuing an unfinished chapter", () => {
   const WRITER = { connectionId: "conn-1", name: "Writer", model: "test-model" };
   const DRAFTER = { connectionId: "conn-2", name: "Drafter", model: "other-model" };
@@ -988,7 +1184,77 @@ describe("resolving an unfinished chapter", () => {
     return { ...fic, chapter };
   }
 
+  /** Chapter 1 finished, then its first extra (1.5) cut off. */
+  async function cutOffExtra() {
+    const fic = setup();
+    await fic.write(proseLlm(["Chapter one."]), {});
+    await fic.write(fic.cutOff("Mira remembered"), { fanficKind: "extra", parentChapter: 1, notes: "A flashback." });
+    return { ...fic, extra: fic.messages[1]! };
+  }
+
   const versionOf = (swipe: { extra?: Record<string, unknown> } | undefined) => readFanficVersion(swipe?.extra);
+
+  it("keeps a cut-off extra chapter as an unfinished extra, which holds up other writes", async () => {
+    const fic = await cutOffExtra();
+
+    expect(fic.extra.content).toBe("Mira remembered");
+    expect(fic.extra.extra.fanficExtra).toEqual({ parentChapter: 1, canon: false });
+    expect(versionOf(fic.extra.swipes[0])).toMatchObject({
+      origin: { kind: "extra", notes: "A flashback." },
+      unfinished: { reason: "failure", code: "socket_closed" },
+    });
+    await expect(fic.write(proseLlm(["Never."]), {})).rejects.toThrow(
+      "Chapter 1.5 is unfinished: Reset, Continue or Keep it as is first.",
+    );
+  });
+
+  it("blocks a new extra chapter while a chapter is unfinished", async () => {
+    const fic = await cutOffChapter();
+    const llm = proseLlm(["Never."]);
+
+    await expect(fic.write(llm, { fanficKind: "extra", parentChapter: 1 })).rejects.toThrow(BLOCKED);
+    expect(llm.requests).toHaveLength(0);
+  });
+
+  it("resets a cut-off extra by writing it again as the same extra with the edited notes", async () => {
+    const fic = await cutOffExtra();
+    const llm = proseLlm(["Mira remembered everything."]);
+
+    await fic.write(llm, {
+      fanficKind: "extra",
+      regenerateMessageId: fic.extra.id,
+      replacesVersion: 0,
+      notes: "A longer flashback.",
+    });
+
+    expect(fic.messages).toHaveLength(2);
+    expect(fic.extra.swipes.map((swipe) => swipe.content)).toEqual(["Mira remembered everything."]);
+    expect(fic.extra.extra.fanficExtra).toEqual({ parentChapter: 1, canon: false });
+    expect(versionOf(fic.extra.swipes[0])).toMatchObject({
+      origin: { kind: "extra", notes: "A longer flashback." },
+      unfinished: null,
+    });
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("[assistant] Chapter one.\n[user] Write chapter 1.5 now");
+    expect(prompt).toContain("A longer flashback.");
+    expect(prompt).not.toContain("Mira remembered");
+  });
+
+  it("continues a cut-off extra in place, keeping it in its chain", async () => {
+    const fic = await cutOffExtra();
+    const llm = proseLlm(["and wept."]);
+
+    await fic.write(llm, { fanficKind: "continue", continueMessageId: fic.extra.id });
+
+    expect(fic.extra.content).toBe("Mira remembered and wept.");
+    expect(fic.extra.extra.fanficExtra).toEqual({ parentChapter: 1, canon: false });
+    expect(versionOf(fic.extra.swipes[0])).toMatchObject({ origin: { kind: "extra" }, unfinished: null });
+    expect(fanficChapterLayout(fic.messages).chapters.map((chapter) => chapter.label)).toEqual(["1", "1.5"]);
+    const prompt = promptText(llm.requests[0]);
+    expect(prompt).toContain("[assistant] Chapter one.");
+    expect(prompt).toContain("Continue chapter 1.5 from exactly where it stops");
+    expect(prompt).not.toContain("[assistant] Mira remembered");
+  });
 
   it("keeps an unfinished chapter as it is, marked finished", async () => {
     const fic = await cutOffChapter();
@@ -1239,6 +1505,34 @@ describe("settleFanficWrite", () => {
 
     expect(messages[0]!.extra.fanficVersion).toMatchObject({ unfinished: null });
     expect(shown[0]!.data).toMatchObject({ extra: { fanficVersion: { unfinished: null } } });
+  });
+
+  it("gives later events of a Reset the version count left after the replaced version is deleted", async () => {
+    const { storage, messages, saved, deletedSwipes } = await savedChapter();
+    // The replacement is saved as a second version and shown.
+    const replacement = structuredClone(
+      await storage.addChatMessageSwipe<StoredMessage>("chat-1", saved.id, "Snow fell again.", {
+        extra: { fanficVersion: BORN },
+      }),
+    );
+    async function* events(): AsyncGenerator<GenerationEvent> {
+      yield { type: "assistant_message", data: replacement };
+      // Work after the save re-sends the row it read before the delete, still counting two versions.
+      yield { type: "assistant_message", data: { ...replacement, extra: { ...replacement.extra, attachments: [] } } };
+      yield { type: "done" };
+    }
+
+    const shown = (await drain(settleFanficWrite(storage, BORN, events(), undefined, { chatId: "chat-1", index: 0 })))
+      .filter((event) => event.type === "assistant_message")
+      .map((event) => event.data as StoredMessage);
+
+    expect(deletedSwipes).toEqual([{ messageId: saved.id, index: 0 }]);
+    expect(shown).toHaveLength(2);
+    for (const data of shown) {
+      expect(data).toMatchObject({ swipeCount: 1, activeSwipeIndex: 0, content: "Snow fell again." });
+      expect(data.extra.fanficVersion).toMatchObject({ unfinished: null });
+    }
+    expect(messages[0]).toMatchObject({ swipeCount: 1, activeSwipeIndex: 0 });
   });
 });
 

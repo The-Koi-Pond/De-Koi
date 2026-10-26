@@ -75,11 +75,15 @@ describe("readFanficVersion", () => {
     expect(readFanficVersion({ fanficVersion: { models: "Writer" } })?.models).toEqual([]);
   });
 
-  it("falls back to a plain chapter origin when the stored origin can't be read", () => {
-    expect(readFanficVersion({ fanficVersion: { models: [], origin: { kind: "sequel", notes: 3 } } })?.origin).toEqual({
-      kind: "chapter",
-      notes: "",
-    });
+  it.each([
+    ["an unknown kind", { kind: "sequel", notes: "" }],
+    ["notes that are not text", { kind: "chapter", notes: 3 }],
+    ["no origin", undefined],
+  ])("reads %s as an unknown origin, not as a new chapter", (_label, origin) => {
+    expect(readFanficVersion({ fanficVersion: { models: [], origin } })?.origin).toBeNull();
+  });
+
+  it("reads an extra chapter's origin and drops a base version it can't read", () => {
     expect(
       readFanficVersion({
         fanficVersion: { models: [], origin: { kind: "extra", notes: "Beach day.", baseVersion: -1 } },

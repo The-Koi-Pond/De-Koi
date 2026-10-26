@@ -162,7 +162,8 @@ export function fanficSoundEffectsOn(config: Pick<TTSConfig, "source" | "baseUrl
 
 export interface FanficNarrationChapter {
   messageId: string;
-  number: number;
+  /** "3", or "3.5" for an extra, from the chapter layout. */
+  label: string;
   heading: string;
   content: string;
 }
@@ -180,7 +181,7 @@ export const FANFIC_PAUSE_MS = {
 } as const;
 
 export interface FanficNarrationPart extends CachedTTSVoiceRequest {
-  chapterNumber: number;
+  chapterLabel: string;
   /** Index into fanficProseBlocks for the chapter, or null for the spoken chapter heading. */
   block: number | null;
 }
@@ -278,7 +279,7 @@ export function buildFanficNarration(chapters: FanficNarrationChapter[], config:
         : cached[next++]!;
       parts.push({
         ...request,
-        chapterNumber: chapter.number,
+        chapterLabel: chapter.label,
         block: piece.block,
         ...(piece.pauseBeforeMs ? { pauseBeforeMs: piece.pauseBeforeMs } : {}),
       });

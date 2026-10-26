@@ -18,7 +18,7 @@ function ttsConfig(overrides: Partial<TTSConfig> = {}): TTSConfig {
 
 const chapter: FanficNarrationChapter = {
   messageId: "msg-1",
-  number: 1,
+  label: "1",
   heading: "Chapter 1: Lagging",
   content: [
     "# Chapter 1: Lagging",
@@ -64,7 +64,7 @@ describe("buildFanficNarration", () => {
       { text: '"Angel," he said. "We need to talk."', block: 2 },
     ]);
     expect(plan.parts.every((part) => part.voice === "narrator" && part.speaker === "Narrator")).toBe(true);
-    expect(plan.parts.every((part) => part.chapterNumber === 1)).toBe(true);
+    expect(plan.parts.every((part) => part.chapterLabel === "1")).toBe(true);
     expect(plan.characters).toBe(plan.parts.reduce((sum, part) => sum + part.text.length, 0));
   });
 
@@ -96,16 +96,36 @@ describe("buildFanficNarration", () => {
 
   it("labels each chapter's parts when reading the whole work", () => {
     const plan = buildFanficNarration(
-      [chapter, { ...chapter, messageId: "msg-2", number: 2, heading: "Chapter 2", content: "It rained." }],
+      [chapter, { ...chapter, messageId: "msg-2", label: "2", heading: "Chapter 2", content: "It rained." }],
       ttsConfig({ voice: "alloy" }),
     );
 
-    expect(plan.parts.map((part) => [part.chapterNumber, part.text])).toEqual([
-      [1, "Chapter 1: Lagging."],
-      [1, "The bookshop was closed, which meant nothing to Crowley."],
-      [1, '"Angel," he said. "We need to talk."'],
-      [2, "Chapter 2."],
-      [2, "It rained."],
+    expect(plan.parts.map((part) => [part.chapterLabel, part.text])).toEqual([
+      ["1", "Chapter 1: Lagging."],
+      ["1", "The bookshop was closed, which meant nothing to Crowley."],
+      ["1", '"Angel," he said. "We need to talk."'],
+      ["2", "Chapter 2."],
+      ["2", "It rained."],
+    ]);
+  });
+
+  it("reads an extra chapter after its main chapter under its label, in the order given", () => {
+    const plan = buildFanficNarration(
+      [
+        { ...chapter, messageId: "msg-3", label: "3", heading: "Chapter 3", content: "It snowed." },
+        { ...chapter, messageId: "msg-x", label: "3.5", heading: "Chapter 3.5, a side story", content: "Mira." },
+        { ...chapter, messageId: "msg-4", label: "4", heading: "Chapter 4", content: "It thawed." },
+      ],
+      ttsConfig({ voice: "alloy" }),
+    );
+
+    expect(plan.parts.map((part) => [part.chapterLabel, part.text])).toEqual([
+      ["3", "Chapter 3."],
+      ["3", "It snowed."],
+      ["3.5", "Chapter 3.5, a side story."],
+      ["3.5", "Mira."],
+      ["4", "Chapter 4."],
+      ["4", "It thawed."],
     ]);
   });
 
@@ -119,7 +139,7 @@ describe("buildFanficNarration", () => {
 
 const scriptChapter: FanficNarrationChapter = {
   messageId: "msg-script",
-  number: 1,
+  label: "1",
   heading: "Chapter 1",
   content: [
     "[SFX: Rain on a window. A phone screen tapping.]",
@@ -295,17 +315,17 @@ describe("buildFanficNarration pauses", () => {
     const plan = buildFanficNarration(
       [
         { ...scriptChapter, content },
-        { ...scriptChapter, messageId: "msg-2", number: 2, heading: "Chapter 2", content: "**PIERROT:** Again." },
+        { ...scriptChapter, messageId: "msg-2", label: "2", heading: "Chapter 2", content: "**PIERROT:** Again." },
       ],
       ttsConfig({ source: "elevenlabs", model: "eleven_v3", voice: "pierrot" }),
     );
-    const pauses = plan.parts.map((part) => [part.chapterNumber, part.block, part.pauseBeforeMs]);
+    const pauses = plan.parts.map((part) => [part.chapterLabel, part.block, part.pauseBeforeMs]);
 
     expect(pauses.slice(0, 4)).toEqual([
-      [1, null, undefined],
-      [1, 0, FANFIC_PAUSE_MS.line],
-      [1, 1, FANFIC_PAUSE_MS.line],
-      [1, 3, FANFIC_PAUSE_MS.beat],
+      ["1", null, undefined],
+      ["1", 0, FANFIC_PAUSE_MS.line],
+      ["1", 1, FANFIC_PAUSE_MS.line],
+      ["1", 3, FANFIC_PAUSE_MS.beat],
     ]);
     const longParts = plan.parts.filter((part) => part.block === 5);
     expect(longParts.length).toBeGreaterThan(1);
@@ -314,8 +334,8 @@ describe("buildFanficNarration pauses", () => {
       ...longParts.slice(1).map(() => undefined),
     ]);
     expect(pauses.slice(-2)).toEqual([
-      [2, null, FANFIC_PAUSE_MS.chapter],
-      [2, 0, FANFIC_PAUSE_MS.line],
+      ["2", null, FANFIC_PAUSE_MS.chapter],
+      ["2", 0, FANFIC_PAUSE_MS.line],
     ]);
   });
 

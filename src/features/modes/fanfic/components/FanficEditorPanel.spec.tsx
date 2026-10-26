@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FanficEditorReport } from "../../../../engine/modes/fanfic/editor";
 import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
-import type { FanficChapterView, FanficEditorController } from "../hooks/use-fanfic";
+import type { FanficEditorController } from "../hooks/use-fanfic";
 import { FanficEditorPanel } from "./FanficEditorPanel";
 
 const { report } = vi.hoisted(() => ({ report: { current: null as unknown } }));
@@ -12,14 +12,6 @@ vi.mock("../../../catalog/chats/index", () => ({
   useChat: () => ({ data: { id: "fic-1", metadata: { fanficEditor: { version: 1, reports: [report.current] } } } }),
 }));
 vi.mock("../../../catalog/connections/index", () => ({ HelperRunNote: () => null }));
-vi.mock("../hooks/use-fanfic", () => ({
-  fanficChapterViewRefs: (chapters: FanficChapterView[]) =>
-    chapters.map((chapter) => ({
-      number: chapter.number,
-      messageId: chapter.message.id,
-      content: chapter.message.content,
-    })),
-}));
 
 const TEXT = "Crowley waited. Aziraphale talked about books for a very long time.";
 const scores = { escalation: 4, subplot: 6, choices: 5, theme: 7, exposition: 3 };
@@ -62,7 +54,7 @@ describe("FanficEditorPanel", () => {
       root.render(
         <FanficEditorPanel
           chatId="fic-1"
-          chapters={[{ number: 2, message: { id: "m2", content: TEXT } } as unknown as FanficChapterView]}
+          chapters={[{ messageId: "m2", content: TEXT, label: "2", mainNumber: 2, extra: null, position: 1 }]}
           controller={
             { running: null, progress: null, run: vi.fn(), rewrite: vi.fn(), stop: vi.fn() } as FanficEditorController
           }

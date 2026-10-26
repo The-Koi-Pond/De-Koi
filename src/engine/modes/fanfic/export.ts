@@ -1,15 +1,35 @@
 import type { FanficState } from "../../contracts/types/fanfic";
+import { readString, type JsonRecord } from "../../generation/runtime-records";
+import { fanficChapterLayout, type FanficChapterRef } from "./chapter-refs";
 import { fanficChapterTitle } from "./chapters";
 import { stripFanficChapterHeading } from "./prompts";
 import { FANFIC_POV_LABELS, FANFIC_RATING_LABELS, FANFIC_SETTING_LABELS, FANFIC_WARNING_LABELS } from "./request";
 
 export type FanficExportFormat = "html" | "markdown";
 
+export interface FanficExportChapter {
+  /** The chapter as stored; a heading the model added is dropped. */
+  prose: string;
+  ref: Pick<FanficChapterRef, "label" | "mainNumber" | "extra">;
+}
+
 export interface FanficExportInput {
   state: FanficState;
-  /** Chapter prose in reading order. */
-  chapters: string[];
+  /** Chapters in reading order (see fanficExportChapters). */
+  chapters: readonly FanficExportChapter[];
   fallbackTitle?: string;
+}
+
+/**
+ * The fic's chapters in reading order with their layout refs: each main chapter, then its extras. Extras whose main
+ * chapter is gone are left out.
+ */
+export function fanficExportChapters(messages: readonly JsonRecord[]): FanficExportChapter[] {
+  const layout = fanficChapterLayout(messages);
+  const prose = new Map(messages.map((message) => [readString(message.id), readString(message.content)]));
+  return layout.chapters
+    .filter((ref) => !layout.orphans.includes(ref))
+    .map((ref) => ({ prose: prose.get(ref.messageId) ?? "", ref }));
 }
 
 export interface FanficExportFile {
@@ -47,7 +67,8 @@ function workHeader(input: FanficExportInput): FanficWorkHeader {
         .filter(Boolean)
         .join(", "),
     ],
-    ["Chapters", `${input.chapters.length}/${planned}`],
+    // Main chapters, as the outline counts them; extras don't add to the count.
+    ["Chapters", `${input.chapters.filter((chapter) => !chapter.ref.extra).length}/${planned}`],
   ];
   return {
     title: outline?.title || input.fallbackTitle?.trim() || "Untitled",
@@ -56,9 +77,11 @@ function workHeader(input: FanficExportInput): FanficWorkHeader {
   };
 }
 
-function chapterHeading(state: FanficState, number: number): string {
-  const title = fanficChapterTitle(state, number);
-  return `Chapter ${number}${title ? `: ${title}` : ""}`;
+/** A main chapter with its outline title; an extra by its number, marked when it's a side story. */
+function chapterHeading(state: FanficState, ref: FanficExportChapter["ref"]): string {
+  if (ref.extra) return `Chapter ${ref.label}${ref.extra.canon ? "" : " (side story)"}`;
+  const title = fanficChapterTitle(state, ref.mainNumber);
+  return `Chapter ${ref.mainNumber}${title ? `: ${title}` : ""}`;
 }
 
 function safeFilename(title: string): string {
@@ -106,8 +129,8 @@ export function buildFanficHtml(input: FanficExportInput): FanficExportFile {
     .join("\n");
   const chapters = input.chapters
     .map(
-      (prose, index) =>
-        `<section class="chapter">\n<h2>${escapeHtml(chapterHeading(input.state, index + 1))}</h2>\n${proseHtml(prose)}\n</section>`,
+      ({ prose, ref }) =>
+        `<section class="chapter">\n<h2>${escapeHtml(chapterHeading(input.state, ref))}</h2>\n${proseHtml(prose)}\n</section>`,
     )
     .join("\n");
   const content = `<!doctype html>
@@ -150,8 +173,8 @@ export function buildFanficMarkdown(input: FanficExportInput): FanficExportFile 
     "",
     header.summary ? `> ${header.summary}` : "",
     "",
-    ...input.chapters.flatMap((prose, index) => [
-      `## ${chapterHeading(input.state, index + 1)}`,
+    ...input.chapters.flatMap(({ prose, ref }) => [
+      `## ${chapterHeading(input.state, ref)}`,
       "",
       stripFanficChapterHeading(prose).trim(),
       "",

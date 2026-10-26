@@ -7,7 +7,7 @@ import type { FanficLedger, FanficLedgerEntry, FanficLedgerFact, FanficRequest }
 import { parseJsonObject } from "../../core/json";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { effectiveMaxContext } from "../../generation/context-window";
-import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { fanficCanonLine, fanficChapterLayout, type FanficChapterRef } from "./chapter-refs";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -100,29 +100,47 @@ export function readFanficLedger(metadata: unknown): FanficLedger {
 export interface FanficLedgerStatus {
   /** Entries that still match their chapter's current text, in an unbroken run from chapter 1. */
   fresh: FanficLedgerEntry[];
-  /** Chapters (1-based) with no fresh entry: rewritten, new, or after one that changed. */
+  /** Positions (1-based) in the chapter list with no fresh entry: rewritten, new, or after one that changed. */
   stale: number[];
 }
 
 /**
- * An entry is fresh while its chapter is the same message with the same text and every entry before it is fresh:
- * each one builds on the last, so a rewrite of chapter 3 makes 3 onward stale.
+ * Entries are positional over the chapters given, from the first. An entry is fresh while its chapter is the same
+ * message with the same text and every entry before it is fresh: each one builds on the last, so a rewrite of
+ * chapter 3 makes 3 onward stale.
  */
 export function fanficLedgerStatus(ledger: FanficLedger, chapters: readonly FanficChapterRef[]): FanficLedgerStatus {
   const fresh: FanficLedgerEntry[] = [];
-  for (const chapter of chapters) {
-    const entry = ledger.entries[chapter.number - 1];
-    if (
-      !entry ||
-      entry.messageId !== chapter.messageId ||
-      entry.textKey !== fanficChapterTextKey(chapter.content) ||
-      fresh.length !== chapter.number - 1
-    ) {
+  for (const [index, chapter] of chapters.entries()) {
+    const entry = ledger.entries[index];
+    if (!entry || entry.messageId !== chapter.messageId || entry.textKey !== fanficChapterTextKey(chapter.content)) {
       break;
     }
     fresh.push(entry);
   }
-  return { fresh, stale: chapters.slice(fresh.length).map((chapter) => chapter.number) };
+  return { fresh, stale: chapters.slice(fresh.length).map((_, index) => fresh.length + index + 1) };
+}
+
+/**
+ * What the ledger knows about the chapters a chapter builds on (`before`, in reading order). It covers only the canon
+ * line, so `onLine` counts the chapters at the start of `before` that are on it; an extra's own side stories come
+ * after them. `entries` are the fresh entries for those chapters, each with its label, fewer when the ledger is behind.
+ */
+export function fanficLedgerBefore(
+  ledger: FanficLedger,
+  canonLine: readonly FanficChapterRef[],
+  before: readonly FanficChapterRef[],
+): { onLine: number; entries: Array<{ entry: FanficLedgerEntry; label: string }> } {
+  let onLine = 0;
+  while (onLine < before.length && canonLine[onLine]?.messageId === before[onLine]?.messageId) onLine += 1;
+  const { fresh } = fanficLedgerStatus(ledger, canonLine);
+  const entries: Array<{ entry: FanficLedgerEntry; label: string }> = [];
+  for (const [index, chapter] of before.slice(0, onLine).entries()) {
+    const entry = fresh[index];
+    if (!entry) break;
+    entries.push({ entry, label: chapter.label });
+  }
+  return { onLine, entries };
 }
 
 // ── Prompt ──────────────────────────────────────
@@ -158,10 +176,12 @@ const ENTRY_SHAPE =
 export function buildFanficLedgerMessages(args: {
   request: FanficRequest;
   previous: FanficLedgerEntry | null;
-  chapters: ReadonlyArray<{ number: number; content: string }>;
+  /** The label of the chapter `previous` was written for; entries themselves are numbered by position. */
+  previousLabel?: string;
+  chapters: ReadonlyArray<Pick<FanficChapterRef, "label" | "content">>;
 }): LlmMessage[] {
-  const first = args.chapters[0]?.number ?? 1;
-  const last = args.chapters[args.chapters.length - 1]?.number ?? first;
+  const first = args.chapters[0]?.label ?? "1";
+  const last = args.chapters[args.chapters.length - 1]?.label ?? first;
   const system = [
     "You keep the story ledger for a fanfic in progress: the facts the writer has to keep straight from chapter to chapter. For each chapter you're given, write down where things stand at the end of that chapter.",
     "Record only what the text establishes. Never add canon facts or guesses. Write claims, threats, and suspicions as what they are (Harlequin says he'll tell Doctor), not as facts. Keep every line short and concrete: names, numbers, objects, places, times, and name events rather than chapter numbers inside a fact.",
@@ -177,10 +197,10 @@ export function buildFanficLedgerMessages(args: {
     ].join("\n"),
     `## The request\n${requestBlock(args.request)}`,
     args.previous
-      ? `## Ledger after chapter ${args.previous.chapter}\n${renderFanficLedgerState(args.previous)}`
+      ? `## Ledger after chapter ${args.previousLabel ?? args.previous.chapter}\n${renderFanficLedgerState(args.previous)}`
       : "## Ledger so far\nEmpty: start it from the first chapter below.",
   ].join("\n\n");
-  const story = args.chapters.map((chapter) => `## Chapter ${chapter.number}\n${chapter.content.trim()}`).join("\n\n");
+  const story = args.chapters.map((chapter) => `## Chapter ${chapter.label}\n${chapter.content.trim()}`).join("\n\n");
   const ask =
     first === last
       ? `Write the ledger entry for chapter ${first}.`
@@ -370,7 +390,8 @@ export async function updateFanficLedger(
     const state = readFanficState(parseRecord(chat.metadata));
     if (!state) throw userFacingError("Fill in the fanfic request first.");
     const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
-    const chapters = fanficChapterRefs(messages.filter(isRecord));
+    // What later chapters build on: a side story's facts stay out until it is canon.
+    const chapters = fanficCanonLine(fanficChapterLayout(messages.filter(isRecord)));
     let expectedRaw = rawLedger(chat.metadata);
     const saved = readFanficLedger(chat.metadata);
     const status = fanficLedgerStatus(saved, chapters);
@@ -414,8 +435,10 @@ export async function updateFanficLedger(
       const call = planFanficLedgerCalls(toRead.slice(done), budget.proseChars)[0]!;
       if (window > 0 && call[0]!.content.length > budget.proseChars) {
         // Entries saved so far stay; only this chapter can't be read on this connection.
-        throw new FanficWindowTooSmallError(`chapter ${call[0]!.number} of this fic`);
+        throw new FanficWindowTooSmallError(`chapter ${call[0]!.label} of this fic`);
       }
+      // Entries are numbered by their place in the ledger.
+      const positions = call.map((_, index) => ledger.entries.length + index + 1);
       const drafts = await completeFanficJson(
         deps.llm,
         {
@@ -423,15 +446,12 @@ export async function updateFanficLedger(
           messages: buildFanficLedgerMessages({
             request: state.request,
             previous: ledger.entries[ledger.entries.length - 1] ?? null,
+            previousLabel: chapters[ledger.entries.length - 1]?.label,
             chapters: call,
           }),
           maxTokens: budget.replyTokens,
         },
-        (raw) =>
-          parseFanficLedgerReply(
-            raw,
-            call.map((chapter) => chapter.number),
-          ),
+        (raw) => parseFanficLedgerReply(raw, positions),
         signal,
       );
       const entries = drafts.map((draft, index) => ({
@@ -460,17 +480,20 @@ export async function updateFanficLedger(
 /**
  * The ledger as a prompt section: where things stand after the last chapter it covers, then a line per chapter. Only
  * entries that still match their chapter's text are used. The fitter keeps this section ahead of old chapter prose, so
- * when the window runs short the oldest chapters drop and their summaries stay.
+ * when the window runs short the oldest chapters drop and their summaries stay. `chapters` is the write's history, so
+ * the entries stop where it leaves the canon line; each entry is named by the label of the chapter at its position.
  */
 export function renderFanficLedgerForPrompt(ledger: FanficLedger, chapters: readonly FanficChapterRef[]): string {
   const { fresh } = fanficLedgerStatus(ledger, chapters);
   const latest = fresh[fresh.length - 1];
   if (!latest) return "";
+  const label = (index: number) => chapters[index]!.label;
+  const last = label(fresh.length - 1);
   const behind = chapters.length > fresh.length;
   return [
     "## Story ledger",
-    `Facts kept chapter by chapter so the story stays consistent. Treat them as facts to respect, not details to mention.${behind ? ` The ledger runs through chapter ${latest.chapter}; where a later chapter says otherwise, the chapter wins.` : ""}`,
-    `### Where things stand after chapter ${latest.chapter}\n${renderFanficLedgerState(latest)}`,
-    `### Chapter by chapter\n${fresh.map((entry) => `Chapter ${entry.chapter}: ${entry.summary}`).join("\n")}`,
+    `Facts kept chapter by chapter so the story stays consistent. Treat them as facts to respect, not details to mention.${behind ? ` The ledger runs through chapter ${last}; where a later chapter says otherwise, the chapter wins.` : ""}`,
+    `### Where things stand after chapter ${last}\n${renderFanficLedgerState(latest)}`,
+    `### Chapter by chapter\n${fresh.map((entry, index) => `Chapter ${label(index)}: ${entry.summary}`).join("\n")}`,
   ].join("\n\n");
 }

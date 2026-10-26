@@ -7,9 +7,9 @@ import type { FanficState } from "../../contracts/types/fanfic";
 import { effectiveMaxContext } from "../../generation/context-window";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { parseJsonObject } from "../../core/json";
-import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { fanficCanonLine, fanficChapterLayout, fanficChaptersBefore, type FanficChapterRef } from "./chapter-refs";
 import { locateFanficPassage } from "./continuity";
-import { fanficChapterTextKey, fanficLedgerStatus, readFanficLedger, type FanficLedgerProgress } from "./ledger";
+import { fanficChapterTextKey, fanficLedgerBefore, readFanficLedger, type FanficLedgerProgress } from "./ledger";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -111,8 +111,11 @@ export function buildFanficEditorMessages(args: {
   /** Chapter summaries from the story ledger, or the end of the chapter before when there's no ledger. */
   storySoFar: string;
 }): LlmMessage[] {
-  const n = args.chapter.number;
-  const plan = args.state.outline?.chapters.find((entry) => entry.number === n);
+  const n = args.chapter.label;
+  // The outline plans main chapters only.
+  const plan = args.chapter.extra
+    ? undefined
+    : args.state.outline?.chapters.find((entry) => entry.number === args.chapter.mainNumber);
   const system = [
     `You are a developmental editor reading chapter ${n} of a requested fanfic. Judge the storytelling, not the sentences: how the chapter builds, what it risks, and what it explains that it should show.`,
     "## Score each from 0 to 10 (10 is best)",
@@ -266,13 +269,14 @@ async function saveReport(
 
 // ── Running ─────────────────────────────────────
 
-function storySoFar(chapters: FanficChapterRef[], chapter: FanficChapterRef, metadata: unknown): string {
-  const fresh = fanficLedgerStatus(readFanficLedger(metadata), chapters).fresh.slice(0, chapter.number - 1);
-  if (fresh.length === chapter.number - 1 && fresh.length > 0) {
-    return fresh.map((entry) => `Chapter ${entry.chapter}: ${entry.summary}`).join("\n");
+/** The chapters a chapter builds on (`before`): their ledger summaries when the ledger covers them all. */
+function storySoFar(before: FanficChapterRef[], canonLine: FanficChapterRef[], metadata: unknown): string {
+  const known = fanficLedgerBefore(readFanficLedger(metadata), canonLine, before).entries;
+  if (known.length === before.length && known.length > 0) {
+    return known.map(({ entry, label }) => `Chapter ${label}: ${entry.summary}`).join("\n");
   }
-  const previous = chapters[chapter.number - 2];
-  return previous ? `The end of chapter ${previous.number}:\n…${previous.content.slice(-PREVIOUS_TAIL_CHARS)}` : "";
+  const previous = before.at(-1);
+  return previous ? `The end of chapter ${previous.label}:\n…${previous.content.slice(-PREVIOUS_TAIL_CHARS)}` : "";
 }
 
 export interface RunFanficEditorPassInput {
@@ -307,7 +311,9 @@ export async function runFanficEditorPass(
   const window = connection ? effectiveMaxContext(connection, {}) : 0;
 
   const messages = (await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
-  const chapters = fanficChapterRefs(messages);
+  const layout = fanficChapterLayout(messages);
+  const chapters = layout.chapters.filter((chapter) => !layout.orphans.includes(chapter));
+  const canonLine = fanficCanonLine(layout);
   const live = new Set(chapters.map((chapter) => chapter.messageId));
   const current = new Map(readFanficEditorStore(chat.metadata).reports.map((report) => [report.messageId, report]));
   const todo = chapters.filter((chapter) =>
@@ -324,13 +330,13 @@ export async function runFanficEditorPass(
       const prompt = buildFanficEditorMessages({
         state,
         chapter,
-        storySoFar: storySoFar(chapters, chapter, chat.metadata),
+        storySoFar: storySoFar(fanficChaptersBefore(messages, layout, chapter), canonLine, chat.metadata),
       });
       const budget = fanficCallBudget(window, {
         maxReplyTokens: REPORT_MAX_TOKENS,
         fixedChars: fanficMessageChars(prompt),
         defaultChars: 0,
-        what: `the editor pass on chapter ${chapter.number}`,
+        what: `the editor pass on chapter ${chapter.label}`,
       });
       const parsed = await completeFanficJson(
         deps.llm,
@@ -343,7 +349,7 @@ export async function runFanficEditorPass(
         input.chatId,
         {
           ...parsed,
-          chapter: chapter.number,
+          chapter: chapter.mainNumber,
           messageId: chapter.messageId,
           textKey: fanficChapterTextKey(chapter.content),
         },
@@ -367,7 +373,7 @@ export async function rewriteFanficFlaggedScenes(
   deps: { storage: StorageGateway; llm: LlmGateway },
   input: { chatId: string; report: FanficEditorReport; flags?: FanficEditorFlag[]; connectionId?: string | null },
   options: { signal?: AbortSignal; onProgress?: (progress: FanficLedgerProgress) => void } = {},
-): Promise<{ rewritten: number; skipped: number; textKey: string }> {
+): Promise<{ rewritten: number; skipped: number; textKey: string; label: string }> {
   const { signal, onProgress } = options;
   const target = await loadFanficChapterForEdit(deps.storage, {
     chatId: input.chatId,
@@ -402,5 +408,5 @@ export async function rewriteFanficFlaggedScenes(
     edits,
     rewrite: { notes: instructions.join("\n"), rewriter: target.rewriter },
   });
-  return { rewritten: edits.length, skipped, textKey };
+  return { rewritten: edits.length, skipped, textKey, label: target.chapter.label };
 }

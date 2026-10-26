@@ -76,6 +76,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
 
   // The reader streams a continue after the chapter's text so far instead of as a new chapter.
   const [continuing, setContinuing] = useState<{ messageId: string; textSoFar: string } | null>(null);
+  // A new extra streams after its main chapter's chain, not as the next chapter.
+  const [writingExtraAfter, setWritingExtraAfter] = useState<number | null>(null);
   const chaptersRef = useRef(chapters);
   useEffect(() => {
     chaptersRef.current = chapters;
@@ -99,6 +101,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
       const continued =
         args.kind === "continue" ? chaptersRef.current.find((chapter) => chapter.message.id === args.messageId) : null;
       setContinuing(continued ? { messageId: continued.message.id, textSoFar: continued.message.content } : null);
+      setWritingExtraAfter(args.kind === "extra" && !args.messageId ? (args.parentChapter ?? null) : null);
       void write(args)
         .then((finished) => {
           if (finished) afterChapterFinished(finished);
@@ -108,7 +111,10 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) return;
           toast.error(toUserMessage(error, { fallback: "That write didn't finish. Try again." }));
         })
-        .finally(() => setContinuing(null));
+        .finally(() => {
+          setContinuing(null);
+          setWritingExtraAfter(null);
+        });
     },
     [afterChapterFinished, write],
   );
@@ -312,6 +318,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           phase={generation.phase}
           regeneratingMessageId={generation.regeneratingMessageId}
           continuing={continuing}
+          writingExtraAfter={writingExtraAfter}
           onWrite={runWrite}
           onChapterFinished={afterChapterFinished}
           onRetry={() => runWrite(lastWrite.current)}

@@ -7,9 +7,22 @@ import type { FanficModelRecord, FanficState } from "../../contracts/types/fanfi
 import { effectiveMaxContext } from "../../generation/context-window";
 import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { assertNoFanficUnfinishedChapter, fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import {
+  assertNoFanficUnfinishedChapter,
+  fanficCanonLine,
+  fanficChapterLayout,
+  fanficChaptersBefore,
+  fanficExtraPlace,
+  type FanficChapterRef,
+} from "./chapter-refs";
 import { locateFanficPassage } from "./continuity";
-import { fanficChapterTextKey, fanficLedgerStatus, readFanficLedger, renderFanficLedgerState } from "./ledger";
+import {
+  fanficChapterTextKey,
+  fanficLedgerBefore,
+  fanficLedgerStatus,
+  readFanficLedger,
+  renderFanficLedgerState,
+} from "./ledger";
 import {
   cleanFanficReply,
   fanficCallBudget,
@@ -20,6 +33,7 @@ import {
 } from "./llm-json";
 import {
   buildFanficChapterGuide,
+  buildFanficExtraGuide,
   buildFanficSystemSegments,
   FANFIC_PROSE_RULES,
   fanficContentRules,
@@ -52,7 +66,8 @@ export interface FanficPassageSpan {
 
 export function buildFanficPassageRewriteMessages(args: {
   state: FanficState;
-  chapterNumber: number;
+  /** "3", or "3.5" for an extra. */
+  chapterLabel: string;
   /** Where things stand going into this chapter, from the story ledger. */
   ledgerState: string;
   /** The story's facts as of the end of this chapter as first written, and what later chapters do with them. */
@@ -66,13 +81,13 @@ export function buildFanficPassageRewriteMessages(args: {
 }): LlmMessage[] {
   const { request } = args.state;
   const system = [
-    `You revise one passage of chapter ${args.chapterNumber} of a requested ${request.fandom ? `${request.fandom} ` : ""}fanfic. The rest of the chapter stays exactly as written, so the new passage has to join the text before and after it without a seam: same point of view, tense, names, and what each character knows at that moment.`,
+    `You revise one passage of chapter ${args.chapterLabel} of a requested ${request.fandom ? `${request.fandom} ` : ""}fanfic. The rest of the chapter stays exactly as written, so the new passage has to join the text before and after it without a seam: same point of view, tense, names, and what each character knows at that moment.`,
     ...FANFIC_PROSE_RULES,
     `## Content rules\n${fanficContentRules(request)}`,
     `## The request\n${renderFanficRequestForPrompt(request)}`,
     renderFanficVoiceSheets(args.state.voices),
     args.ledgerState.trim()
-      ? `## Where things stand going into chapter ${args.chapterNumber}\n${args.ledgerState.trim()}`
+      ? `## Where things stand going into chapter ${args.chapterLabel}\n${args.ledgerState.trim()}`
       : "",
     args.ledgerAfter?.trim()
       ? `## Facts that must still hold\nAs of the end of this chapter, and what the chapters after it build on. The rewrite can't contradict these.\n${args.ledgerAfter.trim()}`
@@ -108,6 +123,8 @@ export function cleanFanficPassageReply(raw: string): string {
 export interface FanficChapterForEdit {
   state: FanficState;
   chapter: FanficChapterRef;
+  /** The instruction the chapter was written from, for passes that rerun its prompt. */
+  chapterGuide: string;
   /** The message's raw content (heading kept, if it has one); spans index into this. */
   raw: string;
   /** Where the stripped chapter text starts inside `raw`. */
@@ -149,19 +166,33 @@ export async function loadFanficChapterForEdit(
   // Every edit loaded here ends in a new version.
   assertNoFanficUnfinishedChapter(messages);
   const message = messages.find((entry) => readString(entry.id) === input.messageId);
-  const chapter = fanficChapterRefs(messages).find((entry) => entry.messageId === input.messageId);
-  if (!message || !chapter) throw userFacingError("That chapter is no longer in this fic.");
+  const layout = fanficChapterLayout(messages);
+  const chapter = layout.chapters.find((entry) => entry.messageId === input.messageId);
+  if (!message || !chapter || layout.orphans.includes(chapter)) {
+    throw userFacingError("That chapter is no longer in this fic.");
+  }
   if (fanficChapterTextKey(chapter.content) !== input.textKey) {
     throw userFacingError("The chapter changed since then. Look at it again before rewriting.");
   }
   const raw = readString(message.content);
-  const fresh = fanficLedgerStatus(readFanficLedger(chat.metadata), fanficChapterRefs(messages)).fresh;
-  const before = fresh[chapter.number - 2];
-  const current = fresh[chapter.number - 1];
-  const later = fresh.slice(chapter.number).map((entry) => `Chapter ${entry.chapter}: ${entry.summary}`);
+  // The ledger runs over the canon line: a side story gets the facts going into it, and no entries of its own.
+  const ledger = readFanficLedger(chat.metadata);
+  const line = fanficCanonLine(layout);
+  const chaptersBefore = fanficChaptersBefore(messages, layout, chapter);
+  // After a side story of its own chain, the state is the one going into that chain.
+  const known = fanficLedgerBefore(ledger, line, chaptersBefore);
+  const before = known.entries.length === known.onLine ? known.entries.at(-1)?.entry : undefined;
+  const at = line.indexOf(chapter);
+  const fresh = at < 0 ? [] : fanficLedgerStatus(ledger, line).fresh;
+  const current = fresh[at];
+  const later = fresh.slice(at + 1).map((entry, index) => `Chapter ${line[at + 1 + index]!.label}: ${entry.summary}`);
+  const ownChain = chapter.extra ? chapter.mainNumber : null;
   return {
     state,
     chapter,
+    chapterGuide: chapter.extra
+      ? buildFanficExtraGuide(state, fanficExtraPlace(layout, chapter.mainNumber, chapter.extra.index))
+      : buildFanficChapterGuide(state, chapter.mainNumber),
     raw,
     offset: raw.length - stripFanficChapterHeading(raw).length,
     ledgerState: before ? renderFanficLedgerState(before) : "",
@@ -173,7 +204,11 @@ export async function loadFanficChapterForEdit(
       .join("\n\n"),
     overused: buildFanficRepetitionGuide(
       detectFanficRepetition(
-        fanficChapterRefs(messages).map((entry) => entry.content),
+        // What the chapter's own write sees: the canon line and, for an extra, its own chain.
+        layout.chapters
+          .filter((entry) => !layout.orphans.includes(entry))
+          .filter((entry) => !entry.extra || entry.extra.canon || entry.mainNumber === ownChain)
+          .map((entry) => entry.content),
         { names: fanficRepetitionNames(state.request) },
       ),
     ),
@@ -205,7 +240,7 @@ export async function rewriteFanficPassageText(
   const build = (before: number, after: number) =>
     buildFanficPassageRewriteMessages({
       state: target.state,
-      chapterNumber: target.chapter.number,
+      chapterLabel: target.chapter.label,
       ledgerState: target.ledgerState,
       ledgerAfter: target.ledgerAfter,
       overused: target.overused,
@@ -433,7 +468,7 @@ export async function removeFanficBannedPhrases(
         ? `${system}\n\n## Where things stand going into this chapter\n${target.ledgerState}`
         : system,
     },
-    { role: "user", content: buildFanficChapterGuide(target.state, target.chapter.number) },
+    { role: "user", content: target.chapterGuide },
   ];
   const result = await repairFanficBannedPhrases(
     deps.llm,
@@ -457,11 +492,11 @@ export async function removeFanficBannedPhrasesFrom(
   deps: { storage: StorageGateway; llm: LlmGateway },
   input: { chatId: string; messageId?: string | null; connectionId?: string | null },
   options: { signal?: AbortSignal } = {},
-): Promise<{ chapter: number; repaired: number; remaining: number }> {
-  const chapters = fanficChapterRefs((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
+): Promise<{ chapter: string; repaired: number; remaining: number }> {
+  const layout = fanficChapterLayout((await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord));
   const chapter = input.messageId
-    ? chapters.find((entry) => entry.messageId === input.messageId)
-    : chapters[chapters.length - 1];
+    ? layout.chapters.find((entry) => entry.messageId === input.messageId && !layout.orphans.includes(entry))
+    : layout.mains.at(-1);
   if (!chapter) throw userFacingError("That chapter is no longer in this fic.");
   const result = await removeFanficBannedPhrases(
     deps,
@@ -473,5 +508,5 @@ export async function removeFanficBannedPhrasesFrom(
     },
     options,
   );
-  return { chapter: chapter.number, repaired: result.repaired, remaining: result.remaining };
+  return { chapter: chapter.label, repaired: result.repaired, remaining: result.remaining };
 }

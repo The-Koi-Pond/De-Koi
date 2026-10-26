@@ -1,4 +1,5 @@
 import type { FanficOutline, FanficRequest, FanficState, FanficVoiceSheet } from "../../contracts/types/fanfic";
+import { FIRST_EXTRA_NUMBER, readFanficExtraLink } from "./extra-link";
 import {
   FANFIC_POV_LABELS,
   FANFIC_RATING_LABELS,
@@ -168,16 +169,49 @@ export function buildFanficChapterGuide(state: FanficState, chapterNumber: numbe
     .join("\n\n");
 }
 
+/**
+ * An extra chapter: a side chapter after main chapter N that the outline doesn't plan. It picks up where `follows`
+ * ends (the extra before it in the chain, or chapter N); with no notes the model picks what it is about.
+ */
+export function buildFanficExtraGuide(
+  state: FanficState,
+  chapter: { label: string; follows: string },
+  notes = "",
+  overused = "",
+): string {
+  return [
+    `Write chapter ${chapter.label} now, about ${state.request.wordsPerChapter} words.`,
+    `Chapter ${chapter.label} is an extra chapter, a side chapter the outline doesn't plan. It picks up from the end of chapter ${chapter.follows}.`,
+    notes.trim()
+      ? `Requester's notes for this chapter:\n${notes.trim()}`
+      : "The requester left it to you: choose what this extra chapter is about, consistent with the story so far.",
+    overused.trim(),
+    PLAIN_PROSE_REMINDER,
+    "Output only the chapter prose.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** The chapter a rewrite targets: a main chapter, or an extra (`extra` set) after main chapter `mainNumber`. */
+export interface FanficGuideChapter {
+  label: string;
+  mainNumber: number;
+  extra: object | null;
+}
+
 export function buildFanficRevisionGuide(
   state: FanficState,
-  chapterNumber: number,
+  chapter: FanficGuideChapter,
   notes: string,
   previousText: string,
   overused = "",
 ): string {
   return [
-    `Rewrite chapter ${chapterNumber} using the requester's notes. Keep what already works, change what the notes ask for, and keep it about ${state.request.wordsPerChapter} words.`,
-    chapterPlan(state, chapterNumber),
+    `Rewrite chapter ${chapter.label} using the requester's notes. Keep what already works, change what the notes ask for, and keep it about ${state.request.wordsPerChapter} words.`,
+    chapter.extra
+      ? `Chapter ${chapter.label} is an extra chapter after chapter ${chapter.mainNumber}, a side chapter the outline doesn't plan.`
+      : chapterPlan(state, chapter.mainNumber),
     `Requester's notes:\n${notes.trim()}`,
     overused.trim(),
     `Previous draft:\n"""\n${previousText.trim()}\n"""`,
@@ -249,19 +283,29 @@ function chapterTitle(outline: FanficOutline | null, number: number): string {
 /**
  * Turns the saved chapters into request/chapter turn pairs: each chapter (assistant message) is preceded
  * by the request that names it. Roles alternate the way providers expect, chapter boundaries stay clear,
- * and the model's own earlier chapters carry no headings for it to imitate.
+ * and the model's own earlier chapters carry no headings for it to imitate. The list is the write's history in
+ * reading order: main chapters count up, and the extras after main chapter N are N.5, N.6, ….
  */
 export function labelFanficChapterHistory(storedMessages: JsonRecord[], outline: FanficOutline | null): JsonRecord[] {
   let chapter = 0;
+  let extras = 0;
   const history: JsonRecord[] = [];
   for (const message of storedMessages) {
     if (message.role !== "assistant" || typeof message.content !== "string") {
       history.push(message);
       continue;
     }
-    chapter += 1;
-    const title = chapterTitle(outline, chapter);
-    history.push({ role: "user", content: `Write chapter ${chapter}${title ? `: ${title}` : ""}.` });
+    const extra = readFanficExtraLink(message.extra) !== null;
+    if (extra) {
+      extras += 1;
+    } else {
+      chapter += 1;
+      extras = 0;
+    }
+    // Extras are not in the outline, so they carry no title.
+    const title = extra ? "" : chapterTitle(outline, chapter);
+    const label = extra ? `${chapter}.${FIRST_EXTRA_NUMBER + extras - 1}` : String(chapter);
+    history.push({ role: "user", content: `Write chapter ${label}${title ? `: ${title}` : ""}.` });
     history.push({ ...message, content: stripFanficChapterHeading(message.content) });
   }
   return history;

@@ -135,9 +135,18 @@ export interface FanficUnfinished {
 export interface FanficVersion {
   /** Every model that wrote part of the text, in writing order. */
   models: FanficModelRecord[];
-  /** The write that made this version, and the version it rewrote. */
-  origin: { kind: FanficVersionOriginKind; notes: string; baseVersion?: number };
+  /** The write that made this version, and the version it rewrote; null when the stored origin can't be read. */
+  origin: { kind: FanficVersionOriginKind; notes: string; baseVersion?: number } | null;
   unfinished: FanficUnfinished | null;
+}
+
+/**
+ * Stored on an extra chapter's message as `extra.fanficExtra` (not per version). It names its main chapter by number,
+ * so numbers and order are derived, never stored.
+ */
+export interface FanficExtraLink {
+  parentChapter: number;
+  canon: boolean;
 }
 
 // ── Quality check ───────────────────────────────
@@ -175,6 +184,12 @@ export interface FanficContinuityIssue {
   laterChapter: number;
   laterQuote: string;
   explanation: string;
+  /**
+   * The chapters' messages, so their labels follow renumbering. Issues saved before extra chapters have none and show
+   * their stored numbers, which were main-chapter numbers.
+   */
+  earlierMessageId?: string;
+  laterMessageId?: string;
 }
 
 export interface FanficQualityMechanics {

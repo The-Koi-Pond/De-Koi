@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficLedger, FanficLedgerEntry } from "../../contracts/types/fanfic";
-import { fanficChapterRefs } from "./chapter-refs";
+import { fanficChapterLayout, fanficWriteContext } from "./chapter-refs";
 import {
   buildFanficLedgerMessages,
   fanficChapterTextKey,
@@ -123,7 +123,7 @@ function ledgerLlm(override?: (request: LlmRequest, index: number) => string | u
       const custom = override?.(request, requests.length - 1);
       if (custom !== undefined) return custom;
       const user = request.messages.at(-1)?.content ?? "";
-      const shown = [...user.matchAll(/^## Chapter (\d+)$/gm)].map((match) => Number(match[1]));
+      const shown = [...user.matchAll(/^## Chapter (\d+(?:\.\d+)?)$/gm)].map((match) => Number(match[1]));
       return reply(shown);
     }),
   } as unknown as LlmGateway;
@@ -172,7 +172,7 @@ describe("fanfic ledger parsing", () => {
 });
 
 describe("fanfic ledger freshness", () => {
-  const refs = fanficChapterRefs(messages(chapterTexts));
+  const refs = fanficChapterLayout(messages(chapterTexts)).mains;
 
   it("is fresh while every chapter keeps its message and text", () => {
     const ledger: FanficLedger = { version: 1, entries: [entryFor(1), entryFor(2), entryFor(3)] };
@@ -202,15 +202,14 @@ describe("fanfic ledger freshness", () => {
   });
 
   it("splits a backfill by chapter count and by prose budget", () => {
-    const long = Array.from({ length: 8 }, (_, index) => ({
-      number: index + 1,
-      messageId: `m${index}`,
-      content: "x".repeat(10),
-    }));
+    const long = fanficChapterLayout(
+      Array.from({ length: 8 }, (_, index) => ({ id: `m${index}`, role: "assistant", content: "x".repeat(10) })),
+    ).mains;
     expect(planFanficLedgerCalls(long, 1_000).map((call) => call.length)).toEqual([6, 2]);
     expect(planFanficLedgerCalls(long, 25).map((call) => call.length)).toEqual([2, 2, 2, 2]);
     // A chapter bigger than the budget still goes, alone.
-    expect(planFanficLedgerCalls([{ number: 1, messageId: "m", content: "x".repeat(50) }], 10)).toHaveLength(1);
+    const big = fanficChapterLayout([{ id: "m", role: "assistant", content: "x".repeat(50) }]).mains;
+    expect(planFanficLedgerCalls(big, 10)).toHaveLength(1);
   });
 });
 
@@ -219,7 +218,7 @@ describe("fanfic ledger prompt", () => {
     const [system, user] = buildFanficLedgerMessages({
       request,
       previous: entryFor(1),
-      chapters: fanficChapterRefs(messages(chapterTexts)).slice(1),
+      chapters: fanficChapterLayout(messages(chapterTexts)).mains.slice(1),
     });
     expect(system!.content).toContain("## Ledger after chapter 1");
     expect(system!.content).toContain("- Pierrot: Left hand bandaged.");
@@ -230,7 +229,7 @@ describe("fanfic ledger prompt", () => {
   });
 
   it("renders the latest fresh entry and a line per chapter for the chapter prompt", () => {
-    const refs = fanficChapterRefs(messages(chapterTexts));
+    const refs = fanficChapterLayout(messages(chapterTexts)).mains;
     const ledger: FanficLedger = { version: 1, entries: [entryFor(1), entryFor(2)] };
     const block = renderFanficLedgerForPrompt(ledger, refs);
     expect(block).toContain("## Story ledger");
@@ -374,6 +373,92 @@ describe("updateFanficLedger", () => {
     const kept = ledgerLlm();
     await updateFanficLedger({ storage: started.storage, llm: kept.llm }, { chatId: "chat-1", onlyIfInUse: true });
     expect(started.ledger().entries).toHaveLength(3);
+  });
+
+  it("keeps a side story's facts out of another write's ledger until it is marked canon", async () => {
+    const withExtra = (canon: boolean) => [
+      ...messages(chapterTexts.slice(0, 2)),
+      {
+        id: "x1",
+        role: "assistant",
+        content: "A side story at the circus.",
+        extra: { fanficExtra: { parentChapter: 1, canon } },
+      },
+    ];
+    const harness = storageWith([]);
+    let rows = withExtra(false);
+    harness.storage.listChatMessages = async <T>() => rows as T[];
+    const { llm, requests } = ledgerLlm();
+    const nextChapterLedger = () =>
+      renderFanficLedgerForPrompt(
+        harness.ledger(),
+        fanficChapterLayout(fanficWriteContext(rows, { kind: "main" })).chapters,
+      );
+
+    await updateFanficLedger({ storage: harness.storage, llm }, { chatId: "chat-1" });
+    expect(requests.at(-1)!.messages.at(-1)!.content).not.toContain("side story");
+    expect(harness.ledger().entries.map((entry) => entry.messageId)).toEqual(["m1", "m2"]);
+    expect(nextChapterLedger()).not.toContain("1.5");
+
+    rows = withExtra(true);
+    await updateFanficLedger({ storage: harness.storage, llm }, { chatId: "chat-1" });
+    expect(requests.at(-1)!.messages.at(-1)!.content).toContain("## Chapter 1.5\nA side story at the circus.");
+    expect(harness.ledger().entries.map((entry) => entry.messageId)).toEqual(["m1", "x1", "m2"]);
+    expect(nextChapterLedger()).toContain("Chapter 1.5: Chapter 1.5 happens.\nChapter 2: Chapter 2 happens.");
+  });
+
+  it("drops a side story's facts again once it is no longer canon", async () => {
+    const canonExtra = "A canon side trip at the circus.";
+    const withExtra = (parentChapter: number, canon: boolean) => [
+      ...messages(chapterTexts.slice(0, 2)),
+      { id: "x1", role: "assistant", content: canonExtra, extra: { fanficExtra: { parentChapter, canon } } },
+    ];
+    for (const parentChapter of [1, 2]) {
+      const harness = storageWith([]);
+      let rows = withExtra(parentChapter, true);
+      harness.storage.listChatMessages = async <T>() => rows as T[];
+      const { llm, requests } = ledgerLlm();
+      const label = `${parentChapter}.5`;
+      const nextChapterLedger = () =>
+        renderFanficLedgerForPrompt(
+          harness.ledger(),
+          fanficChapterLayout(fanficWriteContext(rows, { kind: "main" })).chapters,
+        );
+      await updateFanficLedger({ storage: harness.storage, llm }, { chatId: "chat-1" });
+      expect(nextChapterLedger()).toContain(`Chapter ${label}:`);
+
+      rows = withExtra(parentChapter, false);
+      expect(nextChapterLedger()).not.toContain(label);
+      const calls = requests.length;
+      await updateFanficLedger({ storage: harness.storage, llm }, { chatId: "chat-1" });
+
+      expect(harness.ledger().entries.map((entry) => entry.messageId)).toEqual(["m1", "m2"]);
+      expect(nextChapterLedger()).not.toContain(label);
+      // After chapter 1 the next chapter is read again on its own; after chapter 2 the entry is only trimmed.
+      expect(requests.length - calls).toBe(parentChapter === 1 ? 1 : 0);
+      if (parentChapter === 1) expect(requests.at(-1)!.messages.at(-1)!.content).not.toContain(canonExtra);
+    }
+  });
+
+  it("names the entry a call builds on by its chapter's label", async () => {
+    const extra = "A canon extra at the circus.";
+    const rows = [
+      ...messages(chapterTexts.slice(0, 2)),
+      { id: "x1", role: "assistant", content: extra, extra: { fanficExtra: { parentChapter: 1, canon: true } } },
+    ];
+    const harness = storageWith([], {
+      fanficLedger: {
+        version: 1,
+        entries: [entryFor(1), { ...draft(2), messageId: "x1", textKey: fanficChapterTextKey(extra) }],
+      },
+    });
+    harness.storage.listChatMessages = async <T>() => rows as T[];
+    const { llm, requests } = ledgerLlm();
+
+    await updateFanficLedger({ storage: harness.storage, llm }, { chatId: "chat-1" });
+
+    expect(requests[0]!.messages[0]!.content).toContain("## Ledger after chapter 1.5\n");
+    expect(requests[0]!.messages.at(-1)!.content).toContain("Write the ledger entry for chapter 2.");
   });
 
   it("refuses chats that aren't fanfic and fics with no connection", async () => {

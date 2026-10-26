@@ -43,16 +43,25 @@ const rentIssue = {
   fix: { find: "the rent was due on March 15", replace: "the rent was due on the first of June" },
 };
 
+/** An extra chapter after main chapter `parentChapter`, as the writer saves it. */
+function extraChapter(id: string, content: string, parentChapter: number, canon = false) {
+  return { id, content, extra: { fanficExtra: { parentChapter, canon } } };
+}
+
 function storageWith(
-  chapters: string[],
+  chapters: Array<string | { id: string; content: string; extra?: unknown }>,
   extra: { metadata?: Record<string, unknown>; connection?: Record<string, unknown> } = {},
 ) {
-  const messages = chapters.map((content, index) => ({
-    id: `m${index + 1}`,
-    role: "assistant",
-    content,
-    swipes: [content],
-  }));
+  const messages = chapters.map((chapter, index) => {
+    const { id, content, ...rest } = typeof chapter === "string" ? { id: `m${index + 1}`, content: chapter } : chapter;
+    return { id, role: "assistant", content, swipes: [content], ...rest } as {
+      id: string;
+      role: string;
+      content: string;
+      swipes: string[];
+      [key: string]: unknown;
+    };
+  });
   const records: Record<string, Record<string, unknown>> = {
     "chat-1": {
       id: "chat-1",
@@ -260,7 +269,14 @@ describe("checkFanficChapterContinuity", () => {
     expect(user).toContain("### Chapter 1\n");
     expect(user).toContain("## Chapter 3 (the chapter to check)");
     expect(requests[0]!.messages[0]!.content).not.toMatch(/<[a-z]+>/);
-    expect(check).toMatchObject({ chapter: 3, basis: "chapters", chaptersRead: [1, 2], candidates: 2, ungrounded: 0 });
+    expect(check).toMatchObject({
+      chapter: 3,
+      label: "3",
+      basis: "chapters",
+      chaptersRead: ["1", "2"],
+      candidates: 2,
+      ungrounded: 0,
+    });
     expect(check.issues.map((issue) => issue.subtype).sort()).toEqual(["date changes", "injury vanishes"]);
     expect(check.issues.every((issue) => issue.fix)).toBe(true);
     expect(phases).toEqual(["checking", "verifying"]);
@@ -329,7 +345,7 @@ describe("checkFanficChapterContinuity", () => {
     expect(user).not.toContain("### Chapter 1\n");
     expect(user).not.toContain("### Chapter 2\n");
     expect(user).toContain("### Chapter 3\n");
-    expect(check).toMatchObject({ basis: "ledger", chaptersRead: [3] });
+    expect(check).toMatchObject({ basis: "ledger", chaptersRead: ["3"] });
     expect(check.issues[0]).toMatchObject({ earlierChapter: 0 });
   });
 
@@ -340,6 +356,148 @@ describe("checkFanficChapterContinuity", () => {
       /context window is too small for checking chapter 3/,
     );
     expect(requests).toHaveLength(0);
+  });
+
+  describe("with extra chapters", () => {
+    const sideStory = "A side story where Pierrot dreams of the sea and the gulls.";
+    const reminder = "The rent was due on the first of June, Harlequin reminded him.";
+    const chapterFour = "The troupe left town at dawn with every wagon loaded.";
+    // Stored in writing order: 1.5 and 3.5 before chapter 4, and 3.6 after it.
+    const fic = (canon35 = false) => [
+      chapterOne,
+      chapterTwo,
+      "Pierrot slept through most of the third day.",
+      extraChapter("x15", sideStory, 1),
+      extraChapter("x35", reminder, 3, canon35),
+      { id: "m4", content: chapterFour, extra: {} },
+      extraChapter("x36", chapterThree, 3),
+    ];
+
+    it("checks an extra against its own write context, never later main chapters or other side stories", async () => {
+      const { storage } = storageWith(fic());
+      const { llm, requests } = judgeLlm({});
+
+      const check = await checkFanficChapterContinuity({ storage, llm }, { chatId: "chat-1", messageId: "x36" });
+
+      const user = requests[0]!.messages[1]!.content;
+      for (const label of ["1", "2", "3", "3.5"]) expect(user).toContain(`### Chapter ${label}\n`);
+      expect(user).toContain("## Chapter 3.6 (the chapter to check)");
+      expect(user).not.toContain(chapterFour);
+      expect(user).not.toContain(sideStory);
+      expect(requests[0]!.messages[0]!.content).toContain("checking chapter 3.6 of a fic");
+      expect(check).toMatchObject({ messageId: "x36", label: "3.6", chaptersRead: ["1", "2", "3", "3.5"] });
+    });
+
+    it("never shows a main chapter's check a side story, and shows it a canon extra", async () => {
+      const side = judgeLlm({});
+      await checkFanficChapterContinuity(
+        { storage: storageWith(fic()).storage, llm: side.llm },
+        { chatId: "chat-1", messageId: "m4" },
+      );
+      const user = side.requests[0]!.messages[1]!.content;
+      expect(user).not.toContain(reminder);
+      expect(user).not.toContain(sideStory);
+      expect(user).not.toContain("### Chapter 3.5");
+      expect(user).toContain("## Chapter 4 (the chapter to check)");
+
+      const canon = judgeLlm({});
+      const check = await checkFanficChapterContinuity(
+        { storage: storageWith(fic(true)).storage, llm: canon.llm },
+        { chatId: "chat-1", messageId: "m4" },
+      );
+      expect(canon.requests[0]!.messages[1]!.content).toContain(`### Chapter 3.5\n\n${reminder}`);
+      expect(check.chaptersRead).toEqual(["1", "2", "3", "3.5"]);
+    });
+
+    it("stores the message ids of both chapters on each issue and reads a label the judge names", async () => {
+      // The earlier quote is in chapter 1 and in 3.5; the judge's own choice decides which.
+      const named = judgeLlm({ timeline: [{ ...rentIssue, earlierChapter: "3.5" }] });
+      const check = await checkFanficChapterContinuity(
+        { storage: storageWith(fic()).storage, llm: named.llm },
+        { chatId: "chat-1", messageId: "x36" },
+      );
+      expect(check.issues[0]).toMatchObject({
+        earlierChapter: 3,
+        earlierMessageId: "x35",
+        laterChapter: 3,
+        laterMessageId: "x36",
+      });
+      const verify = named.requests.find((request) => request.messages[0]!.content.startsWith("You double-check"))!;
+      expect(verify.messages[0]!.content).toContain(
+        '1. Chapter 3.5: "The rent was due on the first of June" vs chapter 3.6',
+      );
+
+      const first = judgeLlm({ timeline: [rentIssue] });
+      const fromOne = await checkFanficChapterContinuity(
+        { storage: storageWith(fic()).storage, llm: first.llm },
+        { chatId: "chat-1", messageId: "x36" },
+      );
+      expect(fromOne.issues[0]).toMatchObject({ earlierChapter: 1, earlierMessageId: "m1" });
+    });
+
+    it("finds a chapter the judge names by a label it invented by its quote, and drops it when the quote is nowhere", async () => {
+      const invented = judgeLlm({
+        timeline: [
+          { ...rentIssue, earlierChapter: "3.7", earlierQuote: "the first of June, Harlequin reminded him" },
+          { ...rentIssue, subtype: "made up", earlierChapter: "3.7", earlierQuote: "a line nobody ever wrote down" },
+        ],
+      });
+      const check = await checkFanficChapterContinuity(
+        { storage: storageWith(fic()).storage, llm: invented.llm },
+        { chatId: "chat-1", messageId: "x36" },
+      );
+
+      expect(check.issues).toHaveLength(1);
+      expect(check.issues[0]).toMatchObject({ earlierChapter: 3, earlierMessageId: "x35" });
+      expect(check.ungrounded).toBe(1);
+    });
+
+    it("reads an extra's chain in full beside the ledger when the main chapters before it don't fit", async () => {
+      const long = (text: string) => `${text} ${"filler ".repeat(1400)}`;
+      const mains = [long(chapterOne), long(chapterTwo), long("Day three began.")];
+      const entry = (chapter: number): FanficLedgerEntry => ({
+        chapter,
+        messageId: `m${chapter}`,
+        textKey: fanficChapterTextKey(mains[chapter - 1]!),
+        summary: `Summary ${chapter}.`,
+        timeline: `Day ${chapter}`,
+        knowledge: [],
+        conditions: [{ subject: "Pierrot", detail: "Left hand cut and bandaged since day 1." }],
+        relationships: [],
+        openThreads: [],
+      });
+      const { storage } = storageWith(
+        [
+          ...mains,
+          extraChapter("x35", sideStory, 3),
+          extraChapter("x36", reminder, 3),
+          extraChapter("x37", chapterThree, 3),
+        ],
+        {
+          metadata: { fanficLedger: { version: 1, entries: [entry(1), entry(2), entry(3)] } },
+          connection: { maxContext: 12000 },
+        },
+      );
+      const { llm, requests } = judgeLlm({ timeline: [{ ...rentIssue, earlierChapter: "3.6" }] });
+
+      const check = await checkFanficChapterContinuity({ storage, llm }, { chatId: "chat-1", messageId: "x37" });
+
+      const user = requests[0]!.messages[1]!.content;
+      expect(user).toContain("## Story ledger through chapter 3");
+      expect(user).toContain(`### Chapter 3.5\n\n${sideStory}`);
+      expect(user).toContain(`### Chapter 3.6\n\n${reminder}`);
+      expect(check).toMatchObject({ basis: "ledger", chaptersRead: ["3.5", "3.6"] });
+      expect(check.issues[0]).toMatchObject({ earlierMessageId: "x36" });
+    });
+
+    it("applies fixes to an extra chapter", async () => {
+      const { storage, messages } = storageWith(fic());
+      const check = { messageId: "x36", textKey: fanficChapterTextKey(chapterThree), model: CHECKER };
+
+      await applyFanficContinuityFixesToChapter(storage, { chatId: "chat-1", check, fixes: [rentIssue.fix] });
+
+      expect(messages.find((message) => message.id === "x36")!.content).toContain("the first of June");
+    });
   });
 
   it("refuses chapter 1 and chats that aren't fanfic", async () => {

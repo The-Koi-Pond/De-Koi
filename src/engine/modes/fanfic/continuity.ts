@@ -14,10 +14,16 @@ import type {
 import { FANFIC_CONTINUITY_CATEGORIES } from "../../contracts/types/fanfic";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { effectiveMaxContext } from "../../generation/context-window";
-import { assertNoFanficUnfinishedChapter, fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import {
+  assertNoFanficUnfinishedChapter,
+  fanficCanonLine,
+  fanficChapterLayout,
+  fanficChaptersBefore,
+  type FanficChapterRef,
+} from "./chapter-refs";
 import {
   fanficChapterTextKey,
-  fanficLedgerStatus,
+  fanficLedgerBefore,
   readFanficLedger,
   renderFanficLedgerState,
   updateFanficLedger,
@@ -73,14 +79,17 @@ export interface FanficChapterContinuityIssue extends FanficContinuityIssue {
 }
 
 export interface FanficChapterContinuityCheck {
+  /** The main chapter's number; for an extra, the main chapter it follows. */
   chapter: number;
+  /** "3", or "3.5" for an extra. */
+  label: string;
   messageId: string;
   /** Fingerprint of the chapter text that was checked; fixes only apply to that text. */
   textKey: string;
   /** "ledger" when the oldest chapters were too long to send and the ledger stood in for them. */
   basis: "chapters" | "ledger";
-  /** Chapters read in full besides the one checked. */
-  chaptersRead: number[];
+  /** Labels of the chapters read in full besides the one checked. */
+  chaptersRead: string[];
   issues: FanficChapterContinuityIssue[];
   candidates: number;
   ungrounded: number;
@@ -96,14 +105,20 @@ export type FanficContinuityPhase = "updating_ledger" | "checking" | "verifying"
 
 interface CheckContext {
   target: FanficChapterRef;
+  /** The chapters the target builds on (its write context), or the most recent of them when the ledger stands in. */
   earlier: FanficChapterRef[];
-  /** Ledger state through the last chapter left out, when some were. */
+  /** Ledger state through the last chapter left out, when some were, and that chapter's label. */
   ledgerNote: string;
-  ledgerThrough: number;
+  ledgerThrough: string;
+}
+
+/** The chapters the judge reads in full: the earlier ones, then the one checked. */
+function readChapters(context: CheckContext): FanficChapterRef[] {
+  return [...context.earlier, context.target];
 }
 
 function renderChapters(chapters: readonly FanficChapterRef[]): string {
-  return chapters.map((chapter) => `### Chapter ${chapter.number}\n\n${chapter.content.trim()}`).join("\n\n");
+  return chapters.map((chapter) => `### Chapter ${chapter.label}\n\n${chapter.content.trim()}`).join("\n\n");
 }
 
 function storyBlock(context: CheckContext): string {
@@ -114,7 +129,7 @@ function storyBlock(context: CheckContext): string {
     );
   }
   if (context.earlier.length > 0) parts.push(`## Earlier chapters\n\n${renderChapters(context.earlier)}`);
-  parts.push(`## Chapter ${context.target.number} (the chapter to check)\n\n${context.target.content.trim()}`);
+  parts.push(`## Chapter ${context.target.label} (the chapter to check)\n\n${context.target.content.trim()}`);
   return parts.join("\n\n");
 }
 
@@ -131,11 +146,15 @@ function buildFanficChapterContinuityMessages(args: {
   context: CheckContext;
   categories?: readonly FanficContinuityCategory[];
 }): LlmMessage[] {
-  const n = args.context.target.number;
+  const n = args.context.target.label;
   const focus = args.categories?.length ? args.categories : FANFIC_CONTINUITY_CATEGORIES;
   const ledgerSource = args.context.ledgerNote
     ? " When the earlier fact is only in the story ledger, set earlierChapter to 0 and quote the ledger line."
     : "";
+  // Extra chapters are numbered 3.5, 3.6, …; a JSON number would read 3.10 as 3.1.
+  const labelled = readChapters(args.context).some((chapter) => chapter.extra);
+  const chapterType = labelled ? "string" : "number";
+  const labelNote = labelled ? ' Write earlierChapter as its heading numbers it, e.g. "3.5".' : "";
   const system = [
     `You are a continuity editor checking chapter ${n} of a fic against everything before it. Find places where chapter ${n} contradicts an earlier chapter or itself: two passages that cannot both be true in the story as written. Track the facts through the earlier chapters, then read chapter ${n} closely.`,
     fanficQualityRatingNote(args.request),
@@ -155,13 +174,13 @@ function buildFanficChapterContinuityMessages(args: {
     "- Contradictions only between earlier chapters: report only ones that involve chapter " + n + ".",
     "- Style complaints, repetition, or quality judgments.",
     "## Reply format",
-    `Reply with JSON only: {"issues": [{"category": string, "subtype": string, "earlierChapter": number, "earlierQuote": string, "laterQuote": string, "explanation": string, "fix": {"find": string, "replace": string} | null}]}`,
+    `Reply with JSON only: {"issues": [{"category": string, "subtype": string, "earlierChapter": ${chapterType}, "earlierQuote": string, "laterQuote": string, "explanation": string, "fix": {"find": string, "replace": string} | null}]}`,
     `- category is one of: ${focus.join(", ")}. subtype is a few words, e.g. \`injury vanishes\`.`,
-    `- laterQuote is from chapter ${n}. earlierQuote is from an earlier chapter, or from chapter ${n} itself when the chapter contradicts itself; earlierChapter says which.${ledgerSource}`,
+    `- laterQuote is from chapter ${n}. earlierQuote is from an earlier chapter, or from chapter ${n} itself when the chapter contradicts itself; earlierChapter says which.${labelNote}${ledgerSource}`,
     "- Each quote is copied character for character, 5 to 30 words, enough to find the passage. Never paraphrase. explanation is one sentence saying why both can't be true.",
     `- fix is the smallest edit to chapter ${n} that removes the contradiction and keeps the earlier fact: find is a phrase or sentence copied character for character from chapter ${n}, and replace is what it should say instead, in the same voice. Change only what the contradiction needs. Use null when it would take more than a couple of sentences.`,
     `- List at most ${MAX_ISSUES} issues, most serious first. If there are none, reply {"issues": []}.`,
-    `## The request\n${requestBlock(args.request, n)}`,
+    `## The request\n${requestBlock(args.request, args.context.target.mainNumber)}`,
   ].join("\n\n");
   return [
     { role: "system", content: system },
@@ -174,10 +193,12 @@ function buildFanficChapterVerifyMessages(args: {
   context: CheckContext;
   issues: FanficChapterContinuityIssue[];
 }): LlmMessage[] {
-  const n = args.context.target.number;
+  const n = args.context.target.label;
+  const read = readChapters(args.context);
   const notes = args.issues
     .map((issue, index) => {
-      const source = issue.earlierChapter === 0 ? "The story ledger" : `Chapter ${issue.earlierChapter}`;
+      const earlier = read.find((chapter) => chapter.messageId === issue.earlierMessageId);
+      const source = earlier ? `Chapter ${earlier.label}` : "The story ledger";
       return `${index + 1}. ${source}: "${issue.earlierQuote}" vs chapter ${n}: "${issue.laterQuote}". Claimed: ${issue.explanation}`;
     })
     .join("\n");
@@ -204,13 +225,20 @@ function readFix(value: unknown): FanficContinuityFix | null {
   return { find: find.slice(0, 1200), replace: replace.slice(0, 1600) };
 }
 
-/** Candidates for the checked chapter; a broken entry makes the whole reply a bad reply (retried). */
-export function parseFanficChapterContinuityReply(raw: string, chapter: number): FanficChapterContinuityIssue[] {
+/**
+ * Candidates for the checked chapter; a broken entry makes the whole reply a bad reply (retried). With `labels` (the
+ * chapters the judge read, in order), earlierChapter is the place among them of the chapter the judge named.
+ */
+export function parseFanficChapterContinuityReply(
+  raw: string,
+  chapter: number,
+  labels?: readonly string[],
+): FanficChapterContinuityIssue[] {
   const parsed = parseFanficJsonReply(raw);
   if (!parsed || !Array.isArray(parsed.issues)) throw new FanficQualityParseError("continuity", raw);
   return parsed.issues.map((item) => ({
     // earlierChapter reads as 0 when it's missing or names the ledger; grounding settles which chapter holds it.
-    ...readFanficContinuityIssue(item, raw),
+    ...readFanficContinuityIssue(item, raw, labels),
     laterChapter: chapter,
     fix: readFix(isRecord(item) ? item.fix : null),
   }));
@@ -224,7 +252,8 @@ function holds(text: string, quote: string): boolean {
 
 /**
  * Keeps candidates whose quotes are really there: the later quote in the checked chapter, the earlier one in the
- * chapter it names (or any chapter read, renumbered), or in the ledger when one stood in. Drops exact repeats.
+ * chapter it names (or any chapter read, renumbered), or in the ledger when one stood in. Drops exact repeats. Kept
+ * issues name both chapters by message id; `issues` name the earlier one by its place among the chapters read.
  */
 function groundFanficChapterIssues(
   issues: FanficChapterContinuityIssue[],
@@ -233,27 +262,27 @@ function groundFanficChapterIssues(
   const grounded: FanficChapterContinuityIssue[] = [];
   let dropped = 0;
   let repeats = 0;
-  const read = [...context.earlier, context.target];
+  const read = readChapters(context);
   for (const issue of issues) {
     if (!holds(context.target.content, issue.laterQuote)) {
       dropped += 1;
       continue;
     }
-    let earlierChapter = -1;
-    const named = read.find((chapter) => chapter.number === issue.earlierChapter);
-    if (named && holds(named.content, issue.earlierQuote)) earlierChapter = named.number;
-    else {
-      const found = read.find((chapter) => holds(chapter.content, issue.earlierQuote));
-      if (found) earlierChapter = found.number;
-      else if (context.ledgerNote && holds(context.ledgerNote, issue.earlierQuote)) earlierChapter = 0;
-    }
-    if (earlierChapter < 0 || fanficSearchableText(issue.earlierQuote) === fanficSearchableText(issue.laterQuote)) {
+    const named = read[issue.earlierChapter - 1];
+    const earlier =
+      named && holds(named.content, issue.earlierQuote)
+        ? named
+        : (read.find((chapter) => holds(chapter.content, issue.earlierQuote)) ??
+          (context.ledgerNote && holds(context.ledgerNote, issue.earlierQuote) ? "ledger" : null));
+    if (!earlier || fanficSearchableText(issue.earlierQuote) === fanficSearchableText(issue.laterQuote)) {
       dropped += 1;
       continue;
     }
-    const placed = {
+    const placed: FanficChapterContinuityIssue = {
       ...issue,
-      earlierChapter,
+      earlierChapter: earlier === "ledger" ? 0 : earlier.mainNumber,
+      ...(earlier === "ledger" ? {} : { earlierMessageId: earlier.messageId }),
+      laterMessageId: context.target.messageId,
       fix: issue.fix && locateFanficPassage(context.target.content, issue.fix.find) ? issue.fix : null,
     };
     const kept = grounded.find(
@@ -384,10 +413,11 @@ export async function applyFanficContinuityFixesToChapter(
   const messages = await storage.listChatMessages<JsonRecord>(input.chatId);
   assertNoFanficUnfinishedChapter(messages.filter(isRecord));
   const message = messages.filter(isRecord).find((entry) => readString(entry.id) === input.check.messageId);
-  const chapter = fanficChapterRefs(messages.filter(isRecord)).find(
-    (entry) => entry.messageId === input.check.messageId,
-  );
-  if (!message || !chapter) throw userFacingError("That chapter is no longer in this fic.");
+  const layout = fanficChapterLayout(messages.filter(isRecord));
+  const chapter = layout.chapters.find((entry) => entry.messageId === input.check.messageId);
+  if (!message || !chapter || layout.orphans.includes(chapter)) {
+    throw userFacingError("That chapter is no longer in this fic.");
+  }
   if (fanficChapterTextKey(chapter.content) !== input.check.textKey) {
     throw userFacingError("The chapter changed since the check. Check it again before fixing.");
   }
@@ -423,43 +453,42 @@ const VERIFY_NOTES_CHARS = MAX_ISSUES * 700;
 function checkBudget(connection: JsonRecord, request: FanficRequest, target: FanficChapterRef): FanficCallBudget {
   const frame = buildFanficChapterContinuityMessages({
     request,
-    context: { target, earlier: [], ledgerNote: "", ledgerThrough: 0 },
+    context: { target, earlier: [], ledgerNote: "", ledgerThrough: "" },
   });
   return fanficCallBudget(effectiveMaxContext(connection, {}), {
     maxReplyTokens: SWEEP_MAX_TOKENS,
     fixedChars: fanficMessageChars(frame) + STORY_FRAME_CHARS + VERIFY_NOTES_CHARS,
     defaultChars: MAX_EARLIER_CHARS,
     maxChars: MAX_EARLIER_CHARS,
-    what: `checking chapter ${target.number}`,
+    what: `checking chapter ${target.label}`,
   });
 }
 
-function ledgerNoteThrough(fresh: readonly FanficLedgerEntry[], through: number): string {
-  const summaries = fresh
-    .slice(0, through)
-    .map((item) => `Chapter ${item.chapter}: ${item.summary}`)
-    .join("\n");
-  return `${renderFanficLedgerState(fresh[through - 1]!)}\n\n${summaries}`;
+function ledgerNoteThrough(known: ReadonlyArray<{ entry: FanficLedgerEntry; label: string }>): string {
+  const summaries = known.map((item) => `Chapter ${item.label}: ${item.entry.summary}`).join("\n");
+  return `${renderFanficLedgerState(known.at(-1)!.entry)}\n\n${summaries}`;
 }
 
 function contextFor(
-  chapters: FanficChapterRef[],
   target: FanficChapterRef,
+  earlier: FanficChapterRef[],
+  canonLine: readonly FanficChapterRef[],
   ledger: FanficLedger,
   budget: number,
 ): CheckContext | "needs_ledger" | "too_small" {
-  const earlier = chapters.slice(0, target.number - 1);
   const size = (list: readonly FanficChapterRef[]) => list.reduce((sum, chapter) => sum + chapter.content.length, 0);
-  if (size(earlier) <= budget) return { target, earlier, ledgerNote: "", ledgerThrough: 0 };
-  const fresh = fanficLedgerStatus(ledger, chapters).fresh;
+  if (size(earlier) <= budget) return { target, earlier, ledgerNote: "", ledgerThrough: "" };
+  // The ledger covers only the canon line: earlier extras of a side story's own chain always go in full.
+  const { onLine, entries: known } = fanficLedgerBefore(ledger, canonLine, earlier);
+  const offLine = earlier.length - onLine;
   // As many recent chapters in full as fit beside the ledger note for the rest, fewest-ledger first.
-  for (let count = Math.min(RECENT_CHAPTERS, earlier.length - 1); count >= 0; count -= 1) {
+  for (let count = Math.max(offLine, Math.min(RECENT_CHAPTERS, earlier.length - 1)); count >= offLine; count -= 1) {
     const through = earlier.length - count;
-    if (!fresh[through - 1]) return "needs_ledger";
+    if (!known[through - 1]) return "needs_ledger";
     const recent = earlier.slice(through);
-    const ledgerNote = ledgerNoteThrough(fresh, through);
+    const ledgerNote = ledgerNoteThrough(known.slice(0, through));
     if (size(recent) + ledgerNote.length <= budget)
-      return { target, earlier: recent, ledgerNote, ledgerThrough: through };
+      return { target, earlier: recent, ledgerNote, ledgerThrough: known[through - 1]!.label };
   }
   return "too_small";
 }
@@ -500,14 +529,17 @@ export async function checkFanficChapterContinuity(
   const { connectionId, connection } = pick;
   if (!connection) throw userFacingError(pickInput.missing);
 
-  const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
-  const chapters = fanficChapterRefs(messages.filter(isRecord));
-  const target = chapters.find((chapter) => chapter.messageId === input.messageId);
-  if (!target) throw userFacingError("That chapter is no longer in this fic.");
-  if (target.number === 1) throw userFacingError("Chapter 1 has nothing before it to contradict.");
+  const messages = (await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
+  const layout = fanficChapterLayout(messages);
+  const target = layout.chapters.find((chapter) => chapter.messageId === input.messageId);
+  if (!target || layout.orphans.includes(target)) throw userFacingError("That chapter is no longer in this fic.");
+  // What the chapter builds on, as its own write reads it: a side story is never another chapter's "before".
+  const earlier = fanficChaptersBefore(messages, layout, target);
+  if (earlier.length === 0) throw userFacingError(`Chapter ${target.label} has nothing before it to contradict.`);
+  const canonLine = fanficCanonLine(layout);
 
   const budget = checkBudget(connection, state.request, target);
-  let context = contextFor(chapters, target, readFanficLedger(chat.metadata), budget.proseChars);
+  let context = contextFor(target, earlier, canonLine, readFanficLedger(chat.metadata), budget.proseChars);
   if (context === "needs_ledger") {
     onPhase?.("updating_ledger");
     // The ledger makes the same pick itself, unless this check was handed a connection.
@@ -516,12 +548,12 @@ export async function checkFanficChapterContinuity(
       { chatId: input.chatId, connectionId: pick.rule === "picked" ? connectionId : null },
       { signal },
     );
-    context = contextFor(chapters, target, ledger, budget.proseChars);
+    context = contextFor(target, earlier, canonLine, ledger, budget.proseChars);
     if (context === "needs_ledger")
       throw userFacingError("The story ledger couldn't cover the earlier chapters. Try the check again.");
   }
   if (context === "too_small") {
-    throw new FanficWindowTooSmallError(`checking chapter ${target.number} against the story ledger`);
+    throw new FanficWindowTooSmallError(`checking chapter ${target.label} against the story ledger`);
   }
   const checkContext = context;
 
@@ -536,7 +568,12 @@ export async function checkFanficChapterContinuity(
           messages: buildFanficChapterContinuityMessages({ request: state.request, context: checkContext, categories }),
           maxTokens: budget.replyTokens,
         },
-        (raw) => parseFanficChapterContinuityReply(raw, target.number),
+        (raw) =>
+          parseFanficChapterContinuityReply(
+            raw,
+            target.mainNumber,
+            readChapters(checkContext).map((chapter) => chapter.label),
+          ),
         signal,
       ),
     ),
@@ -568,11 +605,12 @@ export async function checkFanficChapterContinuity(
     merged = result.merged;
   }
   return {
-    chapter: target.number,
+    chapter: target.mainNumber,
+    label: target.label,
     messageId: target.messageId,
     textKey: fanficChapterTextKey(target.content),
     basis: checkContext.ledgerNote ? "ledger" : "chapters",
-    chaptersRead: checkContext.earlier.map((chapter) => chapter.number),
+    chaptersRead: checkContext.earlier.map((chapter) => chapter.label),
     issues: confirmed,
     candidates: candidates.length,
     ungrounded: dropped,

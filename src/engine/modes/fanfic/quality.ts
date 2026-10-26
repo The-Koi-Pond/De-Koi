@@ -32,7 +32,7 @@ import {
   loadFanficConnection,
   parseFanficJsonReply,
 } from "./llm-json";
-import { fanficChapterRefs } from "./chapters";
+import { fanficCanonLine, fanficChapterLayout } from "./chapter-refs";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { FANFIC_RATING_LABELS, readFanficState } from "./request";
@@ -257,8 +257,9 @@ export function scoreFanficMechanics(chapters: string[], names: string[]): Fanfi
 
 // ── Prompts ────────────────────────────────────
 
-function renderStory(chapters: string[]): string {
-  return chapters.map((text, index) => `### Chapter ${index + 1}\n\n${text.trim()}`).join("\n\n");
+/** `labels` names each chapter ("3", "3.5"); without them chapters are numbered by place. */
+function renderStory(chapters: string[], labels?: readonly string[]): string {
+  return chapters.map((text, index) => `### Chapter ${labels?.[index] ?? index + 1}\n\n${text.trim()}`).join("\n\n");
 }
 
 /**
@@ -277,7 +278,11 @@ export function fanficQualityRatingNote(request: FanficRequest): string {
   return `The requester asked for a ${FANFIC_RATING_LABELS[request.rating]} fic for their own reading. Judge the craft; content within that rating is not a fault.`;
 }
 
-export function buildFanficRubricMessages(args: { request: FanficRequest; chapters: string[] }): LlmMessage[] {
+export function buildFanficRubricMessages(args: {
+  request: FanficRequest;
+  chapters: string[];
+  labels?: readonly string[];
+}): LlmMessage[] {
   const negatives = FANFIC_QUALITY_CRITERIA.filter((criterion) => criterion.negative);
   const system = [
     "You are a demanding fiction editor scoring a finished piece of fan fiction. Be critical: a 20 is a masterpiece a professional editor would publish untouched, 10 is competent but forgettable, and most model-written fiction lands well below the top of the scale.",
@@ -292,7 +297,7 @@ export function buildFanficRubricMessages(args: { request: FanficRequest; chapte
   ].join("\n\n");
   return [
     { role: "system", content: system },
-    { role: "user", content: `## The fic\n\n${renderStory(args.chapters)}\n\nScore it now.` },
+    { role: "user", content: `## The fic\n\n${renderStory(args.chapters, args.labels)}\n\nScore it now.` },
   ];
 }
 
@@ -308,6 +313,7 @@ export const FANFIC_CONTINUITY_SWEEPS: readonly (readonly FanficContinuityCatego
 export function buildFanficContinuityMessages(args: {
   request: FanficRequest;
   chapters: string[];
+  labels?: readonly string[];
   categories?: readonly FanficContinuityCategory[];
 }): LlmMessage[] {
   const focus = args.categories?.length ? args.categories : FANFIC_CONTINUITY_CATEGORIES;
@@ -317,6 +323,9 @@ export function buildFanficContinuityMessages(args: {
         `- ${category} (${FANFIC_CONTINUITY_CATEGORY_LABELS[category]}): ${FANFIC_CONTINUITY_SUBTYPES[category]}`,
     )
     .join("\n");
+  // Extra chapters are labelled 3.5, 3.6, …; a JSON number would read 3.10 as 3.1.
+  const labelled = args.labels?.some((label) => label.includes(".")) ?? false;
+  const chapterType = labelled ? "string" : "number";
   const system = [
     "You are a continuity editor. Find places where this fic contradicts itself: two passages that cannot both be true in the story as written. Read every chapter closely and track the facts as you go; the middle chapters are where slips usually hide.",
     fanficQualityRatingNote(args.request),
@@ -330,7 +339,8 @@ export function buildFanficContinuityMessages(args: {
     "- Deviations from canon the request asked for (alternate universe, canon divergence).",
     "- Style complaints, repetition, or quality judgments.",
     "## Reply format",
-    'Reply with JSON only: {"issues": [{"category": string, "subtype": string, "earlierChapter": number, "earlierQuote": string, "laterChapter": number, "laterQuote": string, "explanation": string}]}',
+    `Reply with JSON only: {"issues": [{"category": string, "subtype": string, "earlierChapter": ${chapterType}, "earlierQuote": string, "laterChapter": ${chapterType}, "laterQuote": string, "explanation": string}]}`,
+    ...(labelled ? ['- Write earlierChapter and laterChapter as their headings number them, e.g. "3.5".'] : []),
     "- category is one of: " + focus.join(", ") + ". subtype is a few words, e.g. `injury vanishes`.",
     "- Each quote is copied character for character from the fic, 5 to 30 words, enough to find the passage. Never paraphrase.",
     "- Both quotes may come from the same chapter. explanation is one sentence saying why both can't be true.",
@@ -339,19 +349,25 @@ export function buildFanficContinuityMessages(args: {
   ].join("\n\n");
   return [
     { role: "system", content: system },
-    { role: "user", content: `## The fic\n\n${renderStory(args.chapters)}\n\nList the contradictions now.` },
+    {
+      role: "user",
+      content: `## The fic\n\n${renderStory(args.chapters, args.labels)}\n\nList the contradictions now.`,
+    },
   ];
 }
 
 export function buildFanficContinuityVerifyMessages(args: {
   request: FanficRequest;
   chapters: string[];
+  labels?: readonly string[];
+  /** Chapters numbered by their place in `chapters`. */
   issues: FanficContinuityIssue[];
 }): LlmMessage[] {
+  const label = (place: number) => args.labels?.[place - 1] ?? place;
   const candidates = args.issues
     .map(
       (issue, index) =>
-        `${index + 1}. Chapter ${issue.earlierChapter}: "${issue.earlierQuote}" vs chapter ${issue.laterChapter}: "${issue.laterQuote}". Claimed: ${issue.explanation}`,
+        `${index + 1}. Chapter ${label(issue.earlierChapter)}: "${issue.earlierQuote}" vs chapter ${label(issue.laterChapter)}: "${issue.laterQuote}". Claimed: ${issue.explanation}`,
     )
     .join("\n");
   const system = [
@@ -363,7 +379,7 @@ export function buildFanficContinuityVerifyMessages(args: {
   ].join("\n\n");
   return [
     { role: "system", content: system },
-    { role: "user", content: `## The fic\n\n${renderStory(args.chapters)}\n\nCheck every note now.` },
+    { role: "user", content: `## The fic\n\n${renderStory(args.chapters, args.labels)}\n\nCheck every note now.` },
   ];
 }
 
@@ -427,7 +443,15 @@ function readCategory(value: unknown): FanficContinuityCategory {
     : "detail";
 }
 
-function readChapter(value: unknown): number {
+/**
+ * With `labels`, the 1-based place of the chapter a reply names by number (3) or label ("3.5"). 0 when it names none of
+ * them, the ledger included: grounding then finds the chapter by its quote, or drops the issue.
+ */
+function readChapter(value: unknown, labels?: readonly string[]): number {
+  if (labels) {
+    const label = (typeof value === "number" ? String(value) : readString(value)).trim().replace(/^chapter\s+/i, "");
+    return labels.indexOf(label) + 1;
+  }
   const number = Math.trunc(Number(value));
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
@@ -445,21 +469,28 @@ function readQuote(value: unknown): string {
  * The continuity editor's candidates, before their quotes are checked against the text. Every entry needs both quotes
  * and an explanation; a reply with a broken entry is a bad reply (retried), never a clean result.
  */
-export function parseFanficContinuityReply(raw: string): FanficContinuityIssue[] {
+export function parseFanficContinuityReply(raw: string, labels?: readonly string[]): FanficContinuityIssue[] {
   const parsed = parseFanficJsonReply(raw);
   if (!parsed || !Array.isArray(parsed.issues)) throw new FanficQualityParseError("continuity", raw);
-  return parsed.issues.map((issue) => readFanficContinuityIssue(issue, raw));
+  return parsed.issues.map((issue) => readFanficContinuityIssue(issue, raw, labels));
 }
 
-/** One candidate from a continuity reply; a broken entry makes the whole reply a bad reply. */
-export function readFanficContinuityIssue(issue: unknown, raw: string): FanficContinuityIssue {
+/**
+ * One candidate from a continuity reply; a broken entry makes the whole reply a bad reply. With `labels` (the chapters
+ * the judge read, in order) its chapter numbers are places among them.
+ */
+export function readFanficContinuityIssue(
+  issue: unknown,
+  raw: string,
+  labels?: readonly string[],
+): FanficContinuityIssue {
   if (!isRecord(issue)) throw new FanficQualityParseError("continuity", raw);
   const entry: FanficContinuityIssue = {
     category: readCategory(issue.category),
     subtype: readString(issue.subtype).trim().slice(0, 80),
-    earlierChapter: readChapter(issue.earlierChapter),
+    earlierChapter: readChapter(issue.earlierChapter, labels),
     earlierQuote: readQuote(issue.earlierQuote),
-    laterChapter: readChapter(issue.laterChapter),
+    laterChapter: readChapter(issue.laterChapter, labels),
     laterQuote: readQuote(issue.laterQuote),
     explanation: readString(issue.explanation).trim().slice(0, 400),
   };
@@ -736,6 +767,18 @@ async function updateRuns(
   throw userFacingError("The quality runs kept changing while saving. Try again.");
 }
 
+/**
+ * The label a slip's chapter has now (`labels` by message id), so renumbered extras read right; the stored number only
+ * names the chapter of a slip saved before message ids were. Null once that chapter is deleted.
+ */
+export function fanficIssueChapterLabel(
+  labels: ReadonlyMap<string, string>,
+  messageId: string | undefined,
+  chapter: number,
+): string | null {
+  return messageId ? (labels.get(messageId) ?? null) : String(chapter);
+}
+
 /** Saved runs, oldest first. */
 export function readFanficQualityStore(metadata: unknown): FanficQualityStore {
   return { runs: readRuns(metadata) };
@@ -848,7 +891,10 @@ export async function runFanficQualityCheck(
   await noteHelperRun(deps.storage, { ...note, rule, connectionId, connection });
 
   const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
-  const chapters = fanficChapterRefs(messages.filter(isRecord)).map((chapter) => chapter.content);
+  // The story as later chapters read it: side stories are left out.
+  const line = fanficCanonLine(fanficChapterLayout(messages.filter(isRecord)));
+  const chapters = line.map((chapter) => chapter.content);
+  const labels = line.map((chapter) => chapter.label);
   if (chapters.length === 0 || chapters.every((chapter) => !chapter.trim())) {
     throw userFacingError("Write a chapter before checking quality.");
   }
@@ -860,7 +906,7 @@ export async function runFanficQualityCheck(
   const mechanics = scoreFanficMechanics(chapters, fanficRepetitionNames(state.request));
 
   onPhase?.("judging");
-  const rubricMessages = buildFanficRubricMessages({ request: state.request, chapters });
+  const rubricMessages = buildFanficRubricMessages({ request: state.request, chapters, labels });
   const rubricPromise = Promise.all(
     Array.from({ length: FANFIC_QUALITY_RUBRIC_PASSES }, () =>
       completeFanficJson(
@@ -879,10 +925,10 @@ export async function runFanficQualityCheck(
           deps.llm,
           {
             connectionId,
-            messages: buildFanficContinuityMessages({ request: state.request, chapters, categories }),
+            messages: buildFanficContinuityMessages({ request: state.request, chapters, labels, categories }),
             maxTokens: CONTINUITY_MAX_TOKENS,
           },
-          parseFanficContinuityReply,
+          (raw) => parseFanficContinuityReply(raw, labels),
           signal,
         ),
       ),
@@ -897,7 +943,7 @@ export async function runFanficQualityCheck(
       deps.llm,
       {
         connectionId,
-        messages: buildFanficContinuityVerifyMessages({ request: state.request, chapters, issues: grounded }),
+        messages: buildFanficContinuityVerifyMessages({ request: state.request, chapters, labels, issues: grounded }),
         maxTokens: VERIFY_MAX_TOKENS,
       },
       (raw) => parseFanficContinuityVerdicts(raw, grounded.length),
@@ -911,6 +957,22 @@ export async function runFanficQualityCheck(
   ]);
 
   const summary = summarizeFanficRubric(rubric.criteria);
+  // Grounded issues name chapters by their place on the line; the run stores their numbers and message ids, which
+  // name an extra (its number is its main chapter's). An issue whose place isn't on the line is dropped.
+  const issues = confirmed.flatMap((issue): FanficContinuityIssue[] => {
+    const earlier = line[issue.earlierChapter - 1];
+    const later = line[issue.laterChapter - 1];
+    if (!earlier || !later) return [];
+    return [
+      {
+        ...issue,
+        earlierChapter: earlier.mainNumber,
+        earlierMessageId: earlier.messageId,
+        laterChapter: later.mainNumber,
+        laterMessageId: later.messageId,
+      },
+    ];
+  });
   const run: FanficQualityRun = {
     id: newRunId(),
     createdAt: (options.now?.() ?? new Date()).toISOString(),
@@ -933,9 +995,9 @@ export async function runFanficQualityCheck(
       spread: rubric.spread,
     },
     continuity: {
-      issues: confirmed,
+      issues,
       candidates: candidates.length,
-      ungrounded: dropped,
+      ungrounded: dropped + confirmed.length - issues.length,
       rejected: grounded.length - confirmed.length - merged,
       // Exact repeats dropped before the second read, plus repeats it folded: candidates now add up.
       merged: merged + repeats,

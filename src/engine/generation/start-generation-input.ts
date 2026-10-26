@@ -47,6 +47,8 @@ export interface StartGenerationInput extends JsonRecord {
   keepStreamedTextOnFailure?: boolean;
   /** Append the reply to this message's displayed version instead of saving a new reply; history stops before it. */
   continueMessageId?: string;
+  /** The prompt's history: exactly these stored messages, in this order, instead of everything before the target. */
+  historyMessageIds?: string[];
   imagePromptSettings?: {
     includeAppearances?: boolean;
     format?: "descriptive" | "tags";
@@ -148,6 +150,7 @@ const startGenerationInputSchema = z
     savedExtra: z.preprocess((value) => (value == null ? undefined : value), z.record(z.unknown()).optional()),
     keepStreamedTextOnFailure: z.boolean().optional(),
     continueMessageId: z.preprocess((value) => (value == null ? undefined : value), z.string().optional()),
+    historyMessageIds: z.preprocess((value) => (value == null ? undefined : value), z.array(z.string()).optional()),
     imagePromptSettings: optionalImagePromptSettingsSchema,
     debugMode: z.boolean().optional().default(false),
     hideAutomatedSummarySourceMessages: z.boolean().optional().default(false),

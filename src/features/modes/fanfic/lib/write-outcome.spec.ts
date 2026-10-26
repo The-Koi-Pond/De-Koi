@@ -41,6 +41,15 @@ describe("trackFanficWriteFinished", () => {
     expect(result.finished).toBeNull();
   });
 
+  it("reports a finished chapter whose origin can't be read with no origin", async () => {
+    const saved: StreamEvent = {
+      type: "assistant_message",
+      data: { id: "message-1", extra: { fanficVersion: { models: [], origin: { kind: "sequel" }, unfinished: null } } },
+    };
+
+    expect((await finishedAfter(saved)).finished).toEqual({ messageId: "message-1", origin: null });
+  });
+
   it("reports a write that saved no chapter as not finished", async () => {
     expect((await finishedAfter({ type: "token", data: "Snow." })).finished).toBeNull();
   });
@@ -51,10 +60,14 @@ describe("fanficFollowUps", () => {
     expect(fanficFollowUps({ messageId: "m3", origin: "chapter" })).toEqual({ phraseBansFor: "m3", proposePlan: true });
   });
 
-  it.each(["regenerate", "revise"] as const)(
+  it.each(["regenerate", "revise", "extra"] as const)(
     "cleans banned phrases from the chapter without re-planning after a %s",
     (origin) => {
       expect(fanficFollowUps({ messageId: "m3", origin })).toEqual({ phraseBansFor: "m3", proposePlan: false });
     },
   );
+
+  it("cleans banned phrases without re-planning when the version record can't be read", () => {
+    expect(fanficFollowUps({ messageId: "m3", origin: null })).toEqual({ phraseBansFor: "m3", proposePlan: false });
+  });
 });

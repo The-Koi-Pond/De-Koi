@@ -5756,6 +5756,50 @@ mod tests {
     }
 
     #[test]
+    fn set_active_swipe_keeps_the_fanfic_extra_marker_on_every_version() {
+        let state = test_state("set-active-fanfic-extra");
+        let marker = json!({ "parentChapter": 3, "canon": true });
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "extra-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "second",
+                "activeSwipeIndex": 1,
+                "extra": {
+                    "fanficExtra": marker,
+                    "fanficVersion": { "models": [], "origin": { "kind": "regenerate", "notes": "" } }
+                },
+                "swipes": [
+                    {
+                        "content": "first",
+                        "extra": { "fanficVersion": { "models": [], "origin": { "kind": "extra", "notes": "" } } }
+                    },
+                    {
+                        "content": "second",
+                        "extra": { "fanficVersion": { "models": [], "origin": { "kind": "regenerate", "notes": "" } } }
+                    }
+                ]
+            }),
+        )
+        .expect("message should seed");
+
+        let switched = project_timeline_message(
+            set_active_swipe(&state, "chat-1", "extra-1", json!({ "index": 0 }))
+                .expect("swipe switch should succeed"),
+        );
+
+        assert_eq!(switched["content"], json!("first"));
+        assert_eq!(switched["extra"]["fanficExtra"], marker);
+        assert_eq!(
+            switched["extra"]["fanficVersion"]["origin"]["kind"],
+            json!("extra")
+        );
+        assert!(swipe_scoped_extra(Some(&json!({ "fanficExtra": marker }))).is_none());
+    }
+
+    #[test]
     fn delete_swipe_rejects_last_and_missing_swipes() {
         let state = test_state("delete-swipe-guards");
         message_swipe_storage::create_message(

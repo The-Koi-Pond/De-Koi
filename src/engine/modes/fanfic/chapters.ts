@@ -1,15 +1,19 @@
 import type { StorageGateway } from "../../capabilities/storage";
-import type { FanficState, FanficUnfinished, FanficVersion } from "../../contracts/types/fanfic";
+import type { FanficExtraLink, FanficState, FanficUnfinished, FanficVersion } from "../../contracts/types/fanfic";
 import { resolveGenerationConnection } from "../../generation/context";
 import type { GenerationEvent } from "../../generation/generation-events";
 import type { GenerationEngineDeps, StartGenerationInput } from "../../generation/start-generation";
 import { isFailureWithSavedPartial, startGeneration } from "../../generation/start-generation";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import {
-  fanficChapterRefs,
+  fanficChapterLayout,
+  fanficExtraPlace,
   fanficUnfinishedChapter,
   fanficUnfinishedReason,
+  fanficWriteContext,
+  type FanficChapterLayout,
   type FanficChapterRef,
+  type FanficWriteTarget,
 } from "./chapter-refs";
 import {
   classifyFanficInterruption,
@@ -21,14 +25,13 @@ import {
 import {
   buildFanficChapterGuide,
   buildFanficContinueGuide,
+  buildFanficExtraGuide,
   buildFanficRevisionGuide,
   stripFanficChapterHeading,
 } from "./prompts";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
 import { fanficChapterMaxTokens, fanficStage, readFanficState } from "./request";
 import { userFacingError } from "../../shared/user-facing-error";
-
-export { fanficChapterRefs, type FanficChapterRef };
 
 export function fanficChapterTitle(state: FanficState | null, chapterNumber: number): string {
   return state?.outline?.chapters.find((chapter) => chapter.number === chapterNumber)?.title ?? "";
@@ -39,13 +42,18 @@ export function fanficPlannedChapterCount(state: FanficState): number {
   return state.outline?.chapters.length ?? state.request.chapterCount;
 }
 
-/** `continue` appends to the unfinished version of `continueMessageId`; the others write a chapter or a new version. */
-export type FanficGenerationKind = "chapter" | "regenerate" | "revise" | "continue";
+/**
+ * `continue` appends to the unfinished version of `continueMessageId`; `extra` writes a new extra after main chapter
+ * `parentChapter`; the others write the next main chapter or a new version.
+ */
+export type FanficGenerationKind = "chapter" | "extra" | "regenerate" | "revise" | "continue";
 
 export interface StartFanficGenerationInput extends StartGenerationInput {
   fanficKind: FanficGenerationKind;
   /** Requester notes: steer the next chapter, or the changes a rewrite should make. */
   notes?: string | null;
+  /** A new extra: the main chapter whose chain it joins. */
+  parentChapter?: number;
   /**
    * Reset: the unfinished version of `regenerateMessageId` this write replaces (the one it shows); it is deleted once
    * the replacement is saved. The write runs the version's own kind again with the edited notes.
@@ -64,15 +72,26 @@ function assertFanficChat(chat: JsonRecord): FanficState {
   return state;
 }
 
-function targetChapter(chapters: FanficChapterRef[], messageId: string): FanficChapterRef {
-  const chapter = chapters.find((entry) => entry.messageId === messageId);
-  if (!chapter) throw userFacingError("That chapter is no longer in this fic.");
+function targetChapter(layout: FanficChapterLayout, messageId: string): FanficChapterRef {
+  const chapter = layout.chapters.find((entry) => entry.messageId === messageId);
+  if (!chapter || layout.orphans.includes(chapter)) throw userFacingError("That chapter is no longer in this fic.");
   return chapter;
 }
 
-/** What the other chapters already overuse, so the chapter being written doesn't pile on. */
-function overusedElsewhere(state: FanficState, chapters: FanficChapterRef[], skip?: FanficChapterRef): string {
-  const others = chapters.filter((chapter) => chapter !== skip).map((chapter) => chapter.content);
+/**
+ * What the chapters a write can see already overuse, so the chapter being written doesn't pile on: the canon line,
+ * plus the extras of `ownChain` for an extra. A side story never shapes another chapter.
+ */
+function overusedElsewhere(
+  state: FanficState,
+  layout: FanficChapterLayout,
+  ownChain: number | null,
+  skip?: FanficChapterRef,
+): string {
+  const others = layout.chapters
+    .filter((chapter) => chapter !== skip && !layout.orphans.includes(chapter))
+    .filter((chapter) => !chapter.extra || chapter.extra.canon || chapter.mainNumber === ownChain)
+    .map((chapter) => chapter.content);
   return buildFanficRepetitionGuide(detectFanficRepetition(others, { names: fanficRepetitionNames(state.request) }));
 }
 
@@ -80,7 +99,7 @@ function overusedElsewhere(state: FanficState, chapters: FanficChapterRef[], ski
 function resetRevisionBase(messages: readonly JsonRecord[], input: StartFanficGenerationInput): string | null {
   if (input.fanficKind !== "revise" || input.replacesVersion === undefined) return null;
   const target = messages.find((message) => message.id === readString(input.regenerateMessageId).trim());
-  const base = readFanficVersion(target?.extra)?.origin.baseVersion;
+  const base = readFanficVersion(target?.extra)?.origin?.baseVersion;
   const swipes = Array.isArray(target?.swipes) ? target.swipes : [];
   const text = base === undefined ? "" : readString(parseRecord(swipes[base]).content);
   if (!text.trim()) throw userFacingError("The version this rewrite started from can't be read. Use Redo instead.");
@@ -88,37 +107,61 @@ function resetRevisionBase(messages: readonly JsonRecord[], input: StartFanficGe
 }
 
 function fanficGuide(state: FanficState, messages: readonly JsonRecord[], input: StartFanficGenerationInput) {
-  const chapters = fanficChapterRefs(messages);
+  const layout = fanficChapterLayout(messages);
   const notes = readString(input.notes).trim();
+  const rewrites = readString(input.regenerateMessageId).trim();
   if (input.fanficKind === "continue") {
-    const chapter = targetChapter(chapters, readString(input.continueMessageId).trim());
+    const chapter = targetChapter(layout, readString(input.continueMessageId).trim());
     return {
-      guide: buildFanficContinueGuide(String(chapter.number), chapter.content),
+      guide: buildFanficContinueGuide(chapter.label, chapter.content),
       source: "fanfic_chapter" as const,
     };
   }
-  if (input.fanficKind === "chapter" && !readString(input.regenerateMessageId).trim()) {
+  if (input.fanficKind === "extra" && !rewrites) {
+    const parent = input.parentChapter ?? 0;
+    const overused = overusedElsewhere(state, layout, parent);
     return {
-      guide: buildFanficChapterGuide(state, chapters.length + 1, notes, overusedElsewhere(state, chapters)),
+      guide: buildFanficExtraGuide(state, fanficExtraPlace(layout, parent), notes, overused),
       source: "fanfic_chapter" as const,
     };
   }
-  const chapter = targetChapter(chapters, readString(input.regenerateMessageId).trim());
-  const overused = overusedElsewhere(state, chapters, chapter);
+  if (input.fanficKind === "chapter" && !rewrites) {
+    return {
+      guide: buildFanficChapterGuide(state, layout.mains.length + 1, notes, overusedElsewhere(state, layout, null)),
+      source: "fanfic_chapter" as const,
+    };
+  }
+  const chapter = targetChapter(layout, rewrites);
+  const overused = overusedElsewhere(state, layout, chapter.extra ? chapter.mainNumber : null, chapter);
   if (input.fanficKind === "revise") {
     if (!notes) throw userFacingError("Say what to change before rewriting the chapter.");
     const previous = resetRevisionBase(messages, input) ?? chapter.content;
     return {
-      guide: buildFanficRevisionGuide(state, chapter.number, notes, previous, overused),
+      guide: buildFanficRevisionGuide(state, chapter, notes, previous, overused),
       source: "fanfic_revise" as const,
     };
   }
   // A plain redo ignores notes; a Reset of a new chapter or a redo writes the chapter again with the edited notes.
   const chapterNotes = input.replacesVersion === undefined ? "" : notes;
   return {
-    guide: buildFanficChapterGuide(state, chapter.number, chapterNotes, overused),
+    guide: chapter.extra
+      ? buildFanficExtraGuide(
+          state,
+          fanficExtraPlace(layout, chapter.mainNumber, chapter.extra.index),
+          chapterNotes,
+          overused,
+        )
+      : buildFanficChapterGuide(state, chapter.mainNumber, chapterNotes, overused),
     source: "fanfic_chapter" as const,
   };
+}
+
+/** The write's place in the fic: a new version of the chapter it names, a new extra, or the next main chapter. */
+function fanficWriteTarget(input: StartFanficGenerationInput): FanficWriteTarget {
+  // A continue's history stops before the chapter it continues, as a rewrite's does.
+  const target = readString(input.continueMessageId || input.regenerateMessageId).trim();
+  if (target) return { kind: "existing", messageId: target };
+  return input.fanficKind === "extra" ? { kind: "extra", parentChapter: input.parentChapter ?? 0 } : { kind: "main" };
 }
 
 /**
@@ -131,9 +174,21 @@ export function fanficGenerationInput(
   input: StartFanficGenerationInput,
 ): StartGenerationInput {
   const { guide, source } = fanficGuide(state, messages, input);
-  const { fanficKind: _kind, notes: _notes, replacesVersion: _replaces, ...generationInput } = input;
+  const {
+    fanficKind: _kind,
+    notes: _notes,
+    replacesVersion: _replaces,
+    parentChapter: _parent,
+    ...generationInput
+  } = input;
+  const target = fanficWriteTarget(input);
+  const layout = fanficChapterLayout(messages);
+  // A fic without extras leaves its history to the shared engine, exactly as before extras existed.
+  const ordered = target.kind === "extra" || layout.chains.size > 0 || layout.orphans.length > 0;
+  const history = ordered ? fanficWriteContext(messages, target) : null;
   return {
     ...generationInput,
+    ...(history ? { historyMessageIds: history.map((message) => readString(message.id)) } : {}),
     message: undefined,
     userMessage: null,
     connectionId: readString(input.connectionId).trim() || null,
@@ -159,7 +214,7 @@ function fanficWriteVersion(
       : undefined;
   // A Reset rewrites the same version its cut-off revision started from.
   const baseVersion = revised
-    ? ((resets ? readFanficVersion(revised.extra)?.origin.baseVersion : undefined) ?? fanficVersionIndex(revised))
+    ? ((resets ? readFanficVersion(revised.extra)?.origin?.baseVersion : undefined) ?? fanficVersionIndex(revised))
     : undefined;
   const origin: FanficVersion["origin"] = baseVersion === undefined ? { kind, notes } : { kind, notes, baseVersion };
   return { models: [fanficModelRecord(connection)], origin, unfinished: null };
@@ -179,8 +234,8 @@ function fanficContinuedVersion(
 }
 
 /**
- * Writes the next chapter, or a new version of an existing one, or the rest of an unfinished version, through the
- * shared generation pipeline.
+ * Writes the next chapter, a new extra chapter, a new version of an existing one, or the rest of an unfinished
+ * version, through the shared generation pipeline.
  */
 export async function* startFanficGeneration(
   deps: GenerationEngineDeps,
@@ -199,10 +254,12 @@ export async function* startFanficGeneration(
     if (rewrites) throw new Error("A continue cannot also rewrite a chapter.");
   } else {
     if (continues) throw new Error("Only a continue can add to a chapter.");
-    if (input.fanficKind !== "chapter" && !rewrites) throw userFacingError("Pick the chapter to rewrite.");
-    if (input.fanficKind === "chapter" && rewrites && input.replacesVersion === undefined) {
+    const writesNew = input.fanficKind === "chapter" || input.fanficKind === "extra";
+    if (!writesNew && !rewrites) throw userFacingError("Pick the chapter to rewrite.");
+    if (writesNew && rewrites && input.replacesVersion === undefined) {
       throw new Error("A new chapter cannot target an existing one.");
     }
+    // A new extra's main chapter is checked where its history is read (fanficWriteContext).
   }
   const replaced = input.replacesVersion;
   if (replaced !== undefined && (input.fanficKind === "continue" || !rewrites || !Number.isInteger(replaced))) {
@@ -225,15 +282,15 @@ export async function* startFanficGeneration(
       : fanficWriteVersion(connection, messages, input, input.fanficKind)),
     unfinished: BORN_UNFINISHED,
   };
+  // A new extra is born a side story; a new version of an extra keeps its message's marker as it is.
+  const fanficExtra: FanficExtraLink | null =
+    input.fanficKind === "extra" && !rewrites ? { parentChapter: input.parentChapter!, canon: false } : null;
+  const savedExtra = fanficExtra ? { fanficVersion: version, fanficExtra } : { fanficVersion: version };
 
   yield* settleFanficWrite(
     deps.storage,
     version,
-    startGeneration(
-      deps,
-      { ...generationInput, savedExtra: { fanficVersion: version }, keepStreamedTextOnFailure: true },
-      signal,
-    ),
+    startGeneration(deps, { ...generationInput, savedExtra, keepStreamedTextOnFailure: true }, signal),
     signal,
     replaced === undefined ? null : { chatId, index: replaced },
   );

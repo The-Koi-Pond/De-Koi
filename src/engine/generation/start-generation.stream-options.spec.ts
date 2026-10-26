@@ -4,7 +4,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmChunk, LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import type { GenerationEvent } from "./generation-events";
-import { startGeneration } from "./start-generation";
+import { dryRunGeneration, startGeneration, type GenerationDryRunEvent } from "./start-generation";
 
 type StoredMessage = {
   id: string;
@@ -131,7 +131,8 @@ function replyLlm(chunks: LlmChunk[], failure?: Error, requests: LlmRequest[] = 
   };
 }
 
-async function drain(generator: AsyncGenerator<GenerationEvent>): Promise<void> {
+/** Dry-run events include every generation event. */
+async function drain(generator: AsyncGenerator<GenerationDryRunEvent>): Promise<void> {
   for await (const _event of generator) {
     // Run the generation to the end.
   }
@@ -510,6 +511,80 @@ describe("startGeneration provider stop reasons", () => {
 
     expect(requests[0]!.messages.some((message) => message.content.includes("Hello."))).toBe(true);
     expect(JSON.stringify(requests[0]!.messages)).not.toContain("stopReason");
+  });
+});
+
+describe("startGeneration historyMessageIds", () => {
+  /** A chat of two exchanges: "Hi." → "First.", "Next." → "Second.". */
+  async function twoExchanges() {
+    const setup = conversationStorage();
+    for (const [userMessage, text] of [
+      ["Hi.", "First."],
+      ["Next.", "Second."],
+    ]) {
+      await drain(startGeneration(deps(setup.storage, replyLlm(tokens(text!))), { chatId: "chat-1", userMessage }));
+    }
+    const id = (content: string) => setup.messages.find((message) => message.content === content)!.id;
+    return { ...setup, id };
+  }
+  const sent = (request: LlmRequest | undefined) =>
+    (request?.messages ?? [])
+      .map((message) => message.content)
+      .filter((content) => ["Hi.", "First.", "Next.", "Second."].includes(content));
+  const guided = { chatId: "chat-1", generationGuide: "Write the next part." };
+
+  it("sends exactly the named messages as history, in the order given, on the real and the dry-run path", async () => {
+    const { storage, id } = await twoExchanges();
+    // Ends on a reply, so the guide's turn doesn't merge into the last user message.
+    const historyMessageIds = [id("Second."), id("Hi."), id("First.")];
+    const real: LlmRequest[] = [];
+    const dry: LlmRequest[] = [];
+
+    await drain(
+      startGeneration(deps(storage, replyLlm(tokens("Third."), undefined, real)), { ...guided, historyMessageIds }),
+    );
+    await drain(
+      dryRunGeneration(deps(storage, replyLlm(tokens("Dry."), undefined, dry)), { ...guided, historyMessageIds }),
+    );
+
+    expect(sent(real[0])).toEqual(["Second.", "Hi.", "First."]);
+    expect(sent(dry[0])).toEqual(["Second.", "Hi.", "First."]);
+  });
+
+  it("uses the named history for a regenerate too, including a message stored after the target", async () => {
+    const { storage, id } = await twoExchanges();
+    const requests: LlmRequest[] = [];
+
+    await drain(
+      startGeneration(deps(storage, replyLlm(tokens("Again."), undefined, requests)), {
+        ...guided,
+        regenerateMessageId: id("First."),
+        historyMessageIds: [id("Hi."), id("Second.")],
+      }),
+    );
+
+    expect(sent(requests[0])).toEqual(["Hi.", "Second."]);
+  });
+
+  it("refuses a history naming a message that is gone, on both paths", async () => {
+    const { storage, id } = await twoExchanges();
+    const historyMessageIds = [id("Hi."), "gone"];
+
+    for (const generation of [startGeneration, dryRunGeneration]) {
+      const llm = replyLlm(tokens("Never."));
+      await expect(drain(generation(deps(storage, llm), { ...guided, historyMessageIds }))).rejects.toThrow(
+        /no longer in this chat/,
+      );
+    }
+  });
+
+  it("keeps today's history when no ids are given", async () => {
+    const { storage } = await twoExchanges();
+    const requests: LlmRequest[] = [];
+
+    await drain(startGeneration(deps(storage, replyLlm(tokens("Third."), undefined, requests)), guided));
+
+    expect(sent(requests[0])).toEqual(["Hi.", "First.", "Next.", "Second."]);
   });
 });
 

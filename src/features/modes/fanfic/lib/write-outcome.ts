@@ -6,7 +6,8 @@ import { readFanficVersion } from "../../../../engine/modes/fanfic/versions";
 /** A chapter that just became finished (written, continued, reset or kept as is) and the write that made it. */
 export interface FanficFinishedChapter {
   messageId: string;
-  origin: FanficVersionOriginKind;
+  /** Null when the version record can't be read. */
+  origin: FanficVersionOriginKind | null;
 }
 
 /**
@@ -25,7 +26,7 @@ export function trackFanficWriteFinished(events: AsyncGenerator<StreamEvent>): {
         const version = readFanficVersion(data.extra);
         finished = version?.unfinished
           ? null
-          : { messageId: readString(data.id), origin: version?.origin.kind ?? "chapter" };
+          : { messageId: readString(data.id), origin: version ? (version.origin?.kind ?? null) : "chapter" };
       }
       yield event;
     }

@@ -5,7 +5,7 @@ import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
 import type { FanficModelRecord, FanficRequest, FanficVoiceSheet } from "../../contracts/types/fanfic";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { fanficChapterRefs, type FanficChapterRef } from "./chapter-refs";
+import { fanficChapterLayout, fanficChaptersBefore, type FanficChapterRef } from "./chapter-refs";
 import { locateFanficPassage, type FanficContinuityFix } from "./continuity";
 import { fanficChapterTextKey } from "./ledger";
 import { effectiveMaxContext } from "../../generation/context-window";
@@ -59,7 +59,10 @@ export interface FanficVoiceIssue {
 }
 
 export interface FanficChapterVoiceCheck {
+  /** The main chapter's number; for an extra, the main chapter it follows. */
   chapter: number;
+  /** "3", or "3.5" for an extra. */
+  label: string;
   messageId: string;
   /** Fingerprint of the chapter text that was checked; fixes only apply to that text. */
   textKey: string;
@@ -82,9 +85,9 @@ function storyBlock(target: FanficChapterRef, previous: FanficChapterRef | null)
   const parts: string[] = [];
   if (previous) {
     const tail = previous.content.trim().slice(-PREVIOUS_TAIL_CHARS);
-    parts.push(`## End of chapter ${previous.number} (context only)\n\n…${tail}`);
+    parts.push(`## End of chapter ${previous.label} (context only)\n\n…${tail}`);
   }
-  parts.push(`## Chapter ${target.number} (the chapter to check)\n\n${target.content.trim()}`);
+  parts.push(`## Chapter ${target.label} (the chapter to check)\n\n${target.content.trim()}`);
   return parts.join("\n\n");
 }
 
@@ -92,9 +95,10 @@ export function buildFanficVoiceCheckMessages(args: {
   request: FanficRequest;
   voices: readonly FanficVoiceSheet[];
   target: FanficChapterRef;
+  /** The last chapter in the target's write context: for an extra, the extra before it or its main chapter. */
   previous: FanficChapterRef | null;
 }): LlmMessage[] {
-  const n = args.target.number;
+  const n = args.target.label;
   const names = args.voices.map((sheet) => sheet.name);
   const system = [
     `You are a fandom beta reader checking chapter ${n} of a fic for lines that are out of character: things ${names.join(", ")} would not say, or would not say this way, given their voice sheets below.`,
@@ -140,7 +144,7 @@ function buildFanficVoiceVerifyMessages(args: {
     )
     .join("\n");
   const system = [
-    `You double-check a beta reader's out-of-character notes on chapter ${args.target.number}. For each numbered note, reread the line in context and the character's voice sheet, and decide whether the line is really out of character.`,
+    `You double-check a beta reader's out-of-character notes on chapter ${args.target.label}. For each numbered note, reread the line in context and the character's voice sheet, and decide whether the line is really out of character.`,
     "A note holds only when a fan of the character would wince at the line. It does not hold when the story sets the line up (sarcasm, a lie, a joke, growth it has built toward), when the request asked for this take on them, when the line belongs to someone else, or when the note misreads it.",
     'Reply with JSON only: {"verdicts": [{"note": number, "reason": string, "outOfCharacter": boolean, "sameAs": number | null}]}, exactly one entry per note. Write reason first: one sentence on what the line is doing in the scene. Then decide.',
     "When a note repeats an earlier note's problem with the same line, set sameAs to that earlier note's number; otherwise sameAs is null.",
@@ -287,11 +291,12 @@ export async function checkFanficChapterVoice(
   const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
   if (!connection) throw userFacingError(pickInput.missing);
 
-  const messages = await deps.storage.listChatMessages<JsonRecord>(input.chatId);
-  const chapters = fanficChapterRefs(messages.filter(isRecord));
-  const target = chapters.find((chapter) => chapter.messageId === input.messageId);
-  if (!target) throw userFacingError("That chapter is no longer in this fic.");
-  const previous = chapters[target.number - 2] ?? null;
+  const messages = (await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);
+  const layout = fanficChapterLayout(messages);
+  const target = layout.chapters.find((chapter) => chapter.messageId === input.messageId);
+  if (!target || layout.orphans.includes(target)) throw userFacingError("That chapter is no longer in this fic.");
+  // The last chapter in its write context, the one it picks up from; `chapter` below stays the main chapter's number.
+  const previous = fanficChaptersBefore(messages, layout, target).at(-1) ?? null;
   const names = voices.map((sheet) => sheet.name);
   // Everything goes in whole (sheets, chapter, the end of the one before), so only the reply is sized; the
   // double-check adds its notes.
@@ -300,7 +305,7 @@ export async function checkFanficChapterVoice(
     maxReplyTokens: CHECK_MAX_TOKENS,
     fixedChars: fanficMessageChars(frame) + MAX_ISSUES * 700,
     defaultChars: 0,
-    what: `checking chapter ${target.number}'s voices`,
+    what: `checking chapter ${target.label}'s voices`,
   });
 
   onPhase?.("checking");
@@ -349,7 +354,8 @@ export async function checkFanficChapterVoice(
     });
   }
   return {
-    chapter: target.number,
+    chapter: target.mainNumber,
+    label: target.label,
     messageId: target.messageId,
     textKey: fanficChapterTextKey(target.content),
     issues: confirmed,
