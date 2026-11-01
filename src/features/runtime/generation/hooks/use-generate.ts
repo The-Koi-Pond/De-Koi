@@ -35,6 +35,7 @@ import { requestChatScrollToBottom } from "../../../../shared/lib/chat-scroll-ev
 import { reportPerformanceStageTiming } from "../../../../shared/lib/performance-diagnostics";
 import { showLocalChatNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
+import type { MusicCandidate } from "../../../../shared/api/music-api";
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import type { MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
@@ -1915,6 +1916,20 @@ export async function runGenerationWithUi(
         case "message_reaction":
           scheduleChatQueryRefresh(queryClient, chatId);
           break;
+        case "music_now_playing": {
+          const data = parseMaybeRecord(event.data);
+          const track = parseMaybeRecord(data.track);
+          if (readString(track.id).trim() && readString(track.title).trim()) {
+            dispatchMusicPlaybackEvent({
+              type: "now_playing",
+              track: track as unknown as MusicCandidate,
+              message: readString(data.message).trim() || null,
+            });
+          }
+          // The command saved the track in this chat's recent history.
+          scheduleChatQueryRefresh(queryClient, chatId);
+          break;
+        }
         case "illustration_error": {
           const data = parseMaybeRecord(event.data);
           toast.error(readString(data.error, "Illustration generation failed."));

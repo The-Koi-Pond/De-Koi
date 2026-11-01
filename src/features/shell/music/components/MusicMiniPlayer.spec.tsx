@@ -1,12 +1,16 @@
-import { act } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Chat } from "../../../../engine/contracts/types/chat";
 import { dispatchMusicPlaybackEvent, MUSIC_AI_PICK_REQUEST_EVENT } from "../../../../shared/lib/music-playback-events";
+import { useChatStore } from "../../../../shared/stores/chat.store";
 import { MusicMiniPlayer } from "./MusicMiniPlayer";
 
-const { musicApiMock, sendYouTubeIframeCommandMock } = vi.hoisted(() => ({
+const { musicApiMock, spotifyApiMock, updateChatMetadataMock, sendYouTubeIframeCommandMock } = vi.hoisted(() => ({
   musicApiMock: {
+    settings: vi.fn(),
     searchCandidates: vi.fn(),
     freshPick: vi.fn(),
     play: vi.fn(),
@@ -14,16 +18,52 @@ const { musicApiMock, sendYouTubeIframeCommandMock } = vi.hoisted(() => ({
     stop: vi.fn(),
     setVolume: vi.fn(),
   },
+  spotifyApiMock: {
+    candidates: vi.fn(),
+    freshPick: vi.fn(),
+    play: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    stop: vi.fn(),
+    setVolume: vi.fn(),
+    playbackState: vi.fn(),
+  },
+  updateChatMetadataMock: vi.fn(),
   sendYouTubeIframeCommandMock: vi.fn(),
 }));
 
 vi.mock("../../../../shared/api/music-api", () => ({
   musicApi: musicApiMock,
+  spotifyMusicApi: spotifyApiMock,
+}));
+
+vi.mock("../../../catalog/chats/index", () => ({
+  useUpdateChatMetadata: () => ({ mutate: updateChatMetadataMock }),
 }));
 
 vi.mock("../lib/youtube-iframe-player", () => ({
   sendYouTubeIframeCommand: sendYouTubeIframeCommandMock,
 }));
+
+let queryClient: QueryClient;
+
+function withQueryClient(node: ReactNode) {
+  return <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>;
+}
+
+function openChat(metadata: Record<string, unknown>) {
+  useChatStore.setState({ activeChatId: "chat-1", activeChat: { id: "chat-1", metadata } as unknown as Chat });
+}
+
+function youtubeSettings(source: "youtube" | "spotify" = "youtube") {
+  return {
+    source,
+    spotifyClientId: "",
+    spotifyPreferredDeviceId: null,
+    spotifyPreferredDeviceName: null,
+    spotifyRedirectUri: "http://127.0.0.1:8754/spotify/callback",
+  };
+}
 
 const candidate = {
   provider: "youtube" as const,
@@ -47,6 +87,8 @@ describe("MusicMiniPlayer", () => {
   const originalMatchMedia = window.matchMedia;
 
   beforeEach(() => {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    musicApiMock.settings.mockResolvedValue(youtubeSettings());
     musicApiMock.searchCandidates.mockResolvedValue({
       provider: "youtube",
       candidates: [candidate],
@@ -93,7 +135,121 @@ describe("MusicMiniPlayer", () => {
     container?.remove();
     container = null;
     Object.values(musicApiMock).forEach((mock) => mock.mockReset());
+    Object.values(spotifyApiMock).forEach((mock) => mock.mockReset());
+    updateChatMetadataMock.mockReset();
+    useChatStore.setState({ activeChatId: null, activeChat: null });
+    queryClient.clear();
     Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
+  });
+
+  it("keeps the open chat's YouTube history and avoids it on a fresh pick", async () => {
+    const other = { ...candidate, id: "youtube:zzz999yyy88", title: "Other", url: "https://youtu.be/zzz999yyy88" };
+    musicApiMock.freshPick.mockResolvedValue({ provider: "youtube", candidates: [candidate, other] });
+    openChat({ musicRecentTracks: [{ provider: "youtube", id: "abc123def45" }] });
+    dispatchMusicPlaybackEvent({ type: "cue", query: "rain at night", fresh: true });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
+    });
+    await flushAsyncWork();
+
+    expect(musicApiMock.play).toHaveBeenCalledWith({ provider: "youtube", track: other, volume: 55 });
+    expect(updateChatMetadataMock).toHaveBeenCalledWith({
+      id: "chat-1",
+      musicRecentTracks: [
+        { provider: "youtube", id: "zzz999yyy88" },
+        { provider: "youtube", id: "abc123def45" },
+      ],
+    });
+  });
+
+  it("asks Spotify for the chat's source, plays the top pick on the device and records it", async () => {
+    const track = {
+      provider: "spotify" as const,
+      id: "spotify:track:abc",
+      title: "Merry-Go-Round",
+      channelOrArtist: "Joe Hisaishi",
+      thumbnail: "https://i.scdn.co/image/cover",
+    };
+    musicApiMock.settings.mockResolvedValue(youtubeSettings("spotify"));
+    spotifyApiMock.playbackState.mockResolvedValue({
+      provider: "spotify",
+      state: "stopped",
+      track: null,
+      device: null,
+    });
+    spotifyApiMock.candidates.mockResolvedValue({ provider: "spotify", candidates: [track], providerError: null });
+    spotifyApiMock.play.mockResolvedValue({
+      provider: "spotify",
+      state: "accepted",
+      confirmed: false,
+      device: { id: "dev-1", name: "Desk", type: "Computer", isActive: true, supportsVolume: true, volumePercent: 55 },
+      track,
+      volume: 55,
+      message: "Spotify accepted the track; waiting for Desk.",
+    });
+    openChat({
+      spotifySourceType: "artist",
+      spotifyArtist: "Joe Hisaishi",
+      spotifyRecentTracks: ["spotify:track:old"],
+    });
+    dispatchMusicPlaybackEvent({ type: "cue", query: "gentle waltz" });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
+    });
+    await flushAsyncWork();
+
+    expect(spotifyApiMock.candidates).toHaveBeenCalledWith({
+      source: { type: "artist", artist: "Joe Hisaishi" },
+      query: "gentle waltz",
+      mood: null,
+      setting: null,
+      constraints: null,
+      recentIds: [{ provider: "spotify", id: "spotify:track:old" }],
+      currentTrackId: null,
+      fresh: false,
+    });
+    expect(spotifyApiMock.play).toHaveBeenCalledWith({ track, volume: 55 });
+    expect(musicApiMock.play).not.toHaveBeenCalled();
+    expect(updateChatMetadataMock).toHaveBeenCalledWith({
+      id: "chat-1",
+      musicRecentTracks: [
+        { provider: "spotify", id: "spotify:track:abc" },
+        { provider: "spotify", id: "spotify:track:old" },
+      ],
+    });
+    expect(container!.querySelector("iframe")).toBeNull();
+    expect(container!.querySelector("img")?.getAttribute("src")).toBe("https://i.scdn.co/image/cover");
+    expect(container!.textContent).toContain("Merry-Go-Round");
+    expect(container!.textContent).toContain("Spotify accepted the track; waiting for Desk.");
+  });
+
+  it("shows Spotify's message when a pick fails, without playing anything", async () => {
+    musicApiMock.settings.mockResolvedValue(youtubeSettings("spotify"));
+    spotifyApiMock.playbackState.mockResolvedValue({
+      provider: "spotify",
+      state: "stopped",
+      track: null,
+      device: null,
+    });
+    spotifyApiMock.candidates.mockRejectedValue(
+      Object.assign(new Error("Spotify isn't connected. Open Music Player settings to connect it."), {
+        details: { code: "music_spotify_not_connected" },
+      }),
+    );
+    dispatchMusicPlaybackEvent({ type: "cue", query: "battle drums" });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
+    });
+    await flushAsyncWork();
+
+    expect(spotifyApiMock.play).not.toHaveBeenCalled();
+    expect(container!.textContent).toContain("Spotify isn't connected. Open Music Player settings to connect it.");
   });
 
   it("plays the latest cue that was sent before the mini player mounted", async () => {
@@ -101,7 +257,7 @@ describe("MusicMiniPlayer", () => {
 
     await act(async () => {
       root = createRoot(container!);
-      root.render(<MusicMiniPlayer variant="toolbar" />);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
     });
     await flushAsyncWork();
 
@@ -121,7 +277,7 @@ describe("MusicMiniPlayer", () => {
 
     await act(async () => {
       root = createRoot(container!);
-      root.render(<MusicMiniPlayer variant="toolbar" />);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
     });
     await flushAsyncWork();
 
@@ -135,7 +291,7 @@ describe("MusicMiniPlayer", () => {
   it("does not search or play when Fresh Pick has no current cue", async () => {
     await act(async () => {
       root = createRoot(container!);
-      root.render(<MusicMiniPlayer variant="toolbar" />);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
     });
 
     const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
@@ -168,7 +324,7 @@ describe("MusicMiniPlayer", () => {
     try {
       await act(async () => {
         root = createRoot(container!);
-        root.render(<MusicMiniPlayer variant="toolbar" />);
+        root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
       });
 
       const volume = container!.querySelector<HTMLInputElement>('input[aria-label="Music Player volume"]');
@@ -213,7 +369,7 @@ describe("MusicMiniPlayer", () => {
     try {
       await act(async () => {
         root = createRoot(container!);
-        root.render(<MusicMiniPlayer variant="toolbar" />);
+        root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
       });
 
       const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
@@ -245,7 +401,7 @@ describe("MusicMiniPlayer", () => {
     try {
       await act(async () => {
         root = createRoot(container!);
-        root.render(<MusicMiniPlayer variant="toolbar" />);
+        root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
       });
 
       const freshPick = container!.querySelector<HTMLButtonElement>('button[aria-label="Fresh Music Player pick"]');
@@ -273,7 +429,7 @@ describe("MusicMiniPlayer", () => {
   it("clears stale context instead of falling back to old fantasy music", async () => {
     await act(async () => {
       root = createRoot(container!);
-      root.render(<MusicMiniPlayer variant="toolbar" />);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
     });
 
     await act(async () => {

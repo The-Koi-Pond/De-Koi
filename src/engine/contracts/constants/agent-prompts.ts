@@ -567,3 +567,16 @@ Schema:
 export function getDefaultAgentPrompt(agentType: string): string {
   return DEFAULT_AGENT_PROMPTS[agentType] ?? "";
 }
+
+const MUSIC_DJ_YOUTUBE_WORDING: ReadonlyArray<readonly [string, string]> = [
+  ["the YouTube-first Music Player", "the Music Player"],
+  ["free YouTube-searchable background music", "searchable background music"],
+  ["a YouTube video ID", "a track ID"],
+  ["real YouTube candidates", "real music candidates"],
+  ["a YouTube music search query", "a music search query"],
+];
+
+/** The Music Player prompt worded for music in general, for when Spotify is the source. The output format is unchanged. */
+export function musicDjPromptForSpotify(template: string): string {
+  return MUSIC_DJ_YOUTUBE_WORDING.reduce((text, [youtube, general]) => text.replaceAll(youtube, general), template);
+}

@@ -410,7 +410,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     id: "music-dj",
     name: "Music Player",
     description:
-      "Analyzes conversation and roleplay scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
+      "Analyzes conversation and roleplay scenes and plays fitting music from YouTube, or from your Spotify account when you connect it in the Music Player settings.",
     phase: "post_processing",
     enabledByDefault: false,
     category: "misc",
@@ -576,9 +576,10 @@ export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] 
   const record = metadataRecord(metadata);
   if (!chatAgentsEnabled(record) || isAgentFreeChatMode(mode)) return [];
   const chatMode = normalizeAgentChatMode(mode);
-  return canonicalAgentActiveIds(record.activeAgentIds, {
-    remapLegacySpotify: chatMode === "roleplay",
-  }).filter((id) => isBuiltInAgentAvailableInChatMode(chatMode, id));
+  // A chat that listed the retired `spotify` agent gets the Music Player in every mode.
+  return canonicalAgentActiveIds(record.activeAgentIds, { remapLegacySpotify: true }).filter((id) =>
+    isBuiltInAgentAvailableInChatMode(chatMode, id),
+  );
 }
 
 export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<string> {

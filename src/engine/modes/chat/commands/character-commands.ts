@@ -13,6 +13,7 @@
 // - <memory: target="CharName", summary="description of the memory"> (Conversation-only compatibility form)
 // - [scene: scenario="...", background="...", plan="..."] (initiate a mini-roleplay scene)
 // - [react: emoji="😂"] or [react: 😂] (Conversation: tapback on the user's latest message)
+// - [spotify: title="Song", artist="Artist"] (Conversation: play a song on repeat on the user's Spotify)
 // - <influence>text</influence> (OOC influence for connected roleplay, one-shot)
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
 // - [dm: character="CharName", message="text"] (Roleplay-only: open a direct-message conversation)
@@ -97,6 +98,13 @@ export interface ReactCommand {
   type: "react";
   /** One emoji, already validated by parseReactionEmoji. */
   emoji: string;
+}
+
+export interface SpotifyCommand {
+  type: "spotify";
+  /** Empty when the command left it out; execution reports that as a command error. */
+  title: string;
+  artist: string;
 }
 
 // ── Assistant commands (Deki-senpai) ──
@@ -305,6 +313,7 @@ export type CharacterCommand =
   | NoteCommand
   | DirectMessageCommand
   | ReactCommand
+  | SpotifyCommand
   | AssistantCommand;
 
 // Param block matcher: any char that isn't `"` or `]`, OR a complete
@@ -333,6 +342,9 @@ export function parseReactionEmoji(value: string): string | null {
   const trimmed = value.trim();
   return trimmed && SINGLE_EMOJI_RE.test(trimmed) ? trimmed : null;
 }
+// Like QUOTED_PARAM_BLOCK, but a curly double-quoted value (“…”) also keeps a `]` inside it.
+const SPOTIFY_RE =
+  /\[spotify:\s*((?:[^"\u201c\u201d\]]|"(?:\\.|[^"\\])*"|[\u201c\u201d][^\u201c\u201d]*[\u201c\u201d])*)\]/gi;
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const INFLUENCE_RE = /<influence>([\s\S]*?)<\/influence>/gi;
 const NOTE_RE = /<note>([\s\S]*?)<\/note>/gi;
@@ -926,6 +938,16 @@ export function parseCharacterCommands(
     if (emoji) commands.push({ type: "react", emoji });
   }
 
+  // Parse Spotify song commands
+  for (const match of content.matchAll(SPOTIFY_RE)) {
+    const params = match[1]!;
+    commands.push({
+      type: "spotify",
+      title: parseQuotedParam(params, "title")?.trim() ?? "",
+      artist: parseQuotedParam(params, "artist")?.trim() ?? "",
+    });
+  }
+
   // Parse assistant commands (Deki-senpai)
   for (const match of content.matchAll(CREATE_PERSONA_RE)) {
     const params = match[1]!;
@@ -1056,6 +1078,7 @@ export function parseCharacterCommands(
     .replace(BARE_MEMORY_RE, "")
     .replace(SCENE_RE, "")
     .replace(REACT_RE, "")
+    .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")
     .replace(CREATE_PERSONA_RE, "")

@@ -1082,9 +1082,14 @@
     "id": "music-dj",
     "title": "Music Player",
     "category": "Media",
-    "summary": "Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.",
+    "summary": "Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. It plays from YouTube, or from your Spotify account (Liked Songs, a playlist, an artist, or anything) once you connect it. Each character's Music Taste adds songs to their profile that you can play yourself.",
     "keywords": [
       "youtube",
+      "spotify",
+      "connect spotify",
+      "liked songs",
+      "spotify playlist",
+      "music source",
       "music",
       "dj",
       "playlist",
@@ -1100,8 +1105,14 @@
       "draggable"
     ],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats.",
-    "where": "Settings > Modules for automatic roleplay music and visible controls, and Character editor > Metadata > Music Taste for profile cues.",
+    "where": "Settings > Modules > Music Player to turn it on, pick YouTube or Spotify, and connect Spotify; Chat settings > Spotify music from for each chat's Spotify source; and Character editor > Metadata > Music Taste for profile cues.",
     "actions": [
+      {
+        "type": "open-settings",
+        "tab": "plugins",
+        "destination": "modules",
+        "label": "Open Music Player settings"
+      },
       {
         "type": "open-panel",
         "panel": "agents",

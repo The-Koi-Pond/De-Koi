@@ -71,6 +71,7 @@ import { generationContextAttribution } from "./context-attribution";
 import {
   consumePendingConnectedInfluences,
   persistConnectedCommandTags,
+  spotifyCommandAvailable,
   type ConnectedCommandResult,
 } from "./connected-commands";
 import { fitGenerationRequestToContextWindow } from "./generation-context-fit";
@@ -5184,6 +5185,7 @@ export async function* dryRunGeneration(
     visuals: deps.visuals,
     persistPromptVariables: false,
     regexScripts: await loadTurnRegexScripts(),
+    spotifyCommandAvailable: await spotifyCommandAvailable(chatForGeneration, deps.integrations),
   });
   throwIfAborted(signal);
 
@@ -5633,6 +5635,7 @@ async function* startGenerationImpl(
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
   const assemblePromptStartedAt = generationTimingStartedAt();
+  const offerSpotifyCommand = await spotifyCommandAvailable(chatForGeneration, deps.integrations);
   let assembly: Awaited<ReturnType<typeof assembleGenerationPrompt>>;
   try {
     assembly = await assembleGenerationPrompt(deps.storage, {
@@ -5647,6 +5650,7 @@ async function* startGenerationImpl(
       visuals: deps.visuals,
       persistPromptVariables: true,
       regexScripts: await loadTurnRegexScripts(),
+      spotifyCommandAvailable: offerSpotifyCommand,
     });
   } catch (error) {
     reportPerformanceTiming("generation.prompt_assembly", assemblePromptStartedAt, "error");
@@ -5733,6 +5737,7 @@ async function* startGenerationImpl(
         persistPromptVariables: true,
         reusableContext: assembly.reusableContext,
         regexScripts: await loadTurnRegexScripts(),
+        spotifyCommandAvailable: offerSpotifyCommand,
       });
       throwIfAborted(signal);
     }

@@ -135,7 +135,7 @@ const BUILT_IN_AGENT_DEFINITIONS: &[BuiltInAgentDefinition] = &[
     BuiltInAgentDefinition {
         agent_type: "music-dj",
         name: "Music Player",
-        description: "Analyzes scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
+        description: "Analyzes scenes and plays fitting music from YouTube, or from your Spotify account when you connect it in the Music Player settings.",
         phase: "post_processing",
         enabled_by_default: false,
     },

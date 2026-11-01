@@ -58,6 +58,7 @@ import { SummariesEditorModal } from "./SummariesEditorModal";
 import { AdvancedParametersSection } from "./settings/AdvancedParametersSection";
 import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
+import { ChatSpotifySourceSection } from "./settings/ChatSpotifySourceSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
 import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
@@ -169,7 +170,13 @@ import {
 import { getEffectiveStoryConsolidationEnabled } from "../../../../../engine/generation/story-projections";
 import type { StoryProjectionPayload } from "../../../../../engine/contracts/types/memory";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
+import {
+  isCustomAgentConfig,
+  useAgentConfigs,
+  useCreateAgent,
+  useUpdateAgent,
+  type AgentConfigRow,
+} from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
@@ -714,10 +721,10 @@ function ChatSettingsDrawerInner({
         builtIn: true,
       });
     }
-    // Custom agents from DB
+    // Custom agents from DB. Records of retired built-in types (such as the legacy `spotify` agent) stay hidden.
     if (agentConfigs) {
       for (const c of agentConfigs as AgentConfigRow[]) {
-        if (!BUILT_IN_AGENTS.some((b) => b.id === c.type)) {
+        if (isCustomAgentConfig(c)) {
           agents.push({
             id: c.type,
             name: c.name,
@@ -4201,6 +4208,11 @@ function ChatSettingsDrawerInner({
               </div>
             </Section>
           )}
+
+          <ChatSpotifySourceSection
+            metadata={metadata}
+            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
+          />
 
           {/* Discord Webhook */}
           <Section

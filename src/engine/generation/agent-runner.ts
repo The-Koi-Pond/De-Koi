@@ -8,7 +8,11 @@ import {
   type AgentContext,
   type AgentResult,
 } from "../contracts/types/agent";
-import { getDefaultAgentPrompt, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "../contracts/constants/agent-prompts";
+import {
+  getDefaultAgentPrompt,
+  musicDjPromptForSpotify,
+  ROLEPLAY_QUALITY_EDITOR_PROMPT,
+} from "../contracts/constants/agent-prompts";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -1172,6 +1176,8 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     const type = builtInAgentType(agent);
     const id = readString(agent.id);
     const isKnownBuiltIn = BUILT_IN_AGENT_TYPES.has(type);
+    // Legacy `spotify` agent records stay in storage but never run; their chats run the Music Player.
+    if (type === "spotify") return false;
     if (!isBuiltInAgentAvailableInChatMode(chatMode(input), type)) return false;
     const requestedExplicitly = requestedAgentTypes && (requestedAgentTypes.has(type) || requestedAgentTypes.has(id));
     if (!boolish(agent.enabled, true) && !(isKnownBuiltIn && requestedExplicitly)) {
@@ -1272,12 +1278,16 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
     }
     const parameters = llmParameters(connection, { generationProfileMode: "agent" }, input.chat);
     customTools ??= await loadCustomTools(deps.storage);
+    const promptTemplate =
+      type === "music-dj" && (await deps.integrations.music?.spotify?.isReady()) === true
+        ? musicDjPromptForSpotify(readString(agent.promptTemplate) || getDefaultAgentPrompt(type))
+        : readString(agent.promptTemplate);
     resolved.push({
       id: readString(agent.id) || readString(agent.type) || "agent",
       type,
       name,
       phase: normalizePhase(agent),
-      promptTemplate: readString(agent.promptTemplate),
+      promptTemplate,
       connectionId,
       settings,
       provider: llmProvider(deps.llm, connectionId, parameters),
