@@ -407,6 +407,70 @@ pub(crate) async fn dispatch_for_runtime_owner(
             )
             .await
         }
+        "music_resume" => {
+            music_direct(state, "POST", &["resume"], optional_value(&args, "body")).await
+        }
+        "music_playback_state" => {
+            music_direct(
+                state,
+                "POST",
+                &["playback-state"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_settings" => music_direct(state, "GET", &["settings"], Value::Null).await,
+        "music_update_settings" => {
+            music_direct(
+                state,
+                "POST",
+                &["update-settings"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_sign_in_start" => {
+            music_direct(
+                state,
+                "POST",
+                &["sign-in-start"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_sign_in_status" => {
+            music_direct(
+                state,
+                "POST",
+                &["sign-in-status"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_sign_in_finish" => {
+            music_direct(
+                state,
+                "POST",
+                &["sign-in-finish"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_disconnect" => {
+            music_direct(
+                state,
+                "POST",
+                &["disconnect"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_playlists" => {
+            music_direct(state, "POST", &["playlists"], optional_value(&args, "body")).await
+        }
+        "music_devices" => {
+            music_direct(state, "POST", &["devices"], optional_value(&args, "body")).await
+        }
         "knowledge_sources_list" => {
             knowledge::knowledge_sources_call(state, "GET", &[], Value::Null)
         }

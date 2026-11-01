@@ -1,12 +1,14 @@
 use crate::http_dispatch::{dispatch_for_runtime_owner, InvokeRequest};
 use crate::state::AppState;
 use crate::storage_commands::{
-    avatars, connection_secrets, deki, entity_images, fonts, imports, llm, lorebook_images,
-    managed_thumbnails, profile, prompts, sidecar,
+    avatars, connection_secrets, deki, entity_images, fonts, imports, integrations, llm,
+    lorebook_images, managed_thumbnails, profile, prompts, sidecar,
 };
 use axum::body::Body;
 use axum::extract::multipart::Field;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Multipart, Path, Query, State};
+use axum::extract::{
+    ConnectInfo, DefaultBodyLimit, Extension, Multipart, Path, Query, RawQuery, State,
+};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
@@ -142,11 +144,13 @@ pub fn router(state: AppState) -> Router {
     let security = SecurityConfig::from_env();
     let cors_security = security.clone();
     let controls = HttpControls::new(security.clone());
+    integrations::check_spotify_redirect_uri_config();
     Router::new()
         .route("/health", get(health))
         .route("/license", get(license_text))
         .route("/notice", get(notice_text))
         .route("/source", get(source_info))
+        .route(SPOTIFY_CALLBACK_PATH, get(spotify_callback))
         .route("/api/invoke", post(invoke))
         .route("/api/profile/export", get(profile_export_download))
         .route(
@@ -213,6 +217,36 @@ async fn health(State(state): State<HttpState>, Query(query): Query<HealthQuery>
     }
 
     Json(json!({ "ok": true, "runtime": "de-koi-server" }))
+}
+
+const SPOTIFY_CALLBACK_PATH: &str = "/spotify/callback";
+
+/// Finishes a Spotify sign-in on the hosted server. Needs no login (the browser coming back from
+/// Spotify has none), so it accepts only GET and only finishes a waiting single-use sign-in.
+async fn spotify_callback(
+    State(state): State<HttpState>,
+    method: Method,
+    RawQuery(query): RawQuery,
+) -> Response {
+    // axum also routes HEAD to GET handlers.
+    if method != Method::GET {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let (status, page) =
+        integrations::spotify_callback_page(&state.app, query.as_deref().unwrap_or_default()).await;
+    let mut response = (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+        page,
+    )
+        .into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn license_text() -> Response {
@@ -2434,7 +2468,10 @@ impl SecurityConfig {
     fn evaluate_request(&self, request: &Request<Body>) -> Result<(), SecurityRejection> {
         let path = request.uri().path();
         let method = request.method();
-        if method == Method::OPTIONS || is_public_runtime_info_path(path) {
+        if method == Method::OPTIONS
+            || is_public_runtime_info_path(path)
+            || (method == Method::GET && path == SPOTIFY_CALLBACK_PATH)
+        {
             return Ok(());
         }
 
@@ -4714,6 +4751,17 @@ mod tests {
                 "{path} should be public runtime info"
             );
         }
+    }
+
+    #[test]
+    fn spotify_callback_needs_no_login_for_get_only() {
+        let security = test_security();
+        let remote = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10));
+
+        let get = request(Method::GET, SPOTIFY_CALLBACK_PATH, remote, &[]);
+        assert!(security.evaluate_request(&get).is_ok());
+        let post = request(Method::POST, SPOTIFY_CALLBACK_PATH, remote, &[]);
+        assert!(security.evaluate_request(&post).is_err());
     }
 
     #[test]

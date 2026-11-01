@@ -100,3 +100,77 @@ pub async fn music_set_volume(state: State<'_, AppState>, body: Value) -> Result
 pub async fn music_fresh_pick(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
     music_direct(state, "POST", &["fresh-pick"], input).await
 }
+
+#[tauri::command]
+pub async fn music_resume(
+    state: State<'_, AppState>,
+    body: Option<Value>,
+) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["resume"], body.unwrap_or(Value::Null)).await
+}
+
+#[tauri::command]
+pub async fn music_playback_state(
+    state: State<'_, AppState>,
+    body: Option<Value>,
+) -> Result<Value, AppError> {
+    music_direct(
+        state,
+        "POST",
+        &["playback-state"],
+        body.unwrap_or(Value::Null),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn music_settings(state: State<'_, AppState>) -> Result<Value, AppError> {
+    music_direct(state, "GET", &["settings"], Value::Null).await
+}
+
+#[tauri::command]
+pub async fn music_update_settings(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["update-settings"], body).await
+}
+
+#[tauri::command]
+pub async fn music_sign_in_start(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["sign-in-start"], body).await
+}
+
+#[tauri::command]
+pub async fn music_sign_in_status(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["sign-in-status"], body).await
+}
+
+#[tauri::command]
+pub async fn music_sign_in_finish(
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["sign-in-finish"], body).await
+}
+
+#[tauri::command]
+pub async fn music_disconnect(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["disconnect"], body).await
+}
+
+#[tauri::command]
+pub async fn music_playlists(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["playlists"], body).await
+}
+
+#[tauri::command]
+pub async fn music_devices(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["devices"], body).await
+}

@@ -7,6 +7,17 @@ export interface MusicGateway {
   stop<T = unknown>(input?: Record<string, unknown>): Promise<T>;
   setVolume<T = unknown>(input: { volume: number }): Promise<T>;
   freshPick<T = unknown>(input: Record<string, unknown>): Promise<T>;
+  /** The Spotify source, for the `[spotify: …]` command. */
+  spotify?: SpotifyMusicGateway;
+}
+
+export interface SpotifyMusicGateway {
+  /** True when Spotify is the Music Player source and an account is connected. */
+  isReady(): Promise<boolean>;
+  /** The best catalogue match (a Spotify `MusicCandidate`). Rejects with "Spotify didn't find '<title>' by <artist>." */
+  findTrack<T = unknown>(input: { title: string; artist: string }): Promise<T>;
+  /** Plays a Spotify candidate on repeat on the user's device, using the source's device rules. */
+  playOnRepeat<T = unknown>(input: { track: unknown; volume?: number | null }): Promise<T>;
 }
 
 export interface CustomToolsGateway {
