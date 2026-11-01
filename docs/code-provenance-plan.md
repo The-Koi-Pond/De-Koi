@@ -140,11 +140,12 @@ There are two music systems that share almost nothing:
   `src-tauri/src/commands/storage/integrations/music.rs`), ranks the results
   (`src/shared/lib/music-candidate-ranking.ts`) and plays the top one in an
   embedded player.
-- **Spotify DJ** (agent type `spotify`). The app already treats it as legacy:
-  `music.rs` reports it under `legacyProviders`, roleplay maps the `spotify`
-  agent to `music-dj`, and the chat settings label it "Spotify DJ (Legacy)". It
-  is an LLM agent that calls `spotify_*` tools to control playback on the
-  user's own Spotify device.
+- **Spotify DJ** (agent type `spotify`), an LLM agent that calls `spotify_*`
+  tools to control playback on the user's own Spotify device. It was retired
+  when the Music Player replaced it (#750, 2026-07-01): it isn't in the agent
+  catalog, Conversation chats filter it out, and Roleplay chats swap it for
+  `music-dj`. The only part still reachable is the Conversation command
+  `[spotify: title="…", artist="…"]`, for accounts connected before then.
 
 Code not yet team-owned (`pnpm report:provenance --fast` plus line-range blame):
 
@@ -158,8 +159,11 @@ Code not yet team-owned (`pnpm report:provenance --fast` plus line-range blame):
 
 ### Decision: fold Spotify into the Music Player
 
+Decided 2026-11-02. Retiring Spotify completely was the other option.
+
 Don't rebuild Spotify DJ as a separate system. Make Spotify a second **provider**
-inside the Music Player design:
+inside the Music Player design. This brings Spotify back as a Music Player
+source:
 
 - One DJ agent (`music-dj`) that returns intent. No separate `spotify` agent
   type or `spotify_*` LLM tools.
@@ -177,24 +181,21 @@ This puts the team's own design at the center and means the Spotify rebuild
 is smaller than what it replaces. It removes the 500-line Spotify fallback from
 the generic agent executor and the Spotify cases from the generic tool runtime.
 
-**Open question for the YouTube player's author:** does this shape fit how the
-Music Player is meant to grow? An alternative is to retire Spotify entirely
-(delete it with a migration notice). That's less work, but users who connected
-Spotify would lose it.
+**Open question for the Music Player's author:** does this shape fit how the
+Music Player is meant to grow? The spec lists the detailed choices to review.
 
 ### Delete instead of rebuilding
 
-These have no callers or are left over from removed features. Delete them
-instead of rebuilding them (check each before deleting):
-
 - `spotify_dj_deki_playlist` / `spotify_dj_mari_playlist`: a Rust-side LLM
-  playlist builder. The only frontend reference is an unused wrapper in
-  `src/shared/api/integration-utility-api.ts`.
-- The `music_*` LLM tool schemas in `src/engine/contracts/types/agent.ts`. They
-  are declared but never implemented.
-- Game mode leftovers in the Spotify code (`game_spotify_play`, `gameSpotify*`
-  metadata), since Game mode was removed.
-- The `music-dj-playlists` storage collection, which nothing reads or writes.
+  playlist builder. Nothing in the app has ever called it; the only frontend
+  reference is an unused wrapper in `src/shared/api/integration-utility-api.ts`.
+- Game mode leftovers in the Spotify code (`gameSpotify*` metadata). These go
+  when the Spotify code is replaced.
+
+Two other unused pieces are team-owned, so they aren't part of this work. They're
+listed in the spec as questions for their author: the `music_*` LLM tools (the
+models are offered them, but calls return nothing), and the `music-dj-playlists`
+storage collection, which nothing reads or writes.
 
 ### Must stay compatible (or migrate)
 
@@ -219,10 +220,10 @@ instead of rebuilding them (check each before deleting):
 
 ### Pilot steps
 
-1. Agree on the provider shape above with the YouTube player's author.
-2. Write `docs/provenance/music.md`: the provider-neutral behavior, the Spotify
+1. Write `docs/provenance/music.md`: the provider-neutral behavior, the Spotify
    provider's behavior, and the compatibility list above.
-3. Delete the dead code listed above, in its own change.
+2. Agree on the spec with the Music Player's author.
+3. Delete the playlist builder, in its own change.
 4. Build the Spotify provider from the spec, without the old `spotify.rs` open.
 5. Move the remaining Spotify behavior out of the generic executor and tool
    runtime, review the music tests (step 4 of the process), then delete the
