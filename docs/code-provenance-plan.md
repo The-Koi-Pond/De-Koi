@@ -1,7 +1,8 @@
 # Code Provenance Plan
 
 Status: tentative. Started 2026-11-02 by Xel. Team members are welcome to help,
-but nobody is expected to.
+but nobody is expected to. Progress is tracked in
+[#1580](https://github.com/The-Koi-Pond/De-Koi/issues/1580).
 
 ## Goal
 
@@ -107,7 +108,9 @@ stays as it is.
    source files as text. Add behavior tests for the new module.
 5. **Swap.** Delete the old files in the same change as the new module lands.
    Check that existing user data still loads and works.
-6. **Log it** in the table at the end of this file.
+6. **Log it** in the tracking issue,
+   [#1580](https://github.com/The-Koi-Pond/De-Koi/issues/1580): tick the module
+   and link its spec and pull request.
 
 The specs stay in the repository. They're the record of how each replacement was
 written.
@@ -229,13 +232,8 @@ instead of rebuilding them (check each before deleting):
 
 ## Finish line
 
-- The report shows no meaningful code that isn't team-owned, and every module in
-  the log was rebuilt through the process above.
+- The report shows no meaningful code that isn't team-owned, and every module
+  ticked in the tracking issue was rebuilt through the process above.
 - Code from contributors outside the team who joined after the split is either
   rebuilt or covered by their written permission.
 - Before changing the license or `NOTICE.md`, get legal advice.
-
-## Log
-
-| Date | Module | Spec | Pull request | Not-owned lines before → after |
-| ---- | ------ | ---- | ------------ | ------------------------------ |
