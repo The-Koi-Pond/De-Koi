@@ -40,7 +40,7 @@ describe("prompt budget estimates", () => {
         message({ role: "system", content: "World facts.", contextKind: "prompt", displayName: "Lorebook" }),
         message({ role: "system", content: "Memory recall.", contextKind: "prompt", displayName: "Memory Recall" }),
         message({ role: "user", content: "Old chat.", contextKind: "history" }),
-        message({ role: "system", content: "Connected command.", contextKind: "injection", displayName: "Spotify" }),
+        message({ role: "system", content: "Connected command.", contextKind: "injection", displayName: "Command" }),
       ],
       connection: { maxContext: 4096 },
       parameters: { maxTokens: 512 },

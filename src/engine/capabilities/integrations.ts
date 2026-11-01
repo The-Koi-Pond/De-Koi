@@ -1,14 +1,3 @@
-export interface SpotifyGateway {
-  playbackAvailable(): Promise<boolean>;
-  player<T = unknown>(input: { agentId?: string | null }): Promise<T>;
-  playlists<T = unknown>(input: { agentId?: string | null; limit?: number | null }): Promise<T>;
-  playlistTracks<T = unknown>(input: Record<string, unknown>): Promise<T>;
-  searchTracks<T = unknown>(input: Record<string, unknown>): Promise<T>;
-  playTrack<T = unknown>(input: Record<string, unknown>): Promise<T>;
-  play<T = unknown>(input: Record<string, unknown>): Promise<T>;
-  volume<T = unknown>(input: Record<string, unknown>): Promise<T>;
-}
-
 export interface MusicGateway {
   isEnabled?(): Promise<boolean>;
   status<T = unknown>(input?: Record<string, unknown>): Promise<T>;
@@ -49,7 +38,6 @@ export interface LorebookCommandsGateway {
 
 export interface IntegrationGateway {
   music?: MusicGateway;
-  spotify: SpotifyGateway;
   customTools: CustomToolsGateway;
   image: ImageGenerationGateway;
   discord?: DiscordGateway;

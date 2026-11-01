@@ -2,7 +2,6 @@ import {
   BUILT_IN_AGENTS,
   BUILT_IN_AGENT_IDS,
   BUILT_IN_AGENT_RUN_INTERVAL_DEFAULTS,
-  DEFAULT_AGENT_TOOLS,
   enabledChatAgentIdSet,
   filterAgentIdsForChatMode,
   isBuiltInAgentAvailableInChatMode,
@@ -107,8 +106,8 @@ export interface GenerationAgentRuntimeInput {
   hideAutomatedSummarySourceMessages?: boolean;
   regenerateMessageId?: string | null;
   agentInjectionOverrides?: AgentInjection[];
-  spotifyDjManualRetry?: boolean;
-  spotifyDjForceFreshPick?: boolean;
+  musicDjManualRetry?: boolean;
+  musicDjForceFreshPick?: boolean;
   illustratorManualRequest?: boolean;
   illustratorGuidance?: string;
   /**
@@ -190,7 +189,7 @@ const IMAGE_REFERENCE_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
 const PROMPT_INJECTABLE_RESULT_TYPES = new Set(["context_injection", "director_event", "secret_plot"]);
 // Their results only matter live (a music cue, echo reactions, choices for the reply on screen) or
 // act outside the app (the Music Player plays tracks), so a recovered run never replays them.
-const POST_REPLY_RECOVERY_SKIPPED_AGENT_TYPES = new Set(["music-dj", "spotify", "echo-chamber", "cyoa"]);
+const POST_REPLY_RECOVERY_SKIPPED_AGENT_TYPES = new Set(["music-dj", "echo-chamber", "cyoa"]);
 type AutomaticIntervalMessageRole = "assistant" | "user";
 
 const DEFAULT_ROLEPLAY_EXPRESSIONS = [
@@ -581,13 +580,6 @@ function enabledToolNames(settings: Record<string, unknown>): string[] {
   const value = settings.enabledTools;
   if (!Array.isArray(value)) return [];
   return value.map((item) => readString(item).trim()).filter(Boolean);
-}
-
-function enabledAgentToolNames(agentType: string, settings: Record<string, unknown>): string[] {
-  const configured = enabledToolNames(settings);
-  if (configured.length > 0) return configured;
-  if (agentType === "spotify") return DEFAULT_AGENT_TOOLS.spotify ?? [];
-  return configured;
 }
 
 function stringSet(value: unknown): Set<string> {
@@ -1028,9 +1020,8 @@ function buildAgentToolContext(
   customTools: Map<string, CustomToolRecord>,
 ): AgentToolContext | undefined {
   if (!chatToolsEnabled(input)) return undefined;
-  const agentType = readString(agent.type || agent.agentType).trim();
   const scopedToolIds = chatActiveToolIds(input);
-  const selectedNames = enabledAgentToolNames(agentType, settings).filter((name) => {
+  const selectedNames = enabledToolNames(settings).filter((name) => {
     if (name === LOREBOOK_WRITE_TOOL_NAME && !boolish(settings.lorebookWriteEnabled, false)) return false;
     return AGENT_ONLY_TOOL_NAMES.has(name) || scopedToolIds.size === 0 || scopedToolIds.has(name);
   });
@@ -1303,57 +1294,15 @@ async function resolveAgents(deps: AgentDeps, input: GenerationAgentRuntimeInput
   };
 }
 
-type SpotifyDjSourceType = "liked" | "playlist" | "artist" | "any";
-
-function normalizeSpotifyDjSourceType(value: unknown): SpotifyDjSourceType {
-  return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
-}
-
-function cleanOptionalString(value: unknown): string | null {
-  const text = readString(value).trim();
-  return text || null;
-}
-
-function buildSpotifyDjConstraints(
-  chatMeta: JsonRecord,
-  options: { manualRetry?: boolean; forceFreshPick?: boolean } = {},
-): Record<string, unknown> {
-  const sourceType = normalizeSpotifyDjSourceType(chatMeta.spotifySourceType);
-  const playlistId = cleanOptionalString(chatMeta.spotifyPlaylistId);
-  const playlistName = cleanOptionalString(chatMeta.spotifyPlaylistName);
-  const artist = cleanOptionalString(chatMeta.spotifyArtist);
-  const constraints: Record<string, unknown> = {
-    mode: "roleplay",
-    sourceType,
-    playlistId: sourceType === "liked" ? "liked" : sourceType === "playlist" ? playlistId : null,
-    playlistName: sourceType === "playlist" ? playlistName : null,
-    artist: sourceType === "artist" ? artist : null,
-  };
-
+function buildMusicDjConstraints(options: {
+  manualRetry?: boolean;
+  forceFreshPick?: boolean;
+}): Record<string, unknown> | null {
+  if (!options.manualRetry && !options.forceFreshPick) return null;
+  const constraints: Record<string, unknown> = {};
   if (options.manualRetry) constraints.manualRetry = true;
   if (options.forceFreshPick) constraints.forceFreshPick = true;
-
-  if (sourceType === "liked") {
-    constraints.note =
-      "Use the user's Liked Songs first by calling spotify_get_playlist_tracks with playlistId='liked'. Search wider only when no fitting liked track exists.";
-  } else if (sourceType === "playlist") {
-    constraints.note = playlistId
-      ? "Use this configured playlist first by calling spotify_get_playlist_tracks with the provided playlistId. Search wider only if the playlist has no fitting track."
-      : "Playlist source is selected, but no playlist ID is configured. Call spotify_get_playlists to inspect available playlists, then fall back to Liked Songs if needed.";
-  } else if (sourceType === "artist") {
-    constraints.note = artist
-      ? `Search around this artist first. Prefer queries using artist:${artist}.`
-      : "Artist source is selected, but no artist is configured. Fall back to Liked Songs if needed.";
-  } else {
-    constraints.note =
-      "Spotify catalogue search is allowed. Still inspect current playback first and prefer the user's library when it fits.";
-  }
-
-  if (options.manualRetry || options.forceFreshPick) {
-    constraints.retryNote =
-      "This is a manual Music Player retry from roleplay. Pick a fresh fitting queue now and call spotify_play unless Spotify playback is unavailable.";
-  }
-
+  constraints.retryNote = "This is a manual Music Player retry. Pick a fresh fitting cue now.";
   return constraints;
 }
 
@@ -1579,12 +1528,11 @@ async function buildAgentContext(
     const illustratorGuidance = readString(input.illustratorGuidance).trim();
     if (illustratorGuidance) memory._illustratorGuidance = illustratorGuidance;
   }
-  const musicDjConstraints = buildSpotifyDjConstraints(chatMeta, {
-    manualRetry: input.spotifyDjManualRetry === true,
-    forceFreshPick: input.spotifyDjForceFreshPick === true,
+  const musicDjConstraints = buildMusicDjConstraints({
+    manualRetry: input.musicDjManualRetry === true,
+    forceFreshPick: input.musicDjForceFreshPick === true,
   });
-  memory._spotifyDjConstraints = musicDjConstraints;
-  memory._musicDjConstraints = musicDjConstraints;
+  if (musicDjConstraints) memory._musicDjConstraints = musicDjConstraints;
   if (lorebookKeeperActiveForContext(input)) {
     const existingLorebookEntries = await loadLorebookKeeperEntries(deps.storage, input);
     if (existingLorebookEntries) memory._existingLorebookEntries = existingLorebookEntries;

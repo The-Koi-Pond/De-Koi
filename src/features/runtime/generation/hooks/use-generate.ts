@@ -844,15 +844,6 @@ function formatAgentBubble(result: AgentResult, agentName: string): string | nul
           .join("\n") || null
       );
     }
-    case "spotify": {
-      const action = readString(data.action);
-      if (action === "none") return readString(data.mood, "Keeping current track");
-      if (action === "volume") return `Volume: ${data.volume ?? ""}`.trim();
-      const trackNames = Array.isArray(data.trackNames)
-        ? data.trackNames.map((track) => readString(track).trim()).filter(Boolean)
-        : [readString(data.trackName).trim()].filter(Boolean);
-      return trackNames.length ? trackNames.join("\n") : readString(data.mood).trim() || null;
-    }
     case "persona-stats": {
       const status = readString(data.status).trim();
       const stats = Array.isArray(data.stats) ? data.stats : [];

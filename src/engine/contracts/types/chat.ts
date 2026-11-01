@@ -13,7 +13,6 @@ import type { RoleplayWorldTickState } from "./roleplay-world-tick.js";
 export type ChatMode = "conversation" | "roleplay" | "fanfic";
 /** Legacy persisted/imported mode name. New inputs should migrate this to "roleplay". */
 export type LegacyChatMode = "visual_novel";
-export type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
 
 /** How a multi-character (group) chat is handled. */
 export type GroupChatMode = "merged" | "individual";
@@ -391,16 +390,6 @@ export interface ChatMetadata {
   dmTargetCharacterId?: string | null;
   /** Per-chat roleplay narration voice/style guidance. */
   narratorStyleInstructions?: string | null;
-  /** Music source constraint for Spotify DJ in roleplay and visual novel chats. */
-  spotifySourceType?: SpotifySourceType;
-  /** Spotify playlist ID used when spotifySourceType is "playlist". */
-  spotifyPlaylistId?: string | null;
-  /** Human-readable playlist name cached for prompts/display. */
-  spotifyPlaylistName?: string | null;
-  /** Spotify artist name used when spotifySourceType is "artist". */
-  spotifyArtist?: string | null;
-  /** Recently selected Spotify track URIs for roleplay/conversation Spotify DJ de-duplication. */
-  spotifyRecentTracks?: string[];
   /** Durable count of autonomous messages the user has not viewed yet. */
   autonomousUnreadCount?: number;
   /** Character IDs that contributed to the current autonomous unread state. */

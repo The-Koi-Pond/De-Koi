@@ -3106,13 +3106,6 @@ function buildConversationCommandBlock(
   ]);
   const canMemory = commandCapabilityEnabled(capabilities, ["memory", "canSaveMemory"]);
   const canStartScene = commandCapabilityEnabled(capabilities, ["scene", "canStartScene", "canStartScenes"]);
-  const spotifyPlaybackAvailable = commandCapabilityEnabled(
-    capabilities,
-    ["spotifyPlaybackAvailable", "spotifyPlayback", "spotifyAvailable"],
-    false,
-  );
-  const canSpotify =
-    spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
   const canReact = commandCapabilityEnabled(capabilities, ["react", "canReact"]);
   const instructions = [
     focused
@@ -3138,9 +3131,6 @@ function buildConversationCommandBlock(
       ? focused
         ? '- Start roleplay with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when clearly called for.'
         : '- Start a linked roleplay scene with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when the conversation clearly calls for a scene.'
-      : "",
-    canSpotify
-      ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
       : "",
     canReact
       ? focused

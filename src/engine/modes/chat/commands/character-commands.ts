@@ -12,7 +12,6 @@
 // - [memory: target="CharName", summary="description of the memory"]
 // - <memory: target="CharName", summary="description of the memory"> (Conversation-only compatibility form)
 // - [scene: scenario="...", background="...", plan="..."] (initiate a mini-roleplay scene)
-// - [spotify: title="Song title", artist="Artist"] (play a song on the user's active Spotify player)
 // - [react: emoji="😂"] or [react: 😂] (Conversation: tapback on the user's latest message)
 // - <influence>text</influence> (OOC influence for connected roleplay, one-shot)
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
@@ -98,14 +97,6 @@ export interface ReactCommand {
   type: "react";
   /** One emoji, already validated by parseReactionEmoji. */
   emoji: string;
-}
-
-interface SpotifyCommand {
-  type: "spotify";
-  /** Exact song title to play */
-  title: string;
-  /** Artist name to disambiguate the track */
-  artist: string;
 }
 
 // ── Assistant commands (Deki-senpai) ──
@@ -313,7 +304,6 @@ export type CharacterCommand =
   | InfluenceCommand
   | NoteCommand
   | DirectMessageCommand
-  | SpotifyCommand
   | ReactCommand
   | AssistantCommand;
 
@@ -333,7 +323,6 @@ const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
 const ANGLE_MEMORY_RE = /<memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)">/gi;
 const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
-const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const REACT_RE = /\[react:\s*(?:emoji="([^"\]]{1,32})"|"([^"\]]{1,32})"|([^\]\r\n"]{1,32}))\s*\]/gi;
 // One emoji: a pictograph or flag, with optional variation selector, keycap, skin tone, or ZWJ-joined pictographs.
 const SINGLE_EMOJI_RE =
@@ -931,16 +920,6 @@ export function parseCharacterCommands(
     if (text) commands.push({ type: "note", content: text });
   }
 
-  // Parse Spotify song commands
-  for (const match of content.matchAll(SPOTIFY_RE)) {
-    const params = match[1]!;
-    const title = parseQuotedParam(params, "title");
-    const artist = parseQuotedParam(params, "artist");
-    if (title && artist) {
-      commands.push({ type: "spotify", title, artist });
-    }
-  }
-
   // Parse reaction (tapback) commands
   for (const match of content.matchAll(REACT_RE)) {
     const emoji = parseReactionEmoji(match[1] ?? match[2] ?? match[3] ?? "");
@@ -1076,7 +1055,6 @@ export function parseCharacterCommands(
     .replace(MEMORY_RE, "")
     .replace(BARE_MEMORY_RE, "")
     .replace(SCENE_RE, "")
-    .replace(SPOTIFY_RE, "")
     .replace(REACT_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")

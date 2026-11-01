@@ -1437,12 +1437,6 @@ const SCENE_CARRYOVER_METADATA_KEYS = [
   "toolSelectionMode",
   "expressionAvatarsEnabled",
   "spriteSide",
-  "spotifySourceType",
-  "spotifyPlaylistId",
-  "spotifyPlaylistName",
-  "spotifyArtist",
-  "spotifyVolume",
-  "spotifyMood",
 ] as const;
 
 function sceneCarryoverSource(originMeta: JsonRecord): JsonRecord {

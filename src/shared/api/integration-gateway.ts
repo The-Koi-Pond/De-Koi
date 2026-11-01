@@ -7,7 +7,6 @@ import {
 import { coreModulesApi } from "./core-modules-api";
 import { imageGenerationApi } from "./image-generation-api";
 import { lorebookCommandApi } from "./lorebook-command-api";
-import { spotifyApi } from "./integration-utility-api";
 import { musicApi } from "./music-api";
 import { invokeTauri } from "./tauri-client";
 import { webResearchApi } from "./web-research-api";
@@ -54,20 +53,6 @@ export const integrationGateway: IntegrationGateway = {
     stop: (input) => musicApi.stop(input),
     setVolume: (input) => musicApi.setVolume(input),
     freshPick: (input) => musicApi.freshPick(input),
-  },
-  spotify: {
-    playbackAvailable: () => spotifyApi.playbackAvailable(),
-    player: (input) => spotifyApi.player(input),
-    playlists: (input) =>
-      spotifyApi.playlists({
-        agentId: input.agentId,
-        limit: input.limit ?? undefined,
-      }),
-    playlistTracks: (input) => spotifyApi.playlistTracks(input),
-    searchTracks: (input) => spotifyApi.searchTracks(input),
-    playTrack: <T = unknown>(input: Record<string, unknown>) => spotifyApi.playTrack(input) as Promise<T>,
-    play: <T = unknown>(input: Record<string, unknown>) => spotifyApi.play(input) as Promise<T>,
-    volume: <T = unknown>(input: Record<string, unknown>) => spotifyApi.volume(input) as Promise<T>,
   },
   customTools: {
     execute: <T = unknown>(input: { toolName: string; arguments: unknown }) =>

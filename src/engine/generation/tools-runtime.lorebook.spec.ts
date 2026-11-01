@@ -125,32 +125,6 @@ function storageFor(args: {
 
 function integrations(): IntegrationGateway {
   return {
-    spotify: {
-      async playbackAvailable() {
-        return false;
-      },
-      async player<T = unknown>() {
-        return asValue<T>({});
-      },
-      async playlists<T = unknown>() {
-        return asValue<T>({});
-      },
-      async playlistTracks<T = unknown>() {
-        return asValue<T>({});
-      },
-      async searchTracks<T = unknown>() {
-        return asValue<T>({});
-      },
-      async playTrack<T = unknown>() {
-        return asValue<T>({});
-      },
-      async play<T = unknown>() {
-        return asValue<T>({});
-      },
-      async volume<T = unknown>() {
-        return asValue<T>({});
-      },
-    },
     customTools: {
       async execute<T = unknown>() {
         return asValue<T>({});

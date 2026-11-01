@@ -26,7 +26,6 @@ import { joinContinuation } from "../shared/text/continuation";
 import { normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactPromptSnapshotPreview } from "../shared/prompt-snapshot-preview";
 import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-prompt";
-import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
 import {
@@ -415,35 +414,6 @@ function shouldPauseForAgentInjectionReview(
   if (!AGENT_INJECTION_REVIEW_CHAT_MODES.has(readString(chat.mode || chat.chatMode).trim())) return false;
   if (injections.length === 0) return false;
   return parseRecord(chat.metadata).reviewWriterAgentOutputs === true;
-}
-
-export async function spotifyPlaybackAvailableForConversationCommand(
-  integrations: IntegrationGateway,
-): Promise<boolean> {
-  try {
-    return await integrations.spotify.playbackAvailable();
-  } catch {
-    return false;
-  }
-}
-
-async function withRuntimeConversationCommandCapabilities(
-  chat: JsonRecord,
-  integrations: IntegrationGateway,
-): Promise<JsonRecord> {
-  if (!conversationCommandPromptEnabled(chat)) return chat;
-  const spotifyPlaybackAvailable = await spotifyPlaybackAvailableForConversationCommand(integrations);
-  const metadata = parseRecord(chat.metadata);
-  return {
-    ...chat,
-    metadata: {
-      ...metadata,
-      commandCapabilities: {
-        ...parseRecord(metadata.commandCapabilities),
-        spotifyPlaybackAvailable,
-      },
-    },
-  };
 }
 
 function reviewableAgentInjections(injections: AgentInjectionOverride[]): AgentInjectionOverride[] {
@@ -4408,8 +4378,8 @@ async function runGenerationAgentsForTarget(args: {
             },
           }
         : {}),
-      spotifyDjManualRetry: agentTypes.has("spotify") || agentTypes.has("music-dj"),
-      spotifyDjForceFreshPick: agentTypes.has("spotify") || agentTypes.has("music-dj"),
+      musicDjManualRetry: agentTypes.has("music-dj"),
+      musicDjForceFreshPick: agentTypes.has("music-dj"),
       illustratorManualRequest: input.options?.illustratorManualRequest === true,
       illustratorGuidance: readString(input.options?.illustratorGuidance).trim() || undefined,
     },
@@ -5198,12 +5168,8 @@ export async function* dryRunGeneration(
     preparedUserInput,
     storedMessages,
   );
-  let chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
+  const chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
   const directMessages = requestMessages(input);
-  if (!directMessages) {
-    chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
-    throwIfAborted(signal);
-  }
 
   yield { type: "phase", data: "Assembling dry-run prompt..." };
   const assembly = await assembleGenerationPrompt(deps.storage, {
@@ -5581,7 +5547,7 @@ async function* startGenerationImpl(
     preparedUserInput,
     storedMessages,
   );
-  let chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
+  const chatForGeneration = generationTrackerBaseline ? { ...chat, gameState: generationTrackerBaseline } : chat;
   const resolvedGroupTarget = await resolveGroupTargetForGeneration({
     deps,
     input,
@@ -5669,10 +5635,6 @@ async function* startGenerationImpl(
   const assemblePromptStartedAt = generationTimingStartedAt();
   let assembly: Awaited<ReturnType<typeof assembleGenerationPrompt>>;
   try {
-    if (!directMessages) {
-      chatForGeneration = await withRuntimeConversationCommandCapabilities(chatForGeneration, deps.integrations);
-      throwIfAborted(signal);
-    }
     assembly = await assembleGenerationPrompt(deps.storage, {
       chat: chatForGeneration,
       storedMessages: generationMessages,
@@ -6639,7 +6601,7 @@ function rerollSeedParameters(
 /**
  * Cap on the number of stream → tool-execute → re-stream iterations the main
  * generation loop will perform before forcing a final turn. Picked defensively
- * to cover realistic multi-step flows (e.g. Spotify-style 4-hop sequences,
+ * to cover realistic multi-step flows (e.g. multi-hop lookup sequences,
  * combat-style dice + state-update interleaves) while preventing runaway loops
  * from broken models that always emit a tool call.
  */

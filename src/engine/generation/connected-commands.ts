@@ -1456,26 +1456,6 @@ async function executeCommand(
       }
       return { name: "memory" };
     }
-    case "spotify":
-      if (integrations) {
-        const search = await integrations.spotify.searchTracks<{ tracks?: Array<{ uri?: string }> }>({
-          query: `${command.title} ${command.artist}`,
-          limit: 1,
-        });
-        const track = search.tracks?.find((item) => item.uri);
-        if (!track) {
-          eventsPushCommandError(
-            events,
-            command.type,
-            `Spotify did not find a playable track for "${command.title}" by "${command.artist}".`,
-          );
-          return null;
-        }
-        await integrations.spotify.playTrack({ track });
-        return { name: "spotify" };
-      }
-      eventsPushCommandError(events, command.type, "Spotify integration is not connected.");
-      return null;
     case "create_persona":
       await storage.create("personas", personaPatch(command));
       return { name: "create_persona" };

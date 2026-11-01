@@ -26,13 +26,6 @@ describe("integrationGateway Discord mirror", () => {
     invokeTauri.mockReset();
   });
 
-  it("resolves Spotify playback availability through the focused local capability", async () => {
-    invokeTauri.mockResolvedValue({ available: true });
-
-    await expect(integrationGateway.spotify.playbackAvailable()).resolves.toBe(true);
-    expect(invokeTauri).toHaveBeenCalledWith("spotify_playback_available");
-  });
-
   it("does not send Discord webhooks while the Discord Mirror module is disabled", async () => {
     coreModulesGet.mockResolvedValue({ enabled: {} });
 

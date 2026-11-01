@@ -256,14 +256,6 @@ fn default_enabled_tools(agent_type: &str) -> &'static [&'static str] {
             "music_set_volume",
             "music_feedback",
         ],
-        "spotify" => &[
-            "spotify_get_current_playback",
-            "spotify_get_playlists",
-            "spotify_get_playlist_tracks",
-            "spotify_search",
-            "spotify_play",
-            "spotify_set_volume",
-        ],
         _ => &[],
     }
 }
