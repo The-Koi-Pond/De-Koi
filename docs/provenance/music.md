@@ -1,6 +1,6 @@
 # Music: Behavior Spec
 
-Status: draft for review. Spec written 2026-11-02 by Xel. Part of the code
+Status: decided. Spec written 2026-11-02 by Xel. Part of the code
 provenance plan (`docs/code-provenance-plan.md`, tracked in #1580).
 
 This spec describes what the music features must do once Spotify becomes a
@@ -290,29 +290,31 @@ the Music Player's commands with a `provider` value, following the
 - Unused Spotify operations: next/previous track, shuffle, raw access token,
   and listing devices outside the preferred-device setting.
 
-## Questions for the Music Player's author
+## Decisions
 
-1. **Fold shape.** Does Spotify as a source inside the Music Player, chosen in
-   module settings, fit where the player is going?
-2. **Persisted recent history.** Moving YouTube's in-memory "last 8" into
-   per-chat `musicRecentTracks` (24 entries) changes YouTube behavior slightly:
-   picks also avoid songs from earlier sessions. OK?
-3. **Instrumental preference.** The shared ranker prefers instrumental and
-   background tracks and penalizes vocals. With Liked Songs, most candidates
-   will have vocals. Keep the preference for Spotify, or turn it off when
-   the source is Liked Songs or a playlist the user chose?
+Decided 2026-11-02 without waiting for review. Any of these can be revisited
+later.
+
+1. **Fold shape.** Spotify is a source inside the Music Player, chosen in module
+   settings.
+2. **Persisted recent history.** Yes: YouTube's in-memory "last 8" moves into
+   per-chat `musicRecentTracks` (24 entries), so picks also avoid songs from
+   earlier sessions.
+3. **Instrumental preference.** The shared ranker stays as it is for every
+   source. Spotify titles rarely contain the words it penalizes, so its effect
+   on Liked Songs and playlists is small. Revisit if picks feel off.
 4. **`music_*` LLM tools** (`music_get_current_playback`,
    `music_resolve_candidates`, `music_play`, `music_set_volume`,
    `music_feedback`). They're offered to `music-dj` and, when chat tools are on,
    to the main reply model, but nothing executes them, so calls return nothing.
-   Build them, or remove them? This spec doesn't need them either way.
+   Remove them in a separate small change. This spec doesn't need them.
 5. **`music-dj-playlists` collection.** It's registered but nothing reads or
-   writes it. Keep it for a planned feature, or remove it?
+   writes it. Leave it for now; it's harmless.
 
 ## Acceptance checks
 
 - With YouTube as the source, everything behaves as before, apart from the
-  persisted history (question 2).
+  persisted history (decision 2).
 - A user who connected Spotify before this change opens the app after updating
   and finds Spotify selected and connected, without reconnecting.
 - Connecting works through the local listener, the server route and paste-back.
