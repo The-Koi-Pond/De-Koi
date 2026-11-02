@@ -181,11 +181,16 @@ fn migrate(state: &AppState) -> AppResult<()> {
         patch.insert("source".into(), json!(SOURCE_SPOTIFY));
         enable_music_player_module(state)?;
     }
+    // Saved before the legacy tokens go: once they are gone, a re-run can't tell that they moved.
+    if !patch.is_empty() {
+        music_settings::write_patch(state, patch)?;
+    }
     if account_record(state)?.is_some() {
         remove_legacy_tokens(state)?;
     }
-    patch.insert(MIGRATED_FIELD.into(), json!(true));
-    music_settings::write_patch(state, patch)
+    let mut done = Map::new();
+    done.insert(MIGRATED_FIELD.into(), json!(true));
+    music_settings::write_patch(state, done)
 }
 
 fn is_legacy_record(record: &Value) -> bool {

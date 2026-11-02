@@ -26,6 +26,17 @@ pub(crate) fn check_redirect_uri_config() {
     let _ = auth::redirect_uri();
 }
 
+/// Moves a legacy Spotify sign-in at startup, before the frontend reads its module switches. A
+/// failure is logged and doesn't stop startup; the first music call tries again.
+pub(crate) fn migrate_legacy_sign_in(state: &AppState) {
+    if let Err(error) = migration::ensure(state) {
+        log::warn!(
+            "[music] couldn't move the legacy Spotify sign-in at startup: {}",
+            error.message
+        );
+    }
+}
+
 /// The page for `GET /spotify/callback` on the hosted server.
 pub(crate) async fn callback_page(state: &AppState, query: &str) -> (u16, String) {
     auth::callback_page(state, query).await

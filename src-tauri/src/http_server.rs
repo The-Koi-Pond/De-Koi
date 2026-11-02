@@ -131,6 +131,8 @@ impl HealthQuery {
 }
 
 pub async fn serve(state: AppState, addr: SocketAddr) -> Result<(), std::io::Error> {
+    // Before any client loads, so a moved Spotify sign-in finds the Music Player switched on.
+    integrations::migrate_legacy_spotify_sign_in(&state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(
         listener,

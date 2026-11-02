@@ -48,6 +48,10 @@ pub(crate) fn check_spotify_redirect_uri_config() {
     music_spotify::check_redirect_uri_config();
 }
 
+pub(crate) fn migrate_legacy_spotify_sign_in(state: &AppState) {
+    music_spotify::migrate_legacy_sign_in(state);
+}
+
 pub(crate) async fn discord_webhook_send(body: Value) -> AppResult<Value> {
     discord::discord_webhook_send(body).await
 }
