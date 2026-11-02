@@ -168,7 +168,7 @@ session/tooling cannot continue polling. The user should not need to type
 
 ## Browser Permission Rule
 
-For Marinara Engine work, local browser verification is not an approval question
+For De-Koi work, local browser verification is not an approval question
 when browser state is the claim. Use a proof ladder first: static inspection,
 targeted tests, scratch harnesses, route/module repros, and jsdom/component proof
 before Playwright/browser-use. Use Playwright or browser-use directly only when

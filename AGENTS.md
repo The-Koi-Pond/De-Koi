@@ -44,7 +44,6 @@
   - Component test.
   - Browser/e2e only when browser behavior is the claim.
 - Do not add broad fixture suites, snapshots, large e2e tests, or Rust inline tests merely to satisfy proof wording.
-- When available, keep `workflow-health.mjs` for nontrivial De-Koi work, PR work, issue selection, and risky workflow changes. Do not spend it on a tiny one-file local bug unless repo policy or visible risk requires it.
 
 ## Verification
 

@@ -31,7 +31,6 @@ there before the PR leaves local hands.
 - Tiny local path: use this for narrow, low-risk, machine-provable bugs that do not touch schema/version/dependency/auth/storage/import/export/prompt/provider/security-sensitive paths, cross-entrypoint behavior, PR state, or browser-evidence-dependent claims. Do not create a full ledger by default. Finish with a compact receipt: `Claim`, `Proof`, `Validation`, `Files`, `Risk`, and `Vault`.
 - Full workflow path: use the ledger, proof-health, and fast-lane helpers for nontrivial, risky, PR-affecting, cross-boundary, browser-evidence-dependent, or uncertain bugs. If risk appears during a tiny fix, stop treating it as tiny and upgrade the workflow.
 - Exploration budget: read the report completely, then inspect the likely owner path and direct callers first. Pivot only after the current hypothesis is falsified; do not search broadly just to feel safer.
-- When available, `workflow-health.mjs` is for nontrivial work, PR work, issue selection, and risky workflow changes. It is not mandatory for a tiny one-file local bug unless repo policy or visible risk requires it.
 
 ## Proof Rule
 

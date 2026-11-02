@@ -3,7 +3,7 @@
 Use this playbook when a user asks for a local small bugfix, or when an explicit
 shipping request asks the assistant to carry the work from report to verified PR.
 
-In Marinara's repo workflow, ordinary bugfix language defaults to local fix and
+In De-Koi's repo workflow, ordinary bugfix language defaults to local fix and
 verification only. A request like "fix this bug", "go", "look for the smallest
 bug and fix it", or a pasted bug screenshot with little text is enough to run
 the local portions of this playbook for a small, machine-provable bug. Commit,
