@@ -24,6 +24,8 @@ import {
   useFanficOutline,
   useFanficRequestSave,
   useFanficWriter,
+  useFanficRunnerReattach,
+  nextFanficBatchWrite,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
@@ -84,40 +86,90 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   }, [chapters]);
   // Once a chapter is finished (written, continued, reset or kept as is), the same follow-ups run for its kind.
   const afterChapterFinished = useCallback(
-    (chapter: FanficFinishedChapter) => {
+    (chapter: FanficFinishedChapter, options: { batch?: boolean } = {}) => {
       const followUps = fanficFollowUps(chapter);
       // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
       if (bansSupported) removeBannedPhrases({ messageId: followUps.phraseBansFor, quiet: true });
       // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
       updateLedger({ quiet: true });
-      // Living outline: after each new chapter, check the rest of the plan against what was written.
-      if (followUps.proposePlan) proposePlan({ quiet: true });
+      // Living outline: after each new chapter, check the rest of the plan against what was written. A "write all"
+      // run follows the outline as it is, so it skips the proposals nobody is there to use.
+      if (followUps.proposePlan && !options.batch) proposePlan({ quiet: true });
     },
     [bansSupported, proposePlan, removeBannedPhrases, updateLedger],
   );
-  const runWrite = useCallback(
+  // "Write all": set while a run of chapters is going; a Stop ends the whole run, not just the chapter on screen.
+  const [batchRunning, setBatchRunning] = useState(false);
+  const batchStopped = useRef(false);
+  const writeChapterRef = useRef<(args: FanficWriteArgs) => void>(() => {});
+  // One write at a time: a reattach when the tab wakes between two chapters of a run must not race the run's own
+  // next write (the generation hook would refuse the second, but its settle would clear the first one's state).
+  const writeInFlight = useRef(false);
+  // One write; in a "write all" run it goes on to the next chapter by itself (see nextFanficBatchWrite).
+  const writeChapter = useCallback(
     (args: FanficWriteArgs) => {
-      lastWrite.current = args;
+      if (writeInFlight.current) return;
+      writeInFlight.current = true;
+      // Retrying a write followed from the server starts a new one of the same kind.
+      const { runnerJobId: _followed, ...retry } = args;
+      lastWrite.current = retry;
+      const batch = args.batch === true;
+      setBatchRunning(batch);
       const continued =
         args.kind === "continue" ? chaptersRef.current.find((chapter) => chapter.message.id === args.messageId) : null;
       setContinuing(continued ? { messageId: continued.message.id, textSoFar: continued.message.content } : null);
       setWritingExtraAfter(args.kind === "extra" && !args.messageId ? (args.parentChapter ?? null) : null);
       void write(args)
-        .then((finished) => {
-          if (finished) afterChapterFinished(finished);
+        .then(async (finished) => {
+          if (finished) afterChapterFinished(finished, { batch });
+          if (!batch || !finished) return null;
+          try {
+            return await nextFanficBatchWrite(activeChatId, batchStopped.current);
+          } catch (error) {
+            toast.error(
+              toUserMessage(error, {
+                fallback: "Couldn't start the next chapter. Write it from the button below to carry on.",
+              }),
+            );
+            return null;
+          }
         })
         .catch((error: unknown) => {
           // The write's own failures are already on screen, and a Stop needs no message.
-          if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) return;
+          if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) {
+            return null;
+          }
           toast.error(toUserMessage(error, { fallback: "That write didn't finish. Try again." }));
+          return null;
         })
-        .finally(() => {
+        .then((next) => {
+          writeInFlight.current = false;
           setContinuing(null);
           setWritingExtraAfter(null);
+          if (next) writeChapterRef.current(next);
+          else setBatchRunning(false);
         });
     },
-    [afterChapterFinished, write],
+    [activeChatId, afterChapterFinished, write],
   );
+  useEffect(() => {
+    writeChapterRef.current = writeChapter;
+  }, [writeChapter]);
+  // Every write the reader (or a reattach) starts; a "write all" the requester starts clears an earlier Stop.
+  const runWrite = useCallback(
+    (args: FanficWriteArgs) => {
+      if (args.batch && !args.runnerJobId) batchStopped.current = false;
+      writeChapter(args);
+    },
+    [writeChapter],
+  );
+  const { stop: stopGeneration } = generation;
+  const stopWrite = useCallback(() => {
+    batchStopped.current = true;
+    stopGeneration();
+  }, [stopGeneration]);
+  // A chapter still being written on the server (the phone slept or the tab closed mid-write) streams here again.
+  useFanficRunnerReattach(activeChatId, messagesComplete && stage === "writing", runWrite);
 
   const chapterCount = useRef(chapters.length);
   useEffect(() => {
@@ -322,7 +374,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           onWrite={runWrite}
           onChapterFinished={afterChapterFinished}
           onRetry={() => runWrite(lastWrite.current)}
-          onStop={generation.stop}
+          onStop={stopWrite}
+          batchRunning={batchRunning}
           ledger={ledger}
           voices={voices}
           onSaveVoices={saveVoices}
