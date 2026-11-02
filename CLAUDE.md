@@ -69,6 +69,8 @@ The detailed map of feature areas is the "Current Map" in `AGENTS.md`.
   way, and never log keys or headers.
 - When adding or changing a user-facing feature, update `src/features/shell/discovery/discovery-entries.json`, run
   `pnpm docs:readme-features`, and update the "Current Map" in `AGENTS.md`.
+- Before reporting code-review findings, read `docs/REVIEW-NOTES.md`: claims already checked and settled, which
+  shouldn't be raised again unless their "Reopen if" condition has happened.
 
 ## Relationship to upstream Marinara Engine
 
