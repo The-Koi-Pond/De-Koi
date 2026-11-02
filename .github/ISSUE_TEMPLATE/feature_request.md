@@ -22,6 +22,7 @@ assignees: ""
 - [ ] Catalog resources: chats, characters, personas, lorebooks, presets, connections, agents, gallery, or knowledge
 - [ ] Chat mode
 - [ ] Roleplay mode
+- [ ] Fanfic mode
 - [ ] Shared mode UI
 - [ ] Runtime systems: generation, world-state, visuals, or tracker
 - [ ] Deki-senpai or shell tools

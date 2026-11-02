@@ -27,7 +27,7 @@ These cards are source-derived but rewritten where needed so they do not assume 
 
 The JSON and PR proof templates are kept source-shaped. `status-snippets.md` is lightly rewritten from `Vault` to `Durable note`. The index for when to use these is `references/proof-templates.md`.
 
-Repo-specific tracked automation lives under `.agents/automation/scripts/`: `proof-health.mjs`, `risk-classifier.mjs`, `automation-ledger.mjs`, `pr-health.mjs`, and `workflow-health.mjs`. The root `scripts/check-agent-workflow.mjs` is the package-script fixture entrypoint for `pnpm check:agent-workflow`.
+Repo-specific tracked automation lives under `.agents/automation/scripts/`: `proof-health.mjs`, `risk-classifier.mjs`, `automation-ledger.mjs`, and `pr-health.mjs`. The root `scripts/check-agent-workflow.mjs` is the package-script fixture entrypoint for `pnpm check:agent-workflow`.
 
 ## Rewritten For De-Koi
 

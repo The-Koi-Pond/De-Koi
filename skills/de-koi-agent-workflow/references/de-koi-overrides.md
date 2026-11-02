@@ -33,14 +33,12 @@ Do not store secrets, private user data, bulky raw logs, or machine-local paths 
 
 ## Automation Helpers
 
-The source pack mentions `.agents/automation/scripts/*`, `workflow-health`, `pr-health`, `proof-health`, `publish-evidence`, and `automation-ledger`. This repo provides those helpers under `.agents/automation/scripts/`; treat that directory as the canonical repo-shared automation implementation.
+The source pack mentions `.agents/automation/scripts/*`, `pr-health`, `proof-health`, `publish-evidence`, and `automation-ledger`. This repo provides those helpers under `.agents/automation/scripts/`; treat that directory as the canonical repo-shared automation implementation. The pack's `workflow-health` helper is retired.
 
 Even when automation helpers are available in a local checkout, do not create
 helper work for its own sake. Tiny local bugs may use a compact receipt instead
 of a ledger when they are narrow, low-risk, machine-provable, and not
-PR-affecting. Reserve workflow-health style checks for nontrivial work, PR work,
-issue selection, and risky workflow changes unless repo policy or visible risk
-requires them.
+PR-affecting.
 
 When a helper is missing or unsuitable for the current claim, use equivalent direct checks: `git status`, `git remote -v`, existing test output, temporary uncommitted tests or harnesses, `pnpm typecheck`, `pnpm build`, `cargo check --manifest-path src-tauri/Cargo.toml`, `pnpm check:docs`, GitHub CLI/API checks, browser automation, or manual verification scripts. Ordinary bugfix language still means local fix and verification; GitHub PR creation, CI polling, ready marking, and merge require an explicit shipping request.
 
@@ -48,9 +46,9 @@ Do not treat missing pack automation as a blocker. Treat it as a reason to make 
 
 ## Branches And PR Targets
 
-The source pack has older workflow assumptions about legacy `staging` and team-branch workflow. This checkout is `The-Koi-Pond/De-Koi` on the `main` branch unless the current task says otherwise.
+Work from `main` and open pull requests against `The-Koi-Pond/De-Koi:main` unless the current task says otherwise.
 
-Always verify `git status --short --branch`, `git branch --show-current`, and `git remote -v` before shipping. Do not assume legacy `staging`, `refactor`, fork workflow, or team-branch workflow unless the current repo and user request confirm it.
+Always verify `git status --short --branch`, `git branch --show-current`, and `git remote -v` before shipping.
 
 Never push directly to protected branches or force-push without explicit approval.
 

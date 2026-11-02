@@ -1,4 +1,4 @@
-<!-- Target branch: `main`. Change the base to `main` before submitting unless a maintainer explicitly asked for another base. -->
+<!-- Target branch: `main`. -->
 <!-- Keep all checkboxes unchecked until a human has actually verified them. -->
 
 ## Linked issue
@@ -23,7 +23,7 @@ Closes #
 
 Primary owner:
 
-<!-- Examples: app shell, catalog, chat mode, roleplay mode, game mode, runtime generation, world-state, shared API, engine generation, Rust storage, imports, remote runtime. -->
+<!-- Examples: app shell, catalog, chat mode, roleplay mode, fanfic mode, runtime generation, world-state, shared API, engine generation, Rust storage, imports, remote runtime. -->
 
 Impact areas reviewed:
 
@@ -37,7 +37,7 @@ Boundary notes:
 
 Pressure points touched:
 
-<!-- Mention ModeSurface, GameSurface, shared mode UI, src-tauri/src/lib.rs command registration, or import modules if touched. -->
+<!-- Mention ModeSurface, shared mode UI, src-tauri/src/lib.rs command registration, or import modules if touched. -->
 
 -
 
@@ -79,8 +79,7 @@ Reason:
 - [ ] Updated `README.md`
 - [ ] Updated `CONTRIBUTING.md`
 - [ ] Updated `docs/developer/`
-- [ ] Updated repo skills or `AGENTS.md`
-- [ ] Confirmed this PR does not restore old staging/package-workspace/release claims
+- [ ] Updated repo skills, `AGENTS.md` or `CLAUDE.md`
 
 ## UI evidence
 
