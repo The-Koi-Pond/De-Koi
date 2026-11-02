@@ -187,5 +187,5 @@ Keep docs accurate for the main branch:
 
 - Update `README.md` and `docs/developer/` when run commands, architecture, source ownership, or validation changes.
 - Update `AGENTS.md` or repo skills only when contributor or agent workflow rules change.
-- Do not add package-workspace, installer, release, screenshot, or changelog claims unless they are true for the main branch.
+- Do not add installer, release, screenshot, or changelog claims unless they are true for the main branch.
 - Public release packaging, installation pages, final screenshots, release notes, and license metadata are still being rebuilt around the new architecture.
