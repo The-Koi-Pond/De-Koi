@@ -1,10 +1,12 @@
 //! Moves the Client ID and tokens of a legacy `spotify`-type agent record into the Music Player's Spotify
 //! settings, once. Plain tokens are encrypted on the move. When tokens move, Spotify becomes the Music
-//! Player source. The legacy record is left as it is.
+//! Player source and the Music Player module is switched on. Once the Music Player holds a sign-in,
+//! the token fields are removed from the legacy records; the records themselves, with their Client ID,
+//! stay (hidden and never run).
 
 use super::super::super::connection_secrets;
 use super::super::music_settings::{self, SOURCE_SPOTIFY};
-use super::api::{account_record, save_account, Account};
+use super::api::{account_record, load_account, save_account, Account};
 use crate::state::AppState;
 use marinara_core::AppResult;
 use serde_json::{json, Map, Value};
@@ -13,6 +15,18 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 const MIGRATED_FIELD: &str = "spotifyLegacyMigrated";
+/// The frontend's core module settings row and the Music Player's module ID
+/// (`core-modules-api.ts`, `MUSIC_DJ_MINI_PLAYER_MODULE_ID`).
+const CORE_MODULES_SETTINGS_KEY: &str = "core-modules";
+const MUSIC_PLAYER_MODULE_ID: &str = "music-dj-mini-player";
+const LEGACY_TOKEN_FIELDS: &[&str] = &[
+    "spotifyAccessToken",
+    "spotifyRefreshToken",
+    "spotifyAccessTokenEncrypted",
+    "spotifyRefreshTokenEncrypted",
+    "spotifyExpiresAt",
+    "spotifyScope",
+];
 
 /// Runs the migration the first time this process touches the music settings of a data folder.
 pub(super) fn ensure(state: &AppState) -> AppResult<()> {
@@ -102,7 +116,7 @@ fn migrate(state: &AppState) -> AppResult<()> {
         .storage
         .list("agents")?
         .iter()
-        .filter(|record| record.get("type").and_then(Value::as_str) == Some("spotify"))
+        .filter(|record| is_legacy_record(record))
         .map(legacy_settings)
         .collect();
     if legacy.is_empty() {
@@ -137,27 +151,138 @@ fn migrate(state: &AppState) -> AppResult<()> {
         "spotifyRefreshTokenEncrypted",
         "spotifyRefreshToken",
     );
-    if let (Some(refresh_token), None) = (refresh_token, account_record(state)?) {
-        let account = Account {
-            client_id: legacy_client_id.or(stored_client_id).unwrap_or_default(),
-            access_token: legacy_token(
-                state,
-                chosen,
-                "spotifyAccessTokenEncrypted",
-                "spotifyAccessToken",
-            ),
-            refresh_token,
-            expires_at_ms: legacy_expiry_ms(chosen.get("spotifyExpiresAt")),
-            scope: text(chosen, "spotifyScope").unwrap_or_default(),
-            display_name: None,
-            user_id: None,
-        };
-        save_account(state, &account)?;
+    let moved = match refresh_token {
+        Some(refresh_token) if account_record(state)?.is_none() => {
+            let account = Account {
+                client_id: legacy_client_id.or(stored_client_id).unwrap_or_default(),
+                access_token: legacy_token(
+                    state,
+                    chosen,
+                    "spotifyAccessTokenEncrypted",
+                    "spotifyAccessToken",
+                ),
+                refresh_token,
+                expires_at_ms: legacy_expiry_ms(chosen.get("spotifyExpiresAt")),
+                scope: text(chosen, "spotifyScope").unwrap_or_default(),
+                display_name: None,
+                user_id: None,
+            };
+            save_account(state, &account)?;
+            log::info!("[music] moved the legacy Spotify sign-in into Music Player settings");
+            true
+        }
+        // An earlier run moved this sign-in but stopped before it finished.
+        Some(refresh_token) => {
+            load_account(state)?.is_some_and(|account| account.refresh_token == refresh_token)
+        }
+        None => false,
+    };
+    if moved {
         patch.insert("source".into(), json!(SOURCE_SPOTIFY));
-        log::info!("[music] moved the legacy Spotify sign-in into Music Player settings");
+        enable_music_player_module(state)?;
+    }
+    if account_record(state)?.is_some() {
+        remove_legacy_tokens(state)?;
     }
     patch.insert(MIGRATED_FIELD.into(), json!(true));
     music_settings::write_patch(state, patch)
+}
+
+fn is_legacy_record(record: &Value) -> bool {
+    record.get("type").and_then(Value::as_str) == Some("spotify")
+}
+
+/// Switches the Music Player module on in the core module settings, keeping every other module's
+/// switch, so a moved Spotify sign-in keeps playing. Returns whether the record changed.
+fn switch_on_music_player(record: &mut Map<String, Value>) -> bool {
+    let object = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let mut value = object(record.get("value"));
+    let mut enabled = object(value.get("enabled"));
+    if enabled.get(MUSIC_PLAYER_MODULE_ID) == Some(&Value::Bool(true)) {
+        return false;
+    }
+    enabled.insert(MUSIC_PLAYER_MODULE_ID.into(), Value::Bool(true));
+    value.insert("enabled".into(), Value::Object(enabled));
+    record.insert("value".into(), Value::Object(value));
+    true
+}
+
+fn enable_music_player_module(state: &AppState) -> AppResult<()> {
+    if state
+        .storage
+        .get("app-settings", CORE_MODULES_SETTINGS_KEY)?
+        .is_some()
+    {
+        state
+            .storage
+            .patch_if("app-settings", CORE_MODULES_SETTINGS_KEY, |record| {
+                Ok(switch_on_music_player(record))
+            })?;
+    } else {
+        let mut record = Map::new();
+        switch_on_music_player(&mut record);
+        state.storage.upsert_with_id(
+            "app-settings",
+            CORE_MODULES_SETTINGS_KEY,
+            Value::Object(record),
+        )?;
+    }
+    Ok(())
+}
+
+/// Removes the token fields from a legacy record's settings (an object or a JSON string), keeping
+/// the Client ID and everything else. Returns whether there were any.
+fn strip_legacy_tokens(record: &mut Map<String, Value>) -> bool {
+    let remove = |settings: &mut Map<String, Value>| {
+        let before = settings.len();
+        for key in LEGACY_TOKEN_FIELDS {
+            settings.remove(*key);
+        }
+        settings.len() != before
+    };
+    match record.get_mut("settings") {
+        Some(Value::Object(settings)) => remove(settings),
+        Some(Value::String(raw)) => {
+            let Ok(Value::Object(mut settings)) = serde_json::from_str::<Value>(raw) else {
+                return false;
+            };
+            let removed = remove(&mut settings);
+            if removed {
+                *raw = Value::Object(settings).to_string();
+            }
+            removed
+        }
+        _ => false,
+    }
+}
+
+/// Clears the tokens out of every legacy `spotify` record once the Music Player holds the sign-in,
+/// so they don't stay behind in plain text or in profile exports. Records without tokens aren't
+/// written, so running it again changes nothing.
+fn remove_legacy_tokens(state: &AppState) -> AppResult<()> {
+    let ids: Vec<String> = state
+        .storage
+        .list("agents")?
+        .iter()
+        .filter(|record| is_legacy_record(record))
+        .filter_map(|record| {
+            record
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect();
+    for id in ids {
+        state
+            .storage
+            .patch_if("agents", &id, |record| Ok(strip_legacy_tokens(record)))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -244,6 +369,84 @@ mod tests {
         let settings = music_settings::read(&state).unwrap();
         assert_eq!(settings["spotifyClientId"], "onlyid");
         assert_eq!(settings["source"], "youtube");
+        // Nothing moved, so the module switches stay as they were.
+        assert!(state
+            .storage
+            .get("app-settings", CORE_MODULES_SETTINGS_KEY)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn moving_tokens_switches_on_the_music_player_and_keeps_other_modules() {
+        let state = test_state("migrate-module");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                CORE_MODULES_SETTINGS_KEY,
+                json!({ "value": { "enabled": { "me-notes": true, MUSIC_PLAYER_MODULE_ID: false } } }),
+            )
+            .unwrap();
+        store_agent(
+            &state,
+            "legacy",
+            json!({ "spotifyClientId": "abc", "spotifyRefreshToken": "plain-refresh" }),
+        );
+        migrate(&state).unwrap();
+        let modules = state
+            .storage
+            .get("app-settings", CORE_MODULES_SETTINGS_KEY)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            modules["value"]["enabled"],
+            json!({ "me-notes": true, MUSIC_PLAYER_MODULE_ID: true })
+        );
+    }
+
+    #[test]
+    fn moved_tokens_are_removed_from_the_legacy_record_and_a_rerun_changes_nothing() {
+        let state = test_state("migrate-strip");
+        let encrypted = connection_secrets::encrypt_secret(&state, "secret-refresh").unwrap();
+        let settings = json!({
+            "spotifyClientId": "abc",
+            "spotifyAccessToken": "plain-access",
+            "spotifyRefreshTokenEncrypted": encrypted,
+            "spotifyExpiresAt": 1_700_000_000_000_u64,
+            "spotifyScope": "user-library-read",
+            "other": "kept"
+        });
+        store_agent(&state, "legacy", json!(settings.to_string()));
+        migrate(&state).unwrap();
+
+        let stored_settings = |state: &AppState| -> Value {
+            let record = state.storage.get("agents", "legacy").unwrap().unwrap();
+            serde_json::from_str(record["settings"].as_str().unwrap()).unwrap()
+        };
+        assert_eq!(
+            stored_settings(&state),
+            json!({ "spotifyClientId": "abc", "other": "kept" })
+        );
+        assert_eq!(
+            load_account(&state).unwrap().unwrap().refresh_token,
+            "secret-refresh"
+        );
+
+        // A run that stopped before writing the done flag is picked up again safely.
+        music_settings::write_patch(&state, {
+            let mut patch = Map::new();
+            patch.insert(MIGRATED_FIELD.into(), json!(false));
+            patch
+        })
+        .unwrap();
+        migrate(&state).unwrap();
+        assert_eq!(
+            stored_settings(&state),
+            json!({ "spotifyClientId": "abc", "other": "kept" })
+        );
+        assert!(load_account(&state).unwrap().is_some());
+        assert_eq!(music_settings::read(&state).unwrap()["source"], "spotify");
     }
 
     #[test]

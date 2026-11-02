@@ -80,9 +80,17 @@ fn status(state: &AppState) -> AppResult<Value> {
                 .collect()
         })
         .unwrap_or_default();
+    // Sign-in asks for every scope in `auth::SCOPES`, but only the ones a feature checks count as
+    // missing: older sign-ins never granted `playlist-read-collaborative`, and nothing needs it.
+    let feature_scopes = [
+        library::LIBRARY_SCOPES,
+        library::PLAYLIST_SCOPES,
+        playback::CONTROL_SCOPES,
+    ]
+    .concat();
     let missing: Vec<&str> = account
         .as_ref()
-        .map(|account| account.missing_scopes(auth::SCOPES))
+        .map(|account| account.missing_scopes(&feature_scopes))
         .unwrap_or_default();
     Ok(json!({
         "provider": "spotify",
@@ -223,6 +231,36 @@ mod tests {
             .unwrap();
         assert_eq!(after["connected"], false);
         assert_eq!(after["clientId"], "abc");
+    }
+
+    #[tokio::test]
+    async fn only_scopes_a_feature_needs_count_as_missing() {
+        let state = test_state("scopes");
+        let mut account = api::Account {
+            client_id: "abc".into(),
+            access_token: None,
+            refresh_token: "r".into(),
+            expires_at_ms: 0,
+            // An older sign-in: everything but `playlist-read-collaborative`.
+            scope: "user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read playlist-read-private".into(),
+            display_name: None,
+            user_id: None,
+        };
+        api::save_account(&state, &account).unwrap();
+        let status = music_call(&state, "status", json!({ "provider": "spotify" }))
+            .await
+            .unwrap();
+        assert_eq!(status["missingScopes"], json!([]));
+
+        account.scope = "user-read-playback-state user-modify-playback-state".into();
+        api::save_account(&state, &account).unwrap();
+        let status = music_call(&state, "status", json!({ "provider": "spotify" }))
+            .await
+            .unwrap();
+        assert_eq!(
+            status["missingScopes"],
+            json!(["user-library-read", "playlist-read-private"])
+        );
     }
 
     #[test]

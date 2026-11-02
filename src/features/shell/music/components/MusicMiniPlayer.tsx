@@ -310,11 +310,20 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         ? "Play a Spotify pick from the current mood"
         : "Play a YouTube pick from the current mood";
 
-  /** Starts a Spotify track on the user's device; returns Spotify's note about it, if any. Throws on failure. */
-  async function startSpotifyTrack(next: MusicCandidate, nextVolume: number, nextChoiceExplanation?: string) {
+  /**
+   * Starts a Spotify track on the user's device; returns Spotify's note about it, if any. Throws on failure.
+   * A volume goes along only when one was asked for, so a pick leaves the device's own volume alone.
+   */
+  async function startSpotifyTrack(
+    next: MusicCandidate,
+    requestedVolume: number | null,
+    nextChoiceExplanation?: string,
+  ) {
     setTrack(next);
     if (nextChoiceExplanation) setChoiceExplanation(nextChoiceExplanation);
-    const result = await spotifyMusicApi.play({ track: next, volume: nextVolume });
+    const result = await spotifyMusicApi.play(
+      requestedVolume === null ? { track: next } : { track: next, volume: requestedVolume },
+    );
     setPlaying(true);
     setSpotifyDeviceId(result.device?.id ?? null);
     history.record({ provider: "spotify", id: next.id });
@@ -335,10 +344,15 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     }
   }
 
-  async function playTrack(next: MusicCandidate, nextVolume = volume, nextChoiceExplanation?: string) {
+  /** `requestedVolume` is a volume a cue asked for; YouTube otherwise plays at the widget's volume. */
+  async function playTrack(
+    next: MusicCandidate,
+    requestedVolume: number | null = null,
+    nextChoiceExplanation?: string,
+  ) {
     if (next.provider === "spotify") {
       try {
-        const note = await startSpotifyTrack(next, nextVolume, nextChoiceExplanation);
+        const note = await startSpotifyTrack(next, requestedVolume, nextChoiceExplanation);
         if (note) setMessage(note);
       } catch (error) {
         setMessage(toUserMessage(error, { fallback: SPOTIFY_CONTROL_FAILED_MESSAGE }));
@@ -347,7 +361,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     }
     setTrack(next);
     if (nextChoiceExplanation) setChoiceExplanation(nextChoiceExplanation);
-    await musicApi.play({ provider: next.provider, track: next, volume: nextVolume });
+    await musicApi.play({ provider: next.provider, track: next, volume: requestedVolume ?? volume });
     setPlaying(true);
     sendYouTubeIframeCommand(iframeRef.current, "playVideo");
     const key = musicTrackKey(next);
@@ -358,7 +372,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     fresh: boolean,
     searchQuery: string,
     intent: MusicDjIntent | null | undefined,
-    requestedVolume: number,
+    requestedVolume: number | null,
   ) {
     if (searchQuery) setLastDiscoveryQuery(searchQuery);
     setBusy(true);
@@ -417,9 +431,10 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     overrideQuery?: string | null,
     intent?: MusicDjIntent | null,
     overrideVolume?: number | null,
+    directUrl?: string | null,
   ) {
-    const requestedQuery = (overrideQuery ?? query).trim();
-    const requestedVolume = typeof overrideVolume === "number" ? overrideVolume : volume;
+    const typedQuery = (overrideQuery ?? query).trim();
+    const requestedVolume = typeof overrideVolume === "number" ? overrideVolume : null;
     let source: string;
     try {
       source = (await queryClient.ensureQueryData(musicPlayerSettingsQuery)).source;
@@ -428,9 +443,11 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       return;
     }
     if (source === "spotify") {
-      await pickSpotify(fresh, requestedQuery, intent, requestedVolume);
+      // Spotify can't play a YouTube link, so it searches the cue's title and artist instead.
+      await pickSpotify(fresh, typedQuery, intent, requestedVolume);
       return;
     }
+    const requestedQuery = directUrl?.trim() || typedQuery;
     const usedDiscoveryFallback = fresh && isDirectYouTubeTarget(requestedQuery);
     const searchQuery = usedDiscoveryFallback ? lastDiscoveryQuery.trim() : requestedQuery;
     if (!searchQuery) {
@@ -615,13 +632,18 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       aiPickRequestIdRef.current += 1;
       setMessage((current) => (current === MUSIC_AI_PICK_CHOOSING_MESSAGE ? null : current));
       if (detail.type === "cue") {
-        if (typeof detail.volume === "number") setVolume(Math.max(0, Math.min(100, Math.trunc(detail.volume))));
+        const cueVolume =
+          typeof detail.volume === "number" ? Math.max(0, Math.min(100, Math.trunc(detail.volume))) : null;
+        if (cueVolume !== null) setVolume(cueVolume);
+        // Only a cue that changes the volume asks for one. Fresh Pick sends the widget's own volume
+        // along, and resending it would set (or fail to set) the Spotify device's volume on every pick.
+        const requestedVolume = cueVolume !== null && cueVolume !== volume ? cueVolume : null;
         if (detail.track) {
           if (detail.query) setQuery(detail.query);
           const searchQuery = detail.query?.trim() ?? "";
           void playTrack(
             detail.track,
-            typeof detail.volume === "number" ? detail.volume : volume,
+            requestedVolume,
             musicChoiceExplanation({
               track: detail.track,
               searchQuery,
@@ -631,9 +653,9 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
             }),
           );
           if (detail.intent) setMessage(`Music Player: ${musicDjIntentLabel(detail.intent)}`);
-        } else if (detail.query) {
-          setQuery(detail.query);
-          void pick(detail.fresh === true, detail.query, detail.intent ?? null, detail.volume ?? null);
+        } else if (detail.query || detail.url) {
+          setQuery((spotifySelected ? detail.query : detail.url || detail.query) ?? "");
+          void pick(detail.fresh === true, detail.query ?? "", detail.intent ?? null, requestedVolume, detail.url);
         }
       } else if (detail.type === "context") {
         const contextQuery = detail.query?.trim();

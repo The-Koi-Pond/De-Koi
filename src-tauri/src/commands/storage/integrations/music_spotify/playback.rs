@@ -10,7 +10,8 @@ use reqwest::Method;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-const CONTROL_SCOPES: &[&str] = &["user-modify-playback-state", "user-read-playback-state"];
+pub(super) const CONTROL_SCOPES: &[&str] =
+    &["user-modify-playback-state", "user-read-playback-state"];
 const READ_SCOPES: &[&str] = &["user-read-playback-state"];
 const CONFIRM_ATTEMPTS: u32 = 5;
 const CONFIRM_INTERVAL: Duration = Duration::from_secs(1);

@@ -212,7 +212,8 @@ describe("MusicMiniPlayer", () => {
       currentTrackId: null,
       fresh: false,
     });
-    expect(spotifyApiMock.play).toHaveBeenCalledWith({ track, volume: 55 });
+    // A pick leaves the device's volume alone: nothing asked for a volume.
+    expect(spotifyApiMock.play).toHaveBeenCalledWith({ track });
     expect(musicApiMock.play).not.toHaveBeenCalled();
     expect(updateChatMetadataMock).toHaveBeenCalledWith({
       id: "chat-1",
@@ -225,6 +226,35 @@ describe("MusicMiniPlayer", () => {
     expect(container!.querySelector("img")?.getAttribute("src")).toBe("https://i.scdn.co/image/cover");
     expect(container!.textContent).toContain("Merry-Go-Round");
     expect(container!.textContent).toContain("Spotify accepted the track; waiting for Desk.");
+  });
+
+  it.each([
+    { source: "youtube" as const, searched: "https://youtu.be/6qalGezr76o" },
+    { source: "spotify" as const, searched: "Promise Akira Yamaoka" },
+  ])("a character song with a YouTube link searches $source for $searched", async ({ source, searched }) => {
+    musicApiMock.settings.mockResolvedValue(youtubeSettings(source));
+    spotifyApiMock.playbackState.mockResolvedValue({
+      provider: "spotify",
+      state: "stopped",
+      track: null,
+      device: null,
+    });
+    spotifyApiMock.candidates.mockResolvedValue({ provider: "spotify", candidates: [], providerError: null });
+    dispatchMusicPlaybackEvent({ type: "cue", query: "Promise Akira Yamaoka", url: "https://youtu.be/6qalGezr76o" });
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(withQueryClient(<MusicMiniPlayer variant="toolbar" />));
+    });
+    await flushAsyncWork();
+
+    if (source === "spotify") {
+      expect(spotifyApiMock.candidates).toHaveBeenCalledWith(expect.objectContaining({ query: searched }));
+      expect(musicApiMock.searchCandidates).not.toHaveBeenCalled();
+    } else {
+      expect(musicApiMock.searchCandidates).toHaveBeenCalledWith({ query: searched, limit: 8 });
+      expect(spotifyApiMock.candidates).not.toHaveBeenCalled();
+    }
   });
 
   it("shows Spotify's message when a pick fails, without playing anything", async () => {

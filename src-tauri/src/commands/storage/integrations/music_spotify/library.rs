@@ -23,8 +23,8 @@ const MAX_SEARCH_CANDIDATES: usize = 20;
 const SEARCH_PAGE: usize = 10;
 const MAX_PLAYLISTS: usize = 500;
 
-const LIBRARY_SCOPES: &[&str] = &["user-library-read"];
-const PLAYLIST_SCOPES: &[&str] = &["playlist-read-private"];
+pub(super) const LIBRARY_SCOPES: &[&str] = &["user-library-read"];
+pub(super) const PLAYLIST_SCOPES: &[&str] = &["playlist-read-private"];
 pub(super) const UNREADABLE_PLAYLIST_MESSAGE: &str =
     "Spotify won't let De-Koi read this playlist. Pick a playlist this account owns.";
 

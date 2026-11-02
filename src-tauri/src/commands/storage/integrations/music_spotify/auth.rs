@@ -406,7 +406,7 @@ async fn finish_with_code(
         .get("expires_in")
         .and_then(Value::as_u64)
         .unwrap_or(3600);
-    let mut account = Account {
+    let account = Account {
         client_id: taken.client_id.clone(),
         access_token: Some(access_token),
         refresh_token,
@@ -417,17 +417,18 @@ async fn finish_with_code(
     };
     save_account(state, &account)?;
     // The display name is optional: a failed profile read still leaves the account connected.
+    // A disconnect during the read wins, so the name is only added to this same sign-in.
     if let Ok(profile) = spotify.get("/me", "Reading your Spotify profile").await {
-        account = api::load_account(state)?.unwrap_or(account);
-        account.display_name = profile
-            .get("display_name")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        account.user_id = profile
-            .get("id")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        save_account(state, &account)?;
+        let text = |key: &str| {
+            profile
+                .get(key)
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        };
+        api::update_account_if_current(state, &account.refresh_token, |stored| {
+            stored.display_name = text("display_name");
+            stored.user_id = text("id");
+        })?;
     }
     super::library::clear_cache(state);
     Ok(())

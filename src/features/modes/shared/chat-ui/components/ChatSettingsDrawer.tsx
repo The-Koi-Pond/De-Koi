@@ -1018,7 +1018,7 @@ function ChatSettingsDrawerInner({
     (c: { id: string; data?: unknown; comment?: string | null }) => {
       const cue = buildCharacterMusicPlaybackCue(characterPublicProfile(c).nowListening);
       if (!cue) return;
-      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
+      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query, url: cue.url });
       toast.success("Music Player cued character music.", { duration: 1800 });
     },
     [characterPublicProfile],

@@ -154,7 +154,40 @@ pub(super) fn load_account(state: &AppState) -> AppResult<Option<Account>> {
     }))
 }
 
+/// Serializes writes of the stored account, so a compare-and-write can't interleave with a disconnect.
+fn account_write_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
 pub(super) fn save_account(state: &AppState, account: &Account) -> AppResult<()> {
+    let _guard = account_write_lock();
+    write_account(state, account)
+}
+
+/// Changes the stored account only while it is still the sign-in that `refresh_token` belongs to,
+/// so a disconnect, a Client ID change or a new sign-in that happened meanwhile wins. Returns
+/// whether it wrote.
+pub(super) fn update_account_if_current(
+    state: &AppState,
+    refresh_token: &str,
+    update: impl FnOnce(&mut Account),
+) -> AppResult<bool> {
+    let _guard = account_write_lock();
+    let Some(mut account) = load_account(state)? else {
+        return Ok(false);
+    };
+    if account.refresh_token != refresh_token {
+        return Ok(false);
+    }
+    update(&mut account);
+    write_account(state, &account)?;
+    Ok(true)
+}
+
+fn write_account(state: &AppState, account: &Account) -> AppResult<()> {
     let mut record = Map::new();
     record.insert("clientId".into(), json!(account.client_id));
     record.insert(
@@ -182,6 +215,7 @@ pub(super) fn save_account(state: &AppState, account: &Account) -> AppResult<()>
 }
 
 pub(super) fn clear_account(state: &AppState) -> AppResult<()> {
+    let _guard = account_write_lock();
     let _ = state.storage.delete("app-settings", ACCOUNT_SETTINGS_KEY)?;
     Ok(())
 }
@@ -379,8 +413,9 @@ impl Spotify {
         self.refresh_locked(account).await
     }
 
-    /// Must be called with the refresh gate held. A failed refresh keeps the stored tokens.
-    async fn refresh_locked(&self, mut account: Account) -> AppResult<String> {
+    /// Must be called with the refresh gate held. A failed refresh keeps the stored tokens, and a
+    /// refresh that finishes after a disconnect (or a new sign-in) doesn't write its tokens back.
+    async fn refresh_locked(&self, account: Account) -> AppResult<String> {
         let reply = self
             .token_request(form_body(&[
                 ("grant_type", "refresh_token"),
@@ -407,21 +442,29 @@ impl Spotify {
             .get("expires_in")
             .and_then(Value::as_u64)
             .unwrap_or(3600);
-        if let Some(refresh_token) = reply
+        let new_refresh_token = reply
             .body
             .get("refresh_token")
             .and_then(Value::as_str)
-            .filter(|token| !token.is_empty())
-        {
-            account.refresh_token = refresh_token.to_owned();
+            .filter(|token| !token.is_empty());
+        let scope = reply.body.get("scope").and_then(Value::as_str);
+        let written = update_account_if_current(&self.state, &account.refresh_token, |stored| {
+            if let Some(refresh_token) = new_refresh_token {
+                stored.refresh_token = refresh_token.to_owned();
+            }
+            if let Some(scope) = scope {
+                stored.scope = scope.to_owned();
+            }
+            stored.access_token = Some(access_token.clone());
+            stored.expires_at_ms = now_ms() + expires_in * 1000;
+        })?;
+        if written {
+            return Ok(access_token);
         }
-        if let Some(scope) = reply.body.get("scope").and_then(Value::as_str) {
-            account.scope = scope.to_owned();
-        }
-        account.access_token = Some(access_token.clone());
-        account.expires_at_ms = now_ms() + expires_in * 1000;
-        save_account(&self.state, &account)?;
-        Ok(access_token)
+        // Disconnected meanwhile, or a new sign-in replaced this one: use that one's token if it has one.
+        load_account(&self.state)?
+            .and_then(|current| current.usable_access_token(now_ms()).map(ToOwned::to_owned))
+            .ok_or_else(not_connected)
     }
 
     /// Calls the Web API. A 401 refreshes once and retries once; a second 401 asks for a new sign-in.
@@ -544,6 +587,28 @@ pub(super) mod tests {
         assert_eq!(stored.scope, "user-library-read");
         let raw = account_record(&state).unwrap().unwrap().to_string();
         assert!(!raw.contains("fresh-token") && !raw.contains("refresh-1"));
+    }
+
+    #[tokio::test]
+    async fn a_disconnect_during_a_refresh_stays_disconnected() {
+        let state = test_state("refresh-disconnect");
+        save_account(&state, &expired_account()).unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        let base = slow_token_endpoint(count.clone()).await;
+        let spotify = Spotify::with_bases(&state, &base, &base).unwrap();
+
+        let (refreshed, ()) = tokio::join!(spotify.access_token(), async {
+            // Disconnect while Spotify is still answering the refresh.
+            for _ in 0..200 {
+                if count.load(Ordering::SeqCst) > 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            clear_account(&state).unwrap();
+        });
+        assert_eq!(refreshed.unwrap_err().code, "music_spotify_not_connected");
+        assert!(account_record(&state).unwrap().is_none());
     }
 
     #[tokio::test]
