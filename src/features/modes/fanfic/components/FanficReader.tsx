@@ -120,6 +120,8 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 /** The chapter on screen by message id, or the entire work. */
 type ReaderView = string;
 const ENTIRE_WORK: ReaderView = "all";
+/** The page of the new main chapter being written; it has no message until the chapter is saved. */
+const WRITING_NEXT: ReaderView = "writing-next";
 
 interface FanficReaderProps {
   chatId: string;
@@ -139,6 +141,8 @@ interface FanficReaderProps {
   onChapterFinished: (chapter: FanficFinishedChapter) => void;
   onRetry: () => void;
   onStop: () => void;
+  /** A "write all" run is going: the next-chapter box stays hidden between its chapters. */
+  batchRunning?: boolean;
   ledger: FanficLedgerController;
   voices: FanficVoicesController;
   editor: FanficEditorController;
@@ -1246,9 +1250,12 @@ function NextChapterPanel({
   planning = false,
   onCancel,
   continuesFrom,
+  allowWriteAll = false,
 }: {
   state: FanficState;
   nextNumber: number;
+  /** Offer "Write all N remaining" next to the write button (the next main chapter's box only). */
+  allowWriteAll?: boolean;
   /** Set for an extra chapter, by its N.x label: the outline doesn't plan it, so it has no title and no "complete". */
   extraLabel?: string;
   /** The box writes an unfinished chapter again (Reset) instead of a new one. */
@@ -1269,6 +1276,8 @@ function NextChapterPanel({
 }) {
   const planned = fanficPlannedChapterCount(state);
   const complete = !extraLabel && nextNumber > planned;
+  const remaining = planned - nextNumber + 1;
+  const writeAll = allowWriteAll && !extraLabel && !again && remaining >= 2;
   const label = extraLabel ?? String(nextNumber);
   const title = extraLabel ? "" : fanficChapterTitle(state, nextNumber);
   const newExtra = Boolean(extraLabel) && !again;
@@ -1344,6 +1353,20 @@ function NextChapterPanel({
             {complete ? "Suggest what's next" : "Re-plan the rest"}
           </FanficButton>
         )}
+        {writeAll && (
+          <FanficButton
+            disabled={busy || Boolean(blocked)}
+            title={blocked ?? `Writes chapters ${nextNumber} to ${planned} one after another.`}
+            className="min-h-11"
+            onClick={() => {
+              onWrite({ kind: "chapter", notes, batch: true });
+              setNotes("");
+            }}
+          >
+            <ListOrdered size="1rem" aria-hidden="true" />
+            Write all {remaining} remaining
+          </FanficButton>
+        )}
         <FanficButton
           tone="primary"
           disabled={busy || Boolean(blocked)}
@@ -1362,6 +1385,16 @@ function NextChapterPanel({
   );
 }
 
+/** Shown under the chapter being written while a "write all" run goes on. */
+function BatchRunNote({ chapter, planned }: { chapter: number; planned: number }) {
+  return (
+    <p role="status" className="px-1 text-xs text-[var(--muted-foreground)]">
+      Writing every remaining chapter, one after another: chapter {Math.min(chapter, planned)} of {planned}. Stop ends
+      the run; finished chapters stay.
+    </p>
+  );
+}
+
 export function FanficReader({
   chatId,
   chatName,
@@ -1377,6 +1410,7 @@ export function FanficReader({
   onChapterFinished,
   onRetry,
   onStop,
+  batchRunning = false,
   ledger,
   voices,
   onSaveVoices,
@@ -1513,10 +1547,25 @@ export function FanficReader({
 
   // Jump to a main chapter as soon as it is written.
   const lastMainId = lastMain?.messageId;
+  // The page of the chapter still being written stays open (in a "write all" run the last one can land late).
+  const onWritingPage = writingNew && view === WRITING_NEXT;
   useEffect(() => {
-    if (chapterCount > previousCount.current && lastMainId) setView(lastMainId);
+    if (chapterCount > previousCount.current && lastMainId && !onWritingPage) setView(lastMainId);
     previousCount.current = chapterCount;
-  }, [chapterCount, lastMainId]);
+  }, [chapterCount, lastMainId, onWritingPage]);
+  // A new main chapter is written on its own fresh page, opened at the top, when the reader is on the last page; a
+  // reader looking back at an earlier chapter (or the entire work) stays where they are.
+  const writingPage = onWritingPage;
+  const viewingLastPage = view !== ENTIRE_WORK && (!lastMain || refs.get(view)?.position === lastMain.position);
+  const wasWritingNew = useRef(writingNew);
+  useEffect(() => {
+    if (writingNew && !wasWritingNew.current && viewingLastPage) {
+      setView(WRITING_NEXT);
+      topRef.current?.scrollIntoView({ block: "start" });
+    }
+    if (!writingNew && view === WRITING_NEXT) setView(lastMainId ?? ENTIRE_WORK);
+    wasWritingNew.current = writingNew;
+  }, [lastMainId, view, viewingLastPage, writingNew]);
   // A new extra opens on its own page once it is written, as a new main chapter does.
   const extraIds = useMemo(() => layout.chapters.filter((ref) => ref.extra).map((ref) => ref.messageId), [layout]);
   const previousExtras = useRef(new Set(extraIds));
@@ -1554,10 +1603,11 @@ export function FanficReader({
 
   // Every chapter, extras included, is read on its own page.
   const visible = useMemo(
-    () => (viewed ? chapters.filter((chapter) => chapter.message.id === viewed.messageId) : chapters),
-    [chapters, viewed],
+    () =>
+      writingPage ? [] : viewed ? chapters.filter((chapter) => chapter.message.id === viewed.messageId) : chapters,
+    [chapters, viewed, writingPage],
   );
-  const viewingLast = !viewed || viewed.position >= (lastMain?.position ?? 0);
+  const viewingLast = writingPage || !viewed || viewed.position >= (lastMain?.position ?? 0);
   // A new extra streams in place of a page of its chain (its main chapter or one of its extras), and in the entire
   // work after the chain (null marks it). Any other chapter in view stays as it is.
   const shown = useMemo(() => {
@@ -1667,9 +1717,20 @@ export function FanficReader({
         </div>
       )}
       <div ref={topRef} className="scroll-mt-4">
-        <ChapterNav options={navOptions} view={viewed?.messageId ?? ENTIRE_WORK} onChange={changeView} />
+        <ChapterNav
+          options={
+            writingNew
+              ? [
+                  ...navOptions,
+                  { messageId: WRITING_NEXT, label: `${chapterHeading(state, chapterCount + 1)} (writing…)` },
+                ]
+              : navOptions
+          }
+          view={writingPage ? WRITING_NEXT : (viewed?.messageId ?? ENTIRE_WORK)}
+          onChange={changeView}
+        />
       </div>
-      {narrationPlan && chapterCount > 0 && (
+      {narrationPlan && chapterCount > 0 && !writingPage && (
         <NarrationBar
           plan={narrationPlan}
           scopeLabel={narrationScope}
@@ -1786,7 +1847,8 @@ export function FanficReader({
         );
       })}
 
-      {writingNew && (
+      {/* The new chapter streams on its own page (or at the end of the entire work), not under an earlier one. */}
+      {writingNew && (writingPage || view === ENTIRE_WORK || !lastMain) && (
         <StreamingChapter
           chatId={chatId}
           heading={chapterHeading(state, chapterCount + 1)}
@@ -1795,6 +1857,7 @@ export function FanficReader({
           onStop={onStop}
         />
       )}
+      {batchRunning && <BatchRunNote chapter={chapterCount + 1} planned={fanficPlannedChapterCount(state)} />}
 
       <GenerationFailureNotice chatId={chatId} onRetry={onRetry} />
 
@@ -1822,10 +1885,11 @@ export function FanficReader({
           }}
         />
       )}
-      {viewingLast && !generating && (
+      {viewingLast && !generating && !batchRunning && (
         <NextChapterPanel
           state={state}
           nextNumber={chapterCount + 1}
+          allowWriteAll
           busy={generating}
           blocked={blocked}
           onWrite={onWrite}

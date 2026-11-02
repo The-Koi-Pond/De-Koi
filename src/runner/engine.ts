@@ -1,5 +1,7 @@
 // Wires the app's own generation engine to the hosted runtime API for the runner process.
 import { startGeneration } from "../engine/generation/start-generation";
+import { startFanficGeneration, type StartFanficGenerationInput } from "../engine/modes/fanfic/chapters";
+import { fanficBatchContinues, fanficWriteSavedFinished, nextFanficBatchInput } from "../engine/modes/fanfic/batch";
 import { integrationGateway } from "../shared/api/integration-gateway";
 import { llmApi } from "../shared/api/llm-api";
 import { storageApi } from "../shared/api/storage-api";
@@ -14,16 +16,41 @@ export function configureRuntime(runtimeUrl: string): void {
 
 /** Input fields that only make sense inside a browser tab. */
 const TAB_ONLY_INPUT_KEYS = ["debugSink", "onUserMessageAccepted"];
+/** Marks a fanfic chapter write as one step of "write all"; the job keeps it, the engine never sees it. */
+const FANFIC_BATCH_KEY = "fanficBatch";
+
+/** A fanfic chapter write (the reader sends `fanficKind`); everything else is a chat reply. */
+export function isFanficJobInput(input: Record<string, unknown>): boolean {
+  return typeof input.fanficKind === "string" && input.fanficKind.length > 0;
+}
 
 export async function* runGenerationJob(
   input: Record<string, unknown>,
   signal: AbortSignal,
 ): AsyncGenerator<RunnerEvent> {
   const runInput = { ...input };
-  for (const key of TAB_ONLY_INPUT_KEYS) delete runInput[key];
+  for (const key of [...TAB_ONLY_INPUT_KEYS, FANFIC_BATCH_KEY]) delete runInput[key];
   // No image-prompt review dialog on the server: it needs a person at the screen.
   const deps = { storage: storageApi, llm: llmApi, integrations: integrationGateway, visuals: visualAssetsApi };
-  for await (const event of startGeneration(deps, runInput as Parameters<typeof startGeneration>[1], signal)) {
+  const events = isFanficJobInput(runInput)
+    ? startFanficGeneration(deps, runInput as unknown as StartFanficGenerationInput, signal)
+    : startGeneration(deps, runInput as Parameters<typeof startGeneration>[1], signal);
+  for await (const event of events) {
     yield { type: event.type, ...("data" in event ? { data: event.data } : {}) };
   }
+}
+
+/**
+ * The job to start after one that ended normally: the next chapter of a "write all" run, while its rules say the
+ * run goes on (see fanficBatchContinues). Null for everything else.
+ */
+export async function nextRunnerJobInput(
+  input: Record<string, unknown>,
+  events: readonly RunnerEvent[],
+): Promise<Record<string, unknown> | null> {
+  if (input[FANFIC_BATCH_KEY] !== true || input.fanficKind !== "chapter") return null;
+  if (!fanficWriteSavedFinished(events)) return null;
+  const chatId = typeof input.chatId === "string" ? input.chatId.trim() : "";
+  if (!chatId || !(await fanficBatchContinues(storageApi, chatId))) return null;
+  return nextFanficBatchInput(input);
 }

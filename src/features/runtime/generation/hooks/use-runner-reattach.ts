@@ -29,6 +29,8 @@ export function useRunnerReattach(chatId: string | null): void {
         if (!(await generationRunnerAvailable())) return;
         const job = (await generationRunnerApi.list(chatId)).find((entry) => entry.status === "running");
         if (!job || disposed || useChatStore.getState().abortControllers.has(chatId)) return;
+        // Fanfic chapter writes are followed by the fanfic reader, which knows which chapter they write.
+        if (typeof job.input.fanficKind === "string") return;
         // No userMessage: the replay already carries the saved user message.
         const args: GenerateArgs = {
           chatId,
