@@ -51,7 +51,6 @@ Use `Mud risk: none` when the change keeps ownership clear. Otherwise classify a
 - Canonical automation-ledger script: `.agents/automation/scripts/automation-ledger.mjs`
 - Canonical risk classifier: `.agents/automation/scripts/risk-classifier.mjs`
 - PR health helper: `.agents/automation/scripts/pr-health.mjs`
-- Workflow health helper: `.agents/automation/scripts/workflow-health.mjs`
 - Root fixture entrypoint: `pnpm check:agent-workflow`
 
 ## Maintainer Self-Review

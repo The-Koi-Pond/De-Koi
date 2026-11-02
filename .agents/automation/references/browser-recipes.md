@@ -1,14 +1,14 @@
-# Marinara Browser Recipes
+# De-Koi Browser Recipes
 
 Use these recipes for repeatable Playwright or browser-use verification when
-browser state is the claim. Marinara local browser verification is pre-approved
+browser state is the claim. De-Koi local browser verification is pre-approved
 in those cases, but it is not the first proof tool for every UI-adjacent change.
 Use the proof ladder first: static inspection, targeted tests, scratch harnesses,
 route/module repros, and jsdom/component proof. Escalate to these browser
 recipes for visual layout, interaction, routing, responsive behavior,
 screenshot-dependent evidence, console/network inspection, or bugs that only
 reproduce in a real browser. They are intentionally selector-light because
-Marinara currently has a mix of titles, labels, component markers, and text
+De-Koi currently has a mix of titles, labels, component markers, and text
 buttons. Prefer accessible names and stable `data-component` / `data-tour`
 markers when present.
 

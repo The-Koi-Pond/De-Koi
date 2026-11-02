@@ -15,7 +15,7 @@ If the user asks for a review without specifying the type, default to code-revie
 Before push or PR creation:
 
 1. Check dirty tree and include only intentional files.
-2. Read `CONTRIBUTING.md` and verify remotes and target branch from the current checkout; do not assume `staging`, fork workflow, or team-branch workflow.
+2. Read `CONTRIBUTING.md` and verify remotes and target branch from the current checkout. Pull requests target `main`.
 3. Confirm the branch name, commit subject or label, trailers, and PR title or body do not self-name AI/tool/provider authorship. Rename or reword explicit authorship phrases before pushing or opening the PR. Do not reject bare product/domain words in legitimate feature names, file paths, data fields, or app output.
 4. Confirm only intentional files will ship.
 5. Verify evidence exists for the PR claim.
