@@ -298,18 +298,9 @@
     0 0 1rem rgba(255, 137, 87, 0.12);
 }
 
-/* Home logo: the dark version (cream outline) unless De-Koi's theme is light. */
+/* Home logo (ModeHomeSurface picks the light or dark file by theme). */
 .koi-home-logo {
   filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.35));
-}
-
-.koi-home-logo-light,
-[data-theme="light"] .koi-home-logo-dark {
-  display: none;
-}
-
-[data-theme="light"] .koi-home-logo-light {
-  display: block;
 }
 
 [data-theme="light"] .koi-home-logo {

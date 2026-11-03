@@ -76,6 +76,7 @@ export function ModeHomeSurface({
   const { data: connections } = useConnections();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
+  const theme = useUIStore((state) => state.theme);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const libraryPresence = useLibraryPresence();
@@ -132,26 +133,16 @@ export function ModeHomeSurface({
 
           <section data-home-section="mode-cards" aria-label="Start a chat" className="contents">
             <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
-              {/* Two versions of the logo: its outline is ink on a light page and cream on a dark one,
-                  and CSS shows the one matching De-Koi's theme (not the computer's). */}
-              <div className="koi-home-logo h-16 w-16 sm:h-24 sm:w-24">
-                <img
-                  src="/de-koi-logo.svg"
-                  alt="De-Koi"
-                  width={96}
-                  height={96}
-                  decoding="async"
-                  className="koi-home-logo-light h-full w-full"
-                />
-                <img
-                  src="/de-koi-logo-dark.svg"
-                  alt="De-Koi"
-                  width={96}
-                  height={96}
-                  decoding="async"
-                  className="koi-home-logo-dark h-full w-full"
-                />
-              </div>
+              {/* The logo's outline is ink on a light page and cream on a dark one, following
+                  De-Koi's own theme setting (not the computer's). */}
+              <img
+                src={theme === "light" ? "/de-koi-logo.svg" : "/de-koi-logo-dark.svg"}
+                alt="De-Koi"
+                width={96}
+                height={96}
+                decoding="async"
+                className="koi-home-logo h-16 w-16 sm:h-24 sm:w-24"
+              />
 
               <p className="koi-home-splash">
                 {/* aria-label is not allowed on a plain <p>; screen readers get the text once, here. */}
