@@ -1445,6 +1445,13 @@ pub(crate) fn delete_message_rows_with_memory_prune(
                 &ids,
                 "source_message_deleted",
             )?;
+            canonical_memory::delete_automatic_memories_for_deleted_messages_in_collections(
+                collections,
+                4,
+                5,
+                7,
+                &ids,
+            )?;
             knowledge_edges::invalidate_message_sources_in_collections(
                 collections,
                 7,
@@ -7166,6 +7173,138 @@ mod tests {
                 .unwrap()
                 .unwrap()["status"],
             json!("active")
+        );
+    }
+
+    #[test]
+    fn deleting_a_message_deletes_the_automatic_memories_captured_from_it() {
+        let state = test_state("delete-message-captured-memories");
+        let user = json!({
+            "id": "user-1",
+            "chatId": "chat-1",
+            "role": "user",
+            "content": "my locker code is 4165",
+            "createdAt": "2026-11-02T00:00:00Z",
+            "extra": {}
+        });
+        let reply = json!({
+            "id": "reply-1",
+            "chatId": "chat-1",
+            "role": "assistant",
+            "content": "noted",
+            "createdAt": "2026-11-02T00:00:01Z",
+            "extra": {}
+        });
+        state.storage.create("messages", user.clone()).unwrap();
+        state.storage.create("messages", reply).unwrap();
+        let seed = |id: &str, status: &str, payload: Value, message_ids: Value| {
+            canonical_memory::create_memory(
+                &state,
+                json!({
+                    "id": id,
+                    "kind": "fact",
+                    "status": status,
+                    "scope": { "kind": "character", "id": "character-1" },
+                    "content": format!("memory {id}"),
+                    "confidence": 0.9,
+                    "provenance": { "sourceChatId": "chat-1", "messageIds": message_ids },
+                    "tags": [],
+                    "payload": payload
+                }),
+            )
+            .unwrap();
+        };
+        let automatic = |sources: Value, references: Value| json!({ "automatic": true, "sourceMessageIds": sources, "referenceMessageIds": references });
+        seed(
+            "cited-deleted",
+            "active",
+            automatic(json!(["user-1", "reply-1"]), json!([])),
+            json!(["user-1", "reply-1"]),
+        );
+        seed(
+            "stale-cited-deleted",
+            "stale",
+            automatic(json!(["user-1"]), json!([])),
+            json!(["user-1"]),
+        );
+        seed(
+            "legacy-provenance",
+            "active",
+            json!({ "automatic": true }),
+            json!(["user-1"]),
+        );
+        seed(
+            "cites-reply-only",
+            "active",
+            automatic(json!(["reply-1"]), json!([])),
+            json!(["reply-1"]),
+        );
+        seed(
+            "reference-only",
+            "active",
+            automatic(json!(["reply-1"]), json!(["user-1"])),
+            json!(["reply-1", "user-1"]),
+        );
+        seed(
+            "pinned",
+            "pinned",
+            automatic(json!(["user-1"]), json!([])),
+            json!(["user-1"]),
+        );
+        seed("manual", "active", json!({}), json!(["user-1"]));
+        state
+            .storage
+            .create(
+                "memory-index-rows",
+                json!({ "id": "index-cited", "memoryId": "cited-deleted" }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                knowledge_edges::COLLECTION,
+                json!({
+                    "id": "edge-cited",
+                    "memoryId": "cited-deleted",
+                    "holder": { "kind": "character", "id": "character-1" },
+                    "stance": "believes",
+                    "status": "active",
+                    "provenance": [{ "kind": "targeted_disclosure", "author": "system", "messageIds": ["reply-1"] }]
+                }),
+            )
+            .unwrap();
+
+        let (deleted, _) =
+            delete_message_rows_with_memory_prune(&state, "chat-1", &[user]).unwrap();
+        assert_eq!(deleted, 1);
+
+        let status = |id: &str| {
+            state
+                .storage
+                .get("canonical-memories", id)
+                .unwrap()
+                .unwrap()["status"]
+                .clone()
+        };
+        assert_eq!(status("cited-deleted"), json!("deleted"));
+        assert_eq!(status("stale-cited-deleted"), json!("deleted"));
+        assert_eq!(status("legacy-provenance"), json!("deleted"));
+        assert_eq!(status("cites-reply-only"), json!("active"));
+        assert_eq!(status("reference-only"), json!("active"));
+        assert_eq!(status("pinned"), json!("pinned"));
+        assert_eq!(status("manual"), json!("active"));
+        assert!(state
+            .storage
+            .get("memory-index-rows", "index-cited")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            state
+                .storage
+                .get(knowledge_edges::COLLECTION, "edge-cited")
+                .unwrap()
+                .unwrap()["status"],
+            json!("invalidated")
         );
     }
 }
