@@ -190,7 +190,10 @@ pub(crate) fn search_messages(state: &AppState, body: Value) -> AppResult<Value>
     state.storage.visit_collection_rows("chats", &mut |chat| {
         let id = row_str(chat, "id");
         let chat_mode = row_str(chat, "mode");
+        // A chat shown inside another one (a fic's comment thread) opens from there, not from search.
+        let owned = !row_str(chat, "ownerChatId").trim().is_empty();
         if id.is_empty()
+            || owned
             || only_chat.is_some_and(|wanted| wanted != id)
             || mode.is_some_and(|wanted| wanted != chat_mode)
             || !SEARCHABLE_MODES.contains(&chat_mode)

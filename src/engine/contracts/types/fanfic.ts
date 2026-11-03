@@ -309,3 +309,15 @@ export interface FanficLedger {
   version: 1;
   entries: FanficLedgerEntry[];
 }
+
+/** A comment thread under one chapter, stored on the thread's own chat as `metadata.fanficComment`. */
+export interface FanficCommentThread {
+  version: 1;
+  ficChatId: string;
+  /** The chapter the thread is under: its message, so it follows the chapter through renumbering and rewrites. */
+  chapterMessageId: string;
+  /** The chapter's label when the thread started ("3", "3.5"), for when the chapter is gone. */
+  chapterLabel: string;
+  /** The text the first comment was on; a later rewrite of the chapter shows up as a different key. */
+  textKey: string;
+}

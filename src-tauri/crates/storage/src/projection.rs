@@ -305,6 +305,7 @@ impl<'de, 'a> Visitor<'de> for ProjectedRowWhereVisitor<'a> {
     {
         let mut object = Map::new();
         let mut matched_filter_count = 0usize;
+        let mut matched_null_filter_count = 0usize;
         let mut rejected = false;
         while let Some(key) = map.next_key::<String>()? {
             if let Some(expected) = self.filters.get(&key) {
@@ -315,6 +316,9 @@ impl<'de, 'a> Visitor<'de> for ProjectedRowWhereVisitor<'a> {
                     continue;
                 }
                 matched_filter_count += 1;
+                if expected.is_null() {
+                    matched_null_filter_count += 1;
+                }
                 if self.fields.contains(&key) {
                     object.insert(key, value);
                 }
@@ -341,8 +345,18 @@ impl<'de, 'a> Visitor<'de> for ProjectedRowWhereVisitor<'a> {
             object.insert(key, value);
         }
 
-        Ok((!rejected && matched_filter_count == self.filters.len())
-            .then_some(Value::Object(object)))
+        // A null filter also matches a row without that field (see row_matches_filters): every filter the row
+        // didn't carry must be a null one.
+        let null_filter_count = self
+            .filters
+            .values()
+            .filter(|value| value.is_null())
+            .count();
+        let absent_filter_count = self.filters.len() - matched_filter_count;
+        Ok(
+            (!rejected && absent_filter_count == null_filter_count - matched_null_filter_count)
+                .then_some(Value::Object(object)),
+        )
     }
 }
 pub(crate) struct ProjectedRowsWhereInVisitor<'a> {

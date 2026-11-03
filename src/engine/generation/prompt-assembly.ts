@@ -48,6 +48,11 @@ import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTim
 import { compactQuestProgressForContext } from "../shared/tracker-state/player-stats";
 import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
 import { fanficChapterLayout } from "../modes/fanfic/chapter-refs";
+import {
+  buildFanficCommentSegments,
+  loadFanficCommentContext,
+  type FanficCommentContext,
+} from "../modes/fanfic/comments";
 import { readFanficLedger, renderFanficLedgerForPrompt } from "../modes/fanfic/ledger";
 import { fanficLoreScanMessages } from "../modes/fanfic/lore";
 import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
@@ -1761,6 +1766,8 @@ function fallbackSystemPrompt(
     compactCharacterCards: boolean;
     conversationTargetId: string | null;
     focusedConversation: boolean;
+    /** Set for a fanfic chapter's comment thread: the author answers comments instead of writing. */
+    fanficComment: FanficCommentContext | null;
   },
 ): { content: string; contextSegments: NonNullable<ChatMLMessage["contextSegments"]> } {
   const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
@@ -1790,6 +1797,12 @@ function fallbackSystemPrompt(
     const retained = segments.filter((segment) => segment.content.trim().length > 0);
     return { content: retained.map((segment) => segment.content).join("\n\n"), contextSegments: retained };
   };
+
+  if (mode === "fanfic" && args.fanficComment) {
+    return finalize(
+      buildFanficCommentSegments(args.fanficComment).map((segment) => ({ ...segment, contextKind: "prompt" as const })),
+    );
+  }
 
   if (mode === "fanfic") {
     const state = readFanficState(meta);
@@ -4203,9 +4216,11 @@ export async function assembleGenerationPrompt(
     ...input,
     request: applyRecommendedPromptBudgetGuidance(input.request, chatMeta, recommendedProfile.promptBudgetGuidance),
   };
+  // A comment thread's history is its own comments; only a fic's chapters are relabelled as chapters.
+  const fanficComment = chatMode === "fanfic" ? await loadFanficCommentContext(storage, chatMeta) : null;
   if (reusableContext) {
     input = { ...input, storedMessages: reusableContext.storedMessages };
-  } else if (chatMode === "fanfic") {
+  } else if (chatMode === "fanfic" && !fanficComment) {
     input = {
       ...input,
       storedMessages: labelFanficChapterHistory(input.storedMessages, readFanficState(chatMeta)?.outline ?? null),
@@ -4685,6 +4700,7 @@ export async function assembleGenerationPrompt(
       compactCharacterCards: compactMergedRoleplayCards,
       conversationTargetId: targetedConversationCharacterId,
       focusedConversation: !!conversationFocus,
+      fanficComment,
     });
     messages.push({
       role: "system",

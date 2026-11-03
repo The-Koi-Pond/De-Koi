@@ -110,6 +110,7 @@ import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
+import { FanficComments } from "./FanficComments";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
@@ -1873,6 +1874,13 @@ export function FanficReader({
                 phraseBans={phraseBans}
               />
             </div>
+            <FanficComments
+              ficChatId={chatId}
+              chapterMessageId={chapter.message.id}
+              chapterLabel={ref.label}
+              chapterContent={chapter.message.content}
+              disabled={generating}
+            />
           </article>
         );
       })}

@@ -15,6 +15,8 @@ export type ChatListItem = Pick<Chat, ChatSummaryField> & {
 };
 
 const CHAT_SUMMARY_WAKEUP_REFETCH_INTERVAL_MS = 5_000;
+/** Chats that live inside another one (a fic's comment threads) open from there, never from the chat lists. */
+const UNOWNED_CHATS = { ownerChatId: null } as const;
 export const CHAT_SUMMARY_SESSION_STALE_TIME_MS = 5 * 60_000;
 const CHAT_SUMMARY_SESSION_GC_TIME_MS = 30 * 60_000;
 
@@ -38,6 +40,7 @@ export function useChatSummaries() {
         .list<ChatListItem>("chats", {
           fields: [...CHAT_SUMMARY_FIELDS],
           fieldSelections: { metadata: [...CHAT_SUMMARY_METADATA_FIELDS] },
+          filters: UNOWNED_CHATS,
         })
         .then((rows) => {
           markPerformanceMilestoneOnce("chat.summary-list.ready", { rowCount: rows.length });
@@ -58,6 +61,7 @@ export function useRecentChatSummaries(limit = 3) {
       storageApi.list<ChatListItem>("chats", {
         fields: [...CHAT_SUMMARY_FIELDS],
         fieldSelections: { metadata: [...CHAT_SUMMARY_METADATA_FIELDS] },
+        filters: UNOWNED_CHATS,
         orderBy: "updatedAt",
         descending: true,
         limit,

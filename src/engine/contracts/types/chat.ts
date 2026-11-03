@@ -48,6 +48,11 @@ export interface Chat {
   connectionId: string | null;
   /** ID of a linked chat (conversation ↔ roleplay bidirectional link) */
   connectedChatId: string | null;
+  /**
+   * The chat this one lives inside (a fanfic chapter's comment thread names its fic). Such a chat stays out of the
+   * chat lists and search, opens only from its owner, and is deleted with it.
+   */
+  ownerChatId?: string | null;
   /** Folder this chat belongs to (null = root/unfiled) */
   folderId: string | null;
   /** Manual sort order within a folder (lower = higher). 0 = use default updatedAt sort. */
@@ -429,6 +434,8 @@ export interface ChatMetadata {
   // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */
   fanfic?: import("./fanfic.js").FanficState | null;
+  /** On a fanfic chapter's comment thread (a chat owned by the fic): the chapter it is under. */
+  fanficComment?: import("./fanfic.js").FanficCommentThread;
 
   // ── Conversation-Mode Auto-Summarization ──
   /** Per-day auto-generated conversation summaries (key: "DD.MM.YYYY"). */
