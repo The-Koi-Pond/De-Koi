@@ -54,15 +54,6 @@
   opacity: 0.82;
 }
 
-.deki-pond-water-front::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border-top: 2px solid rgb(var(--ripple) / 0.35);
-  clip-path: inset(48% 0 0 0);
-}
-
 .deki-pond-ripple {
   position: absolute;
   left: 50%;
@@ -113,20 +104,22 @@
   transform: scaleX(-1);
 }
 
+/* Bubbles are sized from Deki too, so they stay in scale (and inside the
+   picture) once the chat has started and Deki is smaller. */
 .deki-pond-bubbles {
   position: absolute;
   z-index: 4;
   left: calc(50% + var(--deki-w) * 0.42);
   bottom: calc(var(--pond-h) * 0.42 + var(--deki-w) * 0.8);
-  width: 1.9rem;
-  height: 0.6rem;
+  width: calc(var(--deki-w) * 0.25);
+  height: calc(var(--deki-w) * 0.08);
 }
 
 .deki-pond-bubbles i {
   position: absolute;
   bottom: 0;
-  width: 0.55rem;
-  height: 0.55rem;
+  width: calc(var(--deki-w) * 0.073);
+  height: calc(var(--deki-w) * 0.073);
   border: 1.6px solid rgb(var(--ripple) / 0.75);
   border-radius: 50%;
   opacity: 0;
@@ -134,37 +127,29 @@
 }
 
 .deki-pond-bubbles i:nth-child(2) {
-  left: 0.7rem;
-  width: 0.38rem;
-  height: 0.38rem;
+  left: calc(var(--deki-w) * 0.093);
+  width: calc(var(--deki-w) * 0.05);
+  height: calc(var(--deki-w) * 0.05);
   animation-delay: 0.8s;
 }
 
 .deki-pond-bubbles i:nth-child(3) {
-  left: 0.25rem;
-  width: 0.45rem;
-  height: 0.45rem;
+  left: calc(var(--deki-w) * 0.033);
+  width: calc(var(--deki-w) * 0.06);
+  height: calc(var(--deki-w) * 0.06);
   animation-delay: 1.6s;
 }
 
-/* Waiting for an answer: a slow sway, quicker ripples. */
+/* Waiting for an answer: a slow sway. (The ripples keep one speed in every
+   mood, so they don't skip when the mood changes.) */
 .deki-pond-scene-thinking .deki-pond-deki img {
   animation: deki-pond-think 4.8s ease-in-out infinite;
 }
 
-/* An answer just arrived: one happy hop. */
+/* An answer just arrived: one happy hop. Its length comes from
+   DEKI_HAPPY_HOP_MS in deki-scene.ts, which also ends the mood. */
 .deki-pond-scene-happy .deki-pond-deki img {
-  animation: deki-pond-hop 2.1s ease-in-out 1;
-}
-
-.deki-pond-scene-thinking .deki-pond-ripple,
-.deki-pond-scene-happy .deki-pond-ripple {
-  animation-duration: 2.6s;
-}
-
-.deki-pond-scene-thinking .deki-pond-ripple-late,
-.deki-pond-scene-happy .deki-pond-ripple-late {
-  animation-delay: -1.3s;
+  animation: deki-pond-hop var(--deki-hop, 2.1s) ease-in-out 1;
 }
 
 @media (max-width: 640px) {
@@ -257,6 +242,6 @@
   }
   100% {
     opacity: 0;
-    transform: translateY(-4.4rem) scale(1.1);
+    transform: translateY(calc(var(--deki-w) * -0.58)) scale(1.1);
   }
 }

@@ -1,5 +1,5 @@
 import "../../../../styles/globals/08-deki-pond.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -717,7 +717,7 @@ export function DekiSurface({
           DEKI_CHARACTER_ID,
           {
             name: "Deki-senpai",
-            avatarUrl: DEKI_AVATAR_URL[theme === "light" ? "light" : "dark"],
+            avatarUrl: DEKI_AVATAR_URL[theme],
             conversationStatus: "online",
           },
         ],
@@ -758,17 +758,31 @@ export function DekiSurface({
     );
     return currentApprovals.pending.filter((approval) => !claimed.has(approval.id));
   }, [currentApprovals, messages]);
-  // One happy hop when an answer arrives: `sending` going from true to false.
+  // One happy hop when the chat on screen gets a saved reply from Deki (not
+  // when a send fails, is stopped, or the user switches chats mid-answer).
   const [justReplied, setJustReplied] = useState(false);
-  const wasSendingRef = useRef(sending);
-  useEffect(() => {
-    const finished = wasSendingRef.current && !sending;
-    wasSendingRef.current = sending;
-    if (!finished) return;
+  const hopTimerRef = useRef<number | null>(null);
+  const stopHop = () => {
+    if (hopTimerRef.current !== null) window.clearTimeout(hopTimerRef.current);
+    hopTimerRef.current = null;
+  };
+  const showSavedReply = (messagesWithAssistant: DekiMessage[]) => {
+    setMessages(messagesWithAssistant);
+    stopHop();
     setJustReplied(true);
-    const timer = window.setTimeout(() => setJustReplied(false), DEKI_HAPPY_HOP_MS);
-    return () => window.clearTimeout(timer);
-  }, [sending]);
+    hopTimerRef.current = window.setTimeout(() => {
+      hopTimerRef.current = null;
+      setJustReplied(false);
+    }, DEKI_HAPPY_HOP_MS);
+  };
+  // Stop the hop when switching chats or closing Deki-senpai.
+  useEffect(() => {
+    setJustReplied(false);
+    return () => {
+      if (hopTimerRef.current !== null) window.clearTimeout(hopTimerRef.current);
+      hopTimerRef.current = null;
+    };
+  }, [sessionId]);
   const dekiSceneMood = getDekiSceneMood({ sending, justReplied });
   const dekiHeroState = !historyLoaded ? "loading" : messages.length > 0 ? "compact" : "welcome";
 
@@ -1182,7 +1196,7 @@ export function DekiSurface({
           if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
         onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-          if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+          if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
           void onSessionsChanged?.();
           onAssistantMessagePersisted?.(assistant);
         },
@@ -1282,7 +1296,7 @@ export function DekiSurface({
           if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
         onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-          if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+          if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
           void onSessionsChanged?.();
           onAssistantMessagePersisted?.(assistant);
         },
@@ -1374,7 +1388,7 @@ export function DekiSurface({
             if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
           onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-            if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+            if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
             void onSessionsChanged?.();
             onAssistantMessagePersisted?.(assistant);
           },
@@ -1453,7 +1467,7 @@ export function DekiSurface({
             if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
           onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-            if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+            if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
             void onSessionsChanged?.();
             onAssistantMessagePersisted?.(assistant);
           },
@@ -2273,7 +2287,10 @@ function DekiLoadingState() {
 /** Deki sitting in a little pond: the front half of the water is drawn over Deki's base. */
 function DekiPondScene({ mood }: { mood: DekiSceneMood }) {
   return (
-    <div className={cn("deki-pond-scene", `deki-pond-scene-${mood}`)} data-mood={mood}>
+    <div
+      className={cn("deki-pond-scene", `deki-pond-scene-${mood}`)}
+      style={{ "--deki-hop": `${DEKI_HAPPY_HOP_MS}ms` } as CSSProperties}
+    >
       <div className="deki-pond-water" aria-hidden />
       <span className="deki-pond-ripple" aria-hidden />
       <span className="deki-pond-ripple deki-pond-ripple-late" aria-hidden />
