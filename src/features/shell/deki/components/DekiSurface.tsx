@@ -1,5 +1,5 @@
 import "../../../../styles/globals/08-deki-pond.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -59,14 +59,16 @@ import {
   reduceDekiLiveActivity,
   type DekiLiveActivity,
 } from "../lib/deki-workspace-activity";
-import { DEKI_SCENE_POSES, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
+import { DEKI_HAPPY_HOP_MS, getDekiSceneMood, type DekiSceneMood } from "../lib/deki-scene";
 import { createDekiActionDiffRows, type DekiActionDiffRow } from "../lib/deki-action-diff";
 import { orderDekiDiffRowsForReading } from "../lib/deki-diff-presentation";
 import { DekiActionDiffRowView } from "./DekiDiffRows";
 import { DekiDataApprovalCard, type DekiApprovalAvailability } from "./DekiDataApprovalCard";
 import { DekiLiveActivityPanel, DekiTraceDisclosure } from "./DekiWorkspaceActivity";
 
-const DEKI_AVATAR_URL = "/koi-mark.svg";
+// Deki's face on a disc of pond water; the water matches De-Koi's theme.
+// Built by branding/deki/build_deki_avatar.py.
+const DEKI_AVATAR_URL = { light: "/deki-avatar.svg", dark: "/deki-avatar-dark.svg" } as const;
 const DEKI_CHARACTER_ID = "__deki_shell__";
 const DEKI_WELCOME_CONTENT =
   "Howdy, welcome to De-Koi!\n\nThe pond is calm, and I'm Deki-senpai. Feeling a little lost? It's not a skill issue yet! Ask me anything about how the app works, or have me edit it to fit what you need. Am I not the best? 😎";
@@ -715,12 +717,12 @@ export function DekiSurface({
           DEKI_CHARACTER_ID,
           {
             name: "Deki-senpai",
-            avatarUrl: DEKI_AVATAR_URL,
+            avatarUrl: DEKI_AVATAR_URL[theme],
             conversationStatus: "online",
           },
         ],
       ]),
-    [],
+    [theme],
   );
   const personaInfo: PersonaInfo | undefined = useMemo(() => {
     if (!selectedPersona) return undefined;
@@ -756,7 +758,32 @@ export function DekiSurface({
     );
     return currentApprovals.pending.filter((approval) => !claimed.has(approval.id));
   }, [currentApprovals, messages]);
-  const dekiSceneMood = getDekiSceneMood({ historyLoaded, sending });
+  // One happy hop when the chat on screen gets a saved reply from Deki (not
+  // when a send fails, is stopped, or the user switches chats mid-answer).
+  const [justReplied, setJustReplied] = useState(false);
+  const hopTimerRef = useRef<number | null>(null);
+  const stopHop = () => {
+    if (hopTimerRef.current !== null) window.clearTimeout(hopTimerRef.current);
+    hopTimerRef.current = null;
+  };
+  const showSavedReply = (messagesWithAssistant: DekiMessage[]) => {
+    setMessages(messagesWithAssistant);
+    stopHop();
+    setJustReplied(true);
+    hopTimerRef.current = window.setTimeout(() => {
+      hopTimerRef.current = null;
+      setJustReplied(false);
+    }, DEKI_HAPPY_HOP_MS);
+  };
+  // Stop the hop when switching chats or closing Deki-senpai.
+  useEffect(() => {
+    setJustReplied(false);
+    return () => {
+      if (hopTimerRef.current !== null) window.clearTimeout(hopTimerRef.current);
+      hopTimerRef.current = null;
+    };
+  }, [sessionId]);
+  const dekiSceneMood = getDekiSceneMood({ sending, justReplied });
   const dekiHeroState = !historyLoaded ? "loading" : messages.length > 0 ? "compact" : "welcome";
 
   const refreshWorkspaceApprovals = useCallback(async (targetSessionId: string | null) => {
@@ -1169,7 +1196,7 @@ export function DekiSurface({
           if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
         onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-          if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+          if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
           void onSessionsChanged?.();
           onAssistantMessagePersisted?.(assistant);
         },
@@ -1269,7 +1296,7 @@ export function DekiSurface({
           if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
         },
         onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-          if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+          if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
           void onSessionsChanged?.();
           onAssistantMessagePersisted?.(assistant);
         },
@@ -1361,7 +1388,7 @@ export function DekiSurface({
             if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
           onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-            if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+            if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
             void onSessionsChanged?.();
             onAssistantMessagePersisted?.(assistant);
           },
@@ -1440,7 +1467,7 @@ export function DekiSurface({
             if (isVisibleSession(sessionId)) setCompaction(nextCompaction);
           },
           onAssistantMessagePersisted: (assistant, messagesWithAssistant) => {
-            if (isVisibleSession(sessionId)) setMessages(messagesWithAssistant);
+            if (isVisibleSession(sessionId)) showSavedReply(messagesWithAssistant);
             void onSessionsChanged?.();
             onAssistantMessagePersisted?.(assistant);
           },
@@ -2257,20 +2284,29 @@ function DekiLoadingState() {
   );
 }
 
+/** Deki sitting in a little pond: the front half of the water is drawn over Deki's base. */
 function DekiPondScene({ mood }: { mood: DekiSceneMood }) {
-  const poseUrl = DEKI_SCENE_POSES[mood];
-
   return (
-    <div className={cn("deki-pond-scene", `deki-pond-scene-${mood}`)}>
-      <div className="deki-pond-aura" aria-hidden />
-      <div className="deki-pond-water" aria-hidden>
-        <span className="deki-pond-ripple deki-pond-ripple-one" />
-        <span className="deki-pond-ripple deki-pond-ripple-two" />
-        <span className="deki-pond-ripple deki-pond-ripple-three" />
+    <div
+      className={cn("deki-pond-scene", `deki-pond-scene-${mood}`)}
+      style={{ "--deki-hop": `${DEKI_HAPPY_HOP_MS}ms` } as CSSProperties}
+    >
+      <div className="deki-pond-water" aria-hidden />
+      <span className="deki-pond-ripple" aria-hidden />
+      <span className="deki-pond-ripple deki-pond-ripple-late" aria-hidden />
+      <div className="deki-pond-deki">
+        <img src="/deki.svg" alt="Deki-senpai" draggable={false} />
       </div>
-      <div className="deki-pond-lilypad deki-pond-lilypad-left" aria-hidden />
-      <div className="deki-pond-lilypad deki-pond-lilypad-right" aria-hidden />
-      <img src={poseUrl} alt="Koi fish" className="deki-pond-sprite" draggable={false} />
+      <div className="deki-pond-water deki-pond-water-front" aria-hidden />
+      <img src="/deki-lily-pad.svg" alt="" className="deki-pond-lily deki-pond-lily-left" draggable={false} />
+      <img src="/deki-lily-pad.svg" alt="" className="deki-pond-lily deki-pond-lily-right" draggable={false} />
+      {mood === "thinking" && (
+        <div className="deki-pond-bubbles" aria-hidden>
+          <i />
+          <i />
+          <i />
+        </div>
+      )}
     </div>
   );
 }

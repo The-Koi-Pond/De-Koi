@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" role="img" aria-label="Water lily pad">
+<title>Water lily pad</title>
+<!-- A flat lily pad seen at a slant, in Deki's colours: jade with Deki's
+     brown outline. The viewBox leaves room for the outline so nothing is
+     cut off. -->
+<path d="M32 16 L58.4 13.7 A27 11 0 1 1 52.7 8.9 Z" fill="#a1cdc1" stroke="#623a2d" stroke-width="2" stroke-linejoin="round"/>
+<path d="M32 16 L12.5 12 M32 16 L15 22 M32 16 L33.5 25 M32 16 L49 22.5" fill="none" stroke="#7fb3a8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M14 9.5 A24 8.5 0 0 1 30 6.4" fill="none" stroke="#fef6ed" stroke-opacity="0.55" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
-const DEKI_WORKING_MARK_URL = "/koi-mark.svg";
-const DEKI_WORKING_MARK_FALLBACK_URL = "/koi-mark-192.png";
+const DEKI_URL = "/deki.svg";
 
 interface DekiWorkingWindowProps {
   visible: boolean;
@@ -12,13 +11,11 @@ interface DekiWorkingWindowProps {
 
 export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps) {
   const [dismissed, setDismissed] = useState(false);
-  const [imageSrc, setImageSrc] = useState(DEKI_WORKING_MARK_URL);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setDismissed(false);
-      setImageSrc(DEKI_WORKING_MARK_URL);
       setImageFailed(false);
     }
   }, [visible]);
@@ -45,16 +42,10 @@ export function DekiWorkingWindow({ visible, className }: DekiWorkingWindowProps
       <div className="flex flex-col items-center gap-3 px-4 pb-4 pt-5 text-center">
         {!imageFailed && (
           <img
-            src={imageSrc}
-            alt="Koi mark"
-            className="h-28 w-28 object-contain [image-rendering:pixelated]"
-            onError={() => {
-              if (imageSrc === DEKI_WORKING_MARK_URL) {
-                setImageSrc(DEKI_WORKING_MARK_FALLBACK_URL);
-                return;
-              }
-              setImageFailed(true);
-            }}
+            src={DEKI_URL}
+            alt="Deki-senpai"
+            className="h-24 w-24 object-contain"
+            onError={() => setImageFailed(true)}
           />
         )}
         <p className="text-xs font-medium leading-relaxed">Deki-senpai is working...</p>

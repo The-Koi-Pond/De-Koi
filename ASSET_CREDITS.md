@@ -11,6 +11,11 @@ built from them under `public/` (`favicon.svg`, `favicon.png`,
 `icon-512.png` and `icon-maskable-512.png`) and in `src-tauri/icons/`, and
 `koi-mark.svg`.
 
+Deki, The Koi Pond's mascot, is also the team's own: `public/deki.svg` (a copy
+of the studio website's `deki.svg`), the avatars built from it by
+`branding/deki/build_deki_avatar.py` (`deki-avatar.svg`,
+`deki-avatar-dark.svg`) and `deki-lily-pad.svg`.
+
 Unless a more specific file or directory notice says otherwise, these assets are
 distributed with De-Koi under the same project terms as the rest of this
 repository.

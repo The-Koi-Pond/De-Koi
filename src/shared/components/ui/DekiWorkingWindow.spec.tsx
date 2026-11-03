@@ -28,7 +28,7 @@ describe("DekiWorkingWindow", () => {
     container = null;
   });
 
-  it("uses the koi mark instead of retired mascot art", async () => {
+  it("shows Deki instead of retired mascot art", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
 
@@ -38,11 +38,11 @@ describe("DekiWorkingWindow", () => {
     });
 
     const image = container.querySelector<HTMLImageElement>("img");
-    expect(image?.getAttribute("src")).toBe("/koi-mark.svg");
+    expect(image?.getAttribute("src")).toBe("/deki.svg");
     expect(container.textContent).not.toMatch(/Dottore|Professor Mari/i);
   });
 
-  it("falls back to a koi PNG when the SVG mark fails", async () => {
+  it("drops the picture but keeps the message when Deki fails to load", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
 
@@ -51,13 +51,11 @@ describe("DekiWorkingWindow", () => {
       root.render(<DekiWorkingWindow visible />);
     });
 
-    const image = container.querySelector<HTMLImageElement>("img");
-    expect(image?.getAttribute("src")).toBe("/koi-mark.svg");
-
     await act(async () => {
-      image?.dispatchEvent(new Event("error", { bubbles: true }));
+      container?.querySelector("img")?.dispatchEvent(new Event("error", { bubbles: true }));
     });
 
-    expect(container.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe("/koi-mark-192.png");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("Deki-senpai is working...");
   });
 });

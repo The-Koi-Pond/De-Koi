@@ -13,6 +13,8 @@ describe("Deki compact hero CSS", () => {
   it("reduces desktop hero height and pond width after persisted history", () => {
     expect(rule('.deki-hero[data-state="compact"]')).toMatch(/min-height:\s*clamp\([^)]*,\s*[^,]*,\s*9rem\)/);
     expect(rule('.deki-hero[data-state="compact"] .deki-pond-scene')).toContain("14rem");
+    // Deki (and the pond and scene height with them) are sized from --deki-w.
+    expect(rule('.deki-hero[data-state="compact"] .deki-pond-scene')).toMatch(/--deki-w:\s*4\.5rem/);
   });
 
   it("reduces mobile hero height and pond width after persisted history", () => {
@@ -21,6 +23,9 @@ describe("Deki compact hero CSS", () => {
     );
     expect(css).toMatch(
       /@media \(max-width: 640px\)[\s\S]*?\.deki-hero\[data-state="compact"\] \.deki-pond-scene\s*\{[^}]*12rem/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 640px\)[\s\S]*?\.deki-hero\[data-state="compact"\] \.deki-pond-scene\s*\{[^}]*--deki-w:\s*4rem/,
     );
   });
 });
