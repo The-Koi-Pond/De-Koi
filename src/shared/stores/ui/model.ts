@@ -20,7 +20,7 @@ export type Panel =
   | "help"
   | "bot-browser";
 export type FontSize = 12 | 14 | 16 | 17 | 19 | 22;
-export type VisualTheme = "default" | "sillytavern";
+export type VisualTheme = "default" | "sillytavern" | "pond";
 export type HudPosition = "top" | "left" | "right";
 export type TrackerPanelSide = "left" | "right";
 export type TrackerThoughtBubbleDisplay = "inline" | "floating";

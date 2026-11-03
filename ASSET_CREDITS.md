@@ -16,6 +16,11 @@ of the studio website's `deki.svg`), the avatars built from it by
 `branding/deki/build_deki_avatar.py` (`deki-avatar.svg`,
 `deki-avatar-dark.svg`) and `deki-lily-pad.svg`.
 
+Pond Pebbles, The Koi Pond's own display font, is the team's as well:
+`public/fonts/PondPebbles.woff2` is a copy of the font built for the studio
+website from the team's drawn letter sheets. The Pond visual theme uses it for
+the app name and big panel titles.
+
 Unless a more specific file or directory notice says otherwise, these assets are
 distributed with De-Koi under the same project terms as the rest of this
 repository.
