@@ -118,13 +118,16 @@ pub(crate) fn approximate_json_bytes(value: &Value) -> usize {
     }
 }
 
+/// Each filter must equal the row's field. A null filter also matches a row without that field, so
+/// `{ "ownerChatId": null }` selects every chat that has no owner, including those saved before the field existed.
 pub(crate) fn row_matches_filters(row: &Value, filters: &Map<String, Value>) -> bool {
     let Some(object) = row.as_object() else {
         return false;
     };
-    filters
-        .iter()
-        .all(|(key, expected)| object.get(key) == Some(expected))
+    filters.iter().all(|(key, expected)| match object.get(key) {
+        Some(value) => value == expected,
+        None => expected.is_null(),
+    })
 }
 
 pub(crate) fn row_string_field_matches_in(

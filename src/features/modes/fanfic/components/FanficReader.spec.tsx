@@ -47,6 +47,7 @@ vi.mock("../../../catalog/connections/index", () => ({ HelperRunNote: () => null
 vi.mock("../../../runtime/generation/index", () => ({ GenerationFailureNotice: () => null }));
 vi.mock("./FanficConnectionSelect", () => ({ FanficReaderConnectionSelect: () => <span data-model-control="" /> }));
 vi.mock("./FanficQualityPanel", () => ({ FanficQualityPanel: () => null }));
+vi.mock("./FanficComments", () => ({ FanficComments: () => null }));
 vi.mock("../../../../shared/api/file-save-api", () => ({ saveTextFileToUserSelectedLocation: vi.fn() }));
 vi.mock("../../../../shared/lib/app-dialogs", () => ({ showConfirmDialog: confirm }));
 vi.mock("../hooks/use-fanfic", () => ({

@@ -9328,6 +9328,56 @@ mod tests {
 
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn null_filter_matches_rows_without_the_field_on_every_read_path() {
+        let root = temp_storage_root("null-filter-missing-field");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![
+                    json!({ "id": "old", "name": "Saved before the field existed" }),
+                    json!({ "id": "plain", "name": "Plain", "ownerChatId": null }),
+                    json!({ "id": "thread", "name": "Thread", "ownerChatId": "fic" }),
+                ],
+            )
+            .unwrap();
+        storage.flush().expect("rows should flush to disk");
+        let filters = Map::from_iter([("ownerChatId".to_string(), Value::Null)]);
+        let fields = vec!["id".to_string()];
+        let ids = |rows: Vec<Value>| {
+            rows.iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+                .collect::<Vec<_>>()
+        };
+        let unowned = vec!["old".to_string(), "plain".to_string()];
+
+        assert_eq!(ids(storage.list_where("chats", &filters).unwrap()), unowned);
+        assert_eq!(
+            ids(storage
+                .list_projected_where("chats", &filters, &fields, &Map::new())
+                .unwrap()),
+            unowned
+        );
+        // A cold instance streams the file through the projection visitor instead of the row cache.
+        let cold = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            ids(cold
+                .list_projected_where("chats", &filters, &fields, &Map::new())
+                .unwrap()),
+            unowned
+        );
+        let owned = Map::from_iter([("ownerChatId".to_string(), json!("fic"))]);
+        assert_eq!(
+            ids(cold
+                .list_projected_where("chats", &owned, &fields, &Map::new())
+                .unwrap()),
+            vec!["thread".to_string()]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn list_projected_where_in_streams_legacy_sidecar_rows() {
         let root = temp_storage_root("list-projected-where-in");

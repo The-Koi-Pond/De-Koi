@@ -71,7 +71,7 @@ export function renderFanficRequestForPrompt(request: FanficRequest): string {
   return lines.join("\n");
 }
 
-function renderFanficOutline(outline: FanficOutline): string {
+export function renderFanficOutline(outline: FanficOutline): string {
   return [
     `Title: ${outline.title}`,
     outline.summary ? `Summary: ${outline.summary}` : "",

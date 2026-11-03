@@ -2050,7 +2050,8 @@ pub(crate) fn delete_chat_with_messages(state: &AppState, chat_id: &str) -> AppR
     delete_chats_with_messages(state, &[chat_id.to_string()])
 }
 
-/// Deletes chats, their owned scene chats, and the records they own. Steps that rewrite
+/// Deletes chats, their owned scene chats, the chats shown inside them (a fic's comment
+/// threads, which name it as `ownerChatId`), and the records they own. Steps that rewrite
 /// a whole collection (messages and swipes above all) run once for the batch, not once
 /// per chat, which is what made deleting many chats slow on large data sets.
 pub(crate) fn delete_chats_with_messages(
@@ -2074,6 +2075,7 @@ pub(crate) fn delete_chats_with_messages(
         clear_character_scene_memories(state, &owned_scene_chat_ids)?;
         clear_deleted_scene_references(state, chat_id, &owned_scene_chat_ids)?;
         delete_ids.extend(owned_scene_chat_ids);
+        delete_ids.extend(owned_chat_ids(state, chat_id)?);
         delete_ids.insert(chat_id.clone());
     }
     if delete_ids.is_empty() {
@@ -2103,6 +2105,20 @@ pub(crate) fn delete_chats_with_messages(
             .is_some_and(|id| delete_id_set.contains(id))
     })?;
     Ok(delete_ids)
+}
+
+/// Chats that live inside another chat and go when it goes: a fanfic chapter's comment threads.
+fn owned_chat_ids(state: &AppState, owner_chat_id: &str) -> AppResult<Vec<String>> {
+    let filters = Map::from_iter([(
+        "ownerChatId".to_string(),
+        Value::String(owner_chat_id.to_string()),
+    )]);
+    Ok(state
+        .storage
+        .list_where("chats", &filters)?
+        .iter()
+        .filter_map(|chat| string_field(chat, "id"))
+        .collect())
 }
 
 /// Background work queued per chat (memory jobs, Director refreshes). Once the chat is gone these jobs can only fail against its
@@ -3555,6 +3571,44 @@ mod tests {
             ids(message_swipe_storage::COLLECTION),
             vec!["chat-keep-s1".to_string()]
         );
+    }
+
+    #[test]
+    fn deleting_a_chat_deletes_the_chats_it_owns_and_their_messages() {
+        let state = test_state("owned-chat-delete");
+        for chat in [
+            json!({ "id": "fic", "name": "Fic", "mode": "fanfic" }),
+            json!({ "id": "thread", "name": "Comments", "mode": "fanfic", "ownerChatId": "fic" }),
+            json!({ "id": "other-thread", "name": "Comments", "mode": "fanfic", "ownerChatId": "other-fic" }),
+        ] {
+            let id = chat["id"].as_str().unwrap().to_string();
+            state
+                .storage
+                .create("chats", chat)
+                .expect("chat should be created");
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({ "id": format!("{id}-m1"), "chatId": id, "role": "user", "content": "hi" }),
+                )
+                .expect("message should be created");
+        }
+
+        let deleted = delete_chat_with_messages(&state, "fic").expect("delete should succeed");
+
+        assert_eq!(deleted, vec!["fic".to_string(), "thread".to_string()]);
+        let ids = |collection: &str| {
+            state
+                .storage
+                .list(collection)
+                .expect("collection should list")
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("chats"), vec!["other-thread".to_string()]);
+        assert_eq!(ids("messages"), vec!["other-thread-m1".to_string()]);
     }
 
     #[test]
