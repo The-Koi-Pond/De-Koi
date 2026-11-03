@@ -6,12 +6,14 @@
 // and its history is only its own comments. The ordinary chat reply pipeline answers it (streaming, Stop, redo with
 // versions, the hosted runner); prompt assembly swaps the author's writing prompt for the comment prompt built here,
 // read fresh from the fic on every reply.
+import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
 import type { FanficCommentThread, FanficState } from "../../contracts/types/fanfic";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { userFacingError } from "../../shared/user-facing-error";
 import { fanficCanonLine, fanficChapterLayout } from "./chapter-refs";
 import { fanficChapterTextKey, readFanficLedger, renderFanficLedgerForPrompt } from "./ledger";
+import { cleanFanficReply, FANFIC_NO_CONNECTION, loadFanficConnection, untilAborted } from "./llm-json";
 import {
   fanficContentRules,
   renderFanficOutline,
@@ -165,12 +167,11 @@ function writtenSection(context: FanficCommentContext): string {
   ].join("\n");
 }
 
-/** The comment thread's system prompt, in place of the author's writing prompt. */
-export function buildFanficCommentSegments(context: FanficCommentContext): FanficPromptSegment[] {
+/** What the fic is, as it is now: everything a comment thread's prompts read besides their own instructions. */
+function ficSegments(context: FanficCommentContext): FanficPromptSegment[] {
   const { request, outline } = context.state;
   const canon = fanficCanonLine(fanficChapterLayout(context.ficMessages));
   return [
-    { displayName: "Fanfic Author Comments", content: AUTHOR_RULES },
     // Markdown headings, not XML tags: a common outgoing-prompt regex ("Clean HTML") strips tags.
     { displayName: "Content Rules", content: `## Content rules\n${fanficContentRules(request)}` },
     { displayName: "Request", content: `## The request\n${renderFanficRequestForPrompt(request)}` },
@@ -180,4 +181,149 @@ export function buildFanficCommentSegments(context: FanficCommentContext): Fanfi
     { displayName: "Voice Sheets", content: renderFanficVoiceSheets(context.state.voices) },
     { displayName: "Commented Chapter", content: chapterSection(context) },
   ].filter((segment) => segment.content.trim().length > 0);
+}
+
+/** The comment thread's system prompt, in place of the author's writing prompt. */
+export function buildFanficCommentSegments(context: FanficCommentContext): FanficPromptSegment[] {
+  return [{ displayName: "Fanfic Author Comments", content: AUTHOR_RULES }, ...ficSegments(context)];
+}
+
+/** What a thread's notes are for: rewriting the chapter it is under, or re-planning the chapters not written yet. */
+export type FanficCommentUse = "rewrite" | "replan";
+
+/** The re-plan steer's own cap (plan.ts); rewrite notes use the same, so the notes fit either box. */
+export const FANFIC_COMMENT_NOTES_MAX_CHARS = 1500;
+const NOTES_MAX_TOKENS = 1200;
+/** The newest comments that fit; a long thread's opening is the least likely to hold what was settled. */
+const TRANSCRIPT_MAX_CHARS = 40_000;
+/** The model's answer when the thread never landed on a change. */
+const NO_CHANGE = "NO CHANGE";
+
+function threadTranscript(messages: readonly JsonRecord[]): string {
+  const lines: string[] = [];
+  let used = 0;
+  for (const message of [...messages].reverse()) {
+    const line = `${message.role === "assistant" ? "The author" : "The reader"}: ${readString(message.content).trim()}`;
+    if (used + line.length > TRANSCRIPT_MAX_CHARS && lines.length > 0) break;
+    lines.unshift(line);
+    used += line.length;
+  }
+  return lines.join("\n\n");
+}
+
+function chapterName(context: FanficCommentContext): string {
+  const chapter = fanficChapterLayout(context.ficMessages).chapters.find(
+    (entry) => entry.messageId === context.thread.chapterMessageId,
+  );
+  return `chapter ${chapter?.label ?? context.thread.chapterLabel}`;
+}
+
+/** The chapters a re-plan would change: the outline's unwritten ones, or the next one once the outline is used up. */
+export function fanficReplanScope(state: FanficState, written: number): string {
+  const total = state.outline?.chapters.length ?? 0;
+  if (written >= total) return "the next chapter";
+  return written + 1 === total ? `chapter ${total}` : `chapters ${written + 1} to ${total}`;
+}
+
+function notesTask(use: FanficCommentUse, context: FanficCommentContext): string {
+  const settled = [
+    "Use what the reader and the author settled on in the thread. If they never settled, use the option the reader leaned toward most recently; if the reader never leaned either way, the author's own pick. Leave out options that were turned down.",
+    `If the thread never got to any change (only praise, or questions with no answer yet), reply with exactly ${NO_CHANGE}.`,
+    `Write short plain lines addressed to the writer, at most ${FANFIC_COMMENT_NOTES_MAX_CHARS - 300} characters in all, with nothing before or after them: no heading, no quotes, no sign-off.`,
+  ];
+  if (use === "rewrite") {
+    return [
+      `Turn the comment thread above into the notes for rewriting ${chapterName(context)}: what this chapter should change and how, concretely enough for the writer to rewrite it without reading the thread.`,
+      "Only what changes in this chapter. Mention a later chapter only where this one has to set something up for it.",
+      ...settled,
+    ].join("\n");
+  }
+  const scope = fanficReplanScope(context.state, fanficChapterLayout(context.ficMessages).mains.length);
+  return [
+    `Turn the comment thread above into a steer for re-planning ${scope}: the direction the rest of the story should take, and what it has to keep, so a planner can rework the outline without reading the thread.`,
+    "Chapters already written stay as they are, so only steer what comes next.",
+    ...settled,
+  ].join("\n");
+}
+
+/** The prompt that turns a thread into notes, from the fic as it is now. */
+function buildFanficCommentNotesMessages(
+  context: FanficCommentContext,
+  threadMessages: readonly JsonRecord[],
+  use: FanficCommentUse,
+): LlmMessage[] {
+  const system = [
+    "You are the author of this fanfic. The reader who requested it talked one of its chapters over with you in the chapter's comments, and now wants to act on that conversation.",
+    ...ficSegments(context).map((segment) => segment.content),
+  ].join("\n\n");
+  const task = `## The comment thread\n${threadTranscript(threadMessages)}\n\n## What to write\n${notesTask(use, context)}`;
+  return [
+    { role: "system", content: system },
+    { role: "user", content: task },
+  ];
+}
+
+/** Trims a long reply at a line break under the cap. */
+function capNotes(text: string): string {
+  if (text.length <= FANFIC_COMMENT_NOTES_MAX_CHARS) return text;
+  const cut = text.slice(0, FANFIC_COMMENT_NOTES_MAX_CHARS);
+  const lineEnd = cut.lastIndexOf("\n");
+  return (lineEnd > FANFIC_COMMENT_NOTES_MAX_CHARS / 2 ? cut.slice(0, lineEnd) : cut).trim();
+}
+
+/** The thread's comments in order, as saved (the version of each reply that is showing). */
+async function threadMessages(storage: StorageGateway, threadChatId: string): Promise<JsonRecord[]> {
+  return (await storage.listChatMessages<JsonRecord>(threadChatId))
+    .filter(isRecord)
+    .filter(
+      (message) => (message.role === "user" || message.role === "assistant") && readString(message.content).trim(),
+    )
+    .sort((a, b) => readString(a.createdAt).localeCompare(readString(b.createdAt)));
+}
+
+/** The thread's own model, like its replies; the fic's model when that connection was deleted since. */
+async function notesConnectionId(storage: StorageGateway, thread: JsonRecord, ficChatId: string): Promise<string> {
+  const fic = await storage.get<JsonRecord>("chats", ficChatId);
+  for (const candidate of [readString(thread.connectionId).trim(), readString(fic?.connectionId).trim()]) {
+    if (candidate && (await loadFanficConnection(storage, candidate))) return candidate;
+  }
+  throw userFacingError(FANFIC_NO_CONNECTION);
+}
+
+/**
+ * Drafts notes from a comment thread for the chapter's rewrite or for a re-plan, on the thread's own model. The
+ * requester reads and edits them before anything is written; this changes nothing by itself.
+ */
+export async function draftFanficCommentNotes(
+  deps: { storage: StorageGateway; llm: LlmGateway },
+  input: { threadChatId: string; use: FanficCommentUse },
+  options: { signal?: AbortSignal } = {},
+): Promise<string> {
+  const chat = await deps.storage.get<JsonRecord>("chats", input.threadChatId);
+  const context = isRecord(chat) ? await loadFanficCommentContext(deps.storage, chat.metadata) : null;
+  if (!isRecord(chat) || !context) throw userFacingError("That comment thread is no longer here.");
+  const messages = await threadMessages(deps.storage, input.threadChatId);
+  if (!messages.some((message) => message.role === "assistant")) {
+    throw userFacingError("Wait for the author's reply before using the thread.");
+  }
+  const connectionId = await notesConnectionId(deps.storage, chat, context.thread.ficChatId);
+  const raw = await untilAborted(
+    deps.llm.complete(
+      {
+        connectionId,
+        messages: buildFanficCommentNotesMessages(context, messages, input.use),
+        parameters: { maxTokens: NOTES_MAX_TOKENS, temperature: 0 },
+      },
+      options.signal,
+    ),
+    options.signal,
+  );
+  const notes = cleanFanficReply(raw).trim();
+  if (!notes) throw userFacingError("The author didn't write any notes. Try again.");
+  if (notes.replace(/[.\s]+$/, "").toUpperCase() === NO_CHANGE) {
+    throw userFacingError(
+      "This thread hasn't landed on a change yet. Talk it through a little more, or write the notes yourself.",
+    );
+  }
+  return capNotes(notes);
 }
