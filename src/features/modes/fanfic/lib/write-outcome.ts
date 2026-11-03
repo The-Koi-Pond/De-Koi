@@ -35,9 +35,19 @@ export function trackFanficWriteFinished(events: AsyncGenerator<StreamEvent>): {
 }
 
 /**
- * What runs once a chapter is finished, whichever way it got there, besides the ledger update every chapter gets: the
- * phrase bans for that chapter, and for a chapter written as a new chapter a re-plan of the rest, as after any new one.
+ * What runs in the reader once a chapter is finished, whichever way it got there: the phrase bans for that chapter and
+ * the ledger update, and for a chapter written as a new chapter a re-plan of the rest, as after any new one. While its
+ * auto-polish comes next, the bans and the ledger wait for the polished text; the polish itself proposes no re-plan,
+ * since the chapter it polished already did.
  */
-export function fanficFollowUps(chapter: FanficFinishedChapter): { phraseBansFor: string; proposePlan: boolean } {
-  return { phraseBansFor: chapter.messageId, proposePlan: chapter.origin === "chapter" };
+export function fanficFollowUps(
+  chapter: FanficFinishedChapter,
+  write: { polish: boolean; polishNext: boolean },
+): { phraseBansFor: string | null; updateLedger: boolean; proposePlan: boolean } {
+  const settled = !write.polishNext;
+  return {
+    phraseBansFor: settled ? chapter.messageId : null,
+    updateLedger: settled,
+    proposePlan: !write.polish && chapter.origin === "chapter",
+  };
 }

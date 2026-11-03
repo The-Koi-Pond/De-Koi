@@ -30,6 +30,7 @@ import {
   stripFanficChapterHeading,
 } from "./prompts";
 import { buildFanficRepetitionGuide, detectFanficRepetition, fanficRepetitionNames } from "./repetition";
+import { polishFanficChapter } from "./polish";
 import { fanficChapterMaxTokens, fanficStage, readFanficState } from "./request";
 import { userFacingError } from "../../shared/user-facing-error";
 
@@ -44,9 +45,20 @@ export function fanficPlannedChapterCount(state: FanficState): number {
 
 /**
  * `continue` appends to the unfinished version of `continueMessageId`; `extra` writes a new extra after main chapter
- * `parentChapter`; the others write the next main chapter or a new version.
+ * `parentChapter`; `polish` cleans up and checks the finished chapter `regenerateMessageId` (see polish.ts); the
+ * others write the next main chapter or a new version.
  */
-export type FanficGenerationKind = "chapter" | "extra" | "regenerate" | "revise" | "continue";
+export type FanficGenerationKind = "chapter" | "extra" | "regenerate" | "revise" | "continue" | "polish";
+
+/** Every write kind, for reading one back from a stored job. */
+export const FANFIC_GENERATION_KINDS: readonly FanficGenerationKind[] = [
+  "chapter",
+  "extra",
+  "regenerate",
+  "revise",
+  "continue",
+  "polish",
+];
 
 export interface StartFanficGenerationInput extends StartGenerationInput {
   fanficKind: FanficGenerationKind;
@@ -203,7 +215,7 @@ function fanficWriteVersion(
   connection: JsonRecord,
   messages: readonly JsonRecord[],
   input: StartFanficGenerationInput,
-  kind: Exclude<FanficGenerationKind, "continue">,
+  kind: Exclude<FanficGenerationKind, "continue" | "polish">,
 ): FanficVersion {
   const resets = input.replacesVersion !== undefined;
   // A plain redo has no instructions; its guide ignores any notes. A Reset keeps the notes it was given.
@@ -241,7 +253,7 @@ export async function* startFanficGeneration(
   deps: GenerationEngineDeps,
   input: StartFanficGenerationInput,
   signal?: AbortSignal,
-) {
+): AsyncGenerator<GenerationEvent> {
   const chatId = readString(input.chatId).trim();
   if (!chatId) throw new Error("chatId is required");
   const chat = await deps.storage.get("chats", chatId);
@@ -249,6 +261,24 @@ export async function* startFanficGeneration(
   const state = assertFanficChat(chat);
   const rewrites = readString(input.regenerateMessageId).trim();
   const continues = readString(input.continueMessageId).trim();
+  if (input.fanficKind === "polish") {
+    if (!rewrites) throw userFacingError("Pick the chapter to polish.");
+    if (continues || input.replacesVersion !== undefined) throw new Error("A polish only works on a finished chapter.");
+    assertFanficWriteAllowed(await deps.storage.listChatMessages<JsonRecord>(chatId), input);
+    const { fanficKind: _kind, notes: _notes, ...writeInput } = input;
+    yield* polishFanficChapter(
+      deps,
+      { chatId, messageId: rewrites },
+      (notes, rewriteSignal) =>
+        startFanficGeneration(
+          deps,
+          { ...writeInput, fanficKind: "revise", regenerateMessageId: rewrites, notes },
+          rewriteSignal,
+        ),
+      signal,
+    );
+    return;
+  }
   if (input.fanficKind === "continue") {
     if (!continues) throw userFacingError("Pick the chapter to continue.");
     if (rewrites) throw new Error("A continue cannot also rewrite a chapter.");

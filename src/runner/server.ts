@@ -4,7 +4,7 @@
 // Runs replies on the server instead of in the browser tab, so a reply keeps going (and gets saved) when the tab
 // closes or the phone locks. It runs the same engine code as the app (startGeneration) against the de-koi-server
 // runtime API, with the same storage/LLM adapters the web app uses in remote mode. Fanfic chapter writes run here
-// too (startFanficGeneration); a "write all" run chains the next chapter's job as each one finishes.
+// too (startFanficGeneration); a chapter's auto-polish and a "write all" run's next chapter chain as jobs finish.
 //
 //   GET  /runner/health
 //   POST /runner/generate            { input }  -> { jobId }   (409 + jobId when the chat already has one running)
@@ -126,7 +126,7 @@ async function chatName(chatId: string): Promise<string> {
   return typeof row?.name === "string" && row.name.trim() ? `"${row.name.trim()}"` : "your fic";
 }
 
-/** The job to chain after `job` (the next "write all" chapter); a failed lookup ends the run instead of the job. */
+/** The job to chain after `job` (a polish, or the next "write all" chapter); a failed lookup ends the run instead. */
 async function nextJobAfter(job: RunnerJob): Promise<Record<string, unknown> | null> {
   try {
     return await nextRunnerJobInput(job.input, job.events);

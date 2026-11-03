@@ -14,10 +14,11 @@ import {
   generationRunnerAvailable,
   type RunnerJobSummary,
 } from "../../../../shared/api/generation-runner-api";
-import { fanficBatchContinues } from "../../../../engine/modes/fanfic/batch";
+import { fanficFollowUpWrite } from "../../../../engine/modes/fanfic/batch";
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type { FanficModelRecord, FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
+  FANFIC_GENERATION_KINDS,
   keepFanficVersion,
   startFanficGeneration,
   type FanficGenerationKind,
@@ -147,8 +148,7 @@ export interface FanficWriteArgs {
 /** The write a job running on the hosted runner is doing, so the reader can show it in the right place. */
 function fanficWriteArgsFromRunnerJob(job: RunnerJobSummary): FanficWriteArgs | null {
   const input = job.input;
-  const kinds: readonly FanficGenerationKind[] = ["chapter", "extra", "regenerate", "revise", "continue"];
-  const kind = kinds.find((entry) => entry === input.fanficKind);
+  const kind = FANFIC_GENERATION_KINDS.find((entry) => entry === input.fanficKind);
   if (!kind) return null;
   const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
   return {
@@ -169,11 +169,17 @@ async function runningFanficJob(chatId: string): Promise<RunnerJobSummary | null
 }
 
 /**
- * Where a "write all" run goes after a finished chapter. On a hosted install the runner already started the next
- * chapter (or the run is over), so the reader follows that job; on desktop the reader writes the next one itself.
- * After a Stop, a chapter the runner had already started is cancelled. Null when the run is over.
+ * The write that follows one that finished `finished`: its chapter's auto-polish, or the next chapter of a "write
+ * all" run (see fanficFollowUpWrite). On a hosted install the runner already started it (or nothing follows), so the
+ * reader follows that job; on desktop the reader starts it itself. After a Stop, a write the runner had already
+ * started is cancelled. Null when nothing follows.
  */
-export async function nextFanficBatchWrite(chatId: string, stopped: boolean): Promise<FanficWriteArgs | null> {
+export async function nextFanficWrite(
+  chatId: string,
+  stopped: boolean,
+  write: Pick<FanficWriteArgs, "kind" | "batch">,
+  finished: FanficFinishedChapter | null,
+): Promise<FanficWriteArgs | null> {
   if (await generationRunnerAvailable()) {
     const job = await runningFanficJob(chatId);
     if (!job) return null;
@@ -183,8 +189,17 @@ export async function nextFanficBatchWrite(chatId: string, stopped: boolean): Pr
     }
     return fanficWriteArgsFromRunnerJob(job);
   }
-  if (stopped || !(await fanficBatchContinues(storageApi, chatId))) return null;
-  return { kind: "chapter", batch: true };
+  if (stopped) return null;
+  const batch = write.batch === true;
+  const followUp = await fanficFollowUpWrite(storageApi, {
+    chatId,
+    kind: write.kind,
+    batch,
+    finishedId: finished?.messageId ?? null,
+  });
+  if (!followUp) return null;
+  if (followUp.kind === "chapter") return { kind: "chapter", batch: true };
+  return { kind: "polish", messageId: followUp.messageId, ...(batch ? { batch: true } : {}) };
 }
 
 /**
@@ -265,7 +280,7 @@ export function useFanficWriter(chatId: string, connectionId: string | null) {
       runnerJobId,
     }: FanficWriteArgs): Promise<FanficFinishedChapter | null> => {
       // A Reset of a new chapter or extra rewrites that chapter's message, so it runs (and streams) like a redo.
-      const rewrites = kind === "regenerate" || kind === "revise" || replacesVersion !== undefined;
+      const rewrites = kind === "regenerate" || kind === "revise" || kind === "polish" || replacesVersion !== undefined;
       const args: GenerateArgs & StartFanficGenerationInput = {
         chatId,
         connectionId,

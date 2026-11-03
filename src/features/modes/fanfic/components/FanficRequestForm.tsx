@@ -38,7 +38,14 @@ import { filterLanguageGenerationConnections } from "../../../../shared/lib/conn
 import { cn } from "../../../../shared/lib/utils";
 import { FanficCombobox, type FanficComboOption } from "./FanficCombobox";
 import { FanficConnectionSelect } from "./FanficConnectionSelect";
-import { FanficButton, FanficField, FanficSection, FanficSegmented, fanficInputClass } from "./fanfic-ui";
+import {
+  FANFIC_AUTO_POLISH_HINT,
+  FanficButton,
+  FanficField,
+  FanficSection,
+  FanficSegmented,
+  fanficInputClass,
+} from "./fanfic-ui";
 
 const TROPE_SUGGESTIONS = [
   "Slow Burn",
@@ -656,6 +663,18 @@ export function FanficRequestForm({
               Searches fan wikis and the web for the characters, setting, and any real-world topics, then plans from
               what it finds. Adds about a minute.
             </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm text-[var(--foreground)]">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+            checked={request.autoPolish}
+            onChange={(event) => update("autoPolish", event.target.checked)}
+          />
+          <span>
+            Polish each chapter automatically
+            <span className="block text-xs text-[var(--muted-foreground)]">{FANFIC_AUTO_POLISH_HINT}</span>
           </span>
         </label>
         {languageConnections.length > 1 && (

@@ -1,7 +1,8 @@
 // Wires the app's own generation engine to the hosted runtime API for the runner process.
 import { startGeneration } from "../engine/generation/start-generation";
 import { startFanficGeneration, type StartFanficGenerationInput } from "../engine/modes/fanfic/chapters";
-import { fanficBatchContinues, fanficWriteSavedFinished, nextFanficBatchInput } from "../engine/modes/fanfic/batch";
+import { fanficFollowUpInput, fanficFollowUpWrite, fanficWriteSavedFinishedId } from "../engine/modes/fanfic/batch";
+import { FANFIC_GENERATION_KINDS } from "../engine/modes/fanfic/chapters";
 import { integrationGateway } from "../shared/api/integration-gateway";
 import { llmApi } from "../shared/api/llm-api";
 import { storageApi } from "../shared/api/storage-api";
@@ -41,16 +42,21 @@ export async function* runGenerationJob(
 }
 
 /**
- * The job to start after one that ended normally: the next chapter of a "write all" run, while its rules say the
- * run goes on (see fanficBatchContinues). Null for everything else.
+ * The job to start after one that ended normally: the polish of the chapter a fanfic write finished, or the next
+ * chapter of a "write all" run, while their rules say so (see fanficFollowUpWrite). Null for everything else.
  */
 export async function nextRunnerJobInput(
   input: Record<string, unknown>,
   events: readonly RunnerEvent[],
 ): Promise<Record<string, unknown> | null> {
-  if (input[FANFIC_BATCH_KEY] !== true || input.fanficKind !== "chapter") return null;
-  if (!fanficWriteSavedFinished(events)) return null;
+  const kind = FANFIC_GENERATION_KINDS.find((entry) => entry === input.fanficKind);
   const chatId = typeof input.chatId === "string" ? input.chatId.trim() : "";
-  if (!chatId || !(await fanficBatchContinues(storageApi, chatId))) return null;
-  return nextFanficBatchInput(input);
+  if (!kind || !chatId) return null;
+  const followUp = await fanficFollowUpWrite(storageApi, {
+    chatId,
+    kind,
+    batch: input[FANFIC_BATCH_KEY] === true,
+    finishedId: fanficWriteSavedFinishedId(events),
+  });
+  return followUp ? fanficFollowUpInput(input, followUp) : null;
 }

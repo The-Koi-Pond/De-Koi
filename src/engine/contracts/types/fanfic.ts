@@ -47,6 +47,11 @@ export interface FanficRequest {
   adultsConfirmed: boolean;
   /** Look up the canon and real-world details online before planning. */
   research: boolean;
+  /**
+   * After each chapter is written, clean up AI-sounding prose and repeats, then check continuity and voices and apply
+   * the fixes, saved as one new version. On unless the requester turns it off.
+   */
+  autoPolish: boolean;
 }
 
 export interface FanficOutlineChapter {
@@ -138,6 +143,30 @@ export interface FanficVersion {
   /** The write that made this version, and the version it rewrote; null when the stored origin can't be read. */
   origin: { kind: FanficVersionOriginKind; notes: string; baseVersion?: number } | null;
   unfinished: FanficUnfinished | null;
+}
+
+export const FANFIC_POLISH_STEPS = ["prose", "continuity", "voice"] as const;
+export type FanficPolishStepId = (typeof FANFIC_POLISH_STEPS)[number];
+
+/** One automatic polish step on a chapter: what it fixed, what it found and couldn't fix, or why it failed. */
+export interface FanficPolishStep {
+  step: FanficPolishStepId;
+  status: "clean" | "fixed" | "failed";
+  /** Fixes applied (for prose, 1 when the clean-up rewrite was kept). */
+  fixed: number;
+  /** Problems found that had no fix that could be placed. */
+  left: number;
+  /** Why the step failed; null otherwise. */
+  error: string | null;
+}
+
+/**
+ * Stored per chapter version as `extra.fanficPolish` once the automatic polish ran on it. `textKey` is the polished
+ * text's fingerprint, so the note stops showing once the text is edited.
+ */
+export interface FanficPolishReport {
+  textKey: string;
+  steps: FanficPolishStep[];
 }
 
 /**
