@@ -1,24 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { DEKI_SCENE_POSES, getDekiSceneMood } from "./deki-scene";
+import { getDekiSceneMood } from "./deki-scene";
 
 describe("Deki scene mood", () => {
-  it("uses a greeting pose while idle", () => {
-    expect(getDekiSceneMood({ historyLoaded: true, sending: false })).toBe("idle");
-    expect(DEKI_SCENE_POSES.idle).toBe("/deki-pond-koi.svg");
+  it("squishes calmly when nothing is happening", () => {
+    expect(getDekiSceneMood({ sending: false, justReplied: false })).toBe("idle");
   });
 
-  it("uses a thinking pose while restoring history", () => {
-    expect(getDekiSceneMood({ historyLoaded: false, sending: false })).toBe("thinking");
-    expect(DEKI_SCENE_POSES.thinking).toBe("/deki-pond-koi.svg");
+  it("thinks while waiting for an answer", () => {
+    expect(getDekiSceneMood({ sending: true, justReplied: false })).toBe("thinking");
   });
 
-  it("keeps the thinking pose while restoring history even if sending overlaps", () => {
-    expect(getDekiSceneMood({ historyLoaded: false, sending: true })).toBe("thinking");
+  it("keeps thinking if a new question goes out during the happy hop", () => {
+    expect(getDekiSceneMood({ sending: true, justReplied: true })).toBe("thinking");
   });
 
-  it("uses an explaining pose while Deki is responding", () => {
-    expect(getDekiSceneMood({ historyLoaded: true, sending: true })).toBe("responding");
-    expect(DEKI_SCENE_POSES.responding).toBe("/deki-pond-koi.svg");
+  it("hops once an answer has arrived", () => {
+    expect(getDekiSceneMood({ sending: false, justReplied: true })).toBe("happy");
   });
 });

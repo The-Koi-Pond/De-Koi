@@ -67,7 +67,7 @@ For code changes, final responses must include behavior changed, primary files/m
 
 ## Deki-senpai Codebase Agent
 
-- Deki-senpai is a codebase-research agent, not a static knowledge-base bot. For De-Koi implementation questions, she should inspect the current repository through her code search/read tools before answering.
+- Deki-senpai is a codebase-research agent, not a static knowledge-base bot. For De-Koi implementation questions, they should inspect the current repository through their code search/read tools before answering.
 - When adding, moving, or deleting a durable feature area, update this section in the same change so Deki-senpai's map stays current.
 - When a user asks for app customization, Deki-senpai should prefer creating an extension or custom agent record before editing core source. If core source edits are needed, use narrow exact-match edits and keep the same architecture boundaries listed above.
 - Deki-senpai must not read secrets, private chat transcripts, generated dependency/build output, or files outside the De-Koi repository.
@@ -104,7 +104,8 @@ For code changes, final responses must include behavior changed, primary files/m
 - `src-tauri/src/commands/storage/sidecar.rs`: Thin Tauri/AppState adapter for Local Model sidecar commands and constants.
 - `src-tauri/crates/sidecar`: Local Model sidecar capability implementation, including config, curated GGUF/runtime downloader, loopback process management, synthetic `sidecar:local` connection materialization, and smoke-test helpers. The Tauri command module stays as the app-state adapter.
 - `docs/uml/Refactor`: PlantUML architecture diagrams for current refactor-era boundaries, hotspots, and decision context; consult these for architecture-sensitive changes. The `Refactor` name reflects De-Koi's origin as a Marinara Engine refactor.
-- `public/koi-mark.svg`, `public/koi-mark-192.png`, `public/koi-mark-512.png`, and `public/koi-bg.svg`: De-Koi brand and pond marks used by the shell, Deki pond, onboarding helpers, notifications, and app metadata.
+- `public/koi-mark.svg` and `public/koi-bg.svg`: De-Koi's small koi mark and pond background, used by the shell, onboarding helpers and the notepad.
+- `public/deki.svg`, `public/deki-avatar.svg`, `public/deki-avatar-dark.svg`, `public/deki-lily-pad.svg`, and `branding/deki`: Deki, The Koi Pond's mascot (a copy of `deki.svg` from the studio website), shown as Deki-senpai: the pond at the top of their chat (`DekiPondScene` in `DekiSurface.tsx`, styles in `src/styles/globals/08-deki-pond.css`, moods in `src/features/shell/deki/lib/deki-scene.ts`), their chat avatar (light and dark, built by `branding/deki/build_deki_avatar.py`), and the "working" pop-up. Deki is "they".
 - `branding/de-koi-icon`: The De-Koi logo (masked Deki in a D-shaped speech bubble): the master `de-koi-icon.svg`, the drawing it was traced from, and `build_icons.py`, which builds every icon from it (favicon, the home logo's light and dark versions in `public/`, web app icons, Windows installer pictures, and `pnpm tauri icon` for desktop, Android and iOS). Change the master SVG, then rerun the script; don't edit the built files by hand.
 - `skills/frontend-design`: Repo-local frontend concept, layout, visual direction, and first-pass UI implementation workflow that pairs with Impeccable.
 - `skills/impeccable`: Repo-local frontend design, critique, polish, accessibility, responsive, and live-iteration workflow for UI craft passes.

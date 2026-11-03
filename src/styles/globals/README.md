@@ -10,6 +10,6 @@ This folder splits the former monolithic `src/styles/globals.css` into ordered C
 - `05-effects-utilities.css`: shared keyframes, button effects, dividers, gradient utilities, animation utilities.
 - `06-chat-mode-themes.css`: conversation, roleplay, RPG overlays, sprites, HUD, and function-call cards.
 - `07-responsive-accessibility.css`: breakpoints, mobile/touch behavior, reduced motion, performance hints.
-- `08-deki-pond.css`: Deki-senpai pond pixel scene, loaded by the Deki surface.
+- `08-deki-pond.css`: Deki-senpai's pond (Deki sitting in water at the top of their chat), loaded by the Deki surface.
 
 When editing, prefer the narrowest module. Keep selectors in their current module unless moving a whole section and preserving import order.
