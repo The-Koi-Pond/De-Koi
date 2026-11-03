@@ -3,7 +3,7 @@
 // Like SillyTavern's "Manage chat files" feature
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { useRef, useState } from "react";
-import { X, Trash2, FileText, MessageSquare, Download, Pencil, Upload, Loader2 } from "lucide-react";
+import { X, Trash2, FileText, MessageSquare, Download, Pencil, Upload, Loader2, Feather, Square } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
@@ -23,6 +23,8 @@ import {
 } from "../../../../catalog/chats/index";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
+import { FANFIC_SOURCE_MODES } from "../../../../../engine/modes/fanfic/from-chat";
+import { useStartFanficFromChat } from "../hooks/use-start-fanfic-from-chat";
 
 interface ChatFilesDrawerProps {
   chat: Chat;
@@ -174,6 +176,7 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
               </button>
             </div>
           </div>
+          <FicFromChatSection chat={chat} chatId={chat.id} disabled={false} />
           <div className="border-b border-[var(--border)] px-4 py-3">
             <p className="mb-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-[var(--muted-foreground)]/60">
               Import Chat
@@ -252,6 +255,9 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
             {chatFiles.length} chat file{chatFiles.length !== 1 ? "s" : ""} in this group
           </p>
         </div>
+
+        {/* Turn into a fic */}
+        <FicFromChatSection chat={chat} chatId={activeChatId ?? chat.id} disabled={isGroupDeletePending} />
 
         {/* Import tools */}
         <div className="border-b border-[var(--border)] px-4 py-3">
@@ -382,5 +388,50 @@ export function ChatFilesDrawer({ chat, open, onClose }: ChatFilesDrawerProps) {
         </div>
       </div>
     </>
+  );
+}
+
+/** Makes a new fic from this chat: shown for chats and roleplays, in both drawer layouts. */
+function FicFromChatSection({ chat, chatId, disabled }: { chat: Chat; chatId: string; disabled: boolean }) {
+  const ficFromChat = useStartFanficFromChat();
+  if (!FANFIC_SOURCE_MODES.has(chat.mode)) return null;
+  return (
+    <div className="border-b border-[var(--border)] px-4 py-3">
+      <p className="mb-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-[var(--muted-foreground)]/60">
+        Turn Into a Fic
+      </p>
+      {ficFromChat.drafting ? (
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-xs text-[var(--foreground)]" role="status">
+            <Loader2 size="0.8125rem" className="mr-1 inline animate-spin" aria-hidden="true" />
+            {ficFromChat.drafting === chatId
+              ? "Reading the chat and drafting the fic's request…"
+              : "Drafting a fic from another chat…"}
+          </p>
+          <button
+            type="button"
+            onClick={ficFromChat.stop}
+            className="flex items-center gap-1 rounded-xl bg-[var(--secondary)] px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] hover:bg-[var(--accent)]"
+          >
+            <Square size="0.75rem" aria-hidden="true" />
+            Stop
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void ficFromChat.start(chatId)}
+          disabled={disabled}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-[var(--secondary)]"
+        >
+          <Feather size="0.8125rem" aria-hidden="true" />
+          Make a fic from this chat
+        </button>
+      )}
+      <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
+        The chat&apos;s model drafts a fic request that retells this story. It opens as a new fic for you to check
+        before anything is written. This chat stays as it is.
+      </p>
+    </div>
   );
 }

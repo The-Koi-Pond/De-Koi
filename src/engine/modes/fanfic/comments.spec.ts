@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
 import {
   buildFanficCommentSegments,
   createFanficCommentThread,
+  draftFanficCommentNotes,
+  fanficReplanScope,
   loadFanficCommentContext,
   readFanficCommentThread,
 } from "./comments";
@@ -30,7 +33,7 @@ function storageWith(options: { connections?: string[] } = {}) {
   const chats = new Map<string, Record<string, unknown>>([
     ["fic", { id: "fic", mode: "fanfic", connectionId: "fic-conn", metadata: { fanfic: state } }],
   ]);
-  const messages = [
+  const messages: Record<string, unknown>[] = [
     { id: "m1", chatId: "fic", role: "assistant", content: "They set the word: bells.", extra: version("writer-conn") },
     { id: "m2", chatId: "fic", role: "assistant", content: "Pierrot walked out at dawn.", extra: version("gone-conn") },
   ];
@@ -52,7 +55,7 @@ function storageWith(options: { connections?: string[] } = {}) {
       return row as T;
     },
   } as unknown as StorageGateway;
-  return { storage, chats, created };
+  return { storage, chats, created, messages };
 }
 
 describe("fanfic comment threads", () => {
@@ -118,5 +121,87 @@ describe("fanfic comment threads", () => {
   it("is not a comment context for an ordinary chat", async () => {
     const { storage } = storageWith();
     await expect(loadFanficCommentContext(storage, { fanfic: state })).resolves.toBeNull();
+  });
+
+  describe("notes from a thread", () => {
+    async function threadWith(comments: Array<[role: "user" | "assistant", content: string]>, options = {}) {
+      const setup = storageWith(options);
+      const thread = await createFanficCommentThread(setup.storage, { ficChatId: "fic", chapterMessageId: "m2" });
+      comments.forEach(([role, content], index) =>
+        setup.messages.push({
+          id: `c${index}`,
+          chatId: thread.id,
+          role,
+          content,
+          createdAt: `2026-11-03T10:0${index}:00.000Z`,
+        }),
+      );
+      return { ...setup, threadId: String(thread.id) };
+    }
+    function llmReplying(reply: string) {
+      const requests: LlmRequest[] = [];
+      const llm = {
+        async complete(request: LlmRequest) {
+          requests.push(request);
+          return reply;
+        },
+      } as unknown as LlmGateway;
+      return { llm, requests };
+    }
+    const talk: Array<[role: "user" | "assistant", content: string]> = [
+      ["user", "I hate that Pierrot just leaves."],
+      ["assistant", "Option A: he stays and sulks. Option B: Harlequin follows him. I'd pick B."],
+      ["user", "B, but keep it quiet, no big fight."],
+    ];
+
+    it("drafts rewrite notes on the thread's model from the thread and the chapter as it is now", async () => {
+      const { storage, threadId } = await threadWith(talk);
+      const { llm, requests } = llmReplying("<think>hm</think>\nHarlequin follows Pierrot out at dawn.\nNo fight.");
+      const notes = await draftFanficCommentNotes({ storage, llm }, { threadChatId: threadId, use: "rewrite" });
+      expect(notes).toBe("Harlequin follows Pierrot out at dawn.\nNo fight.");
+      expect(requests[0]!.connectionId).toBe("fic-conn");
+      const [system, user] = requests[0]!.messages;
+      expect(system!.content).toContain("Pierrot walked out at dawn.");
+      expect(system!.content).not.toContain("answer as the author in the chapter's comments");
+      expect(user!.content).toContain(
+        "The reader: I hate that Pierrot just leaves.\n\nThe author: Option A: he stays and sulks.",
+      );
+      expect(user!.content).toContain("The reader: B, but keep it quiet, no big fight.");
+      expect(user!.content).toContain("notes for rewriting chapter 2");
+    });
+
+    it("drafts a steer for the chapters not written yet", async () => {
+      const { storage, threadId } = await threadWith(talk);
+      const { llm, requests } = llmReplying("Chapter 3 opens with them on the road together.");
+      await draftFanficCommentNotes({ storage, llm }, { threadChatId: threadId, use: "replan" });
+      expect(requests[0]!.messages[1]!.content).toContain("a steer for re-planning chapter 3");
+      expect(fanficReplanScope(state, 1)).toBe("chapters 2 to 3");
+      expect(fanficReplanScope(state, 3)).toBe("the next chapter");
+    });
+
+    it("says so when the thread never landed on a change, and waits for the author's reply", async () => {
+      const settled = await threadWith(talk);
+      await expect(
+        draftFanficCommentNotes(
+          { storage: settled.storage, llm: llmReplying("NO CHANGE.").llm },
+          { threadChatId: settled.threadId, use: "rewrite" },
+        ),
+      ).rejects.toThrow("hasn't landed on a change yet");
+      const unanswered = await threadWith([["user", "Why did he leave?"]]);
+      await expect(
+        draftFanficCommentNotes(
+          { storage: unanswered.storage, llm: llmReplying("x").llm },
+          { threadChatId: unanswered.threadId, use: "rewrite" },
+        ),
+      ).rejects.toThrow("Wait for the author's reply");
+    });
+
+    it("falls back to the fic's model when the thread's connection was deleted", async () => {
+      const { storage, threadId, chats } = await threadWith(talk);
+      chats.set(threadId, { ...chats.get(threadId)!, connectionId: "deleted-conn" });
+      const { llm, requests } = llmReplying("Keep it quiet.");
+      await draftFanficCommentNotes({ storage, llm }, { threadChatId: threadId, use: "rewrite" });
+      expect(requests[0]!.connectionId).toBe("fic-conn");
+    });
   });
 });

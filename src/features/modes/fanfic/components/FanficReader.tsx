@@ -49,6 +49,7 @@ import {
   fanficUnfinishedReason,
   type FanficChapterRef,
 } from "../../../../engine/modes/fanfic/chapter-refs";
+import { fanficReplanScope } from "../../../../engine/modes/fanfic/comments";
 import { fanficDeletePlan } from "../../../../engine/modes/fanfic/extras";
 import { readFanficVersion } from "../../../../engine/modes/fanfic/versions";
 import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
@@ -111,7 +112,7 @@ import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
-import { FanficComments } from "./FanficComments";
+import { FanficComments, type FanficCommentUses } from "./FanficComments";
 import { FanficContinuePanel } from "./FanficContinuePanel";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
 import { FanficPassageEditor } from "./FanficPassageEditor";
@@ -1571,6 +1572,9 @@ export function FanficReader({
 
   // Jump to a main chapter as soon as it is written.
   const lastMainId = lastMain?.messageId;
+  // A re-plan from a comment thread shows its plan after the latest chapter, so the reader is taken there.
+  const planRef = useRef<HTMLDivElement>(null);
+  const [revealPlan, setRevealPlan] = useState(false);
   // The page of the chapter still being written stays open (in a "write all" run the last one can land late).
   const onWritingPage = writingNew && view === WRITING_NEXT;
   useEffect(() => {
@@ -1632,6 +1636,31 @@ export function FanficReader({
     [chapters, viewed, writingPage],
   );
   const viewingLast = writingPage || !viewed || viewed.position >= (lastMain?.position ?? 0);
+  useEffect(() => {
+    if (!revealPlan) return;
+    if (planRef.current) planRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Shown, or the re-plan ended without a panel (it failed and said why): either way, nothing left to reveal.
+    if (planRef.current || !plan.running) setRevealPlan(false);
+  }, [revealPlan, plan.running, view]);
+  const replanScope = fanficReplanScope(state, chapterCount);
+  const canReplan = Boolean(state.outline && state.outlineApproved);
+  const commentUses = (messageId: string, label: string): FanficCommentUses => ({
+    chapterLabel: label,
+    onRewrite: (notes) => onWrite({ kind: "revise", messageId, notes }),
+    rewriteDisabled: generating || Boolean(blocked),
+    onReplan: canReplan
+      ? (notes) => {
+          plan.propose({ steer: notes });
+          if (!viewingLast && lastMainId) {
+            stopNarration();
+            setView(lastMainId);
+          }
+          setRevealPlan(true);
+        }
+      : null,
+    replanDisabled: generating || plan.running,
+    replanScope,
+  });
   // A new extra streams in place of a page of its chain (its main chapter or one of its extras), and in the entire
   // work after the chain (null marks it). Any other chapter in view stays as it is.
   const shown = useMemo(() => {
@@ -1894,6 +1923,7 @@ export function FanficReader({
               chapterLabel={ref.label}
               chapterContent={chapter.message.content}
               disabled={generating}
+              uses={commentUses(chapter.message.id, ref.label)}
             />
           </article>
         );
@@ -1914,28 +1944,30 @@ export function FanficReader({
       <GenerationFailureNotice chatId={chatId} onRetry={onRetry} />
 
       {viewingLast && !generating && (proposal || plan.running) && (
-        <FanficPlanPanel
-          proposal={proposal}
-          controller={plan}
-          busy={generating}
-          helperNote={
-            <HelperRunNote
-              task="fanficPlanning"
-              job="living outline"
-              chatId={chatId}
-              className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
-            />
-          }
-          onUse={async (used) => {
-            if (used.mode === "next") {
-              setNextNotes(fanficPlanNotes(used));
-              await plan.dismiss();
-              toast.success(
-                `Chapter ${used.chapters[0]?.number}'s notes are filled in below. Change anything before writing.`,
-              );
-            } else await onUsePlan(used);
-          }}
-        />
+        <div ref={planRef} className="scroll-mt-4">
+          <FanficPlanPanel
+            proposal={proposal}
+            controller={plan}
+            busy={generating}
+            helperNote={
+              <HelperRunNote
+                task="fanficPlanning"
+                job="living outline"
+                chatId={chatId}
+                className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+              />
+            }
+            onUse={async (used) => {
+              if (used.mode === "next") {
+                setNextNotes(fanficPlanNotes(used));
+                await plan.dismiss();
+                toast.success(
+                  `Chapter ${used.chapters[0]?.number}'s notes are filled in below. Change anything before writing.`,
+                );
+              } else await onUsePlan(used);
+            }}
+          />
+        </div>
       )}
       {viewingLast && !generating && !batchRunning && (
         <NextChapterPanel
