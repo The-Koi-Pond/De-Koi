@@ -13,6 +13,7 @@ import type {
 } from "../../../../engine/capabilities/voice";
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
 import { generationRunnerApi, generationRunnerAvailable } from "../../../../shared/api/generation-runner-api";
+import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { holdChatAutoplay } from "../../../../shared/lib/chat-autoplay-hold";
 import { ttsApi } from "../../../../shared/api/tts-api";
@@ -65,6 +66,8 @@ const MIC_BLOCKED_MESSAGE =
   "De-Koi can't use the microphone: it's blocked for this site. Allow it in the browser's site settings, then call again.";
 const NO_RECOGNITION_MESSAGE =
   "Voice calls need voice input: turn it on in Connections → Text to Speech, or use a browser with speech recognition.";
+const DESKTOP_NEEDS_PROVIDER_INPUT_MESSAGE =
+  "Voice calls in the desktop app need voice input from your Text to Speech provider: turn it on in Connections → Text to Speech.";
 
 // ── Input ─────────────────────────────────────
 
@@ -297,10 +300,13 @@ function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: s
         `${turnKey}:${pieceIndex}`,
       ),
     prefetch: (request) => {
+      // Waits with this reply's signal: cutting the reply off cancels the request unless someone else (a read-aloud
+      // of the same line) is waiting for it too.
       void getOrCreateCachedTTSAudioBlob(
         request.cacheKey,
-        () => ttsService.generateAudio(request.text, { ...request, signal }),
+        (shared) => ttsService.generateAudio(request.text, { ...request, signal: shared }),
         request.cacheAliases,
+        signal,
       ).catch(() => undefined); // Reported when the piece plays and fetches it again.
     },
     play: (requests) =>
@@ -317,17 +323,18 @@ function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: s
     },
     push: (text) => speaker.push(text),
     finish: (savedText) => speaker.finish(savedText),
+    // Only this reply's own audio: anything else playing (a read-aloud started meanwhile) is left alone.
     pause: () => {
       speaker.pause();
-      ttsService.pause();
+      ttsService.pause(turnKey);
     },
     resume: () => {
       speaker.resume();
-      ttsService.resume();
+      ttsService.resume(turnKey);
     },
     stop: () => {
       controller.abort();
-      ttsService.stop();
+      ttsService.stop(turnKey);
     },
     isAudible: () => ttsService.getState() === "playing",
   };
@@ -346,6 +353,9 @@ export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSess
         if (!canRecordAudio()) throw new Error(VOICE_NEEDS_HTTPS_MESSAGE);
         return { voiceReplies, input: recorderInput(config) };
       }
+      // The desktop app's webview has a speech recognizer that starts and then never hears anything or reports an
+      // error, so a call there would listen forever.
+      if (hasEmbeddedTauriRuntime()) throw new Error(DESKTOP_NEEDS_PROVIDER_INPUT_MESSAGE);
       const Recognition = browserRecognition();
       if (!Recognition) throw new Error(NO_RECOGNITION_MESSAGE);
       return {

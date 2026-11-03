@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
-import { resolveStoredModelRoute } from "./model-routing";
+import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
 import { boolish, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
 
@@ -132,7 +132,7 @@ const runningScans = new WeakMap<object, Set<string>>();
 const SCHEDULED_SCAN_PAGE = HABIT_SCAN_REPLIES * 3;
 
 export interface ScheduleHabitScanInput {
-  storage: Pick<StorageGateway, "get" | "list" | "listChatMessages" | "patchChatMetadata">;
+  storage: Pick<StorageGateway, "get" | "list" | "create" | "update" | "listChatMessages" | "patchChatMetadata">;
   llm: LlmGateway;
   chatId: string;
   mode: HabitScanMode;
@@ -169,8 +169,15 @@ export async function runHabitScanIfDue(input: ScheduleHabitScanInput): Promise<
   const messages = [...page].reverse();
   if (!habitScanDue(messages, readHabitScan(chat.metadata))) return null;
   // The reply's connection is not a pick for this helper, so a habit check route wins.
-  const routed = await resolveStoredModelRoute(input.storage, "habitCheck");
+  const routed = await resolveHelperRoute(input.storage, "habitCheck", { chatId: input.chatId });
   const connectionId = routed ? readString(routed.id).trim() : input.connectionId;
+  await noteHelperRun(input.storage, {
+    task: "habitCheck",
+    rule: routed ? "route" : "chat",
+    connectionId: readString(connectionId).trim(),
+    connection: routed,
+    chatId: input.chatId,
+  });
   const scan = await runHabitScan({ llm: input.llm }, { messages, mode: input.mode, connectionId });
   if (scan) await input.storage.patchChatMetadata(input.chatId, { habitScan: scan });
   return scan;

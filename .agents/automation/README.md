@@ -24,11 +24,10 @@ unrelated dirty files that would ship, or an unprovable core claim.
 - `templates/ui-repro-playwright.mjs` is the starting point for headless UI repros.
 - `scripts/automation-ledger.mjs` creates, updates, traces, timestamps, and validates ledgers under `scratch/`.
 - `scripts/bugfix-fast-lane.mjs` checks whether a bugfix still qualifies for the fast lane and generates a PR proof block from the ledger.
-- `scripts/risk-classifier.mjs` keeps risky-work detection shared across workflow health, PR health, and proof health.
+- `scripts/risk-classifier.mjs` keeps risky-work detection shared across PR health and proof health.
 - `scripts/proof-health.mjs` checks whether risky work records the contract lane gate, proves the claim boundary, contradiction rows, owned facts, user-data copy instructions, and reviewer dispositions.
 - `scripts/pr-health.mjs` checks PR mergeability, CI, unresolved review threads, and proof-link hygiene.
 - `scripts/publish-evidence.mjs` records uploaded GitHub/gist evidence URLs in the proof ledger. Keep temporary screenshots under `scratch/`; do not commit PR proof images under `docs/pr-evidence/` unless they are intentional docs/reference assets.
-- `scripts/workflow-health.mjs` summarizes open draft PR health and active vault task overlap before work starts.
 
 For architecture and code-smell risk, do not invent a new ledger shape. Record
 the owner and wrong-lane fix to avoid in `contractLaneGate`, then record the
@@ -80,17 +79,6 @@ will block until rerun with a ledger:
 ```bash
 node .agents/automation/scripts/pr-health.mjs 123 --ledger scratch/bugfix-verification.json
 ```
-
-Before starting nontrivial workflow-sensitive work, summarize current lanes:
-
-```bash
-node .agents/automation/scripts/workflow-health.mjs
-node .agents/automation/scripts/workflow-health.mjs --json
-```
-
-`workflow-health` also prints the active workflow policy: default base branch
-`main`, PR target `The-Koi-Pond/De-Koi:main`, comparison base `origin/main`, and
-whether stale workflow docs still reference an older branch target.
 
 If GitHub checks are still running after an explicit PR/shipping
 action, keep polling without asking for another "okay". Report back only when

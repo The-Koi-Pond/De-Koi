@@ -85,6 +85,7 @@ import {
 } from "../../../../engine/contracts/constants/model-lists";
 import { PROVIDERS, isTauriRuntimeProvider } from "../../../../engine/contracts/constants/providers";
 import { connectionApiKeyHint } from "../lib/connection-api-key-hint";
+import { OpenRouterLoginCard } from "./OpenRouterLoginCard";
 import type { APIProvider } from "../../../../engine/contracts/types/connection";
 import type {
   ImageDefaultsService,
@@ -443,6 +444,7 @@ export function ConnectionEditor() {
   const usesCodexSubscriptionImagegen =
     localProvider === "image_generation" && selectedImageService === "codex_subscription";
   const usesLocalAuthProvider = usesLocalChatGptAuth || isClaudeSubscriptionProvider || usesCodexSubscriptionImagegen;
+  const hasSavedApiKey = (conn as { hasApiKey?: unknown } | undefined)?.hasApiKey === true;
   const apiKeyHint = connectionApiKeyHint({
     localAuth: isClaudeSubscriptionProvider
       ? "claude"
@@ -451,7 +453,7 @@ export function ConnectionEditor() {
         : usesCodexSubscriptionImagegen
           ? "codex-image"
           : null,
-    hasSavedKey: (conn as { hasApiKey?: unknown } | undefined)?.hasApiKey === true,
+    hasSavedKey: hasSavedApiKey,
   });
   const showsConnectionTest = !usesCodexSubscriptionImagegen;
   const embeddingConnectionOptions = useMemo(
@@ -1035,6 +1037,20 @@ export function ConnectionEditor() {
                 : "Your authentication key from the AI provider. You can get one from their website. It's like a password that lets De-Koi talk to the AI service."
             }
           >
+            {localProvider === "openrouter" && connectionDetailId && (
+              <div className="mb-2">
+                <OpenRouterLoginCard
+                  variant="inline"
+                  hasSavedKey={hasSavedApiKey}
+                  prepare={async () => {
+                    // The login saves into the stored connection, so unsaved edits (like switching to OpenRouter) go first.
+                    if (dirty && !(await handleSave())) return null;
+                    return connectionDetailId;
+                  }}
+                />
+                <p className="mt-2 text-xs text-[var(--muted-foreground)]">Or paste a key:</p>
+              </div>
+            )}
             <input
               value={usesLocalAuthProvider ? "" : localApiKey}
               onChange={(e) => {

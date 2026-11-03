@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { BookMarked, Loader2, Square } from "lucide-react";
 import { useChat } from "../../../catalog/chats/index";
+import { HelperRunNote } from "../../../catalog/connections/index";
 import type { FanficLedgerEntry, FanficLedgerFact } from "../../../../engine/contracts/types/fanfic";
+import type { FanficChapterRef } from "../../../../engine/modes/fanfic/chapter-refs";
 import { fanficLedgerStatus, readFanficLedger } from "../../../../engine/modes/fanfic/ledger";
-import { fanficChapterViewRefs, type FanficChapterView, type FanficLedgerController } from "../hooks/use-fanfic";
+import type { FanficLedgerController } from "../hooks/use-fanfic";
 import { FanficButton } from "./fanfic-ui";
 
 function FactList({ title, facts }: { title: string; facts: FanficLedgerFact[] }) {
@@ -47,6 +49,8 @@ function StandingFacts({ entry }: { entry: FanficLedgerEntry }) {
   );
 }
 
+const NOTE_CLASS = "mt-1 text-[0.6875rem] leading-snug text-[var(--muted-foreground)]";
+
 /**
  * The story ledger: where things stand after the latest chapter it covers, and a line per chapter. Chapters are
  * written against it when the model can't hold every chapter, and continuity checks fall back on it for long fics.
@@ -58,14 +62,19 @@ export function FanficLedgerPanel({
   busy,
 }: {
   chatId: string;
-  chapters: FanficChapterView[];
+  /** The canon line: entries are positional over it and named by the label at their place. */
+  chapters: FanficChapterRef[];
   ledger: FanficLedgerController;
   busy: boolean;
 }) {
   const { data: chat } = useChat(chatId);
-  const refs = useMemo(() => fanficChapterViewRefs(chapters), [chapters]);
-  const status = useMemo(() => fanficLedgerStatus(readFanficLedger(chat?.metadata), refs), [chat?.metadata, refs]);
+  const status = useMemo(
+    () => fanficLedgerStatus(readFanficLedger(chat?.metadata), chapters),
+    [chat?.metadata, chapters],
+  );
   const latest = status.fresh[status.fresh.length - 1];
+  const latestLabel = chapters[status.fresh.length - 1]?.label;
+  const labelAt = (position: number) => chapters[position - 1]?.label ?? String(position);
   const behind = status.stale.length;
   const { progress } = controller;
 
@@ -79,9 +88,9 @@ export function FanficLedgerPanel({
   } else if (behind > 0) {
     const first = status.stale[0]!;
     const last = status.stale[status.stale.length - 1]!;
-    summary = `Up to date through chapter ${latest.chapter}. ${first === last ? `Chapter ${first} isn't` : `Chapters ${first}–${last} aren't`} in it yet.`;
+    summary = `Up to date through chapter ${latestLabel}. ${first === last ? `Chapter ${labelAt(first)} isn't` : `Chapters ${labelAt(first)}–${labelAt(last)} aren't`} in it yet.`;
   } else {
-    summary = `Up to date through chapter ${latest.chapter}.`;
+    summary = `Up to date through chapter ${latestLabel}.`;
   }
 
   return (
@@ -99,6 +108,7 @@ export function FanficLedgerPanel({
           When a fic gets too long for the model to read every chapter, it gets the ledger and the latest chapters
           instead.
         </p>
+        <HelperRunNote task="fanficChecks" job="story ledger" chatId={chatId} className={NOTE_CLASS} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[0.8125rem] text-[var(--foreground)]" role="status">
@@ -123,7 +133,7 @@ export function FanficLedgerPanel({
         <>
           <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 p-2.5">
             <p className="mb-1.5 text-[0.8125rem] font-semibold text-[var(--foreground)]">
-              Where things stand after chapter {latest.chapter}
+              Where things stand after chapter {latestLabel}
             </p>
             <StandingFacts entry={latest} />
           </div>
@@ -132,7 +142,7 @@ export function FanficLedgerPanel({
               <li key={entry.chapter}>
                 <details className="group rounded-lg border border-[var(--border)] px-2.5 py-1.5">
                   <summary className="cursor-pointer text-xs leading-snug text-[var(--foreground)]">
-                    <span className="font-semibold">Chapter {entry.chapter}.</span> {entry.summary}
+                    <span className="font-semibold">Chapter {labelAt(entry.chapter)}.</span> {entry.summary}
                   </summary>
                   <div className="mt-2 border-t border-[var(--border)] pt-2">
                     <StandingFacts entry={entry} />

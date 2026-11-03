@@ -47,6 +47,11 @@ export interface FanficRequest {
   adultsConfirmed: boolean;
   /** Look up the canon and real-world details online before planning. */
   research: boolean;
+  /**
+   * After each chapter is written, clean up AI-sounding prose and repeats, then check continuity and voices and apply
+   * the fixes, saved as one new version. On unless the requester turns it off.
+   */
+  autoPolish: boolean;
 }
 
 export interface FanficOutlineChapter {
@@ -109,6 +114,70 @@ export interface FanficState {
   bannedPhrases?: string[];
 }
 
+// ── Chapter versions ────────────────────────────
+
+/** A model that wrote part of a chapter version, named as its connection was at write time. */
+export interface FanficModelRecord {
+  connectionId: string;
+  name: string;
+  model: string;
+}
+
+export const FANFIC_VERSION_ORIGIN_KINDS = ["chapter", "extra", "regenerate", "revise"] as const;
+export type FanficVersionOriginKind = (typeof FANFIC_VERSION_ORIGIN_KINDS)[number];
+
+export const FANFIC_UNFINISHED_REASONS = ["provider_reset", "content_filter", "failure", "length"] as const;
+export type FanficUnfinishedReason = (typeof FANFIC_UNFINISHED_REASONS)[number];
+
+/** Why a version stopped before the model finished it; `code` is the error code, kept for diagnosis. */
+export interface FanficUnfinished {
+  reason: FanficUnfinishedReason;
+  message: string | null;
+  code: string | null;
+}
+
+/** Stored per chapter version (swipe) as `extra.fanficVersion`; a version without it reads as finished, unlabeled. */
+export interface FanficVersion {
+  /** Every model that wrote part of the text, in writing order. */
+  models: FanficModelRecord[];
+  /** The write that made this version, and the version it rewrote; null when the stored origin can't be read. */
+  origin: { kind: FanficVersionOriginKind; notes: string; baseVersion?: number } | null;
+  unfinished: FanficUnfinished | null;
+}
+
+export const FANFIC_POLISH_STEPS = ["prose", "continuity", "voice"] as const;
+export type FanficPolishStepId = (typeof FANFIC_POLISH_STEPS)[number];
+
+/** One automatic polish step on a chapter: what it fixed, what it found and couldn't fix, or why it failed. */
+export interface FanficPolishStep {
+  step: FanficPolishStepId;
+  status: "clean" | "fixed" | "failed";
+  /** Fixes applied (for prose, 1 when the clean-up rewrite was kept). */
+  fixed: number;
+  /** Problems found that had no fix that could be placed. */
+  left: number;
+  /** Why the step failed; null otherwise. */
+  error: string | null;
+}
+
+/**
+ * Stored per chapter version as `extra.fanficPolish` once the automatic polish ran on it. `textKey` is the polished
+ * text's fingerprint, so the note stops showing once the text is edited.
+ */
+export interface FanficPolishReport {
+  textKey: string;
+  steps: FanficPolishStep[];
+}
+
+/**
+ * Stored on an extra chapter's message as `extra.fanficExtra` (not per version). It names its main chapter by number,
+ * so numbers and order are derived, never stored.
+ */
+export interface FanficExtraLink {
+  parentChapter: number;
+  canon: boolean;
+}
+
 // ── Quality check ───────────────────────────────
 
 export type FanficQualityGroupId = "creativity" | "coherence" | "character" | "prose";
@@ -144,6 +213,12 @@ export interface FanficContinuityIssue {
   laterChapter: number;
   laterQuote: string;
   explanation: string;
+  /**
+   * The chapters' messages, so their labels follow renumbering. Issues saved before extra chapters have none and show
+   * their stored numbers, which were main-chapter numbers.
+   */
+  earlierMessageId?: string;
+  laterMessageId?: string;
 }
 
 export interface FanficQualityMechanics {

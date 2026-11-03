@@ -93,6 +93,8 @@ describe("automatic memory maintenance startup discovery", () => {
         }
         return null;
       }),
+      create: vi.fn(async (_entity: string, value: unknown) => value),
+      update: vi.fn(),
     } as unknown as StorageGateway;
 
     await expect(
@@ -102,6 +104,24 @@ describe("automatic memory maintenance startup discovery", () => {
         async () => connections,
       ),
     ).resolves.toBe("sidecar:local");
+    // Helper Models shows where memory cleanup last ran, and why.
+    expect(storage.create).toHaveBeenCalledWith("app-settings", {
+      id: "helper-run.memory",
+      value: {
+        version: 1,
+        runs: [
+          expect.objectContaining({
+            task: "memory",
+            job: "cleanup",
+            chatId: "chat-1",
+            connectionId: "sidecar:local",
+            connectionName: "Local Model",
+            rule: "route",
+            problem: null,
+          }),
+        ],
+      },
+    });
   });
 
   it("refuses to fall back when the memory helper route is broken", async () => {

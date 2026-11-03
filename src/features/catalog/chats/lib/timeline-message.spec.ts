@@ -29,6 +29,18 @@ describe("timelineMessageProjection", () => {
 
     expect(projection.fieldSelections?.extra).toContain("memoryCapture");
   });
+
+  it("requests the fanfic version record so each chapter can show the models that wrote it", () => {
+    const projection = timelineMessageProjection();
+
+    expect(projection.fieldSelections?.extra).toContain("fanficVersion");
+  });
+
+  it("requests the fanfic extra-chapter marker so extras keep their number after a refresh", () => {
+    const projection = timelineMessageProjection();
+
+    expect(projection.fieldSelections?.extra).toContain("fanficExtra");
+  });
 });
 
 describe("sanitizeTimelineMessageRecord", () => {

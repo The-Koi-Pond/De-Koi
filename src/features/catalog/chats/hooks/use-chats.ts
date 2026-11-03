@@ -946,6 +946,7 @@ const SWIPE_SCOPED_EXTRA_KEYS = new Set([
   "attachments",
   "reasoning",
   "reasoning_content",
+  "fanficVersion",
 ]);
 
 function extraForActiveSwipe(baseExtra: unknown, swipeExtra: Record<string, unknown>): Record<string, unknown> {
@@ -1021,9 +1022,9 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
   if (selected.length === 0) throw new Error("No non-hidden messages available for the requested summary.");
 
   // Loaded on use, like the summary service: the home screen never needs it.
-  const { resolveChatSummaryConnectionId } =
+  const { resolveChatSummaryRunConnectionId } =
     await import("../../../../engine/modes/chat/core/summaries/summary-connection");
-  const connectionId = await resolveChatSummaryConnectionId(storageApi, chat);
+  const connectionId = await resolveChatSummaryRunConnectionId(storageApi, chat);
   const metadata = parseRecord(chat.metadata);
   const promptTemplate = await resolveSummaryPromptTemplate(metadata, promptTemplateId);
   const transcript = compactTranscript(selected);

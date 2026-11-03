@@ -37,7 +37,15 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { cn } from "../../../../shared/lib/utils";
 import { FanficCombobox, type FanficComboOption } from "./FanficCombobox";
-import { FanficButton, FanficField, FanficSection, FanficSegmented, fanficInputClass } from "./fanfic-ui";
+import { FanficConnectionSelect } from "./FanficConnectionSelect";
+import {
+  FANFIC_AUTO_POLISH_HINT,
+  FanficButton,
+  FanficField,
+  FanficSection,
+  FanficSegmented,
+  fanficInputClass,
+} from "./fanfic-ui";
 
 const TROPE_SUGGESTIONS = [
   "Slow Burn",
@@ -657,24 +665,25 @@ export function FanficRequestForm({
             </span>
           </span>
         </label>
+        <label className="flex items-start gap-2 text-sm text-[var(--foreground)]">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+            checked={request.autoPolish}
+            onChange={(event) => update("autoPolish", event.target.checked)}
+          />
+          <span>
+            Polish each chapter automatically
+            <span className="block text-xs text-[var(--muted-foreground)]">{FANFIC_AUTO_POLISH_HINT}</span>
+          </span>
+        </label>
         {languageConnections.length > 1 && (
-          <FanficField label="Model connection" htmlFor="fanfic-connection">
-            <select
-              id="fanfic-connection"
-              className={fanficInputClass}
-              value={connectionId ?? ""}
-              onChange={(event) => setConnectionId(event.target.value || null)}
-            >
-              {!languageConnections.some((connection) => connection.id === connectionId) && (
-                <option value="">Choose a connection</option>
-              )}
-              {languageConnections.map((connection) => (
-                <option key={connection.id} value={connection.id}>
-                  {connection.name || connection.id}
-                </option>
-              ))}
-            </select>
-          </FanficField>
+          <FanficConnectionSelect
+            id="fanfic-connection"
+            connections={languageConnections}
+            value={connectionId}
+            onChange={setConnectionId}
+          />
         )}
       </FanficSection>
 

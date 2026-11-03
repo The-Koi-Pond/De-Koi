@@ -25,7 +25,7 @@ function isAbort(error: unknown): boolean {
 export function FanficPassageEditor({
   chatId,
   messageId,
-  chapterNumber,
+  chapterLabel,
   textKey,
   selected,
   busy,
@@ -33,7 +33,8 @@ export function FanficPassageEditor({
 }: {
   chatId: string;
   messageId: string;
-  chapterNumber: number;
+  /** "3", or "3.5" for an extra. */
+  chapterLabel: string;
   /** Fingerprint of the chapter text the selection was made in. */
   textKey: string;
   selected: string;
@@ -83,7 +84,7 @@ export function FanficPassageEditor({
       await applyFanficPassageRewrite(storageApi, { chatId, messageId, textKey, suggestion });
       await queryClient.invalidateQueries({ queryKey: chatKeys.messages(chatId) });
       toast.success(
-        `Passage replaced. Chapter ${chapterNumber} saved as a new version, so the old one is one tap back.`,
+        `Passage replaced. Chapter ${chapterLabel} saved as a new version, so the old one is one tap back.`,
       );
       onClose();
     } catch (error) {

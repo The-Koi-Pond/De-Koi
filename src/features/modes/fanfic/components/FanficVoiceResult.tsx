@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Loader2, MessageSquareQuote, Square, Wand2, X } from "lucide-react";
 import {
   FANFIC_VOICE_BREAK_LABELS,
@@ -45,6 +46,7 @@ export function FanficVoiceResult({
   onFix,
   onRewrite,
   onDismiss,
+  helperNote,
 }: {
   check: FanficChapterVoiceCheck;
   /** The chapter as it reads now, heading stripped. */
@@ -53,6 +55,8 @@ export function FanficVoiceResult({
   onFix: (issues: FanficVoiceIssue[]) => void;
   onRewrite: (notes: string) => void;
   onDismiss: () => void;
+  /** Where this helper last ran for this fic, and why (Helper Models). */
+  helperNote?: ReactNode;
 }) {
   const stale = fanficChapterTextKey(chapterText) !== check.textKey;
   const fixable = check.issues.filter((issue) => issue.fix);
@@ -83,6 +87,7 @@ export function FanficVoiceResult({
           <X size="0.9rem" aria-hidden="true" />
         </button>
       </div>
+      {helperNote}
       {stale && (
         <p className="text-xs text-[var(--muted-foreground)]">
           The chapter changed since this check, so the fixes are off. Check it again to see where it stands.

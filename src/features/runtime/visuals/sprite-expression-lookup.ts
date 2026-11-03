@@ -1,5 +1,48 @@
 import { getSpriteOwnerId, getSpriteOwnerKind, makeSpriteOwnerKey, type SpriteOwnerKind } from "./sprite-owner-keys";
 
+interface SpriteImage {
+  expression: string;
+  url: string;
+}
+
+/**
+ * The sprite to show for `expression`: an exact match, then a close one ("happy" for "happy_2"), then the neutral
+ * one, then any sprite at all. Pools are searched in order at each step (expressions before full-body poses, whose
+ * `full_` prefix is ignored). Null only when every pool is empty.
+ */
+export function spriteUrlForExpression(
+  pools: ReadonlyArray<readonly SpriteImage[]>,
+  expression: string,
+): string | null {
+  const wanted = expression.toLowerCase();
+  const base = (value: string) => (value.startsWith("full_") ? value.slice(5) : value);
+  const find = (matches: (spriteExpression: string, baseExpression: string) => boolean) => {
+    for (const pool of pools) {
+      const match = pool.find((sprite) => {
+        const spriteExpression = sprite.expression.toLowerCase();
+        return matches(spriteExpression, base(spriteExpression));
+      });
+      if (match) return match.url;
+    }
+    return null;
+  };
+  return (
+    find((spriteExpression, baseExpression) => spriteExpression === wanted || baseExpression === wanted) ??
+    find(
+      (spriteExpression, baseExpression) =>
+        spriteExpression.includes(wanted) ||
+        wanted.includes(spriteExpression) ||
+        baseExpression.includes(wanted) ||
+        wanted.includes(baseExpression),
+    ) ??
+    find(
+      (_, baseExpression) => baseExpression === "neutral" || baseExpression === "default" || baseExpression === "idle",
+    ) ??
+    pools.find((pool) => pool.length > 0)?.[0]?.url ??
+    null
+  );
+}
+
 export function normalizeSpriteExpressionMap(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const expressions: Record<string, string> = {};

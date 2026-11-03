@@ -1,6 +1,6 @@
 # Automation Ledger
 
-The automation ledger is the machine-readable source of truth for automated Marinara work. Use it for bug fixes, feature builds, issue triage, reviews, PR iteration, and shipping whenever the task has multiple steps or an external outcome.
+The automation ledger is the machine-readable source of truth for automated De-Koi work. Use it for bug fixes, feature builds, issue triage, reviews, PR iteration, and shipping whenever the task has multiple steps or an external outcome.
 
 The ledger lives under `scratch/` and should not be committed unless chai explicitly asks for verification artifacts in a PR. Prefer task-specific names such as:
 

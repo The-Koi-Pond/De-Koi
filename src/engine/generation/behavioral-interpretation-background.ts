@@ -18,7 +18,8 @@ import {
   validateBehavioralInterpretation,
 } from "./behavioral-interpretation";
 import { createBackgroundJobQueue } from "./background-job-queue";
-import { isModelRouteError, resolveStoredModelRoute } from "./model-routing";
+import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
+import { isModelRouteError } from "./model-routing";
 import { parseRecord, readString } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
 
@@ -220,8 +221,15 @@ async function deriveAndSave(
   if (!character || !needsDerivation(character)) return;
   // The queued connection is the reply's, not a pick for this helper, so a route wins. A broken
   // route throws before the try below: it is a setting to fix, not a failed read to save on the card.
-  const routed = await resolveStoredModelRoute(deps.storage, "interpretations");
+  const routed = await resolveHelperRoute(deps.storage, "interpretations", { job: readString(character.data?.name) });
   const connectionId = routed ? readString(routed.id).trim() : queuedConnectionId;
+  await noteHelperRun(deps.storage, {
+    task: "interpretations",
+    rule: routed ? "route" : "chat",
+    connectionId,
+    connection: routed,
+    job: readString(character.data?.name),
+  });
   const sourceHash = behavioralInterpretationSourceHash(character.data);
   try {
     const profile = await deriveCharacterBehavioralInterpretation(

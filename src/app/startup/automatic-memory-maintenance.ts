@@ -8,8 +8,12 @@ import {
   scheduleAutomaticMemoryMaintenanceQueueProcessing,
   type AutomaticMemoryMaintenanceDependencies,
 } from "../../engine/generation/automatic-memory-maintenance-queue";
-import { selectBackgroundTextConnection } from "../../engine/generation/background-llm-connection";
-import { readModelRoutingSettings, resolveModelRoute } from "../../engine/generation/model-routing";
+import {
+  backgroundConnectionRule,
+  selectBackgroundTextConnection,
+} from "../../engine/generation/background-llm-connection";
+import { noteHelperRun } from "../../engine/generation/helper-runs";
+import { isModelRouteError, readModelRoutingSettings, resolveModelRoute } from "../../engine/generation/model-routing";
 import { resumeQueuedContinuityDirectorRefreshes } from "../../engine/modes/roleplay/continuity-director/continuity-director-scheduler";
 import { resumeQueuedCharacterInterpretations } from "../../engine/generation/behavioral-interpretation-background";
 import {
@@ -149,11 +153,35 @@ export async function resolveAutomaticMemoryMaintenanceConnectionId(
     fallbackConnectionId = readString(chat.connectionId).trim() || null;
   }
   const connections = await listConnections();
-  const routed = resolveModelRoute("memory", await readModelRoutingSettings(storage), connections);
-  if (routed) return readString(routed.id).trim();
-  const connection = selectBackgroundTextConnection(connections, fallbackConnectionId);
+  const note = {
+    task: "memory" as const,
+    job: "cleanup",
+    chatId: target.scope.kind === "chat" ? target.scope.id : null,
+  };
+  let routed: JsonRecord | null;
+  try {
+    routed = resolveModelRoute("memory", await readModelRoutingSettings(storage), connections);
+  } catch (error) {
+    if (isModelRouteError(error)) {
+      await noteHelperRun(storage, {
+        ...note,
+        rule: "route",
+        connectionId: error.connectionId,
+        problem: error.message,
+      });
+    }
+    throw error;
+  }
+  const connection = routed ?? selectBackgroundTextConnection(connections, fallbackConnectionId);
   if (!connection) throw new Error("No text connection is available");
-  return readString(connection.id).trim();
+  const connectionId = readString(connection.id).trim();
+  await noteHelperRun(storage, {
+    ...note,
+    rule: routed ? "route" : backgroundConnectionRule(connection, fallbackConnectionId),
+    connectionId,
+    connection,
+  });
+  return connectionId;
 }
 
 function dependencies(): AutomaticMemoryMaintenanceDependencies {

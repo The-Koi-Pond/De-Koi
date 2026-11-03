@@ -1840,6 +1840,13 @@ fn http_status_for_app_error(error: &AppError) -> StatusCode {
         "not_found" => StatusCode::NOT_FOUND,
         "conflict" => StatusCode::CONFLICT,
         "invalid_input" | "invalid_image" => StatusCode::BAD_REQUEST,
+        "openrouter_login_invalid_code"
+        | "openrouter_login_expired"
+        | "openrouter_login_wrong_mode"
+        | "openrouter_login_wrong_provider"
+        | "openrouter_login_rejected" => StatusCode::BAD_REQUEST,
+        "openrouter_login_missing_connection" => StatusCode::NOT_FOUND,
+        "openrouter_login_network" | "openrouter_login_no_key" => StatusCode::BAD_GATEWAY,
         "request_body_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
         "sidecar_inference_busy" => StatusCode::CONFLICT,
         "admin_access_invalid" => StatusCode::UNAUTHORIZED,

@@ -6,14 +6,22 @@
 // provider transcription the call keeps listening while the character talks, so you can cut in. Everything said
 // stays in the chat as normal texts.
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { VoiceReaction } from "../../../../engine/shared/voice-session/voice-reactions";
 import type { VoiceSessionSnapshot } from "../../../../engine/shared/voice-session/voice-session";
 import type { VoiceCallCharacter } from "../lib/voice-call-ports";
-import { hangUpVoiceCall, holdVoiceCallSession, voiceCallSessionFor } from "../lib/voice-call-sessions";
+import {
+  hangUpVoiceCall,
+  holdVoiceCallSession,
+  voiceCallReactionsFor,
+  voiceCallSessionFor,
+} from "../lib/voice-call-sessions";
 
 export type { VoiceCallCharacter } from "../lib/voice-call-ports";
 export type { VoiceSessionPhase as VoiceCallPhase } from "../../../../engine/shared/voice-session/voice-session";
 
 export interface VoiceCall extends VoiceSessionSnapshot {
+  /** What the character's face shows right now (an Expression Engine expression name, and why). */
+  reaction: VoiceReaction;
   toggleMute: () => void;
   /** Ends the call: the microphone closes and the voice stops at once. */
   hangUp: () => void;
@@ -34,8 +42,10 @@ export function useVoiceCall({
   const session = voiceCallSessionFor({ chatId, character, sendText });
   useEffect(() => holdVoiceCallSession(chatId, session), [chatId, session]);
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  const reactions = voiceCallReactionsFor(session);
+  const reaction = useSyncExternalStore(reactions.subscribe, reactions.getReaction, reactions.getReaction);
   const toggleMute = useCallback(() => session.setMuted(!session.getSnapshot().muted), [session]);
   const hangUp = useCallback(() => hangUpVoiceCall(chatId, session), [chatId, session]);
   const interrupt = useCallback(() => session.interrupt(), [session]);
-  return { ...snapshot, toggleMute, hangUp, interrupt };
+  return { ...snapshot, reaction, toggleMute, hangUp, interrupt };
 }

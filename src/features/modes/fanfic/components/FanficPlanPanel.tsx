@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, Compass, Loader2, RefreshCw, Square, X } from "lucide-react";
 import type { FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { cn } from "../../../../shared/lib/utils";
@@ -21,12 +21,15 @@ export function FanficPlanPanel({
   controller,
   busy,
   onUse,
+  helperNote,
 }: {
   proposal: FanficPlanProposal | null;
   controller: FanficPlanController;
   busy: boolean;
   /** Uses the suggestion: replaces the outline's remaining chapters, or (past the outline) fills the next chapter's notes. */
   onUse: (proposal: FanficPlanProposal) => Promise<void>;
+  /** Where this helper last ran for this fic, and why (Helper Models). */
+  helperNote?: ReactNode;
 }) {
   const [steer, setSteer] = useState("");
   const [using, setUsing] = useState(false);
@@ -69,6 +72,7 @@ export function FanficPlanPanel({
               Re-plan the chapters still to come from what the story actually did, with an optional nudge.
             </p>
           )}
+          {helperNote}
         </div>
         {proposal && !controller.running && (
           <button

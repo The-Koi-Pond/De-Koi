@@ -18,8 +18,9 @@ import {
   deferUntilForegroundGenerationCompletes,
   foregroundGenerationActive,
 } from "./background-generation-coordinator";
-import { resolveBackgroundTextConnection } from "./background-llm-connection";
-import { isModelRouteError, resolveStoredModelRoute } from "./model-routing";
+import { backgroundConnectionRule, resolveBackgroundTextConnection } from "./background-llm-connection";
+import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
+import { isModelRouteError } from "./model-routing";
 import { isTerminalBackgroundGenerationError } from "./background-generation-error";
 import { wakeAutomaticMemoryMaintenanceQueueProcessing } from "./automatic-memory-maintenance-queue";
 import { legacyMemoryId, sha256MemoryId } from "./deterministic-memory-id";
@@ -654,10 +655,18 @@ export async function processAutomaticMemoryCaptureQueue(
         if (!llm) throw new Error("Automatic memory value review requires an LLM gateway");
         const queuedConnectionId = readString(job.connectionId).trim();
         const queuedModel = readString(job.model).trim();
+        const routedConnection = await resolveHelperRoute(storage, "memory", { job: "saving memories", chatId });
         const backgroundConnection =
-          (await resolveStoredModelRoute(storage, "memory")) ??
-          (await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel));
+          routedConnection ?? (await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel));
         const connectionId = readString(backgroundConnection.id).trim();
+        await noteHelperRun(storage, {
+          task: "memory",
+          rule: routedConnection ? "route" : backgroundConnectionRule(backgroundConnection, queuedConnectionId),
+          connectionId,
+          connection: backgroundConnection,
+          job: "saving memories",
+          chatId,
+        });
         const model =
           readString(backgroundConnection.model).trim() ||
           (connectionId === queuedConnectionId ? queuedModel : "") ||

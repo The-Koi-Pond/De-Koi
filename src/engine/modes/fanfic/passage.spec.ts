@@ -10,7 +10,12 @@ const request = { ...defaultFanficRequest(), fandom: "The Freak Circus", charact
 const chapter =
   'Harlequin points a claw at Pierrot. "Look at him. He\'s buffering." Pierrot wipes his hand on the sheet. "Bells," Harlequin says, "bells, bells."';
 
-function storageWith(content: string) {
+const CONNECTION_NAMES: Record<string, { name: string; model: string }> = {
+  "conn-1": { name: "Drafter", model: "small-model" },
+  "conn-2": { name: "Other", model: "other-model" },
+};
+
+function storageWith(content: string, version: { extra?: Record<string, unknown>; index?: number } = {}) {
   const chat = {
     id: "chat-1",
     mode: "fanfic",
@@ -19,12 +24,19 @@ function storageWith(content: string) {
   };
   const messages = [
     { id: "m1", role: "assistant", content: "Chapter one. Bells everywhere, bells.", swipes: ["x"] },
-    { id: "m2", role: "assistant", content, swipes: [content] },
+    {
+      id: "m2",
+      role: "assistant",
+      content,
+      swipes: [content],
+      activeSwipeIndex: version.index ?? 0,
+      extra: version.extra ?? {},
+    },
   ];
   const storage = {
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === "chat-1") return chat as T;
-      if (entity === "connections") return { id, provider: "claude_subscription" } as T;
+      if (entity === "connections") return { id, provider: "claude_subscription", ...CONNECTION_NAMES[id] } as T;
       return null;
     },
     async listChatMessages<T = unknown>(): Promise<T[]> {
@@ -36,8 +48,8 @@ function storageWith(content: string) {
       message.content = next;
       return message;
     }),
-  } as unknown as StorageGateway;
-  return { storage, messages };
+  } as unknown as StorageGateway & { addChatMessageSwipe: ReturnType<typeof vi.fn> };
+  return { storage, messages, chat };
 }
 
 function scriptedLlm(replies: string[]) {
@@ -107,5 +119,57 @@ describe("passage rewrites", () => {
     await expect(
       applyFanficPassageRewrite(changed, { chatId: "chat-1", messageId: "m2", textKey, suggestion }),
     ).rejects.toThrow(/changed since then/);
+  });
+});
+
+describe("passage rewrite versions", () => {
+  const WRITER = { connectionId: "conn-w", name: "Writer", model: "big-model" };
+  const DRAFTER = { connectionId: "conn-1", name: "Drafter", model: "small-model" };
+  const textKey = fanficChapterTextKey(chapter);
+  const ask = { chatId: "chat-1", messageId: "m2", textKey, selected: "Look at him. He's buffering." };
+
+  async function rewriteAndUse(setup: ReturnType<typeof storageWith>, instruction: string, before?: () => void) {
+    const { llm } = scriptedLlm(["Look at him. Wound down like a cheap music box."]);
+    const suggestion = await suggestFanficPassageRewrite({ storage: setup.storage, llm }, { ...ask, instruction });
+    before?.();
+    await applyFanficPassageRewrite(setup.storage, { chatId: "chat-1", messageId: "m2", textKey, suggestion });
+    return setup.storage.addChatMessageSwipe.mock.calls.at(-1)?.[3];
+  }
+
+  it("saves the rewrite as a version written by the chapter's models and then the rewriting model", async () => {
+    const setup = storageWith(chapter, {
+      index: 1,
+      extra: { fanficVersion: { models: [WRITER], origin: { kind: "chapter", notes: "" }, unfinished: null } },
+    });
+
+    expect(await rewriteAndUse(setup, "  No modern slang.  ")).toEqual({
+      activate: true,
+      extra: {
+        fanficVersion: {
+          models: [WRITER, DRAFTER],
+          origin: { kind: "revise", notes: "No modern slang.", baseVersion: 1 },
+          unfinished: null,
+        },
+      },
+    });
+  });
+
+  it("names only the rewriting model when the chapter was written before models were recorded", async () => {
+    const options = await rewriteAndUse(storageWith(chapter), "No modern slang.");
+
+    expect(options?.extra?.fanficVersion).toEqual({
+      models: [DRAFTER],
+      origin: { kind: "revise", notes: "No modern slang.", baseVersion: 0 },
+      unfinished: null,
+    });
+  });
+
+  it("credits the model that wrote the chosen rewrite, even if the fic's model changed before it was used", async () => {
+    const setup = storageWith(chapter);
+    const options = await rewriteAndUse(setup, "No modern slang.", () => {
+      setup.chat.connectionId = "conn-2";
+    });
+
+    expect(options?.extra?.fanficVersion?.models).toEqual([DRAFTER]);
   });
 });

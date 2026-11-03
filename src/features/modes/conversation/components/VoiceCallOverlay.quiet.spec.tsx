@@ -17,10 +17,13 @@ vi.mock("../hooks/use-voice-call", () => ({
     bargeIn: "voice",
     stopping: false,
     sessionId: 1,
+    reaction: { activity: "speaking", expression: "neutral" },
     hangUp: vi.fn(),
     interrupt: vi.fn(),
   }),
 }));
+
+vi.mock("../../../catalog/sprites/index", () => ({ useSprites: () => ({ data: [] }) }));
 
 vi.mock("../../shared/chat-ui/index", () => ({
   useReplyWait: () => ({ elapsed: null, slow: false }),

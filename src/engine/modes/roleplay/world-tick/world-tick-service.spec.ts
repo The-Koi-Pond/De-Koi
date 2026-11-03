@@ -3,7 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { LlmGateway, LlmRequest } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import type { RoleplayWorldTickState } from "../../../contracts/types/roleplay-world-tick";
-import { applyWorldTick, commandWorldTick, proposeWorldTick, WorldTickError } from "./world-tick-service";
+import {
+  applyWorldTick,
+  commandWorldTick,
+  getWorldTickState,
+  proposeWorldTick,
+  WorldTickError,
+} from "./world-tick-service";
+import { offerWorldTickAfterScene, offerWorldTickForUserMessage } from "./world-tick-offers";
 import { WORLD_TICK_METADATA_KEY } from "./world-tick-state";
 
 const NOW = "2026-10-22T12:00:00.000Z";
@@ -286,6 +293,7 @@ describe("applyWorldTick", () => {
         {
           id: tickId,
           trigger: "manual" as const,
+          boundaryKey: null,
           elapsed: "a day",
           messageId: `${tickId}-narration`,
           events: [],
@@ -460,5 +468,178 @@ describe("hardening", () => {
       proposeWorldTick({ storage: h.storage, llm: h.llm }, { chatId: "chat-1", elapsed: "a day" }, h.options),
     ).rejects.toMatchObject({ code: "source_unavailable", message: expect.stringContaining("tracker store locked") });
     expect(h.llm.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe("offers at story boundaries", () => {
+  const skip = { chatId: "chat-1", content: "*Three days later,* I return.", previousMessageId: "m2" };
+
+  it("offers a boundary once, however often the callback fires", async () => {
+    const h = harness([], { name: "The bridge" });
+
+    const [first, second] = await Promise.all([
+      offerWorldTickAfterScene(h.storage, { originChatId: "chat-1", sceneChatId: "scene-1" }, h.options),
+      offerWorldTickAfterScene(h.storage, { originChatId: "chat-1", sceneChatId: "scene-1" }, h.options),
+    ]);
+    const third = await offerWorldTickAfterScene(
+      h.storage,
+      { originChatId: "chat-1", sceneChatId: "scene-1" },
+      h.options,
+    );
+
+    expect([first.offered, second.offered].sort()).toEqual([false, true]);
+    expect(third).toEqual({ offered: false, reason: "already_offered" });
+    expect(h.state()!.offer).toMatchObject({ trigger: "scene_concluded", label: "The bridge", elapsed: "" });
+    expect(h.state()!.offeredBoundaries).toHaveLength(1);
+    expect(h.llm.complete).not.toHaveBeenCalled();
+    expect(h.messages).toHaveLength(2);
+  });
+
+  it("never brings back a dismissed offer, even when the same turn is retried", async () => {
+    const h = harness([]);
+    const offered = await offerWorldTickForUserMessage(h.storage, skip, h.options);
+    expect(offered).toMatchObject({ offered: true, offer: { trigger: "time_skip", elapsed: "three days" } });
+
+    await commandWorldTick(
+      h.storage,
+      "chat-1",
+      { type: "dismiss_offer", offerId: h.state()!.offer!.id },
+      undefined,
+      h.options,
+    );
+    const retried = await offerWorldTickForUserMessage(h.storage, skip, h.options);
+
+    expect(h.state()!.offer).toBeNull();
+    expect(retried).toEqual({ offered: false, reason: "already_offered" });
+  });
+
+  it("stays quiet when the chat's switch is off, and turning it off withdraws a waiting offer", async () => {
+    const h = harness([]);
+    await offerWorldTickForUserMessage(h.storage, skip, h.options);
+
+    await commandWorldTick(h.storage, "chat-1", { type: "set_offers_enabled", enabled: false }, undefined, h.options);
+    const later = await offerWorldTickForUserMessage(
+      h.storage,
+      { ...skip, content: "A week later, the river floods.", previousMessageId: "m3" },
+      h.options,
+    );
+
+    expect(h.state()).toMatchObject({ offersEnabled: false, offer: null });
+    expect(later).toEqual({ offered: false, reason: "offers_off" });
+
+    await commandWorldTick(h.storage, "chat-1", { type: "set_offers_enabled", enabled: true }, undefined, h.options);
+    expect(h.state()!.offer).toBeNull();
+  });
+
+  it("does not offer while a time skip is already waiting for review", async () => {
+    const h = harness([proposal("Rain swelled the river.")]);
+    await proposeWorldTick({ storage: h.storage, llm: h.llm }, { chatId: "chat-1", elapsed: "a day" }, h.options);
+
+    const result = await offerWorldTickForUserMessage(h.storage, skip, h.options);
+
+    expect(result).toEqual({ offered: false, reason: "review_open" });
+    expect(h.state()!.offer).toBeNull();
+  });
+
+  it("only offers in Roleplay chats", async () => {
+    const h = harness([], { mode: "conversation" });
+
+    expect(await offerWorldTickForUserMessage(h.storage, skip, h.options)).toEqual({
+      offered: false,
+      reason: "not_roleplay",
+    });
+    expect(h.storage.updateChatIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("never offers or writes when the chat is just opened", async () => {
+    const h = harness([]);
+    h.messages.push({ id: "m3", role: "user", content: "*Three days later,* I return." });
+
+    const state = await getWorldTickState(h.storage, "chat-1", h.options);
+
+    expect(state.offer).toBeNull();
+    expect(h.storage.updateChatIfUnchanged).not.toHaveBeenCalled();
+    expect(h.llm.complete).not.toHaveBeenCalled();
+  });
+
+  it("taking an offer records where the tick came from, and the narration looks back at the skip", async () => {
+    const h = harness([proposal("The ferryman sold his boat.")]);
+    await offerWorldTickForUserMessage(h.storage, skip, h.options);
+    const offerId = h.state()!.offer!.id;
+
+    const proposed = await proposeWorldTick(
+      { storage: h.storage, llm: h.llm },
+      { chatId: "chat-1", elapsed: "three days", offerId },
+      h.options,
+    );
+    expect(proposed.state.offer).toBeNull();
+    expect(proposed.state.pending).toMatchObject({ trigger: "time_skip", boundaryKey: offerId });
+
+    const state = await reviewed(h, ["accepted"]);
+    const applied = await applyWorldTick(
+      h.storage,
+      { chatId: "chat-1", tickId: state.pending!.id, expectedRevision: state.revision },
+      h.options,
+    );
+
+    expect(applied.timeline.at(-1)).toMatchObject({ trigger: "time_skip", boundaryKey: offerId });
+    expect(h.messages.at(-1)!.content).toBe("*Meanwhile, off-screen (three days):*\n- The ferryman sold his boat.");
+    expect(await offerWorldTickForUserMessage(h.storage, skip, h.options)).toEqual({
+      offered: false,
+      reason: "already_offered",
+    });
+  });
+
+  it("reads a slice-1 state (no offer fields) as offers on, nothing waiting, manual ticks", async () => {
+    const h = harness([]);
+    h.setState({
+      version: 1,
+      revision: 7,
+      pending: null,
+      deferred: [],
+      timeline: [
+        { id: "t1", trigger: "manual", elapsed: "a day", messageId: "t1-narration", events: [], appliedAt: NOW },
+      ],
+      updatedAt: NOW,
+    } as unknown as RoleplayWorldTickState);
+
+    const state = await getWorldTickState(h.storage, "chat-1", h.options);
+    expect(state).toMatchObject({ revision: 7, offersEnabled: true, offer: null, offeredBoundaries: [] });
+    expect(state.timeline[0]).toMatchObject({ trigger: "manual", boundaryKey: null });
+    expect(await offerWorldTickForUserMessage(h.storage, skip, h.options)).toMatchObject({ offered: true });
+  });
+
+  it("suggesting again keeps answering the same boundary", async () => {
+    const h = harness([proposal("The ferryman sold his boat."), proposal("Gulls nested in the rigging.")]);
+    await offerWorldTickForUserMessage(h.storage, skip, h.options);
+    const offerId = h.state()!.offer!.id;
+    await proposeWorldTick(
+      { storage: h.storage, llm: h.llm },
+      { chatId: "chat-1", elapsed: "three days", offerId },
+      h.options,
+    );
+
+    const again = await proposeWorldTick(
+      { storage: h.storage, llm: h.llm },
+      { chatId: "chat-1", elapsed: "three days", replacePending: true },
+      h.options,
+    );
+
+    expect(again.state.pending).toMatchObject({ trigger: "time_skip", boundaryKey: offerId });
+    expect(again.state.pending!.events.map((event) => event.text)).toEqual(["Gulls nested in the rigging."]);
+  });
+
+  it("a manual tick leaves a waiting offer alone", async () => {
+    const h = harness([proposal("Rain swelled the river.")]);
+    await offerWorldTickForUserMessage(h.storage, skip, h.options);
+
+    const proposed = await proposeWorldTick(
+      { storage: h.storage, llm: h.llm },
+      { chatId: "chat-1", elapsed: "an hour" },
+      h.options,
+    );
+
+    expect(proposed.state.pending).toMatchObject({ trigger: "manual", boundaryKey: null });
+    expect(proposed.state.offer).not.toBeNull();
   });
 });

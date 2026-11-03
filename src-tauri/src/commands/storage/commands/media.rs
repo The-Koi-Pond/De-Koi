@@ -1,6 +1,6 @@
 use super::{
     avatars, characters, connection_secrets, entity_images, exports, generation, images, llm,
-    lorebook_images, media_uploads, personas, shared, sidecar, sprites,
+    lorebook_images, media_uploads, openrouter_login, personas, shared, sidecar, sprites,
 };
 use crate::state::AppState;
 use marinara_core::AppError;
@@ -201,6 +201,29 @@ pub async fn connection_diagnose_claude_subscription(
     id: String,
 ) -> Result<Value, AppError> {
     llm::connection_diagnose_claude_subscription(&state, &id).await
+}
+
+/// Desktop logins catch OpenRouter's redirect on a loopback port on this machine.
+#[tauri::command]
+pub async fn connection_openrouter_login_start(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Value, AppError> {
+    openrouter_login::start(&state, &id, openrouter_login::LoginMode::Callback).await
+}
+
+#[tauri::command]
+pub fn connection_openrouter_login_status(login_id: String) -> Result<Value, AppError> {
+    openrouter_login::status(&login_id)
+}
+
+#[tauri::command]
+pub async fn connection_openrouter_login_finish(
+    state: State<'_, AppState>,
+    login_id: String,
+    code: String,
+) -> Result<Value, AppError> {
+    openrouter_login::finish(&state, &login_id, &code).await
 }
 
 #[tauri::command]

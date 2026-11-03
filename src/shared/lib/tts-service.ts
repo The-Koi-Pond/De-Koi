@@ -117,10 +117,12 @@ class TTSService {
 
   private async getAudioBlob(text: string, options: TTSSpeakOptions = {}): Promise<Blob> {
     if (!options.cacheKey) return this.generateAudio(text, options);
+    // The line may be shared with another caller: stopping this one cancels only its own wait.
     return getOrCreateCachedTTSAudioBlob(
       options.cacheKey,
-      () => this.generateAudio(text, options),
+      (signal) => this.generateAudio(text, { ...options, signal }),
       options.cacheAliases,
+      options.signal,
     );
   }
 
@@ -378,8 +380,14 @@ class TTSService {
     }
   }
 
-  /** Stop any in-progress fetch or playback. */
-  stop(): void {
+  /** True when `id` is what is being spoken now (fetching, playing or paused), not something started after it. */
+  private isActive(id: string | undefined): boolean {
+    return id === undefined || this.activeId === id;
+  }
+
+  /** Stop any in-progress fetch or playback. With `id`, only if that caller's audio is the one active. */
+  stop(id?: string): void {
+    if (!this.isActive(id)) return;
     this.sequence += 1;
     this.abortController?.abort();
     this.abortController = null;
@@ -399,9 +407,10 @@ class TTSService {
 
   /**
    * Pause the current generated audio without clearing it. Between parts (the next one still downloading, or the
-   * silence before it), the next part is held back instead until `resume()`.
+   * silence before it), the next part is held back instead until `resume()`. With `id`, only that caller's audio.
    */
-  pause(): void {
+  pause(id?: string): void {
+    if (!this.isActive(id)) return;
     if (this.state === "playing" && this.audio) {
       this.audio.pause();
       this.setState("paused");
@@ -413,8 +422,9 @@ class TTSService {
     }
   }
 
-  /** Resume paused generated audio. */
-  resume(): void {
+  /** Resume paused generated audio. With `id`, only that caller's audio. */
+  resume(id?: string): void {
+    if (!this.isActive(id)) return;
     if (this.holdWaiters) {
       this.releaseHold();
       this.setState("loading");

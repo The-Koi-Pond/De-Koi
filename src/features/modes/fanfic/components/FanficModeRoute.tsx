@@ -10,6 +10,9 @@ import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { HelperRunNote } from "../../../catalog/connections/index";
+import { isReportedGenerationFailure } from "../../../runtime/generation/index";
+import { fanficFollowUps, type FanficFinishedChapter } from "../lib/write-outcome";
 import {
   useFanficChat,
   useFanficGenerationState,
@@ -21,6 +24,8 @@ import {
   useFanficOutline,
   useFanficRequestSave,
   useFanficWriter,
+  useFanficRunnerReattach,
+  nextFanficWrite,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
@@ -31,6 +36,8 @@ import { FanficRequestForm, fanficPickedLorebookIds, type FanficRequestSubmit } 
 export interface FanficModeRouteProps {
   activeChatId: string;
 }
+
+const PLANNING_NOTE = "mt-1 text-xs leading-snug text-[var(--muted-foreground)]";
 
 function errorText(error: unknown, fallback = "That didn't work. Try again."): string | null {
   if (!error) return null;
@@ -46,11 +53,12 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   const outline = useFanficOutline(activeChatId);
   const connectionId = chat?.connectionId ?? null;
   const write = useFanficWriter(activeChatId, connectionId);
-  const ledger = useFanficLedger(activeChatId, connectionId);
+  // Helpers pick their own connection (Helper Models route, else the fic's); only the writer takes the fic's here.
+  const ledger = useFanficLedger(activeChatId);
   const { update: updateLedger } = ledger;
-  const voices = useFanficVoices(activeChatId, connectionId);
-  const editor = useFanficEditor(activeChatId, connectionId);
-  const plan = useFanficPlan(activeChatId, connectionId);
+  const voices = useFanficVoices(activeChatId);
+  const editor = useFanficEditor(activeChatId);
+  const plan = useFanficPlan(activeChatId);
   const { propose: proposePlan } = plan;
   const phraseBans = useFanficPhraseBans(activeChatId, connectionId);
   const { remove: removeBannedPhrases, supported: bansSupported } = phraseBans;
@@ -68,44 +76,137 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
   }, [activeChatId]);
 
+  // The reader streams a continue after the chapter's text so far instead of as a new chapter.
+  const [continuing, setContinuing] = useState<{ messageId: string; textSoFar: string } | null>(null);
+  // A new extra streams after its main chapter's chain, not as the next chapter.
+  const [writingExtraAfter, setWritingExtraAfter] = useState<number | null>(null);
+  const chaptersRef = useRef(chapters);
+  useEffect(() => {
+    chaptersRef.current = chapters;
+  }, [chapters]);
+  // Once a chapter is finished (written, continued, reset, kept as is or polished), the same follow-ups run for its kind.
+  const afterChapterFinished = useCallback(
+    (chapter: FanficFinishedChapter, options: { batch?: boolean; polish?: boolean; polishNext?: boolean } = {}) => {
+      const followUps = fanficFollowUps(chapter, {
+        polish: options.polish === true,
+        polishNext: options.polishNext === true,
+      });
+      // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
+      if (bansSupported && followUps.phraseBansFor) {
+        removeBannedPhrases({ messageId: followUps.phraseBansFor, quiet: true });
+      }
+      // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
+      if (followUps.updateLedger) updateLedger({ quiet: true });
+      // Living outline: after each new chapter, check the rest of the plan against what was written. A "write all"
+      // run follows the outline as it is, so it skips the proposals nobody is there to use.
+      if (followUps.proposePlan && !options.batch) proposePlan({ quiet: true });
+    },
+    [bansSupported, proposePlan, removeBannedPhrases, updateLedger],
+  );
+  // "Write all": set while a run of chapters is going. A Stop ends the whole run and skips the chapter's polish, not
+  // just the write on screen.
+  const [batchRunning, setBatchRunning] = useState(false);
+  const followUpsStopped = useRef(false);
+  // The chapter the auto-polish is working on: the reader keeps showing it as written until the polished one lands.
+  const [polishing, setPolishing] = useState<string | null>(null);
+  const writeChapterRef = useRef<(args: FanficWriteArgs) => void>(() => {});
+  // One write at a time: a reattach when the tab wakes between two chapters of a run must not race the run's own
+  // next write (the generation hook would refuse the second, but its settle would clear the first one's state).
+  const writeInFlight = useRef(false);
+  // One write; it goes on by itself to the chapter's polish, and in a "write all" run to the next chapter (see
+  // nextFanficWrite).
+  const writeChapter = useCallback(
+    (args: FanficWriteArgs) => {
+      if (writeInFlight.current) return;
+      writeInFlight.current = true;
+      // Retrying a write followed from the server starts a new one of the same kind.
+      const { runnerJobId: _followed, ...retry } = args;
+      lastWrite.current = retry;
+      const batch = args.batch === true;
+      setBatchRunning(batch);
+      const continued =
+        args.kind === "continue" ? chaptersRef.current.find((chapter) => chapter.message.id === args.messageId) : null;
+      setContinuing(continued ? { messageId: continued.message.id, textSoFar: continued.message.content } : null);
+      setWritingExtraAfter(args.kind === "extra" && !args.messageId ? (args.parentChapter ?? null) : null);
+      setPolishing(args.kind === "polish" ? (args.messageId ?? null) : null);
+      void write(args)
+        .then(async (finished) => {
+          if (!finished) return null;
+          let next: FanficWriteArgs | null = null;
+          try {
+            next = await nextFanficWrite(activeChatId, followUpsStopped.current, args, finished);
+          } catch (error) {
+            toast.error(
+              toUserMessage(error, {
+                fallback: batch
+                  ? "Couldn't start the next chapter. Write it from the button below to carry on."
+                  : "Couldn't start polishing the chapter. Its Check buttons still work.",
+              }),
+            );
+          }
+          afterChapterFinished(finished, {
+            batch,
+            polish: args.kind === "polish",
+            polishNext: next?.kind === "polish",
+          });
+          return next;
+        })
+        .catch((error: unknown) => {
+          // The write's own failures are already on screen, and a Stop needs no message.
+          if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) {
+            return null;
+          }
+          toast.error(toUserMessage(error, { fallback: "That write didn't finish. Try again." }));
+          return null;
+        })
+        .then((next) => {
+          writeInFlight.current = false;
+          setContinuing(null);
+          setWritingExtraAfter(null);
+          setPolishing(null);
+          if (next) writeChapterRef.current(next);
+          else setBatchRunning(false);
+        });
+    },
+    [activeChatId, afterChapterFinished, write],
+  );
+  useEffect(() => {
+    writeChapterRef.current = writeChapter;
+  }, [writeChapter]);
+  // Every write the reader (or a reattach) starts; one the requester starts clears an earlier Stop.
   const runWrite = useCallback(
     (args: FanficWriteArgs) => {
-      lastWrite.current = args;
-      // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
-      void write(args).then((written) => {
-        if (!written) return;
-        // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
-        if (bansSupported)
-          removeBannedPhrases({ messageId: args.kind === "chapter" ? null : args.messageId, quiet: true });
-        updateLedger({ quiet: true });
-        // Living outline: after each new chapter, check the rest of the plan against what was written.
-        if (args.kind === "chapter") proposePlan({ quiet: true });
-      });
+      if (!args.runnerJobId) followUpsStopped.current = false;
+      writeChapter(args);
     },
-    [bansSupported, proposePlan, removeBannedPhrases, updateLedger, write],
+    [writeChapter],
   );
+  const { stop: stopGeneration } = generation;
+  const stopWrite = useCallback(() => {
+    followUpsStopped.current = true;
+    stopGeneration();
+  }, [stopGeneration]);
+  // A chapter still being written on the server (the phone slept or the tab closed mid-write) streams here again.
+  useFanficRunnerReattach(activeChatId, messagesComplete && stage === "writing", runWrite);
 
   const chapterCount = useRef(chapters.length);
   useEffect(() => {
     chapterCount.current = chapters.length;
   }, [chapters.length]);
-  const startOutline = useCallback(
-    (nextConnectionId: string | null) => {
-      outlineAbort.current?.abort();
-      const controller = new AbortController();
-      outlineAbort.current = controller;
-      outline.mutate(
-        { connectionId: nextConnectionId, signal: controller.signal },
-        {
-          // With outline review skipped the plan arrives approved: go straight to chapter 1.
-          onSuccess: (planned) => {
-            if (planned.outlineApproved && chapterCount.current === 0) runWrite({ kind: "chapter" });
-          },
+  const startOutline = useCallback(() => {
+    outlineAbort.current?.abort();
+    const controller = new AbortController();
+    outlineAbort.current = controller;
+    outline.mutate(
+      { signal: controller.signal },
+      {
+        // With outline review skipped the plan arrives approved: go straight to chapter 1.
+        onSuccess: (planned) => {
+          if (planned.outlineApproved && chapterCount.current === 0) runWrite({ kind: "chapter" });
         },
-      );
-    },
-    [outline, runWrite],
-  );
+      },
+    );
+  }, [outline, runWrite]);
 
   // The only place planning starts: a saved request with no outline yet (fresh submit, or a reload
   // mid-plan) plans once per submit. It waits for the request save, so the planner reads the new request.
@@ -117,18 +218,8 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     const key = `${activeChatId}:${planToken}`;
     if (planningStartedFor.current === key) return;
     planningStartedFor.current = key;
-    startOutline(connectionId);
-  }, [
-    activeChatId,
-    connectionId,
-    editingRequest,
-    outline.isError,
-    outline.isPending,
-    planToken,
-    savingRequest,
-    stage,
-    startOutline,
-  ]);
+    startOutline();
+  }, [activeChatId, editingRequest, outline.isError, outline.isPending, planToken, savingRequest, stage, startOutline]);
 
   useEffect(() => () => outlineAbort.current?.abort(), []);
 
@@ -202,7 +293,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
 
   const replan = () => {
     outline.reset();
-    startOutline(connectionId);
+    startOutline();
   };
 
   if (error && !chat) {
@@ -265,7 +356,21 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
               canBuild={fanficVoiceCharacters(state.request).length > 0}
               busy={updateMetadata.isPending}
               onSave={saveVoices}
+              helperNote={
+                <HelperRunNote
+                  task="fanficPlanning"
+                  job="voice sheets"
+                  chatId={activeChatId}
+                  className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+                />
+              }
             />
+          }
+          helperNote={
+            <>
+              <HelperRunNote task="fanficPlanning" job="research" chatId={activeChatId} className={PLANNING_NOTE} />
+              <HelperRunNote task="fanficPlanning" job="outline" chatId={activeChatId} className={PLANNING_NOTE} />
+            </>
           }
           saving={updateMetadata.isPending}
           onApprove={(approved, notes) => void approveOutline(approved, notes)}
@@ -282,9 +387,14 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           streamText={generation.streamText}
           phase={generation.phase}
           regeneratingMessageId={generation.regeneratingMessageId}
+          continuing={continuing}
+          polishing={polishing}
+          writingExtraAfter={writingExtraAfter}
           onWrite={runWrite}
+          onChapterFinished={afterChapterFinished}
           onRetry={() => runWrite(lastWrite.current)}
-          onStop={generation.stop}
+          onStop={stopWrite}
+          batchRunning={batchRunning}
           ledger={ledger}
           voices={voices}
           onSaveVoices={saveVoices}

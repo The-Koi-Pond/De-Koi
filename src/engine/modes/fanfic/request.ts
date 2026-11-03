@@ -77,6 +77,7 @@ export function defaultFanficRequest(): FanficRequest {
     reviewOutline: true,
     adultsConfirmed: false,
     research: true,
+    autoPolish: true,
   };
 }
 
@@ -145,6 +146,8 @@ export function normalizeFanficRequest(raw: unknown): FanficRequest {
     adultsConfirmed: record.adultsConfirmed === true,
     // Requests saved before research existed never opted in.
     research: record.research === true,
+    // On unless turned off, for fics started before the switch too.
+    autoPolish: record.autoPolish !== false,
   };
 }
 

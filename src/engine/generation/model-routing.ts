@@ -24,6 +24,8 @@ export const MODEL_ROUTE_TASKS = [
   "status",
   "schedules",
   "interpretations",
+  "fanficPlanning",
+  "fanficChecks",
 ] as const;
 export type ModelRouteTask = (typeof MODEL_ROUTE_TASKS)[number];
 
@@ -36,6 +38,8 @@ export const MODEL_ROUTE_TASK_LABELS: Record<ModelRouteTask, string> = {
   status: "Status blurbs",
   schedules: "Schedules",
   interpretations: "Character reads",
+  fanficPlanning: "Fanfic planning",
+  fanficChecks: "Fanfic checks",
 };
 
 export interface ModelRoutingSettings {

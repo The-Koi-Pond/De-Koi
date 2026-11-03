@@ -30,6 +30,10 @@ const h = vi.hoisted(() => {
     listens: [] as Listen[],
     transcripts: [] as Array<ReturnType<typeof deferred<string>>>,
     runnerJobs: [] as Array<Array<{ status: string }>>,
+    /** Provider voice input on (Connections → Text to Speech). */
+    providerInput: true,
+    /** Running in the desktop app (embedded runtime). */
+    desktop: false,
     state,
     storeListeners,
     setStore(mutate: (s: typeof state) => void) {
@@ -42,7 +46,7 @@ const h = vi.hoisted(() => {
 vi.mock("../../../../shared/lib/voice-recorder", () => ({
   VOICE_NEEDS_HTTPS_MESSAGE: "https",
   loadSpeechConfig: async () => ({ enabled: false, source: "elevenlabs", baseUrl: "", speechInputProvider: true }),
-  providerSpeechInputEnabled: () => true,
+  providerSpeechInputEnabled: () => h.providerInput,
   canRecordAudio: () => true,
   openMicrophone: async () => {
     const id = `mic-${h.opened.length + 1}`;
@@ -66,6 +70,10 @@ vi.mock("../../../../shared/api/tts-api", () => ({
       return transcript.promise;
     },
   },
+}));
+vi.mock("../../../../shared/api/remote-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../shared/api/remote-runtime")>()),
+  hasEmbeddedTauriRuntime: () => h.desktop,
 }));
 vi.mock("../../../../shared/api/storage-api", () => ({ storageApi: { listChatMessages: async () => [] } }));
 vi.mock("../../../../shared/api/generation-runner-api", () => ({
@@ -126,6 +134,8 @@ describe("useVoiceCall", () => {
     h.listens.length = 0;
     h.transcripts.length = 0;
     h.runnerJobs.length = 0;
+    h.providerInput = true;
+    h.desktop = false;
     h.state.abortControllers.clear();
     h.state.streamBuffers.clear();
     h.storeListeners.clear();
@@ -137,6 +147,17 @@ describe("useVoiceCall", () => {
   afterEach(async () => {
     act(() => root.unmount());
     await settle();
+  });
+
+  it("in the desktop app without provider voice input, says so instead of listening forever", async () => {
+    // Its webview's speech recognizer starts and then never hears anything or reports an error.
+    h.providerInput = false;
+    h.desktop = true;
+    act(() => root.render(<Harness chatId="a" sendText={async () => true} />));
+    await settle();
+    expect(call).toMatchObject({ phase: "error", mic: "off" });
+    expect(call?.error).toMatch(/desktop app need voice input from your Text to Speech provider/);
+    expect(h.opened).toEqual([]);
   });
 
   it("switching chats mid-reply ends the old call's mic at once and leaves the new call's mic alone", async () => {

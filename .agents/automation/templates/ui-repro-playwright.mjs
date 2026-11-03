@@ -11,7 +11,7 @@
 import { mkdirSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
-const BASE_URL = process.env.MARINARA_URL ?? "http://localhost:1420";
+const BASE_URL = process.env.DE_KOI_URL ?? "http://localhost:1420";
 const RUNTIME = process.env.REPRO_RUNTIME ?? "Chrome web shell";
 const ROUTE_PATH = process.env.REPRO_ROUTE ?? "/";
 const OUT_DIR = process.env.REPRO_OUT_DIR ?? "scratch/playwright-proof";

@@ -14,6 +14,7 @@ import { FANFIC_RESEARCH_NOTES_MAX, readFanficState } from "./request";
 import type { FanficWebResearchGateway, FanficWebSource } from "./web-research";
 import { buildFanficVoiceSheets, fanficVoiceCharacters, type FanficVoicePhase } from "./voices";
 import { userFacingError } from "../../shared/user-facing-error";
+import { FANFIC_CONNECTION_GONE, FANFIC_NO_CONNECTION, pickFanficHelperConnection } from "./llm-json";
 
 const MAX_QUERIES = 5;
 const QUERY_MAX_TOKENS = 1200;
@@ -142,8 +143,14 @@ export async function runFanficResearch(
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
   if (!state.request.research) throw userFacingError("Online research is off for this fic.");
-  const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
-  if (!connectionId) throw userFacingError("Pick a connection for this fic first.");
+  const { connectionId } = await pickFanficHelperConnection(deps.storage, "fanficPlanning", chat, {
+    chatId: input.chatId,
+    connectionId: input.connectionId,
+    job: "research",
+    missing: FANFIC_NO_CONNECTION,
+    gone: FANFIC_CONNECTION_GONE,
+    allowRandom: true,
+  });
   const throwIfAborted = () => {
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
   };

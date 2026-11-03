@@ -5,8 +5,8 @@ use crate::storage_commands::{
     characters, chat_memory, chats, connection_secrets, custom_tools, customization, deki,
     entity_images, exports, fanfic_research, fonts, generation, http, images, imports,
     integrations, knowledge, knowledge_edges, llm, lorebook_images, managed_thumbnails,
-    memory_capture, memory_maintenance, message_search, personas, profile, prompts, shared,
-    sidecar, sprites, translation, updates, web_research,
+    memory_capture, memory_maintenance, message_search, openrouter_login, personas, profile,
+    prompts, shared, sidecar, sprites, translation, updates, web_research,
 };
 use marinara_core::{AppError, AppResult};
 use serde::Deserialize;
@@ -1402,6 +1402,15 @@ pub(crate) async fn dispatch_for_runtime_owner(
         "connection_save_default_parameters" => {
             dispatch_blocking_http_storage(state, &args, connection_save_default_parameters).await
         }
+        "connection_openrouter_login_start" => {
+            connection_openrouter_login_start(state, &args).await
+        }
+        "connection_openrouter_login_status" => {
+            openrouter_login::status(required_string(&args, "loginId")?)
+        }
+        "connection_openrouter_login_finish" => {
+            connection_openrouter_login_finish(state, &args).await
+        }
         "character_gallery_upload" => character_gallery_upload(state, &args),
         "persona_gallery_upload" => persona_gallery_upload(state, &args),
         "global_gallery_upload" => global_gallery_upload(state, &args),
@@ -1704,6 +1713,32 @@ async fn connection_diagnose_claude_subscription(
     args: &Map<String, Value>,
 ) -> AppResult<Value> {
     llm::connection_diagnose_claude_subscription(state, required_string(args, "id")?).await
+}
+
+/// A hosted server can't receive a redirect meant for the user's device, so OpenRouter shows a
+/// code the user pastes back instead.
+async fn connection_openrouter_login_start(
+    state: &AppState,
+    args: &Map<String, Value>,
+) -> AppResult<Value> {
+    openrouter_login::start(
+        state,
+        required_string(args, "id")?,
+        openrouter_login::LoginMode::Code,
+    )
+    .await
+}
+
+async fn connection_openrouter_login_finish(
+    state: &AppState,
+    args: &Map<String, Value>,
+) -> AppResult<Value> {
+    openrouter_login::finish(
+        state,
+        required_string(args, "loginId")?,
+        required_string(args, "code")?,
+    )
+    .await
 }
 
 fn connection_save_default_parameters(

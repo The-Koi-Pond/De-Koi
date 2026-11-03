@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Route } from "lucide-react";
-import { useConnections } from "../../../catalog/connections";
+import { HelperRunText, useConnections, useHelperRuns } from "../../../catalog/connections";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { modelRoutingApi, modelRoutingKeys } from "../../../../shared/api/model-routing-api";
@@ -14,6 +14,7 @@ import {
   type ModelRouteProblem,
   type ModelRouteTask,
 } from "../../../../engine/generation/model-routing";
+import type { HelperRun } from "../../../../engine/generation/helper-runs";
 import { boolish, readString, type JsonRecord } from "../../../../engine/generation/runtime-records";
 
 const TASK_SCOPE: Record<ModelRouteTask, string> = {
@@ -25,6 +26,9 @@ const TASK_SCOPE: Record<ModelRouteTask, string> = {
   status: "The short status lines under each Conversation character.",
   schedules: "Writing each Conversation character's weekly schedule.",
   interpretations: "Reading a thin Roleplay character card to pin down how they act.",
+  fanficPlanning: "A fic's research, outline, voice sheets, and the outline updates after each chapter.",
+  fanficChecks:
+    "A fic's story ledger, continuity and voice checks, and the editor pass. Chapters stay on the fic's connection.",
 };
 
 function connectionLabel(connection: JsonRecord): string {
@@ -35,7 +39,8 @@ function connectionLabel(connection: JsonRecord): string {
 
 /** What an unrouted task uses, in words: the rule it followed before helper routing existed. */
 function sameAsTodayText(task: ModelRouteTask, agentDefault: JsonRecord | null): string {
-  if (task === "judge") return "Same as today: each fic's connection.";
+  if (task === "judge" || task === "fanficPlanning" || task === "fanficChecks")
+    return "Same as today: each fic's connection.";
   if (task === "memory" && agentDefault) {
     return `Same as today: Default for Agents (${connectionLabel(agentDefault)}), else each chat's connection.`;
   }
@@ -57,6 +62,7 @@ function HelperRouteRow({
   localOnly,
   connections,
   agentDefault,
+  lastRun,
   saving,
   onChange,
   onLocalOnlyChange,
@@ -66,6 +72,7 @@ function HelperRouteRow({
   localOnly: boolean;
   connections: JsonRecord[];
   agentDefault: JsonRecord | null;
+  lastRun: HelperRun | null;
   saving: boolean;
   onChange: (connectionId: string | null) => void;
   onLocalOnlyChange: (localOnly: boolean) => void;
@@ -134,6 +141,7 @@ function HelperRouteRow({
             ? `Uses ${connectionLabel(check.connection)}.`
             : `${modelRouteProblemSentence(task, check.problem, readString(named?.name).trim() || routedId || "")} ${problemHint(check.problem)}`}
       </p>
+      {lastRun && <HelperRunText run={lastRun} />}
     </div>
   );
 }
@@ -164,6 +172,8 @@ export function HelperModelsCard() {
     meta: { errorMessage: "Couldn't save the helper model. Try again." },
   });
 
+  // Refetched each time the card opens, so it shows runs from the hosted runner and other tabs too.
+  const { data: runs } = useHelperRuns({ fresh: true });
   const connections = (connectionRows ?? []) as JsonRecord[];
   const agentDefault =
     connections.find(
@@ -214,6 +224,7 @@ export function HelperModelsCard() {
               localOnly={settings.localOnly?.includes(task) ?? false}
               connections={connections}
               agentDefault={agentDefault}
+              lastRun={runs?.[task]?.[0] ?? null}
               saving={saveRoute.isPending || saveLocalOnly.isPending}
               onChange={(connectionId) => saveRoute.mutate({ task, connectionId })}
               onLocalOnlyChange={(localOnly) => saveLocalOnly.mutate({ task, localOnly })}
@@ -221,6 +232,9 @@ export function HelperModelsCard() {
           ))}
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
             An agent with its own connection keeps it, including the Chat Summary agent for Summarize chat.
+          </p>
+          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+            Under each helper: the connection and model it last ran on, and why, or why it stopped.
           </p>
           <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
             Keep on my device: that helper only runs on the Local Model or a connection on this computer or home

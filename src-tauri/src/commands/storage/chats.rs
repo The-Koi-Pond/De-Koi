@@ -1445,6 +1445,13 @@ pub(crate) fn delete_message_rows_with_memory_prune(
                 &ids,
                 "source_message_deleted",
             )?;
+            canonical_memory::delete_automatic_memories_for_deleted_messages_in_collections(
+                collections,
+                4,
+                5,
+                7,
+                &ids,
+            )?;
             knowledge_edges::invalidate_message_sources_in_collections(
                 collections,
                 7,
@@ -5756,6 +5763,50 @@ mod tests {
     }
 
     #[test]
+    fn set_active_swipe_keeps_the_fanfic_extra_marker_on_every_version() {
+        let state = test_state("set-active-fanfic-extra");
+        let marker = json!({ "parentChapter": 3, "canon": true });
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "extra-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "second",
+                "activeSwipeIndex": 1,
+                "extra": {
+                    "fanficExtra": marker,
+                    "fanficVersion": { "models": [], "origin": { "kind": "regenerate", "notes": "" } }
+                },
+                "swipes": [
+                    {
+                        "content": "first",
+                        "extra": { "fanficVersion": { "models": [], "origin": { "kind": "extra", "notes": "" } } }
+                    },
+                    {
+                        "content": "second",
+                        "extra": { "fanficVersion": { "models": [], "origin": { "kind": "regenerate", "notes": "" } } }
+                    }
+                ]
+            }),
+        )
+        .expect("message should seed");
+
+        let switched = project_timeline_message(
+            set_active_swipe(&state, "chat-1", "extra-1", json!({ "index": 0 }))
+                .expect("swipe switch should succeed"),
+        );
+
+        assert_eq!(switched["content"], json!("first"));
+        assert_eq!(switched["extra"]["fanficExtra"], marker);
+        assert_eq!(
+            switched["extra"]["fanficVersion"]["origin"]["kind"],
+            json!("extra")
+        );
+        assert!(swipe_scoped_extra(Some(&json!({ "fanficExtra": marker }))).is_none());
+    }
+
+    #[test]
     fn delete_swipe_rejects_last_and_missing_swipes() {
         let state = test_state("delete-swipe-guards");
         message_swipe_storage::create_message(
@@ -7122,6 +7173,138 @@ mod tests {
                 .unwrap()
                 .unwrap()["status"],
             json!("active")
+        );
+    }
+
+    #[test]
+    fn deleting_a_message_deletes_the_automatic_memories_captured_from_it() {
+        let state = test_state("delete-message-captured-memories");
+        let user = json!({
+            "id": "user-1",
+            "chatId": "chat-1",
+            "role": "user",
+            "content": "my locker code is 4165",
+            "createdAt": "2026-11-02T00:00:00Z",
+            "extra": {}
+        });
+        let reply = json!({
+            "id": "reply-1",
+            "chatId": "chat-1",
+            "role": "assistant",
+            "content": "noted",
+            "createdAt": "2026-11-02T00:00:01Z",
+            "extra": {}
+        });
+        state.storage.create("messages", user.clone()).unwrap();
+        state.storage.create("messages", reply).unwrap();
+        let seed = |id: &str, status: &str, payload: Value, message_ids: Value| {
+            canonical_memory::create_memory(
+                &state,
+                json!({
+                    "id": id,
+                    "kind": "fact",
+                    "status": status,
+                    "scope": { "kind": "character", "id": "character-1" },
+                    "content": format!("memory {id}"),
+                    "confidence": 0.9,
+                    "provenance": { "sourceChatId": "chat-1", "messageIds": message_ids },
+                    "tags": [],
+                    "payload": payload
+                }),
+            )
+            .unwrap();
+        };
+        let automatic = |sources: Value, references: Value| json!({ "automatic": true, "sourceMessageIds": sources, "referenceMessageIds": references });
+        seed(
+            "cited-deleted",
+            "active",
+            automatic(json!(["user-1", "reply-1"]), json!([])),
+            json!(["user-1", "reply-1"]),
+        );
+        seed(
+            "stale-cited-deleted",
+            "stale",
+            automatic(json!(["user-1"]), json!([])),
+            json!(["user-1"]),
+        );
+        seed(
+            "legacy-provenance",
+            "active",
+            json!({ "automatic": true }),
+            json!(["user-1"]),
+        );
+        seed(
+            "cites-reply-only",
+            "active",
+            automatic(json!(["reply-1"]), json!([])),
+            json!(["reply-1"]),
+        );
+        seed(
+            "reference-only",
+            "active",
+            automatic(json!(["reply-1"]), json!(["user-1"])),
+            json!(["reply-1", "user-1"]),
+        );
+        seed(
+            "pinned",
+            "pinned",
+            automatic(json!(["user-1"]), json!([])),
+            json!(["user-1"]),
+        );
+        seed("manual", "active", json!({}), json!(["user-1"]));
+        state
+            .storage
+            .create(
+                "memory-index-rows",
+                json!({ "id": "index-cited", "memoryId": "cited-deleted" }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                knowledge_edges::COLLECTION,
+                json!({
+                    "id": "edge-cited",
+                    "memoryId": "cited-deleted",
+                    "holder": { "kind": "character", "id": "character-1" },
+                    "stance": "believes",
+                    "status": "active",
+                    "provenance": [{ "kind": "targeted_disclosure", "author": "system", "messageIds": ["reply-1"] }]
+                }),
+            )
+            .unwrap();
+
+        let (deleted, _) =
+            delete_message_rows_with_memory_prune(&state, "chat-1", &[user]).unwrap();
+        assert_eq!(deleted, 1);
+
+        let status = |id: &str| {
+            state
+                .storage
+                .get("canonical-memories", id)
+                .unwrap()
+                .unwrap()["status"]
+                .clone()
+        };
+        assert_eq!(status("cited-deleted"), json!("deleted"));
+        assert_eq!(status("stale-cited-deleted"), json!("deleted"));
+        assert_eq!(status("legacy-provenance"), json!("deleted"));
+        assert_eq!(status("cites-reply-only"), json!("active"));
+        assert_eq!(status("reference-only"), json!("active"));
+        assert_eq!(status("pinned"), json!("pinned"));
+        assert_eq!(status("manual"), json!("active"));
+        assert!(state
+            .storage
+            .get("memory-index-rows", "index-cited")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            state
+                .storage
+                .get(knowledge_edges::COLLECTION, "edge-cited")
+                .unwrap()
+                .unwrap()["status"],
+            json!("invalidated")
         );
     }
 }

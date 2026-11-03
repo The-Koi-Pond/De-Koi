@@ -4,7 +4,7 @@ import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import { CONVERSATION_STATUS_STYLE_REFERENCE } from "../../../contracts/constants/conversation-prompt";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
-import { resolveStoredModelRoute } from "../../../generation/model-routing";
+import { chatConnectionRule, noteHelperRun, resolveHelperRoute } from "../../../generation/helper-runs";
 import {
   getAvailabilityDecision,
   getEnabledConversationRoutines,
@@ -460,9 +460,18 @@ export async function maybeRefreshConversationStatusMessages(
   if (pending.length === 0) return { refreshed: [], skipped };
 
   // A status blurbs route wins over the chat's connection; a broken one stops here.
-  const connection =
-    (await resolveStoredModelRoute(capabilities.storage, "status")) ??
-    (await resolveConnection(capabilities.storage, chat));
+  const chatId = readString(chat.id).trim();
+  const routed = await resolveHelperRoute(capabilities.storage, "status", { chatId });
+  const connection = routed ?? (await resolveConnection(capabilities.storage, chat));
+  if (connection) {
+    await noteHelperRun(capabilities.storage, {
+      task: "status",
+      rule: routed ? "route" : chatConnectionRule(connection, chat.connectionId),
+      connectionId: readString(connection.id).trim(),
+      connection,
+      chatId,
+    });
+  }
   if (!connection) {
     throw new Error(
       `Conversation status blurbs enabled but no usable connection could be resolved for ${describeConnectionTarget(chat)}.`,

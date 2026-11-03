@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import type { LlmGateway } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
-import type { RoleplayWorldTickState, WorldTickCommand } from "../../../contracts/types/roleplay-world-tick";
+import type {
+  RoleplayWorldTickState,
+  WorldTickCommand,
+  WorldTickTrigger,
+} from "../../../contracts/types/roleplay-world-tick";
 import { parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
 import { generateStructured } from "../../../generation/structured-generation";
 import { validateContinuityDirectorText } from "../continuity-director/continuity-director-safety";
@@ -236,6 +240,8 @@ export interface ProposeWorldTickInput {
   guidance?: string;
   /** Replace a tick that is already waiting for review instead of failing. */
   replacePending?: boolean;
+  /** The offer being taken, if the user came from one; the tick then records that boundary. */
+  offerId?: string | null;
 }
 
 export interface ProposeWorldTickResult {
@@ -350,7 +356,14 @@ export async function proposeWorldTick(
   );
   const next = startPendingWorldTick(
     base,
-    { elapsed, guidance, anchorMessageId: source.sourceSnapshot.lastMessageId, proposals: safe },
+    {
+      elapsed,
+      guidance,
+      anchorMessageId: source.sourceSnapshot.lastMessageId,
+      proposals: safe,
+      offerId: input.offerId ?? null,
+      origin: before.pending && input.replacePending ? before.pending : null,
+    },
     options,
   );
   const result = await persistIfUnchanged(capabilities.storage, input.chatId, rawState(chat), next);
@@ -396,6 +409,7 @@ export async function applyWorldTick(
 
   const createdMessage = await ensureNarration(storage, input.chatId, messageId, {
     tickId: pending.id,
+    trigger: pending.trigger,
     elapsed: pending.elapsed,
     events: accepted,
   });
@@ -438,11 +452,17 @@ async function ensureNarration(
   storage: StorageGateway,
   chatId: string,
   messageId: string,
-  tick: { tickId: string; elapsed: string; events: Array<{ id: string; text: string; source: string }> },
+  tick: {
+    tickId: string;
+    trigger: WorldTickTrigger;
+    elapsed: string;
+    events: Array<{ id: string; text: string; source: string }>;
+  },
 ): Promise<boolean> {
   const content = worldTickNarration(
     tick.elapsed,
     tick.events.map((event) => event.text),
+    tick.trigger,
   );
   try {
     const existing = await storage.getChatMessage<JsonRecord>(messageId);

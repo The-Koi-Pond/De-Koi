@@ -12,9 +12,16 @@ const connections = [
   { id: "pictures", name: "Pictures", provider: "image_generation", model: "image-model" },
 ];
 
-vi.mock("../../../catalog/connections", () => ({
-  useConnections: () => ({ data: connections }),
-}));
+const helperRuns = vi.hoisted(() => ({ current: {} as Record<string, unknown[]> }));
+
+vi.mock("../../../catalog/connections", async (importOriginal) => {
+  const { HelperRunText } = await importOriginal<typeof import("../../../catalog/connections")>();
+  return {
+    HelperRunText,
+    useConnections: () => ({ data: connections }),
+    useHelperRuns: () => ({ data: helperRuns.current }),
+  };
+});
 
 vi.mock("../../../../shared/api/model-routing-api", () => ({
   modelRoutingKeys: { settings: ["model-routing"] },
@@ -41,6 +48,7 @@ describe("HelperModelsCard", () => {
   });
 
   afterEach(() => {
+    helperRuns.current = {};
     act(() => root?.unmount());
     root = null;
     queryClient.clear();
@@ -82,6 +90,9 @@ describe("HelperModelsCard", () => {
     expect(status("Fanfic judge")).toBe("Same as today: each fic's connection.");
     for (const name of ["Group responder", "Status blurbs", "Schedules", "Character reads"]) {
       expect(status(name)).toBe("Same as today: each chat's connection.");
+    }
+    for (const name of ["Fanfic planning", "Fanfic checks"]) {
+      expect(status(name)).toBe("Same as today: each fic's connection.");
     }
     expect(Array.from(select("Memory").options).map((option) => option.textContent)).toEqual([
       "Same as today",
@@ -197,5 +208,45 @@ describe("HelperModelsCard", () => {
       `The Group responder helper must stay on your device, but "Cheap" sends work off it. It won't run until you pick a connection on this device or network, or untick "Keep on my device".`,
     );
     expect(status("Character reads")).toBe("Uses Local Model • local-sidecar.");
+  });
+  it("shows where each helper last ran and why, or why it stopped", async () => {
+    vi.mocked(modelRoutingApi.get).mockResolvedValue({ version: 1, routes: { fanficChecks: "cheap" } });
+    const run = {
+      version: 1,
+      chatId: "fic-1",
+      at: "2026-10-23T12:00:00.000Z",
+      connectionId: "cheap",
+      connectionName: "Cheap",
+      model: "small-model",
+      problem: null,
+    };
+    helperRuns.current = {
+      fanficChecks: [
+        { ...run, task: "fanficChecks", job: "story ledger", rule: "route" },
+        { ...run, task: "fanficChecks", job: "editor pass", rule: "route", at: "2026-10-23T11:00:00.000Z" },
+      ],
+      memory: [
+        {
+          ...run,
+          task: "memory",
+          job: "",
+          rule: "route",
+          connectionId: "gone",
+          problem: "The Memory helper is set to a connection that no longer exists.",
+        },
+      ],
+    };
+    await render();
+
+    const notes = Array.from(container.querySelectorAll("[data-helper-run]"));
+    const note = (task: string) =>
+      notes.find((item) => item.getAttribute("data-helper-run") === task)?.textContent ?? "";
+    // Only the newest run of a task is shown under its row.
+    expect(notes.filter((item) => item.getAttribute("data-helper-run") === "fanficChecks")).toHaveLength(1);
+    expect(note("fanficChecks")).toContain(
+      "Ran (story ledger) on Cheap • small-model: your Helper Models pick for Fanfic checks.",
+    );
+    expect(note("memory")).toContain("Stopped: The Memory helper is set to a connection that no longer exists.");
+    expect(note("status")).toBe("");
   });
 });

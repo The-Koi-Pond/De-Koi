@@ -4,7 +4,7 @@ import type { StorageGateway } from "../../../../capabilities/storage";
 import type { BaseLLMProvider } from "../../../../generation-core/llm/base-provider.js";
 import { extractLeadingThinkingBlocks } from "../../../../generation-core/llm/inline-thinking";
 import { resolveGenerationConnection } from "../../../../generation/context";
-import { resolveStoredModelRoute } from "../../../../generation/model-routing";
+import { chatConnectionRule, noteHelperRun, resolveHelperRoute } from "../../../../generation/helper-runs";
 import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
@@ -150,10 +150,19 @@ async function resolveSummaryConnection(
   requestedConnectionId?: string | null,
 ): Promise<JsonRecord> {
   // The requested connection is the reply's, not a pick for summaries, so a summaries route wins.
-  return (
-    (await resolveStoredModelRoute(storage, "summaries")) ??
-    resolveGenerationConnection(storage, chat, { connectionId: requestedConnectionId })
-  );
+  const chatId = stringValue(chat.id).trim();
+  const routed = await resolveHelperRoute(storage, "summaries", { job: "daily summary", chatId });
+  const connection =
+    routed ?? (await resolveGenerationConnection(storage, chat, { connectionId: requestedConnectionId }));
+  await noteHelperRun(storage, {
+    task: "summaries",
+    rule: routed ? "route" : chatConnectionRule(connection, requestedConnectionId, chat.connectionId),
+    connectionId: stringValue(connection.id).trim(),
+    connection,
+    job: "daily summary",
+    chatId,
+  });
+  return connection;
 }
 
 async function loadScopedMessages(storage: StorageGateway, chatId: string): Promise<ConversationSummaryMessage[]> {

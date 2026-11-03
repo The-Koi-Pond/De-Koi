@@ -42,6 +42,7 @@ function storageWith(fanfic: FanficState) {
       return [] as T[];
     },
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+      if (entity === "connections" && id === "conn-1") return { id, name: "Writer", model: "big" } as T;
       return (entity === "chats" ? (records[id] ?? null) : null) as T | null;
     },
     async patchChatMetadata<T = unknown>(chatId: string, patch: Record<string, unknown>): Promise<T> {

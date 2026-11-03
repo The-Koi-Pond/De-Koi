@@ -57,6 +57,19 @@ Your chats and settings live in `~/.local/share/com.de-koi.app`.
 Pre-alpha test builds use a different app id (`com.de_koi.prealpha`), so they install next to the release app and keep
 separate data.
 
+## First run: connect a model
+
+De-Koi needs an AI model to write replies. If you've never set one up, open **Connections** and choose **Log in with
+OpenRouter**:
+
+1. Your browser opens OpenRouter. Log in or make a free account, then approve De-Koi.
+2. Go back to De-Koi. It saves the key for you and starts the connection on a free model, so your first chats cost
+   nothing.
+
+On a Pi or a server, OpenRouter shows a code instead of sending you back. Copy it and paste it into De-Koi. OpenRouter
+limits how many free messages you can send a day; add credits there or pick another model in the connection when you
+want more. Already have a key from another service? Choose **Add your first connection** instead.
+
 ## Check a download (optional)
 
 Each release has `SHA256SUMS.txt`. To check a file, put it in the same folder as `SHA256SUMS.txt`, then:

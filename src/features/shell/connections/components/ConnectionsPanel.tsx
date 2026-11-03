@@ -36,6 +36,8 @@ import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { Modal } from "../../../../shared/components/ui/Modal";
 import { LocalSidecarCard } from "./LocalSidecarCard";
 import { HelperModelsCard } from "./HelperModelsCard";
+import { OpenRouterLoginCard } from "./OpenRouterLoginCard";
+import { useOpenRouterStarterConnection } from "../lib/use-openrouter-starter-connection";
 import { useConnectionFolderReorder } from "./connection-folder-reorder";
 import { hasUsableLanguageConnection, SetupJourneyContextBanner } from "../../onboarding/shell";
 import {
@@ -545,6 +547,7 @@ export function ConnectionsPanel() {
   const linkApiBannerDismissed = useUIStore((s) => s.linkApiBannerDismissed);
   const dismissLinkApiBanner = useUIStore((s) => s.dismissLinkApiBanner);
   const handleAddConnection = useCallback(() => openModal("create-connection"), [openModal]);
+  const openRouterStarter = useOpenRouterStarterConnection();
 
   // Folder hooks
   const { data: folders } = useConnectionFolders();
@@ -780,6 +783,15 @@ export function ConnectionsPanel() {
         onChange={handleConnectionImageSelected}
       />
 
+      {/* First run: the one-click OpenRouter login leads, and stays up while it finishes after the connection exists. */}
+      {(noConnectionsYet || openRouterStarter.active) && (
+        <OpenRouterLoginCard
+          variant="hero"
+          prepare={openRouterStarter.prepare}
+          onCancel={() => void openRouterStarter.cancel()}
+        />
+      )}
+
       {noConnectionsYet ? (
         <>
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-7 text-center">
@@ -789,13 +801,14 @@ export function ConnectionsPanel() {
             <div className="max-w-[24rem] space-y-1">
               <h3 className="text-sm font-semibold text-[var(--foreground)]">Connect a language model</h3>
               <p className="de-koi-body leading-relaxed text-[var(--muted-foreground)]">
-                A connection lets De-Koi send chats and roleplay messages to the model you choose.
+                A connection lets De-Koi send chats and roleplay messages to the model you choose. Already have an API
+                key, or want another service? Add it here.
               </p>
             </div>
             <button
               type="button"
               onClick={handleAddConnection}
-              className="flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+              className="flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-4 py-2 text-xs font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
             >
               <Plus size="0.8125rem" />
               Add your first connection

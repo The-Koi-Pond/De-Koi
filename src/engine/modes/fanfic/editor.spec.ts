@@ -12,7 +12,7 @@ import {
   type FanficEditorReport,
 } from "./editor";
 import { fanficChapterTextKey } from "./ledger";
-import { buildFanficPassageRewriteMessages, cleanFanficPassageReply } from "./passage";
+import { buildFanficPassageRewriteMessages, cleanFanficPassageReply, loadFanficChapterForEdit } from "./passage";
 import { createFanficState, defaultFanficRequest } from "./request";
 
 const request = { ...defaultFanficRequest(), fandom: "The Freak Circus", characters: ["Pierrot", "Harlequin"] };
@@ -31,23 +31,35 @@ const scores = (value: number) => ({
 });
 const notes = { escalation: "e", subplot: "s", choices: "c", theme: "t", exposition: "x" };
 
-function storageWith(chapters: string[]) {
+/** A side story after main chapter 1, as the writer saves it. */
+const sideStory = (content: string) => ({
+  id: "x1",
+  content,
+  extra: { fanficExtra: { parentChapter: 1, canon: false } },
+});
+
+function storageWith(chapters: Array<string | ReturnType<typeof sideStory>>) {
   const chat: Record<string, unknown> = {
     id: "chat-1",
     mode: "fanfic",
     connectionId: "conn-1",
     metadata: { fanfic: createFanficState(request) satisfies FanficState },
   };
-  const messages = chapters.map((content, index) => ({
-    id: `m${index + 1}`,
-    role: "assistant",
-    content,
-    swipes: [content],
-  }));
+  const messages = chapters.map((chapter, index) => {
+    const { id, content, ...rest } = typeof chapter === "string" ? { id: `m${index + 1}`, content: chapter } : chapter;
+    return { id, role: "assistant", content, swipes: [content], ...rest } as {
+      id: string;
+      role: string;
+      content: string;
+      swipes: string[];
+      [key: string]: unknown;
+    };
+  });
   const storage = {
     async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
       if (entity === "chats" && id === "chat-1") return chat as T;
-      if (entity === "connections") return { id, provider: "claude_subscription" } as T;
+      if (entity === "connections")
+        return { id, provider: "claude_subscription", name: "Editor", model: "edit-model" } as T;
       return null;
     },
     async listChatMessages<T = unknown>(): Promise<T[]> {
@@ -87,7 +99,7 @@ function scriptedLlm(reply: (request: LlmRequest) => string) {
 }
 
 describe("parseFanficEditorReply", () => {
-  const chapter = { number: 2, messageId: "m2", content: chapterTwo };
+  const chapter = { messageId: "m2", content: chapterTwo, label: "2", mainNumber: 2, extra: null, position: 1 };
 
   it("needs every score, and keeps only flags whose scene is found exactly once", () => {
     const reply = JSON.stringify({
@@ -165,6 +177,21 @@ describe("runFanficEditorPass", () => {
     await runFanficEditorPass({ storage, llm }, { chatId: "chat-1" });
     expect(requests).toHaveLength(2);
   });
+
+  it("scores extra chapters in reading order by their label, and keeps side stories out of other chapters", async () => {
+    const side = "Pierrot dreamed of the sea that night, a side story.";
+    const { storage } = storageWith([chapterOne, chapterTwo, sideStory(side)]);
+    const { llm, requests } = scriptedLlm(() => JSON.stringify({ scores: scores(6), notes, flags: [] }));
+
+    const store = await runFanficEditorPass({ storage, llm }, { chatId: "chat-1" });
+
+    expect(store.reports.map((report) => report.messageId).sort()).toEqual(["m1", "m2", "x1"]);
+    expect(requests[1]!.messages[0]!.content).toContain("reading chapter 1.5 of a requested fanfic");
+    expect(requests[1]!.messages[1]!.content).toContain("The end of chapter 1:");
+    expect(requests[1]!.messages[1]!.content).toContain(`## Chapter 1.5\n\n${side}`);
+    expect(requests[2]!.messages[1]!.content).toContain("The end of chapter 1:");
+    expect(requests[2]!.messages[1]!.content).not.toContain(side);
+  });
 });
 
 describe("rewriteFanficFlaggedScenes", () => {
@@ -212,6 +239,44 @@ describe("rewriteFanficFlaggedScenes", () => {
     expect(result.textKey).toBe(fanficChapterTextKey(messages[1]!.content));
   });
 
+  it("saves the rewritten scenes as a version written by the chapter's models and then the rewriting model", async () => {
+    const { storage, messages } = storageWith([chapterOne, chapterTwo]);
+    const writer = { connectionId: "conn-w", name: "Writer", model: "big-model" };
+    Object.assign(messages[1]!, {
+      activeSwipeIndex: 0,
+      extra: { fanficVersion: { models: [writer], origin: { kind: "chapter", notes: "" }, unfinished: null } },
+    });
+    const { llm } = scriptedLlm(() => "Pierrot wrung out the same rag again.");
+
+    await rewriteFanficFlaggedScenes({ storage, llm }, { chatId: "chat-1", report });
+
+    expect(storage.addChatMessageSwipe.mock.calls[0]?.[3]).toEqual({
+      activate: true,
+      extra: {
+        fanficVersion: {
+          models: [writer, { connectionId: "conn-1", name: "Editor", model: "edit-model" }],
+          origin: {
+            kind: "revise",
+            notes:
+              "Shows its theme: Says the feeling out loud. Show it.\nStakes build: Nothing rises. Make the show start late.",
+            baseVersion: 0,
+          },
+          unfinished: null,
+        },
+      },
+    });
+  });
+
+  it("names an extra chapter by its label when rewriting its scenes", async () => {
+    const { storage, messages } = storageWith([chapterOne, sideStory(chapterTwo)]);
+    const { llm, requests } = scriptedLlm(() => "Pierrot wrung out the same rag again.");
+
+    await rewriteFanficFlaggedScenes({ storage, llm }, { chatId: "chat-1", report: { ...report, messageId: "x1" } });
+
+    expect(requests[0]!.messages[0]!.content).toContain("You revise one passage of chapter 1.5 of");
+    expect(messages[1]!.swipes).toHaveLength(2);
+  });
+
   it("refuses when the chapter changed since its report", async () => {
     const { storage } = storageWith([chapterOne, `${chapterTwo} An extra line.`]);
     const { llm } = scriptedLlm(() => "x");
@@ -221,11 +286,58 @@ describe("rewriteFanficFlaggedScenes", () => {
   });
 });
 
+describe("loadFanficChapterForEdit", () => {
+  it("loads an extra chapter with its own write instruction", async () => {
+    const { storage } = storageWith([chapterOne, sideStory(chapterTwo)]);
+    const target = await loadFanficChapterForEdit(storage, {
+      chatId: "chat-1",
+      messageId: "x1",
+      textKey: fanficChapterTextKey(chapterTwo),
+    });
+    expect(target.chapter.label).toBe("1.5");
+    expect(target.chapterGuide).toContain("Write chapter 1.5 now");
+    expect(target.chapterGuide).toContain("It picks up from the end of chapter 1.");
+  });
+
+  it("gives an extra that follows a side story the ledger state after its main chapter", async () => {
+    const later = { ...sideStory("Pierrot slept in the props wagon."), id: "x2" };
+    const { storage, chat } = storageWith([chapterOne, sideStory(chapterTwo), later]);
+    chat.metadata = {
+      ...(chat.metadata as Record<string, unknown>),
+      fanficLedger: {
+        version: 1,
+        entries: [
+          {
+            chapter: 1,
+            messageId: "m1",
+            textKey: fanficChapterTextKey(chapterOne),
+            summary: "Dinner for two.",
+            timeline: "Day 1",
+            knowledge: [],
+            conditions: [],
+            relationships: [],
+            openThreads: [],
+          },
+        ],
+      },
+    };
+
+    const target = await loadFanficChapterForEdit(storage, {
+      chatId: "chat-1",
+      messageId: "x2",
+      textKey: fanficChapterTextKey(later.content),
+    });
+
+    expect(target.chapter.label).toBe("1.6");
+    expect(target.ledgerState).toBe("When:\nDay 1");
+  });
+});
+
 describe("passage rewrite prompt", () => {
   it("sends the text on both sides and asks for only the passage", () => {
     const [system, user] = buildFanficPassageRewriteMessages({
       state: createFanficState(request),
-      chapterNumber: 2,
+      chapterLabel: "2",
       ledgerState: "When:\nDay 2",
       before: "Before text.",
       passage: "The passage.",

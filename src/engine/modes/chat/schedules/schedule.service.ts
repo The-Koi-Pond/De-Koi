@@ -3,7 +3,7 @@ import type { StorageGateway } from "../../../capabilities/storage";
 import type { LorebookEntry } from "../../../contracts/types/lorebook";
 import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { loadLorebookEntriesForActivationBatch } from "../../../generation/active-lorebook-scanner";
-import { resolveStoredModelRoute } from "../../../generation/model-routing";
+import { chatConnectionRule, noteHelperRun, resolveHelperRoute } from "../../../generation/helper-runs";
 import { boolish } from "../../../generation/runtime-records";
 import type { BaseLLMProvider, ChatMessage } from "../../../generation-core/llm/base-provider.js";
 import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
@@ -150,9 +150,15 @@ export async function generateConversationSchedules(
   if (chat.mode !== "conversation") throw new Error("Not a conversation chat");
 
   // A schedules route wins over the chat's connection; a broken one stops here.
-  const connection =
-    (await resolveStoredModelRoute(capabilities.storage, "schedules")) ??
-    (await resolveScheduleConnection(capabilities.storage, stringValue(chat.connectionId)));
+  const routed = await resolveHelperRoute(capabilities.storage, "schedules", { chatId: input.chatId });
+  const connection = routed ?? (await resolveScheduleConnection(capabilities.storage, stringValue(chat.connectionId)));
+  await noteHelperRun(capabilities.storage, {
+    task: "schedules",
+    rule: routed ? "route" : chatConnectionRule(connection, chat.connectionId),
+    connectionId: stringValue(connection.id),
+    connection,
+    chatId: input.chatId,
+  });
   const connectionId = stringValue(connection.id);
   if (!connectionId) throw new Error("No connection configured");
 

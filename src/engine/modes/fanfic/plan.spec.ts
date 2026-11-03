@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
+import { fanficChapterLayout } from "./chapter-refs";
 import { fanficChapterTextKey } from "./ledger";
 import {
   applyFanficPlan,
@@ -27,6 +28,8 @@ const outline = {
 };
 const approved: FanficState = { ...createFanficState(request), outline, outlineApproved: true };
 const chapters = ["They never set a safe word. He laughed instead.", "Pierrot stabbed him with a tent stake."];
+const layoutOf = (texts: string[]) =>
+  fanficChapterLayout(texts.map((content, index) => ({ id: `m${index + 1}`, role: "assistant", content })));
 
 function storageWith(state: FanficState, written: string[]) {
   const chat: Record<string, unknown> = {
@@ -103,12 +106,7 @@ describe("proposeFanficPlan", () => {
     expect(user!.content).toContain("## The requester's steer\nBring Pierrot back.");
     const metadata = chat.metadata as Record<string, unknown>;
     expect((metadata.fanfic as FanficState).outline).toEqual(outline);
-    expect(
-      readFanficPlan(
-        metadata,
-        chapters.map((content) => ({ content })),
-      ),
-    ).toMatchObject({ afterChapter: 2 });
+    expect(readFanficPlan(metadata, layoutOf(chapters))).toMatchObject({ afterChapter: 2 });
 
     // Using it changes only the remaining chapters.
     const used = applyFanficPlan(approved, proposal);
@@ -120,33 +118,18 @@ describe("proposeFanficPlan", () => {
     ]);
 
     await clearFanficPlan(storage, "chat-1");
-    expect(
-      readFanficPlan(
-        chat.metadata,
-        chapters.map((content) => ({ content })),
-      ),
-    ).toBeNull();
+    expect(readFanficPlan(chat.metadata, layoutOf(chapters))).toBeNull();
   });
 
   it("goes stale when a chapter is added or rewritten", async () => {
     const { storage, chat } = storageWith(approved, chapters);
     const { llm } = scriptedLlm(replanReply);
     await proposeFanficPlan({ storage, llm }, { chatId: "chat-1" });
-    expect(
-      readFanficPlan(
-        chat.metadata,
-        [...chapters, "Chapter three."].map((content) => ({ content })),
-      ),
-    ).toBeNull();
-    expect(
-      readFanficPlan(
-        chat.metadata,
-        [chapters[0]!, "Rewritten."].map((content) => ({ content })),
-      ),
-    ).toBeNull();
+    expect(readFanficPlan(chat.metadata, layoutOf([...chapters, "Chapter three."]))).toBeNull();
+    expect(readFanficPlan(chat.metadata, layoutOf([chapters[0]!, "Rewritten."]))).toBeNull();
     // Editing the outline makes it stale too.
     const metadata = chat.metadata as Record<string, unknown>;
-    const refs = chapters.map((content) => ({ content }));
+    const refs = layoutOf(chapters);
     expect(readFanficPlan(metadata, refs)).not.toBeNull();
     const edited: FanficState = {
       ...approved,
@@ -182,6 +165,45 @@ describe("proposeFanficPlan", () => {
     expect(requests[0]!.messages[0]!.content).toContain("Plan chapter 3 so it follows");
     expect(fanficPlanNotes(proposal)).toBe("Props Wagon: He breaks the wagon rule.");
     expect(applyFanficPlan(oneShot, proposal)).toBe(oneShot);
+  });
+
+  it("reads canon extras as part of the story but leaves side stories out and never counts an extra as a chapter", async () => {
+    const { storage, messages } = storageWith(approved, chapters);
+    const extra = (id: string, parentChapter: number, canon: boolean, content: string) => ({
+      id,
+      role: "assistant",
+      content,
+      extra: { fanficExtra: { parentChapter, canon } },
+    });
+    (messages as Array<Record<string, unknown>>).push(
+      extra("x1", 1, true, "A canon detour."),
+      extra("y1", 2, false, "A side trip."),
+    );
+    const { llm, requests } = scriptedLlm(replanReply);
+
+    const proposal = await proposeFanficPlan({ storage, llm }, { chatId: "chat-1" });
+
+    expect(proposal).toMatchObject({ mode: "replan", afterChapter: 2 });
+    const [system, user] = requests[0]!.messages;
+    expect(system!.content).toContain("Re-plan chapters 3 to 4");
+    expect(user!.content).toContain("### Chapter 1.5\nA canon detour.");
+    expect(user!.content).not.toContain("A side trip.");
+  });
+
+  it("goes stale when the canon extra the story it read ended with is no longer canon", async () => {
+    const { storage, chat, messages } = storageWith(approved, chapters);
+    const rows = messages as Array<Record<string, unknown>>;
+    const withEnding = (canon: boolean) => [
+      ...rows.slice(0, 2),
+      { id: "x2", role: "assistant", content: "A canon ending.", extra: { fanficExtra: { parentChapter: 2, canon } } },
+    ];
+    rows.push(withEnding(true)[2]!);
+    const { llm } = scriptedLlm(replanReply);
+
+    await proposeFanficPlan({ storage, llm }, { chatId: "chat-1" });
+
+    expect(readFanficPlan(chat.metadata, fanficChapterLayout(withEnding(true)))).not.toBeNull();
+    expect(readFanficPlan(chat.metadata, fanficChapterLayout(withEnding(false)))).toBeNull();
   });
 
   it("needs an approved outline and a written chapter", async () => {

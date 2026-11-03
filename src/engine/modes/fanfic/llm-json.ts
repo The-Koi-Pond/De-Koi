@@ -5,7 +5,15 @@ import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
 import type { StorageGateway } from "../../capabilities/storage";
 import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../../contracts/types/sidecar";
-import { isRecord, type JsonRecord } from "../../generation/runtime-records";
+import { noteHelperRun, resolveHelperRoute, type HelperRunRule } from "../../generation/helper-runs";
+import {
+  assertLocalOnlyConnection,
+  isModelRouteError,
+  readModelRoutingSettings,
+  type ModelRouteTask,
+} from "../../generation/model-routing";
+import { isRecord, readString, type JsonRecord } from "../../generation/runtime-records";
+import { userFacingError } from "../../shared/user-facing-error";
 import { parseGameJsonish } from "../../shared/parsing-jsonish";
 
 /** The reply didn't follow the requested format; worth one more try rather than failing outright. */
@@ -148,4 +156,108 @@ export async function loadFanficConnection(storage: StorageGateway, connectionId
   if (isRecord(stored)) return stored;
   if (connectionId !== LOCAL_SIDECAR_CONNECTION_ID) return null;
   return { id: LOCAL_SIDECAR_CONNECTION_ID, name: "Local Model", provider: "sidecar", model: LOCAL_SIDECAR_MODEL };
+}
+
+export const FANFIC_NO_CONNECTION = "Pick a connection for this fic first.";
+export const FANFIC_CONNECTION_GONE = "That connection no longer exists. Pick another connection for this fic.";
+
+const NO_CONNECTION = Symbol("fanficNoConnection");
+
+/** The fic has no connection for this helper (and the helper has no route); see {@link pickFanficHelperConnection}. */
+export function isFanficNoConnectionError(error: unknown): boolean {
+  return error instanceof Error && (error as { [NO_CONNECTION]?: true })[NO_CONNECTION] === true;
+}
+
+export type FanficHelperTask = Extract<ModelRouteTask, "fanficPlanning" | "fanficChecks">;
+
+export interface FanficHelperPick {
+  connectionId: string;
+  /** Null only for a fic set to the random pool, which the server resolves per call. */
+  connection: JsonRecord | null;
+  rule: HelperRunRule;
+}
+
+export interface PickFanficHelperInput {
+  chatId: string;
+  /** Named for this one run (a lab script, a later step reusing an earlier step's pick); outranks the route. */
+  connectionId?: string | null;
+  /** The part of the task, for the run note: "outline", "story ledger", ... */
+  job: string;
+  /** Said when the fic has no connection. */
+  missing: string;
+  /** Said when the picked connection was deleted. */
+  gone: string;
+  /** Let a fic set to the random pool run this helper there, as it did before routing. */
+  allowRandom?: boolean;
+  /** False when the caller may still skip the model call: it then notes the run itself with {@link noteFanficHelperRun}. */
+  note?: boolean;
+}
+
+/**
+ * The connection a fanfic helper runs on: one named for this run, else the task's Helper Models route, else the fic's
+ * own connection. The chapter writer never comes here; it stays on the fic's connection. Notes the pick, or why the
+ * helper stopped, as the task's last run.
+ */
+export async function pickFanficHelperConnection(
+  storage: StorageGateway,
+  task: FanficHelperTask,
+  chat: JsonRecord,
+  input: PickFanficHelperInput,
+): Promise<FanficHelperPick> {
+  const context = { job: input.job, chatId: input.chatId };
+  const picked = readString(input.connectionId).trim();
+  let pick: FanficHelperPick;
+  if (picked) {
+    const connection = await loadFanficConnection(storage, picked);
+    if (!connection) throw userFacingError(input.gone);
+    try {
+      // A pick for this run outranks the route, but a local-only helper still stays local.
+      assertLocalOnlyConnection(task, await readModelRoutingSettings(storage), picked, connection);
+    } catch (error) {
+      if (isModelRouteError(error)) {
+        await noteHelperRun(storage, {
+          task,
+          ...context,
+          rule: "picked",
+          connectionId: picked,
+          connection,
+          problem: error.message,
+        });
+      }
+      throw error;
+    }
+    pick = { connectionId: picked, connection, rule: "picked" };
+  } else {
+    const routed = await resolveHelperRoute(storage, task, context);
+    if (routed) {
+      pick = { connectionId: readString(routed.id).trim(), connection: routed, rule: "route" };
+    } else {
+      const fic = readString(chat.connectionId).trim();
+      if (!fic || (fic === "random" && !input.allowRandom)) {
+        throw Object.assign(userFacingError(input.missing), { [NO_CONNECTION]: true as const });
+      }
+      const connection = fic === "random" ? null : await loadFanficConnection(storage, fic);
+      if (fic !== "random" && !connection) throw userFacingError(input.gone);
+      pick = { connectionId: fic, connection, rule: "chat" };
+    }
+  }
+  if (input.note !== false) await noteFanficHelperRun(storage, task, input, pick);
+  return pick;
+}
+
+/** Notes a fanfic helper's pick as the task's last run. */
+export function noteFanficHelperRun(
+  storage: StorageGateway,
+  task: FanficHelperTask,
+  input: Pick<PickFanficHelperInput, "chatId" | "job">,
+  pick: FanficHelperPick,
+): Promise<void> {
+  return noteHelperRun(storage, {
+    task,
+    job: input.job,
+    chatId: input.chatId,
+    rule: pick.rule,
+    connectionId: pick.connectionId,
+    connection: pick.connection,
+  });
 }

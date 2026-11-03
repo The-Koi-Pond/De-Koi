@@ -211,6 +211,11 @@ describe("voice session", () => {
       "speaking",
       "listening",
     ]);
+    // The reply's words as they streamed, then as saved, for whatever shows the character's reactions.
+    expect(h.events.filter((event) => event.type === "reply")).toEqual([
+      { type: "reply", sessionId: h.session.id, turn: 1, text: "Hey kid." },
+      { type: "reply", sessionId: h.session.id, turn: 1, text: "Hey kid. Gravy?" },
+    ]);
   });
 
   it("keeps listening while the character talks, more warily while the voice is audible", async () => {
@@ -548,6 +553,39 @@ describe("voice session", () => {
     await settle();
     expect(recognitions).toHaveLength(2);
     expect(h.snap()).toMatchObject({ phase: "listening", mic: "sending" });
+  });
+
+  it("a recognizer call waits for a cut-off reply to stop without freezing the page", async () => {
+    // The reply is saved (its turn is over) while the cancel still waits on the server: the loop used to spin on
+    // the finished turn and starve the very timers and requests that cancel was waiting for.
+    const recognitions: Array<ReturnType<typeof deferred<string>>> = [];
+    const h = harness({
+      setup: async () => ({
+        voiceReplies: true,
+        input: {
+          kind: "recognizer",
+          destination: "your browser's speech service",
+          recognize: () => {
+            const recognition = deferred<string>();
+            recognitions.push(recognition);
+            return recognition.promise;
+          },
+        },
+      }),
+    });
+    h.session.start();
+    await settle();
+    recognitions[0]!.resolve("tell me a story");
+    await settle();
+    h.replies[0]!.onText("Once upon a time.");
+    h.session.interrupt();
+    h.replies[0]!.done.resolve("Once upon a time.");
+    await settle(); // timers still run
+    expect(recognitions).toHaveLength(1);
+    h.replies[0]!.cancelled.resolve();
+    await settle();
+    expect(recognitions).toHaveLength(2);
+    expect(h.snap()).toMatchObject({ phase: "listening", stopping: false });
   });
 
   it("start is idempotent and every event names its session", async () => {

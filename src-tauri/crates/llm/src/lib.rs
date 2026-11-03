@@ -4931,6 +4931,56 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn google_stream_allowed_finish_reports_its_stop_reason() {
+        for reason in ["STOP", "MAX_TOKENS"] {
+            let mut emitted = Vec::new();
+            let mut emit = |value: Value| {
+                emitted.push(value);
+                Ok(())
+            };
+
+            let status = process_google_sse_block(
+                &format!(
+                    r#"data: {{"candidates":[{{"content":{{"parts":[{{"text":"hello"}}]}},"finishReason":"{reason}"}}]}}"#
+                ),
+                &mut emit,
+            )
+            .expect("Gemini terminal block should parse");
+
+            assert_eq!(status, SseBlockStatus::Complete);
+            assert_eq!(
+                emitted.last(),
+                Some(&json!({ "type": "provider_metadata", "data": { "stopReason": reason } }))
+            );
+            assert!(emitted
+                .iter()
+                .all(|event| event.pointer("/data/finishReason").is_none()));
+        }
+    }
+
+    #[test]
+    fn google_stream_blocked_finish_keeps_its_finish_reason_in_the_error_details() {
+        let mut emitted = Vec::new();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        let error = process_google_sse_block(
+            r#"data: {"candidates":[{"content":{"parts":[{"text":"The door"}]},"finishReason":"SAFETY"}]}"#,
+            &mut emit,
+        )
+        .expect_err("a blocked Gemini finish should fail");
+
+        assert_eq!(error.code, "llm_stream_incomplete");
+        assert_eq!(error.details, Some(json!({ "finishReason": "SAFETY" })));
+        assert_eq!(
+            emitted,
+            [json!({ "type": "token", "text": "The door", "data": "The door" })]
+        );
+    }
+
+    #[test]
     fn google_stream_requires_terminal_event() {
         let error = ensure_google_stream_completed(false)
             .expect_err("abrupt Gemini stream close should fail");
@@ -5455,6 +5505,46 @@ data: {"type":"message_stop"}"#,
 
         assert_eq!(status, SseBlockStatus::Complete);
         assert!(emitted.is_empty());
+    }
+
+    #[test]
+    fn anthropic_stream_message_delta_reports_its_stop_reason() {
+        let mut emitted = Vec::new();
+        let mut emit = |value: Value| {
+            emitted.push(value);
+            Ok(())
+        };
+
+        let status = process_anthropic_sse_block(
+            r#"event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"refusal","stop_sequence":null},"usage":{"output_tokens":7}}"#,
+            &mut emit,
+        )
+        .expect("message_delta should parse");
+
+        assert_eq!(status, SseBlockStatus::Continue);
+        assert_eq!(emitted[0]["type"], json!("usage"));
+        assert_eq!(
+            emitted[1],
+            json!({ "type": "provider_metadata", "data": { "stopReason": "refusal" } })
+        );
+        assert_eq!(emitted.len(), 2);
+    }
+
+    #[test]
+    fn claude_subscription_stream_does_not_report_the_message_delta_stop_reason() {
+        let (events, result) = claude_subscription_stream_events(
+            &[
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}}"#,
+                r#"{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}}"#,
+                r#"{"type":"result","subtype":"success","is_error":false,"result":"Hi"}"#,
+            ],
+            claude_subscription_clean_exit(),
+        );
+        result.expect("stream should finish");
+        assert!(events
+            .iter()
+            .all(|event| event["type"] != "provider_metadata"));
     }
 
     #[test]

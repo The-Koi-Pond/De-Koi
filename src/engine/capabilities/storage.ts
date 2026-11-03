@@ -161,6 +161,8 @@ export interface ChatTranscriptPort {
     content: string,
     options?: AddChatMessageSwipeOptions,
   ): Promise<T>;
+  /** Removes one version; a later displayed version moves down one index, and the message's last version can't go. */
+  deleteChatMessageSwipe?<T = unknown>(chatId: string, messageId: string, index: number): Promise<T>;
   listSiblingConversationContext?<T = SiblingConversationContextRecord>(
     query: SiblingConversationContextQuery,
   ): Promise<T[]>;
