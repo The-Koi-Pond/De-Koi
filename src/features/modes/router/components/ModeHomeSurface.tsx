@@ -76,6 +76,7 @@ export function ModeHomeSurface({
   const { data: connections } = useConnections();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
+  const theme = useUIStore((state) => state.theme);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const libraryPresence = useLibraryPresence();
@@ -132,20 +133,16 @@ export function ModeHomeSurface({
 
           <section data-home-section="mode-cards" aria-label="Start a chat" className="contents">
             <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
-              <div
-                className={cn(
-                  "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
-                )}
-              >
-                <img
-                  src="/logo.png"
-                  alt="De-Koi"
-                  width={80}
-                  height={80}
-                  decoding="async"
-                  className="h-full w-full object-contain p-1.5 sm:p-2"
-                />
-              </div>
+              {/* The logo's outline is ink on a light page and cream on a dark one, following
+                  De-Koi's own theme setting (not the computer's). */}
+              <img
+                src={theme === "light" ? "/de-koi-logo.svg" : "/de-koi-logo-dark.svg"}
+                alt="De-Koi"
+                width={96}
+                height={96}
+                decoding="async"
+                className="koi-home-logo h-16 w-16 sm:h-24 sm:w-24"
+              />
 
               <p className="koi-home-splash">
                 {/* aria-label is not allowed on a plain <p>; screen readers get the text once, here. */}
