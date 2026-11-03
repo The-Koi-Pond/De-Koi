@@ -132,18 +132,24 @@ export function ModeHomeSurface({
 
           <section data-home-section="mode-cards" aria-label="Start a chat" className="contents">
             <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
-              <div
-                className={cn(
-                  "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
-                )}
-              >
+              {/* Two versions of the logo: its outline is ink on a light page and cream on a dark one,
+                  and CSS shows the one matching De-Koi's theme (not the computer's). */}
+              <div className="koi-home-logo h-16 w-16 sm:h-24 sm:w-24">
                 <img
-                  src="/logo.png"
+                  src="/de-koi-logo.svg"
                   alt="De-Koi"
-                  width={80}
-                  height={80}
+                  width={96}
+                  height={96}
                   decoding="async"
-                  className="h-full w-full object-contain p-1.5 sm:p-2"
+                  className="koi-home-logo-light h-full w-full"
+                />
+                <img
+                  src="/de-koi-logo-dark.svg"
+                  alt="De-Koi"
+                  width={96}
+                  height={96}
+                  decoding="async"
+                  className="koi-home-logo-dark h-full w-full"
                 />
               </div>
 

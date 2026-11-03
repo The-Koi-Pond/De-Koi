@@ -298,18 +298,22 @@
     0 0 1rem rgba(255, 137, 87, 0.12);
 }
 
-.koi-logo-tile {
-  background:
-    radial-gradient(circle at 50% 22%, rgba(82, 225, 218, 0.24), transparent 40%) padding-box,
-    linear-gradient(145deg, rgba(9, 20, 25, 0.95), rgba(5, 10, 14, 0.99)) padding-box,
-    linear-gradient(145deg, rgba(82, 225, 218, 0.46), rgba(255, 214, 166, 0.34) 48%, rgba(255, 137, 87, 0.38))
-      border-box;
-  border: 1px solid transparent;
-  box-shadow:
-    0 18px 46px rgba(0, 0, 0, 0.48),
-    0 0 24px rgba(82, 225, 218, 0.1),
-    0 0 18px rgba(255, 137, 87, 0.08),
-    inset 0 1px rgba(255, 225, 190, 0.14);
+/* Home logo: the dark version (cream outline) unless De-Koi's theme is light. */
+.koi-home-logo {
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.35));
+}
+
+.koi-home-logo-light,
+[data-theme="light"] .koi-home-logo-dark {
+  display: none;
+}
+
+[data-theme="light"] .koi-home-logo-light {
+  display: block;
+}
+
+[data-theme="light"] .koi-home-logo {
+  filter: drop-shadow(0 8px 18px rgba(26, 42, 46, 0.16));
 }
 
 .koi-home-hero {
@@ -441,16 +445,6 @@
 
 /* Light theme home: paper tiles with the same mode rims. Mode label colors
    are tuned for dark tiles, so they are inked down to stay readable. */
-[data-theme="light"] .koi-logo-tile {
-  background:
-    radial-gradient(circle at 50% 22%, rgba(95, 178, 168, 0.22), transparent 44%) padding-box,
-    linear-gradient(145deg, #1d3a40, #10242a) padding-box,
-    linear-gradient(145deg, rgba(95, 178, 168, 0.6), rgba(216, 183, 123, 0.5) 48%, rgba(173, 75, 28, 0.5)) border-box;
-  box-shadow:
-    0 12px 28px rgba(26, 42, 46, 0.18),
-    inset 0 1px rgba(255, 255, 255, 0.12);
-}
-
 [data-theme="light"] .koi-glow-text {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
