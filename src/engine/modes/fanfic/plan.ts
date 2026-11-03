@@ -213,7 +213,11 @@ export function fanficPlanNotes(proposal: FanficPlanProposal): string {
 
 // ── Running ─────────────────────────────────────
 
-function storySoFar(chapters: FanficChapterRef[], metadata: unknown, room: number): string {
+/**
+ * The story so far for a model call, in about `room` characters: the ledger's chapter summaries and where things
+ * stand (with the latest chapter in full when it fits) when the ledger is fresh, else the newest chapters in full.
+ */
+export function fanficStorySoFar(chapters: FanficChapterRef[], metadata: unknown, room: number): string {
   const fresh = fanficLedgerStatus(readFanficLedger(metadata), chapters).fresh;
   if (fresh.length === chapters.length && fresh.length > 0) {
     const latest = fresh[fresh.length - 1]!;
@@ -299,7 +303,7 @@ export async function proposeFanficPlan(
   const messages = buildFanficPlanMessages({
     state,
     written: chapters.length,
-    story: storySoFar(story, chat.metadata, budget.proseChars),
+    story: fanficStorySoFar(story, chat.metadata, budget.proseChars),
     steer,
   });
   const parsed = await completeFanficJson(
