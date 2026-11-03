@@ -36,7 +36,7 @@
   --pond-shallow: #202928; /* brand "Paper" */
   --pond-raise: #26302f; /* derived: paper 30% towards line; vermilion text on it 4.58 */
   --pond-line: #34403e; /* brand "Line" */
-  --pond-cream: #f1ebe5; /* brand "Ink" */
+  --pond-ink: #f1ebe5; /* brand "Ink" */
   --pond-mist: #a9b3ae;
   /* Vermilion, not clay: a clearer, redder koi orange than the dusty
      terracotta that reads as "AI-made" (see AI-DESIGN-TELLS.md in the
@@ -49,11 +49,11 @@
   --pond-scroll-hover: #8fa7a2;
 
   --background: var(--pond-water);
-  --foreground: var(--pond-cream);
+  --foreground: var(--pond-ink);
   --card: var(--pond-shallow);
-  --card-foreground: var(--pond-cream);
+  --card-foreground: var(--pond-ink);
   --popover: var(--pond-raise);
-  --popover-foreground: var(--pond-cream);
+  --popover-foreground: var(--pond-ink);
   --primary: var(--pond-koi);
   --primary-foreground: #141b1b;
   --secondary: var(--pond-shallow);
@@ -61,7 +61,7 @@
   --muted: var(--pond-abyss);
   --muted-foreground: var(--pond-mist);
   --accent: var(--pond-raise);
-  --accent-foreground: var(--pond-cream);
+  --accent-foreground: var(--pond-ink);
   /* Crimson, kept apart from the vermilion koi and Fanfic's pink by hue. */
   --destructive: #ff6470;
   --destructive-foreground: #141b1b;
@@ -136,7 +136,7 @@
   --pond-shallow: #ffffff; /* brand "Paper" */
   --pond-raise: #e5eae8; /* derived: tea-rice 50% towards line; mist text on it 4.55 */
   --pond-line: #d8dddb; /* brand "Line" */
-  --pond-cream: #2b2420; /* brand "Ink" */
+  --pond-ink: #2b2420; /* brand "Ink" */
   --pond-mist: #5f6b67;
   /* Dark enough for 4.5:1 as text on tea-rice and under white button text. */
   --pond-koi: #b8341c;
