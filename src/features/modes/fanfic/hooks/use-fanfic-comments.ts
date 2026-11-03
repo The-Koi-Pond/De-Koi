@@ -1,15 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import {
   createFanficCommentThread,
+  draftFanficCommentNotes,
   listFanficCommentThreads,
   readFanficCommentThread,
+  type FanficCommentUse,
 } from "../../../../engine/modes/fanfic/comments";
 import { readString } from "../../../../engine/generation/runtime-records";
+import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { toUserMessage } from "../../../../shared/lib/error-message";
@@ -126,4 +129,40 @@ export function useFanficCommentActions(ficChatId: string) {
   });
 
   return { comment, answer, redo, stop, deleteThread };
+}
+
+/**
+ * Drafts notes from a thread for the chapter's rewrite or a re-plan, on the thread's model; one draft at a time. A
+ * failed draft says why; a stopped one says nothing. Resolves to null when there are no notes to show.
+ */
+export function useFanficCommentNotes(threadId: string) {
+  const [drafting, setDrafting] = useState<FanficCommentUse | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => controllerRef.current?.abort(), [threadId]);
+  const draft = useCallback(
+    async (use: FanficCommentUse): Promise<string | null> => {
+      if (controllerRef.current) return null;
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      setDrafting(use);
+      try {
+        return await draftFanficCommentNotes(
+          { storage: storageApi, llm: llmApi },
+          { threadChatId: threadId, use },
+          { signal: controller.signal },
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          toast.error(toUserMessage(error, { fallback: "Couldn't draft notes from the thread. Try again." }));
+        }
+        return null;
+      } finally {
+        if (controllerRef.current === controller) controllerRef.current = null;
+        setDrafting(null);
+      }
+    },
+    [threadId],
+  );
+  const stop = useCallback(() => controllerRef.current?.abort(), []);
+  return { draft, stop, drafting };
 }
