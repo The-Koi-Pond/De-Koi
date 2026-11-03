@@ -115,6 +115,8 @@ import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, FanficWaitNote, fanficInputClass } from "./fanfic-ui";
+import { FanficAutoPolishSwitch, FanficPolishNote } from "./FanficPolish";
+import { readFanficPolishReport } from "../../../../engine/modes/fanfic/polish";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 
 /** The chapter on screen by message id, or the entire work. */
@@ -136,6 +138,8 @@ interface FanficReaderProps {
   continuing: { messageId: string; textSoFar: string } | null;
   /** The main chapter a running write of a new extra follows; the extra streams at the end of that chapter's chain. */
   writingExtraAfter: number | null;
+  /** The chapter the auto-polish is working on; it shows as written, with the polish's progress, until it lands. */
+  polishing?: string | null;
   onWrite: (args: FanficWriteArgs) => void;
   /** A chapter was finished outside a write (Keep as is); it gets the same follow-ups as a finished write. */
   onChapterFinished: (chapter: FanficFinishedChapter) => void;
@@ -330,6 +334,9 @@ function WorkHeader({
       )}
       <div className="mt-3 max-w-xs">
         <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
+      </div>
+      <div className="mt-3 max-w-prose">
+        <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <FanficButton onClick={onToggleOutline} aria-expanded={showOutline}>
@@ -1202,6 +1209,7 @@ function StreamingChapter({
   phase,
   onStop,
   waiting = false,
+  statusFirst = false,
 }: {
   chatId: string;
   heading: string;
@@ -1210,6 +1218,8 @@ function StreamingChapter({
   onStop: () => void;
   /** The text shown is the chapter so far and the new words haven't started yet. */
   waiting?: boolean;
+  /** The progress goes above the text (a polish: the whole chapter is shown and nothing streams after it). */
+  statusFirst?: boolean;
 }) {
   const startedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
   const status = (
@@ -1230,8 +1240,9 @@ function StreamingChapter({
           Stop
         </FanficButton>
       </div>
+      {text.trim() && waiting && statusFirst && status}
       {text.trim() ? <Prose text={text} keyBase="fanfic-stream" /> : status}
-      {text.trim() && waiting && status}
+      {text.trim() && waiting && !statusFirst && status}
     </article>
   );
 }
@@ -1406,6 +1417,7 @@ export function FanficReader({
   regeneratingMessageId,
   continuing,
   writingExtraAfter,
+  polishing = null,
   onWrite,
   onChapterFinished,
   onRetry,
@@ -1767,11 +1779,28 @@ export function FanficReader({
           );
         }
         const ref = refs.get(chapter.message.id)!;
+        const polished = generating && polishing === chapter.message.id;
         const regenerating = generating && regeneratingMessageId === chapter.message.id;
         const continued = generating && continuing?.messageId === chapter.message.id ? continuing : null;
         const orphan = isOrphan(ref);
         const heading = refHeading(state, ref, orphan);
         const pool = repetitionPools.get(ref.messageId)!;
+        const polishReport = readFanficPolishReport(chapter.message.extra, chapter.message.content);
+        if (polished) {
+          // The chapter stays readable as written while it's polished; the polished version replaces it when done.
+          return (
+            <StreamingChapter
+              key={chapter.message.id}
+              chatId={chatId}
+              heading={heading}
+              text={chapter.message.content}
+              waiting
+              statusFirst
+              phase={phase || "Polishing…"}
+              onStop={onStop}
+            />
+          );
+        }
         if (regenerating || continued) {
           return (
             <StreamingChapter
@@ -1800,6 +1829,7 @@ export function FanficReader({
                 activeBlock={narratedPart?.chapterLabel === ref.label ? narratedPart.block : null}
               />
             </div>
+            {polishReport && <FanficPolishNote report={polishReport} />}
             <div className="border-t border-[var(--border)] pt-3">
               <ChapterTools
                 chatId={chatId}

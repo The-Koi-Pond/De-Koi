@@ -48,6 +48,7 @@ const CHAT_MESSAGE_TIMELINE_EXTRA_FIELDS = [
   "translation",
   "fanficVersion",
   "fanficExtra",
+  "fanficPolish",
 ];
 
 type TimelineMessageOptions = ChatMessageListOptions;
