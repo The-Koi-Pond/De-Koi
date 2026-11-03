@@ -53,6 +53,8 @@ export async function saveFanficRequest(storage: StorageGateway, input: SaveFanf
   try {
     await storage.patchChatMetadata(input.chatId, {
       fanfic: state,
+      // A fic made from a chat started from a drafted request; once a request is saved, that draft is done.
+      fanficDraftRequest: null,
       ...(input.lorebookIds ? { activeLorebookIds: [...new Set(input.lorebookIds)] } : {}),
     });
   } catch (error) {

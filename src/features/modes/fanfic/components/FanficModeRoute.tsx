@@ -1,3 +1,4 @@
+import { readFanficDraftRequest } from "../../../../engine/modes/fanfic/from-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -324,7 +325,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
         <FanficRequestForm
           chatId={activeChatId}
           chatPersonaId={chat.personaId ?? null}
-          initialRequest={state?.request ?? defaultFanficRequest()}
+          initialRequest={state?.request ?? readFanficDraftRequest(chat.metadata) ?? defaultFanficRequest()}
           initialConnectionId={connectionId}
           initialCharacterIds={Array.isArray(chat.characterIds) ? chat.characterIds : []}
           initialLorebookIds={fanficPickedLorebookIds(chat.metadata)}
