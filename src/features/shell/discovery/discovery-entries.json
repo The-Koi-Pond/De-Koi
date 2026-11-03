@@ -1406,7 +1406,18 @@
     "title": "Themes, Fonts, And Backgrounds",
     "category": "Settings",
     "summary": "Customize visual themes, custom CSS themes, fonts, chat backgrounds, gradient styling, and mode-specific appearance.",
-    "keywords": ["theme", "themes", "custom css", "fonts", "backgrounds", "appearance", "gradient", "visual style"],
+    "keywords": [
+      "theme",
+      "themes",
+      "custom css",
+      "fonts",
+      "backgrounds",
+      "appearance",
+      "gradient",
+      "visual style",
+      "pond",
+      "new look"
+    ],
     "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",
     "actions": [

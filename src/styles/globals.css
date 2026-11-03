@@ -18,6 +18,8 @@
   - globals/06-chat-mode-themes.css: lazy-loaded by conversation and roleplay mode routes.
   - globals/07-responsive-accessibility.css: breakpoints, touch targets, reduced motion, performance hints.
   - globals/08-deki-pond.css: lazy-loaded by the Deki-senpai surface.
+  - themes/pond.css: the "Pond" visual theme (the new look). Last, so it
+    overrides the default tokens and shell styles it replaces.
 
   Keep imports ordered. Later modules intentionally override earlier ones.
 */
@@ -28,3 +30,4 @@
 @import "./globals/04-surfaces-components.css";
 @import "./globals/05-effects-utilities.css";
 @import "./globals/07-responsive-accessibility.css";
+@import "./themes/pond.css";

@@ -87,7 +87,7 @@ export function RightPanel() {
           <div className={cn("flex h-6 w-6 items-center justify-center rounded-lg shadow-sm", accent.icon)}>
             {Icon ? <Icon size="0.875rem" /> : null}
           </div>
-          <h2 className="text-sm font-semibold text-[var(--foreground)]">{title}</h2>
+          <h2 className="de-koi-display-title text-sm font-semibold text-[var(--foreground)]">{title}</h2>
         </div>
         <button
           type="button"
