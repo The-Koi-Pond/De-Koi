@@ -7,7 +7,7 @@ import { fanficAutoPolishOn } from "./polish";
 import { fanficStage, readFanficState } from "./request";
 import { readFanficVersion } from "./versions";
 
-// What follows a write by itself. With auto-polish on, a freshly written chapter is polished next (see polish.ts).
+// What follows a write by itself. With auto-polish on, every new or rewritten chapter is polished next (see polish.ts).
 // "Write all": the planned main chapters are written one after another, each as its own ordinary chapter write (and
 // its polish). After each write, the run goes on only while these rules hold, so a cut-off chapter or a Stop ends it.
 
@@ -31,8 +31,14 @@ export function fanficWriteSavedFinished(events: readonly { type: string; data?:
   return fanficWriteSavedFinishedId(events) !== null;
 }
 
-/** Writes whose finished chapter is polished next: every fresh write. A rewrite with notes is the requester's own. */
-const POLISHED_KINDS: ReadonlySet<FanficGenerationKind> = new Set(["chapter", "extra", "regenerate", "continue"]);
+/** Writes whose finished chapter is polished next: every write that makes chapter text, rewrites with notes too. */
+const POLISHED_KINDS: ReadonlySet<FanficGenerationKind> = new Set([
+  "chapter",
+  "extra",
+  "regenerate",
+  "revise",
+  "continue",
+]);
 
 /** The write that follows another by itself: polishing the chapter it finished, or the next chapter of a run. */
 export type FanficFollowUp = { kind: "polish"; messageId: string } | { kind: "chapter" };
