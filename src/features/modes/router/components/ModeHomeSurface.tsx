@@ -151,7 +151,7 @@ export function ModeHomeSurface({
               </p>
 
               <div className="text-center">
-                <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
+                <h3 className="koi-glow-text de-koi-display-title inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
                   <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
                   <span>De-Koi</span>
                   <img

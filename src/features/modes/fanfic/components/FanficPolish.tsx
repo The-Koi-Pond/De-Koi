@@ -31,7 +31,7 @@ export function FanficAutoPolishSwitch({ chatId, state, busy }: { chatId: string
       <span>
         Polish each chapter automatically
         <span className="block text-xs text-[var(--muted-foreground)]">
-          Cleans up the prose, then fixes continuity and voice slips, after each new chapter.
+          Cleans up the prose, then fixes continuity and voice slips, after each new chapter, redo or rewrite.
         </span>
       </span>
     </label>

@@ -1241,7 +1241,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       {/* Header */}
       <div className="mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
-        <h2 className="retro-glow-text truncate text-sm font-bold">✧ Chats</h2>
+        <h2 className="retro-glow-text de-koi-display-title truncate text-sm font-bold">✧ Chats</h2>
         <button
           onClick={onRequestClose}
           className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"

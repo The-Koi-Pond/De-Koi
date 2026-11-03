@@ -101,7 +101,7 @@ describe("what follows a write by itself", () => {
       ...write,
     });
 
-  it.each(["chapter", "extra", "regenerate", "continue"] as const)(
+  it.each(["chapter", "extra", "regenerate", "revise", "continue"] as const)(
     "polishes the chapter a %s finished when the switch is on",
     async (kind) => {
       await expect(follow(state(true, true), [chapter("m1")], { kind })).resolves.toEqual({
@@ -110,10 +110,6 @@ describe("what follows a write by itself", () => {
       });
     },
   );
-
-  it("leaves a rewrite with notes as the requester asked for it", async () => {
-    await expect(follow(state(true, true), [chapter("m1")], { kind: "revise" })).resolves.toBeNull();
-  });
 
   it("never polishes a polish, and nothing follows a single write's polish", async () => {
     await expect(follow(state(true, true), [chapter("m1")], { kind: "polish" })).resolves.toBeNull();

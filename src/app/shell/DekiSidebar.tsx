@@ -115,7 +115,7 @@ export function DekiSidebar({
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
             <MessageSquare size="0.875rem" />
           </div>
-          <h2 className="retro-glow-text truncate text-sm font-bold">Deki-senpai</h2>
+          <h2 className="retro-glow-text de-koi-display-title truncate text-sm font-bold">Deki-senpai</h2>
         </div>
         <button
           type="button"

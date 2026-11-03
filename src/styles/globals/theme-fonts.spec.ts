@@ -3,20 +3,20 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-function themeTokensCss(): string {
-  const testDir = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(resolve(testDir, "02-theme-tokens.css"), "utf8");
-}
+const testDir = dirname(fileURLToPath(import.meta.url));
 
-function y2kFontStack(): string {
-  const match = themeTokensCss().match(/--font-y2k:\s*([\s\S]*?);/);
-  if (!match) throw new Error("--font-y2k token was not found");
+function y2kFontStack(cssPath: string): string {
+  const match = readFileSync(resolve(testDir, cssPath), "utf8").match(/--font-y2k:\s*([\s\S]*?);/);
+  if (!match) throw new Error(`--font-y2k token was not found in ${cssPath}`);
   return match[1]!.replace(/\s+/g, " ").trim();
 }
 
 describe("theme font stacks", () => {
-  it("keeps platform emoji fonts in the app text fallback stack", () => {
-    const stack = y2kFontStack();
+  it.each([
+    ["the default theme", "02-theme-tokens.css"],
+    ["the Pond theme", "../themes/pond.css"],
+  ])("keeps platform emoji fonts in %s's app text fallback stack", (_theme, cssPath) => {
+    const stack = y2kFontStack(cssPath);
     const sansIndex = stack.indexOf("sans-serif");
 
     for (const family of ["Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"]) {

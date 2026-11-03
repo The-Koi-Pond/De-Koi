@@ -1,0 +1,284 @@
+/* ═══════════════════════════════════════════════
+   POND VISUAL THEME (the new look, opt-in)
+   Activated via data-visual-theme="pond" on :root.
+
+   The Koi Pond studio palette (the-koi-pond.github.io/branding/BRAND.md,
+   "The pond colours"): pond-at-night / tea-rice water, paper cards, ink
+   text, koi vermilion for actions only, jade for quiet accents, crimson for
+   danger. Pond stacks it as solid layers (abyss → water → shallow → raise;
+   abyss and raise are derived one step either side), with barely any glow
+   and no glass blur.
+   The app name and big panel titles use Pond Pebbles, The Koi Pond's own
+   font (public/fonts/PondPebbles.woff2); body text stays the plain app font.
+
+   Defines the full variable contract listed in sillytavern.css, plus
+   --font-display.
+
+   MUST stay the last import in globals.css (theme-import-order.spec.ts checks it).
+   The first block, [data-visual-theme="pond"], has the same specificity as
+   the default [data-theme="dark"] and [data-theme="light"] token blocks, so
+   it only wins because it comes later; in light mode too, where it still
+   supplies --background, --card and the rest. The light block only swaps
+   the --pond-* palette underneath (and a few values), winning by its higher
+   specificity. Imported any earlier, Pond would mostly look like Default.
+   ═══════════════════════════════════════════════ */
+
+@font-face {
+  font-family: "Pond Pebbles";
+  src: url("/fonts/PondPebbles.woff2") format("woff2");
+  font-display: swap;
+}
+
+/* ─── Dark: the pond at night ─── */
+[data-visual-theme="pond"] {
+  --pond-abyss: #0e1313; /* derived: the background, a step deeper */
+  --pond-water: #141b1b; /* brand "Pond at night" */
+  --pond-shallow: #202928; /* brand "Paper" */
+  --pond-raise: #26302f; /* derived: paper 30% towards line; vermilion text on it 4.58 */
+  --pond-line: #34403e; /* brand "Line" */
+  --pond-ink: #f1ebe5; /* brand "Ink" */
+  --pond-mist: #a9b3ae;
+  /* Vermilion, not clay: a clearer, redder koi orange than the dusty
+     terracotta that reads as "AI-made" (see AI-DESIGN-TELLS.md in the
+     studio folder). */
+  --pond-koi: #f7694a;
+  --pond-koi-tint: #2d2d2a; /* brand "Vermilion tint"; vermilion text on it 4.65 */
+  --pond-jade: #7fbfae;
+  --pond-amber: #e3a534;
+  --pond-scroll: #738d88; /* at least 3.7:1 against every layer */
+  --pond-scroll-hover: #8fa7a2;
+
+  --background: var(--pond-water);
+  --foreground: var(--pond-ink);
+  --card: var(--pond-shallow);
+  --card-foreground: var(--pond-ink);
+  --popover: var(--pond-raise);
+  --popover-foreground: var(--pond-ink);
+  --primary: var(--pond-koi);
+  --primary-foreground: #141b1b;
+  --secondary: var(--pond-shallow);
+  --secondary-foreground: var(--pond-jade);
+  --muted: var(--pond-abyss);
+  --muted-foreground: var(--pond-mist);
+  --accent: var(--pond-raise);
+  --accent-foreground: var(--pond-ink);
+  /* Crimson, kept apart from the vermilion koi and Fanfic's pink by hue. */
+  --destructive: #ff6470;
+  --destructive-foreground: #141b1b;
+  --border: var(--pond-line);
+  --input: var(--pond-line);
+  --ring: var(--pond-koi);
+  --radius: 0.75rem;
+  --sidebar: var(--pond-abyss);
+  --sidebar-foreground: #d9d3cc;
+  --sidebar-border: var(--pond-line);
+  --sidebar-accent: var(--pond-koi-tint);
+  --sidebar-accent-foreground: var(--pond-koi);
+  --glow-primary: rgba(247, 105, 74, 0.1);
+  --glow-accent: rgba(127, 191, 174, 0.06);
+
+  /* Solid: only read by .glass / .glass-strong, which nothing uses today. */
+  --glass-bg: var(--pond-shallow);
+  --glass-border: var(--pond-line);
+  --glass-strong-bg: var(--pond-raise);
+  --glass-strong-border: var(--pond-line);
+  --glass-strong-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  --glow-color-1: rgba(247, 105, 74, 0.12);
+  --glow-color-2: rgba(127, 191, 174, 0.08);
+  --glow-color-3: rgba(241, 235, 229, 0.04);
+  --glow-sm-1: rgba(247, 105, 74, 0.08);
+  --glow-sm-2: rgba(127, 191, 174, 0.05);
+
+  --scrollbar-track: transparent;
+  --scrollbar-border: transparent;
+
+  --cursor-pink: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 3L10 20L12 12L20 10L3 3Z' fill='%23F7694A' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E");
+
+  --y2k-pink: var(--pond-koi);
+  --y2k-pink-rgb: 247, 105, 74;
+  --y2k-purple: var(--pond-jade);
+  --y2k-blue: var(--pond-mist);
+  --y2k-mint: #a1cdc1;
+  --y2k-peach: #f3c9a8;
+  --y2k-lavender: #fef6ed;
+  --y2k-yellow: var(--pond-amber);
+
+  --pastel-rose: #ff8a6e;
+  --pastel-lilac: var(--pond-jade);
+  --pastel-sky: #8ccbd2;
+  --pastel-mint: #a1cdc1;
+  --pastel-coral: #ff6470;
+  --pastel-peach: #f3c9a8;
+  --pastel-lavender: #fef6ed;
+  --pastel-periwinkle: #9fb5b8;
+
+  --rgb-red: #ff6470;
+  --rgb-orange: var(--pond-koi);
+  --rgb-yellow: var(--pond-amber);
+  --rgb-green: var(--pond-jade);
+  --rgb-cyan: #6fc1c9;
+  --rgb-blue: #6aa6c8;
+  --rgb-indigo: #2f6f7a;
+  --rgb-violet: #f3c9a8;
+
+  --font-y2k:
+    "Straight Quotes", var(--font-user, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
+  --font-display: "Pond Pebbles", var(--font-y2k);
+  --app-font-size: 0.875rem;
+}
+
+/* ─── Light: shallow water ─── */
+[data-visual-theme="pond"][data-theme="light"] {
+  --pond-abyss: #ebefed; /* derived: tea-rice 30% towards line */
+  --pond-water: #f3f6f4; /* brand "Tea-rice" */
+  --pond-shallow: #ffffff; /* brand "Paper" */
+  --pond-raise: #e5eae8; /* derived: tea-rice 50% towards line; mist text on it 4.55 */
+  --pond-line: #d8dddb; /* brand "Line" */
+  --pond-ink: #2b2420; /* brand "Ink" */
+  --pond-mist: #5f6b67;
+  /* Dark enough for 4.5:1 as text on tea-rice and under white button text. */
+  --pond-koi: #b8341c;
+  --pond-koi-tint: #f8ebe8; /* brand "Vermilion tint"; vermilion text on it 5.09 */
+  --pond-jade: #3f7668;
+  --pond-amber: #a8741a;
+  --pond-scroll: #6e807b; /* at least 3.3:1 against every layer */
+  --pond-scroll-hover: #56665f;
+
+  --primary-foreground: #ffffff;
+  /* Popovers are paper in daylight, lifted by their shadow. */
+  --popover: var(--pond-shallow);
+  --destructive: #b0213a;
+  --destructive-foreground: #ffffff;
+  --sidebar-foreground: #3d3530;
+  --glow-primary: rgba(184, 52, 28, 0.08);
+  --glow-accent: rgba(63, 118, 104, 0.06);
+  --glass-strong-shadow: 0 6px 18px rgba(20, 40, 45, 0.1);
+
+  --glow-color-1: rgba(184, 52, 28, 0.1);
+  --glow-color-2: rgba(63, 118, 104, 0.08);
+  --glow-color-3: rgba(43, 36, 32, 0.04);
+  --glow-sm-1: rgba(184, 52, 28, 0.08);
+  --glow-sm-2: rgba(63, 118, 104, 0.05);
+
+  --cursor-pink: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 3L10 20L12 12L20 10L3 3Z' fill='%23B8341C' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E");
+
+  --y2k-pink-rgb: 184, 52, 28;
+  --y2k-mint: #5f9e90;
+  --y2k-peach: #b07a4a;
+  --y2k-lavender: #5f6b67;
+
+  --pastel-rose: #c24a33;
+  --pastel-sky: #3f7f8a;
+  --pastel-mint: #5f9e90;
+  --pastel-coral: #b0213a;
+  --pastel-peach: #b07a4a;
+  --pastel-lavender: #5f6b67;
+  --pastel-periwinkle: #5c7378;
+
+  --rgb-red: #b0213a;
+  --rgb-cyan: #2f7f88;
+  --rgb-blue: #2f6a8a;
+  --rgb-indigo: #1f4f58;
+  --rgb-violet: #b07a4a;
+}
+
+/* ─── Calm water behind everything: no shell gradients ─── */
+[data-visual-theme="pond"] body {
+  background: var(--background);
+}
+
+[data-visual-theme="pond"] .koi-pond-surface {
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--pond-jade) 7%, transparent), transparent 62%),
+    var(--background);
+}
+
+[data-visual-theme="pond"] .koi-pond-surface::before,
+[data-visual-theme="pond"] .koi-pond-surface::after {
+  display: none;
+}
+
+/* Home mode cards: a solid shallow card with a rim in the mode's own color,
+   instead of the default's dark glossy tile with a glow. */
+[data-visual-theme="pond"] .koi-start-card {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--quick-start-border) 45%, var(--border));
+  box-shadow: none;
+}
+
+[data-visual-theme="pond"] .koi-start-card:hover {
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--quick-start-border) 70%, var(--border));
+  box-shadow: none;
+}
+
+[data-visual-theme="pond"] .koi-start-icon {
+  box-shadow: none;
+}
+
+[data-visual-theme="pond"] .koi-start-label {
+  text-shadow: none;
+}
+
+/* ─── No Y2K stars, scanlines or noise ─── */
+[data-visual-theme="pond"] .btn-scanlines::after,
+[data-visual-theme="pond"] .noise-bg::before,
+[data-visual-theme="pond"] .y2k-star,
+[data-visual-theme="pond"] .y2k-star-md,
+[data-visual-theme="pond"] .y2k-star-lg {
+  display: none !important;
+}
+
+[data-visual-theme="pond"] .retro-glow-text,
+[data-visual-theme="pond"] .koi-glow-text {
+  text-shadow: none;
+}
+
+/* ─── Titles: Pond Pebbles in koi orange, for the app name and big panel titles only ─── */
+[data-visual-theme="pond"] .de-koi-display-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--primary);
+}
+
+[data-visual-theme="pond"] h2.de-koi-display-title {
+  font-size: 1.125rem;
+  line-height: 1.2;
+}
+
+/* ─── Calm scrollbars: teal-grey, at least about 3.5:1 against every Pond surface ───
+   :where() keeps these at zero specificity, so they replace the default
+   scrollbar rules (by coming later) without beating panels that set their
+   own, like .mari-tracker-panel-scroll. */
+:where([data-visual-theme="pond"]) * {
+  scrollbar-color: var(--pond-scroll) transparent;
+}
+
+/* The border itself stays the default's (2px of --scrollbar-border, which
+   Pond makes transparent; 0 on touch screens), so the thumb is inset on
+   desktop and still drawn when the touch rule narrows the bar. */
+:where([data-visual-theme="pond"]) ::-webkit-scrollbar-thumb {
+  background: var(--pond-scroll);
+  background-clip: padding-box;
+}
+
+:where([data-visual-theme="pond"]) ::-webkit-scrollbar-thumb:hover {
+  background: var(--pond-scroll-hover);
+  background-clip: padding-box;
+}
+
+/* Default light restyles the WebKit thumb with a stronger [data-theme="light"]
+   rule; match its weight here, still leaving the tracker panel its own. */
+:where([data-visual-theme="pond"])[data-theme="light"] :not(.mari-tracker-panel-scroll)::-webkit-scrollbar-thumb {
+  background: var(--pond-scroll);
+  border-color: transparent;
+  background-clip: padding-box;
+}
+
+:where([data-visual-theme="pond"])[data-theme="light"] :not(.mari-tracker-panel-scroll)::-webkit-scrollbar-thumb:hover {
+  background: var(--pond-scroll-hover);
+  background-clip: padding-box;
+}
