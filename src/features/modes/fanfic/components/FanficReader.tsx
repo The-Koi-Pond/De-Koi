@@ -30,6 +30,7 @@ import {
   X,
   Trash2,
   Wand2,
+  MessagesSquare,
 } from "lucide-react";
 import { useChat, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { HelperRunNote } from "../../../catalog/connections/index";
@@ -112,6 +113,7 @@ import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
 import { FanficComments, type FanficCommentUses } from "./FanficComments";
+import { FanficContinuePanel } from "./FanficContinuePanel";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
@@ -270,6 +272,8 @@ function WorkHeader({
   onToggleVoices,
   showEditor,
   onToggleEditor,
+  showContinue,
+  onToggleContinue,
 }: {
   chatId: string;
   busy: boolean;
@@ -288,6 +292,8 @@ function WorkHeader({
   onToggleVoices: () => void;
   showEditor: boolean;
   onToggleEditor: () => void;
+  showContinue: boolean;
+  onToggleContinue: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -366,6 +372,10 @@ function WorkHeader({
         <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
           <PenTool size="0.9rem" aria-hidden="true" />
           {showEditor ? "Hide editor" : "Editor"}
+        </FanficButton>
+        <FanficButton onClick={onToggleContinue} aria-expanded={showContinue} disabled={chapterCount === 0}>
+          <MessagesSquare size="0.9rem" aria-hidden="true" />
+          {showContinue ? "Hide roleplay or chat" : "Continue as roleplay or chat"}
         </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
@@ -1501,6 +1511,7 @@ export function FanficReader({
   const [showQuality, setShowQuality] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
+  const [showContinue, setShowContinue] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [nextNotes, setNextNotes] = useState("");
   const bannedPhrases = useMemo(() => fanficBannedPhrases(state), [state]);
@@ -1709,7 +1720,10 @@ export function FanficReader({
         onToggleVoices={() => setShowVoices((open) => !open)}
         showEditor={showEditor}
         onToggleEditor={() => setShowEditor((open) => !open)}
+        showContinue={showContinue}
+        onToggleContinue={() => setShowContinue((open) => !open)}
       />
+      {showContinue && chapterCount > 0 && <FanficContinuePanel chatId={chatId} state={state} busy={generating} />}
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={canonLine} ledger={ledger} busy={generating} />
       )}
