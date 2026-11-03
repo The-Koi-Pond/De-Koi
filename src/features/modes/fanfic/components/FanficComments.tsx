@@ -1,9 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, MessageSquare, RefreshCw, Reply, Square, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Loader2,
+  MessageSquare,
+  PenLine,
+  RefreshCw,
+  Reply,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { Chat, Message } from "../../../../engine/contracts/types/chat";
-import { FANFIC_COMMENT_MAX_CHARS, readFanficCommentThread } from "../../../../engine/modes/fanfic/comments";
+import {
+  FANFIC_COMMENT_MAX_CHARS,
+  FANFIC_COMMENT_NOTES_MAX_CHARS,
+  readFanficCommentThread,
+  type FanficCommentUse,
+} from "../../../../engine/modes/fanfic/comments";
 import { readString } from "../../../../engine/generation/runtime-records";
 import { fanficChapterTextKey } from "../../../../engine/modes/fanfic/ledger";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
@@ -18,12 +34,120 @@ import { GenerationFailureNotice, isReportedGenerationFailure } from "../../../r
 import {
   chapterCommentThreads,
   useFanficCommentActions,
+  useFanficCommentNotes,
   useFanficCommentThreads,
   useRefreshFanficCommentsOnReturn,
 } from "../hooks/use-fanfic-comments";
 import { FanficButton, fanficInputClass } from "./fanfic-ui";
 
 type CommentActions = ReturnType<typeof useFanficCommentActions>;
+
+/** What a thread can be used for: the chapter's rewrite and a re-plan of the chapters still to come. */
+export interface FanficCommentUses {
+  chapterLabel: string;
+  /** Rewrites the chapter with the notes, as a new version. */
+  onRewrite: (notes: string) => void;
+  rewriteDisabled: boolean;
+  /** Re-plans with the notes as the steer; null when the fic has no approved outline to re-plan. */
+  onReplan: ((notes: string) => void) | null;
+  replanDisabled: boolean;
+  /** The chapters a re-plan changes: "chapters 4 to 10", or "the next chapter" past the outline. */
+  replanScope: string;
+}
+
+function replanButtonLabel(scope: string): string {
+  return scope === "the next chapter" ? "Plan the next chapter with this" : `Re-plan ${scope} with this`;
+}
+
+/**
+ * Acts on a thread: the author turns what the thread settled into notes for the chapter's rewrite or a steer for the
+ * re-plan, shown in a box to change before anything is written.
+ */
+function UseThread({ threadId, uses, busy }: { threadId: string; uses: FanficCommentUses; busy: boolean }) {
+  const notes = useFanficCommentNotes(threadId);
+  const [draft, setDraft] = useState<{ use: FanficCommentUse; text: string } | null>(null);
+  const start = async (use: FanficCommentUse) => {
+    const text = await notes.draft(use);
+    if (text) setDraft({ use, text });
+  };
+  const { chapterLabel, replanScope } = uses;
+
+  if (notes.drafting) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-[0.8125rem] text-[var(--foreground)]" role="status">
+          <Loader2 size="0.85rem" className="mr-1 inline animate-spin" aria-hidden="true" />
+          {notes.drafting === "rewrite"
+            ? `Turning the thread into notes for chapter ${chapterLabel}…`
+            : `Turning the thread into a steer for ${replanScope}…`}
+        </p>
+        <FanficButton onClick={notes.stop}>
+          <Square size="0.8rem" aria-hidden="true" />
+          Stop
+        </FanficButton>
+      </div>
+    );
+  }
+
+  if (draft) {
+    const rewrite = draft.use === "rewrite";
+    const id = `fanfic-comment-use-${threadId}`;
+    return (
+      <form
+        className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/30 p-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const text = draft.text.trim();
+          if (!text) return;
+          if (rewrite) uses.onRewrite(text);
+          else uses.onReplan?.(text);
+          setDraft(null);
+        }}
+      >
+        <label htmlFor={id} className="text-[0.8125rem] font-semibold">
+          {rewrite ? `Notes for rewriting chapter ${chapterLabel}` : `Steer for re-planning ${replanScope}`}
+        </label>
+        <textarea
+          id={id}
+          className={cn(fanficInputClass, "min-h-28 resize-y")}
+          value={draft.text}
+          maxLength={FANFIC_COMMENT_NOTES_MAX_CHARS}
+          onChange={(event) => setDraft({ ...draft, text: event.target.value })}
+        />
+        <p className="text-xs text-[var(--muted-foreground)]">
+          {rewrite
+            ? "Drafted by the author from this thread. Change anything, then rewrite: it's added as a new version, so you can flip back. Later chapters stay as they are."
+            : "Drafted by the author from this thread. Change anything, then re-plan: the new plan shows after the latest chapter, to use or to keep the old one. Written chapters stay as they are."}
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <FanficButton onClick={() => setDraft(null)}>Cancel</FanficButton>
+          <FanficButton
+            type="submit"
+            tone="primary"
+            disabled={!draft.text.trim() || (rewrite ? uses.rewriteDisabled : uses.replanDisabled)}
+          >
+            {rewrite ? `Rewrite chapter ${chapterLabel}` : "Re-plan with these notes"}
+          </FanficButton>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <FanficButton disabled={busy || uses.rewriteDisabled} onClick={() => void start("rewrite")}>
+        <PenLine size="0.85rem" aria-hidden="true" />
+        Rewrite chapter {chapterLabel} with this
+      </FanficButton>
+      {uses.onReplan && (
+        <FanficButton disabled={busy || uses.replanDisabled} onClick={() => void start("replan")}>
+          <Compass size="0.85rem" aria-hidden="true" />
+          {replanButtonLabel(replanScope)}
+        </FanficButton>
+      )}
+    </div>
+  );
+}
 
 function reportSendFailure(error: unknown): void {
   // The reply pipeline already shows its own failures (under the thread); a Stop needs no message.
@@ -175,10 +299,12 @@ function CommentThread({
   thread,
   chapterTextKey,
   actions,
+  uses,
 }: {
   thread: Chat;
   chapterTextKey: string;
   actions: CommentActions;
+  uses: FanficCommentUses;
 }) {
   const threadId = thread.id;
   const meta = readFanficCommentThread(thread.metadata);
@@ -349,6 +475,7 @@ function CommentThread({
           Delete thread
         </FanficButton>
       </div>
+      {lastAuthorId && <UseThread threadId={threadId} uses={uses} busy={replying} />}
       {replyOpen && (
         <CommentBox
           id={`fanfic-comment-reply-${threadId}`}
@@ -385,6 +512,7 @@ export function FanficComments({
   chapterLabel,
   chapterContent,
   disabled,
+  uses,
 }: {
   ficChatId: string;
   chapterMessageId: string;
@@ -392,6 +520,7 @@ export function FanficComments({
   chapterContent: string;
   /** While the fic itself is writing, so a comment doesn't race the chapter it is about. */
   disabled: boolean;
+  uses: FanficCommentUses;
 }) {
   const threadsQuery = useFanficCommentThreads(ficChatId);
   const threads = chapterCommentThreads(threadsQuery.data, chapterMessageId);
@@ -426,10 +555,16 @@ export function FanficComments({
         <>
           <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
             Talk the chapter over with the author: what you liked, what you didn't, where the story could go instead.
-            Nothing here changes the fic.
+            Nothing here changes the fic until you use a thread to rewrite the chapter or re-plan the rest.
           </p>
           {threads.map((thread) => (
-            <CommentThread key={thread.id} thread={thread} chapterTextKey={chapterTextKey} actions={actions} />
+            <CommentThread
+              key={thread.id}
+              thread={thread}
+              chapterTextKey={chapterTextKey}
+              actions={actions}
+              uses={uses}
+            />
           ))}
           <CommentBox
             id={`fanfic-comment-new-${chapterMessageId}`}
