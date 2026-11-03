@@ -23,15 +23,17 @@ colors:
   light-celadon: "#e8efe9"
   light-panel: "#ffffffee"
   sillytavern-blue: "#4a72b0"
-  pond-theme-abyss: "hsl(190 46% 8%)"
-  pond-theme-water: "hsl(190 40% 11%)"
-  pond-theme-shallow: "hsl(190 34% 14.5%)"
-  pond-theme-raise: "hsl(190 30% 18.5%)"
-  pond-theme-line: "hsl(190 26% 25%)"
-  pond-theme-cream: "#f1ebe5"
+  pond-theme-abyss: "#0e1313"
+  pond-theme-water: "#141b1b"
+  pond-theme-shallow: "#202928"
+  pond-theme-raise: "#26302f"
+  pond-theme-line: "#34403e"
+  pond-theme-ink: "#f1ebe5"
   pond-theme-mist: "#a9b3ae"
   pond-theme-koi: "#f7694a"
+  pond-theme-koi-tint: "#2d2d2a"
   pond-theme-jade: "#7fbfae"
+  pond-theme-danger: "#ff6470"
 typography:
   display:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
@@ -260,26 +262,29 @@ Conversation mode can use familiar message bubbles, but roleplay should feel mor
 
 Pond is De-Koi's new look, picked in Settings > Appearance > Visual Style ("Pond (new look)"). It is being built in steps beside the Default theme, and is planned to become the default once the team is happy with it. Its styles live in `src/styles/themes/pond.css`, active when `data-visual-theme="pond"` is set on the root element.
 
-**Direction:** a measured step towards the De-Koi logo and The Koi Pond's studio look: night water, cream, jade, and koi orange, without turning into a cartoon.
+**Direction:** a measured step towards the De-Koi logo and The Koi Pond's studio look, without turning into a cartoon. Pond uses the studio palette from the website repository's `branding/BRAND.md` ("The pond colours"): the pond at night (dark) and tea-rice (light), paper, ink, mist, line, koi vermilion, jade and danger crimson. Change them there first, then here.
 
 ### Colors
 
-One teal hue (190°) in a stack of solid surfaces, from deepest to highest:
+A stack of solid surfaces, from deepest to highest. Water, Shallow and Line are the brand's own colours; Abyss and Raise are derived one step either side:
 
-| Layer   | Dark                 | Light              | Used for                                                         |
-| ------- | -------------------- | ------------------ | ---------------------------------------------------------------- |
-| Abyss   | `hsl(190 46% 8%)`    | `hsl(190 24% 94%)` | sidebars and the app frame, muted wells (`--sidebar`, `--muted`) |
-| Water   | `hsl(190 40% 11%)`   | `hsl(190 30% 98%)` | the app background (`--background`)                              |
-| Shallow | `hsl(190 34% 14.5%)` | `#ffffff`          | cards, panels and most inputs (`--card`, `--secondary`)          |
-| Raise   | `hsl(190 30% 18.5%)` | `hsl(190 22% 90%)` | popovers and hover states (`--popover`, `--accent`)              |
-| Line    | `hsl(190 26% 25%)`   | `hsl(190 18% 85%)` | borders and input strokes (`--border`, `--input`)                |
+| Layer   | Dark      | Light     | Source                                | Used for                                                                |
+| ------- | --------- | --------- | ------------------------------------- | ----------------------------------------------------------------------- |
+| Abyss   | `#0e1313` | `#ebefed` | water, a step deeper                  | sidebars and the app frame, muted wells (`--sidebar`, `--muted`)        |
+| Water   | `#141b1b` | `#f3f6f4` | brand "Pond at night" / "Tea-rice"    | the app background (`--background`)                                     |
+| Shallow | `#202928` | `#ffffff` | brand "Paper"                         | cards, panels and most inputs (`--card`, `--secondary`); light popovers |
+| Raise   | `#26302f` | `#e5eae8` | paper 30% / tea-rice 50% towards Line | dark popovers, hover states (`--popover`, `--accent`)                   |
+| Line    | `#34403e` | `#d8dddb` | brand "Line"                          | borders and input strokes (`--border`, `--input`)                       |
 
-- **Cream** (`#f1ebe5`; ink `#2b2420` in light): text.
+- **Ink** (`#f1ebe5`; `#2b2420` in light): text.
 - **Mist** (`#a9b3ae`; `#5f6b67` in light): quiet text.
-- **Koi vermilion** (`#f7694a`; `#b8341c` in light): actions, selection, focus rings and titles only. A clear, saturated orange-red (hue about 10°), deliberately not the dusty clay orange (about 15–19°, around 60% saturation) that reads as AI-made next to cream. Selected sidebar rows sit on a 10 to 14% koi tint (`--sidebar-accent`), with their text lighter in dark (`#ff8a6e`) and darker in light (`#a42d17`) to keep 4.5:1.
+- **Koi vermilion** (`#f7694a`; `#b8341c` in light): actions, selection, focus rings and titles only. A clear, saturated orange-red (hue about 10°), deliberately not the dusty clay orange (about 15–19°, around 60% saturation) that reads as AI-made next to cream. Text on vermilion buttons is `#141b1b` in dark and white in light.
+- **Vermilion tint** (`#2d2d2a`; `#f8ebe8` in light, the brand's): behind selected sidebar rows (`--sidebar-accent`), with vermilion text on it (4.65 and 5.09:1). Anything warmer drops below 4.5:1.
 - **Danger crimson** (`#ff6470`; `#b0213a` in light, `--destructive`): kept apart by hue from the vermilion and from Fanfic's pink. Still pair it with words or icons, never color alone.
 - **Jade** (`#7fbfae`; `#3f7668` in light): quiet accents and secondary text.
-- **Scrollbars:** a teal-grey thumb (`hsl(190 18% 50%)`; `hsl(190 18% 44%)` in light), at least about 3.5:1 against every layer, on a clear track.
+- **Scrollbars:** a grey-green thumb (`#738d88`; `#6e807b` in light), at least 3.4:1 against every layer, on a clear track.
+
+Every text colour reaches 4.5:1 on every layer, except jade on a light hover row (4.31:1).
 
 ### Rules
 
