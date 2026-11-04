@@ -22,13 +22,11 @@ import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { ChoiceSelectionModal } from "./ChoiceSelectionModal";
 import {
   Plus,
-  Download,
   Upload,
   FileText,
   Trash2,
   Check,
   Copy,
-  Search,
   Code2,
   Hash,
   Star,
@@ -45,7 +43,13 @@ import { cn } from "../../../../shared/lib/utils";
 import { boolish } from "../../../../engine/generation/runtime-records";
 import { isRecord, normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
 import {
-  LibraryFolderSelect,
+  CatalogActionBar,
+  CatalogRowActions,
+  CatalogSearchStrip,
+  catalogRowActionsRowProps,
+  type CatalogRowAction,
+} from "../../components/CatalogPanelControls";
+import {
   getNextUnnamedLibraryFolderName,
   useCreateLibraryFolder,
   useDeleteLibraryFolder,
@@ -69,6 +73,9 @@ type PresetRow = {
 type PresetChoices = ChoiceSelections;
 
 const PRESET_LIBRARY_DRAG_MIME = "application/x-de-koi-preset-id";
+
+// The selection toolbar's folder picker: "" is its prompt, this value means "out of any folder".
+const MOVE_TO_UNFILED = "__unfiled__";
 
 function getPresetChoices(metadata: unknown): PresetChoices {
   if (typeof metadata === "string") {
@@ -324,6 +331,65 @@ export function PresetsPanel() {
   const canDragPresets = presetFolderDataReady && presetFolderList.length > 0 && !selectionMode;
   const presetFolderMoveOptions = presetFolderDataReady ? presetFolderList : [];
 
+  const handleDeletePreset = useCallback(
+    async (preset: PresetRow) => {
+      if (
+        await showConfirmDialog({
+          title: "Delete Preset",
+          message: `Delete "${preset.name}"?`,
+          confirmLabel: "Delete",
+          tone: "destructive",
+        })
+      ) {
+        deletePreset.mutate(preset.id);
+      }
+    },
+    [deletePreset],
+  );
+
+  const handleDuplicate = useCallback(
+    async (preset: PresetRow) => {
+      try {
+        await duplicatePreset.mutateAsync(preset.id);
+        toast.success(`Copied "${preset.name}"`);
+      } catch (error) {
+        toast.error(toUserMessage(error, { fallback: `Couldn't copy "${preset.name}". Try again.` }));
+      }
+    },
+    [duplicatePreset],
+  );
+
+  // Moving by folder picker (the keyboard- and touch-friendly way; dragging also works on desktop).
+  const handleMoveSelectedToFolder = useCallback(
+    async (folderId: string | null) => {
+      const presetById = new Map(((presets ?? []) as unknown as PresetRow[]).map((preset) => [preset.id, preset]));
+      const ids = [...selectedPresetIds].filter((id) => {
+        const existingFolderId = presetById.get(id)?.folderId ?? null;
+        const currentFolderId = existingFolderId && presetFolderIds.has(existingFolderId) ? existingFolderId : null;
+        return currentFolderId !== folderId;
+      });
+      if (ids.length === 0) return;
+
+      const results = await Promise.allSettled(ids.map((id) => movePresetItem.mutateAsync({ itemId: id, folderId })));
+      const failedCount = results.filter((result) => result.status === "rejected").length;
+      const movedCount = ids.length - failedCount;
+      const folderName = folderId ? presetFolderList.find((folder) => folder.id === folderId)?.name : null;
+
+      if (movedCount > 0) {
+        const plural = movedCount === 1 ? "" : "s";
+        toast.success(
+          folderName
+            ? `Moved ${movedCount} preset${plural} to "${folderName}"`
+            : `Moved ${movedCount} preset${plural} out of folders`,
+        );
+      }
+      if (failedCount > 0) {
+        toast.error(`Couldn't move ${failedCount} preset${failedCount === 1 ? "" : "s"}. Try again.`);
+      }
+    },
+    [movePresetItem, presetFolderIds, presetFolderList, presets, selectedPresetIds],
+  );
+
   const handlePresetDragStart = useCallback(
     (event: DragEvent<HTMLDivElement>, presetId: string) => {
       if (!canDragPresets) {
@@ -386,14 +452,63 @@ export function PresetsPanel() {
     const wrapFormat = (preset.wrapFormat ?? "xml") as string;
     const isDefault = boolish(preset.isDefault ?? (preset as PresetRow & { default?: unknown }).default, false);
 
+    // Assign to the open chat (when it takes presets), set as default, copy and delete, stacked down
+    // the row's right edge.
+    const assignTitle = isSelected ? "Unassign from chat" : "Assign to chat";
+    const rowActions: CatalogRowAction[] = [
+      ...(canAssignToActiveChat
+        ? [
+            {
+              key: "assign",
+              title: assignTitle,
+              label: `${assignTitle}: ${preset.name}`,
+              icon: <Check size="0.75rem" aria-hidden="true" />,
+              className: isSelected
+                ? "bg-purple-400/15 text-purple-400"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
+              onClick: () => void selectPreset(preset.id),
+            },
+          ]
+        : []),
+      {
+        key: "default",
+        title: isDefault ? "Default preset" : "Set as default",
+        label: isDefault ? `${preset.name} is the default preset` : `Set ${preset.name} as default`,
+        icon: <Star size="0.75rem" aria-hidden="true" className={isDefault ? "fill-yellow-500" : ""} />,
+        className: isDefault
+          ? "text-yellow-500 hover:bg-yellow-500/10"
+          : "text-[var(--muted-foreground)] hover:bg-yellow-500/10 hover:text-yellow-500",
+        onClick: () => setDefaultPreset.mutate(preset.id),
+      },
+      {
+        key: "duplicate",
+        title: "Copy",
+        label: `Copy ${preset.name}`,
+        icon: <Copy size="0.75rem" aria-hidden="true" />,
+        className: "text-[var(--muted-foreground)] hover:bg-sky-400/10 hover:text-sky-400",
+        onClick: () => void handleDuplicate(preset),
+      },
+      {
+        key: "delete",
+        title: "Delete",
+        label: `Delete ${preset.name}`,
+        icon: <Trash2 size="0.75rem" aria-hidden="true" />,
+        className: "text-[var(--destructive)] hover:bg-[var(--destructive)]/15",
+        onClick: () => void handleDeletePreset(preset),
+      },
+    ];
+    const rowActionsProps = catalogRowActionsRowProps(rowActions.length);
+
     return (
       <div
         key={preset.id}
         draggable={canDragPresets}
         onDragStart={(event) => handlePresetDragStart(event, preset.id)}
         onDragEnd={clearPresetDragState}
+        style={selectionMode ? undefined : rowActionsProps.style}
         className={cn(
           "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+          !selectionMode && rowActionsProps.className,
           selectionMode && isBulkSelected && "ring-1 ring-purple-400/40 bg-purple-400/10",
           isSelected && "ring-1 ring-purple-400/40 bg-purple-400/5",
           draggedPresetId === preset.id && "opacity-55 ring-1 ring-[var(--primary)]/30",
@@ -447,85 +562,7 @@ export function PresetsPanel() {
           </div>
         </div>
 
-        {/* Action buttons */}
-        {!selectionMode && (
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
-            <LibraryFolderSelect
-              value={preset.folderId}
-              folders={presetFolderMoveOptions}
-              itemLabel={preset.name}
-              disabled={movePresetItem.isPending || !presetFolderDataReady}
-              onChange={(folderId) => {
-                const currentFolderId =
-                  preset.folderId && presetFolderIds.has(preset.folderId) ? preset.folderId : null;
-                if (currentFolderId !== folderId) {
-                  movePresetItem.mutate({ itemId: preset.id, folderId });
-                }
-              }}
-            />
-            {canAssignToActiveChat && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void selectPreset(preset.id);
-                }}
-                className={cn(
-                  "rounded-lg p-1.5 transition-all active:scale-90",
-                  isSelected
-                    ? "bg-purple-400/15 text-purple-400"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
-                )}
-                title={isSelected ? "Unassign from chat" : "Assign to chat"}
-              >
-                <Check size="0.75rem" />
-              </button>
-            )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setDefaultPreset.mutate(preset.id);
-              }}
-              className={cn(
-                "rounded-lg p-1.5 transition-all active:scale-90",
-                isDefault
-                  ? "text-yellow-500"
-                  : "text-[var(--muted-foreground)] hover:bg-yellow-500/10 hover:text-yellow-500",
-              )}
-              title={isDefault ? "Default preset" : "Set as default"}
-            >
-              <Star size="0.75rem" className={isDefault ? "fill-yellow-500" : ""} />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                duplicatePreset.mutate(preset.id);
-              }}
-              className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
-              title="Duplicate"
-            >
-              <Copy size="0.75rem" />
-            </button>
-            <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                if (
-                  await showConfirmDialog({
-                    title: "Delete Preset",
-                    message: `Delete "${preset.name}"?`,
-                    confirmLabel: "Delete",
-                    tone: "destructive",
-                  })
-                ) {
-                  deletePreset.mutate(preset.id);
-                }
-              }}
-              className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-              title="Delete"
-            >
-              <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
-            </button>
-          </div>
-        )}
+        {!selectionMode && <CatalogRowActions actions={rowActions} />}
       </div>
     );
   };
@@ -538,242 +575,252 @@ export function PresetsPanel() {
     !presetLibraryLoading && !presetFoldersError && (filteredPresets.length > 0 || displayedPresetFolders.length > 0);
   const showPresetFlatFallback = !presetLibraryLoading && presetFoldersError && filteredPresets.length > 0;
 
-  return (
-    <div className="flex flex-col gap-2 p-3">
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => openModal("create-preset")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-3 py-2.5 text-xs font-medium text-white shadow-md shadow-purple-400/15 transition-all hover:shadow-lg hover:shadow-purple-400/25 active:scale-[0.98]"
-          title="New"
-        >
-          <Plus size="0.8125rem" /> <span className="md:hidden">New</span>
-        </button>
-        <button
-          onClick={() => openModal("import-preset")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
-          title="Import"
-        >
-          <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
-        </button>
-        <button
-          onClick={() => {
-            if (selectionMode) exitSelectionMode();
-            else setSelectionMode(true);
-          }}
-          className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-purple-400/15 text-purple-400 ring-1 ring-purple-400/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
-          )}
-          title="Select"
-        >
-          <Check size="0.8125rem" /> <span className="md:hidden">Select</span>
-        </button>
-      </div>
-
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedPresetIds.size} selected
-          </span>
-          <button
-            onClick={() => setSelectedPresetIds(new Set(filteredPresets.map((preset) => preset.id)))}
-            disabled={filteredPresets.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-purple-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedPresetIds(new Set())}
-            disabled={selectedPresetIds.size === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={selectedPresetIds.size === 0}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-          >
-            <Trash2 size="0.6875rem" />
-            Delete
-          </button>
-          <button
-            onClick={handleExportSelected}
-            disabled={selectedPresetIds.size === 0 || exportingSelected}
-            className="inline-flex items-center gap-1 rounded-lg bg-purple-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export ZIP"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
-      {/* Search */}
-      <div className="relative">
-        <Search
-          size="0.8125rem"
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
-        />
-        <input
-          type="text"
-          placeholder="Search presets…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-xl bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-        />
-      </div>
-
-      {!presetLibraryLoading && !presetFoldersError && (
-        <button
-          type="button"
-          onClick={handleCreateFolder}
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/70 px-2.5 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          title="New folder"
-        >
-          <FolderPlus size="0.75rem" />
-          New folder
-        </button>
-      )}
-
-      {/* Loading */}
-      {presetLibraryLoading && (
-        <div className="flex flex-col gap-2 py-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="shimmer h-16 rounded-xl" />
-          ))}
-        </div>
-      )}
-
-      {!presetLibraryLoading && presetFoldersError && (
-        <div className="rounded-xl border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
-          <p>Could not load preset folders.</p>
+  const renderPresetFolder = (folder: (typeof presetFolderList)[number]) => {
+    const folderPresets = presetsByFolder.get(folder.id) ?? [];
+    const isExpanded = !folder.collapsed;
+    const isDropTarget = presetDropTargetId === folder.id;
+    return (
+      <div
+        key={folder.id}
+        data-preset-library-folder-id={folder.id}
+        onDragOver={(event) => handlePresetDragOver(event, folder.id)}
+        onDragLeave={handlePresetDragLeave}
+        onDrop={(event) => handlePresetDrop(event, folder.id)}
+        className={cn(
+          "rounded-xl border border-transparent bg-[var(--secondary)]/35 transition-colors",
+          isDropTarget && "border-purple-400/35 bg-purple-400/10",
+        )}
+      >
+        <div className="flex items-center gap-1.5 px-2 py-1.5">
           <button
             type="button"
-            onClick={() => void refetchPresetFolders()}
-            className="mt-1 rounded-md px-2 py-1 text-[0.625rem] font-medium ring-1 ring-[var(--destructive)]/30 hover:bg-[var(--destructive)]/10"
+            onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+            className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            title={isExpanded ? "Collapse folder" : "Expand folder"}
           >
-            Retry
+            <ChevronRight size="0.75rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
           </button>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {showPresetEmptyState && (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-400/20 to-violet-500/20">
-            <FileText size="1.25rem" className="text-purple-400" />
-          </div>
-          <p className="text-xs text-[var(--muted-foreground)]">{search ? "No matching presets" : "No presets yet"}</p>
-        </div>
-      )}
-
-      {/* Preset list */}
-      {showPresetFlatFallback && (
-        <div className="stagger-children flex flex-col gap-1">{filteredPresets.map(renderPresetRow)}</div>
-      )}
-
-      {showPresetList && (
-        <div className="flex flex-col gap-1">
-          {displayedPresetFolders.map((folder) => {
-            const folderPresets = presetsByFolder.get(folder.id) ?? [];
-            const isExpanded = !folder.collapsed;
-            const isDropTarget = presetDropTargetId === folder.id;
-            return (
-              <div
-                key={folder.id}
-                data-preset-library-folder-id={folder.id}
-                onDragOver={(event) => handlePresetDragOver(event, folder.id)}
-                onDragLeave={handlePresetDragLeave}
-                onDrop={(event) => handlePresetDrop(event, folder.id)}
-                className={cn(
-                  "rounded-xl border border-transparent bg-[var(--secondary)]/35 transition-colors",
-                  isDropTarget && "border-purple-400/35 bg-purple-400/10",
-                )}
+          <FolderOpen size="0.875rem" className="shrink-0 text-purple-400" />
+          {editingFolderId === folder.id ? (
+            <input
+              autoFocus
+              value={editFolderName}
+              onChange={(event) => setEditFolderName(event.target.value)}
+              onBlur={() => handleRenameFolder(folder.id)}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleRenameFolder(folder.id);
+                if (event.key === "Escape") {
+                  setEditingFolderId(null);
+                  setEditFolderName("");
+                }
+              }}
+              className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none focus:border-purple-400/50"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+              className="min-w-0 flex-1 truncate text-left text-xs font-medium text-[var(--foreground)]"
+              title={folder.name}
+            >
+              {folder.name}
+            </button>
+          )}
+          <span className="rounded-md bg-[var(--background)]/60 px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+            {folderPresets.length}
+          </span>
+          {!selectionMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleStartRenameFolder(folder.id, folder.name)}
+                className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                title="Rename folder"
               >
-                <div className="flex items-center gap-1.5 px-2 py-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
-                    className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                    title={isExpanded ? "Collapse folder" : "Expand folder"}
-                  >
-                    <ChevronRight size="0.75rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
-                  </button>
-                  <FolderOpen size="0.875rem" className="shrink-0 text-purple-400" />
-                  {editingFolderId === folder.id ? (
-                    <input
-                      autoFocus
-                      value={editFolderName}
-                      onChange={(event) => setEditFolderName(event.target.value)}
-                      onBlur={() => handleRenameFolder(folder.id)}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") handleRenameFolder(folder.id);
-                        if (event.key === "Escape") {
-                          setEditingFolderId(null);
-                          setEditFolderName("");
-                        }
-                      }}
-                      className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none focus:border-purple-400/50"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
-                      className="min-w-0 flex-1 truncate text-left text-xs font-medium text-[var(--foreground)]"
-                      title={folder.name}
-                    >
-                      {folder.name}
-                    </button>
-                  )}
-                  <span className="rounded-md bg-[var(--background)]/60 px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                    {folderPresets.length}
-                  </span>
-                  {!selectionMode && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleStartRenameFolder(folder.id, folder.name)}
-                        className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                        title="Rename folder"
-                      >
-                        <Pencil size="0.6875rem" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteFolder(folder.id, folder.name)}
-                        className="rounded-md p-1 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
-                        title="Delete folder"
-                      >
-                        <Trash2 size="0.6875rem" />
-                      </button>
-                    </>
-                  )}
-                </div>
-                {isExpanded && (
-                  <div className="flex flex-col gap-1 px-1 pb-1">
-                    {folderPresets.length > 0 ? (
-                      folderPresets.map(renderPresetRow)
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
-                        Drop presets here
-                      </div>
-                    )}
-                  </div>
-                )}
+                <Pencil size="0.6875rem" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteFolder(folder.id, folder.name)}
+                className="rounded-md p-1 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
+                title="Delete folder"
+              >
+                <Trash2 size="0.6875rem" />
+              </button>
+            </>
+          )}
+        </div>
+        {isExpanded && (
+          <div className="flex flex-col gap-1 px-1 pb-1">
+            {folderPresets.length > 0 ? (
+              folderPresets.map(renderPresetRow)
+            ) : (
+              <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                Drop presets here
               </div>
-            );
-          })}
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
+  return (
+    // The tool strips touch the panel's edges; only the list below has padding.
+    <div className="flex flex-col">
+      <CatalogActionBar
+        tone="koi"
+        selectionMode={selectionMode}
+        onCreate={() => openModal("create-preset")}
+        onImport={() => openModal("import-preset")}
+        onToggleSelectionMode={() => {
+          if (selectionMode) exitSelectionMode();
+          else setSelectionMode(true);
+        }}
+      />
+
+      <CatalogSearchStrip search={search} onSearchChange={setSearch} placeholder="Search presets" />
+
+      <div className="flex flex-col gap-2 px-3 pb-3 pt-0.5">
+        {selectionMode && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
+            <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+              {selectedPresetIds.size} selected
+            </span>
+            <button
+              onClick={() => setSelectedPresetIds(new Set(filteredPresets.map((preset) => preset.id)))}
+              disabled={filteredPresets.length === 0}
+              className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-purple-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
+            >
+              Select visible
+            </button>
+            <button
+              onClick={() => setSelectedPresetIds(new Set())}
+              disabled={selectedPresetIds.size === 0}
+              className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
+            >
+              Clear
+            </button>
+            {presetFolderMoveOptions.length > 0 && (
+              <select
+                value=""
+                disabled={selectedPresetIds.size === 0 || movePresetItem.isPending}
+                aria-label="Move selected presets to folder"
+                title="Move to folder"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) return;
+                  void handleMoveSelectedToFolder(value === MOVE_TO_UNFILED ? null : value);
+                }}
+                className="h-6 max-w-[9rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-1.5 text-[0.625rem] font-medium text-[var(--foreground)] outline-none transition-colors focus:border-purple-400/50 disabled:opacity-40"
+              >
+                <option value="">Move to folder…</option>
+                <option value={MOVE_TO_UNFILED}>Unfiled</option>
+                {presetFolderMoveOptions.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={handleDeleteSelected}
+              disabled={selectedPresetIds.size === 0}
+              className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
+            >
+              <Trash2 size="0.6875rem" />
+              Delete
+            </button>
+            <button
+              onClick={handleExportSelected}
+              disabled={selectedPresetIds.size === 0 || exportingSelected}
+              className="inline-flex items-center gap-1 rounded-lg bg-purple-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
+            >
+              <Upload size="0.6875rem" />
+              {exportingSelected ? "Exporting..." : "Export ZIP"}
+            </button>
+            <button
+              onClick={exitSelectionMode}
+              className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            >
+              Done
+            </button>
+          </div>
+        )}
+
+        {/* Library folders: the heading's button makes one; presets move in by dragging or the
+          selection toolbar's folder picker. */}
+        {!presetLibraryLoading && !presetFoldersError && (
+          <div className="mt-1">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 px-1 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                <FolderOpen size="0.6875rem" aria-hidden="true" />
+                Folders ({presetFolderList.length})
+              </span>
+              <button
+                type="button"
+                onClick={handleCreateFolder}
+                className="rounded-lg p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-purple-400"
+                title="Create folder"
+                aria-label="Create folder"
+              >
+                <FolderPlus size="0.8125rem" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="mt-1 flex flex-col gap-1">
+              {displayedPresetFolders.map(renderPresetFolder)}
+              {presetFolderList.length === 0 && (
+                <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                  No folders yet - click <FolderPlus size="0.625rem" className="inline" aria-hidden="true" /> to create
+                  one
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Loading */}
+        {presetLibraryLoading && (
+          <div className="flex flex-col gap-2 py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="shimmer h-16 rounded-xl" />
+            ))}
+          </div>
+        )}
+
+        {!presetLibraryLoading && presetFoldersError && (
+          <div className="rounded-xl border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
+            <p>Could not load preset folders.</p>
+            <button
+              type="button"
+              onClick={() => void refetchPresetFolders()}
+              className="mt-1 rounded-md px-2 py-1 text-[0.625rem] font-medium ring-1 ring-[var(--destructive)]/30 hover:bg-[var(--destructive)]/10"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {showPresetEmptyState && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-400/20 to-violet-500/20">
+              <FileText size="1.25rem" className="text-purple-400" />
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {search ? "No matching presets" : "No presets yet"}
+            </p>
+          </div>
+        )}
+
+        {/* Preset list */}
+        {showPresetFlatFallback && (
+          <div className="stagger-children flex flex-col gap-1">{filteredPresets.map(renderPresetRow)}</div>
+        )}
+
+        {showPresetList && (
           <div
             data-preset-library-root
             onDragOver={(event) => handlePresetDragOver(event, null)}
@@ -792,37 +839,37 @@ export function PresetsPanel() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
 
-      {activeChat && !selectionMode && (
-        <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]/60">
-          {canAssignToActiveChat
-            ? 'Click a preset to edit · hover → "Use" to assign to chat'
-            : "Click a preset to edit"}
-        </p>
-      )}
+        {activeChat && !selectionMode && (
+          <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]/60">
+            {canAssignToActiveChat
+              ? "Click a preset to edit · point at it and press ✓ to use it in this chat"
+              : "Click a preset to edit"}
+          </p>
+        )}
 
-      <RegexScriptsSection title="Regexes" className="mt-1" />
+        <RegexScriptsSection title="Regexes" className="mt-1" />
 
-      <FunctionsSection
-        customToolRows={customToolRows}
-        customToolCapabilities={customToolCapabilities}
-        openToolDetail={openToolDetail}
-        setCustomToolEnabled={setCustomToolEnabled}
-        deleteCustomTool={deleteCustomTool}
-      />
-
-      {/* Choice selection modal */}
-      {activeChat && (
-        <ChoiceSelectionModal
-          open={!!choiceModalPresetId}
-          onClose={() => setChoiceModalPresetId(null)}
-          presetId={choiceModalPresetId}
-          chatId={activeChat.id}
-          existingChoices={getPresetChoices(activeChat.metadata)}
+        <FunctionsSection
+          customToolRows={customToolRows}
+          customToolCapabilities={customToolCapabilities}
+          openToolDetail={openToolDetail}
+          setCustomToolEnabled={setCustomToolEnabled}
+          deleteCustomTool={deleteCustomTool}
         />
-      )}
+
+        {/* Choice selection modal */}
+        {activeChat && (
+          <ChoiceSelectionModal
+            open={!!choiceModalPresetId}
+            onClose={() => setChoiceModalPresetId(null)}
+            presetId={choiceModalPresetId}
+            chatId={activeChat.id}
+            existingChoices={getPresetChoices(activeChat.metadata)}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -843,7 +890,7 @@ function FunctionsSection({
   return (
     <PanelSection
       title="Functions"
-      icon={<Wrench size="0.8125rem" />}
+      icon={<Wrench size="0.6875rem" />}
       action={
         <button
           type="button"
@@ -987,14 +1034,21 @@ function PanelSection({
 
   return (
     <div className="mb-1 border-b border-[var(--border)] pb-1 last:border-b-0">
-      <div className="flex items-center gap-1.5 px-1 py-1.5">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-1.5 text-left">
-          <span className="text-[var(--muted-foreground)]">{icon}</span>
-          <span className="text-[0.6875rem] font-semibold">{title}</span>
-          <ChevronDown
-            size="0.6875rem"
-            className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
-          />
+      {/* Styled like the library's "Folders (n)" heading: a small uppercase label, its buttons at the end. */}
+      <div className="flex items-center justify-between gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]"
+        >
+          {open ? (
+            <ChevronDown size="0.75rem" aria-hidden="true" />
+          ) : (
+            <ChevronRight size="0.75rem" aria-hidden="true" />
+          )}
+          <span aria-hidden="true">{icon}</span>
+          {title}
         </button>
         {action}
       </div>

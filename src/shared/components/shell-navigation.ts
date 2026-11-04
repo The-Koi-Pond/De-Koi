@@ -63,24 +63,10 @@ export const SHELL_NAV_ITEMS = [
   { destination: "chats", label: "Chats", group: "primary", icon: MessageSquare, accentRole: "muted" },
   { destination: "deki", label: "Deki-senpai", group: "primary", icon: MessageCircleHeart, accentRole: "muted" },
   {
-    destination: "bot-browser",
-    label: "Browser",
-    group: "library",
-    icon: Bot,
-    accentRole: "accent",
-  },
-  {
     destination: "characters",
     label: "Characters",
     group: "library",
     icon: Users,
-    accentRole: "accent",
-  },
-  {
-    destination: "personas",
-    label: "Personas",
-    group: "library",
-    icon: User,
     accentRole: "accent",
   },
   {
@@ -143,9 +129,52 @@ export const SHELL_PANEL_ITEMS = SHELL_NAV_ITEMS.filter(
     isShellPanelDestination(item.destination),
 );
 
+/*
+ * Personas share the Characters tab: the menus show one "Characters" item, and
+ * a Characters | Personas switch at the top of the panel moves between the
+ * two. "personas" stays its own panel, so anything that opens it directly
+ * (Discover, onboarding) lands on the Personas side.
+ */
+const PERSONAS_PANEL_ITEM = {
+  destination: "personas",
+  label: "Personas",
+  group: "library",
+  icon: User,
+  accentRole: "accent",
+} as const satisfies ShellNavItem;
+
+/*
+ * The Browser (finding characters online) has no menu item either: it's a way
+ * to get characters, so its button sits in the Characters panel's footer,
+ * next to "Open full library". The panel stays, for Discover's links to it.
+ */
+const BROWSER_PANEL_ITEM = {
+  destination: "bot-browser",
+  label: "Browser",
+  group: "library",
+  icon: Bot,
+  accentRole: "accent",
+} as const satisfies ShellNavItem;
+
+const SHARED_TAB_OWNER: Partial<Record<ShellPanelDestination, ShellPanelDestination>> = { personas: "characters" };
+
+/** The panels that show the Characters | Personas switch, in its order. */
+export const PEOPLE_PANELS = ["characters", "personas"] as const satisfies readonly ShellPanelDestination[];
+
+/** Whether a menu tab is the open one (Characters is open while Personas shows). */
+export function isShellPanelTabOpen(
+  destination: ShellPanelDestination,
+  rightPanel: string,
+  rightPanelOpen: boolean,
+): boolean {
+  if (!rightPanelOpen) return false;
+  const tab = SHARED_TAB_OWNER[rightPanel as ShellPanelDestination] ?? rightPanel;
+  return tab === destination;
+}
+
 export const SHELL_PANEL_BY_DESTINATION = Object.fromEntries(
-  SHELL_PANEL_ITEMS.map((item) => [item.destination, item]),
-) as Record<ShellPanelDestination, (typeof SHELL_PANEL_ITEMS)[number]>;
+  [...SHELL_PANEL_ITEMS, PERSONAS_PANEL_ITEM, BROWSER_PANEL_ITEM].map((item) => [item.destination, item]),
+) as Record<ShellPanelDestination, ShellNavItem & { destination: ShellPanelDestination }>;
 
 export function isShellPanelDestination(destination: ShellNavDestination): destination is ShellPanelDestination {
   return destination !== "chats" && destination !== "deki" && destination !== "discover";

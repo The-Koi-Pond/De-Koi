@@ -15,7 +15,7 @@ import { useCharactersPanelSelection } from "../hooks/use-characters-panel-selec
 import { parseCharacterSearchQuery } from "../lib/character-search";
 import { parseCharacterRows, type ParsedCharacterRow, type SortOption } from "../lib/characters-panel-model";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
-import { Users } from "lucide-react";
+import { ArrowRight, Globe, Users } from "lucide-react";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { ExportFormatDialog } from "../../../../shared/components/ui/ExportFormatDialog";
 import { CharacterFirstMessageDialog } from "./CharacterFirstMessageDialog";
@@ -26,7 +26,7 @@ import {
 } from "./CharacterQuickStartContextMenu";
 import { CharactersFilterBar } from "./CharactersFilterBar";
 import { CharactersListSection } from "./CharactersListSection";
-import { CharactersPanelActionBar } from "./CharactersPanelActionBar";
+import { CatalogActionBar } from "../../components/CatalogPanelControls";
 import { CharactersSelectionToolbar } from "./CharactersSelectionToolbar";
 
 function useDebouncedValue(value: string, delayMs: number): string {
@@ -71,6 +71,7 @@ export function CharactersPanel() {
   const openModal = useUIStore((s) => s.openModal);
   const openCharacterDetail = useUIStore((s) => s.openCharacterDetail);
   const openCharacterLibrary = useUIStore((s) => s.openCharacterLibrary);
+  const openBotBrowser = useUIStore((s) => s.openBotBrowser);
   const [contextMenu, setContextMenu] = useState<CharacterQuickStartContextMenuState | null>(null);
 
   const [sort, setSort] = useState<SortOption>("name-asc");
@@ -84,6 +85,7 @@ export function CharactersPanel() {
     firstMesConfirm,
     handleAddFirstMessage,
     handleStartConversation,
+    handleStartFanfic,
     handleStartNewChat,
     handleStartRoleplay,
     hasActiveChat,
@@ -104,9 +106,8 @@ export function CharactersPanel() {
     setFavFilter,
     setTagsExpanded,
     tagsExpanded,
-    toggleExcludedTag,
-    toggleIncludedTag,
-  } = useCharactersPanelFilters(parsedCharacters);
+    cycleTag,
+  } = useCharactersPanelFilters(parsedCharacters, characters !== undefined && !searchQuery.text.trim());
 
   const {
     assigningToGroup,
@@ -294,35 +295,11 @@ export function CharactersPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <button
-        onClick={openCharacterLibrary}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] transition-all hover:border-[var(--primary)]/35 hover:bg-[var(--accent)]"
-        title="Open full library"
-      >
-        <Users size="0.875rem" className="text-[var(--primary)]" />
-        Open Full Library
-      </button>
-
-      <CharactersFilterBar
-        search={search}
-        onSearchChange={setSearch}
-        sort={sort}
-        onSortChange={setSort}
-        favoriteFilter={favFilter}
-        onFavoriteFilterChange={setFavFilter}
-        allTags={allTags}
-        tagsExpanded={tagsExpanded}
-        onToggleTagsExpanded={() => setTagsExpanded((expanded) => !expanded)}
-        includedTags={includedTags}
-        excludedTags={excludedTags}
-        onClearTagFilters={clearTagFilters}
-        onToggleIncludedTag={toggleIncludedTag}
-        onToggleExcludedTag={toggleExcludedTag}
-        onDeleteTag={handleDeleteTag}
-      />
-
-      <CharactersPanelActionBar
+    // At least the panel's height, so the footer sits at its bottom even with a short list. The toolbar
+    // strips and the footer touch the panel's edges; only the list below has padding.
+    <div className="flex min-h-full flex-col">
+      <CatalogActionBar
+        tone="koi"
         selectionMode={selectionMode}
         onCreate={() => openModal("create-character")}
         onImport={() => openModal("import-character")}
@@ -337,134 +314,175 @@ export function CharactersPanel() {
         }}
       />
 
-      {selectionMode && (
-        <CharactersSelectionToolbar
-          selectedCount={selectedCharacterIds.size}
-          visibleCount={sortedCharacters.length}
-          exportingSelected={exportingSelected}
-          onSelectVisible={selectAllVisible}
-          onClearSelection={clearSelection}
-          onDeleteSelected={handleDeleteSelected}
-          onExportSelected={() => {
-            setIncludeMemoriesInExport(false);
-            setExportDialogOpen(true);
-          }}
-          onDone={exitSelectionMode}
-        />
-      )}
-
-      <ExportFormatDialog
-        open={exportDialogOpen}
-        title="Export Characters"
-        description="Native keeps De-Koi metadata. The other formats work in SillyTavern, Chub, RisuAI, and similar apps."
-        compatibleDescription="Exports direct Chara Card V2 JSON files without the native wrapper."
-        showCardV3Options
-        onClose={() => {
-          setIncludeMemoriesInExport(false);
-          setExportDialogOpen(false);
-        }}
-        option={{
-          checked: includeMemoriesInExport,
-          label: "Include character memories",
-          description:
-            "Only De-Koi Native exports can include memories. Source chat and message IDs are never exported.",
-          onCheckedChange: setIncludeMemoriesInExport,
-        }}
-        onSelect={handleExportSelected}
-      />
-
-      <CharacterGroupsSection
-        groups={parsedGroups}
-        groupsExpanded={groupsExpanded}
-        creatingGroup={creatingGroup}
-        newGroupName={newGroupName}
-        expandedGroupId={expandedGroupId}
-        editingGroupId={editingGroupId}
-        editGroupName={editGroupName}
-        assigningToGroup={assigningToGroup}
-        draggedCharacterId={draggedCharacterId}
-        characterDropTarget={characterDropTarget}
-        canDragCharacters={canDragCharacters}
-        hasActiveChat={hasActiveChat}
-        selectionMode={selectionMode}
-        charMap={charMap}
-        isStartingChat={isStartingChat}
-        pendingStartCharacterId={pendingStartCharacterId}
-        onToggleGroupsExpanded={toggleGroupsExpanded}
-        onCreateGroupStart={startCreateGroup}
-        onCreateGroup={handleCreateGroup}
-        onCancelCreateGroup={cancelCreateGroup}
-        onNewGroupNameChange={setNewGroupName}
-        onExpandedGroupChange={setExpandedGroupId}
-        onEditingGroupChange={setEditingGroupId}
-        onEditGroupNameChange={setEditGroupName}
-        onRenameGroup={handleRenameGroup}
-        onDeleteGroup={(groupId) => deleteGroup.mutate(groupId)}
-        onAddGroupToChat={addGroupToChat}
-        onToggleAssigningToGroup={(groupId) => toggleAssigningToGroup(groupId, exitSelectionMode)}
-        onToggleGroupMember={handleToggleGroupMember}
-        onCharacterDragStart={handleCharacterGroupMemberDragStart}
-        onCharacterDragEnd={clearCharacterDragState}
-        onCharacterDragOver={handleCharacterDragOver}
-        onCharacterDragLeave={handleCharacterDragLeave}
-        onCharacterDrop={handleCharacterDrop}
-        onOpenCharacterDetail={openCharacterDetail}
-        onOpenContextMenu={setContextMenu}
-        onStartNewChat={(memberId, memberName) => void handleStartNewChat(memberId, memberName)}
-      />
-
-      <CharactersListSection
-        characters={sortedCharacters}
-        filteredCount={filteredCharacters.length}
+      <CharactersFilterBar
         search={search}
-        isLoading={isLoading}
-        isFetching={isFetching}
-        isError={isError}
-        selectionMode={selectionMode}
-        selectedCount={selectedCharacterIds.size}
-        selectedCharacterIds={selectedCharacterIds}
-        chatCharacterIds={chatCharacterIds}
-        hasActiveChat={hasActiveChat}
-        isAssigning={assigningToGroup !== null}
-        assigningGroup={assigningGroup}
-        canDragCharacters={canDragCharacters}
-        draggedCharacterId={draggedCharacterId}
-        isRootDropTarget={characterDropTarget?.kind === "root"}
-        onRetry={() => void refetch()}
-        onToggleSelection={toggleSelection}
-        onToggleGroupMember={handleToggleGroupMember}
-        onOpenCharacterDetail={openCharacterDetail}
-        onOpenContextMenu={setContextMenu}
-        onToggleChatCharacter={toggleCharacter}
-        onDuplicateCharacter={handleDuplicateCharacter}
-        onDeleteCharacter={(character) => void handleDeleteCharacter(character)}
-        onToggleIncludedTag={toggleIncludedTag}
-        onCharacterDragStart={handleCharacterListDragStart}
-        onCharacterDragEnd={clearCharacterDragState}
-        onCharacterRootDragOver={handleCharacterRootDragOver}
-        onCharacterDragLeave={handleCharacterDragLeave}
-        onCharacterRootDrop={handleCharacterRootDrop}
+        onSearchChange={setSearch}
+        sort={sort}
+        onSortChange={setSort}
+        favoriteFilter={favFilter}
+        onFavoriteFilterChange={setFavFilter}
+        allTags={allTags}
+        tagsExpanded={tagsExpanded}
+        onToggleTagsExpanded={() => setTagsExpanded((expanded) => !expanded)}
+        includedTags={includedTags}
+        excludedTags={excludedTags}
+        onClearTagFilters={clearTagFilters}
+        onCycleTag={cycleTag}
+        onDeleteTag={handleDeleteTag}
       />
 
-      {contextMenu && (
-        <CharacterQuickStartContextMenu
-          menu={contextMenu}
-          pendingStartCharacterId={pendingStartCharacterId}
-          onClose={() => setContextMenu(null)}
-          onStartRoleplay={(menu) => {
-            void handleStartRoleplay(menu.charId, menu.charName, menu.firstMes, menu.altGreetings);
-          }}
-          onStartConversation={(menu) => handleStartConversation(menu.charId, menu.charName)}
-        />
-      )}
+      <div className="flex flex-1 flex-col gap-2 px-3 pb-3 pt-0.5">
+        {selectionMode && (
+          <CharactersSelectionToolbar
+            selectedCount={selectedCharacterIds.size}
+            visibleCount={sortedCharacters.length}
+            exportingSelected={exportingSelected}
+            onSelectVisible={selectAllVisible}
+            onClearSelection={clearSelection}
+            onDeleteSelected={handleDeleteSelected}
+            onExportSelected={() => {
+              setIncludeMemoriesInExport(false);
+              setExportDialogOpen(true);
+            }}
+            onDone={exitSelectionMode}
+          />
+        )}
 
-      {firstMesConfirm && (
-        <CharacterFirstMessageDialog
-          confirmation={firstMesConfirm}
-          onClose={closeFirstMessageConfirm}
-          onAddMessage={handleAddFirstMessage}
+        <ExportFormatDialog
+          open={exportDialogOpen}
+          title="Export Characters"
+          description="Native keeps De-Koi metadata. The other formats work in SillyTavern, Chub, RisuAI, and similar apps."
+          compatibleDescription="Exports direct Chara Card V2 JSON files without the native wrapper."
+          showCardV3Options
+          onClose={() => {
+            setIncludeMemoriesInExport(false);
+            setExportDialogOpen(false);
+          }}
+          option={{
+            checked: includeMemoriesInExport,
+            label: "Include character memories",
+            description:
+              "Only De-Koi Native exports can include memories. Source chat and message IDs are never exported.",
+            onCheckedChange: setIncludeMemoriesInExport,
+          }}
+          onSelect={handleExportSelected}
         />
-      )}
+
+        <CharacterGroupsSection
+          groups={parsedGroups}
+          groupsExpanded={groupsExpanded}
+          creatingGroup={creatingGroup}
+          newGroupName={newGroupName}
+          expandedGroupId={expandedGroupId}
+          editingGroupId={editingGroupId}
+          editGroupName={editGroupName}
+          assigningToGroup={assigningToGroup}
+          draggedCharacterId={draggedCharacterId}
+          characterDropTarget={characterDropTarget}
+          canDragCharacters={canDragCharacters}
+          hasActiveChat={hasActiveChat}
+          selectionMode={selectionMode}
+          charMap={charMap}
+          isStartingChat={isStartingChat}
+          pendingStartCharacterId={pendingStartCharacterId}
+          onToggleGroupsExpanded={toggleGroupsExpanded}
+          onCreateGroupStart={startCreateGroup}
+          onCreateGroup={handleCreateGroup}
+          onCancelCreateGroup={cancelCreateGroup}
+          onNewGroupNameChange={setNewGroupName}
+          onExpandedGroupChange={setExpandedGroupId}
+          onEditingGroupChange={setEditingGroupId}
+          onEditGroupNameChange={setEditGroupName}
+          onRenameGroup={handleRenameGroup}
+          onDeleteGroup={(groupId) => deleteGroup.mutate(groupId)}
+          onAddGroupToChat={addGroupToChat}
+          onToggleAssigningToGroup={(groupId) => toggleAssigningToGroup(groupId, exitSelectionMode)}
+          onToggleGroupMember={handleToggleGroupMember}
+          onCharacterDragStart={handleCharacterGroupMemberDragStart}
+          onCharacterDragEnd={clearCharacterDragState}
+          onCharacterDragOver={handleCharacterDragOver}
+          onCharacterDragLeave={handleCharacterDragLeave}
+          onCharacterDrop={handleCharacterDrop}
+          onOpenCharacterDetail={openCharacterDetail}
+          onOpenContextMenu={setContextMenu}
+          onStartNewChat={(memberId, memberName) => void handleStartNewChat(memberId, memberName)}
+        />
+
+        <CharactersListSection
+          characters={sortedCharacters}
+          filteredCount={filteredCharacters.length}
+          search={search}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          isError={isError}
+          selectionMode={selectionMode}
+          selectedCount={selectedCharacterIds.size}
+          selectedCharacterIds={selectedCharacterIds}
+          chatCharacterIds={chatCharacterIds}
+          hasActiveChat={hasActiveChat}
+          isAssigning={assigningToGroup !== null}
+          assigningGroup={assigningGroup}
+          canDragCharacters={canDragCharacters}
+          draggedCharacterId={draggedCharacterId}
+          isRootDropTarget={characterDropTarget?.kind === "root"}
+          onRetry={() => void refetch()}
+          onToggleSelection={toggleSelection}
+          onToggleGroupMember={handleToggleGroupMember}
+          onOpenCharacterDetail={openCharacterDetail}
+          onOpenContextMenu={setContextMenu}
+          onToggleChatCharacter={toggleCharacter}
+          onDuplicateCharacter={handleDuplicateCharacter}
+          onDeleteCharacter={(character) => void handleDeleteCharacter(character)}
+          onToggleIncludedTag={cycleTag}
+          onCharacterDragStart={handleCharacterListDragStart}
+          onCharacterDragEnd={clearCharacterDragState}
+          onCharacterRootDragOver={handleCharacterRootDragOver}
+          onCharacterDragLeave={handleCharacterDragLeave}
+          onCharacterRootDrop={handleCharacterRootDrop}
+        />
+
+        {contextMenu && (
+          <CharacterQuickStartContextMenu
+            menu={contextMenu}
+            pendingStartCharacterId={pendingStartCharacterId}
+            onClose={() => setContextMenu(null)}
+            onStartRoleplay={(menu) => {
+              void handleStartRoleplay(menu.charId, menu.charName, menu.firstMes, menu.altGreetings);
+            }}
+            onStartConversation={(menu) => handleStartConversation(menu.charId, menu.charName)}
+            onStartFanfic={(menu) => handleStartFanfic(menu.charId, menu.charName)}
+          />
+        )}
+
+        {firstMesConfirm && (
+          <CharacterFirstMessageDialog
+            confirmation={firstMesConfirm}
+            onClose={closeFirstMessageConfirm}
+            onAddMessage={handleAddFirstMessage}
+          />
+        )}
+      </div>
+
+      {/* Two quiet ways out at the panel's foot, as one split strip: finding characters online, and the full library. */}
+      <div className="sticky bottom-0 grid h-10 grid-cols-2 border-t border-[var(--border)]/60 bg-[var(--sidebar)]">
+        <button
+          type="button"
+          onClick={openBotBrowser}
+          className="flex min-w-0 items-center justify-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]"
+        >
+          <Globe size="0.8125rem" className="shrink-0" aria-hidden="true" />
+          <span className="truncate">Browse online</span>
+        </button>
+        <button
+          type="button"
+          onClick={openCharacterLibrary}
+          className="flex min-w-0 items-center justify-center gap-1.5 border-l border-[var(--border)]/60 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]"
+        >
+          <Users size="0.8125rem" className="shrink-0" aria-hidden="true" />
+          <span className="truncate">Full library</span>
+          <ArrowRight size="0.75rem" className="shrink-0" aria-hidden="true" />
+        </button>
+      </div>
     </div>
   );
 }

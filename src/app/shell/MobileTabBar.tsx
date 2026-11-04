@@ -10,6 +10,7 @@ import {
   SHELL_ACCENT_STYLES,
   TOOLS_NAV_ITEMS,
   isShellPanelDestination,
+  isShellPanelTabOpen,
   type ShellPanelDestination,
 } from "../../shared/components/shell-navigation";
 
@@ -66,7 +67,7 @@ export function MobileTabBar({
 
   const openPanel = (panel: ShellPanelDestination) => {
     preloadRightPanelPanel(panel);
-    const wasThisPanel = rightPanelOpen && rightPanel === panel;
+    const wasThisPanel = isShellPanelTabOpen(panel, rightPanel, rightPanelOpen);
     closeAll();
     if (!wasThisPanel) openRightPanel(panel);
   };
@@ -114,7 +115,8 @@ export function MobileTabBar({
                   const Icon = item.icon;
                   const accent = SHELL_ACCENT_STYLES[item.accentRole];
                   const isActive =
-                    isShellPanelDestination(item.destination) && rightPanelOpen && rightPanel === item.destination;
+                    isShellPanelDestination(item.destination) &&
+                    isShellPanelTabOpen(item.destination, rightPanel, rightPanelOpen);
                   return (
                     <button
                       key={item.destination}

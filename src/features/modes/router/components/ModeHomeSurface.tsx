@@ -49,6 +49,8 @@ export const HOME_SPLASH_TEXTS = [
   // "\n" starts a new line in the splash.
   "No rules just\n(CODE BREAKING SOUNDS)",
   "8008135",
+  // A non-breaking space (U+00A0) keeps the frog on the same line as "passion".
+  "Graphic design is my passion\u00A0🐸",
 ] as const;
 
 export function pickHomeSplashText(random = Math.random): string {

@@ -3,7 +3,7 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 
-type ChatMode = "roleplay" | "conversation";
+type ChatMode = "roleplay" | "conversation" | "fanfic";
 
 interface StartChatFromCharacterOptions {
   characterId: string;

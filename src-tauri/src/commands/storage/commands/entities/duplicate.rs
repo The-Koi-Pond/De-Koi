@@ -28,8 +28,179 @@ pub(crate) fn duplicate_entity(
     if entity == "messages" {
         return duplicate_message(state, id);
     }
+    if entity == "lorebooks" {
+        return duplicate_lorebook(state, id);
+    }
     let duplicated = shared::duplicate_record(state, entity, id)?;
     Ok(duplicated)
+}
+
+/// Copies a whole lorebook: the record (named "… Copy"), its picture, its entry folders and all its
+/// entries, in one atomic storage step, with new ids and folder links remapped. The copy is the user's
+/// own standalone book: it drops the original's character/persona book link (`characterId`, `personaId`)
+/// and its embedded-import origin (`sourceCharacterId`), so re-importing a character's embedded book never
+/// treats the copy as that book to overwrite or delete. It keeps the original's activation scopes: a
+/// dropped `characterId`/`personaId` moves into `characterIds`/`personaIds`. It starts switched off so the
+/// same lore isn't added to prompts twice until it's switched on.
+pub(super) fn duplicate_lorebook(state: &AppState, id: &str) -> Result<Value, AppError> {
+    let original = shared::get_required(state, "lorebooks", id)?;
+    let image = lorebook_images::duplicate_lorebook_image(state, &original)?;
+    let image_fields = image.fields.clone();
+    let source_id = id.to_string();
+    let copied = state.storage.update_collections_atomically(
+        vec!["lorebooks", "lorebook-entries", "lorebook-folders"],
+        move |collections| {
+            let [lorebooks, entries, folders] = collections else {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Lorebook copy expected lorebook, entry and folder collections",
+                ));
+            };
+            if lorebooks.collection() != "lorebooks"
+                || entries.collection() != "lorebook-entries"
+                || folders.collection() != "lorebook-folders"
+            {
+                return Err(AppError::new(
+                    "storage_error",
+                    "Lorebook copy received an unexpected collection",
+                ));
+            }
+            duplicate_lorebook_in_rows(
+                lorebooks.rows_mut(),
+                entries.rows_mut(),
+                folders.rows_mut(),
+                &source_id,
+                image_fields.as_ref(),
+            )
+        },
+    );
+    if copied.is_err() {
+        media_uploads::remove_copied_file_path(
+            image.copied_file.as_deref(),
+            "rolled-back duplicated lorebook image",
+        );
+    }
+    copied
+}
+
+fn row_id(row: &Value) -> Option<&str> {
+    row.get("id").and_then(Value::as_str)
+}
+
+fn belongs_to_lorebook(row: &Value, lorebook_id: &str) -> bool {
+    row.get("lorebookId").and_then(Value::as_str) == Some(lorebook_id)
+}
+
+/// A copied row's link to a folder of the same lorebook: the folder's copy, or none when it pointed
+/// at no folder or one that isn't part of this lorebook.
+fn remapped_folder_link(row: &Value, key: &str, folder_ids: &HashMap<String, String>) -> Value {
+    row.get(key)
+        .and_then(Value::as_str)
+        .and_then(|old| folder_ids.get(old))
+        .map(|new| Value::String(new.clone()))
+        .unwrap_or(Value::Null)
+}
+
+/// Clears a lorebook's single-id link (`single_key`) and adds its id to the matching list scope
+/// (`list_key`) unless it's already there, so the book still activates for that character or persona.
+fn move_single_scope_into_list(book: &mut Map<String, Value>, single_key: &str, list_key: &str) {
+    let single = book
+        .insert(single_key.to_string(), Value::Null)
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|id| !id.is_empty());
+    let Some(single) = single else {
+        return;
+    };
+    let mut ids = match book.get(list_key) {
+        Some(Value::Array(ids)) => ids.clone(),
+        _ => Vec::new(),
+    };
+    if !ids
+        .iter()
+        .any(|id| id.as_str().map(str::trim) == Some(single.as_str()))
+    {
+        ids.push(Value::String(single));
+    }
+    book.insert(list_key.to_string(), Value::Array(ids));
+}
+
+pub(super) fn duplicate_lorebook_in_rows(
+    lorebook_rows: &mut Vec<Value>,
+    entry_rows: &mut Vec<Value>,
+    folder_rows: &mut Vec<Value>,
+    source_id: &str,
+    image_fields: Option<&Value>,
+) -> Result<Value, AppError> {
+    let source = lorebook_rows
+        .iter()
+        .find(|row| row_id(row) == Some(source_id))
+        .cloned()
+        .ok_or_else(|| AppError::not_found(format!("lorebooks/{source_id} was not found")))?;
+    let mut copy = ensure_object(source)?;
+    let copy_id = new_id();
+    let now = now_iso();
+    copy.insert("id".to_string(), Value::String(copy_id.clone()));
+    copy.insert("createdAt".to_string(), Value::String(now.clone()));
+    copy.insert("updatedAt".to_string(), Value::String(now.clone()));
+    let name = copy
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Lorebook")
+        .to_string();
+    copy.insert("name".to_string(), Value::String(format!("{name} Copy")));
+    copy.insert("enabled".to_string(), Value::Bool(false));
+    move_single_scope_into_list(&mut copy, "characterId", "characterIds");
+    move_single_scope_into_list(&mut copy, "personaId", "personaIds");
+    copy.insert("sourceCharacterId".to_string(), Value::Null);
+    if let Some(Value::Object(fields)) = image_fields {
+        for (key, value) in fields {
+            copy.insert(key.clone(), value.clone());
+        }
+    }
+
+    let source_folders: Vec<Value> = folder_rows
+        .iter()
+        .filter(|row| belongs_to_lorebook(row, source_id))
+        .cloned()
+        .collect();
+    let folder_ids: HashMap<String, String> = source_folders
+        .iter()
+        .filter_map(|row| row_id(row).map(|old| (old.to_string(), new_id())))
+        .collect();
+    for folder in source_folders {
+        let Some(new_folder_id) = row_id(&folder).and_then(|old| folder_ids.get(old)).cloned()
+        else {
+            continue;
+        };
+        let parent = remapped_folder_link(&folder, "parentFolderId", &folder_ids);
+        let mut folder = ensure_object(folder)?;
+        folder.insert("id".to_string(), Value::String(new_folder_id));
+        folder.insert("lorebookId".to_string(), Value::String(copy_id.clone()));
+        folder.insert("parentFolderId".to_string(), parent);
+        folder.insert("createdAt".to_string(), Value::String(now.clone()));
+        folder.insert("updatedAt".to_string(), Value::String(now.clone()));
+        folder_rows.push(Value::Object(folder));
+    }
+
+    let source_entries: Vec<Value> = entry_rows
+        .iter()
+        .filter(|row| belongs_to_lorebook(row, source_id))
+        .cloned()
+        .collect();
+    for entry in source_entries {
+        let folder = remapped_folder_link(&entry, "folderId", &folder_ids);
+        let mut entry = ensure_object(entry)?;
+        entry.insert("id".to_string(), Value::String(new_id()));
+        entry.insert("lorebookId".to_string(), Value::String(copy_id.clone()));
+        entry.insert("folderId".to_string(), folder);
+        entry.insert("createdAt".to_string(), Value::String(now.clone()));
+        entry.insert("updatedAt".to_string(), Value::String(now.clone()));
+        entry_rows.push(Value::Object(entry));
+    }
+
+    let copy = Value::Object(copy);
+    lorebook_rows.push(copy.clone());
+    Ok(copy)
 }
 
 pub(super) fn duplicate_message(state: &AppState, id: &str) -> Result<Value, AppError> {

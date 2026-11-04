@@ -85,9 +85,7 @@ describe("MobileTabBar left sidebar controls", () => {
     expect(rendered.container.textContent).toContain("Tools");
     const menuItems = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'));
     expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      "Browser",
       "Characters",
-      "Personas",
       "Lorebooks",
       "Presets",
       "Gallery",

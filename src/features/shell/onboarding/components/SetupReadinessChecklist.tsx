@@ -7,6 +7,8 @@ export interface SetupReadinessChecklistProps {
   completed?: boolean;
   onDismiss?: () => void;
   onResume?: () => void;
+  /** Drops the chat that was being set up, so the tucked-away "Finish setup" reminder goes too. */
+  onCancel?: () => void;
   onConfigureRuntime?: () => void;
   onRepairRuntime?: () => void;
   onCreateConnection?: () => void;
@@ -19,6 +21,7 @@ export function SetupReadinessChecklist({
   completed,
   onDismiss,
   onResume,
+  onCancel,
   onConfigureRuntime,
   onRepairRuntime,
   onCreateConnection,
@@ -26,14 +29,28 @@ export function SetupReadinessChecklist({
 }: SetupReadinessChecklistProps) {
   if (completed) return null;
   if (dismissed) {
+    // The tucked-away reminder: resume the setup, or (the attached ×) cancel this chat setup for good.
     return (
-      <button
-        type="button"
-        onClick={onResume}
-        className="inline-flex items-center gap-2 rounded-lg border border-[var(--primary)]/30 bg-[var(--card)] px-3 py-2 text-sm font-semibold text-[var(--foreground)]"
-      >
-        <Sparkles size="0.9rem" aria-hidden="true" /> Finish setup <ChevronRight size="0.85rem" aria-hidden="true" />
-      </button>
+      <div className="inline-flex overflow-hidden rounded-lg border border-[var(--primary)]/30 bg-[var(--card)] text-sm font-semibold text-[var(--foreground)]">
+        <button
+          type="button"
+          onClick={onResume}
+          className="inline-flex items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--secondary)]"
+        >
+          <Sparkles size="0.9rem" aria-hidden="true" /> Finish setup <ChevronRight size="0.85rem" aria-hidden="true" />
+        </button>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Cancel this chat setup"
+            title="Cancel this chat setup"
+            className="flex items-center border-l border-[var(--primary)]/30 px-2.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+          >
+            <X size="0.85rem" aria-hidden="true" />
+          </button>
+        )}
+      </div>
     );
   }
 

@@ -319,7 +319,9 @@ export function PersonaGroupsSection({
             })}
 
             {groups.length === 0 && !creatingGroup && (
-              <p className="px-1 py-1 text-[0.625rem] italic text-[var(--muted-foreground)]">No folders yet</p>
+              <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                No folders yet
+              </p>
             )}
           </div>
         )}

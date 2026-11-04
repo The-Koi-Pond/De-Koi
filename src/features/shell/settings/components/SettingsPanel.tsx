@@ -28,43 +28,69 @@ import { PrivacyDataSettings } from "./settings/PrivacyDataSettings";
 import { SetupJourneyContextBanner } from "../../onboarding/shell";
 import { searchSettingsDestinations } from "../lib/settings-destinations";
 
+// `hint` is the short line under each tab's name in the side column; `description`
+// heads the open section.
 const TABS = [
   {
     id: "general",
     label: "General",
+    hint: "Everyday behavior",
     description: "Everyday behavior, message controls, and generation defaults.",
     icon: Settings2,
   },
   {
     id: "appearance",
     label: "Appearance",
+    hint: "Look and feel",
     description: "Text, chat surfaces, roleplay art, and visual comfort.",
     icon: Brush,
   },
-  { id: "themes", label: "Themes", description: "Choose, import, and manage complete visual themes.", icon: Palette },
-  { id: "plugins", label: "Modules", description: "Turn bundled De-Koi capabilities on or off.", icon: Blocks },
-  { id: "extensions", label: "Extensions", description: "Manage installed extensions and their access.", icon: Wrench },
+  {
+    id: "themes",
+    label: "Themes",
+    hint: "Colors and fonts",
+    description: "Choose, import, and manage complete visual themes.",
+    icon: Palette,
+  },
+  {
+    id: "plugins",
+    label: "Modules",
+    hint: "Optional features",
+    description: "Turn bundled De-Koi capabilities on or off.",
+    icon: Blocks,
+  },
+  {
+    id: "extensions",
+    label: "Extensions",
+    hint: "Add-ons",
+    description: "Manage installed extensions and their access.",
+    icon: Wrench,
+  },
   {
     id: "import",
     label: "Import",
+    hint: "Bring things in",
     description: "Bring compatible characters, chats, and settings into De-Koi.",
     icon: Download,
   },
   {
     id: "health",
     label: "Health",
+    hint: "Is everything OK?",
     description: "Check app readiness and troubleshoot local services.",
     icon: HeartPulse,
   },
   {
     id: "privacy",
     label: "Privacy & Data",
+    hint: "Export and erase",
     description: "Understand, export, and permanently erase De-Koi-managed data.",
     icon: ShieldCheck,
   },
   {
     id: "advanced",
     label: "Advanced",
+    hint: "For tinkerers",
     description: "Runtime, storage, diagnostics, and expert controls.",
     icon: SlidersHorizontal,
   },
@@ -235,7 +261,9 @@ export function SettingsPanel() {
                 <Icon size="0.95rem" className={cn("mt-px shrink-0", selected && "text-[var(--primary)]")} />
                 <span className="min-w-0">
                   <span className="block whitespace-nowrap text-xs font-semibold leading-tight">{tab.label}</span>
-                  <span className="de-koi-caption mt-1 hidden font-normal @3xl:block">{tab.description}</span>
+                  <span className="de-koi-settings-tab-hint de-koi-caption mt-1 hidden font-normal @3xl:block">
+                    {tab.hint}
+                  </span>
                 </span>
               </button>
             );

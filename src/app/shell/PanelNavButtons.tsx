@@ -2,7 +2,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn } from "../../shared/lib/utils";
-import { SHELL_ACCENT_STYLES, SHELL_PANEL_ITEMS } from "../../shared/components/shell-navigation";
+import { isShellPanelTabOpen, SHELL_ACCENT_STYLES, SHELL_PANEL_ITEMS } from "../../shared/components/shell-navigation";
 import { preloadRightPanelPanel } from "./right-panel-loaders";
 
 function stopTitlebarDrag(event: ReactMouseEvent<HTMLElement>) {
@@ -10,7 +10,8 @@ function stopTitlebarDrag(event: ReactMouseEvent<HTMLElement>) {
 }
 
 export function PanelNavButtons({ className }: { className?: string }) {
-  const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
+  const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const closeRightPanel = useUIStore((s) => s.closeRightPanel);
   const rightPanel = useUIStore((s) => s.rightPanel);
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen);
   const failedAgentCount = useAgentStore((s) => s.failedAgentTypes.length);
@@ -24,7 +25,7 @@ export function PanelNavButtons({ className }: { className?: string }) {
       onDoubleClick={stopTitlebarDrag}
     >
       {SHELL_PANEL_ITEMS.map(({ destination: panel, icon: Icon, label, accentRole }) => {
-        const isActive = rightPanelOpen && rightPanel === panel;
+        const isActive = isShellPanelTabOpen(panel, rightPanel, rightPanelOpen);
         const preloadPanel = () => preloadRightPanelPanel(panel);
         const accent = SHELL_ACCENT_STYLES[accentRole];
         const showFailedAgents = panel === "agents" && failedAgentCount > 0;
@@ -35,7 +36,8 @@ export function PanelNavButtons({ className }: { className?: string }) {
             type="button"
             onClick={() => {
               preloadPanel();
-              toggleRightPanel(panel);
+              if (isActive) closeRightPanel();
+              else openRightPanel(panel);
             }}
             onFocus={preloadPanel}
             onPointerEnter={preloadPanel}

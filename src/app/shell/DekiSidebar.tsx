@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { dekiSessionMessageCount, type DekiSession } from "../../engine/deki/deki-history";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { cn } from "../../shared/lib/utils";
+import { ColumnCollapseButton } from "./ColumnCollapseButton";
 import {
   getDekiBatchDeleteCopy,
   getSelectedDekiSessionIds,
@@ -23,6 +24,8 @@ type DekiSidebarProps = {
   onDeleteSession: (sessionId: string) => void;
   onDeleteSessions: (sessionIds: string[]) => void;
   onClose: () => void;
+  /** In the Pond rail layout: the header's fold-away "‹" replaces the close ✕ (see ColumnCollapseButton). */
+  onCollapse?: () => void;
 };
 
 export function DekiSidebar({
@@ -35,6 +38,7 @@ export function DekiSidebar({
   onDeleteSession,
   onDeleteSessions,
   onClose,
+  onCollapse,
 }: DekiSidebarProps) {
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
@@ -109,23 +113,31 @@ export function DekiSidebar({
 
   return (
     <nav data-component="DekiSidebar" aria-label="Deki-senpai chats" className="mari-chat-sidebar flex h-full flex-col">
-      <div className="mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
+      <div
+        className={cn(
+          "mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm",
+          onCollapse && "pl-0",
+        )}
+      >
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2 self-stretch">
+          {onCollapse && <ColumnCollapseButton onCollapse={onCollapse} />}
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-500">
             <MessageSquare size="0.875rem" />
           </div>
           <h2 className="retro-glow-text de-koi-display-title truncate text-sm font-bold">Deki-senpai</h2>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
-          title="Close Deki chats"
-          aria-label="Close Deki chats"
-        >
-          <X size="1rem" />
-        </button>
+        {!onCollapse && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90"
+            title="Close Deki chats"
+            aria-label="Close Deki chats"
+          >
+            <X size="1rem" />
+          </button>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-3 py-2">

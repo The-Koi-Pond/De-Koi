@@ -1,3 +1,4 @@
+import { matchesTagFilters, type TagFilters } from "../../lib/tag-filters";
 import { normalizePersonaTags } from "./persona-tags";
 
 export type PersonaPanelRow = {
@@ -79,7 +80,8 @@ export function parsePersonaGroups(
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((persona) => persona.id);
 
-  if (ungroupedMemberIds.length === 0) return groups;
+  // With no real folders, "Ungrouped" would just repeat the whole list below it.
+  if (ungroupedMemberIds.length === 0 || groups.length === 0) return groups;
 
   return [
     ...groups,
@@ -98,12 +100,13 @@ export function filterPersonas({
   personas,
   activeFilter,
   search,
-  activeTag,
+  tagFilters,
 }: {
   personas: PersonaPanelRow[];
   activeFilter: PersonaActiveFilter;
   search: string;
-  activeTag: string | null;
+  /** Included and excluded tags (see `matchesTagFilters`). */
+  tagFilters: TagFilters;
 }): PersonaPanelRow[] {
   let filtered = personas;
   if (activeFilter === "active") {
@@ -123,9 +126,7 @@ export function filterPersonas({
     );
   }
 
-  if (activeTag) {
-    filtered = filtered.filter((persona) => parsePersonaTags(persona).includes(activeTag));
-  }
+  filtered = filtered.filter((persona) => matchesTagFilters(parsePersonaTags(persona), tagFilters));
 
   return filtered;
 }
