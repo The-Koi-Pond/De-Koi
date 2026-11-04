@@ -883,18 +883,20 @@ export const ChatMessage = memo(function ChatMessage({
   // Compute message bubble background with user-controlled opacity.
   // Dark theme: neutral-900 (23,23,23) on dark bg → translucent dark bubble.
   // Light theme: slightly grayer than --background (#faf8ff) so bubbles stay visible on light bg.
+  // A visual theme can replace the colours (not the opacity) by setting
+  // --rp-user-bubble-rgb / --rp-assistant-bubble-rgb to "r, g, b".
   const { userBubbleBg, assistantBubbleBg } = useMemo(() => {
     const o = chatFontOpacity / 100;
     if (theme === "light") {
       // Higher base opacity in light mode so the bubble actually contrasts the page
       return {
-        userBubbleBg: `rgba(225,220,235,${Math.min(1, 0.85 * o).toFixed(3)})`,
-        assistantBubbleBg: `rgba(238,234,245,${Math.min(1, 0.9 * o).toFixed(3)})`,
+        userBubbleBg: `rgba(var(--rp-user-bubble-rgb, 225, 220, 235), ${Math.min(1, 0.85 * o).toFixed(3)})`,
+        assistantBubbleBg: `rgba(var(--rp-assistant-bubble-rgb, 238, 234, 245), ${Math.min(1, 0.9 * o).toFixed(3)})`,
       };
     }
     return {
-      userBubbleBg: `rgba(23,23,23,${(0.7 * o).toFixed(3)})`,
-      assistantBubbleBg: `rgba(23,23,23,${(0.6 * o).toFixed(3)})`,
+      userBubbleBg: `rgba(var(--rp-user-bubble-rgb, 23, 23, 23), ${(0.7 * o).toFixed(3)})`,
+      assistantBubbleBg: `rgba(var(--rp-assistant-bubble-rgb, 23, 23, 23), ${(0.6 * o).toFixed(3)})`,
     };
   }, [chatFontOpacity, theme]);
 
@@ -1928,7 +1930,7 @@ export const ChatMessage = memo(function ChatMessage({
                     compactAvatarFrameClass,
                     isUser
                       ? "bg-gradient-to-br from-neutral-500 to-neutral-600 ring-white/15"
-                      : "bg-gradient-to-br from-purple-500 to-pink-600 ring-purple-400/20",
+                      : "mari-avatar-fallback-character bg-gradient-to-br from-purple-500 to-pink-600 ring-purple-400/20",
                   )}
                 >
                   {isUser ? (
@@ -2078,7 +2080,7 @@ export const ChatMessage = memo(function ChatMessage({
                             "flex h-full w-full items-start justify-center pt-4",
                             isUser
                               ? "bg-gradient-to-b from-neutral-500/90 via-neutral-600/65 to-transparent"
-                              : "bg-gradient-to-b from-purple-500/90 via-pink-600/65 to-transparent",
+                              : "mari-avatar-fallback-character-panel bg-gradient-to-b from-purple-500/90 via-pink-600/65 to-transparent",
                           )}
                         >
                           {isUser ? (

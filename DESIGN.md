@@ -23,15 +23,15 @@ colors:
   light-celadon: "#e8efe9"
   light-panel: "#ffffffee"
   sillytavern-blue: "#4a72b0"
-  pond-theme-abyss: "#0e1313"
-  pond-theme-water: "#141b1b"
-  pond-theme-shallow: "#202928"
-  pond-theme-raise: "#26302f"
-  pond-theme-line: "#34403e"
+  pond-theme-abyss: "#001012"
+  pond-theme-water: "#041719"
+  pond-theme-shallow: "#112527"
+  pond-theme-raise: "#172b2e"
+  pond-theme-line: "#233b3e"
   pond-theme-ink: "#f1ebe5"
   pond-theme-mist: "#a9b3ae"
   pond-theme-koi: "#f7694a"
-  pond-theme-koi-tint: "#2d2d2a"
+  pond-theme-koi-tint: "#1d2829"
   pond-theme-jade: "#7fbfae"
   pond-theme-danger: "#ff6470"
 typography:
@@ -262,38 +262,47 @@ Conversation mode can use familiar message bubbles, but roleplay should feel mor
 
 Pond is De-Koi's new look, picked in Settings > Appearance > Visual Style ("Pond (new look)"). It is being built in steps beside the Default theme, and is planned to become the default once the team is happy with it. Its styles live in `src/styles/themes/pond.css`, active when `data-visual-theme="pond"` is set on the root element.
 
-**Direction:** a measured step towards the De-Koi logo and The Koi Pond's studio look, without turning into a cartoon. Pond uses the studio palette from the website repository's `branding/BRAND.md` ("The pond colours"): the pond at night (dark) and tea-rice (light), paper, ink, mist, line, koi vermilion, jade and danger crimson. Change them there first, then here.
+**Direction:** a measured step towards the De-Koi logo and The Koi Pond's studio look, without turning into a cartoon. Pond uses the studio palette from the website repository's `branding/BRAND.md` ("The pond colours"): the pond at night (dark) and tea-rice (light), paper, ink, mist, line, koi vermilion, jade and danger crimson. Change them there first, then here. One exception: De-Koi's dark layers are a deeper, tealer night than the studio's grey-green `#141b1b` (Xel's pick, 2026-11-04), noted in BRAND.md as De-Koi's own.
 
 ### Colors
 
-A stack of solid surfaces, from deepest to highest. Water, Shallow and Line are the brand's own colours; Abyss and Raise are derived one step either side:
+A stack of solid surfaces, from deepest to highest. In light, Water, Shallow and Line are the brand's own colours; in dark, they are De-Koi's tealer night at the same lightness steps as the brand's. Abyss and Raise are one step either side:
 
-| Layer   | Dark      | Light     | Source                                | Used for                                                                |
-| ------- | --------- | --------- | ------------------------------------- | ----------------------------------------------------------------------- |
-| Abyss   | `#0e1313` | `#ebefed` | water, a step deeper                  | sidebars and the app frame, muted wells (`--sidebar`, `--muted`)        |
-| Water   | `#141b1b` | `#f3f6f4` | brand "Pond at night" / "Tea-rice"    | the app background (`--background`)                                     |
-| Shallow | `#202928` | `#ffffff` | brand "Paper"                         | cards, panels and most inputs (`--card`, `--secondary`); light popovers |
-| Raise   | `#26302f` | `#e5eae8` | paper 30% / tea-rice 50% towards Line | dark popovers, hover states (`--popover`, `--accent`)                   |
-| Line    | `#34403e` | `#d8dddb` | brand "Line"                          | borders and input strokes (`--border`, `--input`)                       |
+| Layer   | Dark      | Light     | Source                                         | Used for                                                                |
+| ------- | --------- | --------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| Abyss   | `#001012` | `#ebefed` | water, a step deeper                           | sidebars and the app frame, muted wells (`--sidebar`, `--muted`)        |
+| Water   | `#041719` | `#f3f6f4` | De-Koi's "Pond at night" / brand "Tea-rice"    | the app background (`--background`)                                     |
+| Shallow | `#112527` | `#ffffff` | De-Koi's "Paper" / brand "Paper"               | cards, panels and most inputs (`--card`, `--secondary`); light popovers |
+| Raise   | `#172b2e` | `#e5eae8` | a step above paper / tea-rice 50% towards Line | dark popovers, hover states (`--popover`, `--accent`)                   |
+| Line    | `#233b3e` | `#d8dddb` | De-Koi's "Line" / brand "Line"                 | borders and input strokes (`--border`, `--input`)                       |
 
 - **Ink** (`#f1ebe5`; `#2b2420` in light): text.
 - **Mist** (`#a9b3ae`; `#5f6b67` in light): quiet text.
-- **Koi vermilion** (`#f7694a`; `#b8341c` in light): actions, selection, focus rings and titles only. A clear, saturated orange-red (hue about 10°), deliberately not the dusty clay orange (about 15–19°, around 60% saturation) that reads as AI-made next to cream. Text on vermilion buttons is `#141b1b` in dark and white in light.
-- **Vermilion tint** (`#2d2d2a`; `#f8ebe8` in light, the brand's): behind selected sidebar rows (`--sidebar-accent`), with vermilion text on it (4.65 and 5.09:1). Anything warmer drops below 4.5:1.
+- **Koi vermilion** (`#f7694a`; `#b8341c` in light): actions, selection, focus rings and titles only. A clear, saturated orange-red (hue about 10°), deliberately not the dusty clay orange (about 15–19°, around 60% saturation) that reads as AI-made next to cream. Text on vermilion buttons is the water colour (`#041719`) in dark and white in light.
+- **Vermilion tint** (`#1d2829`, paper with 5% vermilion; `#f8ebe8` in light, the brand's): behind selected sidebar rows (`--sidebar-accent`), with vermilion text on it (5.10 and 5.09:1). A warmer tint turns brown on teal.
 - **Danger crimson** (`#ff6470`; `#b0213a` in light, `--destructive`): kept apart by hue from the vermilion and from Fanfic's pink. Still pair it with words or icons, never color alone.
-- **Jade** (`#7fbfae`; `#3f7668` in light): quiet accents and secondary text.
-- **Scrollbars:** a grey-green thumb (`#738d88`; `#6e807b` in light), at least 3.4:1 against every layer, on a clear track.
+- **Jade** (`#7fbfae`; `#3f7668` in light): quiet accents and secondary text, your own messages in conversations, and placeholder avatars for characters without a picture. Text on solid jade is `#041719` in dark and white in light.
+- **Purple becomes jade:** Pond remaps Tailwind's purple, violet and indigo colours to a jade scale (400 and 600 are the two brand jades), so the purple accents across the editors and dialogs turn jade without touching those components. In light mode, shades 300–500 move one step darker so jade text stays readable. Pink and fuchsia stay pink, and rose stays for warnings. The create, save and generate buttons that faded pink into purple become solid vermilion instead.
+- **Scrollbars:** a grey-green thumb (`#738d88`; `#6e807b` in light), at least 3.3:1 against every layer, on a clear track.
 
 Every text colour reaches 4.5:1 on every layer, except jade on a light hover row (4.31:1).
 
 ### Rules
 
-**The Solid Water Rule.** Surfaces are solid layers, not frosted glass. The surface tokens are opaque, so the shell panels (sidebars, right panel, top bar) show no blur even where their classes still carry one. Other panels with their own see-through backgrounds (`bg-[var(--card)]/80` and similar plus `backdrop-blur-*`: the tracker panel, some toolbars and overlays) are not restyled yet.
+**The Solid Water Rule.** Surfaces are solid layers, not frosted glass. The shell panels (sidebars, right panel, top bar, tracker panel) are flat abyss with a single line between them: no blur, no shading, no big drop shadows. Conversations sit on the water; roleplay message boxes are pond night in dark and paper or jade tint in light, still under the chat's own background and opacity settings. Some toolbars and overlays with their own see-through backgrounds (`bg-[var(--card)]/80` and similar plus `backdrop-blur-*`) are not restyled yet.
 
-**The One Glow Rule.** Barely any glow. No Y2K stars, scanlines, noise or glowing title text; the body background and the home screen's koi silhouette give way to plain water. The sidebar, right panel and top bar still keep the default's soft shading and drop shadows for now.
+**The One Glow Rule.** Barely any glow. No Y2K stars, scanlines, noise or glowing title text; the body background and the home screen's koi silhouette give way to plain water. Roleplay drops the purple-pink glows around avatars, and the "writing" ring pulses jade.
 
 **The Pond Pebbles Rule.** Pond Pebbles (`public/fonts/PondPebbles.woff2`, The Koi Pond's own font) is for the app name and big panel titles only, in koi orange, through the `de-koi-display-title` class (which does nothing in other themes). Never for body text, buttons or labels. Body text keeps the plain app font.
 
 ### Still to come
 
-The icon-only navigation rail, settings as a drawer with a hint under each tab, and the home screen's fish ring (three koi circling the logo, with ripples spreading out) with the random splash line kept beside the logo.
+The icon-only navigation rail and settings as a drawer with a hint under each tab.
+
+### Home
+
+Deki (the squishing `deki-steady.svg`, hopping when they start explaining a mode) sits in the middle of a ring of three koi (in Deki's art colours) that circle at their own pace with faint wakes, while soft ripples spread out. Every few seconds one koi beats its tail and darts ahead, leaving a small splash. The "De-Koi" title sits above the ring. Below it the screen reads like a visual-novel scene: Deki's dialogue box (a vermilion "Deki-senpai" nameplate, their line, a blinking ▼) and, under it, the three modes as your replies ("Let's just talk.", "Let's play out a story!", "Write me something to read."), each with its mode name. The choice you point at (hover or keyboard focus) gets a vermilion ▶ cursor and tint, and Deki explains that mode; otherwise Deki names the next setup step. Along the box's lower edge sits a small quick menu, like a visual novel's Auto/Skip/Log row: a vermilion button for the setup step still to do (server, model, or library) and a quiet "Discover" button; Pond has no separate "Next steps" grid. Recent chats sit under the choices, and the credits sit at the bottom of the window under the lotus divider.
+
+### The lotus divider
+
+`LotusDivider` (`src/shared/components/ui/LotusDivider.tsx`, colours in `pond.css`): the lotus means a pause. A flame-shaped white bulb warming to soft yellow at its tip, lotus-pink wing petals and deeper back petals that fade to near-white on the side facing the bulb, and jade leaves whose tips run straight into the divider's fading lines. 40 px wide. The gaps between parts are real holes, so it works on any surface; in light mode the bulb gets a thin pink outline. Used on Home so far; meant for Settings sections and story scene breaks too. Chai's random splash line sits off the ring's lower right. With reduced motion or in low-power mode the koi rest in place; everything pauses while the window is hidden.
