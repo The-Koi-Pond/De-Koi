@@ -341,6 +341,12 @@
   display: inline-block;
 }
 
+/* Each word stays on one line, so long splash lines wrap between words. */
+.koi-home-splash-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+
 .koi-home-splash-letter {
   display: inline-block;
   transform: translateY(0);

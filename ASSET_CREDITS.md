@@ -12,7 +12,8 @@ built from them under `public/` (`favicon.svg`, `favicon.png`,
 `koi-mark.svg`.
 
 Deki, The Koi Pond's mascot, is also the team's own: `public/deki.svg` (a copy
-of the studio website's `deki.svg`), the avatars built from it by
+of the studio website's `deki.svg`), `public/deki-steady.svg` (a copy of the
+website's squishing `deki-steady.svg`), the avatars built from it by
 `branding/deki/build_deki_avatar.py` (`deki-avatar.svg`,
 `deki-avatar-dark.svg`) and `deki-lily-pad.svg`.
 

@@ -555,7 +555,8 @@ export function ConversationView({
     const isDefaultDark = convoGradient.dark.from === "#0a0a0e" && convoGradient.dark.to === "#1c2133";
     const isDefaultLight = convoGradient.light.from === "#f2eff7" && convoGradient.light.to === "#eae6f0";
     if ((theme === "dark" && isDefaultDark) || (theme === "light" && isDefaultLight)) {
-      return { background: "var(--secondary)" };
+      // A visual theme can set --convo-background; the others keep --secondary.
+      return { background: "var(--convo-background, var(--secondary))" };
     }
     return { background: `linear-gradient(135deg, ${g.from}, ${g.to})` };
   }, [convoGradient, theme]);

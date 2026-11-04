@@ -31,21 +31,26 @@
 
 /* ─── Dark: the pond at night ─── */
 [data-visual-theme="pond"] {
-  --pond-abyss: #0e1313; /* derived: the background, a step deeper */
-  --pond-water: #141b1b; /* brand "Pond at night" */
-  --pond-shallow: #202928; /* brand "Paper" */
-  --pond-raise: #26302f; /* derived: paper 30% towards line; vermilion text on it 4.58 */
-  --pond-line: #34403e; /* brand "Line" */
+  /* De-Koi's deeper, tealer night (Xel's pick, 2026-11-04): the studio's
+     "Pond at night" read as grey. Same steps between layers, more teal. */
+  --pond-abyss: #001012; /* the background, a step deeper */
+  --pond-water: #041719; /* "Pond at night", De-Koi's */
+  --pond-shallow: #112527; /* "Paper", De-Koi's */
+  --pond-raise: #172b2e; /* a step above paper; vermilion text on it 4.98 */
+  --pond-line: #233b3e; /* "Line", De-Koi's */
   --pond-ink: #f1ebe5; /* brand "Ink" */
   --pond-mist: #a9b3ae;
   /* Vermilion, not clay: a clearer, redder koi orange than the dusty
      terracotta that reads as "AI-made" (see AI-DESIGN-TELLS.md in the
      studio folder). */
   --pond-koi: #f7694a;
-  --pond-koi-tint: #2d2d2a; /* brand "Vermilion tint"; vermilion text on it 4.65 */
+  /* Paper with 5% vermilion: a warmer tint turns brown on teal. Vermilion
+     text on it 5.10. */
+  --pond-koi-tint: #1d2829;
   --pond-jade: #7fbfae;
+  --pond-on-jade: #041719; /* text on solid jade: 8.73 */
   --pond-amber: #e3a534;
-  --pond-scroll: #738d88; /* at least 3.7:1 against every layer */
+  --pond-scroll: #738d88; /* at least 4.1:1 against every layer */
   --pond-scroll-hover: #8fa7a2;
 
   --background: var(--pond-water);
@@ -55,7 +60,7 @@
   --popover: var(--pond-raise);
   --popover-foreground: var(--pond-ink);
   --primary: var(--pond-koi);
-  --primary-foreground: #141b1b;
+  --primary-foreground: var(--pond-water);
   --secondary: var(--pond-shallow);
   --secondary-foreground: var(--pond-jade);
   --muted: var(--pond-abyss);
@@ -64,7 +69,7 @@
   --accent-foreground: var(--pond-ink);
   /* Crimson, kept apart from the vermilion koi and Fanfic's pink by hue. */
   --destructive: #ff6470;
-  --destructive-foreground: #141b1b;
+  --destructive-foreground: var(--pond-water);
   --border: var(--pond-line);
   --input: var(--pond-line);
   --ring: var(--pond-koi);
@@ -142,6 +147,7 @@
   --pond-koi: #b8341c;
   --pond-koi-tint: #f8ebe8; /* brand "Vermilion tint"; vermilion text on it 5.09 */
   --pond-jade: #3f7668;
+  --pond-on-jade: #ffffff; /* text on solid jade: 5.25 */
   --pond-amber: #a8741a;
   --pond-scroll: #6e807b; /* at least 3.3:1 against every layer */
   --pond-scroll-hover: #56665f;
@@ -184,6 +190,71 @@
   --rgb-violet: #b07a4a;
 }
 
+/* ─── Purple accents become jade ───
+   Many screens colour their accents with Tailwind's purple, violet and indigo
+   (purple-400 text, purple-500 tints and gradients). Tailwind classes read
+   these variables, so remapping them here recolours every one without
+   touching the components. 400 and 600 are the brand jades; the others are
+   the same hue at Tailwind's usual lightness steps. Pink and fuchsia stay
+   pink, and rose stays for warnings. */
+[data-visual-theme="pond"] {
+  --pond-scale-50: #effaf6;
+  --pond-scale-100: #dcf3ec;
+  --pond-scale-200: #bee7db;
+  --pond-scale-300: #9ed5c5;
+  --pond-scale-400: #7fbfae; /* brand dark jade; as text on the water 8.29 */
+  --pond-scale-500: #579b8a;
+  --pond-scale-600: #3f7668; /* brand light jade */
+  --pond-scale-700: #2c6054;
+  --pond-scale-800: #234c42;
+  --pond-scale-900: #1a3b33;
+  --pond-scale-950: #0e2520;
+}
+
+/* In daylight, 300-500 (mostly text and solid badges) shift one step darker so
+   they stay readable on tea-rice: 400 as text 4.82, white text on 500 7.22. */
+[data-visual-theme="pond"][data-theme="light"] {
+  --pond-scale-300: #579b8a;
+  --pond-scale-400: #3f7668;
+  --pond-scale-500: #2c6054;
+}
+
+[data-visual-theme="pond"] {
+  --color-purple-50: var(--pond-scale-50);
+  --color-purple-100: var(--pond-scale-100);
+  --color-purple-200: var(--pond-scale-200);
+  --color-purple-300: var(--pond-scale-300);
+  --color-purple-400: var(--pond-scale-400);
+  --color-purple-500: var(--pond-scale-500);
+  --color-purple-600: var(--pond-scale-600);
+  --color-purple-700: var(--pond-scale-700);
+  --color-purple-800: var(--pond-scale-800);
+  --color-purple-900: var(--pond-scale-900);
+  --color-purple-950: var(--pond-scale-950);
+  --color-violet-50: var(--pond-scale-50);
+  --color-violet-100: var(--pond-scale-100);
+  --color-violet-200: var(--pond-scale-200);
+  --color-violet-300: var(--pond-scale-300);
+  --color-violet-400: var(--pond-scale-400);
+  --color-violet-500: var(--pond-scale-500);
+  --color-violet-600: var(--pond-scale-600);
+  --color-violet-700: var(--pond-scale-700);
+  --color-violet-800: var(--pond-scale-800);
+  --color-violet-900: var(--pond-scale-900);
+  --color-violet-950: var(--pond-scale-950);
+  --color-indigo-50: var(--pond-scale-50);
+  --color-indigo-100: var(--pond-scale-100);
+  --color-indigo-200: var(--pond-scale-200);
+  --color-indigo-300: var(--pond-scale-300);
+  --color-indigo-400: var(--pond-scale-400);
+  --color-indigo-500: var(--pond-scale-500);
+  --color-indigo-600: var(--pond-scale-600);
+  --color-indigo-700: var(--pond-scale-700);
+  --color-indigo-800: var(--pond-scale-800);
+  --color-indigo-900: var(--pond-scale-900);
+  --color-indigo-950: var(--pond-scale-950);
+}
+
 /* ─── Calm water behind everything: no shell gradients ─── */
 [data-visual-theme="pond"] body {
   background: var(--background);
@@ -200,26 +271,779 @@
   display: none;
 }
 
-/* Home mode cards: a solid shallow card with a rim in the mode's own color,
-   instead of the default's dark glossy tile with a glow. */
-[data-visual-theme="pond"] .koi-start-card {
+/* ─── Home: the koi ring (HomeKoiRing.tsx) ───
+   Deki sits in their little pond in the middle; three koi circle them, each
+   on its own circle (an .koi-ring-orbit that turns), with a faint wake behind
+   it; ripples spread from the middle. Bursts (a push along the circle, tail
+   beats, a small splash) come from the component's script. Still with
+   reduced motion or in low-power mode, paused while the window is hidden. */
+[data-visual-theme="pond"] .koi-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 236px;
+  height: 236px;
+}
+
+/* Deki in the middle: the website's deki-steady.svg, which squishes on its
+   own. A short hop when they start explaining a mode card. The still
+   deki.svg beside it only shows in low-power mode (further down). */
+[data-visual-theme="pond"] .koi-ring .koi-ring-deki {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 4.25rem;
+}
+
+[data-visual-theme="pond"] .koi-ring .koi-ring-deki img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+[data-visual-theme="pond"] .koi-ring .koi-ring-deki .koi-ring-deki-still {
+  display: none;
+}
+
+[data-visual-theme="pond"] .koi-ring .koi-ring-deki-hop {
+  animation: koi-ring-deki-hop 700ms ease-out;
+}
+
+@keyframes koi-ring-deki-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-0.6rem);
+  }
+  60% {
+    transform: translateY(0.1rem);
+  }
+}
+
+/* Chai's splash line starts just under the ring's lower edge, a little right
+   of centre, and climbs steeply up and away to the right. */
+[data-visual-theme="pond"] .koi-ring .koi-home-splash {
+  top: 101%;
+  left: 74%;
+  width: max-content;
+  max-width: 11rem;
+  font-size: 0.75rem;
+  text-align: left;
+  transform: rotate(-35deg);
+  transform-origin: left center;
+  /* Solid, with a soft halo in the water's colour: ripples and wakes passing
+     behind the letters fade out under them instead of crossing them. */
+  opacity: 1;
+  text-shadow:
+    0.055rem 0.055rem 0 #3a2608,
+    0 0 2px var(--background),
+    0 0 4px var(--background),
+    0 0 7px var(--background);
+}
+
+[data-visual-theme="pond"][data-theme="light"] .koi-ring .koi-home-splash {
+  text-shadow:
+    0.05rem 0.05rem 0 rgba(255, 244, 214, 0.9),
+    0 0 2px var(--background),
+    0 0 4px var(--background),
+    0 0 7px var(--background);
+}
+
+/* ─── The lotus divider (src/shared/components/ui/LotusDivider.tsx) ───
+   The approved "Trail" lotus: white bulb warming to yellow at the tip,
+   lotus-pink petals fading to near-white on the side facing the bulb, jade
+   leaves whose tips run into the fading lines. */
+[data-visual-theme="pond"] {
+  --lotus-bulb: #ffffff;
+  --lotus-bulb-tip: #ffdf8a;
+  --lotus-wing-in: #ffe6ee;
+  --lotus-wing-out: #ef8fac;
+  --lotus-back-in: #f7cbd9;
+  --lotus-back-out: color-mix(in srgb, #ef8fac 68%, var(--pond-water));
+  --lotus-leaf: var(--pond-jade);
+}
+
+/* In daylight the pinks are a step stronger, and the white bulb gets a thin
+   pink outline so it doesn't vanish into the page. */
+[data-visual-theme="pond"][data-theme="light"] {
+  --lotus-bulb-tip: #ffd25e;
+  --lotus-wing-in: #f8d2de;
+  --lotus-wing-out: #e27c9c;
+  --lotus-back-in: #efb2c6;
+  --lotus-back-out: #c45a7d;
+}
+
+[data-visual-theme="pond"][data-theme="light"] .lotus-bulb path {
+  stroke: #e27c9c;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+[data-visual-theme="pond"] .lotus-stop-bulb {
+  stop-color: var(--lotus-bulb);
+}
+
+[data-visual-theme="pond"] .lotus-stop-bulb-tip {
+  stop-color: var(--lotus-bulb-tip);
+}
+
+[data-visual-theme="pond"] .lotus-stop-wing-in {
+  stop-color: var(--lotus-wing-in);
+}
+
+[data-visual-theme="pond"] .lotus-stop-wing-out {
+  stop-color: var(--lotus-wing-out);
+}
+
+[data-visual-theme="pond"] .lotus-stop-back-in {
+  stop-color: var(--lotus-back-in);
+}
+
+[data-visual-theme="pond"] .lotus-stop-back-out {
+  stop-color: var(--lotus-back-out);
+}
+
+[data-visual-theme="pond"] .lotus-leaf {
+  fill: var(--lotus-leaf);
+}
+
+[data-visual-theme="pond"] .lotus-mark {
+  display: block;
+  flex: none;
+}
+
+[data-visual-theme="pond"] .lotus-divider {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 16rem;
+}
+
+/* The lines meet the leaf tips (lifted by --lotus-line-lift, set by the component). */
+[data-visual-theme="pond"] .lotus-divider::before,
+[data-visual-theme="pond"] .lotus-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  margin-bottom: calc(var(--lotus-line-lift) - 0.5px);
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--lotus-leaf) 70%, transparent));
+}
+
+[data-visual-theme="pond"] .lotus-divider::after {
+  background: linear-gradient(to left, transparent, color-mix(in srgb, var(--lotus-leaf) 70%, transparent));
+}
+
+/* ─── Home: the choice menu (HomeModeChoices.tsx) ───
+   A visual-novel scene: Deki's dialogue box under the ring (nameplate, line,
+   a blinking ▼ cue), and the three modes stacked under it as your replies.
+   The box and the choices share one width. */
+[data-visual-theme="pond"] :is(.deki-home-dialogue, .vn-choices) {
+  width: 100%;
+  max-width: 25rem;
+}
+
+[data-visual-theme="pond"] .deki-home-dialogue {
+  position: relative;
+  margin-top: 0.85rem;
+  padding: 1rem 1.15rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
   background: var(--card);
-  border-color: color-mix(in srgb, var(--quick-start-border) 45%, var(--border));
+}
+
+[data-visual-theme="pond"] .deki-home-nameplate {
+  position: absolute;
+  top: -0.7rem;
+  left: 0.9rem;
+  padding: 0.1rem 0.6rem;
+  border-radius: 0.4rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* At least two lines tall, so the choices below don't jump as the text changes. */
+[data-visual-theme="pond"] .deki-home-bubble {
+  min-height: 2.8em;
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* The ▼ cue at the end of Deki's line, as in a visual-novel text box. */
+[data-visual-theme="pond"] .deki-home-next {
+  display: inline-block;
+  margin-left: 0.4rem;
+  color: var(--primary);
+  font-size: 0.5625rem;
+  vertical-align: 0.1em;
+  animation: deki-home-next-blink 1.2s steps(2, jump-none) infinite;
+}
+
+/* The quick menu along the box's lower edge, like a VN's Auto/Skip/Log row:
+   the setup step still to do (vermilion) and Discover. */
+[data-visual-theme="pond"] .deki-home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+[data-visual-theme="pond"] .deki-home-action {
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+[data-visual-theme="pond"] .deki-home-action:is(:hover, :focus-visible) {
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+  color: var(--foreground);
+}
+
+[data-visual-theme="pond"] .deki-home-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+[data-visual-theme="pond"] .deki-home-action-primary {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+[data-visual-theme="pond"] .deki-home-action-primary:is(:hover, :focus-visible) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--primary) 88%, var(--foreground));
+  color: var(--primary-foreground);
+}
+
+@keyframes deki-home-next-blink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.15;
+  }
+}
+
+[data-visual-theme="pond"] .vn-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+[data-visual-theme="pond"] .vn-choice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 1rem 0.7rem 2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    translate 0.15s ease;
+}
+
+/* The nudge uses `translate`, not `transform`: the entrance animation
+   (stagger-children) holds `transform` on its last frame and would win. */
+[data-visual-theme="pond"] .vn-choice:hover,
+[data-visual-theme="pond"] .vn-choice:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+  background: var(--pond-koi-tint);
+  translate: 0.25rem 0;
+}
+
+[data-visual-theme="pond"] .vn-choice:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* The ▶ cursor, shown on the choice you're pointing at. */
+[data-visual-theme="pond"] .vn-choice-cursor {
+  position: absolute;
+  left: 0.8rem;
+  width: 0.5rem;
+  height: 0.625rem;
+  color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+[data-visual-theme="pond"] .vn-choice:is(:hover, :focus-visible) .vn-choice-cursor {
+  opacity: 1;
+}
+
+[data-visual-theme="pond"] .vn-choice-line {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+[data-visual-theme="pond"] .vn-choice-mode {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-visual-theme="pond"] .deki-home-next {
+    animation: none;
+  }
+
+  [data-visual-theme="pond"] .vn-choice:is(:hover, :focus-visible) {
+    translate: none;
+  }
+}
+
+[data-visual-theme="pond"] .koi-ring-orbit {
+  position: absolute;
+  inset: var(--orbit-inset);
+  animation: koi-ring-spin var(--orbit-lap) linear infinite;
+  animation-delay: var(--orbit-delay);
+  animation-direction: var(--orbit-direction);
+}
+
+[data-visual-theme="pond"] .koi-ring-surge {
+  position: absolute;
+  inset: 0;
+}
+
+/* The wake: short SVG arcs behind the koi, fading with distance
+   (HomeKoiRing.tsx). Plain arcs rather than a masked conic gradient, which
+   Firefox draws with seams in a cross through the middle. */
+[data-visual-theme="pond"] .koi-ring-wake {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0.55;
+  transform: scaleX(var(--koi-face));
+}
+
+[data-visual-theme="pond"] .koi-ring-wake circle {
+  fill: none;
+  stroke: color-mix(in srgb, var(--pond-jade) 85%, transparent);
+  /* In the 100-unit drawing: about 2px on the outer circle, a little less on
+     the inner ones. (Not non-scaling-stroke: that throws off where the dashes
+     fall.) */
+  stroke-width: 0.85;
+}
+
+[data-visual-theme="pond"] .koi-ring-koi {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 40px;
+  height: 22px;
+  overflow: visible;
+  transform: translate(-50%, -50%) scaleX(var(--koi-face));
+}
+
+[data-visual-theme="pond"] .koi-ring-tail,
+[data-visual-theme="pond"] .koi-ring-beat {
+  transform-box: fill-box;
+  transform-origin: 100% 50%;
+}
+
+[data-visual-theme="pond"] .koi-ring-tail {
+  animation: koi-ring-wag 1.3s ease-in-out infinite alternate;
+}
+
+[data-visual-theme="pond"] .koi-ring-fish {
+  transform-box: fill-box;
+  transform-origin: 62% 50%;
+}
+
+[data-visual-theme="pond"] .koi-ring-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 84px;
+  height: 84px;
+  margin: -42px 0 0 -42px;
+  border: 1.5px solid color-mix(in srgb, var(--pond-jade) 60%, transparent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: koi-ring-spread 12s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  animation-delay: var(--ripple-delay);
+}
+
+[data-visual-theme="pond"] .koi-ring-splash {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 1.5px solid color-mix(in srgb, var(--pond-jade) 70%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+@keyframes koi-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes koi-ring-wag {
+  from {
+    transform: rotate(-14deg);
+  }
+  to {
+    transform: rotate(14deg);
+  }
+}
+
+@keyframes koi-ring-spread {
+  0% {
+    transform: scale(1);
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(3.1);
+    opacity: 0;
+  }
+}
+
+/* Still: the koi rest at their starting places, the ripples hold still rings. */
+@media (prefers-reduced-motion: reduce) {
+  [data-visual-theme="pond"] .koi-ring-orbit {
+    animation: none;
+    transform: rotate(var(--orbit-still));
+  }
+
+  [data-visual-theme="pond"] .koi-ring-tail {
+    animation: none;
+  }
+
+  [data-visual-theme="pond"] .koi-ring-surge {
+    transform: none !important;
+  }
+
+  [data-visual-theme="pond"] .koi-ring-ripple {
+    animation: none;
+    opacity: var(--ripple-still-opacity);
+    transform: scale(var(--ripple-still-scale));
+  }
+
+  [data-visual-theme="pond"] .koi-ring .koi-ring-deki-hop {
+    animation: none;
+  }
+}
+
+[data-visual-theme="pond"][data-de-koi-shell-performance="low"] .koi-ring-orbit {
+  animation: none;
+  transform: rotate(var(--orbit-still));
+}
+
+[data-visual-theme="pond"][data-de-koi-shell-performance="low"] .koi-ring-tail {
+  animation: none;
+}
+
+[data-visual-theme="pond"][data-de-koi-shell-performance="low"] .koi-ring-ripple {
+  animation: none;
+  opacity: var(--ripple-still-opacity);
+  transform: scale(var(--ripple-still-scale));
+}
+
+/* Low-power: Deki holds still (the still drawing replaces the squishing
+   one, whose animation lives inside the SVG), no hop, no blinking ▼. */
+[data-visual-theme="pond"][data-de-koi-shell-performance="low"] .koi-ring .koi-ring-deki .koi-ring-deki-live {
+  display: none;
+}
+
+[data-visual-theme="pond"][data-de-koi-shell-performance="low"] .koi-ring .koi-ring-deki .koi-ring-deki-still {
+  display: block;
+}
+
+[data-visual-theme="pond"][data-de-koi-shell-performance="low"] :is(.koi-ring-deki-hop, .deki-home-next) {
+  animation: none;
+}
+
+[data-visual-theme="pond"][data-de-koi-page-activity="inactive"]
+  :is(.koi-ring-orbit, .koi-ring-tail, .koi-ring-ripple) {
+  animation-play-state: paused;
+}
+
+/* Narrow screens: a slightly smaller ring (the circles are in %, so they follow). */
+@media (max-width: 420px) {
+  [data-visual-theme="pond"] .koi-ring {
+    width: 208px;
+    height: 208px;
+  }
+
+  [data-visual-theme="pond"] .koi-ring .koi-ring-deki {
+    width: 3.75rem;
+  }
+}
+
+/* Little room beside the ring: the splash gets smaller and narrower. This
+   asks how wide the main area is (it's a size container), not the window, so
+   it also covers a desktop window with both side panels open. */
+@container (max-width: 480px) {
+  [data-visual-theme="pond"] .koi-ring .koi-home-splash {
+    max-width: 7.5rem;
+    font-size: 0.6875rem;
+  }
+}
+
+/* ─── Shell: flat layers with one line between them ───
+   The default gives the sidebars, right panel, their headers and the top bar
+   glass gradients, blur and 46px drop shadows. Pond keeps them solid abyss,
+   separated by a single line, like the rail and list in the mock-up.
+   (!important where the default uses it, and to beat the Firefox and
+   low-power fallbacks, which would otherwise repaint them as --card.) */
+[data-visual-theme="pond"] .mari-sidebar,
+[data-visual-theme="pond"] .mari-right-panel,
+[data-visual-theme="pond"] .mari-tracker-panel {
+  background: var(--sidebar) !important;
+  backdrop-filter: none !important;
+}
+
+[data-visual-theme="pond"] .mari-sidebar {
+  box-shadow: 1px 0 0 var(--sidebar-border) !important;
+}
+
+[data-visual-theme="pond"] .mari-right-panel {
+  box-shadow: -1px 0 0 var(--sidebar-border) !important;
+}
+
+/* The tracker panel floats over the chat, so it keeps a soft shadow. */
+[data-visual-theme="pond"] .mari-tracker-panel {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+[data-visual-theme="pond"] .mari-sidebar-header,
+[data-visual-theme="pond"] .mari-right-panel-header,
+[data-visual-theme="pond"] .mari-sidebar-footer,
+[data-visual-theme="pond"] .mari-app-chrome {
+  background: var(--sidebar) !important;
+  backdrop-filter: none !important;
+}
+
+[data-visual-theme="pond"] .mari-sidebar-header,
+[data-visual-theme="pond"] .mari-right-panel-header {
+  box-shadow: inset 0 -1px var(--sidebar-border);
+}
+
+[data-visual-theme="pond"] .mari-sidebar-footer {
+  box-shadow: inset 0 1px var(--sidebar-border);
+}
+
+[data-visual-theme="pond"] .mari-app-chrome {
+  border-bottom-color: var(--sidebar-border);
   box-shadow: none;
 }
 
-[data-visual-theme="pond"] .koi-start-card:hover {
+/* Settings: plain tabs on the panel colour; the open tab gets the vermilion tint. */
+[data-visual-theme="pond"] .de-koi-settings-tabs {
+  background: var(--sidebar) !important;
+}
+
+[data-visual-theme="pond"] .de-koi-settings-tab {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+[data-visual-theme="pond"] .de-koi-settings-tab:hover {
   background: var(--accent);
-  border-color: color-mix(in srgb, var(--quick-start-border) 70%, var(--border));
+  border-color: var(--border);
+}
+
+[data-visual-theme="pond"] .de-koi-settings-tab-active,
+[data-visual-theme="pond"] .de-koi-settings-tab-active:hover {
+  background: var(--pond-koi-tint);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
   box-shadow: none;
 }
 
-[data-visual-theme="pond"] .koi-start-icon {
+[data-visual-theme="pond"] .de-koi-settings-body {
+  background: var(--background);
+}
+
+/* ─── Loading placeholders and dividers in the pond's own layers ─── */
+[data-visual-theme="pond"] .shimmer {
+  background: linear-gradient(90deg, var(--pond-shallow) 25%, var(--pond-raise) 50%, var(--pond-shallow) 75%);
+  background-size: 200% 100%;
+}
+
+[data-visual-theme="pond"] .retro-divider {
+  background: linear-gradient(90deg, transparent, var(--pond-line), transparent);
+}
+
+[data-visual-theme="pond"] .retro-divider::after {
+  border-color: color-mix(in srgb, var(--pond-jade) 55%, transparent);
+  background: var(--background);
   box-shadow: none;
 }
 
-[data-visual-theme="pond"] .koi-start-label {
+/* ─── Chats ───
+   06-chat-mode-themes.css loads after this file (only once a chat opens), so
+   these rules carry an extra attribute to outweigh its equal-weight ones.
+   Conversations sit on the water, so paper bubbles stand out against it. */
+[data-visual-theme="pond"] {
+  --convo-background: var(--background);
+  /* Roleplay message boxes (ChatMessage.tsx adds the user's opacity setting):
+     pond night over scene art in dark; paper and the brand's jade tint in light. */
+  --rp-user-bubble-rgb: 0, 16, 18; /* abyss */
+  --rp-assistant-bubble-rgb: 4, 23, 25; /* water */
+}
+
+[data-visual-theme="pond"][data-theme="light"] {
+  --rp-user-bubble-rgb: 226, 239, 235;
+  --rp-assistant-bubble-rgb: 255, 255, 255;
+}
+
+/* Roleplay names and times are styled for dark scenes (light grey, white at
+   30%); on light paper they'd vanish, so light mode uses ink and mist. */
+[data-visual-theme="pond"][data-theme="light"] [data-chat-mode="roleplay"] .mari-message-name:not(.rpg-char-name) {
+  color: var(--foreground);
+}
+
+[data-visual-theme="pond"][data-theme="light"] [data-chat-mode="roleplay"] .mari-message-timestamp {
+  color: var(--muted-foreground);
+}
+
+/* Characters without a picture: jade instead of a purple-to-pink gradient. */
+[data-visual-theme="pond"] .mari-avatar-fallback-character {
+  background: var(--pond-jade);
+  --tw-ring-color: color-mix(in srgb, var(--pond-jade) 30%, transparent);
+}
+
+[data-visual-theme="pond"] .mari-avatar-fallback-character svg,
+[data-visual-theme="pond"] .mari-avatar-fallback-character-panel svg {
+  color: var(--pond-on-jade);
+}
+
+[data-visual-theme="pond"] .mari-avatar-fallback-character-panel {
+  background: linear-gradient(
+    180deg,
+    var(--pond-jade),
+    color-mix(in srgb, var(--pond-jade) 55%, transparent),
+    transparent
+  );
+}
+
+/* Pink-and-purple gradients. With purple remapped to jade they would fade
+   pink into jade through grey, so Pond replaces them: the create, save and
+   generate buttons (and the icon tiles beside them) become solid vermilion,
+   the brand's action colour; the character colours tab's placeholder avatar
+   matches the jade one above. If a component changes these classes it just
+   falls back to the remapped gradient. */
+[data-visual-theme="pond"]
+  :is(.from-pink-400.to-purple-500, .from-violet-400.to-fuchsia-500, .from-violet-500.to-fuchsia-500) {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  --tw-shadow-color: transparent;
+}
+
+[data-visual-theme="pond"] .from-purple-500.to-pink-600 {
+  background: var(--pond-jade);
+  color: var(--pond-on-jade);
+}
+
+/* Their icons are set to white; on pond colours they follow the text colour. */
+[data-visual-theme="pond"]
+  :is(
+    .from-pink-400.to-purple-500,
+    .from-violet-400.to-fuchsia-500,
+    .from-violet-500.to-fuchsia-500,
+    .from-purple-500.to-pink-600
+  )
+  > svg {
+  color: inherit;
+}
+
+/* Your own messages: solid jade (vermilion is kept for actions, and a chat
+   full of it would flood the screen). */
+[data-visual-theme="pond"] .texting-bubble-user {
+  background: var(--pond-jade);
+  color: var(--pond-on-jade);
+  box-shadow: none;
+}
+
+[data-visual-theme="pond"] .texting-bubble-other {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+/* Roleplay: overlays over scene art in pond water instead of purple-navy;
+   no purple-pink avatar glows; the "writing" ring is jade. */
+[data-visual-theme="pond"] .rpg-overlay {
+  background: linear-gradient(
+    180deg,
+    rgba(4, 23, 25, 0.55) 0%,
+    rgba(4, 23, 25, 0.4) 30%,
+    rgba(4, 23, 25, 0.45) 70%,
+    rgba(4, 23, 25, 0.6) 100%
+  );
+}
+
+[data-visual-theme="pond"][data-theme="light"] .rpg-overlay {
+  background: linear-gradient(
+    180deg,
+    rgba(243, 246, 244, 0.4) 0%,
+    rgba(243, 246, 244, 0.25) 30%,
+    rgba(243, 246, 244, 0.3) 70%,
+    rgba(243, 246, 244, 0.45) 100%
+  );
+}
+
+[data-visual-theme="pond"][data-theme="light"] .rpg-vignette {
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(63, 118, 104, 0.12) 100%);
+}
+
+[data-visual-theme="pond"] .rpg-avatar-glow::after,
+[data-visual-theme="pond"] .rpg-avatar-panel::after {
+  display: none;
+}
+
+[data-visual-theme="pond"] .rpg-char-name {
   text-shadow: none;
+}
+
+/* The resting ring is jade too, so it stays jade when reduced motion cuts the
+   pulse short. */
+[data-visual-theme="pond"] .rpg-streaming {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pond-jade) 30%, transparent);
+  animation-name: pond-stream-pulse;
+}
+
+@keyframes pond-stream-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--pond-jade) 30%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--pond-jade) 50%, transparent);
+  }
 }
 
 /* ─── No Y2K stars, scanlines or noise ─── */
