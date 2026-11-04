@@ -54,6 +54,7 @@ import {
   type FanficCommentContext,
 } from "../modes/fanfic/comments";
 import { readFanficLedger, renderFanficLedgerForPrompt } from "../modes/fanfic/ledger";
+import { buildFanficLinkedChatsSection, buildLinkedFicContext } from "../modes/fanfic/links";
 import { fanficLoreScanMessages } from "../modes/fanfic/lore";
 import { buildFanficSystemSegments, labelFanficChapterHistory, renderFanficCastCards } from "../modes/fanfic/prompts";
 import { readFanficState } from "../modes/fanfic/request";
@@ -1768,6 +1769,8 @@ function fallbackSystemPrompt(
     focusedConversation: boolean;
     /** Set for a fanfic chapter's comment thread: the author answers comments instead of writing. */
     fanficComment: FanficCommentContext | null;
+    /** For a chapter write: what happened in the fic's linked chats since the previous chapter. */
+    fanficLinkedChats: string;
   },
 ): { content: string; contextSegments: NonNullable<ChatMLMessage["contextSegments"]> } {
   const mode = readString(input.chat.mode || input.chat.chatMode, "conversation");
@@ -1833,6 +1836,7 @@ ${args.summary}`
         contextKind: "summary",
         displayName: "Summary",
       },
+      { content: args.fanficLinkedChats, contextKind: "summary", displayName: "Linked Chats" },
     ]);
   }
 
@@ -4687,6 +4691,12 @@ export async function assembleGenerationPrompt(
       processedLore = loreScan.processedLore;
     }
     usedFallbackSystemPrompt = true;
+    // Only writes that tell the story (new chapters, extras, redos, continues) bring in the linked chats' events. A
+    // rewrite with notes or a polish changes what it was asked to, nothing more.
+    const fanficLinkedChats =
+      chatMode === "fanfic" && !fanficComment && readString(input.request.generationGuideSource) === "fanfic_chapter"
+        ? await buildFanficLinkedChatsSection(storage, input.chat, input.storedMessages)
+        : "";
     const fallback = fallbackSystemPrompt(input, {
       characters: promptCharacters,
       conversationCharacters: characters,
@@ -4701,6 +4711,7 @@ export async function assembleGenerationPrompt(
       conversationTargetId: targetedConversationCharacterId,
       focusedConversation: !!conversationFocus,
       fanficComment,
+      fanficLinkedChats,
     });
     messages.push({
       role: "system",
@@ -4785,7 +4796,18 @@ export async function assembleGenerationPrompt(
   }
 
   const roleplayQualityContext = buildRoleplayQualityContext(input);
+  const linkedFic = await buildLinkedFicContext(storage, input.chat);
   insertBeforeLastUser(messages, [
+    ...(linkedFic
+      ? [
+          {
+            role: "system" as const,
+            content: wrapContent(linkedFic, "linked_fic", wrapFormat),
+            contextKind: "prompt" as const,
+            displayName: "Linked Fic",
+          },
+        ]
+      : []),
     ...(continuityDirectorContext
       ? [
           {

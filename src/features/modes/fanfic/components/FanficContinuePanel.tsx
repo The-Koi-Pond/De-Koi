@@ -82,7 +82,7 @@ export function FanficContinuePanel({
   return (
     <FanficSection
       title="Continue as a roleplay or chat"
-      hint="Picks up after the last chapter. The story so far goes into the new chat's summary, and the fic stays as it is."
+      hint="Picks up after the last chapter. The story so far goes into the new chat's summary, and the chat is linked to this fic so each knows what happens in the other. The fic stays as it is."
     >
       <FanficField label="Continue as">
         <FanficSegmented<FanficChatMode>

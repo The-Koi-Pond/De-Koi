@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import { readFanficDraftRequest, readFanficSource, startFanficFromChat } from "./from-chat";
+import { readFanficLink, readFanficLinkedChatIds } from "./links";
 import { defaultFanficRequest } from "./request";
 import { saveFanficRequest } from "./request-save";
 
@@ -78,10 +79,15 @@ function setup(options: { mode?: string; messages?: Record<string, unknown>[]; m
     async create<T = unknown>(_entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
       const row = { id: `fic-${created.length + 1}`, ...value };
       created.push(row);
+      chats.set(row.id, row);
       return row as T;
     },
+    async patchChatMetadata(id: string, patch: Record<string, unknown>) {
+      const row = chats.get(id);
+      if (row) chats.set(id, { ...row, metadata: { ...(row.metadata as Record<string, unknown>), ...patch } });
+    },
   } as unknown as StorageGateway;
-  return { storage, created };
+  return { storage, created, chats };
 }
 
 function llmReplying(...replies: string[]) {
@@ -97,7 +103,7 @@ function llmReplying(...replies: string[]) {
 
 describe("making a fic from a chat", () => {
   it("drafts the request from the chat on the chat's model and opens a new fic with it", async () => {
-    const { storage, created } = setup();
+    const { storage, created, chats } = setup();
     const { llm, requests } = llmReplying(JSON.stringify(draft));
     const fic = await startFanficFromChat({ storage, llm }, { chatId: "rp" });
 
@@ -138,6 +144,9 @@ describe("making a fic from a chat", () => {
     // Only the requester can confirm that everyone is an adult.
     expect(request.adultsConfirmed).toBe(false);
     expect(request.prompt).toContain("the city falls");
+    // The fic and the roleplay are linked both ways.
+    expect(readFanficLinkedChatIds(chats.get(String(fic.id))!.metadata)).toEqual(["rp"]);
+    expect(readFanficLink(chats.get("rp")!.metadata)).toBe(String(fic.id));
   });
 
   it("asks once more when the reply isn't a request", async () => {

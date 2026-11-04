@@ -430,7 +430,7 @@ function FicFromChatSection({ chat, chatId, disabled }: { chat: Chat; chatId: st
       )}
       <p className="mt-2 text-center text-[0.625rem] text-[var(--muted-foreground)]/60">
         The chat&apos;s model drafts a fic request that retells this story. It opens as a new fic for you to check
-        before anything is written. This chat stays as it is.
+        before anything is written. This chat stays as it is, linked to the fic so each knows what happens in the other.
       </p>
     </div>
   );

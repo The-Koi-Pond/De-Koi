@@ -24,6 +24,7 @@ import {
   loadFanficConnection,
   parseFanficJsonReply,
 } from "./llm-json";
+import { linkFanficChat } from "./links";
 import { fanficStorySoFar } from "./plan";
 import {
   fanficContentRules,
@@ -339,5 +340,7 @@ export async function startChatFromFanfic(
     extra: {},
     swipes: [{ content: setup.opening }],
   });
+  // Linked both ways, so each knows what happens in the other from here on.
+  await linkFanficChat(deps.storage, { ficChatId: input.ficChatId, chatId });
   return chat;
 }

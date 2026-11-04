@@ -27,6 +27,7 @@ import {
   loadFanficConnection,
   parseFanficJsonReply,
 } from "./llm-json";
+import { FANFIC_LINK_MODES, linkFanficChat } from "./links";
 import { defaultFanficRequest, normalizeFanficRequest } from "./request";
 
 /** The chat modes a fic can be made from. */
@@ -253,7 +254,7 @@ export async function startFanficFromChat(
   if (options.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
 
   const source: FanficSource = { version: 1, chatId: input.chatId, mode, name: readString(chat.name) };
-  return deps.storage.create<JsonRecord>("chats", {
+  const fic = await deps.storage.create<JsonRecord>("chats", {
     name: `${readString(chat.name).trim() || "Untitled"} (fic)`,
     mode: "fanfic",
     characterIds: Array.isArray(chat.characterIds) ? chat.characterIds : [],
@@ -265,4 +266,9 @@ export async function startFanficFromChat(
     connectedChatId: null,
     metadata: { fanficDraftRequest: request, fanficSource: source, activeLorebookIds: lorebookIds(chat) },
   });
+  // Linked both ways, so each knows what happens in the other from here on.
+  if (FANFIC_LINK_MODES.has(mode)) {
+    await linkFanficChat(deps.storage, { ficChatId: readString(fic.id), chatId: input.chatId });
+  }
+  return fic;
 }

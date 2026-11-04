@@ -4,6 +4,7 @@ import type { LlmGateway, LlmRequest } from "../../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
 import { createFanficState, defaultFanficRequest } from "./request";
+import { readFanficLink, readFanficLinkedChatIds } from "./links";
 import { fanficCastNames, startChatFromFanfic, type StartChatFromFanficInput } from "./to-chat";
 
 const request = {
@@ -62,14 +63,19 @@ function setup(options: { chapters?: number } = {}) {
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
       const row = { id: `${entity}-${created.length + 1}`, ...value };
       created.push({ entity, value: row });
+      if (entity === "chats") chats.set(row.id, row);
       return row as T;
+    },
+    async patchChatMetadata(id: string, patch: Record<string, unknown>) {
+      const row = chats.get(id);
+      if (row) chats.set(id, { ...row, metadata: { ...(row.metadata as Record<string, unknown>), ...patch } });
     },
     async createChatMessage<T = unknown>(chatId: string, value: Record<string, unknown>): Promise<T> {
       messages.push({ chatId, ...value });
       return value as T;
     },
   } as unknown as StorageGateway;
-  return { storage, created, messages };
+  return { storage, created, messages, chats };
 }
 
 function llmReplying(...replies: unknown[]) {
@@ -98,7 +104,7 @@ const roleplay: Omit<StartChatFromFanficInput, "ficChatId"> = {
 
 describe("continuing a fic as a chat", () => {
   it("sets up a roleplay after the last chapter: a card for the uncarded character, the recap as its summary", async () => {
-    const { storage, created, messages } = setup();
+    const { storage, created, messages, chats } = setup();
     const { llm, requests } = llmReplying(setupReply);
     const chat = await startChatFromFanfic({ storage, llm }, { ficChatId: "fic", ...roleplay });
 
@@ -132,6 +138,8 @@ describe("continuing a fic as a chat", () => {
       expect.objectContaining({ title: "The story so far: Collection", enabled: true, origin: "manual" }),
     ]);
     expect(metadata.fanficOrigin).toEqual({ version: 1, ficChatId: "fic", title: "Collection" });
+    expect(readFanficLinkedChatIds(chats.get("fic")!.metadata)).toEqual([String(chat.id)]);
+    expect(readFanficLink(chats.get(String(chat.id))!.metadata)).toBe("fic");
     expect(messages).toEqual([
       expect.objectContaining({ role: "assistant", characterId: "harl", content: "The tent is cold without him." }),
     ]);
