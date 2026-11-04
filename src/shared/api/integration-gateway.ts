@@ -7,8 +7,7 @@ import {
 import { coreModulesApi } from "./core-modules-api";
 import { imageGenerationApi } from "./image-generation-api";
 import { lorebookCommandApi } from "./lorebook-command-api";
-import { spotifyApi } from "./integration-utility-api";
-import { musicApi } from "./music-api";
+import { type MusicCandidate, musicApi, spotifyMusicApi } from "./music-api";
 import { invokeTauri } from "./tauri-client";
 import { webResearchApi } from "./web-research-api";
 
@@ -36,6 +35,16 @@ async function musicPlayerModuleEnabled(): Promise<boolean> {
   }
 }
 
+async function spotifySourceReady(): Promise<boolean> {
+  try {
+    const [settings, status] = await Promise.all([musicApi.settings(), spotifyMusicApi.status()]);
+    return settings.source === "spotify" && status.connected;
+  } catch (error) {
+    console.warn("[integrations] Spotify source unavailable", error);
+    return false;
+  }
+}
+
 export const integrationGateway: IntegrationGateway = {
   lorebooks: {
     vectorizeEntries: (lorebookId, entryIds) =>
@@ -54,20 +63,13 @@ export const integrationGateway: IntegrationGateway = {
     stop: (input) => musicApi.stop(input),
     setVolume: (input) => musicApi.setVolume(input),
     freshPick: (input) => musicApi.freshPick(input),
-  },
-  spotify: {
-    playbackAvailable: () => spotifyApi.playbackAvailable(),
-    player: (input) => spotifyApi.player(input),
-    playlists: (input) =>
-      spotifyApi.playlists({
-        agentId: input.agentId,
-        limit: input.limit ?? undefined,
-      }),
-    playlistTracks: (input) => spotifyApi.playlistTracks(input),
-    searchTracks: (input) => spotifyApi.searchTracks(input),
-    playTrack: <T = unknown>(input: Record<string, unknown>) => spotifyApi.playTrack(input) as Promise<T>,
-    play: <T = unknown>(input: Record<string, unknown>) => spotifyApi.play(input) as Promise<T>,
-    volume: <T = unknown>(input: Record<string, unknown>) => spotifyApi.volume(input) as Promise<T>,
+    spotify: {
+      isReady: spotifySourceReady,
+      findTrack: async <T = unknown>(input: { title: string; artist: string }) =>
+        (await spotifyMusicApi.findTrack(input)).track as T,
+      playOnRepeat: <T = unknown>(input: { track: unknown; volume?: number | null }) =>
+        spotifyMusicApi.play({ track: input.track as MusicCandidate, volume: input.volume }) as Promise<T>,
+    },
   },
   customTools: {
     execute: <T = unknown>(input: { toolName: string; arguments: unknown }) =>

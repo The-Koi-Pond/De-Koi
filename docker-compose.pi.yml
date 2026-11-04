@@ -20,6 +20,7 @@ services:
       BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:-}
       IP_ALLOWLIST: ${IP_ALLOWLIST:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI:-}
     expose:
       - "8787"
     volumes:

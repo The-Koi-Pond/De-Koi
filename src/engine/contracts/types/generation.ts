@@ -83,4 +83,6 @@ export type GenerationEvent =
   /** The user's message jumped ahead in time and the chat now offers to let time pass (or failed to). */
   | { type: "world_tick_offer"; data: { chatId: string; offerId: string | null; error?: string } }
   | { type: "message_reaction"; data: unknown }
+  /** A character's `[spotify: …]` command started a track on the user's Spotify device. */
+  | { type: "music_now_playing"; data: unknown }
   | { type: "done"; data?: unknown };

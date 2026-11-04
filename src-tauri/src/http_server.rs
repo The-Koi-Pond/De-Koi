@@ -6,7 +6,9 @@ use crate::storage_commands::{
 };
 use axum::body::Body;
 use axum::extract::multipart::Field;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Multipart, Path, Query, State};
+use axum::extract::{
+    ConnectInfo, DefaultBodyLimit, Extension, Multipart, Path, Query, RawQuery, State,
+};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
@@ -129,6 +131,8 @@ impl HealthQuery {
 }
 
 pub async fn serve(state: AppState, addr: SocketAddr) -> Result<(), std::io::Error> {
+    // Before any client loads, so a moved Spotify sign-in finds the Music Player switched on.
+    integrations::migrate_legacy_spotify_sign_in(&state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(
         listener,
@@ -142,12 +146,13 @@ pub fn router(state: AppState) -> Router {
     let security = SecurityConfig::from_env();
     let cors_security = security.clone();
     let controls = HttpControls::new(security.clone());
+    integrations::check_spotify_redirect_uri_config();
     Router::new()
         .route("/health", get(health))
         .route("/license", get(license_text))
         .route("/notice", get(notice_text))
         .route("/source", get(source_info))
-        .route("/spotify/callback", get(spotify_callback))
+        .route(SPOTIFY_CALLBACK_PATH, get(spotify_callback))
         .route("/api/invoke", post(invoke))
         .route("/api/profile/export", get(profile_export_download))
         .route(
@@ -216,6 +221,36 @@ async fn health(State(state): State<HttpState>, Query(query): Query<HealthQuery>
     Json(json!({ "ok": true, "runtime": "de-koi-server" }))
 }
 
+const SPOTIFY_CALLBACK_PATH: &str = "/spotify/callback";
+
+/// Finishes a Spotify sign-in on the hosted server. Needs no login (the browser coming back from
+/// Spotify has none), so it accepts only GET and only finishes a waiting single-use sign-in.
+async fn spotify_callback(
+    State(state): State<HttpState>,
+    method: Method,
+    RawQuery(query): RawQuery,
+) -> Response {
+    // axum also routes HEAD to GET handlers.
+    if method != Method::GET {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let (status, page) =
+        integrations::spotify_callback_page(&state.app, query.as_deref().unwrap_or_default()).await;
+    let mut response = (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+        page,
+    )
+        .into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
 async fn license_text() -> Response {
     static_text_response("text/plain; charset=utf-8", LICENSE_TEXT)
 }
@@ -236,22 +271,6 @@ async fn source_info() -> Json<Value> {
         "noticePath": "NOTICE.md",
         "correspondingSource": "Use the source repository and release source commit for the exact version you received or interact with."
     }))
-}
-
-async fn spotify_callback(
-    State(state): State<HttpState>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Response {
-    let result = integrations::spotify_callback_params(&state.app, params).await;
-    let (status_code, body) = integrations::spotify_callback_response(result);
-    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let mut response = Body::from(body).into_response();
-    *response.status_mut() = status;
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("text/html; charset=utf-8"),
-    );
-    response
 }
 
 fn static_text_response(content_type: &'static str, body: &'static str) -> Response {
@@ -2453,7 +2472,7 @@ impl SecurityConfig {
         let method = request.method();
         if method == Method::OPTIONS
             || is_public_runtime_info_path(path)
-            || is_public_spotify_callback_request(method, path)
+            || (method == Method::GET && path == SPOTIFY_CALLBACK_PATH)
         {
             return Ok(());
         }
@@ -2610,10 +2629,6 @@ impl SecurityConfig {
 
 fn is_public_runtime_info_path(path: &str) -> bool {
     matches!(path, "/health" | "/license" | "/notice" | "/source")
-}
-
-fn is_public_spotify_callback_request(method: &Method, path: &str) -> bool {
-    *method == Method::GET && path == "/spotify/callback"
 }
 
 impl SecurityRejection {
@@ -4741,32 +4756,14 @@ mod tests {
     }
 
     #[test]
-    fn hostable_security_allows_spotify_callback_get_without_auth() {
+    fn spotify_callback_needs_no_login_for_get_only() {
         let security = test_security();
-        let request = request(
-            Method::GET,
-            "/spotify/callback",
-            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)),
-            &[],
-        );
+        let remote = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10));
 
-        assert!(security.evaluate_request(&request).is_ok());
-    }
-
-    #[test]
-    fn hostable_security_does_not_make_spotify_callback_post_public() {
-        let security = test_security();
-        let request = request(
-            Method::POST,
-            "/spotify/callback",
-            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)),
-            &[],
-        );
-
-        let rejection = security
-            .evaluate_request(&request)
-            .expect_err("non-GET Spotify callback requests should still require auth");
-        assert_eq!(rejection.code, "remote_auth_required");
+        let get = request(Method::GET, SPOTIFY_CALLBACK_PATH, remote, &[]);
+        assert!(security.evaluate_request(&get).is_ok());
+        let post = request(Method::POST, SPOTIFY_CALLBACK_PATH, remote, &[]);
+        assert!(security.evaluate_request(&post).is_err());
     }
 
     #[test]

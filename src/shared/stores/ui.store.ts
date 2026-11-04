@@ -179,10 +179,10 @@ export const useUIStore = create<UIState>()(
       quoteFormat: "straight" as QuoteFormat,
       trimIncompleteModelOutput: false,
       speechToTextEnabled: false,
-      spotifyPlayerEnabled: false,
+      musicPlayerEnabled: false,
       remoteRuntimeUrl: "",
-      spotifyMobileWidgetCollapsed: false,
-      spotifyMobileWidgetPosition: { x: 16, y: 96 },
+      musicPlayerMobileWidgetCollapsed: false,
+      musicPlayerMobileWidgetPosition: { x: 16, y: 96 },
       intuitiveSwipeNavigation: false,
       intuitiveSwipeRerollLatest: false,
       editLastMessageOnArrowUp: true,
@@ -452,12 +452,12 @@ export const useUIStore = create<UIState>()(
       setQuoteFormat: (v) => set({ quoteFormat: normalizeQuoteFormat(v) }),
       setTrimIncompleteModelOutput: (v) => set({ trimIncompleteModelOutput: v }),
       setSpeechToTextEnabled: (v) => set({ speechToTextEnabled: v }),
-      setSpotifyPlayerEnabled: (v) => set({ spotifyPlayerEnabled: v }),
+      setMusicPlayerEnabled: (v) => set({ musicPlayerEnabled: v }),
       setRemoteRuntimeUrl: (v) => set({ remoteRuntimeUrl: v.trim() }),
-      setSpotifyMobileWidgetCollapsed: (v) => set({ spotifyMobileWidgetCollapsed: v }),
-      setSpotifyMobileWidgetPosition: (position) =>
+      setMusicPlayerMobileWidgetCollapsed: (v) => set({ musicPlayerMobileWidgetCollapsed: v }),
+      setMusicPlayerMobileWidgetPosition: (position) =>
         set({
-          spotifyMobileWidgetPosition: {
+          musicPlayerMobileWidgetPosition: {
             x: Number.isFinite(position.x) ? Math.max(8, Math.round(position.x)) : 16,
             y: Number.isFinite(position.y) ? Math.max(8, Math.round(position.y)) : 96,
           },

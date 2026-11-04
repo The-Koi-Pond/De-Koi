@@ -706,7 +706,6 @@ describe("persistConnectedCommandTags", () => {
           });
         },
       },
-      spotify: {} as IntegrationGateway["spotify"],
       customTools: {} as IntegrationGateway["customTools"],
     };
 

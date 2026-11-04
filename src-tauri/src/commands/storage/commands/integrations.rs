@@ -1,7 +1,7 @@
-use super::{integrations, shared, translation};
+use super::{integrations, translation};
 use crate::state::AppState;
 use marinara_core::AppError;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::State;
 
 #[tauri::command]
@@ -101,244 +101,76 @@ pub async fn music_fresh_pick(state: State<'_, AppState>, input: Value) -> Resul
     music_direct(state, "POST", &["fresh-pick"], input).await
 }
 
-async fn spotify_direct(
-    state: State<'_, AppState>,
-    method: &str,
-    rest: &[&str],
-    body: Value,
-) -> Result<Value, AppError> {
-    integrations::spotify_call(
-        &state,
-        method,
-        rest,
-        &shared::ParsedPath::new("/spotify"),
-        body,
-    )
-    .await
-}
-
 #[tauri::command]
-pub async fn spotify_playback_available(state: State<'_, AppState>) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["playback-available"], Value::Null).await
-}
-
-#[tauri::command]
-pub async fn spotify_status(
+pub async fn music_resume(
     state: State<'_, AppState>,
     body: Option<Value>,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["status"], body.unwrap_or(Value::Null)).await
+    music_direct(state, "POST", &["resume"], body.unwrap_or(Value::Null)).await
 }
 
 #[tauri::command]
-pub async fn spotify_authorize(
+pub async fn music_playback_state(
     state: State<'_, AppState>,
-    input: Value,
+    body: Option<Value>,
 ) -> Result<Value, AppError> {
-    let response = spotify_direct(state, "POST", &["authorize"], input).await?;
-    let auth_url = response
-        .get("authUrl")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            AppError::new(
-                "spotify_authorize_failed",
-                "Authorize request did not return an auth URL",
-            )
-        })?;
-    tauri_plugin_opener::open_url(auth_url, None::<&str>)
-        .map_err(|error| AppError::new("spotify_authorize_open_failed", error.to_string()))?;
-    Ok(response)
-}
-
-#[tauri::command]
-pub async fn spotify_exchange(
-    state: State<'_, AppState>,
-    callback_url: String,
-) -> Result<Value, AppError> {
-    spotify_direct(
+    music_direct(
         state,
         "POST",
-        &["exchange"],
-        json!({ "callbackUrl": callback_url }),
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn spotify_disconnect(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["disconnect"], body.unwrap_or(Value::Null)).await
-}
-
-#[tauri::command]
-pub async fn spotify_player(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "GET", &["player"], body.unwrap_or(Value::Null)).await
-}
-
-#[tauri::command]
-pub async fn spotify_devices(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "GET", &["devices"], body.unwrap_or(Value::Null)).await
-}
-
-#[tauri::command]
-pub async fn spotify_access_token(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "GET", &["access-token"], body.unwrap_or(Value::Null)).await
-}
-
-#[tauri::command]
-pub async fn spotify_playlists(
-    state: State<'_, AppState>,
-    agent_id: Option<String>,
-    limit: Option<u32>,
-) -> Result<Value, AppError> {
-    let route =
-        shared::ParsedPath::new(&format!("/spotify/playlists?limit={}", limit.unwrap_or(50)));
-    integrations::spotify_call(
-        &state,
-        "GET",
-        &["playlists"],
-        &route,
-        json!({ "agentId": agent_id }),
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn spotify_playlist_tracks(
-    state: State<'_, AppState>,
-    input: Value,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["playlist-tracks"], input).await
-}
-
-#[tauri::command]
-pub async fn spotify_search_tracks(
-    state: State<'_, AppState>,
-    input: Value,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["search-tracks"], input).await
-}
-
-#[tauri::command]
-pub async fn spotify_play_track(
-    state: State<'_, AppState>,
-    input: Value,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["play-track"], input).await
-}
-
-#[tauri::command]
-pub async fn spotify_dj_deki_playlist(
-    state: State<'_, AppState>,
-    input: Value,
-) -> Result<Value, AppError> {
-    spotify_direct(state, "POST", &["dj-deki-playlist"], input).await
-}
-
-#[tauri::command]
-pub async fn spotify_dj_mari_playlist(
-    state: State<'_, AppState>,
-    input: Value,
-) -> Result<Value, AppError> {
-    spotify_dj_deki_playlist(state, input).await
-}
-
-#[tauri::command]
-pub async fn spotify_player_play(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(
-        state,
-        "PUT",
-        &["player", "play"],
+        &["playback-state"],
         body.unwrap_or(Value::Null),
     )
     .await
 }
 
 #[tauri::command]
-pub async fn spotify_player_pause(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(
-        state,
-        "PUT",
-        &["player", "pause"],
-        body.unwrap_or(Value::Null),
-    )
-    .await
+pub async fn music_settings(state: State<'_, AppState>) -> Result<Value, AppError> {
+    music_direct(state, "GET", &["settings"], Value::Null).await
 }
 
 #[tauri::command]
-pub async fn spotify_player_next(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(
-        state,
-        "POST",
-        &["player", "next"],
-        body.unwrap_or(Value::Null),
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn spotify_player_previous(
-    state: State<'_, AppState>,
-    body: Option<Value>,
-) -> Result<Value, AppError> {
-    spotify_direct(
-        state,
-        "POST",
-        &["player", "previous"],
-        body.unwrap_or(Value::Null),
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn spotify_player_transfer(
+pub async fn music_update_settings(
     state: State<'_, AppState>,
     body: Value,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "PUT", &["player", "transfer"], body).await
+    music_direct(state, "POST", &["update-settings"], body).await
 }
 
 #[tauri::command]
-pub async fn spotify_player_volume(
+pub async fn music_sign_in_start(
     state: State<'_, AppState>,
     body: Value,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "PUT", &["player", "volume"], body).await
+    music_direct(state, "POST", &["sign-in-start"], body).await
 }
 
 #[tauri::command]
-pub async fn spotify_player_shuffle(
+pub async fn music_sign_in_status(
     state: State<'_, AppState>,
     body: Value,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "PUT", &["player", "shuffle"], body).await
+    music_direct(state, "POST", &["sign-in-status"], body).await
 }
 
 #[tauri::command]
-pub async fn spotify_player_repeat(
+pub async fn music_sign_in_finish(
     state: State<'_, AppState>,
     body: Value,
 ) -> Result<Value, AppError> {
-    spotify_direct(state, "PUT", &["player", "repeat"], body).await
+    music_direct(state, "POST", &["sign-in-finish"], body).await
+}
+
+#[tauri::command]
+pub async fn music_disconnect(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["disconnect"], body).await
+}
+
+#[tauri::command]
+pub async fn music_playlists(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["playlists"], body).await
+}
+
+#[tauri::command]
+pub async fn music_devices(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
+    music_direct(state, "POST", &["devices"], body).await
 }

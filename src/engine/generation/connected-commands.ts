@@ -16,7 +16,7 @@ import {
   type UpdateLorebookCommand,
   type UpdatePersonaCommand,
 } from "../modes/chat/commands/character-commands";
-import { conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
+import { conversationCommandPromptEnabled, conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
 import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-opening";
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
@@ -41,6 +41,7 @@ import {
 } from "./runtime-records";
 import { characterExtensionsPatch } from "../entities/character-extensions-patch";
 import { readMessageReactions, withMessageReaction } from "../modes/chat/core/message-reactions";
+import { MUSIC_RECENT_TRACKS_KEY, readChatMusicRecentTracks, withMusicRecentTrack } from "../shared/music/chat-music";
 
 type ConnectedCommandEvent =
   | { type: "cross_post"; data: JsonRecord }
@@ -50,7 +51,8 @@ type ConnectedCommandEvent =
   | { type: "selfie_error"; data: JsonRecord }
   | { type: "command_error"; data: JsonRecord }
   | { type: "scene_created"; data: JsonRecord }
-  | { type: "message_reaction"; data: JsonRecord };
+  | { type: "message_reaction"; data: JsonRecord }
+  | { type: "music_now_playing"; data: JsonRecord };
 
 export interface ConnectedCommandResult {
   displayContent: string;
@@ -951,6 +953,57 @@ async function applyCharacterReaction(
   return true;
 }
 
+const SPOTIFY_NOT_CONNECTED_MESSAGE = "Spotify isn't connected. Open Music Player settings to connect it.";
+
+/**
+ * Whether characters may use `[spotify: …]` in this chat: a Conversation chat with
+ * character commands on, while Spotify is the Music Player source and connected.
+ */
+export async function spotifyCommandAvailable(
+  chat: JsonRecord,
+  integrations: IntegrationGateway | undefined,
+): Promise<boolean> {
+  if (!conversationCommandPromptEnabled(chat)) return false;
+  const spotify = integrations?.music?.spotify;
+  return spotify ? await spotify.isReady() : false;
+}
+
+/** Plays the character's song on repeat, records it in the chat's recent history and makes it the widget's track. */
+async function playSpotifyCommand(
+  storage: StorageGateway,
+  integrations: IntegrationGateway | undefined,
+  chat: JsonRecord,
+  command: Extract<CharacterCommand, { type: "spotify" }>,
+  events: ConnectedCommandEvent[],
+): Promise<boolean> {
+  if (!conversationCommandPromptEnabled(chat)) return false;
+  if (!command.title || !command.artist) {
+    eventsPushCommandError(events, "spotify", "The Spotify command needs both a title and an artist.");
+    return false;
+  }
+  const spotify = integrations?.music?.spotify;
+  if (!spotify || !(await spotify.isReady())) {
+    eventsPushCommandError(events, "spotify", SPOTIFY_NOT_CONNECTED_MESSAGE);
+    return false;
+  }
+  const track = await spotify.findTrack<JsonRecord>({ title: command.title, artist: command.artist });
+  const playback = parseRecord(await spotify.playOnRepeat<JsonRecord>({ track }));
+  const chatId = readString(chat.id);
+  const trackId = readString(track.id).trim();
+  if (chatId && trackId) {
+    const current = await storage.get<JsonRecord>("chats", chatId);
+    const history = readChatMusicRecentTracks(current?.metadata ?? chat.metadata);
+    await storage.patchChatMetadata(chatId, {
+      [MUSIC_RECENT_TRACKS_KEY]: withMusicRecentTrack(history, { provider: "spotify", id: trackId }),
+    });
+  }
+  events.push({
+    type: "music_now_playing",
+    data: { chatId, track, message: readString(playback.message).trim() || null },
+  });
+  return true;
+}
+
 async function createSceneFromCommand(args: {
   storage: StorageGateway;
   llm?: LlmGateway;
@@ -1431,6 +1484,8 @@ async function executeCommand(
       return (await applyCharacterReaction(storage, chatId, command.emoji, options?.reactionTarget ?? null, events))
         ? { name: "react" }
         : null;
+    case "spotify":
+      return (await playSpotifyCommand(storage, integrations, chat, command, events)) ? { name: "spotify" } : null;
     case "note":
     case "influence": {
       const storageChatId = await connectedNoteStorageChatId(storage, chat);
@@ -1456,26 +1511,6 @@ async function executeCommand(
       }
       return { name: "memory" };
     }
-    case "spotify":
-      if (integrations) {
-        const search = await integrations.spotify.searchTracks<{ tracks?: Array<{ uri?: string }> }>({
-          query: `${command.title} ${command.artist}`,
-          limit: 1,
-        });
-        const track = search.tracks?.find((item) => item.uri);
-        if (!track) {
-          eventsPushCommandError(
-            events,
-            command.type,
-            `Spotify did not find a playable track for "${command.title}" by "${command.artist}".`,
-          );
-          return null;
-        }
-        await integrations.spotify.playTrack({ track });
-        return { name: "spotify" };
-      }
-      eventsPushCommandError(events, command.type, "Spotify integration is not connected.");
-      return null;
     case "create_persona":
       await storage.create("personas", personaPatch(command));
       return { name: "create_persona" };

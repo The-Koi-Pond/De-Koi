@@ -432,14 +432,14 @@ export interface UIState {
   trimIncompleteModelOutput: boolean;
   /** When true, chat inputs show a microphone button for browser speech-to-text dictation. */
   speechToTextEnabled: boolean;
-  /** When true, show the global Spotify mini player in the app chrome. */
-  spotifyPlayerEnabled: boolean;
+  /** Older on/off switch for the Music Player; the Music Player core module setting replaced it. */
+  musicPlayerEnabled: boolean;
   /** Optional remote Rust runtime URL. Blank uses the embedded Tauri backend. */
   remoteRuntimeUrl: string;
   /** Floating Music Player widget collapsed state. */
-  spotifyMobileWidgetCollapsed: boolean;
+  musicPlayerMobileWidgetCollapsed: boolean;
   /** Floating Music Player widget position in viewport pixels. */
-  spotifyMobileWidgetPosition: FloatingWidgetPosition;
+  musicPlayerMobileWidgetPosition: FloatingWidgetPosition;
   /** When true, Roleplay and Conversation modes support arrow-key and touch-swipe navigation between message swipes. */
   intuitiveSwipeNavigation: boolean;
   /** When true, moving past the newest swipe on the latest assistant message creates a new reroll. */
@@ -649,10 +649,10 @@ export interface UIState {
   setQuoteFormat: (v: QuoteFormat) => void;
   setTrimIncompleteModelOutput: (v: boolean) => void;
   setSpeechToTextEnabled: (v: boolean) => void;
-  setSpotifyPlayerEnabled: (v: boolean) => void;
+  setMusicPlayerEnabled: (v: boolean) => void;
   setRemoteRuntimeUrl: (v: string) => void;
-  setSpotifyMobileWidgetCollapsed: (v: boolean) => void;
-  setSpotifyMobileWidgetPosition: (position: FloatingWidgetPosition) => void;
+  setMusicPlayerMobileWidgetCollapsed: (v: boolean) => void;
+  setMusicPlayerMobileWidgetPosition: (position: FloatingWidgetPosition) => void;
   setIntuitiveSwipeNavigation: (v: boolean) => void;
   setIntuitiveSwipeRerollLatest: (v: boolean) => void;
   setEditLastMessageOnArrowUp: (v: boolean) => void;
