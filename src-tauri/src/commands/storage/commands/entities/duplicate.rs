@@ -36,10 +36,12 @@ pub(crate) fn duplicate_entity(
 }
 
 /// Copies a whole lorebook: the record (named "… Copy"), its picture, its entry folders and all its
-/// entries, in one atomic storage step, with new ids and folder links remapped. The copy is a standalone
-/// book: it drops the original's character/persona book link (so it can't fight the original's
-/// character-card sync), keeps the original's scopes, and starts switched off so the same lore isn't
-/// added to prompts twice until it's switched on.
+/// entries, in one atomic storage step, with new ids and folder links remapped. The copy is the user's
+/// own standalone book: it drops the original's character/persona book link (`characterId`, `personaId`)
+/// and its embedded-import origin (`sourceCharacterId`), so re-importing a character's embedded book never
+/// treats the copy as that book to overwrite or delete. It keeps the original's activation scopes: a
+/// dropped `characterId`/`personaId` moves into `characterIds`/`personaIds`. It starts switched off so the
+/// same lore isn't added to prompts twice until it's switched on.
 pub(super) fn duplicate_lorebook(state: &AppState, id: &str) -> Result<Value, AppError> {
     let original = shared::get_required(state, "lorebooks", id)?;
     let image = lorebook_images::duplicate_lorebook_image(state, &original)?;
@@ -99,6 +101,29 @@ fn remapped_folder_link(row: &Value, key: &str, folder_ids: &HashMap<String, Str
         .unwrap_or(Value::Null)
 }
 
+/// Clears a lorebook's single-id link (`single_key`) and adds its id to the matching list scope
+/// (`list_key`) unless it's already there, so the book still activates for that character or persona.
+fn move_single_scope_into_list(book: &mut Map<String, Value>, single_key: &str, list_key: &str) {
+    let single = book
+        .insert(single_key.to_string(), Value::Null)
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|id| !id.is_empty());
+    let Some(single) = single else {
+        return;
+    };
+    let mut ids = match book.get(list_key) {
+        Some(Value::Array(ids)) => ids.clone(),
+        _ => Vec::new(),
+    };
+    if !ids
+        .iter()
+        .any(|id| id.as_str().map(str::trim) == Some(single.as_str()))
+    {
+        ids.push(Value::String(single));
+    }
+    book.insert(list_key.to_string(), Value::Array(ids));
+}
+
 pub(super) fn duplicate_lorebook_in_rows(
     lorebook_rows: &mut Vec<Value>,
     entry_rows: &mut Vec<Value>,
@@ -124,8 +149,9 @@ pub(super) fn duplicate_lorebook_in_rows(
         .to_string();
     copy.insert("name".to_string(), Value::String(format!("{name} Copy")));
     copy.insert("enabled".to_string(), Value::Bool(false));
-    copy.insert("characterId".to_string(), Value::Null);
-    copy.insert("personaId".to_string(), Value::Null);
+    move_single_scope_into_list(&mut copy, "characterId", "characterIds");
+    move_single_scope_into_list(&mut copy, "personaId", "personaIds");
+    copy.insert("sourceCharacterId".to_string(), Value::Null);
     if let Some(Value::Object(fields)) = image_fields {
         for (key, value) in fields {
             copy.insert(key.clone(), value.clone());

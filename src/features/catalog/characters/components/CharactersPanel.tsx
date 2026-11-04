@@ -107,7 +107,7 @@ export function CharactersPanel() {
     setTagsExpanded,
     tagsExpanded,
     cycleTag,
-  } = useCharactersPanelFilters(parsedCharacters);
+  } = useCharactersPanelFilters(parsedCharacters, characters !== undefined && !searchQuery.text.trim());
 
   const {
     assigningToGroup,

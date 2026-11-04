@@ -19,7 +19,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   useUIStore,
 } from "../../shared/stores/ui.store";
-import type { Panel, TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
+import type { TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
@@ -60,6 +60,12 @@ import {
   shouldCloseFirstRunPhoneDrawer,
   type AppShellLeftSidebarPanel,
 } from "./app-shell-left-sidebar";
+import {
+  getAppShellSideLayout,
+  getColumnContent,
+  shouldAutoCloseSidePanel,
+  type AppShellColumnContent,
+} from "./app-shell-side-layout";
 import { getDekiSessionSelectAction } from "./app-shell-deki-session";
 import { getDetailRouteView } from "./detail-route-registry";
 import { isTrackerPanelAvailableForChatMode } from "./app-shell-tracker-panel";
@@ -430,17 +436,14 @@ export function AppShell() {
   const showNavRail = visualTheme === "pond" && !isMobile;
   // In the same layout, Settings opens as a wide drawer over the page instead
   // of a side panel, so its tabs fit in a column with a hint under each.
-  const rightPanel = useUIStore((s) => s.rightPanel);
-  const settingsDrawerOpen = showNavRail && rightPanelOpen && rightPanel === "settings";
   // The other panels (Characters, Lorebooks...) open in the column beside the
   // rail, in place of the chat list, like DeKoi's Shoal. Closing one brings
   // the chat list (or Deki-senpai's list) back.
-  // Help (its button is in the status strip's corner) still opens as a panel on the right.
-  const columnPanelOpen = showNavRail && rightPanelOpen && !settingsDrawerOpen && rightPanel !== "help";
-  const rightColumnOpen = rightPanelOpen && !columnPanelOpen;
+  const rightPanel = useUIStore((s) => s.rightPanel);
+  const sideLayout = getAppShellSideLayout({ showNavRail, rightPanelOpen, rightPanel, leftSidebarPanel });
+  const { settingsDrawerOpen, columnPanelOpen, leftColumnOpen, rightColumnOpen } = sideLayout;
   const chatColumnVisible = chatSidebarVisible && !columnPanelOpen;
   const dekiColumnVisible = dekiSidebarVisible && !columnPanelOpen;
-  const leftColumnOpen = leftSidebarPanel !== null || columnPanelOpen;
   // Where the left column ends: after the rail when it shows.
   const leftColumnEdge = showNavRail ? `calc(var(--pond-rail-width) + ${liveSidebarWidth}px)` : liveSidebarWidth;
   useEffect(() => {
@@ -473,14 +476,22 @@ export function AppShell() {
       rafId = requestAnimationFrame(() => {
         const {
           rightPanelOpen: rp,
+          rightPanel: panel,
           sidebarWidth: sw,
           rightPanelWidth: rpw,
           closeRightPanel: close,
         } = useUIStore.getState();
-        if (!rp) return;
-        const panelWidth = getSharedPanelWidth(sw, rpw);
-        const reserved = (leftSidebarPanel !== null ? panelWidth : 0) + panelWidth;
-        if (window.innerWidth - reserved < 400) close();
+        const layout = getAppShellSideLayout({ showNavRail, rightPanelOpen: rp, rightPanel: panel, leftSidebarPanel });
+        const railWidth = showNavRail
+          ? (document.querySelector<HTMLElement>('[data-component="NavRail"]')?.offsetWidth ?? 0)
+          : 0;
+        const tooNarrow = shouldAutoCloseSidePanel(layout, {
+          rightPanelOpen: rp,
+          windowWidth: window.innerWidth,
+          panelWidth: getSharedPanelWidth(sw, rpw),
+          railWidth,
+        });
+        if (tooNarrow) close();
       });
     };
     window.addEventListener("resize", handleResize);
@@ -488,7 +499,7 @@ export function AppShell() {
       window.removeEventListener("resize", handleResize);
       cancelAnimationFrame(rafId);
     };
-  }, [isMobile, leftSidebarPanel]);
+  }, [isMobile, leftSidebarPanel, showNavRail]);
 
   // Center-area overflow detection
   // When the center <main> content overflows horizontally, switch to compact
@@ -665,16 +676,18 @@ export function AppShell() {
 
   // The Pond rail column's fold-away "‹": hides whatever the column shows (a panel,
   // the chat list or Deki-senpai's list), so the page gets the full width. The rail brings it back.
-  // What the column showed when it was folded, so the "›" tab left at the rail's edge can bring it back.
-  const foldedColumnRef = useRef<{ panel: Panel } | { list: "chats" | "deki" }>({ list: "chats" });
+  // What the column showed last, so the "›" tab left at the rail's edge brings back what was there, whether the
+  // column was folded or emptied from the rail (closing Chats, say). Whatever the column showed since a fold wins.
+  const foldedColumnRef = useRef<AppShellColumnContent>({ list: "chats" });
+  useEffect(() => {
+    const content = getColumnContent({ columnPanelOpen }, rightPanel, leftSidebarPanel);
+    if (content) foldedColumnRef.current = content;
+  }, [columnPanelOpen, rightPanel, leftSidebarPanel]);
   const collapseColumn = useCallback(() => {
-    const ui = useUIStore.getState();
-    foldedColumnRef.current = ui.rightPanelOpen
-      ? { panel: ui.rightPanel }
-      : { list: leftSidebarPanel === "deki" ? "deki" : "chats" };
-    closeRightPanel();
+    // Only a panel shown in the column is closed: Help, open on the right beside the list, stays.
+    if (columnPanelOpen) closeRightPanel();
     setLeftSidebarPanel(null);
-  }, [closeRightPanel, leftSidebarPanel, setLeftSidebarPanel]);
+  }, [closeRightPanel, columnPanelOpen, setLeftSidebarPanel]);
   const unfoldColumn = useCallback(() => {
     const folded = foldedColumnRef.current;
     if ("panel" in folded) useUIStore.getState().openRightPanel(folded.panel);
@@ -1047,7 +1060,7 @@ export function AppShell() {
   const hasDetailView = detailView != null;
   const { discoverSurfaceVisible, dekiSurfaceVisible, mainSurfaceVisible } = getAppShellCenterSurfaceState({
     botBrowserOpen,
-    rightPanelOpen,
+    rightPanelOpen: sideLayout.pageReplacedBySidePanel,
     detailViewOpen: hasDetailView,
     dekiOpen,
     activeDekiSessionId,
@@ -1436,6 +1449,10 @@ export function AppShell() {
     };
   }, [activeMobileOverlayPanel, closeActiveMobilePanel, hasCompletedOnboarding, isMobile]);
 
+  const trackerPanelLeftOffset = leftColumnOpen ? liveSidebarWidth + RESIZER_HITBOX : 0;
+  const trackerPanelLeftEdge = showNavRail
+    ? `calc(var(--pond-rail-width) + ${trackerPanelLeftOffset}px)`
+    : trackerPanelLeftOffset;
   const trackerPanelDesktop = (side: "left" | "right") =>
     trackerPanelVisible && trackerPanelSide === side ? (
       <aside
@@ -1455,9 +1472,11 @@ export function AppShell() {
             -56,
             Math.min(56, (trackerPanelToggleAnchorY ?? trackerPanelTop) - trackerPanelTop),
           )}px`,
+          // Beside whatever takes width on that side: in the rail layout, the rail and its column on the left and
+          // only Help on the right (the Settings drawer lies over the page).
           ...(side === "left"
-            ? { left: leftSidebarPanel !== null ? liveSidebarWidth + RESIZER_HITBOX : 0 }
-            : { right: rightPanelOpen ? liveRightPanelWidth + RESIZER_HITBOX : 0 }),
+            ? { left: trackerPanelLeftEdge }
+            : { right: rightColumnOpen ? liveRightPanelWidth + RESIZER_HITBOX : 0 }),
         }}
       >
         <div className="mari-tracker-panel-scroll max-h-[inherit] overflow-x-hidden overflow-y-auto">

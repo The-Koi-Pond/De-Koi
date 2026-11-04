@@ -42,6 +42,8 @@ const mocks = vi.hoisted(() => ({
   sameOriginRuntimeUrl: { current: "https://de-koi.test" },
   invalidateQueries: vi.fn(),
   selectDefaultTextConnectionId: vi.fn(),
+  setPendingNewChatMode: vi.fn(),
+  clearIntent: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }) }));
@@ -102,6 +104,10 @@ vi.mock("../../../../shared/stores/setup-journey.store", () => {
       mocks.recovery.current = null;
       mocks.clearRecovery();
     },
+    clearIntent: () => {
+      mocks.intent.current = null;
+      mocks.clearIntent();
+    },
   };
   const useSetupJourneyStore = (selector: (value: typeof state) => unknown) => selector(state);
   useSetupJourneyStore.getState = () => state;
@@ -128,7 +134,11 @@ vi.mock("../../../../shared/stores/ui.store", () => {
 });
 vi.mock("../../../../shared/stores/chat.store", () => ({
   useChatStore: {
-    getState: () => ({ setPendingNewChatMode: vi.fn(), setActiveChatId: vi.fn(), setNewChatSetupIntent: vi.fn() }),
+    getState: () => ({
+      setPendingNewChatMode: mocks.setPendingNewChatMode,
+      setActiveChatId: vi.fn(),
+      setNewChatSetupIntent: vi.fn(),
+    }),
   },
 }));
 
@@ -162,6 +172,8 @@ describe("SetupReadinessJourney", () => {
     mocks.markCompleted.mockReset();
     mocks.markConnection.mockReset();
     mocks.applyPreset.mockReset().mockResolvedValue(undefined);
+    mocks.setPendingNewChatMode.mockReset();
+    mocks.clearIntent.mockReset();
     mocks.recovery.current = null;
     mocks.runtimeUrl.current = "https://runtime-a.test";
     mocks.sameOriginRuntimeUrl.current = "https://de-koi.test";
@@ -447,6 +459,22 @@ describe("SetupReadinessJourney", () => {
 
     expect(container.textContent).toContain("Connect a language model");
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("cancelling a tucked-away setup also drops the waiting new chat", async () => {
+    // Without clearing the pending new chat, the chat screen started a fresh setup right after the cancel.
+    mocks.embedded.current = true;
+    mocks.connections.current = [];
+    mocks.intent.current = { ...mocks.intent.current!, dismissed: true };
+
+    await act(async () => root.render(<SetupReadinessJourney />));
+    const cancel = container.querySelector<HTMLButtonElement>('[aria-label="Cancel this chat setup"]');
+    expect(cancel).not.toBeNull();
+    act(() => cancel!.click());
+
+    expect(mocks.setPendingNewChatMode).toHaveBeenCalledWith(null);
+    expect(mocks.clearIntent).toHaveBeenCalledTimes(1);
+    expect(mocks.intent.current).toBeNull();
   });
 
   it("invalidates healthy readiness synchronously when the runtime target changes", async () => {

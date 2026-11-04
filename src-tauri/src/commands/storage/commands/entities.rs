@@ -5680,6 +5680,63 @@ mod tests {
     }
 
     #[test]
+    fn duplicating_lorebook_drops_embedded_import_origin_but_keeps_scopes_and_picture() {
+        let state = test_state("lorebook-duplicate-embedded-origin");
+        let image_dir = state.data_dir.join("lorebooks").join("images");
+        std::fs::create_dir_all(&image_dir).expect("image dir should be created");
+        let image_path = image_dir.join("book.png");
+        std::fs::write(&image_path, small_png_bytes()).expect("managed image should be written");
+        state
+            .storage
+            .create(
+                "lorebooks",
+                json!({ "id": "book", "name": "Mira Lorebook", "category": "character",
+                        "description": "Imported from embedded character book",
+                        "characterId": "mira", "sourceCharacterId": "mira", "characterIds": [],
+                        "personaId": "me", "personaIds": ["you"],
+                        "imagePath": "marinara-lorebook-image:book.png",
+                        "imageFilePath": image_path.to_string_lossy(), "imageFilename": "book.png" }),
+            )
+            .expect("seed lorebook should be created");
+
+        let copy =
+            duplicate_entity(&state, "lorebooks", "book").expect("lorebook copy should succeed");
+        assert_eq!(copy["sourceCharacterId"], Value::Null);
+        assert_eq!(copy["characterId"], Value::Null);
+        assert_eq!(copy["characterIds"], json!(["mira"]));
+        assert_eq!(copy["personaId"], Value::Null);
+        assert_eq!(copy["personaIds"], json!(["you", "me"]));
+        let copy_image = std::path::PathBuf::from(
+            copy["imageFilePath"]
+                .as_str()
+                .expect("copy should have its own picture"),
+        );
+        assert_ne!(copy_image, image_path);
+        assert_eq!(
+            std::fs::read(&copy_image).expect("copied picture should read"),
+            std::fs::read(&image_path).expect("original picture should read")
+        );
+
+        delete_entity(&state, "lorebooks", copy["id"].as_str().unwrap(), false)
+            .expect("copy delete should succeed");
+        assert!(
+            image_path.exists(),
+            "deleting the copy must keep the original's picture"
+        );
+        assert!(
+            !copy_image.exists(),
+            "deleting the copy removes its picture"
+        );
+        let original = state
+            .storage
+            .get("lorebooks", "book")
+            .expect("original should read")
+            .expect("original should still exist");
+        assert_eq!(original["sourceCharacterId"], "mira");
+        assert_eq!(original["characterId"], "mira");
+    }
+
+    #[test]
     fn duplicating_inactive_persona_keeps_duplicate_inactive() {
         let state = test_state("persona-duplicate-inactive-flags");
         storage_create_inner(

@@ -2,7 +2,7 @@
 // Panel: Lorebooks
 // Action strip, search, All/Active + Type + Tags filters, folders, click-to-edit
 // ──────────────────────────────────────────────
-import { useRef, useState, useMemo, useCallback, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, type ChangeEvent, type DragEvent } from "react";
 import { toast } from "sonner";
 import {
   Upload,
@@ -44,6 +44,7 @@ import {
   NO_TAG_FILTERS,
   cycleTagFilter,
   hasTagFilters,
+  keepExistingTagFilters,
   withoutTagFilter,
   type TagFilters,
 } from "../../../lib/tag-filters";
@@ -197,6 +198,12 @@ export function LorebooksPanel() {
     if (!lorebooks) return [] as string[];
     return collectLorebookTags(lorebooks as Lorebook[]);
   }, [lorebooks]);
+
+  // A filter on a tag no lorebook has any more would quietly hide the whole list. Wait for the list to load.
+  useEffect(() => {
+    if (!lorebooks) return;
+    setTagFilters((filters) => keepExistingTagFilters(filters, allTags));
+  }, [lorebooks, allTags]);
 
   const handleDeleteTag = useCallback(
     async (tag: string) => {
@@ -974,7 +981,11 @@ export function LorebooksPanel() {
               <BookOpen size="1.25rem" className="text-amber-400" />
             </div>
             <p className="text-xs text-[var(--muted-foreground)]">
-              {searchQuery ? "No lorebooks match your search" : "No lorebooks yet"}
+              {searchQuery.trim()
+                ? "No lorebooks match your search"
+                : lorebookFiltersActive
+                  ? "No lorebooks match the current filters"
+                  : "No lorebooks yet"}
             </p>
           </div>
         )}

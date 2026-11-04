@@ -345,11 +345,15 @@ export function catalogRowActionsRowProps(actionCount: number): { style: CSSProp
 /**
  * A row's hover buttons: a column of joined cells stacked down the row's right edge, sharing its
  * height equally; shown on hover or keyboard focus. Phones, where they always show, keep them side
- * by side. The row needs `group relative` and the `catalogRowActionsRowProps` height.
+ * by side. Touch screens without hover always show them too (`data-de-koi-action-group`, see
+ * 07-responsive-accessibility.css). The row needs `group relative` and the `catalogRowActionsRowProps` height.
  */
 export function CatalogRowActions({ actions }: { actions: CatalogRowAction[] }) {
   return (
-    <div className="absolute inset-y-0 right-0 flex w-9 flex-col overflow-hidden rounded-r-xl border-l border-[var(--border)]/60 bg-[var(--sidebar)] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:static max-md:w-auto max-md:flex-row max-md:rounded-xl max-md:border max-md:opacity-100">
+    <div
+      data-de-koi-action-group="catalog-row"
+      className="absolute inset-y-0 right-0 flex w-9 flex-col overflow-hidden rounded-r-xl border-l border-[var(--border)]/60 bg-[var(--sidebar)] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:static max-md:w-auto max-md:flex-row max-md:rounded-xl max-md:border max-md:opacity-100"
+    >
       {actions.map((action, index) => (
         <button
           key={action.key}

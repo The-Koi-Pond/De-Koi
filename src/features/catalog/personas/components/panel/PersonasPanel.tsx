@@ -1,7 +1,16 @@
 // ──────────────────────────────────────────────
 // Panel: User Personas
 // ──────────────────────────────────────────────
-import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type MouseEvent,
+} from "react";
 import { User } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,7 +53,13 @@ import { PersonaGroupsSection, type PersonaGroupDropTarget } from "./PersonaGrou
 import { PersonaListItem } from "./PersonaListItem";
 import { PersonasFilterBar } from "./PersonasFilterBar";
 import { CatalogActionBar } from "../../../components/CatalogPanelControls";
-import { NO_TAG_FILTERS, cycleTagFilter, withoutTagFilter, type TagFilters } from "../../../lib/tag-filters";
+import {
+  NO_TAG_FILTERS,
+  cycleTagFilter,
+  keepExistingTagFilters,
+  withoutTagFilter,
+  type TagFilters,
+} from "../../../lib/tag-filters";
 import { PersonasSelectionToolbar } from "./PersonasSelectionToolbar";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 
@@ -130,6 +145,12 @@ export function PersonasPanel() {
   const rawList = useMemo(() => (personas as PersonaPanelRow[] | undefined) ?? [], [personas]);
 
   const allTags = useMemo(() => getPersonaTags(rawList), [rawList]);
+
+  // A filter on a tag no persona has any more would quietly hide the whole list. Wait for the list to load.
+  useEffect(() => {
+    if (!personas) return;
+    setTagFilters((filters) => keepExistingTagFilters(filters, allTags));
+  }, [personas, allTags]);
 
   const handleDeleteTag = useCallback(
     async (tag: string) => {

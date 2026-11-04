@@ -191,7 +191,9 @@ export function WindowTitleBar({
 
   // With the navigation in the rail, a browser tab (no window buttons) has
   // nothing left to show here unless there's an accessory (the music player).
-  if (navInRail && !showWindowControls && !titlebarAccessory) return null;
+  // The desktop app keeps the bar even while its buttons are hidden (the full-page
+  // Browser): its window has no other title bar, so this is the only place to drag it.
+  if (navInRail && !hasWindowControls && !titlebarAccessory) return null;
 
   return (
     <header

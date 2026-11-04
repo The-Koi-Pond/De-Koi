@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Check, Circle, MinusCircle, Moon, Users } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   PersonaAvatarImage,
@@ -9,6 +17,8 @@ import {
 } from "../../features/catalog/personas/index";
 import { PondDiscoverIcon, PondHelpIcon, PondSettingsIcon, type PondIcon } from "../../shared/components/pond-icons";
 import { isShellPanelTabOpen } from "../../shared/components/shell-navigation";
+import { useEscapeOverlay } from "../../shared/hooks/use-escape-overlay";
+import { toUserMessage } from "../../shared/lib/error-message";
 import { cn } from "../../shared/lib/utils";
 import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
 import { preloadRightPanelPanel } from "./right-panel-loaders";
@@ -73,6 +83,91 @@ function PersonaAvatar({
   );
 }
 
+function getMenuItems(menu: HTMLElement): HTMLElement[] {
+  return Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'));
+}
+
+/**
+ * A pop-up menu above the bar. It's mounted only while open, so its Escape handler is the topmost on the escape
+ * stack: Escape closes the menu, not the panel behind it. Opening moves focus to the checked item (or the first);
+ * the arrow keys, Home and End move between items. `itemsReady`: false while the items are still loading.
+ */
+function PopupMenu({
+  label,
+  className,
+  itemsReady = true,
+  onClose,
+  children,
+}: {
+  label: string;
+  className: string;
+  itemsReady?: boolean;
+  /** `returnFocus`: give focus back to the button that opened the menu (Escape); false when Tab moves it on. */
+  onClose: (returnFocus: boolean) => void;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const waitedForItemsRef = useRef(false);
+  useEscapeOverlay(() => {
+    onClose(true);
+    return true;
+  });
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    if (!itemsReady) {
+      waitedForItemsRef.current = true;
+      menu.focus();
+      return;
+    }
+    // After a wait for the items, only when focus is still on the menu itself: the user may have moved it
+    // (say, into the activity bubble) while the items were loading.
+    if (!waitedForItemsRef.current || document.activeElement === menu) {
+      const items = getMenuItems(menu);
+      (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0] ?? menu).focus();
+    }
+  }, [itemsReady]);
+
+  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Tab") {
+      onClose(false);
+      return;
+    }
+    const items = getMenuItems(event.currentTarget);
+    if (items.length === 0) return;
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      event.key === "ArrowDown"
+        ? (index + 1) % items.length
+        : event.key === "ArrowUp"
+          ? index <= 0
+            ? items.length - 1
+            : index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? items.length - 1
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    items[next]?.focus();
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label={label}
+      tabIndex={-1}
+      onKeyDown={moveFocus}
+      className={cn("focus-visible:outline-none", className)}
+    >
+      {children}
+    </div>
+  );
+}
+
 /** Settings or Help, as a cell in the strip's corner: opens or closes that panel. */
 function CornerPanelButton({
   destination,
@@ -134,6 +229,8 @@ export function UserStatusBar({
   const { data: personas } = usePersonaSummaries(strip && openMenu === "persona");
   const activatePersona = useActivatePersona();
   const ref = useRef<HTMLDivElement>(null);
+  const statusButtonRef = useRef<HTMLButtonElement>(null);
+  const personaButtonRef = useRef<HTMLButtonElement>(null);
 
   // Close on click outside
   useEffect(() => {
@@ -148,18 +245,25 @@ export function UserStatusBar({
   const current = STATUS_OPTIONS.find((s) => s.value === userStatus) ?? STATUS_OPTIONS[0]!;
   const personaName = activePersona?.name?.trim() || "You";
   const toggleMenu = (menu: "status" | "persona") => setOpenMenu((open) => (open === menu ? null : menu));
+  // Closing after a pick or Escape gives focus back to the button that opened the menu.
+  const closeMenu = (returnFocus = true) => {
+    const opener = openMenu === "persona" ? personaButtonRef.current : statusButtonRef.current;
+    setOpenMenu(null);
+    if (returnFocus) opener?.focus();
+  };
 
-  const menuFrame = (children: ReactNode, label: string) => (
-    <div
-      role="menu"
-      aria-label={label}
+  const menuFrame = (children: ReactNode, label: string, itemsReady?: boolean) => (
+    <PopupMenu
+      label={label}
+      itemsReady={itemsReady}
+      onClose={closeMenu}
       className={cn(
         "absolute bottom-full z-50 mb-1 max-h-80 overflow-y-auto rounded-xl bg-[var(--popover)] p-1.5 shadow-xl ring-1 ring-[var(--border)]/40",
         strip ? "left-1 w-64" : "left-2 right-2",
       )}
     >
       {children}
-    </div>
+    </PopupMenu>
   );
 
   const statusMenu =
@@ -173,7 +277,7 @@ export function UserStatusBar({
           aria-checked={userStatus === opt.value}
           onClick={() => {
             setUserStatusManual(opt.value);
-            setOpenMenu(null);
+            closeMenu();
           }}
           className={cn(
             "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all hover:bg-[var(--accent)]",
@@ -204,8 +308,13 @@ export function UserStatusBar({
               role="menuitemradio"
               aria-checked={selected}
               onClick={() => {
-                if (!selected) activatePersona.mutate(persona.id);
-                setOpenMenu(null);
+                if (!selected) {
+                  activatePersona.mutate(persona.id, {
+                    onError: (error) =>
+                      toast.error(toUserMessage(error, { fallback: `Couldn't switch to ${name}. Try again.` })),
+                  });
+                }
+                closeMenu();
               }}
               className={cn(
                 "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-all hover:bg-[var(--accent)]",
@@ -226,7 +335,7 @@ export function UserStatusBar({
           role="menuitem"
           onClick={() => {
             useUIStore.getState().openRightPanel("personas");
-            setOpenMenu(null);
+            closeMenu();
           }}
           className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-[var(--border)]/40 px-2.5 py-2 text-left text-xs text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
         >
@@ -235,6 +344,7 @@ export function UserStatusBar({
         </button>
       </>,
       "Switch persona",
+      personas !== undefined,
     );
 
   const activityInput = (
@@ -270,6 +380,7 @@ export function UserStatusBar({
         {personaMenu}
         <div className="flex min-w-0 max-w-[16rem] shrink-0 items-stretch">
           <button
+            ref={personaButtonRef}
             type="button"
             onClick={() => toggleMenu("persona")}
             // The avatar itself glows on hover (and on keyboard focus), not the whole cell.
@@ -294,6 +405,7 @@ export function UserStatusBar({
             </span>
           </button>
           <button
+            ref={statusButtonRef}
             type="button"
             onClick={() => toggleMenu("status")}
             // A rounded highlight that hugs the name and status (like the bubble beside it), lit while the menu is open.
@@ -343,6 +455,7 @@ export function UserStatusBar({
       {statusMenu}
       <div className="flex min-w-0 items-center gap-1.5">
         <button
+          ref={statusButtonRef}
           onClick={() => toggleMenu("status")}
           className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-all hover:bg-[var(--sidebar-accent)]/60"
           title="Change activity status"

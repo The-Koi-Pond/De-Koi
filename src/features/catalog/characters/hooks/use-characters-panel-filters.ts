@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -10,7 +10,10 @@ import {
 } from "../lib/characters-panel-model";
 import { useUpdateCharacter } from "./use-characters";
 
-export function useCharactersPanelFilters(parsedCharacters: ParsedCharacterRow[]) {
+/**
+ * `wholeLibrary` says `parsedCharacters` is the loaded, unsearched library, so a tag missing from it is really gone.
+ */
+export function useCharactersPanelFilters(parsedCharacters: ParsedCharacterRow[], wholeLibrary: boolean) {
   const updateCharacter = useUpdateCharacter();
   const [includedTags, setIncludedTags] = useState<Set<string>>(new Set());
   const [excludedTags, setExcludedTags] = useState<Set<string>>(new Set());
@@ -18,6 +21,17 @@ export function useCharactersPanelFilters(parsedCharacters: ParsedCharacterRow[]
   const [favFilter, setFavFilter] = useState<FavoriteFilter>("all");
 
   const allTags = useMemo(() => collectCharacterTags(parsedCharacters), [parsedCharacters]);
+
+  // A filter on a tag no character has any more would quietly hide the whole list. While the list loads or a
+  // search narrows it, a missing tag isn't gone, so only prune against the whole library.
+  useEffect(() => {
+    if (!wholeLibrary) return;
+    const existing = new Set(allTags);
+    const keepExisting = (prev: Set<string>) =>
+      [...prev].every((tag) => existing.has(tag)) ? prev : new Set([...prev].filter((tag) => existing.has(tag)));
+    setIncludedTags(keepExisting);
+    setExcludedTags(keepExisting);
+  }, [allTags, wholeLibrary]);
 
   const handleDeleteTag = useCallback(
     async (tag: string) => {
