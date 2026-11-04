@@ -114,6 +114,7 @@ import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
 import { FanficComments, type FanficCommentUses } from "./FanficComments";
 import { FanficContinuePanel } from "./FanficContinuePanel";
+import { FanficLinkedChatsPanel } from "./FanficLinkedChatsPanel";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
@@ -373,9 +374,9 @@ function WorkHeader({
           <PenTool size="0.9rem" aria-hidden="true" />
           {showEditor ? "Hide editor" : "Editor"}
         </FanficButton>
-        <FanficButton onClick={onToggleContinue} aria-expanded={showContinue} disabled={chapterCount === 0}>
+        <FanficButton onClick={onToggleContinue} aria-expanded={showContinue}>
           <MessagesSquare size="0.9rem" aria-hidden="true" />
-          {showContinue ? "Hide roleplay or chat" : "Continue as roleplay or chat"}
+          {showContinue ? "Hide roleplays and chats" : "Roleplays and chats"}
         </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
@@ -1724,6 +1725,7 @@ export function FanficReader({
         onToggleContinue={() => setShowContinue((open) => !open)}
       />
       {showContinue && chapterCount > 0 && <FanficContinuePanel chatId={chatId} state={state} busy={generating} />}
+      {showContinue && <FanficLinkedChatsPanel chatId={chatId} />}
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={canonLine} ledger={ledger} busy={generating} />
       )}

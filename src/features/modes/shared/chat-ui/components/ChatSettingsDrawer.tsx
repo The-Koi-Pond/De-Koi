@@ -58,6 +58,7 @@ import { SummariesEditorModal } from "./SummariesEditorModal";
 import { AdvancedParametersSection } from "./settings/AdvancedParametersSection";
 import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
+import { LinkedFicSection } from "./settings/LinkedFicSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
 import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
@@ -3244,6 +3245,9 @@ function ChatSettingsDrawerInner({
 
           {/* Notes from Conversation — durable notes saved by the connected conversation's character */}
           {!isConversation && chat.connectedChatId && <ConversationNotesSection chatId={chat.id} />}
+
+          {/* Linked Fic — roleplay and conversation: a fic that knows this chat, both ways */}
+          {(isRoleplayMode || isConversation) && <LinkedFicSection chat={chat} />}
 
           {/* Lorebooks */}
           <Section
