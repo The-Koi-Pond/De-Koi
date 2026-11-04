@@ -49,6 +49,7 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
   folderChatsMap,
   unfiledChats,
   includeUnfiledDropZone = unfiledChats.length > 0,
+  pinnedOnly = false,
 }: {
   pinnedChats: TEntry[];
   localFolderOrder: string[];
@@ -56,6 +57,8 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
   folderChatsMap: Map<string, TEntry[]>;
   unfiledChats: TEntry[];
   includeUnfiledDropZone?: boolean;
+  /** The Pinned filter: pinned chats only live in the Pinned section, so folders would all show empty. */
+  pinnedOnly?: boolean;
 }): ChatSidebarVirtualRow<TFolder, TEntry>[] {
   const rows: ChatSidebarVirtualRow<TFolder, TEntry>[] = [];
   const foldersById = new Map(modeFolders.map((folder) => [folder.id, folder]));
@@ -67,21 +70,23 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
     }
   }
 
-  rows.push({
-    type: "section",
-    key: "section:folders",
-    section: "folders",
-    label: "Folders",
-    folderCount: modeFolders.length,
-  });
-  for (const folderId of localFolderOrder) {
-    const folder = foldersById.get(folderId);
-    if (!folder) continue;
-    const entries = folderChatsMap.get(folderId) ?? [];
-    rows.push({ type: "folder", key: `folder:${folder.id}`, folder, entriesCount: entries.length });
-    if (!folder.collapsed) {
-      for (const entry of entries) {
-        rows.push({ type: "chat", key: `chat:${entry.chat.groupId ?? entry.chat.id}`, entry, folderId, depth: 1 });
+  if (!pinnedOnly) {
+    rows.push({
+      type: "section",
+      key: "section:folders",
+      section: "folders",
+      label: "Folders",
+      folderCount: modeFolders.length,
+    });
+    for (const folderId of localFolderOrder) {
+      const folder = foldersById.get(folderId);
+      if (!folder) continue;
+      const entries = folderChatsMap.get(folderId) ?? [];
+      rows.push({ type: "folder", key: `folder:${folder.id}`, folder, entriesCount: entries.length });
+      if (!folder.collapsed) {
+        for (const entry of entries) {
+          rows.push({ type: "chat", key: `chat:${entry.chat.groupId ?? entry.chat.id}`, entry, folderId, depth: 1 });
+        }
       }
     }
   }

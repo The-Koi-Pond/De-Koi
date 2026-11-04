@@ -18,6 +18,7 @@ describe("formatChatLastActive", () => {
   });
 
   it("names the year only for another year", () => {
+    expect(formatChatLastActive(new Date(2026, 2, 4), NOW)).not.toBe("");
     expect(formatChatLastActive(new Date(2026, 2, 4), NOW)).not.toContain("2026");
     expect(formatChatLastActive(new Date(2025, 2, 4), NOW)).toContain("2025");
   });
@@ -27,6 +28,13 @@ describe("chatRowCharacterNames", () => {
   it("skips characters the chat's name already mentions", () => {
     expect(chatRowCharacterNames("Coffee with Mira", ["Mira", "Jun"])).toBe("Jun");
     expect(chatRowCharacterNames("Mira and Jun", ["mira", "JUN"])).toBe("");
+  });
+
+  it("matches whole names only, in any script", () => {
+    expect(chatRowCharacterNames("Annual party", ["Ann"])).toBe("Ann");
+    expect(chatRowCharacterNames("Ann's party", ["ann"])).toBe("");
+    expect(chatRowCharacterNames("Tea with Zoë", ["zoë", "Zo"])).toBe("Zo");
+    expect(chatRowCharacterNames("Tea (R2) time", ["(R2)", "Dr. K"])).toBe("Dr. K");
   });
 
   it("names two and counts the rest", () => {

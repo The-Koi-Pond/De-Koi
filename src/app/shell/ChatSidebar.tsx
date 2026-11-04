@@ -549,8 +549,9 @@ export function ChatSidebar({
         folderChatsMap,
         unfiledChats,
         includeUnfiledDropZone: unfiledChats.length > 0 || draggedChatId !== null,
+        pinnedOnly,
       }),
-    [draggedChatId, folderChatsMap, localFolderOrder, modeFolders, pinnedChats, unfiledChats],
+    [draggedChatId, folderChatsMap, localFolderOrder, modeFolders, pinnedChats, pinnedOnly, unfiledChats],
   );
 
   useEffect(() => {
@@ -1068,6 +1069,7 @@ export function ChatSidebar({
       ),
     );
     const metaLine = [lastActive, characterNames].filter(Boolean).join(" · ");
+    const hasMeta = Boolean(metaLine) || branchCount > 1;
     const metaId = `chat-row-meta-${chat.id}`;
 
     // Tags, pin and delete, stacked down the row's right edge. Moving to a folder is by dragging or Select's Move.
@@ -1264,7 +1266,7 @@ export function ChatSidebar({
           tabIndex={0}
           data-row-action
           aria-label={chat.name}
-          aria-describedby={metaLine ? metaId : undefined}
+          aria-describedby={hasMeta ? metaId : undefined}
           aria-current={isActive ? "true" : undefined}
           aria-pressed={multiSelectMode ? isSelected : undefined}
           onKeyDown={(event) => {
@@ -1285,7 +1287,7 @@ export function ChatSidebar({
           >
             {chat.name}
           </span>
-          {metaLine && (
+          {hasMeta && (
             <span id={metaId} className="block truncate text-[0.6875rem] text-[var(--muted-foreground)]">
               {/* Pinned rows sit under the "Pinned" heading; the star keeps them recognisable while the pin button hides. */}
               {pinned && (
@@ -1295,18 +1297,18 @@ export function ChatSidebar({
                   aria-hidden="true"
                 />
               )}
+              {/* Branch count leads the line so the row's action column never covers it. */}
+              {branchCount > 1 && (
+                <span className="mr-1 inline-flex items-center gap-0.5 rounded-full bg-[var(--secondary)] px-1 py-px align-[-0.0625rem] text-[0.625rem] font-medium leading-none">
+                  <GitBranch size="0.625rem" aria-hidden="true" />
+                  {branchCount}
+                  <span className="sr-only"> branches{metaLine ? "," : ""}</span>
+                </span>
+              )}
               {metaLine}
             </span>
           )}
         </div>
-
-        {/* Branch count badge */}
-        {branchCount > 1 && (
-          <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] font-medium text-[var(--muted-foreground)]">
-            <GitBranch size="0.625rem" />
-            {branchCount}
-          </span>
-        )}
 
         {!multiSelectMode && <CatalogRowActions actions={rowActions} />}
       </div>
@@ -1400,43 +1402,46 @@ export function ChatSidebar({
         </div>
       )}
 
-      <CatalogFilterRow label="Filter chats">
-        <CatalogFilterPill
-          active={!pinnedOnly}
-          pressed={!pinnedOnly}
-          title={`All ${SIDEBAR_TAB_NOUNS[activeTab].plural}`}
-          onClick={() => setPinnedOnly(false)}
-        >
-          All
-        </CatalogFilterPill>
-        <CatalogFilterPill
-          active={pinnedOnly}
-          pressed={pinnedOnly}
-          title={`Only pinned ${SIDEBAR_TAB_NOUNS[activeTab].plural}`}
-          onClick={() => setPinnedOnly(true)}
-        >
-          <Star size="0.5625rem" className="shrink-0" aria-hidden="true" />
-          Pinned
-        </CatalogFilterPill>
-        {allTags.length > 0 && (
+      {/* Message results search every chat in the mode, so the chat filters step aside (unchanged) for them. */}
+      {!showMessageResults && (
+        <CatalogFilterRow label="Filter chats">
           <CatalogFilterPill
-            active={hasTagFilters(tagFilters) || tagsExpanded}
-            expanded={tagsExpanded}
-            title={tagsExpanded ? "Hide tags" : "Show tags"}
-            onClick={() => setTagsExpanded((prev) => !prev)}
+            active={!pinnedOnly}
+            pressed={!pinnedOnly}
+            title={`All ${SIDEBAR_TAB_NOUNS[activeTab].plural}`}
+            onClick={() => setPinnedOnly(false)}
           >
-            <Tag size="0.625rem" aria-hidden="true" />
-            Tags ({allTags.length})
-            {tagFilterSummary(tagFilters) && (
-              <span className="ml-0.5 opacity-70">· {tagFilterSummary(tagFilters)}</span>
-            )}
-            <ChevronDown size="0.625rem" className={cn("transition-transform", tagsExpanded && "rotate-180")} />
+            All
           </CatalogFilterPill>
-        )}
-      </CatalogFilterRow>
+          <CatalogFilterPill
+            active={pinnedOnly}
+            pressed={pinnedOnly}
+            title={`Only pinned ${SIDEBAR_TAB_NOUNS[activeTab].plural}`}
+            onClick={() => setPinnedOnly(true)}
+          >
+            <Star size="0.5625rem" className="shrink-0" aria-hidden="true" />
+            Pinned
+          </CatalogFilterPill>
+          {allTags.length > 0 && (
+            <CatalogFilterPill
+              active={hasTagFilters(tagFilters) || tagsExpanded}
+              expanded={tagsExpanded}
+              title={tagsExpanded ? "Hide tags" : "Show tags"}
+              onClick={() => setTagsExpanded((prev) => !prev)}
+            >
+              <Tag size="0.625rem" aria-hidden="true" />
+              Tags ({allTags.length})
+              {tagFilterSummary(tagFilters) && (
+                <span className="ml-0.5 opacity-70">· {tagFilterSummary(tagFilters)}</span>
+              )}
+              <ChevronDown size="0.625rem" className={cn("transition-transform", tagsExpanded && "rotate-180")} />
+            </CatalogFilterPill>
+          )}
+        </CatalogFilterRow>
+      )}
 
       {/* Hidden until the Tags pill opens them. Clicking a tag cycles off → include → exclude → off. */}
-      {allTags.length > 0 && tagsExpanded && (
+      {!showMessageResults && allTags.length > 0 && tagsExpanded && (
         <div className="flex flex-wrap gap-1 border-b border-[var(--border)]/60 p-2">
           {hasTagFilters(tagFilters) && <TagFilterClear onClear={() => setTagFilters(NO_TAG_FILTERS)} />}
           {allTags.map((tag) => (

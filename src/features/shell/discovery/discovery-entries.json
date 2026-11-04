@@ -195,7 +195,7 @@
       "jump to message"
     ],
     "audience": "Anyone with long chats who wants to find something said earlier.",
-    "where": "Sidebar > search box > Messages.",
+    "where": "Chats > search box > Messages (the filter pills step aside while message results show).",
     "actions": [
       {
         "type": "go-home",
@@ -706,8 +706,23 @@
     "id": "help-hub",
     "title": "Help Hub",
     "category": "Help",
-    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, shortcut reference, and app version details.",
-    "keywords": ["help", "support", "about", "version", "shortcuts", "question mark", "diagnostics", "getting started"],
+    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, the shortcut reference, and About De-Koi: the app version, the project notice, the licence and source links, and credits.",
+    "keywords": [
+      "help",
+      "support",
+      "about",
+      "version",
+      "shortcuts",
+      "question mark",
+      "diagnostics",
+      "getting started",
+      "credits",
+      "license",
+      "licence",
+      "source code",
+      "notices",
+      "AGPL"
+    ],
     "audience": "Users who are stuck, confused, or want one place to find recovery actions.",
     "where": "Title bar Help button, mobile chat Help button, or press ? outside text inputs.",
     "actions": [

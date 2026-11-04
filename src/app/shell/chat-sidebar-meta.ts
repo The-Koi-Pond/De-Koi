@@ -27,12 +27,17 @@ export function formatChatLastActive(value: string | number | Date, now: number)
 
 /** The chat's characters the name doesn't already mention: "Mira, Jun +2" (at most two named). */
 export function chatRowCharacterNames(chatName: string, characterNames: readonly string[]): string {
-  const name = chatName.toLowerCase();
   const unnamed = characterNames.filter((characterName) => {
     const trimmed = characterName.trim();
-    return trimmed.length > 0 && !name.includes(trimmed.toLowerCase());
+    return trimmed.length > 0 && !mentionsWholeName(chatName, trimmed);
   });
   if (unnamed.length === 0) return "";
   const shown = unnamed.slice(0, 2).join(", ");
   return unnamed.length > 2 ? `${shown} +${unnamed.length - 2}` : shown;
+}
+
+/** Whole words only, any case and script: "Ann" is in "Ann's party" but not in "Annual party". */
+function mentionsWholeName(chatName: string, characterName: string): boolean {
+  const escaped = characterName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${escaped}(?![\\p{L}\\p{M}\\p{N}])`, "iu").test(chatName);
 }

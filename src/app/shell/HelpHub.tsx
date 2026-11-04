@@ -1,4 +1,4 @@
-﻿import { useState, type ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 import {
   Bug,
   ClipboardList,
@@ -20,7 +20,6 @@ import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../shared/stores/ui.store";
-import { CreditsModal } from "./CreditsModal";
 
 function HelpAction({
   icon,
@@ -51,7 +50,6 @@ function HelpAction({
 }
 
 export function HelpHub() {
-  const [creditsOpen, setCreditsOpen] = useState(false);
   // Home shows the chat-type cards and, while setup is unfinished, the setup checklist.
   const getStarted = () => {
     const ui = useUIStore.getState();
@@ -164,12 +162,14 @@ export function HelpHub() {
         aria-labelledby="help-about-heading"
         className="mt-3 rounded-md border border-[var(--border)] bg-[var(--secondary)]/25 px-3 py-2.5 text-[0.7rem] text-[var(--muted-foreground)]"
       >
-        <h3 id="help-about-heading" className="flex flex-wrap items-center gap-2">
-          <Info size="0.8125rem" aria-hidden />
-          <span className="font-semibold text-[var(--foreground)]">About De-Koi {APP_VERSION}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 id="help-about-heading" className="flex items-center gap-2">
+            <Info size="0.8125rem" aria-hidden />
+            <span className="font-semibold text-[var(--foreground)]">About De-Koi {APP_VERSION}</span>
+          </h3>
           <span aria-hidden>/</span>
-          <span className="font-normal">Press ? to open Help.</span>
-        </h3>
+          <span>Press ? to open Help.</span>
+        </div>
         <p className="mt-2 leading-relaxed">
           De-Koi is an unofficial project that began as a fork of{" "}
           <a
@@ -209,12 +209,11 @@ export function HelpHub() {
           >
             Notices
           </a>
-          <button type="button" onClick={() => setCreditsOpen(true)} className={ABOUT_LINK}>
+          <button type="button" onClick={() => useUIStore.getState().openModal("credits")} className={ABOUT_LINK}>
             Credits
           </button>
         </div>
       </section>
-      <CreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </div>
   );
 }
