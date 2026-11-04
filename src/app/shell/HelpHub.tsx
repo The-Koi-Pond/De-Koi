@@ -1,4 +1,4 @@
-﻿import type { ReactNode } from "react";
+﻿import { useState, type ReactNode } from "react";
 import {
   Bug,
   ClipboardList,
@@ -20,6 +20,7 @@ import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../shared/stores/ui.store";
+import { CreditsModal } from "./CreditsModal";
 
 function HelpAction({
   icon,
@@ -50,6 +51,7 @@ function HelpAction({
 }
 
 export function HelpHub() {
+  const [creditsOpen, setCreditsOpen] = useState(false);
   // Home shows the chat-type cards and, while setup is unfinished, the setup checklist.
   const getStarted = () => {
     const ui = useUIStore.getState();
@@ -158,12 +160,64 @@ export function HelpHub() {
         </pre>
       </section>
 
-      <section className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/25 px-3 py-2 text-[0.7rem] text-[var(--muted-foreground)]">
-        <Info size="0.8125rem" aria-hidden />
-        <span>De-Koi {APP_VERSION}</span>
-        <span aria-hidden>/</span>
-        <span>Press ? to open Help.</span>
+      <section
+        aria-labelledby="help-about-heading"
+        className="mt-3 rounded-md border border-[var(--border)] bg-[var(--secondary)]/25 px-3 py-2.5 text-[0.7rem] text-[var(--muted-foreground)]"
+      >
+        <h3 id="help-about-heading" className="flex flex-wrap items-center gap-2">
+          <Info size="0.8125rem" aria-hidden />
+          <span className="font-semibold text-[var(--foreground)]">About De-Koi {APP_VERSION}</span>
+          <span aria-hidden>/</span>
+          <span className="font-normal">Press ? to open Help.</span>
+        </h3>
+        <p className="mt-2 leading-relaxed">
+          De-Koi is an unofficial project that began as a fork of{" "}
+          <a
+            href="https://github.com/Pasta-Devs/Marinara-Engine"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            Marinara Engine
+          </a>
+          .
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>AGPL-3.0-or-later</span>
+          <span>No warranty</span>
+          <a
+            href="https://github.com/The-Koi-Pond/De-Koi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            Source
+          </a>
+          <a
+            href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/LICENSE.txt"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            License
+          </a>
+          <a
+            href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/NOTICE.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            Notices
+          </a>
+          <button type="button" onClick={() => setCreditsOpen(true)} className={ABOUT_LINK}>
+            Credits
+          </button>
+        </div>
       </section>
+      <CreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </div>
   );
 }
+
+const ABOUT_LINK =
+  "underline decoration-[var(--muted-foreground)]/35 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40";

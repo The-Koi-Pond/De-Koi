@@ -85,6 +85,7 @@ describe("chat sidebar virtual list", () => {
     expect(rows.map((row) => row.key)).toEqual([
       "section:pinned",
       "chat:pinned",
+      "section:folders",
       "folder:folder-a",
       "chat:folder-chat",
       "folder:folder-b",
@@ -118,7 +119,8 @@ describe("chat sidebar virtual list", () => {
 
     expect(container!.querySelectorAll("[data-chat-row]").length).toBeLessThan(20);
     expect(container!.querySelector('[data-chat-id="chat-999"]')).toBeNull();
-    expect(scrollToIndex).toHaveBeenCalledWith(901, { align: "auto" });
+    // The folders heading and the unfiled drop zone come first.
+    expect(scrollToIndex).toHaveBeenCalledWith(902, { align: "auto" });
   });
 
   it("keeps folder rows vertically offset when reorder items own transform", () => {
@@ -151,6 +153,7 @@ describe("chat sidebar virtual list", () => {
 
     const folderRows = Array.from(container!.querySelectorAll<HTMLElement>("[data-folder-row]"));
     expect(folderRows).toHaveLength(2);
-    expect(folderRows.map((row) => row.style.top)).toEqual(["0px", "44px"]);
+    // Below the folders heading (row 0).
+    expect(folderRows.map((row) => row.style.top)).toEqual(["44px", "88px"]);
   });
 });

@@ -1,5 +1,6 @@
 import { Feather, MessageCircle, Wand2 } from "lucide-react";
 
+import { ModeIcon } from "../../../../shared/components/ModeIcon";
 import { ContextMenu, type ContextMenuItem } from "../../../../shared/components/ui/ContextMenu";
 
 export type CharacterQuickStartContextMenuState = {
@@ -11,7 +12,10 @@ export type CharacterQuickStartContextMenuState = {
   altGreetings?: string[];
 };
 
-/** Pick which kind of chat to start with a character: opened by right-clicking a row or its start-chat button. */
+/**
+ * Pick which kind of chat to start with a character: opened by right-clicking a row or its start-chat button.
+ * The Pond theme shows its own mode icons (drawn for 18px and up); other themes keep these small ones.
+ */
 export function CharacterQuickStartContextMenu({
   menu,
   pendingStartCharacterId,
@@ -30,18 +34,18 @@ export function CharacterQuickStartContextMenu({
   const items: ContextMenuItem[] = [
     {
       label: "Quick Start Conversation",
-      icon: <MessageCircle size="0.75rem" />,
+      icon: <ModeIcon mode="conversation" className="block" fallback={<MessageCircle size="0.75rem" />} />,
       onSelect: () => onStartConversation(menu),
     },
     {
       label: "Quick Start Roleplay",
-      icon: <Wand2 size="0.75rem" />,
+      icon: <ModeIcon mode="roleplay" className="block" fallback={<Wand2 size="0.75rem" />} />,
       disabled: pendingStartCharacterId === menu.charId,
       onSelect: () => onStartRoleplay(menu),
     },
     {
       label: "Quick Start Fanfic",
-      icon: <Feather size="0.75rem" />,
+      icon: <ModeIcon mode="fanfic" className="block" fallback={<Feather size="0.75rem" />} />,
       onSelect: () => onStartFanfic(menu),
     },
   ];

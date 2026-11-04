@@ -21,6 +21,14 @@ export type ChatSidebarVirtualRow<TFolder extends FolderLike, TEntry extends Cha
       label: string;
     }
   | {
+      /** "FOLDERS (n)" with its create button, and a hint while there are none. */
+      type: "section";
+      key: string;
+      section: "folders";
+      label: string;
+      folderCount: number;
+    }
+  | {
       type: "folder";
       key: string;
       folder: TFolder;
@@ -59,6 +67,13 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
     }
   }
 
+  rows.push({
+    type: "section",
+    key: "section:folders",
+    section: "folders",
+    label: "Folders",
+    folderCount: modeFolders.length,
+  });
   for (const folderId of localFolderOrder) {
     const folder = foldersById.get(folderId);
     if (!folder) continue;
@@ -81,15 +96,23 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
   return rows;
 }
 
+/** Spread on a row's outer element so the list measures its real height (rows grow with text size and layout). */
+export type ChatSidebarRowMeasure = {
+  ref: ((node: Element | null) => void) | undefined;
+  "data-index": number;
+};
+
+// First guesses only: every row is measured once it renders.
 function estimateSidebarRowSize(row: ChatSidebarVirtualRow<FolderLike, ChatEntryLike>): number {
   switch (row.type) {
     case "section":
+      if (row.section === "folders") return row.folderCount > 0 ? 32 : 80;
       return row.section === "pinned" ? 26 : 12;
     case "folder":
       return 36;
     case "chat":
     default:
-      return 50;
+      return 74;
   }
 }
 
@@ -108,10 +131,12 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
   renderFolderHeader: (
     row: Extract<ChatSidebarVirtualRow<TFolder, TEntry>, { type: "folder" }>,
     style: CSSProperties,
+    measure: ChatSidebarRowMeasure,
   ) => ReactNode;
   renderSectionHeader: (
     row: Extract<ChatSidebarVirtualRow<TFolder, TEntry>, { type: "section" }>,
     style: CSSProperties,
+    measure: ChatSidebarRowMeasure,
   ) => ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -150,17 +175,21 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
             top: virtualRow.start,
             width: "100%",
           };
+          const measure: ChatSidebarRowMeasure = {
+            ref: rowVirtualizer.measureElement,
+            "data-index": virtualRow.index,
+          };
 
           if (row.type === "folder") {
-            return renderFolderHeader(row, style);
+            return renderFolderHeader(row, style, measure);
           }
 
           if (row.type === "section") {
-            return renderSectionHeader(row, style);
+            return renderSectionHeader(row, style, measure);
           }
 
           return (
-            <div key={row.key} data-index={virtualRow.index} style={style} className="pb-0.5">
+            <div key={row.key} {...measure} style={style} className="pb-0.5">
               {renderChatRow(row.entry, row)}
             </div>
           );
