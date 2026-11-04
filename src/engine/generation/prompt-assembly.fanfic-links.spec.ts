@@ -26,9 +26,21 @@ const rp: JsonRecord = {
   characterIds: ["harl"],
   metadata: { fanficLink: { ficChatId: "fic" } },
 };
-const chapter = { id: "c1", chatId: "fic", role: "assistant", content: "The bell was silver.", createdAt: "2026-01-01T10:00:00Z" };
+const chapter = {
+  id: "c1",
+  chatId: "fic",
+  role: "assistant",
+  content: "The bell was silver.",
+  createdAt: "2026-01-01T10:00:00Z",
+};
 const rpMessages = [
-  { id: "r1", chatId: "rp", role: "user", content: "The bell rang twice at midnight.", createdAt: "2026-01-01T12:00:00Z" },
+  {
+    id: "r1",
+    chatId: "rp",
+    role: "user",
+    content: "The bell rang twice at midnight.",
+    createdAt: "2026-01-01T12:00:00Z",
+  },
 ];
 
 function storage(): StorageGateway {
