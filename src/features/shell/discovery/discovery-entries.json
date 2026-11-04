@@ -357,7 +357,7 @@
     "summary": "Manage who you play as, including persona descriptions, avatars, and groups that chats can use for context.",
     "keywords": ["persona", "user", "player", "avatar", "self", "profile", "play as", "groups", "drag and drop"],
     "audience": "Users who want different identities or player characters for different chats.",
-    "where": "Title bar > Personas, or chat settings for per-chat persona choices.",
+    "where": "Title bar > Characters, then the Personas switch at the top; or chat settings for per-chat persona choices.",
     "actions": [
       {
         "type": "open-panel",
@@ -692,7 +692,7 @@
     "summary": "Browse downloadable character cards and related community resources from inside De-Koi.",
     "keywords": ["browser", "bots", "download", "community", "cards", "search"],
     "audience": "Users looking for characters and resources to start with.",
-    "where": "Title bar > Browser.",
+    "where": "Title bar > Characters, then Browse online at the bottom of the panel.",
     "actions": [
       {
         "type": "open-panel",
@@ -1425,7 +1425,9 @@
       "visual style",
       "pond",
       "new look",
-      "koi ring"
+      "koi ring",
+      "navigation rail",
+      "settings drawer"
     ],
     "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",

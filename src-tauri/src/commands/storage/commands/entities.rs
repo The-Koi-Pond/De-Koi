@@ -5568,6 +5568,118 @@ mod tests {
     }
 
     #[test]
+    fn duplicating_lorebook_copies_entries_and_folders_as_an_unlinked_switched_off_book() {
+        let state = test_state("lorebook-duplicate");
+        for (collection, row) in [
+            (
+                "lorebooks",
+                json!({ "id": "book", "name": "Kingdom", "enabled": true, "characterId": "mira",
+                        "characterIds": ["mira"], "category": "world" }),
+            ),
+            (
+                "lorebook-folders",
+                json!({ "id": "outer", "lorebookId": "book", "name": "Places", "parentFolderId": null }),
+            ),
+            (
+                "lorebook-folders",
+                json!({ "id": "inner", "lorebookId": "book", "name": "Towns", "parentFolderId": "outer" }),
+            ),
+            (
+                "lorebook-entries",
+                json!({ "id": "e1", "lorebookId": "book", "content": "Ashford", "folderId": "inner" }),
+            ),
+            (
+                "lorebook-entries",
+                json!({ "id": "e2", "lorebookId": "book", "content": "The king", "folderId": null }),
+            ),
+            (
+                "lorebook-entries",
+                json!({ "id": "other", "lorebookId": "another-book", "content": "Not ours" }),
+            ),
+        ] {
+            state
+                .storage
+                .create(collection, row)
+                .expect("seed row should be created");
+        }
+
+        let copy =
+            duplicate_entity(&state, "lorebooks", "book").expect("lorebook copy should succeed");
+        let copy_id = copy["id"].as_str().expect("copy has an id").to_string();
+        assert_ne!(copy_id, "book");
+        assert_eq!(copy["name"], "Kingdom Copy");
+        assert_eq!(copy["enabled"], false);
+        assert_eq!(copy["characterId"], Value::Null);
+        assert_eq!(copy["characterIds"], json!(["mira"]));
+        assert_eq!(copy["category"], "world");
+
+        let folders = state
+            .storage
+            .list("lorebook-folders")
+            .expect("folders should list");
+        let copied_folders: Vec<&Value> = folders
+            .iter()
+            .filter(|row| row["lorebookId"] == copy_id)
+            .collect();
+        assert_eq!(copied_folders.len(), 2);
+        let copied_outer = copied_folders
+            .iter()
+            .find(|row| row["name"] == "Places")
+            .expect("outer copied");
+        let copied_inner = copied_folders
+            .iter()
+            .find(|row| row["name"] == "Towns")
+            .expect("inner copied");
+        assert_ne!(copied_outer["id"], "outer");
+        assert_eq!(copied_outer["parentFolderId"], Value::Null);
+        assert_eq!(copied_inner["parentFolderId"], copied_outer["id"]);
+
+        let entries = state
+            .storage
+            .list("lorebook-entries")
+            .expect("entries should list");
+        let copied_entries: Vec<&Value> = entries
+            .iter()
+            .filter(|row| row["lorebookId"] == copy_id)
+            .collect();
+        assert_eq!(copied_entries.len(), 2);
+        let copied_ashford = copied_entries
+            .iter()
+            .find(|row| row["content"] == "Ashford")
+            .expect("e1 copied");
+        assert_ne!(copied_ashford["id"], "e1");
+        assert_eq!(copied_ashford["folderId"], copied_inner["id"]);
+        let copied_king = copied_entries
+            .iter()
+            .find(|row| row["content"] == "The king")
+            .expect("e2 copied");
+        assert_eq!(copied_king["folderId"], Value::Null);
+
+        // The original and other lorebooks' rows are untouched.
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|row| row["lorebookId"] == "book")
+                .count(),
+            2
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|row| row["lorebookId"] == "another-book")
+                .count(),
+            1
+        );
+        let original = state
+            .storage
+            .get("lorebooks", "book")
+            .expect("original should read")
+            .expect("original should still exist");
+        assert_eq!(original["enabled"], true);
+        assert_eq!(original["characterId"], "mira");
+    }
+
+    #[test]
     fn duplicating_inactive_persona_keeps_duplicate_inactive() {
         let state = test_state("persona-duplicate-inactive-flags");
         storage_create_inner(

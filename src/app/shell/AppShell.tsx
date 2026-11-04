@@ -7,6 +7,9 @@ import { TopBar } from "./TopBar";
 import { TopBarActionsProvider } from "../../shared/components/mobile-shell-actions";
 import { WindowTitleBar } from "./WindowTitleBar";
 import { MobileTabBar } from "./MobileTabBar";
+import { NavRail } from "./NavRail";
+import { ColumnCollapseButton } from "./ColumnCollapseButton";
+import { UserStatusBar } from "./UserStatusBar";
 import { DISCOVERY_APP_EVENT, type DiscoveryAppEventDetail } from "../../shared/lib/discovery-navigation";
 import {
   getTrackerPanelWidthForProfile,
@@ -16,7 +19,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   useUIStore,
 } from "../../shared/stores/ui.store";
-import type { TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
+import type { Panel, TrackerPanelSizeProfile } from "../../shared/stores/ui.store";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { useAgentStore } from "../../shared/stores/agent.store";
@@ -419,8 +422,27 @@ export function AppShell() {
     return () => window.clearTimeout(timeoutId);
   }, [chatNotificationCount, notificationBubblesMounted]);
 
+  // The Pond theme moves the desktop navigation into a rail on the left.
+  const visualTheme = useUIStore((s) => s.visualTheme);
+
   // Track mobile breakpoint for right-panel animation strategy
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const showNavRail = visualTheme === "pond" && !isMobile;
+  // In the same layout, Settings opens as a wide drawer over the page instead
+  // of a side panel, so its tabs fit in a column with a hint under each.
+  const rightPanel = useUIStore((s) => s.rightPanel);
+  const settingsDrawerOpen = showNavRail && rightPanelOpen && rightPanel === "settings";
+  // The other panels (Characters, Lorebooks...) open in the column beside the
+  // rail, in place of the chat list, like DeKoi's Shoal. Closing one brings
+  // the chat list (or Deki-senpai's list) back.
+  // Help (its button is in the status strip's corner) still opens as a panel on the right.
+  const columnPanelOpen = showNavRail && rightPanelOpen && !settingsDrawerOpen && rightPanel !== "help";
+  const rightColumnOpen = rightPanelOpen && !columnPanelOpen;
+  const chatColumnVisible = chatSidebarVisible && !columnPanelOpen;
+  const dekiColumnVisible = dekiSidebarVisible && !columnPanelOpen;
+  const leftColumnOpen = leftSidebarPanel !== null || columnPanelOpen;
+  // Where the left column ends: after the rail when it shows.
+  const leftColumnEdge = showNavRail ? `calc(var(--pond-rail-width) + ${liveSidebarWidth}px)` : liveSidebarWidth;
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
@@ -640,6 +662,24 @@ export function AppShell() {
       setPanel: setLeftSidebarPanelState,
     });
   }, []);
+
+  // The Pond rail column's fold-away "‹": hides whatever the column shows (a panel,
+  // the chat list or Deki-senpai's list), so the page gets the full width. The rail brings it back.
+  // What the column showed when it was folded, so the "›" tab left at the rail's edge can bring it back.
+  const foldedColumnRef = useRef<{ panel: Panel } | { list: "chats" | "deki" }>({ list: "chats" });
+  const collapseColumn = useCallback(() => {
+    const ui = useUIStore.getState();
+    foldedColumnRef.current = ui.rightPanelOpen
+      ? { panel: ui.rightPanel }
+      : { list: leftSidebarPanel === "deki" ? "deki" : "chats" };
+    closeRightPanel();
+    setLeftSidebarPanel(null);
+  }, [closeRightPanel, leftSidebarPanel, setLeftSidebarPanel]);
+  const unfoldColumn = useCallback(() => {
+    const folded = foldedColumnRef.current;
+    if ("panel" in folded) useUIStore.getState().openRightPanel(folded.panel);
+    else setLeftSidebarPanel(folded.list);
+  }, [setLeftSidebarPanel]);
 
   const closeDekiShell = useCallback(() => {
     setDekiOpen(false);
@@ -879,9 +919,11 @@ export function AppShell() {
       document.body.style.userSelect = "none";
       sidebarDragWidthRef.current = sharedPanelWidth;
       setSidebarDragWidth(sharedPanelWidth);
+      // The handle sits at the column's right edge; the column starts after the Pond rail when it shows.
+      const columnLeft = event.currentTarget.getBoundingClientRect().left - sharedPanelWidth;
 
       const onMove = (moveEvent: MouseEvent) => {
-        const nextWidth = clampWidth(moveEvent.clientX, SHARED_PANEL_WIDTH_MIN, SHARED_PANEL_WIDTH_MAX);
+        const nextWidth = clampWidth(moveEvent.clientX - columnLeft, SHARED_PANEL_WIDTH_MIN, SHARED_PANEL_WIDTH_MAX);
         sidebarDragWidthRef.current = nextWidth;
         setSidebarDragWidth(nextWidth);
       };
@@ -1278,8 +1320,10 @@ export function AppShell() {
 
   const syncMobilePanelInert = useCallback(() => {
     if (!isMobile) {
-      setInert(sidebarPanelRef.current, false);
-      setInert(dekiSidebarPanelRef.current, false);
+      // A list that's folded to zero width (or swapped out for a panel in the Pond rail's column)
+      // stays out of the Tab order and away from screen readers until it shows again.
+      setInert(sidebarPanelRef.current, !chatColumnVisible);
+      setInert(dekiSidebarPanelRef.current, !dekiColumnVisible);
       setInert(mobileTrackerPanelRef.current, false);
       setInert(mobileRightPanelRef.current, false);
       setInert(mobileToolsPanelRef.current, false);
@@ -1295,7 +1339,7 @@ export function AppShell() {
     setInert(mobileToolsPanelRef.current, activeMobilePanel !== "tools");
     setInert(headerRef.current, activeMobileOverlayPanel !== null);
     setInert(mainRef.current, activeMobileOverlayPanel !== null);
-  }, [activeMobileOverlayPanel, activeMobilePanel, isMobile]);
+  }, [activeMobileOverlayPanel, activeMobilePanel, chatColumnVisible, dekiColumnVisible, isMobile]);
 
   useEffect(() => {
     if (!hasCompletedOnboarding) return;
@@ -1468,6 +1512,7 @@ export function AppShell() {
             onLeftSidebarPanelChange={setLeftSidebarPanel}
             onOpenDeki={() => openActiveDeki()}
             onGoHome={closeDekiShell}
+            navInRail={showNavRail}
             titlebarAccessory={
               musicDjMiniPlayerEnabled ? (
                 <Suspense fallback={null}>
@@ -1499,6 +1544,21 @@ export function AppShell() {
         </header>
 
         <div data-component="AppShellBody" className="relative flex min-h-0 flex-1 overflow-hidden">
+          {/* Once the rail's column is folded away, its "›" tab stays at the rail's edge to bring it back. */}
+          {showNavRail && !leftColumnOpen && !settingsDrawerOpen && (
+            <div className="absolute top-2.5 z-30" style={{ left: "var(--pond-rail-width)" }}>
+              <ColumnCollapseButton direction="unfold" onCollapse={unfoldColumn} />
+            </div>
+          )}
+          {showNavRail && (
+            <NavRail
+              dekiOpen={dekiOpen}
+              columnPanelOpen={columnPanelOpen}
+              leftSidebarPanel={leftSidebarPanel}
+              onLeftSidebarPanelChange={setLeftSidebarPanel}
+              onGoHome={closeDekiShell}
+            />
+          )}
           {/* Mobile sidebar backdrop */}
           {isMobile && leftSidebarPanel !== null && (
             <div
@@ -1524,7 +1584,7 @@ export function AppShell() {
               !chatSidebarVisible && "max-md:w-0!",
             )}
             style={{
-              width: chatSidebarVisible ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0,
+              width: chatColumnVisible ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0,
               bottom: isMobile && chatSidebarVisible ? "calc(4.5rem + env(safe-area-inset-bottom))" : 0,
             }}
           >
@@ -1533,6 +1593,8 @@ export function AppShell() {
                 activeTab={activeChatSidebarTab}
                 onActiveTabChange={setActiveChatSidebarTab}
                 onRequestClose={() => setLeftSidebarPanel(null)}
+                onCollapse={showNavRail ? collapseColumn : undefined}
+                statusInStrip={showNavRail}
               />
             </div>
           </aside>
@@ -1552,7 +1614,7 @@ export function AppShell() {
               !dekiSidebarVisible && "max-md:w-0!",
             )}
             style={{
-              width: dekiSidebarVisible ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0,
+              width: dekiColumnVisible ? (isMobile ? "min(18.75rem, 85vw)" : liveSidebarWidth) : 0,
               bottom: isMobile && dekiSidebarVisible ? "calc(4.5rem + env(safe-area-inset-bottom))" : 0,
             }}
           >
@@ -1569,17 +1631,30 @@ export function AppShell() {
                     onDeleteSession={(sessionId) => void deleteDekiSession(sessionId)}
                     onDeleteSessions={(sessionIds) => void deleteDekiSessions(sessionIds)}
                     onClose={() => setLeftSidebarPanel(null)}
+                    onCollapse={showNavRail ? collapseColumn : undefined}
                   />
                 </Suspense>
               )}
             </div>
           </aside>{" "}
-          {!isMobile && leftSidebarPanel !== null && (
+          {columnPanelOpen && (
+            <aside
+              data-component="ColumnPanel"
+              aria-label="Library and tools panel"
+              className="mari-sidebar pond-column-panel flex-shrink-0 overflow-hidden"
+              style={{ width: liveSidebarWidth }}
+            >
+              <Suspense fallback={<SidePanelFallback />}>
+                <RightPanel onCollapse={collapseColumn} />
+              </Suspense>
+            </aside>
+          )}
+          {!isMobile && leftColumnOpen && (
             <>
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-y-0 z-30 hidden w-px bg-[var(--sidebar-border)]/30 md:block"
-                style={{ left: liveSidebarWidth }}
+                style={{ left: leftColumnEdge }}
               />
               <div
                 role="separator"
@@ -1592,7 +1667,7 @@ export function AppShell() {
                 onMouseDown={startSidebarResize}
                 onKeyDown={adjustSidebarWidth}
                 className="absolute inset-y-0 z-20 hidden w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--primary)]/30 focus-visible:bg-[var(--primary)]/40 focus-visible:outline-none md:block"
-                style={{ left: liveSidebarWidth }}
+                style={{ left: leftColumnEdge }}
               />
             </>
           )}
@@ -1736,6 +1811,19 @@ export function AppShell() {
                 </Suspense>
               </aside>
             )
+          ) : settingsDrawerOpen ? (
+            <>
+              <div className="pond-settings-scrim" onClick={() => closeRightPanel()} aria-hidden />
+              <aside
+                data-component="RightPanelDesktop"
+                aria-label="Settings"
+                className="mari-right-panel pond-settings-drawer overflow-hidden"
+              >
+                <Suspense fallback={<SidePanelFallback />}>
+                  <RightPanel />
+                </Suspense>
+              </aside>
+            </>
           ) : (
             <aside
               data-component="RightPanelDesktop"
@@ -1744,9 +1832,9 @@ export function AppShell() {
                 "mari-right-panel flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
                 rightPanelDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
               )}
-              style={{ width: rightPanelOpen ? liveRightPanelWidth : 0 }}
+              style={{ width: rightColumnOpen ? liveRightPanelWidth : 0 }}
             >
-              {rightPanelOpen && (
+              {rightColumnOpen && (
                 <div className="h-full" style={{ width: liveRightPanelWidth }}>
                   <Suspense fallback={<SidePanelFallback />}>
                     <RightPanel />
@@ -1755,7 +1843,7 @@ export function AppShell() {
               )}
             </aside>
           )}
-          {!isMobile && rightPanelOpen && (
+          {!isMobile && rightColumnOpen && !settingsDrawerOpen && (
             <>
               <div
                 aria-hidden="true"
@@ -1794,6 +1882,13 @@ export function AppShell() {
             </Suspense>
           )}
         </div>
+        {/* Pond on desktop: your persona, presence and activity as a permanent strip along the window's bottom. */}
+        {showNavRail && (
+          <UserStatusBar
+            variant="strip"
+            discover={{ open: discoverOpen, onToggle: discoverOpen ? closeDiscover : openDiscover }}
+          />
+        )}
       </div>
       <MobileTabBar
         dekiOpen={dekiOpen}

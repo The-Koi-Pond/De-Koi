@@ -114,9 +114,19 @@ export function useCharactersPanelFilters(parsedCharacters: ParsedCharacterRow[]
     setExcludedTags(new Set());
   }, []);
 
+  // A clicked tag cycles off → include → exclude → off (the same order as `cycleTagFilter`).
+  const cycleTag = useCallback(
+    (tag: string) => {
+      if (includedTags.has(tag) || excludedTags.has(tag)) toggleExcludedTag(tag);
+      else toggleIncludedTag(tag);
+    },
+    [excludedTags, includedTags, toggleExcludedTag, toggleIncludedTag],
+  );
+
   return {
     allTags,
     clearTagFilters,
+    cycleTag,
     excludedTags,
     favFilter,
     handleDeleteTag,

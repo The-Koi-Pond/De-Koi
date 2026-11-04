@@ -395,7 +395,7 @@ export function CharacterGroupsSection({
             })}
 
             {groups.length === 0 && !creatingGroup && (
-              <div className="py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+              <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
                 No folders yet - click <FolderPlus size="0.625rem" className="inline" /> to create one
               </div>
             )}

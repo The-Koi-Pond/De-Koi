@@ -322,6 +322,11 @@ export function SetupReadinessJourney() {
             completed={intent.completed}
             onDismiss={() => useSetupJourneyStore.getState().dismiss()}
             onResume={() => useSetupJourneyStore.getState().resume()}
+            onCancel={() => {
+              // Drop the waiting new chat too: while it waits, the chat screen starts a fresh setup for it.
+              useChatStore.getState().setPendingNewChatMode(null);
+              useSetupJourneyStore.getState().clearIntent();
+            }}
             onConfigureRuntime={openSettings}
             onRepairRuntime={openSettings}
             onCreateConnection={openConnections}

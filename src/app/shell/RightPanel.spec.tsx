@@ -13,6 +13,7 @@ vi.mock("./right-panel-loaders", () => {
   });
   return {
     RIGHT_PANEL_LOADERS: new Proxy({}, { get: () => panel }),
+    preloadRightPanelPanel: vi.fn(),
   };
 });
 
@@ -44,6 +45,27 @@ describe("RightPanel", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("switches between Characters and Personas in one panel, and shows no switch elsewhere", async () => {
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+
+    await act(async () => useUIStore.setState({ rightPanel: "personas" }));
+    const tabs = () => Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([
+      ["Characters", "false"],
+      ["Personas", "true"],
+    ]);
+
+    await act(async () => tabs()[0]!.click());
+    expect(useUIStore.getState().rightPanel).toBe("characters");
+    expect(useUIStore.getState().rightPanelOpen).toBe(true);
+
+    await act(async () => {
+      tabs()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(useUIStore.getState().rightPanel).toBe("personas");
+    expect(document.activeElement?.textContent).toBe("Personas");
   });
 
   it("closes on Escape", () => {

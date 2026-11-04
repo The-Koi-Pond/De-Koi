@@ -812,6 +812,187 @@
   }
 }
 
+/* ─── The navigation rail (src/app/shell/NavRail.tsx) ───
+   Desktop only: a narrow rail on the left with the logo (Deki-senpai's
+   chat) at the top, icons only, each named in a tooltip. Every item is a
+   full-width cell, touching the rail's edges and its neighbours (no floating
+   tiles); the open one fills its whole cell. The title bar keeps just the
+   window buttons. */
+/* AppShell.tsx reads this to place the left column's resize handle after the rail. */
+[data-visual-theme="pond"] {
+  --pond-rail-width: 2.875rem;
+}
+
+[data-visual-theme="pond"] .pond-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--pond-rail-width);
+  overflow-y: auto;
+  scrollbar-width: none;
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+[data-visual-theme="pond"] :is(.pond-rail-deki, .pond-rail-button) {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 100%;
+  height: 3rem;
+  color: var(--muted-foreground);
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+/* The logo cell: as tall as the column headers beside it, with a line under it. */
+[data-visual-theme="pond"] .pond-rail-deki {
+  border-bottom: 1px solid var(--border);
+}
+
+[data-visual-theme="pond"] .pond-rail-deki img {
+  width: 2rem;
+  height: 2rem;
+}
+
+[data-visual-theme="pond"] :is(.pond-rail-deki, .pond-rail-button):hover {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--foreground);
+}
+
+[data-visual-theme="pond"] .pond-rail-button-active,
+[data-visual-theme="pond"] .pond-rail-button-active:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+[data-visual-theme="pond"] :is(.pond-rail-deki, .pond-rail-button):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Group lines run the rail's full width. */
+[data-visual-theme="pond"] .pond-rail-divider {
+  flex: none;
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Agents that failed: a small amber dot. */
+[data-visual-theme="pond"] .pond-rail-badge {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.4rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--pond-amber);
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+
+/* The column beside the rail: Characters, Lorebooks and the other panels open
+   here in place of the chat list (like DeKoi's Shoal), on the same flat layer. */
+[data-visual-theme="pond"] .pond-column-panel {
+  background: var(--sidebar);
+}
+
+/* Settings as a drawer (AppShell.tsx, desktop with the rail): it slides in
+   over the page from the right, wide enough for the tabs to sit in a column
+   with a short hint under each. Clicking the dimmed page or Escape closes it. */
+[data-visual-theme="pond"] .pond-settings-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 55;
+  background: color-mix(in srgb, var(--pond-abyss) 45%, transparent);
+  animation: pond-fade-in 0.18s ease-out;
+}
+
+[data-visual-theme="pond"] .pond-settings-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 56;
+  width: min(44rem, calc(100% - 6rem));
+  background: var(--background);
+  border-left: 1px solid var(--border);
+  box-shadow: -1.5rem 0 3rem rgb(0 0 0 / 0.3);
+  animation: pond-drawer-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pond-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pond-drawer-in {
+  from {
+    transform: translateX(2.5rem);
+    opacity: 0;
+  }
+}
+
+/* The tab column. SettingsPanel switches to it at a 48rem-wide container
+   (@3xl); the drawer is narrower, so Pond switches it here. */
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-layout {
+  display: grid;
+  grid-template-columns: 11.5rem minmax(0, 1fr);
+}
+
+/* A list of flush rows, edge to edge with a line between each (the tab strip
+   elsewhere is a grid of boxed buttons; no floating tiles here). */
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden auto;
+  padding: 0;
+  border-bottom: 0;
+  border-right: 1px solid var(--border);
+}
+
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-tab {
+  width: 100%;
+  min-height: 0;
+  align-items: flex-start;
+  padding: 0.7rem 0.875rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-tab:hover {
+  background: var(--accent);
+}
+
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-tab-active,
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-tab-active:hover {
+  background: var(--pond-koi-tint);
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+[data-visual-theme="pond"] .pond-settings-drawer .de-koi-settings-tab-hint {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-visual-theme="pond"] :is(.pond-settings-scrim, .pond-settings-drawer) {
+    animation: none;
+  }
+}
+
+/* With the navigation in the rail, the desktop app's title bar only holds
+   the window buttons and the drag area. */
+[data-visual-theme="pond"] .mari-window-titlebar-slim {
+  min-height: 2rem;
+}
+
 /* ─── Shell: flat layers with one line between them ───
    The default gives the sidebars, right panel, their headers and the top bar
    glass gradients, blur and 46px drop shadows. Pond keeps them solid abyss,

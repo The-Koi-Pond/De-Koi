@@ -80,15 +80,14 @@ export function getCharacterPreviewMetadata(char: ParsedCharacterRow): string | 
       : {};
   const spec = typeof cardMetadata.spec === "string" ? cardMetadata.spec.trim() : "";
   const specVersion = typeof cardMetadata.specVersion === "string" ? cardMetadata.specVersion.trim() : "";
-  const tags = getCharacterTags(char);
 
+  // Creator and card details only. Tags show as their own chips on the row, so they aren't repeated here;
+  // a token count would need the whole card, which the list doesn't load.
   if (creator) parts.push(`by ${creator}`);
   if (version) parts.push(`v${version}`);
   if (spec) parts.push(spec);
   if (specVersion) parts.push(`spec ${specVersion}`);
-  if (parts.length > 0) return parts.join(" · ");
-  if (tags.length > 0) return tags.slice(0, 3).join(" · ");
-  return null;
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 export function filterCharacterRows({
@@ -197,7 +196,8 @@ export function parseCharacterGroups(groups: unknown, parsedCharacters: ParsedCh
     .filter((char) => !assignedIds.has(char.id))
     .sort((a, b) => readString(a.parsed.name).localeCompare(readString(b.parsed.name)))
     .map((char) => char.id);
-  if (ungroupedMemberIds.length === 0) return realGroups;
+  // With no real folders, "Ungrouped" would just repeat the whole list below it.
+  if (ungroupedMemberIds.length === 0 || realGroups.length === 0) return realGroups;
   return [
     ...realGroups,
     {

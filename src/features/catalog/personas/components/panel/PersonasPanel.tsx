@@ -2,7 +2,7 @@
 // Panel: User Personas
 // ──────────────────────────────────────────────
 import { useCallback, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
-import { Check, Download, Plus, Sparkles, User } from "lucide-react";
+import { User } from "lucide-react";
 import { toast } from "sonner";
 
 import { exportApi } from "../../../../../shared/api/export-api";
@@ -43,6 +43,8 @@ import {
 import { PersonaGroupsSection, type PersonaGroupDropTarget } from "./PersonaGroupsSection";
 import { PersonaListItem } from "./PersonaListItem";
 import { PersonasFilterBar } from "./PersonasFilterBar";
+import { CatalogActionBar } from "../../../components/CatalogPanelControls";
+import { NO_TAG_FILTERS, cycleTagFilter, withoutTagFilter, type TagFilters } from "../../../lib/tag-filters";
 import { PersonasSelectionToolbar } from "./PersonasSelectionToolbar";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 
@@ -77,7 +79,7 @@ export function PersonasPanel() {
   const [sort, setSort] = useState<SortOption>("name-asc");
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<PersonaActiveFilter>("all");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagFilters, setTagFilters] = useState<TagFilters>(NO_TAG_FILTERS);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
@@ -147,12 +149,12 @@ export function PersonasPanel() {
           const newTags = parsePersonaTags(persona).filter((candidate) => candidate !== tag);
           await updatePersona.mutateAsync({ id: persona.id, tags: newTags });
         }
-        if (activeTag === tag) setActiveTag(null);
+        setTagFilters((filters) => withoutTagFilter(filters, tag));
       } catch {
         toast.error("Couldn't remove the tag from some personas. Try again.");
       }
     },
-    [activeTag, rawList, updatePersona],
+    [rawList, updatePersona],
   );
 
   const personaMap = useMemo(() => buildPersonaMap(rawList), [rawList]);
@@ -352,8 +354,8 @@ export function PersonasPanel() {
   );
 
   const filteredList = useMemo(
-    () => filterPersonas({ personas: rawList, activeFilter, search, activeTag }),
-    [activeFilter, activeTag, rawList, search],
+    () => filterPersonas({ personas: rawList, activeFilter, search, tagFilters }),
+    [activeFilter, tagFilters, rawList, search],
   );
 
   const list = useMemo(() => sortPersonas(filteredList, sort), [filteredList, sort]);
@@ -433,181 +435,155 @@ export function PersonasPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    // The tool strips touch the panel's edges; only the list below has padding.
+    <div className="flex flex-col">
+      <CatalogActionBar
+        tone="jade"
+        selectionMode={selectionMode}
+        onCreate={handleCreate}
+        onImport={() => openModal("import-persona")}
+        onOpenMaker={() => openModal("persona-maker")}
+        onToggleSelectionMode={() => {
+          if (selectionMode) exitSelectionMode();
+          else {
+            setAssigningToGroup(null);
+            setSelectionMode(true);
+          }
+        }}
+      />
+
       <PersonasFilterBar
         search={search}
         sort={sort}
         activeFilter={activeFilter}
         allTags={allTags}
-        activeTag={activeTag}
+        tagFilters={tagFilters}
         tagsExpanded={tagsExpanded}
         onSearchChange={setSearch}
         onSortChange={setSort}
         onActiveFilterChange={setActiveFilter}
-        onActiveTagChange={setActiveTag}
+        onCycleTag={(tag) => setTagFilters((filters) => cycleTagFilter(filters, tag))}
+        onClearTagFilters={() => setTagFilters(NO_TAG_FILTERS)}
         onTagsExpandedChange={setTagsExpanded}
         onDeleteTag={handleDeleteTag}
       />
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <button
-          onClick={handleCreate}
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-500 px-2 py-2.5 text-xs font-medium text-white shadow-md shadow-emerald-400/15 transition-all hover:shadow-lg hover:shadow-emerald-400/25 active:scale-[0.98]"
-          title="New"
-        >
-          <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" />
-          <span>New</span>
-        </button>
-        <button
-          onClick={() => openModal("import-persona")}
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-[var(--secondary)] px-2 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
-          title="Import"
-        >
-          <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Import</span>
-        </button>
-        <button
-          onClick={() => openModal("persona-maker")}
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-[var(--secondary)] px-2 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
-          title="AI Maker"
-        >
-          <Sparkles size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Maker</span>
-        </button>
-        <button
-          onClick={() => {
-            if (selectionMode) exitSelectionMode();
-            else {
-              setAssigningToGroup(null);
-              setSelectionMode(true);
-            }
-          }}
-          className={cn(
-            "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
-          )}
-          aria-pressed={selectionMode}
-          title="Select"
-        >
-          <Check size="0.8125rem" className="shrink-0" aria-hidden="true" />
-          <span>Select</span>
-        </button>
-      </div>
-
-      {selectionMode && (
-        <PersonasSelectionToolbar
-          selectedCount={selectedPersonaIds.size}
-          visibleCount={list.length}
-          exportingSelected={exportingSelected}
-          onSelectVisible={selectVisible}
-          onClearSelection={clearSelection}
-          onOpenExportDialog={() => setExportDialogOpen(true)}
-          onDone={exitSelectionMode}
-        />
-      )}
-
-      <ExportFormatDialog
-        open={exportDialogOpen}
-        title="Export Personas"
-        description="Native keeps De-Koi persona metadata. Compatible exports simple persona JSON for other tools."
-        compatibleDescription="Exports persona fields directly without the native wrapper."
-        onClose={() => setExportDialogOpen(false)}
-        onSelect={handleExportSelected}
-      />
-
-      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
-
-      <PersonaGroupsSection
-        groups={parsedGroups}
-        personaMap={personaMap}
-        groupsExpanded={groupsExpanded}
-        expandedGroupId={expandedGroupId}
-        creatingGroup={creatingGroup}
-        newGroupName={newGroupName}
-        editingGroupId={editingGroupId}
-        editGroupName={editGroupName}
-        assigningToGroup={assigningToGroup}
-        draggedPersonaId={draggedPersonaId}
-        personaDropTarget={personaDropTarget}
-        canDragPersonas={canDragPersonas}
-        onGroupsExpandedChange={setGroupsExpanded}
-        onExpandedGroupIdChange={setExpandedGroupId}
-        onCreatingGroupChange={setCreatingGroup}
-        onNewGroupNameChange={setNewGroupName}
-        onEditingGroupIdChange={setEditingGroupId}
-        onEditGroupNameChange={setEditGroupName}
-        onAssigningToGroupChange={setAssigningToGroup}
-        onCreateGroup={handleCreateGroup}
-        onRenameGroup={handleRenameGroup}
-        onDeleteGroup={handleDeleteGroup}
-        onToggleGroupMember={toggleGroupMember}
-        onPersonaDragStart={handlePersonaGroupMemberDragStart}
-        onPersonaDragEnd={clearPersonaDragState}
-        onPersonaDragOver={handlePersonaDragOver}
-        onPersonaDragLeave={handlePersonaDragLeave}
-        onPersonaDrop={handlePersonaDrop}
-        onExitSelectionMode={exitSelectionMode}
-      />
-
-      {isLoading && (
-        <div className="flex flex-col gap-2 py-2">
-          {[1, 2].map((item) => (
-            <div key={item} className="shimmer h-16 rounded-xl" />
-          ))}
-        </div>
-      )}
-
-      {!isLoading && list.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-teal-500/20">
-            <User size="1.25rem" className="text-emerald-400" />
-          </div>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            {rawList.length === 0 ? "No personas yet — create one!" : "No personas match the current filters."}
-          </p>
-        </div>
-      )}
-
-      <div
-        data-persona-group-root
-        onDragOver={handlePersonaRootDragOver}
-        onDragLeave={handlePersonaDragLeave}
-        onDrop={handlePersonaRootDrop}
-        className={cn(
-          "stagger-children flex flex-col gap-1 rounded-xl transition-colors",
-          draggedPersonaId && "min-h-8",
-          personaDropTarget?.kind === "root" && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+      <div className="flex flex-col gap-2 px-3 pb-3 pt-0.5">
+        {selectionMode && (
+          <PersonasSelectionToolbar
+            selectedCount={selectedPersonaIds.size}
+            visibleCount={list.length}
+            exportingSelected={exportingSelected}
+            onSelectVisible={selectVisible}
+            onClearSelection={clearSelection}
+            onOpenExportDialog={() => setExportDialogOpen(true)}
+            onDone={exitSelectionMode}
+          />
         )}
-      >
-        {list.map((persona) => {
-          const active = isPersonaActive(persona);
-          const targetGroup = assigningToGroup
-            ? (parsedGroups.find((group) => group.id === assigningToGroup) ?? null)
-            : null;
 
-          return (
-            <PersonaListItem
-              key={persona.id}
-              persona={persona}
-              active={active}
-              selectionMode={selectionMode}
-              isSelected={selectedPersonaIds.has(persona.id)}
-              assigningToGroup={Boolean(assigningToGroup)}
-              targetGroup={targetGroup}
-              draggable={canDragPersonas}
-              isDragging={draggedPersonaId === persona.id}
-              onOpen={openPersonaDetail}
-              onAvatarClick={handleAvatarClick}
-              onToggleSelection={toggleSelection}
-              onToggleGroupMember={toggleGroupMember}
-              onActivate={handleActivate}
-              onDuplicate={handleDuplicate}
-              onDelete={handleDeletePersona}
-              onPersonaDragStart={handlePersonaListDragStart}
-              onPersonaDragEnd={clearPersonaDragState}
-            />
-          );
-        })}
+        <ExportFormatDialog
+          open={exportDialogOpen}
+          title="Export Personas"
+          description="Native keeps De-Koi persona metadata. Compatible exports simple persona JSON for other tools."
+          compatibleDescription="Exports persona fields directly without the native wrapper."
+          onClose={() => setExportDialogOpen(false)}
+          onSelect={handleExportSelected}
+        />
+
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+
+        <PersonaGroupsSection
+          groups={parsedGroups}
+          personaMap={personaMap}
+          groupsExpanded={groupsExpanded}
+          expandedGroupId={expandedGroupId}
+          creatingGroup={creatingGroup}
+          newGroupName={newGroupName}
+          editingGroupId={editingGroupId}
+          editGroupName={editGroupName}
+          assigningToGroup={assigningToGroup}
+          draggedPersonaId={draggedPersonaId}
+          personaDropTarget={personaDropTarget}
+          canDragPersonas={canDragPersonas}
+          onGroupsExpandedChange={setGroupsExpanded}
+          onExpandedGroupIdChange={setExpandedGroupId}
+          onCreatingGroupChange={setCreatingGroup}
+          onNewGroupNameChange={setNewGroupName}
+          onEditingGroupIdChange={setEditingGroupId}
+          onEditGroupNameChange={setEditGroupName}
+          onAssigningToGroupChange={setAssigningToGroup}
+          onCreateGroup={handleCreateGroup}
+          onRenameGroup={handleRenameGroup}
+          onDeleteGroup={handleDeleteGroup}
+          onToggleGroupMember={toggleGroupMember}
+          onPersonaDragStart={handlePersonaGroupMemberDragStart}
+          onPersonaDragEnd={clearPersonaDragState}
+          onPersonaDragOver={handlePersonaDragOver}
+          onPersonaDragLeave={handlePersonaDragLeave}
+          onPersonaDrop={handlePersonaDrop}
+          onExitSelectionMode={exitSelectionMode}
+        />
+
+        {isLoading && (
+          <div className="flex flex-col gap-2 py-2">
+            {[1, 2].map((item) => (
+              <div key={item} className="shimmer h-16 rounded-xl" />
+            ))}
+          </div>
+        )}
+
+        {!isLoading && list.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-teal-500/20">
+              <User size="1.25rem" className="text-emerald-400" />
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {rawList.length === 0 ? "No personas yet — create one!" : "No personas match the current filters."}
+            </p>
+          </div>
+        )}
+
+        <div
+          data-persona-group-root
+          onDragOver={handlePersonaRootDragOver}
+          onDragLeave={handlePersonaDragLeave}
+          onDrop={handlePersonaRootDrop}
+          className={cn(
+            "stagger-children flex flex-col gap-1 rounded-xl transition-colors",
+            draggedPersonaId && "min-h-8",
+            personaDropTarget?.kind === "root" && "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
+          )}
+        >
+          {list.map((persona) => {
+            const active = isPersonaActive(persona);
+            const targetGroup = assigningToGroup
+              ? (parsedGroups.find((group) => group.id === assigningToGroup) ?? null)
+              : null;
+
+            return (
+              <PersonaListItem
+                key={persona.id}
+                persona={persona}
+                active={active}
+                selectionMode={selectionMode}
+                isSelected={selectedPersonaIds.has(persona.id)}
+                assigningToGroup={Boolean(assigningToGroup)}
+                targetGroup={targetGroup}
+                draggable={canDragPersonas}
+                isDragging={draggedPersonaId === persona.id}
+                onOpen={openPersonaDetail}
+                onAvatarClick={handleAvatarClick}
+                onToggleSelection={toggleSelection}
+                onToggleGroupMember={toggleGroupMember}
+                onActivate={handleActivate}
+                onDuplicate={handleDuplicate}
+                onDelete={handleDeletePersona}
+                onPersonaDragStart={handlePersonaListDragStart}
+                onPersonaDragEnd={clearPersonaDragState}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );

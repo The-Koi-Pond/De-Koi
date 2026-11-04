@@ -1,16 +1,23 @@
 import { useEffect, useState, type DragEvent } from "react";
-import { BookOpen, Camera, Trash2, UserRound } from "lucide-react";
+import { BookOpen, Camera, Copy, Power, Trash2, UserRound } from "lucide-react";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
 import { resolveManagedLocalAssetThumbnailUrl } from "../../../../../shared/api/local-file-api";
 import { cn } from "../../../../../shared/lib/utils";
-import { LibraryFolderSelect } from "../../../library-folders";
+import {
+  CatalogRowActions,
+  catalogRowActionsRowProps,
+  type CatalogRowAction,
+} from "../../../components/CatalogPanelControls";
 import { LOREBOOK_CATEGORY_COLORS, LOREBOOK_PANEL_CATEGORIES } from "./lorebook-panel-config";
+import { formatLorebookTokenBudget } from "./lorebook-panel-model";
 
 export function LorebookRow({
   lorebook,
   characterName,
   personaName,
   onClick,
+  onToggleEnabled,
+  onDuplicate,
   onDelete,
   onImagePick,
   selectionMode,
@@ -20,14 +27,13 @@ export function LorebookRow({
   isDragging,
   onDragStart,
   onDragEnd,
-  folderOptions = [],
-  folderMoveDisabled,
-  onMoveToFolder,
 }: {
   lorebook: Lorebook;
   characterName?: string;
   personaName?: string;
   onClick: () => void;
+  onToggleEnabled: () => void;
+  onDuplicate: () => void;
   onDelete: () => void | Promise<void>;
   onImagePick: () => void;
   selectionMode?: boolean;
@@ -37,12 +43,13 @@ export function LorebookRow({
   isDragging?: boolean;
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd?: () => void;
-  folderOptions?: Array<{ id: string; name: string }>;
-  folderMoveDisabled?: boolean;
-  onMoveToFolder?: (folderId: string | null) => void;
 }) {
   const gradient = LOREBOOK_CATEGORY_COLORS[lorebook.category] ?? LOREBOOK_CATEGORY_COLORS.uncategorized;
-  const CatIcon = LOREBOOK_PANEL_CATEGORIES.find((category) => category.id === lorebook.category)?.icon ?? BookOpen;
+  const categoryMeta =
+    LOREBOOK_PANEL_CATEGORIES.find((category) => category.id === (lorebook.category || "uncategorized")) ?? null;
+  const CatIcon = categoryMeta?.icon ?? BookOpen;
+  const typeLabel = categoryMeta?.label ?? "Other";
+  const switchedOff = lorebook.enabled === false;
   const [resolvedImagePath, setResolvedImagePath] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,15 +76,67 @@ export function LorebookRow({
   const imageClasses = cn(
     "relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white shadow-sm",
     lorebook.imagePath ? "bg-[var(--muted)]" : `bg-gradient-to-br ${gradient}`,
+    switchedOff && "grayscale",
   );
+  // A switched-on lorebook's picture carries a small lit lantern: amber, softly glowing (Pond's "alive" sign).
+  const lantern = !switchedOff && (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-300 shadow-[0_0_6px_2px_rgba(251,191,36,0.55)] ring-2 ring-[var(--sidebar)]"
+    />
+  );
+
+  // Type, then the budget, then who it's linked to, then the description: one truncated line.
+  const linkedName = characterName ?? personaName;
+  const budget =
+    typeof lorebook.tokenBudget === "number" && lorebook.tokenBudget > 0
+      ? ` · ~${formatLorebookTokenBudget(lorebook.tokenBudget)} budget`
+      : "";
+  const description = lorebook.description?.trim();
+  const metaTail = description ? ` · ${description}` : !linkedName && !budget ? " · No description" : "";
+
+  // Switch on/off, copy and delete, stacked down the row's right edge.
+  const rowActions: CatalogRowAction[] = [
+    {
+      key: "toggle-enabled",
+      title: switchedOff ? "Switch on" : "Switch off",
+      label: `${switchedOff ? "Switch on" : "Switch off"} ${lorebook.name}`,
+      icon: <Power size="0.75rem" aria-hidden="true" />,
+      className: switchedOff
+        ? "text-[var(--muted-foreground)] hover:bg-amber-400/10 hover:text-amber-400"
+        : "text-amber-400 hover:bg-amber-400/10",
+      onClick: onToggleEnabled,
+    },
+    {
+      key: "duplicate",
+      title: "Copy",
+      label: `Copy ${lorebook.name}`,
+      icon: <Copy size="0.75rem" aria-hidden="true" />,
+      className: "text-[var(--muted-foreground)] hover:bg-sky-400/10 hover:text-sky-400",
+      onClick: onDuplicate,
+    },
+    {
+      key: "delete",
+      title: "Delete",
+      label: `Delete ${lorebook.name}`,
+      icon: <Trash2 size="0.75rem" aria-hidden="true" />,
+      className: "text-[var(--destructive)] hover:bg-[var(--destructive)]/15",
+      onClick: () => void onDelete(),
+    },
+  ];
+  const rowActionsProps = catalogRowActionsRowProps(rowActions.length);
 
   return (
     <div
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      style={selectionMode ? undefined : rowActionsProps.style}
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+        !selectionMode && rowActionsProps.className,
+        // Switched off: dimmed (its picture also turns grey), clearer again while pointed at.
+        switchedOff && "opacity-50 hover:opacity-90",
         selectionMode && isSelected && "ring-1 ring-amber-400/40 bg-amber-400/10",
         isDragging && "opacity-55 ring-1 ring-[var(--primary)]/30",
       )}
@@ -101,70 +160,52 @@ export function LorebookRow({
           <span className="text-[0.75rem]">✓</span>
         </button>
       )}
-      {selectionMode ? (
-        <div className={imageClasses}>{imageContent}</div>
-      ) : (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onImagePick();
-          }}
-          className={cn(
-            imageClasses,
-            "transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-400/50",
-          )}
-          title={lorebook.imagePath ? "Replace lorebook picture" : "Upload lorebook picture"}
-          aria-label={lorebook.imagePath ? "Replace lorebook picture" : "Upload lorebook picture"}
-        >
-          {imageContent}
-          <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-            <Camera size="0.875rem" />
-          </span>
-        </button>
-      )}
+      <span className="relative shrink-0">
+        {selectionMode ? (
+          <div className={imageClasses}>{imageContent}</div>
+        ) : (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onImagePick();
+            }}
+            className={cn(
+              imageClasses,
+              "group/pic transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-400/50",
+            )}
+            title={lorebook.imagePath ? "Replace lorebook picture" : "Upload lorebook picture"}
+            aria-label={lorebook.imagePath ? "Replace lorebook picture" : "Upload lorebook picture"}
+          >
+            {imageContent}
+            {/* The camera hint shows only while pointing at (or tabbing to) the picture itself. */}
+            <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover/pic:opacity-100 group-focus-visible/pic:opacity-100">
+              <Camera size="0.875rem" />
+            </span>
+          </button>
+        )}
+        {lantern}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm font-medium">{lorebook.name}</span>
-          {!lorebook.enabled && (
-            <span className="rounded bg-[var(--muted)]/50 px-1 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)]">
-              OFF
-            </span>
-          )}
+          {/* On or off shows as the lit lantern dot and the dimming; screen readers hear it here. */}
+          <span className="sr-only">{switchedOff ? ", switched off" : ", switched on"}</span>
         </div>
         <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
-          {characterName || personaName ? (
-            <span className="inline-flex items-center gap-1">
-              <UserRound size="0.625rem" className="shrink-0" />
-              {characterName ?? personaName}
-              {lorebook.description ? ` · ${lorebook.description}` : ""}
-            </span>
-          ) : (
-            lorebook.description || "No description"
+          {typeLabel}
+          {budget}
+          {linkedName && (
+            <>
+              {" · "}
+              <UserRound size="0.625rem" className="inline shrink-0 align-[-0.0625rem]" aria-hidden="true" />{" "}
+              {linkedName}
+            </>
           )}
+          {metaTail}
         </div>
       </div>
-      {!selectionMode && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
-          <LibraryFolderSelect
-            value={lorebook.folderId}
-            folders={folderOptions}
-            itemLabel={lorebook.name}
-            disabled={folderMoveDisabled}
-            onChange={(folderId) => onMoveToFolder?.(folderId)}
-          />
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete();
-            }}
-            className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-            title="Delete"
-          >
-            <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
-          </button>
-        </div>
-      )}
+      {!selectionMode && <CatalogRowActions actions={rowActions} />}
     </div>
   );
 }

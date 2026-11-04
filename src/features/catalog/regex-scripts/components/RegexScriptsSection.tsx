@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   ChevronDown,
+  ChevronRight,
   Download,
   GripVertical,
   Pencil,
@@ -107,7 +108,7 @@ export function RegexScriptsSection({
   return (
     <PanelSection
       title={title}
-      icon={<Regex size="0.8125rem" />}
+      icon={<Regex size="0.6875rem" />}
       defaultOpen={defaultOpen}
       className={className}
       action={
@@ -271,14 +272,21 @@ function PanelSection({
 
   return (
     <div className={cn("mb-1 border-b border-[var(--border)] pb-1 last:border-b-0", className)}>
-      <div className="flex items-center gap-1.5 px-1 py-1.5">
-        <button onClick={() => setOpen((o) => !o)} className="flex flex-1 items-center gap-1.5 text-left">
-          <span className="text-[var(--muted-foreground)]">{icon}</span>
-          <span className="text-[0.6875rem] font-semibold">{title}</span>
-          <ChevronDown
-            size="0.6875rem"
-            className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
-          />
+      {/* Styled like the library's "Folders (n)" heading: a small uppercase label, its buttons at the end. */}
+      <div className="flex items-center justify-between gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]"
+        >
+          {open ? (
+            <ChevronDown size="0.75rem" aria-hidden="true" />
+          ) : (
+            <ChevronRight size="0.75rem" aria-hidden="true" />
+          )}
+          <span aria-hidden="true">{icon}</span>
+          {title}
         </button>
         {action}
       </div>

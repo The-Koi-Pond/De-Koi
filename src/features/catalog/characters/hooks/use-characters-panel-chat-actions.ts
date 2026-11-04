@@ -163,6 +163,18 @@ export function useCharactersPanelChatActions() {
     [startChatFromCharacter],
   );
 
+  // A new fic with this character in it; the fic's request form opens to fill in the rest.
+  const handleStartFanfic = useCallback(
+    (characterId: string, characterName: string) => {
+      startChatFromCharacter({
+        characterId,
+        characterName,
+        mode: "fanfic",
+      });
+    },
+    [startChatFromCharacter],
+  );
+
   const handleStartNewChat = useCallback(
     (characterId: string, characterName: string) => {
       handleStartConversation(characterId, characterName);
@@ -213,6 +225,7 @@ export function useCharactersPanelChatActions() {
     firstMesConfirm,
     handleAddFirstMessage,
     handleStartConversation,
+    handleStartFanfic,
     handleStartNewChat,
     handleStartRoleplay,
     hasActiveChat: !!activeChat,

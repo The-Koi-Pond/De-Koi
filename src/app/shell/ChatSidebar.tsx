@@ -9,9 +9,6 @@ import {
   BookOpen,
   GitBranch,
   AlertTriangle,
-  Circle,
-  Moon,
-  MinusCircle,
   FolderOpen,
   FolderPlus,
   ChevronDown,
@@ -54,7 +51,7 @@ import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { revealSetupJourney } from "../../shared/lib/setup-journey-reveal";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
-import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
+import { useUIStore } from "../../shared/stores/ui.store";
 import { cn, copyToClipboard } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { TagInput } from "../../shared/components/ui/TagInput";
@@ -65,6 +62,21 @@ import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { isNewChatJourneyPending, useStartNewChat } from "./useStartNewChat";
+import { ColumnCollapseButton } from "./ColumnCollapseButton";
+import { UserStatusBar } from "./UserStatusBar";
+import {
+  TagFilterChip,
+  TagFilterClear,
+  tagFilterSummary,
+} from "../../features/catalog/components/CatalogPanelControls";
+import {
+  NO_TAG_FILTERS,
+  cycleTagFilter,
+  hasTagFilters,
+  keepExistingTagFilters,
+  matchesTagFilters,
+  type TagFilters,
+} from "../../features/catalog/lib/tag-filters";
 import { predictiveChatIntentHandlers } from "./predictive-chat-preload";
 import { usePredictiveChatPreload } from "./use-predictive-chat-preload";
 import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
@@ -195,6 +207,10 @@ type ChatSidebarProps = {
   activeTab: ChatSidebarTab;
   onActiveTabChange: (tab: ChatSidebarTab) => void;
   onRequestClose: () => void;
+  /** In the Pond rail layout: the header's fold-away "‹" (see ColumnCollapseButton). */
+  onCollapse?: () => void;
+  /** The status bar is the strip along the window's bottom, so the chat list leaves its own out. */
+  statusInStrip?: boolean;
 };
 
 const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
@@ -270,7 +286,13 @@ const SIDEBAR_TAB_NOUNS: Record<ChatSidebarTab, { plural: string; newLabel: stri
   fanfic: { plural: "fics", newLabel: "fic" },
 };
 
-export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: ChatSidebarProps) {
+export function ChatSidebar({
+  activeTab,
+  onActiveTabChange,
+  onRequestClose,
+  onCollapse,
+  statusInStrip = false,
+}: ChatSidebarProps) {
   const {
     data: chats,
     error: chatsLoadError,
@@ -329,7 +351,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const [searchQuery, setSearchQuery] = useState("");
   const [searchScope, setSearchScope] = useState<"chats" | "messages">("chats");
   const [sort, setSort] = useState<ChatSortOption>("newest");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagFilters, setTagFilters] = useState<TagFilters>(NO_TAG_FILTERS);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     chatId: string;
@@ -373,7 +395,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   // Exit multi-select when switching tabs
   useEffect(() => {
     exitMultiSelect();
-    setActiveTag(null);
+    setTagFilters(NO_TAG_FILTERS);
     setTagsExpanded(false);
   }, [activeTab, exitMultiSelect]);
 
@@ -387,11 +409,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     return [...tags].sort((a, b) => a.localeCompare(b));
   }, [modeChats]);
 
+  // A filter on a tag no chat has any more would quietly hide the whole list.
   useEffect(() => {
-    if (activeTag && !allTags.includes(activeTag)) {
-      setActiveTag(null);
-    }
-  }, [activeTag, allTags]);
+    setTagFilters((filters) => keepExistingTagFilters(filters, allTags));
+  }, [allTags]);
 
   // Detect if active chat belongs to a group (so its group row highlights)
   const activeChat = useMemo(() => chats?.find((c) => c.id === activeChatId), [chats, activeChatId]);
@@ -413,7 +434,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
     return modeChats.filter((chat) => {
       const tags = getChatTags(chat);
-      if (activeTag && !tags.includes(activeTag)) return false;
+      if (!matchesTagFilters(tags, tagFilters)) return false;
       if (!query) return true;
 
       const characterNames = normalizeChatCharacterIds((chat as { characterIds?: unknown }).characterIds)
@@ -426,7 +447,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         characterNames.some((name) => name.toLowerCase().includes(query))
       );
     });
-  }, [modeChats, searchQuery, activeTag, charLookup]);
+  }, [modeChats, searchQuery, tagFilters, charLookup]);
 
   // Message text search runs for Conversation and Roleplay; the Chats/Messages switch shows once the query is long enough.
   const messageSearchAvailable = activeTab !== "fanfic" && searchQuery.trim().length >= MESSAGE_SEARCH_MIN_CHARS;
@@ -566,7 +587,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       // user is actively browsing search results and shouldn't lose them).
       if (!internalNavRef.current) {
         setSearchQuery("");
-        setActiveTag(null);
+        setTagFilters(NO_TAG_FILTERS);
         setTagsExpanded(false);
       }
       internalNavRef.current = false;
@@ -621,7 +642,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
   const clearChatFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTag(null);
+    setTagFilters(NO_TAG_FILTERS);
     setTagsExpanded(false);
   }, []);
 
@@ -656,7 +677,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const emptyRecovery = getChatSidebarRecovery(null, {
     mode: activeTab,
     state: "empty",
-    hasFilters: Boolean(searchQuery.trim() || activeTag),
+    hasFilters: Boolean(searchQuery.trim()) || hasTagFilters(tagFilters),
   });
 
   const runRecoveryAction = (actionId: ChatSidebarRecoveryActionId) =>
@@ -1239,9 +1260,17 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   return (
     <nav data-component="ChatSidebar" aria-label="Chat navigation" className="mari-chat-sidebar flex h-full flex-col">
       {/* Header */}
-      <div className="mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
+      <div
+        className={cn(
+          "mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm",
+          onCollapse && "pl-0",
+        )}
+      >
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
-        <h2 className="retro-glow-text de-koi-display-title truncate text-sm font-bold">✧ Chats</h2>
+        <div className="flex min-w-0 items-center gap-3 self-stretch">
+          {onCollapse && <ColumnCollapseButton onCollapse={onCollapse} />}
+          <h2 className="retro-glow-text de-koi-display-title truncate text-sm font-bold">✧ Chats</h2>
+        </div>
         <button
           onClick={onRequestClose}
           className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
@@ -1394,15 +1423,16 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 onClick={() => setTagsExpanded((prev) => !prev)}
                 className={cn(
                   "flex max-w-full items-center gap-1 rounded-lg px-1.5 py-1 text-[0.625rem] transition-colors",
-                  activeTag
+                  hasTagFilters(tagFilters)
                     ? "bg-[var(--primary)]/15 text-[var(--primary)]"
                     : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
                 )}
-                title={tagsExpanded ? "Collapse tags" : "Expand tags"}
+                title={tagsExpanded ? "Hide tags" : "Show tags"}
+                aria-expanded={tagsExpanded}
               >
                 <Tag size="0.6875rem" className="shrink-0" />
                 <span className="max-w-full truncate">
-                  {activeTag ? `Tag: ${activeTag}` : `Tags (${allTags.length})`}
+                  Tags ({allTags.length}){tagFilterSummary(tagFilters) ? ` · ${tagFilterSummary(tagFilters)}` : ""}
                 </span>
                 {tagsExpanded ? (
                   <ChevronUp size="0.625rem" className="shrink-0" />
@@ -1410,37 +1440,18 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                   <ChevronDown size="0.625rem" className="shrink-0" />
                 )}
               </button>
-              {activeTag && (
-                <button
-                  onClick={() => setActiveTag(null)}
-                  className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/10"
-                >
-                  Clear
-                </button>
+              {tagsExpanded && hasTagFilters(tagFilters) && (
+                <TagFilterClear onClear={() => setTagFilters(NO_TAG_FILTERS)} />
               )}
-              {(tagsExpanded ? allTags : allTags.slice(0, 4)).map((tag) => (
-                <button
+              {/* Hidden until the Tags button opens them. Clicking a tag cycles off → include → exclude → off. */}
+              {(tagsExpanded ? allTags : []).map((tag) => (
+                <TagFilterChip
                   key={tag}
-                  onClick={() => setActiveTag((prev) => (prev === tag ? null : tag))}
-                  className={cn(
-                    "max-w-full truncate rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-                    activeTag === tag
-                      ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                      : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-                  )}
-                  title={tag}
-                >
-                  {tag}
-                </button>
+                  tag={tag}
+                  mode={tagFilters[tag]}
+                  onCycle={() => setTagFilters((filters) => cycleTagFilter(filters, tag))}
+                />
               ))}
-              {!tagsExpanded && allTags.length > 4 && (
-                <button
-                  onClick={() => setTagsExpanded(true)}
-                  className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-                >
-                  +{allTags.length - 4} more
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -1653,8 +1664,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         </div>
       )}
 
-      {/* ── User Status Selector ── */}
-      <UserStatusFooter />
+      {/* ── User Status Selector (in the Pond rail layout it's the strip along the window's bottom instead) ── */}
+      {!statusInStrip && <UserStatusBar variant="sidebar" />}
 
       {/* ── Delete Branch Modal ── */}
       <Modal
@@ -1963,106 +1974,6 @@ export function FolderHeaderRow({
         >
           <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
         </button>
-      </div>
-    </div>
-  );
-}
-// ── Status config ──
-const STATUS_OPTIONS: Array<{
-  value: UserStatus;
-  label: string;
-  description: string;
-  color: string;
-  icon: React.ReactNode;
-}> = [
-  {
-    value: "active",
-    label: "Active",
-    description: "You're online and available",
-    color: "bg-green-500",
-    icon: <Circle size="0.625rem" className="fill-green-500 text-green-500" />,
-  },
-  {
-    value: "idle",
-    label: "Idle",
-    description: "Automatic when you're away",
-    color: "bg-yellow-500",
-    icon: <Moon size="0.625rem" className="text-yellow-500" />,
-  },
-  {
-    value: "dnd",
-    label: "Do Not Disturb",
-    description: "Suppress auto messages",
-    color: "bg-red-500",
-    icon: <MinusCircle size="0.625rem" className="text-red-500" />,
-  },
-];
-
-function UserStatusFooter() {
-  const userStatus = useUIStore((s) => s.userStatus);
-  const userActivity = useUIStore((s) => s.userActivity);
-  const setUserStatusManual = useUIStore((s) => s.setUserStatusManual);
-  const setUserActivity = useUIStore((s) => s.setUserActivity);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const current = STATUS_OPTIONS.find((s) => s.value === userStatus) ?? STATUS_OPTIONS[0]!;
-
-  return (
-    <div ref={ref} className="relative border-t border-[var(--border)]/30 px-3 py-2">
-      {/* Popup */}
-      {open && (
-        <div className="absolute bottom-full left-2 right-2 mb-1 rounded-xl bg-[var(--popover)] p-1.5 shadow-xl ring-1 ring-[var(--border)]/40">
-          {STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => {
-                setUserStatusManual(opt.value);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                userStatus === opt.value && "bg-[var(--accent)]",
-              )}
-            >
-              <span className={`h-2 w-2 rounded-full ${opt.color}`} />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-[var(--foreground)]">{opt.label}</div>
-                <div className="text-[0.625rem] text-[var(--muted-foreground)]">{opt.description}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="flex min-w-0 items-center gap-1.5">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-all hover:bg-[var(--sidebar-accent)]/60"
-          title="Change activity status"
-          aria-label="Change activity status"
-        >
-          <span className={`h-2 w-2 shrink-0 rounded-full ${current.color}`} />
-          <span className="max-w-20 truncate text-xs text-[var(--sidebar-foreground)]">{current.label}</span>
-        </button>
-        <input
-          value={userActivity}
-          onChange={(event) => setUserActivity(event.target.value)}
-          maxLength={120}
-          placeholder="What are you doing?"
-          aria-label="Custom activity"
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)]/40 bg-[var(--sidebar-accent)]/35 px-2 py-1.5 text-xs text-[var(--sidebar-foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/70 focus:border-[var(--primary)]/40 focus:bg-[var(--sidebar-accent)]/60"
-        />
       </div>
     </div>
   );

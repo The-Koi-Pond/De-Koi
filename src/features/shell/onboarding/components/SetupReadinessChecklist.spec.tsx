@@ -51,6 +51,17 @@ describe("SetupReadinessChecklist", () => {
     expect(container.textContent).not.toContain("Choose your experience");
   });
 
+  it("lets the tucked-away Finish setup reminder cancel the chat setup for good", () => {
+    const onCancel = vi.fn();
+    const onResume = vi.fn();
+    act(() =>
+      root.render(<SetupReadinessChecklist facts={desktop} dismissed onResume={onResume} onCancel={onCancel} />),
+    );
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Cancel this chat setup"]')!.click());
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
   it("routes runtime and connection actions through owner callbacks", () => {
     const onConfigureRuntime = vi.fn();
     const onCreateConnection = vi.fn();

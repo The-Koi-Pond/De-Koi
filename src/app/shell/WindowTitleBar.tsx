@@ -18,6 +18,7 @@ import { useChatStore } from "../../shared/stores/chat.store";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { ChatTitleControls } from "./ChatTitleControls";
 import { PanelNavButtons } from "./PanelNavButtons";
+import { useIsHomeSurface } from "./use-home-surface";
 import type { AppShellLeftSidebarPanel } from "./app-shell-left-sidebar";
 
 type DesktopPlatform = "darwin" | "windows" | "linux";
@@ -41,6 +42,7 @@ export function WindowTitleBar({
   onLeftSidebarPanelChange,
   titlebarAccessory,
   webMode = false,
+  navInRail = false,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
@@ -49,6 +51,8 @@ export function WindowTitleBar({
   onLeftSidebarPanelChange?: (panel: AppShellLeftSidebarPanel) => void;
   titlebarAccessory?: ReactNode;
   webMode?: boolean;
+  /** The Pond theme's navigation rail shows Chats, Deki, Home and the panels, so the bar leaves them out. */
+  navInRail?: boolean;
 }) {
   const platform = useMemo(inferDesktopPlatform, []);
   const hasWindowControls = useMemo(hasDesktopWindowControls, []);
@@ -56,25 +60,10 @@ export function WindowTitleBar({
     fullscreen: false,
     maximized: false,
   });
-  const activeChatId = useChatStore((s) => s.activeChatId);
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const closeRightPanel = useUIStore((s) => s.closeRightPanel);
-  const hasOpenSurface = useUIStore((s) =>
-    Boolean(
-      s.characterDetailId ||
-      s.lorebookDetailId ||
-      s.presetDetailId ||
-      s.connectionDetailId ||
-      s.agentDetailId ||
-      s.toolDetailId ||
-      s.personaDetailId ||
-      s.regexDetailId ||
-      s.characterLibraryOpen ||
-      s.botBrowserOpen ||
-      s.rightPanelOpen,
-    ),
-  );
+  const isHomeSurface = useIsHomeSurface(dekiOpen);
 
   const refreshWindowVisualState = useCallback(() => {
     if (!hasWindowControls) return;
@@ -143,7 +132,6 @@ export function WindowTitleBar({
     onGoHome?.();
   }, [closeAllDetails, closeRightPanel, onGoHome, setActiveChatId]);
 
-  const isHomeSurface = !dekiOpen && !activeChatId && !hasOpenSurface;
   const effectiveWebMode = webMode || !hasWindowControls;
   const showWindowControls = !effectiveWebMode;
   const controlActions: WindowControlAction[] =
@@ -201,59 +189,72 @@ export function WindowTitleBar({
     </div>
   );
 
+  // With the navigation in the rail, a browser tab (no window buttons) has
+  // nothing left to show here unless there's an accessory (the music player).
+  if (navInRail && !showWindowControls && !titlebarAccessory) return null;
+
   return (
     <header
       data-component="WindowTitleBar"
-      className="mari-window-titlebar relative z-40 flex shrink-0 items-center overflow-visible"
+      className={cn(
+        "mari-window-titlebar relative z-40 flex shrink-0 items-center overflow-visible",
+        navInRail && "mari-window-titlebar-slim",
+      )}
       onMouseDown={startWindowDrag}
       onDoubleClick={toggleMaximizeFromDragRegion}
     >
       {platform === "darwin" && showWindowControls && controls}
-      <ChatTitleControls
-        className="pl-2.5 pr-0"
-        dekiOpen={dekiOpen}
-        leftSidebarPanel={leftSidebarPanel}
-        onLeftSidebarPanelChange={onLeftSidebarPanelChange}
-        onOpenDeki={onOpenDeki}
-        onGoHome={onGoHome}
-        hideHome
-      />
+      {!navInRail && (
+        <ChatTitleControls
+          className="pl-2.5 pr-0"
+          dekiOpen={dekiOpen}
+          leftSidebarPanel={leftSidebarPanel}
+          onLeftSidebarPanelChange={onLeftSidebarPanelChange}
+          onOpenDeki={onOpenDeki}
+          onGoHome={onGoHome}
+          hideHome
+        />
+      )}
       <div className="mari-titlebar-content flex h-full min-w-0 flex-1 items-center">
         <div
           className="mari-title-drag-region flex h-full min-w-0 flex-1 items-center justify-start pl-0.5 pr-3"
           onMouseDown={startWindowDrag}
           onDoubleClick={toggleMaximizeFromDragRegion}
         >
-          <button
-            type="button"
-            className={cn(
-              "mari-titlebar-action mari-title-home-button de-koi-icon-target relative rounded-md transition-all duration-200",
-              isHomeSurface
-                ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
-                : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
-            )}
-            onClick={goHome}
-            onMouseDown={(event) => event.stopPropagation()}
-            onDoubleClick={(event) => event.stopPropagation()}
-            title="Home"
-            aria-label="Home"
-            aria-current={isHomeSurface ? "page" : undefined}
-          >
-            <Home className="mari-title-icon" size="0.95rem" aria-hidden />
-            {isHomeSurface && (
-              <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
-            )}
-          </button>
+          {!navInRail && (
+            <button
+              type="button"
+              className={cn(
+                "mari-titlebar-action mari-title-home-button de-koi-icon-target relative rounded-md transition-all duration-200",
+                isHomeSurface
+                  ? "mari-titlebar-action-active text-[color-mix(in_srgb,var(--primary)_54%,var(--muted-foreground))]"
+                  : "text-[var(--muted-foreground)] hover:text-[var(--primary)]",
+              )}
+              onClick={goHome}
+              onMouseDown={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              title="Home"
+              aria-label="Home"
+              aria-current={isHomeSurface ? "page" : undefined}
+            >
+              <Home className="mari-title-icon" size="0.95rem" aria-hidden />
+              {isHomeSurface && (
+                <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
+              )}
+            </button>
+          )}
           {titlebarAccessory ? <div className="ml-2 hidden min-w-0 md:flex">{titlebarAccessory}</div> : null}
         </div>
-        <div
-          className="mari-window-actions flex h-full shrink-0 items-center gap-2"
-          onMouseDown={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-        >
-          <PanelNavButtons />
-          <span className="mari-window-actions-divider" aria-hidden />
-        </div>
+        {!navInRail && (
+          <div
+            className="mari-window-actions flex h-full shrink-0 items-center gap-2"
+            onMouseDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+          >
+            <PanelNavButtons />
+            <span className="mari-window-actions-divider" aria-hidden />
+          </div>
+        )}
       </div>
       {platform !== "darwin" && showWindowControls && controls}
     </header>
