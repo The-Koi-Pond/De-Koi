@@ -184,7 +184,7 @@ it.
 <details>
 <summary><b>Help</b> (5)</summary>
 
-- **Help Hub**: A central Help surface for diagnostics, bug reports, onboarding replay, shortcut reference, and app version details.
+- **Help Hub**: A central Help surface for diagnostics, bug reports, onboarding replay, the shortcut reference, and About De-Koi: the app version, the project notice, the licence and source links, and credits.
 - **Show Me Around**: Replay the short five-step orientation tour for Chats, workspace navigation, and the main workspace. Use the readiness checklist to resume setup without changing your library or settings.
 - **Report A Bug**: Copy a short support report and open the configured GitHub issue form.
 - **Deki-senpai**: Deki-senpai, De-Koi's built-in assistant. Ask about the app or its code, have it draft characters and other library items, or let it edit and tidy your library. Every change waits for your approval, with a preview that lists everything a delete would also remove or change. Watch it work step by step and stop it at any time, review the memories it can see, and come back to its sessions later, separate from your chats.

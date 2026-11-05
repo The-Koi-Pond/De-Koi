@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { POND_MODE_ICONS } from "../../../../shared/components/pond-icons";
 import { getDekiModeLine, type HomeMode } from "../lib/deki-home-lines";
 
 /*
@@ -9,7 +10,8 @@ import { getDekiModeLine, type HomeMode } from "../lib/deki-home-lines";
  * choice menu").
  *
  * Each button's name is its visible text (so voice control can say it), and
- * Deki's explanation of the mode is its description for screen readers.
+ * Deki's explanation of the mode is its description for screen readers. The
+ * mode's own icon sits beside its name, hidden from screen readers.
  */
 const CHOICES: ReadonlyArray<{ mode: HomeMode; line: string; label: string }> = [
   { mode: "conversation", line: "Let's just talk.", label: "Conversation" },
@@ -32,6 +34,7 @@ export function HomeModeChoices({
     <div className="vn-choices stagger-children">
       {CHOICES.map(({ mode, line, label }) => {
         const descriptionId = `${idPrefix}-${mode}`;
+        const ModeIcon = POND_MODE_ICONS[mode];
         const point = () => {
           onPrewarm(mode);
           onHint(mode, true);
@@ -57,7 +60,10 @@ export function HomeModeChoices({
               <path d="M0 0 8 5 0 10Z" fill="currentColor" />
             </svg>
             <span className="vn-choice-line">{line}</span>
-            <span className="vn-choice-mode">{label}</span>
+            <span className="vn-choice-mode">
+              <ModeIcon size="1.125rem" className="vn-choice-mode-icon" />
+              {label}
+            </span>
           </button>
         );
       })}

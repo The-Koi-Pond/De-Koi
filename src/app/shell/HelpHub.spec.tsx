@@ -103,6 +103,37 @@ describe("HelpHub feature discovery", () => {
     useSetupJourneyStore.setState({ intent: null });
   });
 
+  it("keeps the source offer in About and opens Credits as an app-level dialog", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    useUIStore.setState({ modal: null });
+
+    act(() => {
+      root.render(<HelpHub />);
+    });
+
+    const about = container.querySelector('section[aria-labelledby="help-about-heading"]')!;
+    expect(about.querySelector("#help-about-heading")?.textContent).not.toContain("Press ?");
+    const hrefs = Array.from(about.querySelectorAll("a")).map((link) => link.getAttribute("href"));
+    expect(hrefs).toEqual(
+      expect.arrayContaining([
+        "https://github.com/The-Koi-Pond/De-Koi",
+        "https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/LICENSE.txt",
+        "https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/NOTICE.md",
+        "https://github.com/Pasta-Devs/Marinara-Engine",
+      ]),
+    );
+
+    const credits = Array.from(about.querySelectorAll("button")).find((item) => item.textContent === "Credits");
+    act(() => credits?.click());
+    expect(useUIStore.getState().modal).toEqual(expect.objectContaining({ type: "credits" }));
+
+    act(() => root.unmount());
+    container.remove();
+    useUIStore.setState({ modal: null });
+  });
+
   it("explains how to recover when support destinations cannot open", async () => {
     mocks.openBugReport.mockRejectedValue(new Error("popup blocked"));
     mocks.openExternalUrl.mockRejectedValue(new Error("popup blocked"));
