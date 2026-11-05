@@ -193,6 +193,7 @@ describe("FanficReader", () => {
           ledger={{} as FanficLedgerController}
           voices={{} as FanficVoicesController}
           onSaveVoices={vi.fn()}
+          onSaveOutline={vi.fn()}
           editor={{} as FanficEditorController}
           plan={{ running: false, propose: vi.fn() } as unknown as FanficPlanController}
           phraseBans={{ supported: false } as FanficPhraseBanController}

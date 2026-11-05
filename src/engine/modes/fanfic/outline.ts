@@ -124,3 +124,15 @@ export function approveFanficOutline(state: FanficState, edited: FanficOutline):
   }
   return { ...state, outline, outlineApproved: true };
 }
+
+/**
+ * The requester's edit of an outline already being written from, normalized. The chapter count stays the outline's
+ * own (written chapters keep their numbers), so blanking a chapter fails here instead of renumbering the fic.
+ */
+export function editFanficOutline(state: FanficState, edited: FanficOutline): FanficState {
+  const planned = state.outline?.chapters.length ?? 0;
+  const outline = normalizeFanficOutline(edited);
+  const received = outline?.chapters.length ?? 0;
+  if (!outline || received !== planned) throw new FanficOutlineCountError(received, planned);
+  return { ...state, outline };
+}
