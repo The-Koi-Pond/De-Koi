@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { ArrowLeft, Loader2, PenLine, RefreshCw } from "lucide-react";
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { ArrowLeft, Check, Loader2, PenLine, RefreshCw } from "lucide-react";
 import type { FanficOutline, FanficResearch } from "../../../../engine/contracts/types/fanfic";
 import type { FanficPlanningPhase } from "../../../../engine/modes/fanfic/research";
 import { cn } from "../../../../shared/lib/utils";
@@ -125,6 +125,144 @@ function ResearchNotesEditor({
   );
 }
 
+type OutlineDraftSetter = Dispatch<SetStateAction<FanficOutline>>;
+
+function OutlineTitleFields({ draft, onChange }: { draft: FanficOutline; onChange: OutlineDraftSetter }) {
+  return (
+    <>
+      <label className="sr-only" htmlFor="fanfic-outline-title">
+        Title
+      </label>
+      <input
+        id="fanfic-outline-title"
+        className={cn(fanficInputClass, "text-base font-semibold")}
+        value={draft.title}
+        onChange={(event) => onChange((current) => ({ ...current, title: event.target.value }))}
+      />
+      <label className="sr-only" htmlFor="fanfic-outline-summary">
+        Summary
+      </label>
+      <textarea
+        id="fanfic-outline-summary"
+        rows={textRows(draft.summary, 80)}
+        className={cn(fanficInputClass, "resize-y leading-relaxed")}
+        value={draft.summary}
+        onChange={(event) => onChange((current) => ({ ...current, summary: event.target.value }))}
+      />
+    </>
+  );
+}
+
+/** One title and beats box per chapter; chapters up to `writtenThrough` are marked as already written. */
+function OutlineChapterFields({
+  draft,
+  onChange,
+  writtenThrough = 0,
+}: {
+  draft: FanficOutline;
+  onChange: OutlineDraftSetter;
+  writtenThrough?: number;
+}) {
+  const updateChapter = (index: number, patch: { title?: string; summary?: string }) =>
+    onChange((current) => ({
+      ...current,
+      chapters: current.chapters.map((chapter, chapterIndex) =>
+        chapterIndex === index ? { ...chapter, ...patch } : chapter,
+      ),
+    }));
+  return (
+    <ol className="flex flex-col gap-2">
+      {draft.chapters.map((chapter, index) => (
+        <li key={chapter.number} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 rounded-md bg-[var(--secondary)] px-1.5 py-0.5 text-[0.6875rem] font-bold text-[var(--muted-foreground)]">
+              Ch. {chapter.number}
+            </span>
+            <label className="sr-only" htmlFor={`fanfic-outline-chapter-${chapter.number}`}>
+              Chapter {chapter.number} title
+            </label>
+            <input
+              id={`fanfic-outline-chapter-${chapter.number}`}
+              className={cn(fanficInputClass, "py-1.5 font-semibold")}
+              value={chapter.title}
+              onChange={(event) => updateChapter(index, { title: event.target.value })}
+            />
+            {chapter.number <= writtenThrough && (
+              <span className="shrink-0 text-xs text-[var(--muted-foreground)]">written</span>
+            )}
+          </div>
+          <label className="sr-only" htmlFor={`fanfic-outline-chapter-${chapter.number}-summary`}>
+            Chapter {chapter.number} beats
+          </label>
+          <textarea
+            id={`fanfic-outline-chapter-${chapter.number}-summary`}
+            rows={textRows(chapter.summary, 95)}
+            className={cn(fanficInputClass, "mt-2 resize-y text-[0.8125rem] leading-relaxed")}
+            value={chapter.summary}
+            onChange={(event) => updateChapter(index, { summary: event.target.value })}
+          />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * The reader's outline editor: the whole plan, written chapters included, since every chapter write reads all of
+ * it. Saving changes the beats only; written chapters keep their text.
+ */
+export function FanficOutlineEditor({
+  outline,
+  writtenThrough,
+  locked,
+  onSave,
+  onCancel,
+}: {
+  outline: FanficOutline;
+  /** Main chapters written so far. */
+  writtenThrough: number;
+  /** A write is running; saving waits until it ends. */
+  locked: boolean;
+  /** Resolves true once saved; false leaves the editor open (the reason is already on screen). */
+  onSave: (outline: FanficOutline) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<FanficOutline>(outline);
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (await onSave(draft)) onCancel();
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs leading-snug text-[var(--muted-foreground)]">
+        Every chapter write reads the whole outline, written chapters included. Saving changes the plan only: written
+        chapters keep their text until you Redo or rewrite them.
+      </p>
+      <OutlineTitleFields draft={draft} onChange={setDraft} />
+      <OutlineChapterFields draft={draft} onChange={setDraft} writtenThrough={writtenThrough} />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {locked && <p className="text-xs text-[var(--muted-foreground)]">Saving waits until the write ends.</p>}
+        <FanficButton onClick={onCancel} disabled={saving}>
+          Cancel
+        </FanficButton>
+        <FanficButton tone="primary" onClick={() => void save()} disabled={saving || locked}>
+          {saving ? (
+            <Loader2 size="0.9rem" className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Check size="0.9rem" aria-hidden="true" />
+          )}
+          Save outline
+        </FanficButton>
+      </div>
+    </div>
+  );
+}
+
 export function FanficOutlineReview({
   outline,
   research,
@@ -148,13 +286,6 @@ export function FanficOutlineReview({
 }) {
   const [draft, setDraft] = useState<FanficOutline>(outline);
   const [notes, setNotes] = useState(research?.notes ?? "");
-  const updateChapter = (index: number, patch: { title?: string; summary?: string }) =>
-    setDraft((current) => ({
-      ...current,
-      chapters: current.chapters.map((chapter, chapterIndex) =>
-        chapterIndex === index ? { ...chapter, ...patch } : chapter,
-      ),
-    }));
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 pb-8">
@@ -168,61 +299,14 @@ export function FanficOutlineReview({
       </header>
 
       <FanficSection title="Title & summary">
-        <label className="sr-only" htmlFor="fanfic-outline-title">
-          Title
-        </label>
-        <input
-          id="fanfic-outline-title"
-          className={cn(fanficInputClass, "text-base font-semibold")}
-          value={draft.title}
-          onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-        />
-        <label className="sr-only" htmlFor="fanfic-outline-summary">
-          Summary
-        </label>
-        <textarea
-          id="fanfic-outline-summary"
-          rows={textRows(draft.summary, 80)}
-          className={cn(fanficInputClass, "resize-y leading-relaxed")}
-          value={draft.summary}
-          onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
-        />
+        <OutlineTitleFields draft={draft} onChange={setDraft} />
       </FanficSection>
 
       {research && <ResearchNotesEditor research={research} notes={notes} onChange={setNotes} />}
 
       {voicesPanel}
 
-      <ol className="flex flex-col gap-2">
-        {draft.chapters.map((chapter, index) => (
-          <li key={chapter.number} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 rounded-md bg-[var(--secondary)] px-1.5 py-0.5 text-[0.6875rem] font-bold text-[var(--muted-foreground)]">
-                Ch. {chapter.number}
-              </span>
-              <label className="sr-only" htmlFor={`fanfic-outline-chapter-${chapter.number}`}>
-                Chapter {chapter.number} title
-              </label>
-              <input
-                id={`fanfic-outline-chapter-${chapter.number}`}
-                className={cn(fanficInputClass, "py-1.5 font-semibold")}
-                value={chapter.title}
-                onChange={(event) => updateChapter(index, { title: event.target.value })}
-              />
-            </div>
-            <label className="sr-only" htmlFor={`fanfic-outline-chapter-${chapter.number}-summary`}>
-              Chapter {chapter.number} beats
-            </label>
-            <textarea
-              id={`fanfic-outline-chapter-${chapter.number}-summary`}
-              rows={textRows(chapter.summary, 95)}
-              className={cn(fanficInputClass, "mt-2 resize-y text-[0.8125rem] leading-relaxed")}
-              value={chapter.summary}
-              onChange={(event) => updateChapter(index, { summary: event.target.value })}
-            />
-          </li>
-        ))}
-      </ol>
+      <OutlineChapterFields draft={draft} onChange={setDraft} />
 
       <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center justify-end gap-2 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/95 to-transparent px-1 pb-1 pt-4">
         <FanficButton onClick={onEditRequest} disabled={saving}>

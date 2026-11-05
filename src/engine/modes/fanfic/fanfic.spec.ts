@@ -11,6 +11,7 @@ import { fanficChapterLayout } from "./chapter-refs";
 import { buildFanficHtml, buildFanficMarkdown, fanficExportChapters } from "./export";
 import {
   approveFanficOutline,
+  editFanficOutline,
   FanficOutlineCountError,
   FanficOutlineParseError,
   parseFanficOutlineReply,
@@ -356,6 +357,23 @@ describe("fanfic outline approval", () => {
       approveFanficOutline(pending(), {
         ...outline,
         chapters: [...outline.chapters, { number: 3, title: "Extra", summary: "x" }],
+      }),
+    ).toThrow(FanficOutlineCountError);
+  });
+
+  it("edits a written-from outline in place but never changes its chapter count", () => {
+    const state = writingState();
+    const outline = state.outline!;
+    const edited = editFanficOutline(state, {
+      ...outline,
+      chapters: outline.chapters.map((chapter) => ({ ...chapter, summary: `New beats for ${chapter.number}` })),
+    });
+    expect(edited.outlineApproved).toBe(true);
+    expect(edited.outline?.chapters.map((chapter) => chapter.summary)).toEqual(["New beats for 1", "New beats for 2"]);
+    expect(() =>
+      editFanficOutline(state, {
+        ...outline,
+        chapters: [outline.chapters[0]!, { number: 2, title: "", summary: " " }],
       }),
     ).toThrow(FanficOutlineCountError);
   });

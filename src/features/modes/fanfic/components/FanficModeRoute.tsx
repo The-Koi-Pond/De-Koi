@@ -7,7 +7,7 @@ import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
 import { applyFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { fanficVoiceCharacters, withFanficVoices } from "../../../../engine/modes/fanfic/voices";
-import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
+import { approveFanficOutline, editFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -268,6 +268,26 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     }
   };
 
+  const saveOutline = async (edited: FanficOutline): Promise<boolean> => {
+    if (!state) return false;
+    let next: FanficState;
+    try {
+      next = editFanficOutline(state, edited);
+    } catch {
+      toast.error("Give every chapter a title or some beats before saving.");
+      return false;
+    }
+    try {
+      await saveState(next);
+      toast.success("Outline saved. The next chapter follows it.");
+      return true;
+    } catch (error) {
+      const text = errorText(error, "Couldn't save the outline. Try again.");
+      if (text) toast.error(text);
+      return false;
+    }
+  };
+
   const applyPlanProposal = async (proposal: FanficPlanProposal) => {
     if (!state) return;
     try {
@@ -399,6 +419,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           ledger={ledger}
           voices={voices}
           onSaveVoices={saveVoices}
+          onSaveOutline={saveOutline}
           editor={editor}
           plan={plan}
           phraseBans={phraseBans}

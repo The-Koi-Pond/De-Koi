@@ -36,6 +36,7 @@ import { useChat, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/c
 import { HelperRunNote } from "../../../catalog/connections/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
 import type {
+  FanficOutline,
   FanficState,
   FanficUnfinished,
   FanficUnfinishedReason,
@@ -104,7 +105,7 @@ import {
   fanficProseBlocks,
   type FanficNarrationPlan,
 } from "../lib/narration";
-import { FanficResearchSources } from "./FanficOutlineView";
+import { FanficOutlineEditor, FanficResearchSources } from "./FanficOutlineView";
 import { FanficContinuityProgress, FanficContinuityResult } from "./FanficContinuityResult";
 import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
@@ -162,6 +163,8 @@ interface FanficReaderProps {
   /** Uses a re-plan of the remaining chapters (the outline changes). */
   onUsePlan: (proposal: FanficPlanProposal) => Promise<void>;
   onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
+  /** Saves the requester's edit of the outline; resolves false when it wasn't saved (the reason is on screen). */
+  onSaveOutline: (outline: FanficOutline) => Promise<boolean>;
 }
 
 function wordCount(text: string): number {
@@ -265,6 +268,8 @@ function WorkHeader({
   onExport,
   showOutline,
   onToggleOutline,
+  outlineLocked,
+  onSaveOutline,
   showQuality,
   onToggleQuality,
   showLedger,
@@ -285,6 +290,9 @@ function WorkHeader({
   onExport: (format: FanficExportFormat) => void;
   showOutline: boolean;
   onToggleOutline: () => void;
+  /** A write or a "write all" run is going, so the outline can't change under it. */
+  outlineLocked: boolean;
+  onSaveOutline: (outline: FanficOutline) => Promise<boolean>;
   showQuality: boolean;
   onToggleQuality: () => void;
   showLedger: boolean;
@@ -300,6 +308,7 @@ function WorkHeader({
   const planned = fanficPlannedChapterCount(state);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [editingOutline, setEditingOutline] = useState(false);
   const extraTags = [
     ...request.warnings.map((warning) => FANFIC_WARNING_LABELS[warning]),
     ...request.relationships,
@@ -348,7 +357,13 @@ function WorkHeader({
         <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <FanficButton onClick={onToggleOutline} aria-expanded={showOutline}>
+        <FanficButton
+          onClick={() => {
+            setEditingOutline(false);
+            onToggleOutline();
+          }}
+          aria-expanded={showOutline}
+        >
           <ListOrdered size="0.9rem" aria-hidden="true" />
           {showOutline ? "Hide outline" : "Outline"}
         </FanficButton>
@@ -388,19 +403,39 @@ function WorkHeader({
         </FanficButton>
       </div>
       {showOutline && outline && (
-        <ol className="mt-3 flex flex-col gap-2 border-t border-[var(--border)] pt-3">
-          {outline.chapters.map((chapter) => (
-            <li key={chapter.number} className="text-sm">
-              <p className="font-semibold text-[var(--foreground)]">
-                {chapter.number}. {chapter.title}
-                {chapter.number <= chapterCount && (
-                  <span className="ml-1.5 text-xs font-normal text-[var(--muted-foreground)]">written</span>
-                )}
-              </p>
-              <p className="text-[0.8125rem] leading-snug text-[var(--muted-foreground)]">{chapter.summary}</p>
-            </li>
-          ))}
-        </ol>
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          {editingOutline ? (
+            <FanficOutlineEditor
+              outline={outline}
+              writtenThrough={chapterCount}
+              locked={outlineLocked}
+              onSave={onSaveOutline}
+              onCancel={() => setEditingOutline(false)}
+            />
+          ) : (
+            <>
+              <div className="mb-2 flex justify-end">
+                <FanficButton onClick={() => setEditingOutline(true)} disabled={outlineLocked}>
+                  <Pencil size="0.9rem" aria-hidden="true" />
+                  Edit outline
+                </FanficButton>
+              </div>
+              <ol className="flex flex-col gap-2">
+                {outline.chapters.map((chapter) => (
+                  <li key={chapter.number} className="text-sm">
+                    <p className="font-semibold text-[var(--foreground)]">
+                      {chapter.number}. {chapter.title}
+                      {chapter.number <= chapterCount && (
+                        <span className="ml-1.5 text-xs font-normal text-[var(--muted-foreground)]">written</span>
+                      )}
+                    </p>
+                    <p className="text-[0.8125rem] leading-snug text-[var(--muted-foreground)]">{chapter.summary}</p>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
       )}
       {researchOpen && state.research && (
         <div className="mt-3 flex flex-col gap-2 border-t border-[var(--border)] pt-3">
@@ -1439,6 +1474,7 @@ export function FanficReader({
   ledger,
   voices,
   onSaveVoices,
+  onSaveOutline,
   editor,
   plan,
   onUsePlan,
@@ -1713,6 +1749,8 @@ export function FanficReader({
         onExport={(format) => void exportFic(format)}
         showOutline={showOutline}
         onToggleOutline={() => setShowOutline((open) => !open)}
+        outlineLocked={generating || batchRunning}
+        onSaveOutline={onSaveOutline}
         showQuality={showQuality}
         onToggleQuality={() => setShowQuality((open) => !open)}
         showLedger={showLedger}
