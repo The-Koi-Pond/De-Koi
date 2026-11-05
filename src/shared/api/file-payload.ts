@@ -30,7 +30,7 @@ export interface FilePayloadOptions {
 
 const BASE64_BYTE_CHUNK_SIZE = 32_766;
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   let encoded = "";
   for (let offset = 0; offset < bytes.length; offset += BASE64_BYTE_CHUNK_SIZE) {
     const chunk = bytes.subarray(offset, offset + BASE64_BYTE_CHUNK_SIZE);

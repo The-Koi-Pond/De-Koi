@@ -361,3 +361,19 @@ describe("storageApi deletes", () => {
     );
   });
 });
+
+describe("storageApi image attachments", () => {
+  it("reads a linked image into a data URL where FileReader does not exist, as on the hosted runner", async () => {
+    expect(typeof (globalThis as { FileReader?: unknown }).FileReader).toBe("undefined");
+    invokeTauriMock.mockResolvedValueOnce({ base64: "iVBORw0KGgo=", mimeType: "image/png" });
+    const { storageApi } = await import("./storage-api");
+
+    await expect(storageApi.resolveImageAttachmentDataUrl?.({ url: "https://example.test/cat.png" })).resolves.toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
+    expect(invokeTauriMock).toHaveBeenCalledWith("load_url_binary", {
+      url: "https://example.test/cat.png",
+      fallbackMime: "image/png",
+    });
+  });
+});

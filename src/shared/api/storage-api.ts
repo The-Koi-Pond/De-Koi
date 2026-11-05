@@ -249,7 +249,7 @@ async function loadImageUrlAsDataUrl(
     if (mimeType && !mimeType.startsWith("image/")) {
       throw new Error(`${sourceLabel} resolved to ${mimeType}, not an image.`);
     }
-    return blobToDataUrl(blob, "URL binary request failed to read the file.");
+    return await blobToDataUrl(blob, "URL binary request failed to read the file.");
   } catch (error) {
     throw new Error(`Failed to load ${sourceLabel}: ${errorMessage(error)}`);
   }

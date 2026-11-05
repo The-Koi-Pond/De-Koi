@@ -1,3 +1,4 @@
+import { bytesToBase64 } from "../api/file-payload";
 import { urlBinaryApi } from "../api/url-binary-api";
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -40,16 +41,15 @@ export async function loadUrlBlob(
   }
 }
 
+// Encodes from the blob's bytes instead of FileReader, which Node (the hosted runner) does not have.
 export async function blobToDataUrl(blob: Blob, errorMessage = "Failed to convert file."): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === "string") resolve(reader.result);
-      else reject(new Error(errorMessage));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error(errorMessage));
-    reader.readAsDataURL(blob);
-  });
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await blob.arrayBuffer());
+  } catch (error) {
+    throw new Error(errorMessage, { cause: error });
+  }
+  return `data:${blob.type || "application/octet-stream"};base64,${bytesToBase64(bytes)}`;
 }
 
 export async function urlToDataUrl(url: string, errorMessage = "Failed to read file."): Promise<string> {
