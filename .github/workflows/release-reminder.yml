@@ -1,0 +1,43 @@
+name: Release Reminder
+
+# Opens (or updates) one "Release due" issue when enough user-facing changes
+# have merged since the latest release, and closes it once nothing is waiting.
+# Rules and wording: scripts/release-reminder.mjs. Who gets assigned:
+# the RELEASE_MANAGERS repository variable (comma-separated GitHub logins).
+
+on:
+  schedule:
+    - cron: "23 14 * * *"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: release-reminder
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  remind:
+    name: Check whether a release is due
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Update the release reminder
+        run: node scripts/release-reminder.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_MANAGERS: ${{ vars.RELEASE_MANAGERS }}
+          RELEASE_REMINDER_DAYS: ${{ vars.RELEASE_REMINDER_DAYS }}
+          RELEASE_REMINDER_CHANGES: ${{ vars.RELEASE_REMINDER_CHANGES }}
