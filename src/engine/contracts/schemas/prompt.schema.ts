@@ -2,6 +2,7 @@
 // Prompt Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { patchSchema } from "./patch-schema";
 
 const promptRoleSchema = z.enum(["system", "user", "assistant"]);
 
@@ -52,14 +53,14 @@ export const generationParametersSchema = z.object({
   verbosity: z.enum(["low", "medium", "high"]).nullable().default(null),
   serviceTier: z.enum(["auto", "default", "flex", "scale", "priority", "standard_only"]).nullable().default(null),
   assistantPrefill: z.string().default(""),
-  customThinkingTags: z.array(customThinkingTagSchema).max(20).default([]),
+  customThinkingTags: z.array(customThinkingTagSchema).max(20).prefault([]),
   seed: z.number().int().min(0).optional(),
-  customParameters: z.record(z.unknown()).default({}),
-  custom_params: z.record(z.unknown()).optional(),
+  customParameters: z.record(z.string(), z.unknown()).prefault({}),
+  custom_params: z.record(z.string(), z.unknown()).optional(),
   squashSystemMessages: z.boolean().default(true),
   showThoughts: z.boolean().default(true),
   useMaxContext: z.boolean().default(false),
-  stopSequences: z.array(z.string()).default([]),
+  stopSequences: z.array(z.string()).prefault([]),
   strictRoleFormatting: z.boolean().default(true),
   singleUserMessage: z.boolean().default(false),
 });
@@ -148,9 +149,9 @@ export const createPromptPresetSchema = z
   .object({
     name: z.string().min(1).max(200),
     description: z.string().default(""),
-    variableGroups: z.array(promptVariableGroupSchema).default([]),
-    variableValues: z.record(z.string()).default({}),
-    parameters: generationParametersSchema.default({}),
+    variableGroups: z.array(promptVariableGroupSchema).prefault([]),
+    variableValues: z.record(z.string(), z.string()).prefault({}),
+    parameters: generationParametersSchema.prefault({}),
     wrapFormat: wrapFormatSchema.default("xml"),
     isDefault: z.boolean().optional(),
     default: z.boolean().optional(),
@@ -171,14 +172,14 @@ export const updatePromptPresetSchema = z
     groupOrder: z.array(z.string()).optional(),
     variableOrder: z.array(z.string()).optional(),
     variableGroups: z.array(promptVariableGroupSchema).optional(),
-    variableValues: z.record(z.string()).optional(),
-    parameters: generationParametersSchema.partial().optional(),
+    variableValues: z.record(z.string(), z.string()).optional(),
+    parameters: patchSchema(generationParametersSchema).optional(),
     wrapFormat: wrapFormatSchema.optional(),
     isDefault: z.boolean().optional(),
     default: z.boolean().optional(),
     author: z.string().optional(),
     folderId: z.string().nullable().optional(),
-    defaultChoices: z.record(z.union([z.string(), z.array(z.string())])).optional(),
+    defaultChoices: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
   })
   .superRefine(validatePromptPresetDefaultFlags)
   .transform(({ default: legacyDefault, ...value }) => ({

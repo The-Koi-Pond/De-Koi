@@ -2,6 +2,7 @@
 // Connection Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { patchSchema } from "./patch-schema";
 
 const apiProviderSchema = z.enum([
   "openai",
@@ -46,19 +47,19 @@ export const createConnectionSchema = z.object({
   maxParallelJobs: z.number().int().min(1).max(16).default(1),
 });
 
-export const updateConnectionSchema = createConnectionSchema
-  .extend({
+export const updateConnectionSchema = patchSchema(
+  createConnectionSchema.extend({
     folderId: z.string().nullable().optional(),
     sortOrder: z.number().int().optional(),
     enabled: z.boolean().optional(),
     imageFilePath: z.string().nullable().optional(),
     imageFilename: z.string().nullable().optional(),
     imageUpdatedAt: z.string().nullable().optional(),
-    defaultParameters: z.record(z.unknown()).nullable().optional(),
-    capabilities: z.record(z.unknown()).nullable().optional(),
-    providerMetadata: z.record(z.unknown()).nullable().optional(),
-  })
-  .partial();
+    defaultParameters: z.record(z.string(), z.unknown()).nullable().optional(),
+    capabilities: z.record(z.string(), z.unknown()).nullable().optional(),
+    providerMetadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  }),
+);
 
 export type CreateConnectionInput = z.infer<typeof createConnectionSchema>;
 export type UpdateConnectionInput = z.infer<typeof updateConnectionSchema>;

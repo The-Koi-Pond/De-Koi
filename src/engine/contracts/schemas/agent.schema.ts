@@ -2,6 +2,7 @@
 // Agent Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { patchSchema } from "./patch-schema";
 import {
   MAX_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
   normalizeCustomAgentActivationKeywords,
@@ -59,10 +60,10 @@ export const createAgentConfigSchema = z.object({
   connectionId: z.string().nullable().default(null),
   resultType: agentResultTypeSchema.optional(),
   promptTemplate: z.string().default(""),
-  settings: customAgentActivationSettingsSchema.default({}),
+  settings: customAgentActivationSettingsSchema.prefault({}),
 });
 
-export const updateAgentConfigSchema = createAgentConfigSchema.partial();
+export const updateAgentConfigSchema = patchSchema(createAgentConfigSchema);
 
 export type CreateAgentConfigInput = z.infer<typeof createAgentConfigSchema>;
 export type UpdateAgentConfigInput = z.infer<typeof updateAgentConfigSchema>;

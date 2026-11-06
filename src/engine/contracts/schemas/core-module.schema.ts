@@ -9,6 +9,6 @@ const coreModuleIdSchema = z
 
 export const coreModuleSettingsSchema = z
   .object({
-    enabled: z.record(coreModuleIdSchema, z.boolean()).default({}),
+    enabled: z.record(coreModuleIdSchema, z.boolean()).prefault({}),
   })
-  .default({ enabled: {} });
+  .prefault({ enabled: {} });
