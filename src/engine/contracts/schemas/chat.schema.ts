@@ -20,7 +20,7 @@ export const createChatSchema = z
   .object({
     name: z.string().min(1).max(200),
     mode: chatModeSchema,
-    characterIds: z.array(z.string()).default([]),
+    characterIds: z.array(z.string()).prefault([]),
     groupId: z.string().nullable().default(null),
     personaId: z.string().nullable().default(null),
     promptPresetId: z.string().nullable().default(null),

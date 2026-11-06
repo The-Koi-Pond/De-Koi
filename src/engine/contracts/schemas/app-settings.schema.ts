@@ -5,7 +5,7 @@ import { z } from "zod";
 
 /** Payload for writing an opaque app settings value. */
 export const appSettingsUpdateSchema = z.object({
-  value: z.unknown(),
+  value: z.unknown().optional(),
 });
 
 /** Response shape for reading an app settings value. */
