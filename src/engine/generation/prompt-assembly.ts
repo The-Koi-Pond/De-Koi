@@ -4441,12 +4441,9 @@ export async function assembleGenerationPrompt(
   const metadataHistoryLimit = readNumber(chatMeta.contextMessageLimit, 0);
   const requestedHistoryLimit = readNumber(input.request.historyLimit, metadataHistoryLimit || defaultHistoryLimit);
   const historyLimit = Math.max(1, Math.min(300, metadataHistoryLimit || requestedHistoryLimit || defaultHistoryLimit));
-  const selectedHistoryLimit = conversationFocus
-    ? Math.min(historyLimit, conversationFocus.historyLimit)
-    : historyLimit;
   const sourceHistorySelection = historyMessageSelection(
     input.storedMessages,
-    selectedHistoryLimit,
+    historyLimit,
     chatMeta.excludePastReasoning === false,
     conversationFocus?.includeAssistantHistory ?? true,
     chatMode === "conversation" ? conversationReactionNote(characters, persona?.name ?? null) : undefined,
@@ -4473,7 +4470,7 @@ export async function assembleGenerationPrompt(
         sourceMessages: effectiveSourceHistorySelection.sourceMessages,
         hiddenFromAiCount: 0,
         skippedByLimitCount: 0,
-        requestedLimit: selectedHistoryLimit,
+        requestedLimit: historyLimit,
       }
     : effectiveSourceHistorySelection;
   const history = historySelection.messages;
