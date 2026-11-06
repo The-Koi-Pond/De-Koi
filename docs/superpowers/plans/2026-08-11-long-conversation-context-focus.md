@@ -1,5 +1,7 @@
 # Long Conversation Context Focus Implementation Plan
 
+> **2026-11-06:** the five-message history tail in this plan was removed; focused Conversation now keeps the whole transcript. See "Update 2026-11-06" in the design spec.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep long Conversation chats character-specific by concentrating identity, voice, relevant continuity, and recent dialogue without adding a second generation call.
