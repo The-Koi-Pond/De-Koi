@@ -96,6 +96,13 @@ describe("decideRelease", () => {
     assert.equal(decision.due, true);
     assert.match(decision.reasons[0], /#1499/);
   });
+
+  test("a security word in a tooling-only commit is not due", () => {
+    const changes = summarizeChanges([
+      commit("Tighten check:security-policy for CSP (#1600)", ["scripts/check-security-policy.mjs"]),
+    ]);
+    assert.equal(decideRelease({ changes, now: NOW, rules: RULES }).due, false);
+  });
 });
 
 describe("the reminder issue", () => {

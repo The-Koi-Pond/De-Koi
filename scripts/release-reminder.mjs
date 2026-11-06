@@ -74,7 +74,8 @@ export function summarizeChanges(commits) {
 }
 
 export function decideRelease({ changes, now, rules = DEFAULT_RULES }) {
-  const waiting = changes.filter((change) => change.userFacing || change.security);
+  // A security word in a docs or tooling commit is not a reason to ship.
+  const waiting = changes.filter((change) => change.userFacing);
   const reasons = [];
   if (waiting.length === 0) return { due: false, reasons, waiting, ageDays: 0 };
 
