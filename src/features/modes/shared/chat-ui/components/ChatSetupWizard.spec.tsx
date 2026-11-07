@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   applyChatPreset: vi.fn(async () => undefined),
   applyPendingProfile: vi.fn(async () => true),
   chatPresets: [] as Array<Record<string, unknown>>,
+  connections: [] as Array<Record<string, unknown>>,
   createCharacter: vi.fn(async () => ({ id: "character-new" })),
   createMessage: vi.fn(async () => ({ id: "message-1" })),
   lorebooks: [] as Array<Record<string, unknown>>,
@@ -40,6 +41,11 @@ vi.mock("../../../../catalog/characters/index", async (importOriginal) => {
     useCharacterSummariesByIds: () => ({ data: [] }),
     useCreateCharacter: () => ({ isPending: false, mutateAsync: mocks.createCharacter }),
   };
+});
+
+vi.mock("../../../../catalog/connections/index", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../catalog/connections/index")>();
+  return { ...actual, useConnections: () => ({ data: mocks.connections }) };
 });
 
 vi.mock("../../../../catalog/lorebooks/index", async (importOriginal) => {
@@ -156,7 +162,37 @@ afterEach(() => {
   }
   vi.clearAllMocks();
   mocks.chatPresets.length = 0;
+  mocks.connections.length = 0;
   mocks.lorebooks.length = 0;
+});
+
+describe("ChatSetupWizard Conversation connection", () => {
+  it("gives a new conversation a connection that can reply, not a half-finished one listed first", () => {
+    mocks.connections.push(
+      { id: "unfinished", name: "OpenRouter", provider: "openrouter", model: "", hasApiKey: false },
+      { id: "working", name: "OpenRouter", provider: "openrouter", model: "openrouter/free", hasApiKey: true },
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    fixtures.push({ cancel: vi.fn(), container, finish: vi.fn(), queryClient, rerender: () => {}, root });
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ChatSetupWizard
+            chat={{ id: "chat-1", mode: "conversation", metadata: "{}" } as never}
+            onFinish={vi.fn()}
+            onCancel={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(mocks.updateChat).toHaveBeenCalledWith({ id: "chat-1", connectionId: "working" });
+    expect(mocks.updateChat).not.toHaveBeenCalledWith({ id: "chat-1", connectionId: "unfinished" });
+  });
 });
 
 describe("ChatSetupWizard Roleplay exits", () => {

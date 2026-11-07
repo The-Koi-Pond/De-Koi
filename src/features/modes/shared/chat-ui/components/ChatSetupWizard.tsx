@@ -53,7 +53,10 @@ import { generateConversationSchedules } from "../../../../../engine/modes/chat/
 import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
-import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
+import {
+  filterLanguageGenerationConnections,
+  isConnectionReadyToReply,
+} from "../../../../../shared/lib/connection-filters";
 import { getCharacterTitle, parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { normalizeChatCharacterIds } from "../../../../../shared/lib/chat-display";
 import { ChoiceSelectionModal } from "../../../../catalog/presets/index";
@@ -157,6 +160,8 @@ type ConnectionSetupOption = {
   id: string;
   name: string;
   provider?: string;
+  model?: string | null;
+  hasApiKey?: boolean | null;
   defaultParameters?: unknown;
 };
 
@@ -646,7 +651,8 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
 
   useEffect(() => {
     if (chat.connectionId || connectionOptions.length === 0 || updateChat.isPending) return;
-    updateChat.mutate({ id: chat.id, connectionId: connectionOptions[0]!.id });
+    const readyConnection = connectionOptions.find(isConnectionReadyToReply) ?? connectionOptions[0]!;
+    updateChat.mutate({ id: chat.id, connectionId: readyConnection.id });
   }, [chat.connectionId, chat.id, connectionOptions, updateChat]);
 
   const setPersona = useCallback(
