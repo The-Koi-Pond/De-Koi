@@ -3947,6 +3947,26 @@ mod tests {
         .unwrap()
     }
 
+    /// Same as `storage_with_journal_compaction_policy`, but writes never start the
+    /// debounced background flush. Tests that hook into a flush need this: the
+    /// background flush can empty the dirty set before the test's own flush runs.
+    fn storage_without_background_flush(
+        root: &Path,
+        policy: JournalCompactionPolicy,
+        now: SystemTime,
+    ) -> FileStorage {
+        FileStorage::new_with_journal_compaction_policy_and_scheduler(
+            root.to_path_buf(),
+            policy,
+            TestArc::new(move || now),
+            Duration::ZERO,
+            TestArc::new(|_| {}),
+            #[cfg(feature = "journal-compaction-bench")]
+            None,
+        )
+        .unwrap()
+    }
+
     #[cfg(unix)]
     fn file_identity(path: &Path) -> u128 {
         use std::os::unix::fs::MetadataExt;
@@ -4428,7 +4448,7 @@ mod tests {
     fn deferred_flush_clones_only_collections_selected_for_compaction() {
         let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
         let root = temp_storage_root("deferred-flush-selected-clones");
-        let storage = storage_with_journal_compaction_policy(
+        let storage = storage_without_background_flush(
             &root,
             JournalCompactionPolicy::new(Duration::from_secs(60), 2, u64::MAX),
             SystemTime::now(),
@@ -4489,7 +4509,7 @@ mod tests {
     fn reads_continue_while_deferred_compaction_clones_dirty_rows() {
         let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
         let root = temp_storage_root("deferred-flush-readable-during-compaction");
-        let storage = storage_with_journal_compaction_policy(
+        let storage = storage_without_background_flush(
             &root,
             JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
             SystemTime::now() + Duration::from_secs(1),
@@ -4566,7 +4586,7 @@ mod tests {
             &collections.join("characters.json"),
             vec![json!({ "id": "character-1", "name": "Cold cache" })],
         );
-        let storage = storage_with_journal_compaction_policy(
+        let storage = storage_without_background_flush(
             &root,
             JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
             SystemTime::now() + Duration::from_secs(1),
