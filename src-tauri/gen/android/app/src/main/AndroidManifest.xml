@@ -13,6 +13,7 @@
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:label="${mainActivityTitle}"
             android:name="com.de_koi.app.MainActivity"
             android:exported="true">
