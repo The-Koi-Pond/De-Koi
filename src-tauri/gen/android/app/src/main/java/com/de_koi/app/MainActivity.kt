@@ -34,6 +34,14 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  // Wry handles Back by going back in the page's history. With nothing left to go back to it calls this, and the
+  // default finishes the activity, which quits the app: a reply still being written is lost and the next open is
+  // a cold start. Send the app to the background instead, like Android 12+ does for launcher activities.
+  @Deprecated("Called by WryActivity's OnBackPressedCallback once the page has no history left.")
+  override fun onBackPressed() {
+    moveTaskToBack(true)
+  }
+
   private companion object {
     // The dark shell's header colour, shown behind the system bars.
     val SYSTEM_BAR_BACKGROUND = Color.parseColor("#020E16")
