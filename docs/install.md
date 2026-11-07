@@ -48,11 +48,18 @@ Your chats and settings live in `~/.local/share/com.de-koi.app`.
 
 ## Android
 
-1. On your phone, download `De-Koi_<version>_android-arm64.apk` from the release page.
-2. Open it. Android asks you to allow installs from your browser or files app. Allow it for that app, then go back and
-   choose **Install**.
-3. The APK is signed with De-Koi's release key. Android only lets a later De-Koi APK install over this one when it's
-   signed with the same key, so a tampered copy can't replace your app or reach your data.
+De-Koi isn't in the Play Store, so Android shows a few warnings on the way. They're normal for any app installed this
+way:
+
+1. On your phone, open the release page and tap the Android link under **Get De-Koi** at the top
+   (`De-Koi_<version>_android-arm64.apk`). Chrome says **"File might be harmful"**: tap **Download anyway**.
+2. Open the file: tap **Open** when the download finishes, or find it in Chrome's menu (⋮) under **Downloads**.
+3. Android says it **isn't allowed to install unknown apps from this source**. Tap **Settings**, turn on **Allow from
+   this source**, then go back. If the install screen doesn't come back, open the file again.
+4. Tap **Install**, then **Open**.
+
+The APK is signed with De-Koi's release key. Android only lets a later De-Koi APK install over this one when it's signed
+with the same key, so a tampered copy can't replace your app or reach your data.
 
 Pre-alpha test builds use a different app id (`com.de_koi.prealpha`), so they install next to the release app and keep
 separate data.
