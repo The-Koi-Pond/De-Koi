@@ -47,6 +47,7 @@ import {
 } from "../../../../catalog/chat-presets/index";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
+import { ROLEPLAY_STARTER_CHARACTERS } from "../../../../../engine/modes/roleplay/starter-characters";
 import { boolish } from "../../../../../engine/generation/runtime-records";
 import { generateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
 import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
@@ -1650,7 +1651,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
             {available.length === 0 && (
               <CharacterPickerEmptyState
                 status={characterEmptyState}
-                noCharactersText="No characters yet. Create or import one before adding them to this roleplay."
+                noCharactersText="No characters yet. Pick one to start with, or make or import your own."
                 allAddedText="All characters already added."
                 onOpenCharacters={() => {
                   openRightPanel("characters");
@@ -1658,6 +1659,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                 }}
                 onCharacterCreated={toggleCharacter}
                 onImportCharacters={() => openModal("import-character")}
+                starters={ROLEPLAY_STARTER_CHARACTERS}
               />
             )}
           </div>

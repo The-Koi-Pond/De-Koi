@@ -214,6 +214,32 @@ describe("ChatSetupWizard Roleplay exits", () => {
     expect(finish).not.toHaveBeenCalled();
   });
 
+  it("starts an empty library with a ready-made character, greeting included", async () => {
+    const { cancel, container, finish } = renderRoleplayWizard();
+    advance(container, 3);
+
+    const wisp = [...container.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.trim().startsWith("Wisp"),
+    );
+    expect(wisp, "Wisp starter choice").toBeDefined();
+    await act(async () => {
+      wisp!.click();
+    });
+
+    expect(mocks.createCharacter).toHaveBeenCalledOnce();
+    const [input] = mocks.createCharacter.mock.calls[0] as unknown as [
+      { name: string; data: { first_mes: string; scenario: string } },
+    ];
+    expect(input.name).toBe("Wisp");
+    expect(input.data.first_mes).toContain("Do we have a deal");
+    expect(input.data.scenario).not.toBe("");
+    expect(mocks.updateChat.mock.calls.map(([update]) => update)).toContainEqual(
+      expect.objectContaining({ id: "chat-1", characterIds: ["character-new"], name: "Wisp" }),
+    );
+    expect(cancel).not.toHaveBeenCalled();
+    expect(finish).not.toHaveBeenCalled();
+  });
+
   it("says there are no lorebooks yet instead of claiming they were all added", () => {
     const { container } = renderRoleplayWizard();
     advance(container, 4);
