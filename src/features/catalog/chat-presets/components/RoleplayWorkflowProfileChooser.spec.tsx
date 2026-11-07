@@ -121,8 +121,28 @@ describe("RoleplayWorkflowProfileChooser", () => {
     expect(container.textContent).toContain("expressions, backgrounds, artwork, or music");
     expect(container.textContent).toContain("local sidecar configured");
     expect(container.textContent).toContain("Best for");
-    expect(container.textContent).toContain("Adds");
     expect(container.textContent).toContain("Model use");
+  });
+
+  it("keeps setup short: profile details and the change ledger fold into What this changes", async () => {
+    await renderChooser(chat, "wizard");
+
+    const guidance = container.querySelector("#workflow-profile-longform-continuity-guidance");
+    expect(guidance?.textContent).toContain("Best for: A campaign or story spanning many scenes or sessions.");
+    expect(guidance?.textContent).not.toContain("Adds:");
+    expect(guidance?.textContent).not.toContain("Model use:");
+    const ledger = container.querySelector<HTMLDetailsElement>('details[data-region="change-ledger"]');
+    expect(ledger, "collapsible change ledger").not.toBeNull();
+    expect(ledger!.open).toBe(false);
+    expect(ledger!.querySelector("summary")?.textContent).toBe("What this changes");
+  });
+
+  it("keeps the full details open in the chat drawer", async () => {
+    await renderChooser(chat, "drawer");
+
+    expect(container.querySelector("#workflow-profile-longform-continuity-guidance")?.textContent).toContain("Adds:");
+    expect(container.querySelector('details[data-region="change-ledger"]')).toBeNull();
+    expect(container.querySelector('[data-region="change-ledger"]')).not.toBeNull();
   });
 
   it("exposes every workflow's decision guidance through the radio description", async () => {
