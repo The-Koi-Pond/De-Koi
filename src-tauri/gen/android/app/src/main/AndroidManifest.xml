@@ -23,6 +23,13 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- "Back to De-Koi" on the OpenRouter login page in the browser (openrouter_login.rs) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dekoi" android:host="openrouter-login" />
+            </intent-filter>
         </activity>
 
         <provider
