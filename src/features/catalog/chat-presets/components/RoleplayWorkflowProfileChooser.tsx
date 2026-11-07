@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, ChevronDown, ExternalLink, Loader2, RotateCcw } from "lucide-react";
 
 import type { Chat } from "../../../../engine/contracts/types/chat";
@@ -227,6 +227,22 @@ function workflowRelevantChatValue(chat: Chat): unknown {
 
 function sameWorkflowRelevantChat(left: Chat, right: Chat): boolean {
   return JSON.stringify(workflowRelevantChatValue(left)) === JSON.stringify(workflowRelevantChatValue(right));
+}
+
+function LedgerFrame({ compact, children }: { compact: boolean; children: ReactNode }) {
+  if (!compact) {
+    return (
+      <div className="order-2 min-w-0 space-y-2" data-region="change-ledger">
+        {children}
+      </div>
+    );
+  }
+  return (
+    <details className="order-2 min-w-0" data-region="change-ledger">
+      <summary className="cursor-pointer text-xs font-semibold text-[var(--foreground)]">What this changes</summary>
+      <div className="mt-2 space-y-2">{children}</div>
+    </details>
+  );
 }
 
 export function RoleplayWorkflowProfileChooser({
@@ -525,6 +541,9 @@ export function RoleplayWorkflowProfileChooser({
   }, [hasPendingApply, onPendingApplyChange]);
   useEffect(() => () => onPendingApplyChange?.(null), [onPendingApplyChange]);
 
+  // Setup shows the short version; the full change ledger is one tap away.
+  const compact = entryPoint === "wizard";
+
   return (
     <section
       className="@container flex min-h-0 flex-col gap-3"
@@ -598,21 +617,25 @@ export function RoleplayWorkflowProfileChooser({
                         <span className="font-semibold">Best for: </span>
                         {profile.bestFor}
                       </span>
-                      <span className="block">
-                        <span className="font-semibold">Adds: </span>
-                        {profile.adds}
-                      </span>
-                      <span className="block">
-                        <span className="font-semibold">Model use: </span>
-                        {profile.modelUse}
-                      </span>
+                      {!compact && (
+                        <>
+                          <span className="block">
+                            <span className="font-semibold">Adds: </span>
+                            {profile.adds}
+                          </span>
+                          <span className="block">
+                            <span className="font-semibold">Model use: </span>
+                            {profile.modelUse}
+                          </span>
+                        </>
+                      )}
                     </span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="order-2 min-w-0 space-y-2" data-region="change-ledger">
+            <LedgerFrame compact={compact}>
               <div className="flex items-center justify-between gap-2">
                 <h4 className="text-xs font-semibold text-[var(--foreground)]">Change ledger</h4>
                 <span className="text-[0.625rem] text-[var(--muted-foreground)]">
@@ -705,7 +728,7 @@ export function RoleplayWorkflowProfileChooser({
                   );
                 })}
               </div>
-            </div>
+            </LedgerFrame>
           </div>
 
           {receipt && (

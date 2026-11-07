@@ -97,7 +97,7 @@ const ALL_STEPS: WizardStep[] = [
   {
     key: "preset",
     title: "Pick a Preset",
-    body: "Presets control the system prompt structure and generation parameters. The default preset works great for most chats!",
+    body: "A preset is the set of writing instructions the AI follows. The default works well for most chats, so you can just press Next.",
     sprite: ASSISTANT_MARK_URL,
   },
   {
@@ -115,13 +115,13 @@ const ALL_STEPS: WizardStep[] = [
   {
     key: "lorebooks",
     title: "Attach Lorebooks",
-    body: "Lorebooks inject world info and lore into the AI's context when relevant keywords appear. Optional but great for rich worlds!",
+    body: "Lorebooks are notes about your world (places, people, history) that the AI reads when they come up. Optional, so you can press Next.",
     sprite: ASSISTANT_MARK_URL,
   },
   {
     key: "workflow-profile",
     title: "Choose a Workflow Profile",
-    body: "Optional: pick a ready-made set of Roleplay helpers. Picking one turns Done into Apply & finish, which saves it. To skip, press Done.",
+    body: "Optional extras for longer or more visual stories. To start chatting now, press Done. If you pick one, Done becomes Apply & finish.",
     sprite: ASSISTANT_MARK_URL,
   },
 ];

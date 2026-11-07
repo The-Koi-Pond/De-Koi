@@ -311,7 +311,7 @@ describe("ChatSetupWizard Roleplay exits", () => {
 
     expect(container.textContent).toContain("Choose a Workflow Profile");
     expect(button(container, "Done")).toBeDefined();
-    expect(container.textContent).toContain("To skip, press Done.");
+    expect(container.textContent).toContain("To start chatting now, press Done.");
     expect(container.textContent).not.toContain("ledger rows");
 
     click(container, "Pick workflow profile");
