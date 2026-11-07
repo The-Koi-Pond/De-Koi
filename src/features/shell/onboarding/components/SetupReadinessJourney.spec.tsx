@@ -433,6 +433,43 @@ describe("SetupReadinessJourney", () => {
     expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "sidecar:local" }));
   });
 
+  it("never hands the new chat a half-finished connection listed first", async () => {
+    mocks.embedded.current = true;
+    mocks.connections.current = [
+      { id: "unfinished", provider: "openrouter", model: "", hasApiKey: false },
+      { id: "working", provider: "openrouter", model: "openrouter/free", hasApiKey: true },
+    ];
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.selectDefaultTextConnectionId).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: "working" })],
+      expect.anything(),
+    );
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "working" }));
+  });
+
+  it("skips a remembered setup selection that cannot reply", async () => {
+    mocks.embedded.current = true;
+    mocks.intent.current = { ...mocks.intent.current!, selectedConnectionId: "unfinished" };
+    mocks.connections.current = [
+      { id: "unfinished", provider: "openrouter", model: "", hasApiKey: false },
+      { id: "working", provider: "openrouter", model: "openrouter/free", hasApiKey: true },
+    ];
+
+    await act(async () => {
+      root.render(<SetupReadinessJourney />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "working" }));
+  });
+
   it("launches against the hosted page origin before runtime URL persistence", async () => {
     mocks.runtimeUrl.current = "";
     mocks.health.mockResolvedValue({ status: "ok", message: "Ready", health: { ok: true, writable: true } });

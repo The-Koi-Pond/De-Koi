@@ -31,13 +31,18 @@ function isUsableLanguageConnection(connection: SetupConnectionFact): boolean {
   );
 }
 
+/** The saved language connections that can reply right now, in their saved order. */
+export function filterUsableLanguageConnections<T extends SetupConnectionFact>(connections?: readonly T[] | null): T[] {
+  return filterLanguageGenerationConnections(connections).filter(isUsableLanguageConnection);
+}
+
 /** True when at least one saved connection counts as setup's "Connect a language model" step being done. */
 export function hasUsableLanguageConnection(connections?: readonly SetupConnectionFact[] | null): boolean {
-  return filterLanguageGenerationConnections(connections).some(isUsableLanguageConnection);
+  return filterUsableLanguageConnections(connections).length > 0;
 }
 
 export function buildSetupReadinessFacts(input: BuildSetupReadinessInput): SetupReadinessFacts {
-  const usableConnections = filterLanguageGenerationConnections(input.connections).filter(isUsableLanguageConnection);
+  const usableConnections = filterUsableLanguageConnections(input.connections);
 
   let runtimeHealth: SetupReadinessFacts["runtimeHealth"] = "not-required";
   if (!input.embedded) {
