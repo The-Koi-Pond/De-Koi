@@ -573,8 +573,25 @@ fn max_tokens(parameters: &Value, fallback: u64) -> u64 {
         .unwrap_or(fallback)
 }
 
+/// OpenRouter's free models nearly all think before answering whatever reasoning setting is sent (a reasoning token
+/// cap is ignored and most refuse to switch thinking off), and the thinking counts against `max_tokens`. On
+/// `openrouter/free` a two-line roleplay prompt used 120-850 thinking tokens, so a 900-token background job came back
+/// with thinking and no answer, and a 4096-token reply sometimes stopped at the limit before any text. Free models
+/// cost nothing, so they get room to think on top of the reply budget, as Anthropic thinking budgets do.
+const FREE_MODEL_THINKING_HEADROOM_TOKENS: u64 = 4096;
+
+fn is_openrouter_free_model(request: &LlmRequest) -> bool {
+    let model = request.connection.model.trim();
+    request.connection.provider == "openrouter"
+        && (model == "openrouter/free" || model.ends_with(":free"))
+}
+
 fn request_max_tokens(request: &LlmRequest, fallback: u64) -> u64 {
-    let value = max_tokens(&request.parameters, fallback);
+    let mut value = max_tokens(&request.parameters, fallback);
+    if is_openrouter_free_model(request) {
+        value = value.saturating_add(FREE_MODEL_THINKING_HEADROOM_TOKENS);
+    }
+    // A Max Output cap set on the connection still wins.
     request
         .connection
         .max_tokens_override
@@ -2603,6 +2620,45 @@ mod tests {
             parameters,
             tools: Vec::new(),
         }
+    }
+
+    #[test]
+    fn openrouter_free_models_get_room_to_think_on_top_of_the_reply_budget() {
+        let budget = json!({ "maxTokens": 900 });
+        let headroom = 900 + FREE_MODEL_THINKING_HEADROOM_TOKENS;
+        assert_eq!(
+            request_max_tokens(
+                &request_for("openrouter", "openrouter/free", budget.clone()),
+                1024
+            ),
+            headroom
+        );
+        assert_eq!(
+            request_max_tokens(
+                &request_for("openrouter", "google/gemma-4-31b-it:free", budget.clone()),
+                1024
+            ),
+            headroom
+        );
+        // Paid models, and free-looking names on other providers, keep the budget they asked for.
+        assert_eq!(
+            request_max_tokens(
+                &request_for("openrouter", "anthropic/claude-sonnet-4.5", budget.clone()),
+                1024
+            ),
+            900
+        );
+        assert_eq!(
+            request_max_tokens(
+                &request_for("nanogpt", "some-model:free", budget.clone()),
+                1024
+            ),
+            900
+        );
+        // The connection's own Max Output cap still wins.
+        let mut capped = request_for("openrouter", "openrouter/free", budget);
+        capped.connection.max_tokens_override = Some(2000);
+        assert_eq!(request_max_tokens(&capped, 1024), 2000);
     }
 
     fn test_message(role: &str, content: &str) -> LlmMessage {
