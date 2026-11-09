@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # The generation runner (src/runner): the app's reply engine bundled into one Node file. It runs replies on
 # the server so they survive a closed browser tab; de-koi-server starts it (see runner_supervisor.rs).
-FROM node:22-bookworm-slim AS runner-builder
+FROM node:25-bookworm-slim AS runner-builder
 
 WORKDIR /app
 
@@ -46,7 +46,7 @@ COPY scripts/run-vite.mjs ./scripts/run-vite.mjs
 COPY src ./src
 RUN pnpm build:runner
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 
 ARG DE_KOI_IMAGE_VERSION=prealpha
 ARG DE_KOI_SOURCE_COMMIT=unknown

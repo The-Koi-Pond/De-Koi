@@ -60,7 +60,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - uses: taiki-e/install-action@v2.85.2
+      - uses: taiki-e/install-action@v2.89.1
         with:
           tool: nextest
       - name: Rust workspace tests on Windows
