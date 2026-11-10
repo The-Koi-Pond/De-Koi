@@ -4436,6 +4436,74 @@ mod tests {
     }
 
     #[test]
+    fn message_swipes_invalidates_knowledge_edges_sourced_from_the_message() {
+        let state = test_state("swipe-knowledge-edge");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Knowledge" }))
+            .expect("chat should seed");
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first",
+                "createdAt": "2026-06-01T10:00:00.000Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{ "content": "first" }]
+            }),
+        )
+        .expect("message should seed in append-only swipe storage");
+        crate::storage_commands::canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-1",
+                "kind": "fact",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "A claim",
+                "confidence": 0.8,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
+            }),
+        )
+        .expect("memory should be created");
+        crate::storage_commands::knowledge_edges::upsert_edge(
+            &state,
+            json!({
+                "memoryId": "memory-1",
+                "holder": { "kind": "character", "id": "alice" },
+                "stance": "believes",
+                "status": "active",
+                "provenance": [{
+                    "kind": "targeted_disclosure",
+                    "author": "system",
+                    "sourceChatId": "chat-1",
+                    "messageIds": ["message-1"],
+                    "createdAt": "2026-08-30T12:00:00.000Z"
+                }]
+            }),
+        )
+        .expect("knowledge edge should be created");
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second" }),
+        )
+        .expect("a new swipe on a knowledge-edge source should save");
+
+        assert_eq!(updated["content"], json!("second"));
+        let edges = crate::storage_commands::knowledge_edges::query_edges(
+            &state,
+            json!({ "memoryIds": ["memory-1"] }),
+        )
+        .expect("edges should be readable");
+        assert_eq!(edges[0]["status"], json!("invalidated"));
+    }
+
+    #[test]
     fn message_swipes_legacy_embedded_rows_keep_full_cleanup_path() {
         let state = test_state("swipe-legacy-cleanup");
         state
