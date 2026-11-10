@@ -97,7 +97,7 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "Release ${tag} from ${GITHUB_SHA}"
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         if: steps.mode.outputs.dry_run == 'true'
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -147,7 +147,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -189,7 +189,7 @@ jobs:
 
       - name: Fetch the throwaway updater key (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dry-run-updater-key
           path: ${{ runner.temp }}/dry-run-key
@@ -273,7 +273,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -283,7 +283,7 @@ jobs:
           cache: pnpm
 
       - name: Setup Java for Android Gradle
-        uses: actions/setup-java@v5.6.0
+        uses: actions/setup-java@v6.1.0
         with:
           distribution: temurin
           java-version: "17"
@@ -419,7 +419,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Download release files
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
@@ -427,7 +427,7 @@ jobs:
 
       - name: Fetch the throwaway updater key (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dry-run-updater-key
           path: ${{ runner.temp }}/dry-run-key
@@ -510,7 +510,7 @@ jobs:
       contents: write
     steps:
       - name: Download final release bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: release-final
           path: final
