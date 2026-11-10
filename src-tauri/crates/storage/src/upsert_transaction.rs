@@ -62,6 +62,7 @@ fn validate(transaction: &UpsertTransaction) -> AppResult<()> {
                 | "chats"
                 | "canonical-memories"
                 | "story-consolidation-jobs"
+                | "memory-knowledge-edges"
         ) {
             return Err(AppError::invalid_input(format!(
                 "Collection upsert transactions do not support {}",
