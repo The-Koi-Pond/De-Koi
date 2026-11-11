@@ -155,6 +155,35 @@ async function coverageId(chatId: string, messageIds: string[]): Promise<string>
   return sha256MemoryId("story-coverage", `${chatId}\u001f${messageIds.join("\u001f")}`);
 }
 
+// A failed job keeps its id, and the planner keeps choosing the same oldest uncovered messages, so
+// without this one failure (an expired login, a rejected parameter) stops every later recap in the chat.
+// Automatic recaps try a failed job again at most once an hour; a recap the user asked for tries it now.
+const FAILED_JOB_RETRY_AFTER_MS = 60 * 60_000;
+
+async function rearmFailedStoryJob(
+  storage: StorageGateway,
+  job: StoryProjectionJob,
+  input: { connectionId?: string | null; provider?: string | null; model?: string | null },
+  now: string,
+  immediate: boolean,
+): Promise<StoryProjectionJob> {
+  if (job.status !== "failed") return job;
+  const failedAt = Date.parse(job.updatedAt);
+  if (!immediate && Number.isFinite(failedAt) && failedAt + FAILED_JOB_RETRY_AFTER_MS > Date.parse(now)) return job;
+  // The chat's current connection replaces the one that failed (the user may have switched or signed in again).
+  const connection = input.connectionId
+    ? { connectionId: input.connectionId, provider: input.provider ?? null, model: input.model ?? null }
+    : {};
+  return storage.update<StoryProjectionJob>(STORY_CONSOLIDATION_JOBS_COLLECTION, job.id, {
+    ...connection,
+    status: "pending",
+    attempts: 0,
+    lastError: null,
+    nextAttemptAt: now,
+    updatedAt: now,
+  });
+}
+
 function sameJobIdentity(
   job: StoryProjectionJob,
   expected: Pick<StoryProjectionJob, "level" | "coverageId" | "sourceFingerprint">,
@@ -230,7 +259,8 @@ export async function enqueueStoryEpisodeJob(
     ) {
       throw new Error("Story consolidation SHA-256 job id collision");
     }
-    return existing;
+    const userAsked = Boolean(input.explicit || input.requestedBoundary === "manual" || input.supersedesMemoryId);
+    return rearmFailedStoryJob(storage, existing, input, now, userAsked);
   }
   const job: StoryProjectionJob = {
     id,
@@ -292,7 +322,7 @@ export async function enqueueStoryArcJob(
     if (!sameJobIdentity(existing, { level: "arc", coverageId: stableCoverageId, sourceFingerprint: fingerprint })) {
       throw new Error("Story consolidation SHA-256 job id collision");
     }
-    return existing;
+    return rearmFailedStoryJob(storage, existing, input, now, false);
   }
   const job: StoryProjectionJob = {
     id,
