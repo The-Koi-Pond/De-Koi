@@ -108,14 +108,15 @@ stable unless the implementation exposes a missing optional field.
 
 Use named constants in `deki/budget.rs` so tests can assert them:
 
-- Maximum command-loop rounds: 8. Round 7 is a synthesis checkpoint that may
-  issue one smallest missing command batch; round 8 is command-free synthesis.
+- Maximum command-loop rounds: 12. Round 11 is a synthesis checkpoint that may
+  issue one smallest missing command batch; round 12 is command-free synthesis.
   This leaves one bounded recovery turn without executing unconsumable commands.
 - Maximum commands per round: 4.
 - Reasoning effort for every model call: medium (`DEKI_REASONING_EFFORT` in
   `deki/model_client.rs`).
-- Maximum wall-clock runtime: 180 seconds, of which the last 45 are kept for
-  the final answer round. Investigation rounds and commands only use the time
+- Maximum wall-clock runtime: 600 seconds, of which the last 90 are kept for
+  the final answer round. Long requests (many cards or files) need several slow
+  rounds; the user can stop a run at any time. Investigation rounds and commands only use the time
   before that reserve.
 - Command evidence is sized from the connection's `maxContext` (128k tokens
   when unset): 30% of the window at about four characters per token, between
