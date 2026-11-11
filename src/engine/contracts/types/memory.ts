@@ -110,6 +110,11 @@ export interface StoryProjectionPayload extends Record<string, unknown> {
   sections: StoryProjectionSections;
   /** Episodes only; absent on episodes summarized before open threads existed. */
   openThreads?: StoryOpenThread[];
+  /**
+   * Episodes only: how things stand at the end of the episode (who has what, where things are, numbers still in
+   * play). Each episode updates the previous episode's sheet. Absent on episodes summarized before it existed.
+   */
+  stateSheet?: string[];
   summarizer: {
     version: string;
     connectionId?: string | null;

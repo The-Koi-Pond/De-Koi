@@ -33,6 +33,9 @@ const CONTEXT_SHARE = 0.07;
 // up to three promises, then up to three unanswered questions.
 const MAX_OPEN_THREADS_PER_KIND = 3;
 const OPEN_THREAD_BUDGET_TOKENS = 240;
+// The newest episode's state sheet (who has what, where things are, numbers in play) gets its own allowance:
+// room for the whole sheet of ten short lines.
+const STATE_SHEET_BUDGET_TOKENS = 420;
 
 function payload(memory: CanonicalMemoryRecord): StoryProjectionPayload | null {
   return isStoryProjectionMemory(memory) ? (memory.payload as StoryProjectionPayload) : null;
@@ -101,6 +104,20 @@ function packOpenThreads(threads: StoryOpenThread[], represented: Set<string>): 
     const tokens = estimateTokens(thread.text) + 4;
     if (used + tokens > OPEN_THREAD_BUDGET_TOKENS) continue;
     packed.push(thread);
+    used += tokens;
+  }
+  return packed;
+}
+
+function packStateSheet(lines: string[], represented: Set<string>): string[] {
+  const packed: string[] = [];
+  let used = 30;
+  for (const line of lines) {
+    const normalized = normalizeSentence(line);
+    if (!normalized || represented.has(normalized)) continue;
+    const tokens = estimateTokens(line) + 2;
+    if (used + tokens > STATE_SHEET_BUDGET_TOKENS) continue;
+    packed.push(line);
     used += tokens;
   }
   return packed;
@@ -235,31 +252,30 @@ export async function buildStoryContinuityContext(
       const story = payload(memory);
       return story?.level === "episode" ? [{ memory, story, endedAt: episodeEnd(memory, story) }] : [];
     });
-  const ledger =
-    episodes.length === 0
-      ? undefined
-      : activeEpisodes
-          .filter((entry) => entry.story.openThreads?.length)
-          .filter((entry) => accessByMemoryId.get(entry.memory.id)?.admitted !== false)
-          .sort((left, right) => right.endedAt - left.endedAt)[0];
-  // The list carries threads forward from earlier episodes. If any of those is hidden from this responder, a
-  // carried thread could repeat its secret, so show none.
-  const ledgerRepeatsHidden =
-    !!ledger &&
-    activeEpisodes.some(
-      (entry) => entry.endedAt <= ledger.endedAt && accessByMemoryId.get(entry.memory.id)?.admitted === false,
-    );
-  const threads =
-    ledger && !ledgerRepeatsHidden
-      ? packOpenThreads(
-          ledger.story.openThreads ?? [],
-          sentenceSet([...(input.representedText ?? []), ...packed.map(({ content }) => content)]),
-        )
-      : [];
-  if (packed.length === 0 && threads.length === 0 && excluded.length === 0) return null;
+  const newestCarried = (carries: (story: StoryProjectionPayload) => boolean) => {
+    if (episodes.length === 0) return undefined;
+    const newest = activeEpisodes
+      .filter((entry) => carries(entry.story))
+      .filter((entry) => accessByMemoryId.get(entry.memory.id)?.admitted !== false)
+      .sort((left, right) => right.endedAt - left.endedAt)[0];
+    // The list carries lines forward from earlier episodes. If any of those is hidden from this responder, a
+    // carried line could repeat its secret, so show none.
+    const repeatsHidden =
+      !!newest &&
+      activeEpisodes.some(
+        (entry) => entry.endedAt <= newest.endedAt && accessByMemoryId.get(entry.memory.id)?.admitted === false,
+      );
+    return repeatsHidden ? undefined : newest;
+  };
+  const ledger = newestCarried((story) => !!story.openThreads?.length);
+  const stateLedger = newestCarried((story) => !!story.stateSheet?.length);
+  const represented = sentenceSet([...(input.representedText ?? []), ...packed.map(({ content }) => content)]);
+  const threads = ledger ? packOpenThreads(ledger.story.openThreads ?? [], represented) : [];
+  const state = stateLedger ? packStateSheet(stateLedger.story.stateSheet ?? [], represented) : [];
+  if (packed.length === 0 && threads.length === 0 && state.length === 0 && excluded.length === 0) return null;
 
   const block =
-    packed.length > 0 || threads.length > 0
+    packed.length > 0 || threads.length > 0 || state.length > 0
       ? [
           "<story_continuity>",
           "The following are non-authoritative narrative projections. Recent transcript and canonical atomic memories win conflicts.",
@@ -273,6 +289,12 @@ export async function buildStoryContinuityContext(
                 ...threads.map(
                   (thread) => `- [${thread.kind === "promise" ? "promise" : "unresolved"}] ${thread.text}`,
                 ),
+              ]
+            : []),
+          ...(state.length > 0
+            ? [
+                "Where things stand as of the last recap (the recent transcript wins if it has moved on):",
+                ...state.map((line) => `- ${line}`),
               ]
             : []),
           "</story_continuity>",
@@ -334,6 +356,24 @@ export async function buildStoryContinuityContext(
               epistemicPolicyVersion: accessByMemoryId.has(ledger!.memory.id) ? 1 : undefined,
               epistemicReason: accessByMemoryId.get(ledger!.memory.id)?.reason,
               epistemicEdgeIds: accessByMemoryId.get(ledger!.memory.id)?.edgeIds,
+            },
+          }) satisfies GenerationContextAttributionItem,
+      ),
+      ...state.map(
+        (line, index) =>
+          ({
+            kind: "story_projection",
+            label: `Story state ${index + 1}`,
+            status: "injected",
+            sourceId: stateLedger!.memory.id,
+            sourceCollection: "canonical-memories",
+            snippet: line,
+            metadata: {
+              projectionLevel: "episode",
+              stateLine: true,
+              epistemicPolicyVersion: accessByMemoryId.has(stateLedger!.memory.id) ? 1 : undefined,
+              epistemicReason: accessByMemoryId.get(stateLedger!.memory.id)?.reason,
+              epistemicEdgeIds: accessByMemoryId.get(stateLedger!.memory.id)?.edgeIds,
             },
           }) satisfies GenerationContextAttributionItem,
       ),

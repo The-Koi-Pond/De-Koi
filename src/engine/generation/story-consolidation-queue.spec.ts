@@ -387,6 +387,82 @@ describe("story consolidation queue", () => {
     });
   });
 
+  it("carries the previous episode's state sheet into the summary and stores the updated sheet", async () => {
+    const test = harness();
+    const previous = episodeMemory(1);
+    const crate = "The crate is open: fifty Pell-pattern stakes in five tarred bundles.";
+    const coat = "Odile wears Cass's green oilskin, lent to her at Marrow Lock.";
+    await test.storage.createMemory!({ ...previous, payload: { ...previous.payload, stateSheet: [crate, coat] } });
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 3)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const updated = [crate, "Cass has the green oilskin back.", "The Patience is past Marrow Lock."];
+    const complete = vi.fn(async (_request: Parameters<LlmGateway["complete"]>[0]) =>
+      JSON.stringify({ ...JSON.parse(llmResult("message-3")), stateSheet: updated }),
+    );
+
+    await processStoryConsolidationQueue(
+      { storage: test.storage, llm: { complete } as unknown as LlmGateway },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
+
+    const prompt = String(complete.mock.calls[0]?.[0]?.messages?.[1]?.content);
+    expect(prompt).toContain(`State carried over:\n- ${crate}\n- ${coat}`);
+    const episode = Array.from(test.memories.values()).find((memory) => memory.id !== "episode-1");
+    expect(episode?.payload).toMatchObject({ stateSheet: updated });
+  });
+
+  it("keeps the state sheet going when the summarizer leaves it out, newest notes first", async () => {
+    const test = harness();
+    const previous = episodeMemory(1);
+    const crate = "The crate is open: fifty Pell-pattern stakes in five tarred bundles.";
+    await test.storage.createMemory!({ ...previous, payload: { ...previous.payload, stateSheet: [crate] } });
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 3)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const llm = { complete: vi.fn(async () => llmResult("message-3")) } as unknown as LlmGateway;
+
+    await processStoryConsolidationQueue({ storage: test.storage, llm }, { now: "2026-08-27T01:00:00.000Z" });
+
+    const episode = Array.from(test.memories.values()).find((memory) => memory.id !== "episode-1");
+    expect(episode?.payload).toMatchObject({ stateSheet: ["A concrete story beat occurred.", crate] });
+  });
+
+  it("starts the state sheet from an older episode's current-state notes", async () => {
+    const test = harness();
+    const previous = episodeMemory(1);
+    const sections = previous.payload!.sections as Record<string, unknown>;
+    await test.storage.createMemory!({
+      ...previous,
+      payload: {
+        ...previous.payload,
+        sections: { ...sections, currentState: [{ text: "Pim holds the knife.", sourceMessageIds: ["message-2"] }] },
+      },
+    });
+    await enqueueStoryEpisodeJob(test.storage, {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 3)),
+      connectionId: "connection-1",
+      model: "model-1",
+    });
+    const complete = vi.fn(async (_request: Parameters<LlmGateway["complete"]>[0]) => llmResult("message-3"));
+
+    await processStoryConsolidationQueue(
+      { storage: test.storage, llm: { complete } as unknown as LlmGateway },
+      { now: "2026-08-27T01:00:00.000Z" },
+    );
+
+    expect(String(complete.mock.calls[0]?.[0]?.messages?.[1]?.content)).toContain(
+      "State carried over:\n- Pim holds the knife.",
+    );
+  });
+
   it("summarizes on the queued reply connection when summaries are not routed", async () => {
     const test = harness();
     await enqueueStoryEpisodeJob(test.storage, {

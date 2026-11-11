@@ -18,6 +18,7 @@ function projection(
     sourceEpisodeIds?: string[];
     createdAt?: string;
     openThreads?: StoryOpenThread[];
+    stateSheet?: string[];
   } = {},
 ): CanonicalMemoryRecord {
   const payload: StoryProjectionPayload = {
@@ -41,6 +42,7 @@ function projection(
       currentState: [],
     },
     ...(options.openThreads ? { openThreads: options.openThreads } : {}),
+    ...(options.stateSheet ? { stateSheet: options.stateSheet } : {}),
     summarizer: { version: "story-projection-v1", completedAt: options.createdAt ?? "2026-01-01T00:00:00.000Z" },
   };
   return {
@@ -129,6 +131,57 @@ describe("story continuity prompt context", () => {
     );
   });
 
+  it("shows the newest episode's state sheet once part of the chat has left the raw window", async () => {
+    const rows = [
+      projection("ep-1", "episode", ["m1", "m2"], "Mara found the brass key.", {
+        createdAt: "2026-01-01T00:00:00Z",
+        stateSheet: ["Mara has the brass key."],
+      }),
+      projection("ep-2", "episode", ["m3", "m4"], "The party crossed the frozen lake.", {
+        createdAt: "2026-01-02T00:00:00Z",
+        stateSheet: ["The abbess has the brass key back.", "The party is past the frozen lake."],
+      }),
+    ];
+
+    const result = await buildStoryContinuityContext(storage(rows), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      retainedRawMessageIds: ["m4"],
+      latestUserInput: "We keep rowing.",
+    });
+
+    expect(result?.block).toContain(
+      "Where things stand as of the last recap (the recent transcript wins if it has moved on):\n" +
+        "- The abbess has the brass key back.\n" +
+        "- The party is past the frozen lake.",
+    );
+    expect(result?.block).not.toContain("Mara has the brass key.");
+    expect(result?.attributionItems).toContainEqual(
+      expect.objectContaining({
+        label: "Story state 1",
+        sourceId: "ep-2",
+        snippet: "The abbess has the brass key back.",
+      }),
+    );
+  });
+
+  it("leaves the state sheet out while the whole chat is still in the raw window", async () => {
+    const rows = [
+      projection("ep-1", "episode", ["m1", "m2"], "Mara found the brass key.", {
+        stateSheet: ["Mara has the brass key."],
+      }),
+    ];
+
+    const result = await buildStoryContinuityContext(storage(rows), {
+      chat: { id: "chat-1", mode: "roleplay", metadata: { enableMemoryRecall: true } },
+      storedMessages: [],
+      retainedRawMessageIds: ["m2"],
+      latestUserInput: "We keep rowing.",
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("leaves open threads out while the whole chat is still in the raw window", async () => {
     const rows = [
       projection("ep-1", "episode", ["m1", "m2"], "Mara found the brass key.", {
@@ -156,6 +209,7 @@ describe("story continuity prompt context", () => {
     const later = projection("ep-later", "episode", ["m3", "m4"], "The party crossed the frozen lake.", {
       createdAt: "2026-01-02T00:00:00Z",
       openThreads: [{ kind: "hook", text: "Whether anyone finds the crown under the chapel is open." }],
+      stateSheet: ["The crown is under the chapel floor."],
     });
     const edge: KnowledgeEdge = {
       id: "edge-alice",

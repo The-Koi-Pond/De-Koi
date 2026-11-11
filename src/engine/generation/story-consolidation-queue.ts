@@ -39,6 +39,10 @@ const STORY_SUMMARY_RETRY_MAX_TOKENS = 8192;
 const MAX_OPEN_PROMISES = 8;
 const MAX_OPEN_HOOKS = 6;
 const MAX_OPEN_THREAD_CHARS = 300;
+// The state sheet: short lines on how things stand (who has what, where things are, numbers in play). Late in
+// long chats the writer contradicted exactly this kind of settled state once it left the raw window.
+const MAX_STATE_LINES = 10;
+const MAX_STATE_LINE_CHARS = 240;
 const workerId = `story-consolidation-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
 const activeWorkers = new WeakSet<StorageGateway>();
 const pendingWorkerReruns = new WeakSet<StorageGateway>();
@@ -67,7 +71,10 @@ type StructuredStorySummary = {
   summary: string;
   sections: StoryProjectionSections;
   openThreads?: StoryOpenThread[];
+  stateSheet?: string[];
 };
+
+type CarriedStory = { threads: StoryOpenThread[]; state: string[] };
 
 function storySummaryParameters(maxTokens: number): Record<string, unknown> {
   return {
@@ -570,9 +577,43 @@ function sectionThreads(sections: StoryProjectionSections): StoryOpenThread[] {
   ];
 }
 
-// The open threads the previous episode left, so this episode can close what it resolves and keep the rest.
-async function carriedOpenThreads(storage: StorageGateway, job: StoryProjectionJob): Promise<StoryOpenThread[]> {
-  if (job.level !== "episode") return [];
+function stateSheetList(entries: unknown[]): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const entry of entries) {
+    const text = readString(typeof entry === "string" ? entry : parseRecord(entry).text)
+      .trim()
+      .slice(0, MAX_STATE_LINE_CHARS);
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    lines.push(text);
+    if (lines.length >= MAX_STATE_LINES) break;
+  }
+  return lines;
+}
+
+function parseStateSheet(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? stateSheetList(value) : undefined;
+}
+
+// The open threads and state sheet the previous episode left, so this episode can update them.
+async function carriedStory(storage: StorageGateway, job: StoryProjectionJob): Promise<CarriedStory> {
+  const previous = await previousEpisode(storage, job);
+  if (!previous) return { threads: [], state: [] };
+  return {
+    // Episodes summarized before open threads existed: start from their own promises and unresolved hooks.
+    threads: openThreadList(previous.openThreads ?? sectionThreads(previous.sections)),
+    // Episodes summarized before the state sheet existed: start from their own current-state notes.
+    state: stateSheetList(previous.stateSheet ?? previous.sections.currentState.map((entry) => entry.text)),
+  };
+}
+
+async function previousEpisode(
+  storage: StorageGateway,
+  job: StoryProjectionJob,
+): Promise<StoryProjectionPayload | null> {
+  if (job.level !== "episode") return null;
   // Parsed, not compared as text: stored timestamps mix "Z" and "+00:00" forms.
   const startsAt = Date.parse(readString(job.sourceMessages[0]?.createdAt));
   const ownMessageIds = new Set(job.sourceMessageIds);
@@ -585,9 +626,7 @@ async function carriedOpenThreads(storage: StorageGateway, job: StoryProjectionJ
       return Number.isFinite(startsAt) && endedAt > startsAt ? [] : [{ story, endedAt }];
     })
     .sort((left, right) => right.endedAt - left.endedAt)[0];
-  if (!previous) return [];
-  // Episodes summarized before open threads existed: start from their own promises and unresolved hooks.
-  return openThreadList(previous.story.openThreads ?? sectionThreads(previous.story.sections));
+  return previous?.story ?? null;
 }
 
 function parseSummary(raw: string, job: StoryProjectionJob): StructuredStorySummary {
@@ -620,10 +659,12 @@ function parseSummary(raw: string, job: StoryProjectionJob): StructuredStorySumm
     throw new Error("Story summarizer returned no source-backed details");
   }
   const openThreads = job.level === "episode" ? parseOpenThreads(record.openThreads) : undefined;
-  return { title, summary, sections, ...(openThreads ? { openThreads } : {}) };
+  const stateSheet = job.level === "episode" ? parseStateSheet(record.stateSheet) : undefined;
+  return { title, summary, sections, ...(openThreads ? { openThreads } : {}), ...(stateSheet ? { stateSheet } : {}) };
 }
 
-function summarizerPrompt(job: StoryProjectionJob, carried: StoryOpenThread[]): string {
+function summarizerPrompt(job: StoryProjectionJob, carriedStory: CarriedStory): string {
+  const carried = carriedStory.threads;
   const sources =
     job.level === "episode"
       ? job.sourceMessages.map((message) => `[${message.id}] ${message.role}: ${message.content}`).join("\n\n")
@@ -646,6 +687,11 @@ function summarizerPrompt(job: StoryProjectionJob, carried: StoryOpenThread[]): 
           `At most ${MAX_OPEN_PROMISES} promises and ${MAX_OPEN_HOOKS} hooks.`,
           carried.length > 0 ? "Open threads carried over:" : "Open threads carried over: none.",
           ...carried.map((thread) => `- [${thread.kind}] ${thread.text}`),
+          "Also return stateSheet: how things stand at the end of these messages, as an array of short strings. Cover who has or owns which objects, where people and important things are, what the journey or plan has already passed or done, and numbers still in play (money, debts, counts, deadlines, injuries).",
+          "Start from the state carried over from earlier in the story. Keep each carried line that is still true, rewrite a line these messages change, and drop a line only when it is no longer true. Then add new lines. Only state what the messages establish.",
+          `At most ${MAX_STATE_LINES} lines, each under 25 words. When there are more, merge lines about the same person or object, and leave out passing details (weather, who is standing where) before anything settled earlier in the story. Copy numbers, counts and names exactly as the messages give them.`,
+          carriedStory.state.length > 0 ? "State carried over:" : "State carried over: none.",
+          ...carriedStory.state.map((line) => `- ${line}`),
         ]
       : []),
     "",
@@ -795,6 +841,7 @@ async function projectionInput(
     sourceEpisodeIds: job.sourceEpisodeIds,
     sections: summary.sections,
     ...(summary.openThreads ? { openThreads: summary.openThreads } : {}),
+    ...(summary.stateSheet ? { stateSheet: summary.stateSheet } : {}),
     summarizer: {
       version: STORY_SUMMARIZER_VERSION,
       connectionId: job.connectionId ?? null,
@@ -925,7 +972,7 @@ export async function processStoryConsolidationQueue(
           job: "story recap",
           chatId: job.ownerChatId,
         });
-        const carried = await carriedOpenThreads(storage, job);
+        const carried = await carriedStory(storage, job);
         const parsed = parseSummary(
           await withStoryLeaseHeartbeat(storage, leaseId, () =>
             completeStorySummary(llm, {
@@ -939,10 +986,18 @@ export async function processStoryConsolidationQueue(
           ),
           job,
         );
-        // A summarizer that leaves openThreads out still carries the old list forward, plus this episode's own.
+        // A summarizer that leaves openThreads or stateSheet out still carries the old list forward, plus this
+        // episode's own notes. For state the episode's own notes go first: they are newer than the carried lines.
         const structured: StructuredStorySummary =
-          job.level === "episode" && !parsed.openThreads
-            ? { ...parsed, openThreads: openThreadList([...carried, ...sectionThreads(parsed.sections)]) }
+          job.level === "episode"
+            ? {
+                ...parsed,
+                openThreads:
+                  parsed.openThreads ?? openThreadList([...carried.threads, ...sectionThreads(parsed.sections)]),
+                stateSheet:
+                  parsed.stateSheet ??
+                  stateSheetList([...parsed.sections.currentState.map((entry) => entry.text), ...carried.state]),
+              }
             : parsed;
         const input = await projectionInput(summaryJob, structured, now);
         const currentMemories = await storyMemories(storage, job.ownerChatId);
