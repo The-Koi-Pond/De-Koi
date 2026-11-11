@@ -8,6 +8,8 @@ export interface TtsSpeakInput {
   voice?: string;
   /** "sound_effect" generates a sound from `text` as a description instead of speaking it (ElevenLabs only). */
   kind?: TtsAudioKind;
+  /** Sound effects only: the clip length in seconds (0.5 to 30). Without it the provider picks one. */
+  durationSeconds?: number;
 }
 
 export type TtsAudioKind = "speech" | "sound_effect";

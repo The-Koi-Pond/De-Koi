@@ -1607,6 +1607,34 @@
     "coverage": "core"
   },
   {
+    "id": "roleplay-scene-sound",
+    "title": "Scene sound",
+    "category": "Chat modes",
+    "summary": "Roleplay scenes can play a quiet background loop that fits where you are (rain, a tavern, the sea, a forest, a carnival at night) and one sound effect for a clear event in a reply, like a door slamming, thunder or breaking glass. The ambience changes when the scene moves, not on every reply, and an effect never plays twice in a row. The scene comes from World State, or from the scene text when a chat has none, with no extra model call. A reply that writes its own [SFX: ...] line plays that sound. Sounds are made by ElevenLabs the first time they're needed (it uses your ElevenLabs credits, shown in Settings before you turn it on), then kept on the device and replay free. Off by default, with separate ambience and effect volumes. If the browser holds sound back, as phones do until you tap, a bar above the message box says so and starts it in one tap.",
+    "keywords": [
+      "ambience",
+      "ambient sound",
+      "background sound",
+      "sound effects",
+      "sfx",
+      "rain sound",
+      "atmosphere",
+      "elevenlabs",
+      "immersion"
+    ],
+    "audience": "Roleplay users with ElevenLabs Text to Speech who want scenes to sound like where they are.",
+    "where": "Settings > Appearance > Effects > Scene sound.",
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "destination": "scene-sound",
+        "label": "Open Scene sound"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "character-web-research",
     "title": "Character Web Research",
     "category": "Chat modes",

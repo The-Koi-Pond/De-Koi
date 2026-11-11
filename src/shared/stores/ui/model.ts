@@ -510,6 +510,12 @@ export interface UIState {
 
   // ── Roleplay Effects ──
   weatherEffects: boolean;
+  /** Roleplay scene sound: an ambient bed and sound effects made by ElevenLabs. Off by default (it costs credits). */
+  roleplaySceneSound: boolean;
+  /** 0 to 1. */
+  sceneAmbientVolume: number;
+  /** 0 to 1. */
+  sceneEffectsVolume: number;
 
   // ── HUD Layout ──
   hudPosition: HudPosition;
@@ -684,6 +690,9 @@ export interface UIState {
   setEnterToSendRP: (v: boolean) => void;
   setEnterToSendConvo: (v: boolean) => void;
   setWeatherEffects: (v: boolean) => void;
+  setRoleplaySceneSound: (v: boolean) => void;
+  setSceneAmbientVolume: (v: number) => void;
+  setSceneEffectsVolume: (v: number) => void;
   setHudPosition: (v: HudPosition) => void;
 
   // Impersonate settings actions
