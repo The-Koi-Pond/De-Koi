@@ -37,5 +37,14 @@
   },
   "winter_mountains.jpg": {
     "tags": ["winter", "snow", "mountains", "cold", "landscape"]
+  },
+  "wisp-apartment.webp": {
+    "tags": ["interior", "apartment", "night", "rain", "cozy", "modern"]
+  },
+  "wisp-back-street.webp": {
+    "tags": ["alley", "street", "night", "rain", "urban", "fantasy"]
+  },
+  "wisp-lantern-market.webp": {
+    "tags": ["market", "night", "lanterns", "bridge", "fantasy", "magical"]
   }
 }

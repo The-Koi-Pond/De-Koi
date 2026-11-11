@@ -1635,6 +1635,33 @@
     "coverage": "advanced"
   },
   {
+    "id": "roleplay-cinematic-starter",
+    "title": "Wisp, the starter that comes with art",
+    "category": "Chat modes",
+    "summary": "When your character library is empty, new Roleplay setup offers ready-made starter characters. Wisp, a proud spirit of blue fire trapped in an old lantern, comes with her own art: an avatar, twelve expression sprites and three painted scene backgrounds. A new Roleplay with her opens in your apartment with her sprite on screen, the background moves to the midnight back street and the Lantern Market as the story gets there, and her sprite changes with her mood. It all works with just a text model connected; no image connection needed. The Expression agent is switched on for that chat and runs on the chat's own model; the background changes need no model call. Pick your own background and it stays. Characters you make can do the same by listing scene backgrounds on their card.",
+    "keywords": [
+      "starter character",
+      "wisp",
+      "sprites",
+      "backgrounds",
+      "first roleplay",
+      "demo",
+      "visual novel",
+      "cinematic",
+      "scene backgrounds"
+    ],
+    "audience": "New Roleplay users, and anyone showing De-Koi to someone.",
+    "where": "New Roleplay > Characters step, with an empty character library > Start with one of these > Wisp.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "roleplay",
+        "label": "Start a Roleplay"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
     "id": "character-web-research",
     "title": "Character Web Research",
     "category": "Chat modes",
