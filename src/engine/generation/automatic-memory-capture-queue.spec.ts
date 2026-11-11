@@ -1016,6 +1016,76 @@ describe("automatic memory capture queue", () => {
     });
   });
 
+  describe("captures that failed while a helper login was broken", () => {
+    const expiredLogin = async (): Promise<string> => {
+      throw new Error("Provider returned HTTP 401 Unauthorized: Your authentication token has expired.");
+    };
+
+    async function failFirstThenQueueSecond() {
+      const harness = queueStorage();
+      const first = await harness.enqueue();
+      await processAutomaticMemoryCaptureQueue(
+        { storage: harness.storage, llm: passingValueReviewLlm(expiredLogin) },
+        { now: "2026-01-01T00:03:00.000Z" },
+      );
+      harness.messages.set("user-2", message("user-2", "user", "Miso hates the vacuum."));
+      harness.messages.set("assistant-2", message("assistant-2", "assistant", "Poor Miso."));
+      const second = await enqueueAutomaticMemoryCaptureJob(
+        harness.storage,
+        {
+          chat: { id: "chat-1", mode: "conversation" },
+          characters: [{ id: "char-1" }],
+          savedUserMessage: harness.messages.get("user-2"),
+          savedAssistantMessage: harness.messages.get("assistant-2"),
+          connectionId: "connection-1",
+        },
+        "2026-01-02T00:00:00.000Z",
+      );
+      return { harness, firstId: String(first?.id), secondId: String(second?.id) };
+    }
+
+    it("runs them again once a capture on the same connection succeeds", async () => {
+      const { harness, firstId, secondId } = await failFirstThenQueueSecond();
+      expect(harness.jobs.get(firstId)).toMatchObject({
+        status: "failed",
+        notCheckedReason: "configuration_error",
+        failedConnectionId: "connection-1",
+      });
+
+      await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-02T00:01:00.000Z" });
+
+      expect(harness.jobs.get(secondId)).toMatchObject({ status: "completed" });
+      expect(harness.jobs.get(firstId)).toMatchObject({ status: "pending", attempts: 0, failedCaptureRetries: 1 });
+
+      await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-02T00:02:00.000Z" });
+
+      expect(harness.jobs.get(firstId)).toMatchObject({ status: "completed" });
+      expect((harness.messages.get("assistant-1")?.extra as JsonRecord).memoryCapture).toMatchObject({
+        status: "completed",
+      });
+    });
+
+    it("leaves them alone when a different connection is the one that works", async () => {
+      const { harness, firstId } = await failFirstThenQueueSecond();
+      harness.jobs.set(firstId, { ...harness.jobs.get(firstId)!, failedConnectionId: "terra" });
+
+      await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-02T00:01:00.000Z" });
+
+      expect(harness.jobs.get(firstId)).toMatchObject({ status: "failed" });
+    });
+
+    it("stops after two extra tries and ignores failures older than 30 days", async () => {
+      const { harness, firstId } = await failFirstThenQueueSecond();
+      harness.jobs.set(firstId, { ...harness.jobs.get(firstId)!, failedCaptureRetries: 2 });
+      await processAutomaticMemoryCaptureQueue(harness.dependencies, { now: "2026-01-02T00:01:00.000Z" });
+      expect(harness.jobs.get(firstId)).toMatchObject({ status: "failed" });
+
+      const old = await failFirstThenQueueSecond();
+      await processAutomaticMemoryCaptureQueue(old.harness.dependencies, { now: "2026-02-15T00:00:00.000Z" });
+      expect(old.harness.jobs.get(old.firstId)).toMatchObject({ status: "failed" });
+    });
+  });
+
   it("does not duplicate canonical survivors after a partial retry", async () => {
     const harness = queueStorage({ refreshFailures: 1 });
     const job = await harness.enqueue();
