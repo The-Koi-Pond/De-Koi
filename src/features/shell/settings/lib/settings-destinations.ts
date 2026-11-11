@@ -42,6 +42,12 @@ export const SETTINGS_DESTINATIONS = [
     title: "Notification sounds",
     keywords: ["audio", "alerts", "sound"],
   },
+  {
+    id: "scene-sound",
+    tab: "appearance",
+    title: "Roleplay scene sound",
+    keywords: ["ambience", "ambient", "sound effects", "sfx", "background sound", "rain", "audio"],
+  },
   { id: "fonts", tab: "appearance", title: "Custom fonts", keywords: ["font", "upload", "remote"] },
   { id: "themes", tab: "themes", title: "Themes", keywords: ["colors", "style", "appearance"] },
   { id: "modules", tab: "plugins", title: "Modules", keywords: ["plugins", "optional", "tools"] },

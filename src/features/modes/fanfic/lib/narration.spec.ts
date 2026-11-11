@@ -272,7 +272,9 @@ describe("buildFanficNarration with sound effects", () => {
 
     const first = sound(soundConfig(), "msg-a");
     expect(sound(soundConfig({ voice: "freddy", speed: 2 }), "msg-b").cacheKey).toBe(first.cacheKey);
-    expect(first.cacheKey).toMatch(/^fanfic-sfx-v1:/);
+    expect(first.cacheKey).toMatch(/^sfx-v1:/);
+    // Sounds a fic made before the cache was shared still replay free.
+    expect(first.cacheAliases?.[0]).toMatch(/^fanfic-sfx-v1:/);
   });
 
   it("stays silent for sound cues when the setting is off, the provider isn't ElevenLabs, or it goes through NanoGPT", () => {

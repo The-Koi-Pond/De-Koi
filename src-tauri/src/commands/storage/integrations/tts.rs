@@ -351,21 +351,24 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
         return Err(AppError::invalid_input("TTS text is too long"));
     }
     let config = load_config(state)?;
-    if !config
-        .get("enabled")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return Err(AppError::invalid_input("TTS is not enabled"));
-    }
     let source = config
         .get("source")
         .and_then(Value::as_str)
         .unwrap_or("openai");
     let base = configured_base_url(&config);
     let api_key = config.get("apiKey").and_then(Value::as_str).unwrap_or("");
+    // A sound effect speaks no reply, so the "read replies aloud" switch doesn't gate it: Roleplay scene sound has its
+    // own opt-in and needs only the ElevenLabs provider and key.
     if body.get("kind").and_then(Value::as_str) == Some("sound_effect") {
-        return sound_effect(&config, source, &base, api_key, text).await;
+        let duration = sound_effect_duration(&body)?;
+        return sound_effect(&config, source, &base, api_key, text, duration).await;
+    }
+    if !config
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(AppError::invalid_input("TTS is not enabled"));
     }
     let configured_voice = config
         .get("voice")
@@ -485,6 +488,23 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
 /// "[SFX: a door creaks]" sounding like a door instead of a loose interpretation.
 const SOUND_EFFECT_PROMPT_INFLUENCE: f64 = 0.5;
 
+/// ElevenLabs' allowed sound effect length, in seconds.
+const SOUND_EFFECT_SECONDS: std::ops::RangeInclusive<f64> = 0.5..=30.0;
+
+/// The optional `durationSeconds` of a sound effect request (Roleplay asks for fixed-length ambient clips). Without
+/// it ElevenLabs picks a length from the description.
+fn sound_effect_duration(body: &Value) -> AppResult<Option<f64>> {
+    match body.get("durationSeconds") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => match value.as_f64() {
+            Some(seconds) if SOUND_EFFECT_SECONDS.contains(&seconds) => Ok(Some(seconds)),
+            _ => Err(AppError::invalid_input(
+                "Sound effect duration must be between 0.5 and 30 seconds",
+            )),
+        },
+    }
+}
+
 /// Generates a sound effect from a description with ElevenLabs text-to-sound. Only ElevenLabs offers this.
 async fn sound_effect(
     config: &Value,
@@ -492,6 +512,7 @@ async fn sound_effect(
     base: &str,
     api_key: &str,
     description: &str,
+    duration: Option<f64>,
 ) -> AppResult<Value> {
     if source != "elevenlabs" || is_nano_gpt_base_url(base) {
         return Err(AppError::invalid_input(
@@ -515,16 +536,20 @@ async fn sound_effect(
     let request = client
         .post(url)
         .headers(elevenlabs_headers(api_key)?)
-        .json(&sound_effect_payload(description));
+        .json(&sound_effect_payload(description, duration));
     audio_response(request, audio_format_content_type("mp3")).await
 }
 
-fn sound_effect_payload(description: &str) -> Value {
-    json!({
+fn sound_effect_payload(description: &str, duration: Option<f64>) -> Value {
+    let mut payload = json!({
         "text": description.trim(),
         "model_id": "eleven_text_to_sound_v2",
         "prompt_influence": SOUND_EFFECT_PROMPT_INFLUENCE
-    })
+    });
+    if let Some(seconds) = duration {
+        payload["duration_seconds"] = json!(seconds);
+    }
+    payload
 }
 
 /// Sends a provider request and returns its audio as base64, or the provider's error.
@@ -1644,11 +1669,27 @@ mod tests {
 
     #[test]
     fn sound_effect_payload_uses_the_sound_model_and_trimmed_description() {
-        let payload = sound_effect_payload("  Rain on a window.  ");
+        let payload = sound_effect_payload("  Rain on a window.  ", None);
         assert_eq!(payload["text"], "Rain on a window.");
         assert_eq!(payload["model_id"], "eleven_text_to_sound_v2");
         assert_eq!(payload["prompt_influence"], SOUND_EFFECT_PROMPT_INFLUENCE);
         assert!(payload.get("voice_settings").is_none());
+        assert!(payload.get("duration_seconds").is_none());
+        assert_eq!(
+            sound_effect_payload("Rain", Some(20.0))["duration_seconds"],
+            20.0
+        );
+    }
+
+    #[test]
+    fn sound_effect_duration_is_optional_and_bounded() {
+        assert_eq!(sound_effect_duration(&json!({})).unwrap(), None);
+        assert_eq!(
+            sound_effect_duration(&json!({ "durationSeconds": 20 })).unwrap(),
+            Some(20.0)
+        );
+        assert!(sound_effect_duration(&json!({ "durationSeconds": 31 })).is_err());
+        assert!(sound_effect_duration(&json!({ "durationSeconds": "20" })).is_err());
     }
 
     #[tokio::test]
@@ -1671,6 +1712,33 @@ mod tests {
         .expect_err("sound effects should be refused without ElevenLabs");
 
         assert!(error.message.contains("Sound effects need ElevenLabs"));
+    }
+
+    #[tokio::test]
+    async fn sound_effects_do_not_need_speech_turned_on() {
+        let state = test_state("sound-effect-tts-off");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({ "value": { "enabled": false, "source": "elevenlabs", "voice": "" } }),
+            )
+            .expect("TTS settings should be stored");
+
+        let error = speak(
+            &state,
+            json!({ "text": "Rain on a window.", "kind": "sound_effect" }),
+        )
+        .await
+        .expect_err("no key is configured");
+        // It gets past the speech switch to the key check.
+        assert!(error.message.contains("API key is not configured"));
+
+        let speech = speak(&state, json!({ "text": "Hello." }))
+            .await
+            .expect_err("speech still needs Text to Speech turned on");
+        assert!(speech.message.contains("TTS is not enabled"));
     }
 
     #[tokio::test]
