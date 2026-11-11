@@ -222,6 +222,25 @@ describe("polishFanficChapter", () => {
     });
   });
 
+  it("says where to send the checks when the checking model's safety filter refuses the chapter", async () => {
+    const store = storageWith([ONE, TWO], fic(true));
+    checks.voice.mockRejectedValue(
+      new Error(
+        "Provider returned HTTP 400 Bad Request: Your prompt was blocked by safety filters. Please revise and try again.",
+      ),
+    );
+
+    await run(store);
+
+    const report = readFanficPolishReport(store.view("m2").extra, TWO)!;
+    expect(report.steps.at(-1)).toMatchObject({
+      step: "voice",
+      status: "failed",
+      error:
+        "the checking model's safety filter refused this chapter. Send Fanfic checks to another model in Connections → Helper Models",
+    });
+  });
+
   it("drops a clean-up that was cut off and checks the chapter as written", async () => {
     const store = storageWith([ONE, TWO]);
     checks.needsCleanup.mockReturnValue(true);
