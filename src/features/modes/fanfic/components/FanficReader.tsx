@@ -59,6 +59,7 @@ import {
   detectFanficAiIsms,
   fanficAiIsmNeedsCleanup,
 } from "../../../../engine/modes/fanfic/ai-isms";
+import { fanficDurationLabel, fanficWriteAllEstimateMinutes } from "../../../../engine/modes/fanfic/batch";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import {
   buildFanficExport,
@@ -1310,11 +1311,14 @@ function NextChapterPanel({
   onCancel,
   continuesFrom,
   allowWriteAll = false,
+  mainChapterTimes = [],
 }: {
   state: FanficState;
   nextNumber: number;
   /** Offer "Write all N remaining" next to the write button (the next main chapter's box only). */
   allowWriteAll?: boolean;
+  /** When each main chapter was saved, for the "Write all" time estimate. */
+  mainChapterTimes?: readonly string[];
   /** Set for an extra chapter, by its N.x label: the outline doesn't plan it, so it has no title and no "complete". */
   extraLabel?: string;
   /** The box writes an unfinished chapter again (Reset) instead of a new one. */
@@ -1337,6 +1341,7 @@ function NextChapterPanel({
   const complete = !extraLabel && nextNumber > planned;
   const remaining = planned - nextNumber + 1;
   const writeAll = allowWriteAll && !extraLabel && !again && remaining >= 2;
+  const writeAllMinutes = writeAll ? fanficWriteAllEstimateMinutes(mainChapterTimes, remaining) : null;
   const label = extraLabel ?? String(nextNumber);
   const title = extraLabel ? "" : fanficChapterTitle(state, nextNumber);
   const newExtra = Boolean(extraLabel) && !again;
@@ -1440,6 +1445,11 @@ function NextChapterPanel({
           {complete ? "Write a bonus chapter" : `Write chapter ${label}`}
         </FanficButton>
       </div>
+      {writeAllMinutes !== null && (
+        <p className="mt-1.5 text-right text-xs text-[var(--muted-foreground)]" data-fanfic-write-all-estimate="">
+          Writing all {remaining} takes {fanficDurationLabel(writeAllMinutes)} at this fic's pace so far.
+        </p>
+      )}
     </section>
   );
 }
@@ -1503,6 +1513,10 @@ export function FanficReader({
     label: `${refHeading(state, ref, isOrphan(ref))}${isSideStory(ref) ? " (side story)" : ""}`,
   }));
   const chapterCount = layout.mains.length;
+  const mainChapterTimes = useMemo(() => {
+    const savedAt = new Map(chapters.map(({ message }) => [message.id, message.createdAt]));
+    return layout.mains.map((ref) => savedAt.get(ref.messageId) ?? "");
+  }, [chapters, layout]);
   const lastMain = layout.mains.at(-1);
   // A fic opens on its last main chapter.
   const [view, setView] = useState<ReaderView>(lastMain?.messageId ?? ENTIRE_WORK);
@@ -2014,6 +2028,7 @@ export function FanficReader({
           state={state}
           nextNumber={chapterCount + 1}
           allowWriteAll
+          mainChapterTimes={mainChapterTimes}
           busy={generating}
           blocked={blocked}
           onWrite={onWrite}
