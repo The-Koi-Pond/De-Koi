@@ -38,6 +38,10 @@ export interface CharacterExtensions {
   publicProfile?: CharacterPublicProfile;
   /** De-Koi: public music taste and optional listening presence for profile previews */
   musicProfile?: CharacterMusicProfile;
+  /** De-Koi: library backgrounds this character's Roleplay scenes move between; the first is where the story opens */
+  sceneBackgrounds?: CharacterSceneBackground[];
+  /** De-Koi: a new Roleplay with this character opens in its first scene with its sprites shown (staged starters) */
+  startsStaged?: boolean;
   /** De-Koi extension: character backstory / lore */
   backstory: string;
   /** De-Koi extension: physical appearance description */
@@ -65,6 +69,15 @@ export interface CharacterPublicProfile {
   handle?: string;
   bio?: string;
   bannerImage?: string;
+}
+
+/** De-Koi: one Roleplay scene a character can be in, shown with a library background. */
+export interface CharacterSceneBackground {
+  /** The background's library filename. */
+  background: string;
+  name: string;
+  /** Words that, mentioned together in a reply, put the story here. */
+  keywords: string[];
 }
 
 /** De-Koi: a favorite song row used for profile presence and manual Music Player playback. */
