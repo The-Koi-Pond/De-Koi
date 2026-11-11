@@ -210,6 +210,26 @@ function retryTime(now: string, attempts: number): string {
   return new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + delay).toISOString();
 }
 
+// A lapsed login (HTTP 401) or a rejected request fails a capture for good, so every reply sent while the
+// helper was broken would stay unchecked. Once a capture succeeds on that connection again, those captures
+// run again, oldest first. Each one gets two more tries, so one that fails for its own reason stops.
+const FAILED_CAPTURE_RETRY_WINDOW_MS = 30 * 24 * 60 * 60_000;
+const MAX_FAILED_CAPTURE_RETRIES = 2;
+
+function capturesToRetryAfterSuccess(jobs: JsonRecord[], connectionId: string, now: string): JsonRecord[] {
+  const cutoff = Date.parse(now) - FAILED_CAPTURE_RETRY_WINDOW_MS;
+  return jobs.filter((job) => {
+    if (jobStatus(job) !== "failed") return false;
+    if (readString(job.notCheckedReason).trim() !== "configuration_error") return false;
+    if (readNumber(job.failedCaptureRetries, 0) >= MAX_FAILED_CAPTURE_RETRIES) return false;
+    // Jobs that failed before this field existed name no connection; one success anywhere retries them once.
+    const failedOn = readString(job.failedConnectionId).trim();
+    if (failedOn && failedOn !== connectionId) return false;
+    const failedAt = Date.parse(readString(job.failedAt).trim() || readString(job.updatedAt).trim());
+    return Number.isFinite(failedAt) && failedAt >= cutoff;
+  });
+}
+
 // The storage runtime refuses a transcript commit when the exchange changed while the model calls ran.
 const TRANSCRIPT_CHANGED_ERROR = /capture preview is stale|capture is no longer eligible/i;
 
@@ -574,6 +594,7 @@ export async function processAutomaticMemoryCaptureQueue(
       .sort((left, right) => readString(left.createdAt).localeCompare(readString(right.createdAt)))
       .slice(0, options.limit ?? 10);
 
+    const retriedAfterSuccess = new Set<string>();
     for (const job of dueJobs) {
       if (leaseLost) break;
       await requireLease();
@@ -600,6 +621,7 @@ export async function processAutomaticMemoryCaptureQueue(
         leaseId,
       );
 
+      let helperConnectionId = "";
       try {
         // Check the sources first: a job whose chat or messages were deleted has nothing to mark.
         const staleReason = await validateSourceMessages(storage, job);
@@ -659,6 +681,7 @@ export async function processAutomaticMemoryCaptureQueue(
         const backgroundConnection =
           routedConnection ?? (await resolveBackgroundTextConnection(storage, queuedConnectionId, queuedModel));
         const connectionId = readString(backgroundConnection.id).trim();
+        helperConnectionId = connectionId;
         await noteHelperRun(storage, {
           task: "memory",
           rule: routedConnection ? "route" : backgroundConnectionRule(backgroundConnection, queuedConnectionId),
@@ -799,6 +822,25 @@ export async function processAutomaticMemoryCaptureQueue(
         );
         wakeAutomaticMemoryMaintenanceQueueProcessing(storage);
         result.completed += 1;
+        if (!retriedAfterSuccess.has(connectionId)) {
+          retriedAfterSuccess.add(connectionId);
+          for (const failed of capturesToRetryAfterSuccess(jobs, connectionId, now)) {
+            await updateJob(
+              storage,
+              readString(failed.id).trim(),
+              {
+                status: "pending",
+                attempts: 0,
+                failedCaptureRetries: readNumber(failed.failedCaptureRetries, 0) + 1,
+                failedAt: null,
+                notCheckedReason: null,
+                nextAttemptAt: null,
+                updatedAt: now,
+              },
+              leaseId,
+            );
+          }
+        }
         const completion = consequences[0];
         if (completion && assistantMessageId) {
           publishMemoryCaptureCompletion({
@@ -822,6 +864,7 @@ export async function processAutomaticMemoryCaptureQueue(
             lastError: errorMessage(error),
             notCheckedReason: terminal ? failureReason : null,
             failedAt: terminal ? now : null,
+            failedConnectionId: terminal && helperConnectionId ? helperConnectionId : null,
             nextAttemptAt,
             leaseExpiresAt: null,
             updatedAt: now,
