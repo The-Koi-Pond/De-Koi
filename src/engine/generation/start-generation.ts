@@ -29,6 +29,7 @@ import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
+import { decideTextsFirstPhoto } from "../modes/chat/autonomous/unprompted-photos";
 import {
   assistantRepliesRefreshContinuityDirector,
   queueContinuityDirectorRefresh,
@@ -3524,6 +3525,38 @@ function agentExtraFromResults(args: {
   return extra;
 }
 
+function textsFirstPhotoOf(input: StartGenerationInput): "send" | "withhold" | undefined {
+  return input.textsFirstPhoto === "send" || input.textsFirstPhoto === "withhold" ? input.textsFirstPhoto : undefined;
+}
+
+/**
+ * A Conversation character texting first: decide once whether this message carries a photo (the chat's
+ * per-character frequency, one photo per burst). Prompt assembly and the [selfie] command both read the result.
+ */
+async function withTextsFirstPhotoDecision(
+  storage: StorageGateway,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+): Promise<StartGenerationInput> {
+  if (input.textsFirst !== true || readString(chat.mode || chat.chatMode) !== "conversation") {
+    // Only the engine sets this, and only for texts-first.
+    if (input.textsFirstPhoto === undefined) return input;
+    const { textsFirstPhoto: _callerValue, ...rest } = input;
+    return rest as StartGenerationInput;
+  }
+  const characterId = assistantMessageCharacterId(chat, input);
+  if (!characterId) return { ...input, textsFirstPhoto: "withhold" };
+  const messages = await storage.listChatMessages<JsonRecord>(readString(chat.id), {
+    limit: 40,
+    fields: ["role", "extra"],
+    fieldSelections: { extra: ["attachments"] },
+  });
+  return {
+    ...input,
+    textsFirstPhoto: decideTextsFirstPhoto({ chat, characterId, messages: Array.isArray(messages) ? messages : [] }),
+  };
+}
+
 function assistantMessageCharacterId(chat: JsonRecord, input: StartGenerationInput): string | null {
   const requestedCharacterId = readString(input.forCharacterId).trim();
   const chatCharacterIdList = activeCharacterIds(chat);
@@ -5389,6 +5422,8 @@ async function* startGenerationImpl(
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
+  input = await withTextsFirstPhotoDecision(deps.storage, chat, input);
+  throwIfAborted(signal);
   // Send unlocks once a reply is saved, while its helpers may still be writing the trackers this turn
   // reads. Give them a bounded head start rather than build this turn on the state before them.
   if (postReplyWorkRunning(deps.storage, chatId)) {
@@ -5953,6 +5988,8 @@ async function* startGenerationImpl(
               recentMessages: generationMessages,
             }),
             reactionTarget: conversationReactionTarget(chat, input, generationMessages),
+            textsFirstPhoto: textsFirstPhotoOf(input),
+            textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
           },
         );
     throwIfAborted(signal);
@@ -6378,6 +6415,8 @@ async function* startGenerationImpl(
             recentMessages: generationMessages,
           }),
           reactionTarget: conversationReactionTarget(chat, input, generationMessages),
+          textsFirstPhoto: textsFirstPhotoOf(input),
+          textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
         },
       );
   throwIfAborted(signal);

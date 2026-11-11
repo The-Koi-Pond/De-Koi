@@ -116,3 +116,48 @@ describe("conversation reactions in the prompt", () => {
     expect(history).toContain("SAM. cake. now\n(The user reacted ❤️)");
   });
 });
+
+describe("conversation photos in the prompt", () => {
+  const base = {
+    chat: { id: "chat-1", mode: "conversation", characterIds: ["juno"], metadata: { imageGenConnectionId: "img" } },
+    connection: { provider: "openai", model: "qa-model" },
+    latestUserInput: "",
+  };
+  const promptText = (result: Awaited<ReturnType<typeof assembleGenerationPrompt>>) =>
+    result.messages.map((message) => message.content).join("\n");
+
+  it("shows a sent photo as text, even when the photo was the whole message", async () => {
+    const result = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [
+        { id: "user-1", role: "user", content: "where are you" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          characterId: "juno",
+          content: "",
+          extra: { attachments: [{ type: "image", url: "/g/a.png", description: "juno on the pier at sunset" }] },
+        },
+      ],
+      request: {},
+    });
+
+    expect(promptText(result)).toContain("(sent a photo: juno on the pier at sunset)");
+  });
+
+  it("texting first, offers the photo tag only when this text carries one", async () => {
+    const send = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [{ id: "user-1", role: "user", content: "night" }],
+      request: { textsFirst: true, textsFirstPhoto: "send" },
+    });
+    const withhold = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [{ id: "user-1", role: "user", content: "night" }],
+      request: { textsFirst: true, textsFirstPhoto: "withhold" },
+    });
+
+    expect(promptText(send)).toContain("This text comes with a photo of you");
+    expect(promptText(withhold)).not.toContain("[selfie");
+  });
+});

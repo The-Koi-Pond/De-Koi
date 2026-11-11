@@ -21,7 +21,7 @@ vi.mock("../engine/modes/chat/autonomous/autonomous.service", () => ({
 import { startAutonomousScheduler } from "./autonomous";
 import type { RunnerJob } from "./jobs";
 
-const job = { id: "job-1" } as RunnerJob;
+const job = { id: "job-1", events: [{ type: "selfie" }] } as unknown as RunnerJob;
 
 describe("runner: characters who text first", () => {
   beforeEach(() => {
@@ -55,9 +55,15 @@ describe("runner: characters who text first", () => {
     stop();
     expect(mocks.check).toHaveBeenCalledTimes(1);
     expect(mocks.check).toHaveBeenCalledWith(expect.anything(), { chatId: "chat-on", userStatus: "idle" });
-    expect(startJob).toHaveBeenCalledWith(expect.objectContaining({ chatId: "chat-on", forCharacterId: "char-wren" }));
+    expect(startJob).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: "chat-on", forCharacterId: "char-wren", textsFirst: true }),
+    );
     expect(mocks.markUnread).toHaveBeenCalledWith("chat-on", { characterId: "char-wren" });
-    expect(onTexted).toHaveBeenCalledWith({ id: "chat-on", name: "Wren" }, { id: "char-wren", name: "Wren Hollis" });
+    expect(onTexted).toHaveBeenCalledWith(
+      { id: "chat-on", name: "Wren" },
+      { id: "char-wren", name: "Wren Hollis" },
+      { photo: true },
+    );
   });
 
   it("stays quiet on do-not-disturb and while a reply is already running", async () => {

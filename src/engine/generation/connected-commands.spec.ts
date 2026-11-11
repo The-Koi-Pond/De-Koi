@@ -6,6 +6,7 @@ import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./
 import { loadCharacters } from "./prompt-assembly";
 import { parseCharacterCommands } from "../modes/chat/commands/character-commands";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
+import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -735,6 +736,88 @@ describe("persistConnectedCommandTags", () => {
       height: 256,
     });
     expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("silver hair"));
+  });
+
+  it("texting first: a withheld photo drops the [selfie] tag and a sent one is described for later prompts", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      spotify: {} as IntegrationGateway["spotify"],
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const run = (content: string, textsFirstPhoto: "send" | "withhold") =>
+      persistConnectedCommandTags(storage, chat, content, integrations, undefined, null, undefined, undefined, {
+        textsFirstPhoto,
+      });
+
+    const withheld = await run('miss you [selfie: context="at the pier"]', "withhold");
+    expect(withheld.displayContent).toBe("miss you");
+    expect(withheld.assistantAttachments).toEqual([]);
+    expect(imageRequests).toHaveLength(0);
+
+    const sent = await run('look where I am [selfie: context="sunset at the pier"]', "send");
+    expect(sent.executedCommands).toEqual(["selfie"]);
+    expect(sent.assistantAttachments).toEqual([
+      expect.objectContaining({ type: "image", description: "sunset at the pier", unprompted: true }),
+    ]);
+    expect(sentPhotoHistoryNote({ attachments: sent.assistantAttachments })).toBe("(sent a photo: sunset at the pier)");
+
+    const forgotTag = await run("guess where I am", "send");
+    expect(forgotTag.executedCommands).toEqual(["selfie"]);
+    expect(imageRequests).toHaveLength(2);
+  });
+
+  it("texting first in a group, the photo is of the character texting", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1", "char-2"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        { id: "char-1", name: "Mira", data: { name: "Mira" } },
+        { id: "char-2", name: "Juno", data: { name: "Juno" } },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      spotify: {} as IntegrationGateway["spotify"],
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    await persistConnectedCommandTags(storage, chat, "look", integrations, undefined, null, undefined, undefined, {
+      textsFirstPhoto: "send",
+      textsFirstCharacterId: "char-2",
+    });
+
+    expect(imageRequests[0]).toMatchObject({ reviewTitle: "Selfie: Juno" });
   });
 
   it("does not recover an implicit selfie when image generation is not configured", async () => {

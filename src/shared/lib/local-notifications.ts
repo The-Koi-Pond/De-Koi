@@ -13,6 +13,8 @@ export type LocalChatNotificationOptions = {
   chatId: string;
   characterName?: string | null;
   tag?: string;
+  /** The message carried a photo: say so, without showing it. */
+  photo?: boolean;
 };
 
 declare global {
@@ -83,6 +85,7 @@ export async function showLocalChatNotification({
   chatId,
   characterName,
   tag,
+  photo = false,
 }: LocalChatNotificationOptions): Promise<boolean> {
   const permission = await getLocalNotificationPermission();
   if (
@@ -96,7 +99,7 @@ export async function showLocalChatNotification({
   }
 
   const name = typeof characterName === "string" && characterName.trim() ? characterName.trim() : "Character";
-  const title = `New message from ${name.slice(0, 80)}`;
+  const title = photo ? `${name.slice(0, 80)} sent a photo` : `New message from ${name.slice(0, 80)}`;
   const body = "Open De-Koi to read it.";
 
   const tauriNotifications = await getTauriNotificationApi();
