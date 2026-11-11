@@ -13,6 +13,10 @@ const connections = [
 ];
 
 const helperRuns = vi.hoisted(() => ({ current: {} as Record<string, unknown[]> }));
+const connectionWrites = vi.hoisted(() => ({
+  duplicate: vi.fn(async () => ({ id: "strong-copy" })),
+  update: vi.fn(async () => ({})),
+}));
 
 vi.mock("../../../catalog/connections", async (importOriginal) => {
   const { HelperRunText } = await importOriginal<typeof import("../../../catalog/connections")>();
@@ -20,6 +24,8 @@ vi.mock("../../../catalog/connections", async (importOriginal) => {
     HelperRunText,
     useConnections: () => ({ data: connections }),
     useHelperRuns: () => ({ data: helperRuns.current }),
+    useDuplicateConnection: () => ({ mutateAsync: connectionWrites.duplicate }),
+    useUpdateConnection: () => ({ mutateAsync: connectionWrites.update }),
   };
 });
 
@@ -28,7 +34,11 @@ vi.mock("../../../../shared/api/model-routing-api", () => ({
   modelRoutingApi: { get: vi.fn(), setRoute: vi.fn(), setLocalOnly: vi.fn() },
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../../../shared/api/llm-api", () => ({
+  llmApi: { listModels: vi.fn(async () => [{ id: "big-model" }, { id: "claude-haiku-5-5" }]) },
+}));
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 async function flush() {
   await act(async () => {
@@ -100,6 +110,30 @@ describe("HelperModelsCard", () => {
       "Agents • agent-model",
       "Cheap • small-model",
     ]);
+  });
+
+  it("copies a connection onto its small model and routes the unrouted helpers to the copy", async () => {
+    vi.mocked(modelRoutingApi.get).mockResolvedValue({ version: 1, routes: { memory: "agents" } });
+    vi.mocked(modelRoutingApi.setRoute).mockResolvedValue({ version: 1, routes: { memory: "agents" } });
+    await render();
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (item) => item.textContent === "Use the cheaper model",
+    )!;
+    await act(async () => button.click());
+    await flush();
+
+    expect(connectionWrites.duplicate).toHaveBeenCalledWith("strong");
+    expect(connectionWrites.update).toHaveBeenCalledWith({
+      id: "strong-copy",
+      name: "Strong (helpers)",
+      model: "claude-haiku-5-5",
+    });
+    const routed = vi.mocked(modelRoutingApi.setRoute).mock.calls.map(([task]) => task);
+    expect(routed).not.toContain("memory");
+    expect(routed).not.toContain("judge");
+    expect(routed).toEqual(expect.arrayContaining(["summaries", "habitCheck", "status", "fanficChecks"]));
+    expect(vi.mocked(modelRoutingApi.setRoute).mock.calls.every(([, id]) => id === "strong-copy")).toBe(true);
   });
 
   it("saves a route and shows the connection it now uses", async () => {
