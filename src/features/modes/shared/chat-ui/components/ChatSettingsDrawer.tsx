@@ -66,6 +66,7 @@ import { ChatPresetBar } from "./settings/ChatPresetBar";
 import { ContinuityOverviewPanel } from "./settings/ContinuityOverviewPanel";
 import { StoryContinuityModal, storyContinuityQueryKey } from "./settings/StoryContinuityModal";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
+import { TextsFirstPhotoControls } from "./settings/TextsFirstPhotoControls";
 import {
   ScopedRegexCharacterGroups,
   ScopedRegexModeSelector,
@@ -2759,6 +2760,17 @@ function ChatSettingsDrawerInner({
                     />
                   </div>
                 </button>
+
+                {autonomousMessagesEnabled && (
+                  <TextsFirstPhotoControls
+                    metadata={metadata}
+                    chatCharIds={chatCharIds}
+                    charNameMap={charNameMap}
+                    onChange={(unpromptedPhotoFrequency) =>
+                      updateMeta.mutate({ id: chat.id, unpromptedPhotoFrequency })
+                    }
+                  />
+                )}
 
                 {/* Character exchanges toggle (group chats only) */}
                 {chatCharIds.length > 1 && (

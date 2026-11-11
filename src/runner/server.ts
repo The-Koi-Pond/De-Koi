@@ -155,10 +155,15 @@ export function createRunnerServer(
     Date.now() - presence.reportedAt < PRESENCE_MS ? presence.status : "idle";
   const autonomousJobs = new Set<string>();
 
-  const notify = (chatId: string, name: string, reason: "texted" | "replied" | "chapter" | "all-chapters") => {
+  const notify = (
+    chatId: string,
+    name: string,
+    reason: "texted" | "photo" | "replied" | "chapter" | "all-chapters",
+  ) => {
     if (!features.push || features.push.count === 0 || someoneWatching()) return;
     const titles = {
       texted: `${name} texted you`,
+      photo: `${name} sent a photo`,
       replied: `${name} replied`,
       chapter: `New chapter of ${name}`,
       "all-chapters": `${name}: every chapter is written`,
@@ -271,7 +276,7 @@ export function createRunnerServer(
       runningForChat: (chatId) => registry.runningForChat(chatId),
       waitForJob: async (job) => (await registry.wait(job)) === "done" && savedReplyCharacterId(job) !== undefined,
       presence: presenceStatus,
-      onTexted: async (chat, character) => notify(chat.id, character.name, "texted"),
+      onTexted: async (chat, character, sent) => notify(chat.id, character.name, sent.photo ? "photo" : "texted"),
     });
   }
 

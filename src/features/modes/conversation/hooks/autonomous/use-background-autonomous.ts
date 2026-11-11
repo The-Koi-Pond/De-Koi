@@ -110,6 +110,7 @@ export function useBackgroundAutonomousPolling() {
             generatingForRef.current.add(chat.id);
             const doGenerate = async () => {
               let receivedTokens = false;
+              let sentPhoto = false;
               let shouldClearAutonomousFlag = true;
               let controller: AbortController | null = null;
               try {
@@ -130,13 +131,16 @@ export function useBackgroundAutonomousPolling() {
                     chatId: chat.id,
                     connectionId: null,
                     forCharacterId: characterId,
+                    textsFirst: true,
                     streaming: useUIStore.getState().enableStreaming,
                     hideAutomatedSummarySourceMessages:
                       useUIStore.getState().summaryPopoverSettings.hideSummarizedMessages,
                   },
                   controller.signal,
                 )) {
-                  if ((event as { type: string }).type === "token") receivedTokens = true;
+                  const eventType = (event as { type: string }).type;
+                  if (eventType === "token") receivedTokens = true;
+                  if (eventType === "selfie") sentPhoto = true;
                 }
 
                 // Only notify if the generation actually produced a message
@@ -187,10 +191,11 @@ export function useBackgroundAutonomousPolling() {
                   chatId: chat.id,
                   characterName: charName,
                   tag: `marinara-conversation-${chat.id}`,
+                  photo: sentPhoto,
                 });
 
                 // Show a global toast so the user knows even from a different chat
-                toast(`${charName} sent you a message`, { icon: "💬" });
+                toast(sentPhoto ? `${charName} sent a photo` : `${charName} sent you a message`, { icon: "💬" });
               } catch {
                 // generation failed — non-critical
               } finally {

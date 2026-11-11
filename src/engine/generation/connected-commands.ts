@@ -74,6 +74,10 @@ type ConnectedCommandOptions = {
   pendingSelfieIntent?: boolean;
   /** The user message this reply answers and the replying character, for [react: ...] tapbacks. */
   reactionTarget?: { messageId: string; reactorId: string } | null;
+  /** Texts-first only: "send" means this message carries a photo, "withhold" means it carries none. */
+  textsFirstPhoto?: "send" | "withhold";
+  /** Texts-first only: the character texting, whose photo it is (in a group, not always the first character). */
+  textsFirstCharacterId?: string | null;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
@@ -150,6 +154,22 @@ function inferSelfieContextFromResponse(response: string): string | undefined {
     .trim()
     .slice(0, 240);
   return context || undefined;
+}
+
+/**
+ * Texting first, the photo roll decides: "withhold" drops any [selfie] the model wrote anyway (the frequency and
+ * one-per-burst cap hold), "send" keeps exactly one, adding it when the model left the tag out.
+ */
+function textsFirstPhotoCommands(
+  commands: CharacterCommand[],
+  response: string,
+  decision: "send" | "withhold" | undefined,
+): CharacterCommand[] {
+  if (!decision) return commands;
+  const others = commands.filter((command) => command.type !== "selfie");
+  if (decision === "withhold") return others;
+  const selfie = commands.find((command): command is SelfieCommand => command.type === "selfie");
+  return [...others, selfie ?? { type: "selfie", context: inferSelfieContextFromResponse(response) }];
 }
 
 function recoverImplicitSelfieCommand(args: {
@@ -837,10 +857,14 @@ async function generateSelfie(args: {
   events: ConnectedCommandEvent[];
   assistantAttachments: JsonRecord[];
   imagePromptSettings?: ImagePromptSettings;
+  /** Sent while texting first, not because the user asked. */
+  unprompted?: boolean;
+  /** Whose selfie it is; defaults to the chat's first character. */
+  characterId?: string | null;
 }): Promise<boolean> {
   const metadata = parseRecord(args.chat.metadata);
   const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
-  const characterId = activeCharacterId(args.chat);
+  const characterId = args.characterId || activeCharacterId(args.chat);
   if (!imageConnectionId) {
     eventsPushSelfieError(args.events, characterId, "No image generation connection configured for this chat.");
     return false;
@@ -888,12 +912,16 @@ async function generateSelfie(args: {
       height: size.height,
     });
     const storedImageUrl = readString(gallery.url).trim() || imageUrl;
+    const description = args.command.context?.replace(/\s+/g, " ").trim();
     const attachment = {
       type: "image",
       url: storedImageUrl,
       filename,
       prompt,
       galleryId: readString(gallery.id) || null,
+      // What the character meant to show, so later prompts can say what was sent.
+      ...(description ? { description } : {}),
+      ...(args.unprompted ? { unprompted: true } : {}),
     };
     args.assistantAttachments.push(attachment);
     args.events.push({
@@ -1654,6 +1682,8 @@ async function executeCommand(
         events,
         assistantAttachments,
         imagePromptSettings,
+        unprompted: options?.textsFirstPhoto === "send",
+        characterId: options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : null,
       }))
         ? { name: "selfie" }
         : null;
@@ -1686,7 +1716,11 @@ export async function persistConnectedCommandTags(
       readString(metadata.imageGenConnectionId).trim().length > 0 && conversationSelfieCommandEnabled(chat),
     existingCommands: parsed.commands,
   });
-  const commands = recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands;
+  const commands = textsFirstPhotoCommands(
+    recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands,
+    parsed.cleanContent,
+    options?.textsFirstPhoto,
+  );
   const executedCommands: string[] = [];
   const events: ConnectedCommandEvent[] = [...parsed.parseEvents];
   const assistantAttachments: JsonRecord[] = [];

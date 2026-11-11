@@ -430,6 +430,8 @@ export interface ChatMetadata {
   selfiePositivePrompt?: string;
   /** Extra negative prompt/tags sent with generated conversation selfies. */
   selfieNegativePrompt?: string;
+  /** Per character: how often a texts-first message comes with a selfie. Missing means "rare". */
+  unpromptedPhotoFrequency?: Record<string, "never" | "rare" | "sometimes">;
 
   // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */
