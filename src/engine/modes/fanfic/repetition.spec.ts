@@ -65,6 +65,17 @@ describe("detectFanficRepetition", () => {
     expect(report.repeats.filter((repeat) => repeat.kind === "detail")).toEqual([]);
   });
 
+  it("does not count a side (his right hand) as a signature detail", () => {
+    const chapter = Array.from(
+      { length: 8 },
+      (_, index) =>
+        `He flexes his right hand. "All right," she says, "right now." Her left boot slips, line ${index}. His left ear twitches.`,
+    ).join("\n");
+
+    const report = detectFanficRepetition([chapter], { focus: 0 });
+    expect(report.repeats.filter((repeat) => repeat.kind === "detail")).toEqual([]);
+  });
+
   it("flags a phrase reused across chapters but not a stutter", () => {
     const chapter = (n: number) =>
       `I want to watch the rain, she thinks. "Come on, come on, come on, come on." Scene ${n} ends here quietly.`;
