@@ -4164,6 +4164,68 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
 
         assert_eq!(body["reasoning_effort"], json!("none"));
     }
+
+    // Story summaries send "none" three ways; NanoGPT answered 400 for these models.
+    fn summary_style_no_reasoning_parameters() -> Value {
+        json!({
+            "reasoningEffort": "none",
+            "reasoning_effort": "none",
+            "customParameters": { "reasoning_effort": "none", "reasoning": { "exclude": true } }
+        })
+    }
+
+    #[test]
+    fn nanogpt_claude_omits_unsupported_no_reasoning_effort() {
+        let request = request_for(
+            "nanogpt",
+            "anthropic/claude-opus-4.7",
+            summary_style_no_reasoning_parameters(),
+        );
+        let mut body = json!({});
+
+        apply_openai_parameters(&mut body, &request);
+
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoningEffort").is_none());
+    }
+
+    #[test]
+    fn nanogpt_gemini_sends_low_instead_of_no_reasoning_effort() {
+        for model in ["google/gemini-4-argon", "google/gemini-3.8-flash"] {
+            let request = request_for("nanogpt", model, summary_style_no_reasoning_parameters());
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert_eq!(body["reasoning_effort"], json!("low"), "model {model}");
+            assert!(body.get("reasoningEffort").is_none(), "model {model}");
+        }
+    }
+
+    #[test]
+    fn nanogpt_claude_and_gemini_keep_requested_reasoning_effort() {
+        for model in ["anthropic/claude-opus-4.7", "google/gemini-4-argon"] {
+            let request = request_for("nanogpt", model, json!({ "reasoningEffort": "medium" }));
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert_eq!(body["reasoning_effort"], json!("medium"), "model {model}");
+        }
+    }
+
+    #[test]
+    fn nanogpt_older_gemini_keeps_no_reasoning_effort() {
+        for model in ["google/gemini-2.0-flash-001", "google/gemini-1.5-pro"] {
+            let request = request_for("nanogpt", model, json!({ "reasoningEffort": "none" }));
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert_eq!(body["reasoning_effort"], json!("none"), "model {model}");
+        }
+    }
+
     #[tokio::test]
     async fn provider_http_client_redacts_query_secret() {
         let error = provider_http_client_for_url("ftp://example.test/models?key=sk-test-secret")

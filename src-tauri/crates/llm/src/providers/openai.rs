@@ -1504,6 +1504,7 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
     }
     if request.connection.provider == "nanogpt" {
         normalize_nanogpt_glm_52_reasoning_effort(body, &request.connection.model);
+        normalize_nanogpt_no_reasoning_effort(body, &request.connection.model);
     }
     if request.connection.provider == "mistral" {
         if let Some(body) = body.as_object_mut() {
@@ -1556,6 +1557,51 @@ fn normalize_nanogpt_glm_52_reasoning_effort(body: &mut Value, model: &str) {
         }
         _ => {}
     }
+}
+
+/// NanoGPT rejects reasoning_effort "none" for Claude and Gemini models with a
+/// 400 (seen for claude-opus-4.7, gemini-3.8-flash and gemini-4-argon). Claude
+/// does not think unless asked, so leaving the field out means the same thing.
+/// Gemini 3 and later cannot switch thinking off; "low" is the lowest level all
+/// of them accept. Older Gemini models are left as they were.
+fn normalize_nanogpt_no_reasoning_effort(body: &mut Value, model: &str) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let asks_for_none = ["reasoning_effort", "reasoningEffort"].iter().any(|key| {
+        object
+            .get(*key)
+            .and_then(Value::as_str)
+            .is_some_and(|effort| effort.eq_ignore_ascii_case("none"))
+    });
+    if !asks_for_none {
+        return;
+    }
+    let replacement = if model.to_ascii_lowercase().contains("claude") {
+        None
+    } else if gemini_major_version(model).is_some_and(|major| major >= 3) {
+        Some("low")
+    } else {
+        return;
+    };
+    object.remove("reasoning_effort");
+    object.remove("reasoningEffort");
+    if let Some(effort) = replacement {
+        object.insert("reasoning_effort".to_string(), json!(effort));
+    }
+}
+
+fn gemini_major_version(model: &str) -> Option<u32> {
+    if !is_gemini_model(model) {
+        return None;
+    }
+    let normalized = model.to_ascii_lowercase();
+    let start = normalized.find("gemini-")? + "gemini-".len();
+    let digits: String = normalized[start..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
 }
 
 fn apply_requested_tool_choice(body: &mut Value, parameters: &Value) {
