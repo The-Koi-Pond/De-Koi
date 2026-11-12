@@ -27,7 +27,6 @@ import {
   PenLine,
   ScrollText,
   Settings2,
-  Swords,
   ChevronUp,
   ArrowRightLeft,
   GitBranch,
@@ -62,6 +61,7 @@ import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
 import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
+import { EncounterLauncher, LazyEncounterHost } from "../encounter/components/EncounterLauncher";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
@@ -120,11 +120,6 @@ const SpriteOverlay = lazy(async () => {
 const EchoChamberPanel = lazy(async () => {
   const module = await import("../../shared/chat-ui/index");
   return { default: module.EchoChamberPanel };
-});
-
-const EncounterHost = lazy(async () => {
-  const module = await import("../encounter/components/EncounterHost");
-  return { default: module.EncounterHost };
 });
 
 const SummaryPopover = lazy(async () => {
@@ -1332,11 +1327,7 @@ export function ChatRoleplaySurface({
               </div>
             </div>
 
-            {encounterShown && (
-              <Suspense fallback={null}>
-                <EncounterHost chatId={activeChatId} />
-              </Suspense>
-            )}
+            {encounterShown && <LazyEncounterHost chatId={activeChatId} />}
 
             <div
               className={cn("absolute inset-0 z-10 overflow-clip min-w-0", TRACKER_SCROLL_AVOIDANCE_CLASS)}
@@ -1537,19 +1528,7 @@ export function ChatRoleplaySurface({
                     onReopen={onReopenScene}
                   />
                 )}
-                {encountersEnabled && !isConcludedScene && (
-                  <div className="flex justify-center py-1">
-                    <button
-                      type="button"
-                      onClick={onStartEncounter}
-                      title="Start combat encounter"
-                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                    >
-                      <Swords size="0.875rem" aria-hidden="true" />
-                      Encounter
-                    </button>
-                  </div>
-                )}
+                {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onStartEncounter} />}
                 {!isConcludedScene && (
                   <ChatInput
                     mode={isRoleplay ? "roleplay" : "conversation"}
