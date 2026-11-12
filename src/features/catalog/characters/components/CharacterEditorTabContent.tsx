@@ -4,6 +4,7 @@ import type {
   CharacterMemoryPersistence,
 } from "../../../../engine/contracts/types/character";
 import type { ImageGenerationConnectionOption } from "../../../../shared/types/image-generation";
+import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { CharacterAdvancedTab } from "./CharacterAdvancedTab";
 import { CharacterBehaviorTab } from "./CharacterBehaviorTab";
 import { CharacterColorsTab } from "./CharacterColorsTab";
@@ -102,17 +103,32 @@ export function CharacterEditorTabContent({
           />
         )}
         {activeTab === "appearance" && (
-          <CharacterTextareaTab
-            title="Appearance"
-            subtitle="Detailed physical description — height, build, hair, eyes, clothing, distinguishing features."
-            value={(formData.extensions.appearance as string) ?? ""}
-            onChange={(v) => updateExtension("appearance", v)}
-            placeholder="Tall and willowy with silver-streaked dark hair. Wears a battered leather coat over…"
-            rows={8}
-            generationField="appearance"
-            generationData={formData}
-            characterComment={characterComment}
-          />
+          <div className="space-y-6">
+            <CharacterTextareaTab
+              title="Appearance"
+              subtitle="Detailed physical description — height, build, hair, eyes, clothing, distinguishing features."
+              value={(formData.extensions.appearance as string) ?? ""}
+              onChange={(v) => updateExtension("appearance", v)}
+              placeholder="Tall and willowy with silver-streaked dark hair. Wears a battered leather coat over…"
+              rows={8}
+              generationField="appearance"
+              generationData={formData}
+              characterComment={characterComment}
+            />
+            <label className="block space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Selfie look tags{" "}
+                <HelpTooltip text="Comma-separated image tags added to every selfie of this character, in any chat. List what makes them recognizable at a glance: mask, hat, outfit, hair. Keeps selfies on model instead of guessing from the description." />
+              </span>
+              <input
+                type="text"
+                value={(formData.extensions.selfieLookTags as string) ?? ""}
+                onChange={(event) => updateExtension("selfieLookTags", event.target.value)}
+                placeholder="white mask, wide grin, green jester hat with bells, black cape"
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              />
+            </label>
+          </div>
         )}
         {activeTab === "scenario" && (
           <CharacterTextareaTab

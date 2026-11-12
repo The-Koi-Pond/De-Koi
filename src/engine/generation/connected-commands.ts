@@ -786,7 +786,10 @@ async function buildSelfiePrompt(args: {
       readString(data.description).trim()
     : "";
   const metadata = parseRecord(args.chat.metadata);
-  const positive = readString(metadata.selfiePositivePrompt).trim() || stringArray(metadata.selfieTags).join(", ");
+  const chatPositive = readString(metadata.selfiePositivePrompt).trim() || stringArray(metadata.selfieTags).join(", ");
+  // The character's own look tags go into every selfie, so the details that make them recognizable never get dropped.
+  const lookTags = readString(parseRecord(data.extensions).selfieLookTags).trim();
+  const positive = [lookTags, chatPositive].filter(Boolean).join(", ");
   const template = readString(metadata.selfiePrompt).trim();
   const systemPrompt = await resolveConversationSelfieSystemPrompt({
     storage: args.storage,
