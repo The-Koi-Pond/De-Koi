@@ -741,6 +741,58 @@ describe("persistConnectedCommandTags", () => {
     expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("silver hair"));
   });
 
+  it("points the selfie attachment at the filename the gallery actually stored", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const base = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Harlequin (Pro Dom)", data: { name: "Harlequin (Pro Dom)" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const galleryRows: JsonRecord[] = [];
+    const storage: StorageGateway = {
+      ...base,
+      async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+        if (entity !== "gallery") return base.create<T>(entity, value);
+        // The real gallery cleans up the name and adds a suffix when a file with that name already exists.
+        const row = {
+          id: "gallery-1",
+          ...value,
+          filePath: "selfie_harlequin__pro_dom_-3.png",
+          filename: "selfie_harlequin__pro_dom_-3.png",
+          url: "asset://localhost/data/gallery/selfie_harlequin__pro_dom_-3.png",
+        };
+        galleryRows.push(row);
+        return asStorageValue<T>(row);
+      },
+    };
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(): Promise<T> {
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    const result = await persistConnectedCommandTags(storage, chat, "here [selfie]", integrations);
+
+    expect(galleryRows).toHaveLength(1);
+    expect(result.assistantAttachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        galleryId: "gallery-1",
+        url: "asset://localhost/data/gallery/selfie_harlequin__pro_dom_-3.png",
+        filename: "selfie_harlequin__pro_dom_-3.png",
+      }),
+    ]);
+  });
+
   it("texting first: a withheld photo drops the [selfie] tag and a sent one is described for later prompts", async () => {
     const chat = {
       id: "chat-1",
