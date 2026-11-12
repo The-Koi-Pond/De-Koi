@@ -1120,10 +1120,12 @@ export async function generateIllustrationAttachments(args: {
         referenceImageCount: referenceData.referenceImages.length,
       });
       const storedImageUrl = readString(gallery.url).trim() || imageUrl;
+      // The gallery may store the file under a cleaned-up, de-duplicated name; the chat finds the picture by it.
+      const storedFilename = readString(gallery.filename).trim() || filename;
       const attachment = {
         type: "image",
         url: storedImageUrl,
-        filename,
+        filename: storedFilename,
         prompt,
         galleryId: readString(gallery.id) || null,
       };
