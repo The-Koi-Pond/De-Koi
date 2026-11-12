@@ -32,8 +32,7 @@ function signal(kind: RoleplayQualitySignalKind): RoleplayQualitySignal {
 describe("roleplay quality audit validation", () => {
   it("maps only triggering signal families to authorized editor reasons", () => {
     const mapReasons = Reflect.get(roleplayQualityAudit, "roleplayQualityReasonsForSignals") as
-      | ((signals: RoleplayQualitySignal[]) => string[])
-      | undefined;
+      ((signals: RoleplayQualitySignal[]) => string[]) | undefined;
 
     expect(mapReasons).toBeTypeOf("function");
     expect(

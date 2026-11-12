@@ -1,11 +1,5 @@
 export type ChatSidebarRecoveryActionId =
-  | "retry"
-  | "connect-server"
-  | "open-connections"
-  | "view-health"
-  | "copy-support-details"
-  | "clear-filters"
-  | "create";
+  "retry" | "connect-server" | "open-connections" | "view-health" | "copy-support-details" | "clear-filters" | "create";
 
 type ChatSidebarRecoveryAction = {
   id: ChatSidebarRecoveryActionId;

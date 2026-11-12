@@ -51,6 +51,9 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Its refs name Rust versions (some not released yet), not action releases; the
+      # Pi build's pin follows rust-toolchain.toml instead.
+      - dependency-name: "dtolnay/rust-toolchain"
     cooldown:
       default-days: 7
 

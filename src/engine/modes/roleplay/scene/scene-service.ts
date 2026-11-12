@@ -611,13 +611,7 @@ type SceneFinalSummaryContext = SceneSummaryContext & {
 };
 
 type SceneStorySectionKey =
-  | "events"
-  | "choices"
-  | "relationshipShifts"
-  | "promises"
-  | "reveals"
-  | "unresolvedHooks"
-  | "currentState";
+  "events" | "choices" | "relationshipShifts" | "promises" | "reveals" | "unresolvedHooks" | "currentState";
 
 type SceneStorySummary = {
   summary: string;

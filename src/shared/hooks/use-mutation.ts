@@ -1,8 +1,8 @@
 import {
   useMutation as useQueryMutation,
   type DefaultError,
-  type MutateOptions,
   type QueryClient,
+  type UseMutateFunction,
   type UseMutationOptions,
   type UseMutationResult,
 } from "@tanstack/react-query";
@@ -45,13 +45,15 @@ export function useMutation<TData = unknown, TError = DefaultError, TVariables =
   const handlesOwnErrors = options.meta?.handlesOwnErrors === true;
   const errorMessage = options.meta?.errorMessage;
 
-  const mutate = useCallback(
-    (variables: TVariables, mutateOptions?: MutateOptions<TData, TError, TVariables, TOnMutateResult>) => {
-      const callerHandlesError = handlesOwnErrors || Boolean(mutateOptions?.onError);
+  // Typed as TanStack's own mutate (variables may be left out when TVariables is void)
+  // and passing the arguments through unchanged keeps the two in step.
+  const mutate = useCallback<UseMutateFunction<TData, TError, TVariables, TOnMutateResult>>(
+    (...args) => {
+      const callerHandlesError = handlesOwnErrors || Boolean(args[1]?.onError);
       // Same as TanStack's mutate(), which is mutateAsync() with the rejection dropped.
       // The rejection still arrives after the calling component unmounts, unlike
       // per-call callbacks, so a save fired from a closing dialog still reports.
-      mutateAsync(variables, mutateOptions).catch((error: unknown) => {
+      mutateAsync(...args).catch((error: unknown) => {
         if (!callerHandlesError) notifyMutationFailure(error, errorMessage);
       });
     },

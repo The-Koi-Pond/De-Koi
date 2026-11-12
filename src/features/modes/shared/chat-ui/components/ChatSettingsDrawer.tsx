@@ -975,9 +975,7 @@ function ChatSettingsDrawerInner({
   const charAvatarCrop = useCallback((c: { data?: unknown }) => {
     return (
       ((c.data as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop as
-        | AvatarCrop
-        | null
-        | undefined) ?? null
+        AvatarCrop | null | undefined) ?? null
     );
   }, []);
   const musicProfileForCharacter = useCallback((c: { data?: unknown }) => {

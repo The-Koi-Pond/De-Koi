@@ -1426,12 +1426,10 @@ async function inputWithStoredGenerationReplay(
 function requestMessages(input: StartGenerationInput): LlmMessage[] | null {
   if (!Array.isArray(input.messages) || input.messages.length === 0) return null;
   return input.messages
-    .map(
-      (message): LlmMessage => ({
-        role: message.role === "system" || message.role === "assistant" ? message.role : "user",
-        content: readString(message.content).trim(),
-      }),
-    )
+    .map((message): LlmMessage => ({
+      role: message.role === "system" || message.role === "assistant" ? message.role : "user",
+      content: readString(message.content).trim(),
+    }))
     .filter((message) => message.content.length > 0);
 }
 

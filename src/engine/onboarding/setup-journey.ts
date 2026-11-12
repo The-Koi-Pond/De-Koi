@@ -1,12 +1,7 @@
 export type SetupJourneyMode = "conversation" | "roleplay" | "fanfic";
 
 export type SetupJourneyAction =
-  | "configure-runtime"
-  | "repair-runtime"
-  | "create-connection"
-  | "configure-chat"
-  | "choose-experience"
-  | "complete";
+  "configure-runtime" | "repair-runtime" | "create-connection" | "configure-chat" | "choose-experience" | "complete";
 
 export interface SetupJourneyIntent {
   journeyId: string;
@@ -18,11 +13,7 @@ export interface SetupJourneyIntent {
 }
 
 export type SetupJourneyRecoveryStage =
-  | "created"
-  | "reconciled"
-  | "preset-applied"
-  | "greeting-initialized"
-  | "finalizing";
+  "created" | "reconciled" | "preset-applied" | "greeting-initialized" | "finalizing";
 
 export interface SetupJourneyRecovery {
   createdChatId: string;

@@ -189,8 +189,7 @@ async function collectEvents(generator: AsyncGenerator<GenerationEvent>): Promis
 
 function worldTick(records: Record<string, Record<string, unknown>>): Record<string, unknown> | undefined {
   return (records["chat-1"]!.metadata as Record<string, unknown>).roleplayWorldTick as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 }
 
 async function send(

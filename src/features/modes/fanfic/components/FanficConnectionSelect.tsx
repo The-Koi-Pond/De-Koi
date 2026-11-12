@@ -83,8 +83,7 @@ export function FanficReaderConnectionSelect({ chatId, busy }: { chatId: string;
   const unlisted = useMemo(() => {
     if (!current || languageConnections.some((connection) => connection.id === current)) return null;
     const stored = (connections ?? []).find((connection) => connection.id === current) as
-      | FanficConnectionOption
-      | undefined;
+      FanficConnectionOption | undefined;
     return { id: current, name: stored?.name };
   }, [connections, current, languageConnections]);
 

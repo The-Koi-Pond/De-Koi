@@ -34,10 +34,7 @@ type AutomaticMemoryCandidate = {
 };
 
 type CanonicalConsequenceEvidence =
-  | "direct_user_assertion"
-  | "explicit_promise"
-  | "explicit_screen_event"
-  | "explicit_exchange";
+  "direct_user_assertion" | "explicit_promise" | "explicit_screen_event" | "explicit_exchange";
 
 export interface CanonicalConsequenceSourceMessage {
   id: string;
@@ -112,9 +109,7 @@ export interface AutomaticMemoryValueGateResult {
 }
 
 export type StandaloneMemoryFailure =
-  | "generic_speaker_label"
-  | "unresolved_opening_reference"
-  | "dangling_topic_reference";
+  "generic_speaker_label" | "unresolved_opening_reference" | "dangling_topic_reference";
 
 export type AutomaticCaptureMemoryFailure = StandaloneMemoryFailure | "third_person_personal_pronoun";
 

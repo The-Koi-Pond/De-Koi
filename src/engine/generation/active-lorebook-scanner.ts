@@ -83,9 +83,7 @@ interface LorebookEmbeddingSource {
 }
 
 type LorebookEmbeddingRequestSelection =
-  | { type: "default" }
-  | { type: "target"; request: LorebookEmbeddingRequest }
-  | { type: "ambiguous" };
+  { type: "default" } | { type: "target"; request: LorebookEmbeddingRequest } | { type: "ambiguous" };
 
 interface ActiveLorebookBudgetMetadata {
   lorebookName: string;
@@ -166,8 +164,7 @@ interface LorebookResolvedCandidatePass {
 }
 
 type BudgetedLorebookEntrySelection =
-  | { selected: true; entry: ActivatedEntry }
-  | { selected: false; skipped?: BudgetSkippedLorebookEntry };
+  { selected: true; entry: ActivatedEntry } | { selected: false; skipped?: BudgetSkippedLorebookEntry };
 
 const MAX_LOREBOOK_RECURSION_DEPTH = 10;
 const ACTIVE_LOREBOOK_ENTRY_BATCH_CACHE_LIMIT = 8;

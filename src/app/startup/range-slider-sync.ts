@@ -27,8 +27,7 @@ function patchRangeValueSetter(): () => void {
   if (!NATIVE_VALUE_DESCRIPTOR || !nativeSetter) return () => {};
 
   const activeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set as
-    | PatchedSetter
-    | undefined;
+    PatchedSetter | undefined;
   if (activeSetter?.[RANGE_SYNC_PATCHED]) {
     // Already patched by a prior install that hasn't disposed yet; leave it.
     return () => {};

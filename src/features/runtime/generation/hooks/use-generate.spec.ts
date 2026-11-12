@@ -491,8 +491,7 @@ describe("showAgentWarningToast", () => {
 
     expect(vi.mocked(toast.warning)).toHaveBeenCalledTimes(1);
     const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as
-      | { action?: { label?: string; onClick?: () => void } }
-      | undefined;
+      { action?: { label?: string; onClick?: () => void } } | undefined;
     expect(options?.action?.label).toBe("Open Connections");
     options?.action?.onClick?.();
     expect(useUIStore.getState()).toMatchObject({
@@ -540,8 +539,7 @@ describe("showAgentWarningToast", () => {
 
     showAgentWarningToast(firstWarning, new Set());
     const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as
-      | { action?: { label?: string; onClick?: () => void } }
-      | undefined;
+      { action?: { label?: string; onClick?: () => void } } | undefined;
     expect(options?.action?.label).toBe("Don't warn again");
 
     options?.action?.onClick?.();

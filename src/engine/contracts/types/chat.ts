@@ -128,14 +128,7 @@ export interface ChatSummaryEntry {
 
 /** Values a Roleplay workflow receipt may retain; chat content is intentionally excluded. */
 export type RoleplayWorkflowApplicationFieldValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | string[]
-  | Record<string, string | null>
-  | Record<string, number>;
+  string | number | boolean | null | undefined | string[] | Record<string, string | null> | Record<string, number>;
 
 /** A reversible field-level change made by a Roleplay workflow profile. */
 export interface RoleplayWorkflowApplicationChange {

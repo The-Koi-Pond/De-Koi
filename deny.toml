@@ -5,12 +5,10 @@ all-features = true
 version = 2
 yanked = "warn"
 unmaintained = "workspace"
-# Temporary: tauri-plugin-devtools 2.1.0's opt-in dependency chain still uses
-# tonic 0.10 -> hyper 0.14 -> h2 0.3.27, and devtools-core 0.3.6 -> ringbuf
-# 0.4.8. Default desktop and server/Pi builds do not enable the devtools
-# feature. Remove RUSTSEC-2026-0258 when the plugin uses h2 >= 0.4.16 and
-# RUSTSEC-2026-0293 when it uses ringbuf >= 0.5.2.
-ignore = ["RUSTSEC-2026-0258", "RUSTSEC-2026-0293"]
+# No advisory waivers. tauri-plugin-devtools 2.2 no longer pulls in h2 0.3.27
+# (RUSTSEC-2026-0258) or ringbuf < 0.5.2 (RUSTSEC-2026-0293);
+# scripts/check-rust-advisory-boundaries.mjs keeps both out of every build graph.
+ignore = []
 
 [bans]
 multiple-versions = "warn"
