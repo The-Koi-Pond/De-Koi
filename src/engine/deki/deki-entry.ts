@@ -134,9 +134,7 @@ type DekiWorkspaceMalformedHistoryEntry = {
 };
 
 export type DekiWorkspaceHistoryItem =
-  | DekiWorkspaceHistoryEntry
-  | DekiWorkspaceUnknownHistoryEntry
-  | DekiWorkspaceMalformedHistoryEntry;
+  DekiWorkspaceHistoryEntry | DekiWorkspaceUnknownHistoryEntry | DekiWorkspaceMalformedHistoryEntry;
 
 export type DekiWorkspaceStatus = {
   enabled: boolean;

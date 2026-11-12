@@ -10,12 +10,7 @@ import type {
 } from "../../contracts/types/tracker-state";
 
 type TrackerRowFamily =
-  | "character-stat"
-  | "player-stat"
-  | "persona-stat"
-  | "inventory-item"
-  | "custom-field"
-  | "quest-objective";
+  "character-stat" | "player-stat" | "persona-stat" | "inventory-item" | "custom-field" | "quest-objective";
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

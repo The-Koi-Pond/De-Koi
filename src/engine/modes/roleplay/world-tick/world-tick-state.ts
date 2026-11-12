@@ -325,19 +325,17 @@ export function startPendingWorldTick(
     }))
     .filter((proposal) => proposal.text)
     .slice(0, WORLD_TICK_LIMITS.proposedEventsPerTick)
-    .map(
-      (proposal): WorldTickEvent => ({
-        id: makeId("world-tick-event"),
-        text: proposal.text,
-        status: "proposed",
-        source: "model",
-        edited: false,
-        characters: proposal.characters,
-        carried: false,
-        createdAt: now,
-        updatedAt: now,
-      }),
-    );
+    .map((proposal): WorldTickEvent => ({
+      id: makeId("world-tick-event"),
+      text: proposal.text,
+      status: "proposed",
+      source: "model",
+      edited: false,
+      characters: proposal.characters,
+      carried: false,
+      createdAt: now,
+      updatedAt: now,
+    }));
   const offer = input.offerId && state.offer?.id === input.offerId ? state.offer : null;
   const pending: PendingWorldTick = {
     id: makeId("world-tick"),

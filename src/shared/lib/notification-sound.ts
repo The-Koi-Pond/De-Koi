@@ -61,8 +61,7 @@ function getNotificationAudioContext(): NotificationAudioContext | null {
   if (typeof window === "undefined") return null;
   const audioWindow = window as Window & { webkitAudioContext?: typeof AudioContext };
   const AudioContextClass = (window.AudioContext ?? audioWindow.webkitAudioContext) as
-    | (new () => NotificationAudioContext)
-    | undefined;
+    (new () => NotificationAudioContext) | undefined;
   if (!AudioContextClass) return null;
   if (
     !notificationAudioContext ||

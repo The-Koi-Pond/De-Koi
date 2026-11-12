@@ -5,8 +5,7 @@ import { HelpTooltip } from "./HelpTooltip";
 
 type DiffPart = { text: string; changed: boolean };
 type DiffResult =
-  | { skipped: true; before: string; after: string }
-  | { skipped: false; before: DiffPart[]; after: DiffPart[] };
+  { skipped: true; before: string; after: string } | { skipped: false; before: DiffPart[]; after: DiffPart[] };
 
 function diffWords(before: string, after: string): DiffResult {
   const beforeWords = before.match(/\S+|\s+/g) ?? [];

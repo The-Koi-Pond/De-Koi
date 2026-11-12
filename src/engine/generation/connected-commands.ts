@@ -1255,8 +1255,7 @@ async function createLorebookEntries(
 }
 
 type LorebookEntryCommand =
-  | NonNullable<CreateLorebookCommand["entries"]>[number]
-  | NonNullable<UpdateLorebookCommand["entries"]>[number];
+  NonNullable<CreateLorebookCommand["entries"]>[number] | NonNullable<UpdateLorebookCommand["entries"]>[number];
 type UpdateLorebookEntry = NonNullable<UpdateLorebookCommand["entries"]>[number];
 
 function normalizeEntryName(name: string): string {

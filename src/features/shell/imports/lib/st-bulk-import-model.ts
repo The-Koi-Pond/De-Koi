@@ -39,9 +39,7 @@ export interface STBulkImportResult {
 
 /** The card check on the characters a folder import just saved. */
 export type STBulkCardCheck =
-  | { status: "checking" }
-  | { status: "done"; checked: number; flagged: number }
-  | { status: "failed"; error: string };
+  { status: "checking" } | { status: "done"; checked: number; flagged: number } | { status: "failed"; error: string };
 
 export interface STBulkImportProgress {
   category: string;

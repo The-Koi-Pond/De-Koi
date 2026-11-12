@@ -1,8 +1,5 @@
 export type MemoryRecallEvaluationMode =
-  | "vector_only"
-  | "lexical_fallback"
-  | "hybrid"
-  | "hybrid_without_stale_superseded_filtering";
+  "vector_only" | "lexical_fallback" | "hybrid" | "hybrid_without_stale_superseded_filtering";
 
 interface MemoryRecallEvaluationTurn {
   id: string;

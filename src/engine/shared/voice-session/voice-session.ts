@@ -20,14 +20,7 @@ import type {
 import { soundsLikeReplyEcho } from "./echo";
 
 export type VoiceSessionPhase =
-  | "connecting"
-  | "listening"
-  | "transcribing"
-  | "thinking"
-  | "speaking"
-  | "interrupted"
-  | "ended"
-  | "error";
+  "connecting" | "listening" | "transcribing" | "thinking" | "speaking" | "interrupted" | "ended" | "error";
 
 /** What the microphone is doing. "sending" means audio is on its way to `destination`. */
 export type VoiceMicState = "off" | "opening" | "listening" | "sending";

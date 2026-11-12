@@ -502,8 +502,7 @@ export function AgentEditor() {
 
   const allConnections =
     (connections as
-      | Array<{ id: string; name: string; provider: string; defaultForAgents?: boolean | string }>
-      | undefined) ?? [];
+      Array<{ id: string; name: string; provider: string; defaultForAgents?: boolean | string }> | undefined) ?? [];
 
   const llmConnections = allConnections.filter((conn) => conn.provider !== "image_generation");
   const imageConnections = allConnections.filter((conn) => conn.provider === "image_generation");
