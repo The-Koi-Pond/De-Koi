@@ -117,12 +117,12 @@ function readAttack(value: unknown): EncounterAttack | null {
 }
 
 function readStatus(value: unknown): EncounterStatus | null {
-  if (!isRecord(value)) return null;
-  const name = text(value.name);
+  const record = isRecord(value) ? value : { name: value };
+  const name = text(record.name);
   if (!name) return null;
-  const status: EncounterStatus = { name, emoji: text(value.emoji), duration: optionalNumber(value.duration) ?? 1 };
-  const modifier = optionalNumber(value.modifier);
-  const stat = text(value.stat).toLowerCase();
+  const status: EncounterStatus = { name, emoji: text(record.emoji), duration: optionalNumber(record.duration) ?? 1 };
+  const modifier = optionalNumber(record.modifier);
+  const stat = text(record.stat).toLowerCase();
   if (modifier !== undefined) status.modifier = modifier;
   if (isStatusStat(stat)) status.stat = stat;
   return status;
@@ -132,10 +132,15 @@ function readItem(value: unknown): string | null {
   return text(isRecord(value) ? value.name : value) || null;
 }
 
+function positive(value: number | undefined): number | undefined {
+  return value !== undefined && value > 0 ? value : undefined;
+}
+
 function readHp(raw: JsonRecord, previous: { hp: number; maxHp: number } | undefined) {
-  const returnedMax = optionalNumber(raw.maxHp);
-  const maxHp = returnedMax !== undefined && returnedMax > 0 ? returnedMax : (previous?.maxHp ?? 1);
-  const hp = optionalNumber(raw.hp) ?? previous?.hp ?? maxHp;
+  const returnedHp = optionalNumber(raw.hp);
+  // A new combatant starts at full HP, so a usable hp stands in for a missing max before the last-resort 1.
+  const maxHp = positive(optionalNumber(raw.maxHp)) ?? previous?.maxHp ?? positive(returnedHp) ?? 1;
+  const hp = returnedHp ?? previous?.hp ?? maxHp;
   return { hp: Math.min(Math.max(hp, 0), maxHp), maxHp };
 }
 
@@ -164,7 +169,8 @@ function mergeEnemy(raw: JsonRecord, previous?: EncounterEnemy): EncounterEnemy 
 
 /**
  * Matches returned combatants to current ones by name, any case (decision 3). A nameless entry falls back to its
- * position. Left-out combatants stay unchanged; unmatched ones come back in `added`. Null when the field is missing.
+ * position, and is dropped when that matches nobody. Left-out combatants stay unchanged; unmatched named ones come
+ * back in `added`. Null when the field is missing.
  */
 function matchCombatants<T extends { name: string }>(
   current: T[],
@@ -183,7 +189,7 @@ function matchCombatants<T extends { name: string }>(
         ? position
         : -1;
     if (index < 0) {
-      added.push(merge(raw));
+      if (name) added.push(merge(raw));
       return;
     }
     used.add(index);
@@ -308,20 +314,25 @@ function readActions(value: unknown, nameKey: string, kind: "enemy" | "ally"): E
     .map((entry) => ({ kind, text: `${entry.name}: ${entry.action}` }));
 }
 
-/** Decision 1: the model's own `combatEnd` with a valid result, else HP alone. */
+/**
+ * Decision 1: the model's own `combatEnd` with a valid result, else HP alone. Only Conclude ends a fight as
+ * interrupted, so a turn declaring it is ignored.
+ */
 function turnResult(response: JsonRecord, fight: EncounterFight): EncounterResult | null {
   const declared = text(response.result).toLowerCase();
-  if (boolish(response.combatEnd) && isEncounterResult(declared)) return declared;
+  if (boolish(response.combatEnd) && isEncounterResult(declared) && declared !== "interrupted") return declared;
   if (fight.enemies.length > 0 && fight.enemies.every((enemy) => enemy.hp <= 0)) return "victory";
   if (fight.party.length > 0 && fight.party.every((member) => member.hp <= 0)) return "defeat";
   return null;
 }
 
-function nextPlayerActions(value: unknown, current: EncounterPlayerActions): EncounterPlayerActions {
-  if (!isRecord(value)) return current;
+/** What the turn leaves out comes from the updated player, so a used-up item can't stay on a button. */
+function nextPlayerActions(value: unknown, party: EncounterPartyMember[]): EncounterPlayerActions {
+  const returned = isRecord(value) ? value : {};
+  const fromPlayer = playerActionsOf(party);
   return {
-    attacks: readList(value.attacks, readAttack) ?? current.attacks,
-    items: readList(value.items, readItem) ?? current.items,
+    attacks: readList(returned.attacks, readAttack) ?? fromPlayer.attacks,
+    items: readList(returned.items, readItem) ?? fromPlayer.items,
   };
 }
 
@@ -332,11 +343,14 @@ export function readTurnResponse(raw: string, fight: EncounterFight, action: str
   const stats = isRecord(response.combatStats) ? response.combatStats : {};
   const party = matchCombatants(fight.party, stats.party, mergePartyMember);
   const enemies = matchCombatants(fight.enemies, stats.enemies, mergeEnemy);
+  const nextParty = party
+    ? [...party.matched, ...party.added.map((member) => ({ ...member, isPlayer: false }))]
+    : fight.party;
   const next: EncounterFight = {
     ...fight,
-    party: party ? [...party.matched, ...party.added.map((member) => ({ ...member, isPlayer: false }))] : fight.party,
+    party: nextParty,
     enemies: enemies ? [...enemies.matched, ...enemies.added] : fight.enemies,
-    playerActions: nextPlayerActions(response.playerActions, fight.playerActions),
+    playerActions: nextPlayerActions(response.playerActions, nextParty),
   };
   const enemyLines = readActions(response.enemyActions, "enemyName", "enemy");
   const allyLines = readActions(response.partyActions, "memberName", "ally");

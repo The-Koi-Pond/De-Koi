@@ -40,7 +40,15 @@ const gaps = encounterSetupGaps(cast, tracked, []);
 function baseFight(): EncounterFight {
   return {
     party: [
-      { name: "Mira", hp: 20, maxHp: 40, attacks: [], items: ["Potion"], statuses: [], isPlayer: true },
+      {
+        name: "Mira",
+        hp: 20,
+        maxHp: 40,
+        attacks: [{ name: "Blade", type: "single-target" }],
+        items: ["Potion"],
+        statuses: [],
+        isPlayer: true,
+      },
       { name: "Tobin", hp: 30, maxHp: 30, attacks: [], items: [], statuses: [], isPlayer: false },
     ],
     enemies: [
@@ -94,6 +102,25 @@ describe("encounter setup checks", () => {
 
     expect(setup?.party[0]).toMatchObject({ hp: 40, maxHp: 40, attacks: [{ name: "Slash", type: "single-target" }] });
     expect(setup?.enemies[0]).toMatchObject({ hp: 1, maxHp: 1, statuses: [{ name: "Rage", emoji: "", duration: 1 }] });
+  });
+
+  it("starts a combatant with a missing, zero or junk max HP at full HP from its hp", () => {
+    const setup = readSetupResponse(
+      JSON.stringify({
+        enemies: [
+          { name: "Ogre", hp: 30 },
+          { name: "Imp", hp: "12", maxHp: 0 },
+          { name: "Wisp", hp: 7, maxHp: "lots" },
+        ],
+      }),
+      gaps,
+    );
+
+    expect(setup?.enemies.map((enemy) => [enemy.hp, enemy.maxHp])).toEqual([
+      [30, 30],
+      [12, 12],
+      [7, 7],
+    ]);
   });
 
   it("picks one player: flagged first, else the persona's name, else the first member (decision 4)", () => {
@@ -150,6 +177,65 @@ describe("encounter turns", () => {
     const outcome = readTurnResponse(JSON.stringify({ combatEnd: true, result: "fled" }), baseFight(), "Run");
 
     expect(outcome?.result).toBe("fled");
+  });
+
+  it("doesn't end on combatEnd with an unknown result while enemies stand", () => {
+    const outcome = readTurnResponse(JSON.stringify({ combatEnd: true, result: "won" }), baseFight(), "Strike");
+
+    expect(outcome?.result).toBeNull();
+  });
+
+  it("ignores a turn's interrupted result, which only Conclude makes", () => {
+    const outcome = readTurnResponse(JSON.stringify({ combatEnd: true, result: "interrupted" }), baseFight(), "Wait");
+
+    expect(outcome?.result).toBeNull();
+  });
+
+  it("ends as a defeat when the whole party is at 0 HP", () => {
+    const outcome = readTurnResponse(
+      JSON.stringify({
+        combatStats: {
+          party: [
+            { name: "Mira", hp: 0 },
+            { name: "Tobin", hp: 0 },
+          ],
+        },
+      }),
+      baseFight(),
+      "Strike",
+    );
+
+    expect(outcome?.result).toBe("defeat");
+  });
+
+  it("takes the buttons from the updated player when the turn leaves playerActions out", () => {
+    const outcome = readTurnResponse(
+      JSON.stringify({ combatStats: { party: [{ name: "Mira", items: [] }] } }),
+      baseFight(),
+      "Uses Potion on Mira!",
+    );
+
+    expect(outcome?.fight.playerActions).toEqual({ attacks: [{ name: "Blade", type: "single-target" }], items: [] });
+  });
+
+  it("reads a status given as a plain string", () => {
+    const outcome = readTurnResponse(
+      JSON.stringify({ combatStats: { enemies: [{ name: "Wisp", statuses: ["Stunned"] }] } }),
+      baseFight(),
+      "Strike",
+    );
+
+    expect(outcome?.fight.enemies[1]?.statuses).toEqual([{ name: "Stunned", emoji: "", duration: 1 }]);
+  });
+
+  it("drops a nameless combatant that matches nobody instead of adding an Unknown", () => {
+    const outcome = readTurnResponse(
+      JSON.stringify({ combatStats: { enemies: [{ name: "Warden" }, { name: "Wisp" }, { hp: 5 }] } }),
+      baseFight(),
+      "Strike",
+    );
+
+    expect(outcome?.fight.enemies.map((enemy) => enemy.name)).toEqual(["Warden", "Wisp"]);
   });
 
   it("treats empty item and status lists as empty, and missing ones as unchanged (decision 2)", () => {
