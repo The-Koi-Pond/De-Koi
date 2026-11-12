@@ -11,6 +11,7 @@ import {
   type EncounterCapabilities,
 } from "../../../../../engine/modes/roleplay/encounter/encounter-calls";
 import type { EncounterSettings } from "../../../../../engine/modes/roleplay/encounter/encounter-types";
+import { isModelRouteError } from "../../../../../engine/generation/model-routing";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -55,9 +56,10 @@ async function runSummary(queryClient: QueryClient): Promise<void> {
       signal: ticket.signal,
       onSaveStart: () => useRoleplayEncounterStore.getState().startSummarySave(ticket.id),
     });
-  } catch {
-    // The end screen offers Try again; a cancelled call was already settled by whoever cancelled it.
-    useRoleplayEncounterStore.getState().failSummary(ticket.id);
+  } catch (error) {
+    // The end screen offers Try again; a cancelled call was already settled by whoever cancelled it. A broken
+    // Encounters route also says what to fix, since trying again can't help.
+    useRoleplayEncounterStore.getState().failSummary(ticket.id, isModelRouteError(error) ? error.message : null);
     return;
   }
   useRoleplayEncounterStore.getState().finishSummary(ticket.id);
@@ -85,9 +87,12 @@ async function runTurn(action: string, queryClient: QueryClient): Promise<void> 
     });
     ended = useRoleplayEncounterStore.getState().isCurrent(ticket.id) && outcome.result !== null;
     useRoleplayEncounterStore.getState().finishTurn(ticket.id, outcome);
-  } catch {
-    // A failed call and junk output read the same to the player: nothing changed, try again.
-    useRoleplayEncounterStore.getState().failTurn(ticket.id, ENCOUNTER_TURN_INVALID_MESSAGE);
+  } catch (error) {
+    // A failed call and junk output read the same to the player: nothing changed, try again. A broken Encounters
+    // route says what to fix instead, since trying again can't help.
+    useRoleplayEncounterStore
+      .getState()
+      .failTurn(ticket.id, isModelRouteError(error) ? error.message : ENCOUNTER_TURN_INVALID_MESSAGE);
   }
   if (ended) await runSummary(queryClient);
 }

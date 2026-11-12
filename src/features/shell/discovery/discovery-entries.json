@@ -1049,7 +1049,7 @@
     "id": "helper-models",
     "title": "Helper Models",
     "category": "Advanced",
-    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, character reads (how a thin Roleplay card acts), fanfic planning (research, outline, voice sheets, outline updates) and fanfic checks (story ledger, continuity and voice checks, editor pass); fanfic chapters stay on the fic's connection. Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now and where it last ran and why (also shown in the fanfic panels), and a helper set to a missing connection stops with a clear message instead of quietly using another.",
+    "summary": "Send background helper work to its own model, such as a cheaper or local one, while replies stay on each chat's connection. Pick a connection for memory (saving, checking, cleanup), summaries (story recaps, daily chat summaries, Summarize chat), the habit check, the judge a fanfic quality check starts on, the group responder (who answers in a group chat), Conversation status blurbs and schedules, character reads (how a thin Roleplay card acts), fanfic planning (research, outline, voice sheets, outline updates), fanfic checks (story ledger, continuity and voice checks, editor pass) and Roleplay combat encounters (setup, each turn, the fight summary); fanfic chapters stay on the fic's connection. Tick Keep on my device on any helper and it only runs on a connection on this device or network, never anywhere else. Each helper shows which connection it uses right now and where it last ran and why (also shown in the fanfic panels), and a helper set to a missing connection stops with a clear message instead of quietly using another.",
     "keywords": [
       "helper models",
       "model routing",
@@ -1068,6 +1068,7 @@
       "privacy",
       "fanfic planning",
       "fanfic checks",
+      "encounters",
       "last run"
     ],
     "audience": "Users who want a strong model for replies and a cheaper or local one for background helpers.",
@@ -1656,7 +1657,7 @@
     "id": "roleplay-combat-encounters",
     "title": "Combat encounters",
     "category": "Chat modes",
-    "summary": "Play out a fight from a Roleplay chat in its own window, turn by turn. Your chat's model sets up the enemies and your party from the scene, your persona and characters, and an optional spellbook lorebook. Each round you pick an attack or item and a target, or describe what you do; the model then has every enemy and ally act and narrates the round. HP bars, status effects and a combat log keep track. The fight ends when one side is down, when you flee or win by the model's call, or when you conclude it early, and then one summary of the whole fight is added to the chat. Nothing in the chat changes until then. It makes one model call to set up, one per round and one for the summary.",
+    "summary": "Play out a fight from a Roleplay chat in its own window, turn by turn. Your chat's model sets up the enemies and your party from the scene, your persona and characters, and an optional spellbook lorebook. Each round you pick an attack or item and a target, or describe what you do; the model then has every enemy and ally act and narrates the round. HP bars, status effects and a combat log keep track. The fight ends when one side is down, when you flee or win by the model's call, or when you conclude it early, and then one summary of the whole fight is added to the chat. Nothing in the chat changes until then. It makes one model call to set up, one per round and one for the summary, all on the chat's connection unless you pick one for Encounters in Connections > Helper Models.",
     "keywords": [
       "combat",
       "fight",

@@ -451,6 +451,11 @@ The type names in `combat-encounter.ts` are internal and may change.
 
 ## Later, separate pull request: helper routing
 
+**Done:** Helper Models now has an Encounters task (`encounters`), wired into
+`requestEncounterText` as intended below. A broken route's message shows on the
+setup failure screen, under the turn controls and on the summary failure;
+scenes don't share the task.
+
 Roadmap #1485, "Pick a model per task", lists "Later (#1267): scenes and
 encounters". Connections > Helper Models already sends some background work to
 its own connection (`src/engine/generation/model-routing.ts`; the Summarize chat

@@ -88,7 +88,7 @@ describe("HelperModelsCard", () => {
     );
     expect(status("Habit check")).toBe("Same as today: each chat's connection.");
     expect(status("Fanfic judge")).toBe("Same as today: each fic's connection.");
-    for (const name of ["Group responder", "Status blurbs", "Schedules", "Character reads"]) {
+    for (const name of ["Group responder", "Status blurbs", "Schedules", "Character reads", "Encounters"]) {
       expect(status(name)).toBe("Same as today: each chat's connection.");
     }
     for (const name of ["Fanfic planning", "Fanfic checks"]) {

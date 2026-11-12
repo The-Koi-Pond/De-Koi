@@ -29,6 +29,7 @@ const TASK_SCOPE: Record<ModelRouteTask, string> = {
   fanficPlanning: "A fic's research, outline, voice sheets, and the outline updates after each chapter.",
   fanficChecks:
     "A fic's story ledger, continuity and voice checks, and the editor pass. Chapters stay on the fic's connection.",
+  encounters: "Setting up Roleplay combat encounters, each turn, and the fight summary.",
 };
 
 function connectionLabel(connection: JsonRecord): string {

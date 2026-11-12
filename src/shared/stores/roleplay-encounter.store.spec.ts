@@ -147,7 +147,7 @@ describe("encounter store", () => {
   it("lets a failed summary be tried again", () => {
     startFight();
     store().conclude();
-    store().failSummary(store().beginSummary()!.id);
+    store().failSummary(store().beginSummary()!.id, null);
 
     const retry = store().beginSummary()!;
     store().finishSummary(retry.id);

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { LlmGateway, LlmRequest } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import type { AgentDebugEntry } from "../../../contracts/types/agent";
+import { readHelperRuns } from "../../../generation/helper-runs";
+import { isModelRouteError } from "../../../generation/model-routing";
 import {
   ENCOUNTER_SETUP_INVALID_MESSAGE,
   ENCOUNTER_TURN_INVALID_MESSAGE,
@@ -35,14 +37,31 @@ const setupJson = JSON.stringify({
 });
 
 function fakeStorage(
-  options: { connections?: Array<Record<string, unknown>>; chat?: Record<string, unknown>; listError?: Error } = {},
+  options: {
+    connections?: Array<Record<string, unknown>>;
+    chat?: Record<string, unknown>;
+    listError?: Error;
+    routing?: Record<string, unknown>;
+  } = {},
 ) {
   const connections = options.connections ?? [{ id: "conn-1", isDefault: true }];
+  const appSettings = new Map<string, Record<string, unknown>>();
+  if (options.routing) appSettings.set("model-routing", { id: "model-routing", value: options.routing });
   const storage = {
     get: vi.fn(async (entity: string, id: string) => {
       if (entity === "chats") return { id, characterIds: [], metadata: {}, ...options.chat };
       if (entity === "connections") return connections.find((connection) => connection.id === id) ?? null;
+      if (entity === "app-settings") return appSettings.get(id) ?? null;
       return null;
+    }),
+    create: vi.fn(async (entity: string, value: Record<string, unknown>) => {
+      if (entity === "app-settings") appSettings.set(String(value.id), value);
+      return value;
+    }),
+    update: vi.fn(async (entity: string, id: string, patch: Record<string, unknown>) => {
+      const row = { ...appSettings.get(id), ...patch, id };
+      if (entity === "app-settings") appSettings.set(id, row);
+      return row;
     }),
     list: vi.fn(async (entity: string) => {
       if (entity === "connections") {
@@ -269,5 +288,122 @@ describe("encounter model calls", () => {
     ).rejects.toThrow();
     expect(storage.createChatMessage).not.toHaveBeenCalled();
     expect(onSaveStart).not.toHaveBeenCalled();
+  });
+});
+
+describe("encounter helper route", () => {
+  const routedConnections = [
+    { id: "conn-chat", name: "Chat", model: "big-model" },
+    { id: "cheap", name: "Cheap", model: "small-model" },
+    { id: "ollama", name: "Ollama", model: "llama", baseUrl: "http://localhost:11434" },
+  ];
+  const turnResponse = JSON.stringify({ narrative: "Mira presses in." });
+
+  async function runAllThree(gateway: StorageGateway, llm: LlmGateway) {
+    const capabilities = { storage: gateway, llm };
+    await startEncounterFight(capabilities, { chatId: "chat-1", settings, signal: signal() });
+    await resolveEncounterTurn(capabilities, {
+      chatId: "chat-1",
+      settings,
+      fight,
+      rounds: [],
+      action: "Strike",
+      signal: signal(),
+    });
+    await writeEncounterSummary(capabilities, {
+      chatId: "chat-1",
+      settings,
+      result: "victory",
+      rounds: [],
+      signal: signal(),
+      onSaveStart,
+    });
+  }
+
+  it("keeps the chat's connection while unrouted and notes the run as the chat's", async () => {
+    const { gateway } = fakeStorage({ connections: routedConnections, chat: { connectionId: "conn-chat" } });
+    const llm = fakeLlm([turnResponse]);
+
+    await resolveEncounterTurn(
+      { storage: gateway, llm: llm.gateway },
+      { chatId: "chat-1", settings, fight, rounds: [], action: "Strike", signal: signal() },
+    );
+
+    expect(llm.requests[0]?.connectionId).toBe("conn-chat");
+    expect((await readHelperRuns(gateway)).encounters).toEqual([
+      expect.objectContaining({ job: "turn", chatId: "chat-1", connectionId: "conn-chat", rule: "chat" }),
+    ]);
+  });
+
+  it("sends setup, every turn and the summary to the Encounters route", async () => {
+    const { gateway } = fakeStorage({
+      connections: routedConnections,
+      chat: { connectionId: "conn-chat" },
+      routing: { version: 1, routes: { encounters: "cheap" } },
+    });
+    const llm = fakeLlm([setupJson, turnResponse, "The warden fell."]);
+
+    await runAllThree(gateway, llm.gateway);
+
+    expect(llm.requests.map((request) => request.connectionId)).toEqual(["cheap", "cheap", "cheap"]);
+    const runs = (await readHelperRuns(gateway)).encounters ?? [];
+    expect(runs.map((run) => run.job).sort()).toEqual(["setup", "summary", "turn"]);
+    expect(runs.every((run) => run.rule === "route" && run.model === "small-model" && run.chatId === "chat-1")).toBe(
+      true,
+    );
+  });
+
+  it("stops on a broken route with its message instead of falling back to the chat's connection", async () => {
+    const { storage, gateway } = fakeStorage({
+      connections: routedConnections,
+      chat: { connectionId: "conn-chat" },
+      routing: { version: 1, routes: { encounters: "gone" } },
+    });
+    const llm = fakeLlm([setupJson, "The warden fell."]);
+
+    const error = await startEncounterFight(
+      { storage: gateway, llm: llm.gateway },
+      { chatId: "chat-1", settings, signal: signal() },
+    ).catch((caught: unknown) => caught);
+    await expect(
+      writeEncounterSummary(
+        { storage: gateway, llm: llm.gateway },
+        { chatId: "chat-1", settings, result: "victory", rounds: [], signal: signal(), onSaveStart },
+      ),
+    ).rejects.toSatisfy(isModelRouteError);
+
+    expect(isModelRouteError(error)).toBe(true);
+    expect((error as Error).message).toContain("The Encounters helper is set to a connection that no longer exists.");
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(storage.createChatMessage).not.toHaveBeenCalled();
+    expect((await readHelperRuns(gateway)).encounters?.[0]?.problem).toContain("no longer exists");
+  });
+
+  it("keeps encounters on the device when marked local-only", async () => {
+    const unrouted = fakeStorage({
+      connections: routedConnections,
+      chat: { connectionId: "conn-chat" },
+      routing: { version: 1, routes: {}, localOnly: ["encounters"] },
+    });
+    const blocked = fakeLlm([turnResponse]);
+    await expect(
+      resolveEncounterTurn(
+        { storage: unrouted.gateway, llm: blocked.gateway },
+        { chatId: "chat-1", settings, fight, rounds: [], action: "Strike", signal: signal() },
+      ),
+    ).rejects.toThrow("must stay on your device");
+    expect(blocked.complete).not.toHaveBeenCalled();
+
+    const local = fakeStorage({
+      connections: routedConnections,
+      chat: { connectionId: "conn-chat" },
+      routing: { version: 1, routes: { encounters: "ollama" }, localOnly: ["encounters"] },
+    });
+    const llm = fakeLlm([turnResponse]);
+    await resolveEncounterTurn(
+      { storage: local.gateway, llm: llm.gateway },
+      { chatId: "chat-1", settings, fight, rounds: [], action: "Strike", signal: signal() },
+    );
+    expect(llm.requests[0]?.connectionId).toBe("ollama");
   });
 });
