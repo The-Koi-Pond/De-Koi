@@ -121,14 +121,14 @@ export interface SpotifyDevice {
 }
 
 /** Where a chat's Spotify candidates come from. A playlist or artist without its value means Liked Songs. */
-export type SpotifySourceChoice =
+type SpotifySourceChoice =
   | { type: "liked" }
   | { type: "playlist"; playlistId: string; playlistName?: string | null }
   | { type: "artist"; artist: string }
   | { type: "anything" };
 
 /** A recent-history entry; plain strings are read as Spotify track URIs. */
-export type MusicRecentTrack = { provider: MusicProvider; id: string } | string;
+type MusicRecentTrack = { provider: MusicProvider; id: string } | string;
 
 export interface SpotifyCueInput {
   source?: SpotifySourceChoice | null;

@@ -94,13 +94,13 @@ export interface DirectMessageCommand {
   resolvedCharacterName?: string;
 }
 
-export interface ReactCommand {
+interface ReactCommand {
   type: "react";
   /** One emoji, already validated by parseReactionEmoji. */
   emoji: string;
 }
 
-export interface SpotifyCommand {
+interface SpotifyCommand {
   type: "spotify";
   /** Empty when the command left it out; execution reports that as a command error. */
   title: string;

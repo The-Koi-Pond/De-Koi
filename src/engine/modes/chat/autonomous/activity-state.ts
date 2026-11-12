@@ -18,10 +18,6 @@ export function setChatActivityState(chatId: string, state: ChatActivityState): 
   activityStates.set(chatId, state);
 }
 
-export function hasChatActivityState(chatId: string): boolean {
-  return activityStates.has(chatId);
-}
-
 export function clearChatActivity(chatId: string): void {
   activityStates.delete(chatId);
 }

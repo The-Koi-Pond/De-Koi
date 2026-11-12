@@ -66,7 +66,7 @@ const CONCURRENCY = 3;
 const WRITE_ATTEMPTS = 5;
 const EDITOR_VERSION = 1;
 
-export class FanficEditorParseError extends FanficReplyParseError {
+class FanficEditorParseError extends FanficReplyParseError {
   constructor(detail: string) {
     super(`The editor's notes could not be read (${detail}).`);
     this.name = "FanficEditorParseError";
@@ -105,7 +105,7 @@ export interface FanficEditorStore {
 
 // ── Prompt ──────────────────────────────────────
 
-export function buildFanficEditorMessages(args: {
+function buildFanficEditorMessages(args: {
   state: FanficState;
   chapter: FanficChapterRef;
   /** Chapter summaries from the story ledger, or the end of the chapter before when there's no ledger. */

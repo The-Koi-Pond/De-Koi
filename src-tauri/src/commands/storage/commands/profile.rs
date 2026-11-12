@@ -235,15 +235,6 @@ pub fn profile_import_preview_file(
 }
 
 #[tauri::command]
-pub fn profile_import_file(
-    state: State<'_, AppState>,
-    path: String,
-    preview_fingerprint: Option<String>,
-) -> Result<Value, AppError> {
-    profile::import_profile_file_path(&state, &path, preview_fingerprint.as_deref())
-}
-
-#[tauri::command]
 pub fn profile_import_file_events(
     state: State<'_, AppState>,
     path: String,

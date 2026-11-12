@@ -41,11 +41,11 @@ import { userFacingError } from "../../shared/user-facing-error";
 /**
  * Bumped whenever a judge prompt or the scoring changes, so runs judged differently are never compared as equals.
  */
-export const FANFIC_QUALITY_JUDGE_VERSION = 1;
+const FANFIC_QUALITY_JUDGE_VERSION = 1;
 /** Runs kept per fic; the oldest drop off. */
 export const FANFIC_QUALITY_MAX_RUNS = 30;
 /** Above this the whole fic no longer fits one judge pass on most models. */
-export const FANFIC_QUALITY_MAX_CHARS = 600_000;
+const FANFIC_QUALITY_MAX_CHARS = 600_000;
 
 interface CriterionSpec {
   id: FanficQualityCriterionId;
@@ -356,7 +356,7 @@ export function buildFanficContinuityMessages(args: {
   ];
 }
 
-export function buildFanficContinuityVerifyMessages(args: {
+function buildFanficContinuityVerifyMessages(args: {
   request: FanficRequest;
   chapters: string[];
   labels?: readonly string[];
@@ -807,7 +807,7 @@ export async function deleteFanficQualityRun(storage: StorageGateway, chatId: st
 // ── Running ────────────────────────────────────
 
 /** Rubric reads averaged per run (EQ-Bench Longform also averages several final judgments). */
-export const FANFIC_QUALITY_RUBRIC_PASSES = 2;
+const FANFIC_QUALITY_RUBRIC_PASSES = 2;
 const RUBRIC_MAX_TOKENS = 4000;
 const CONTINUITY_MAX_TOKENS = 6000;
 const VERIFY_MAX_TOKENS = 4000;

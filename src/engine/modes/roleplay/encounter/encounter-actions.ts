@@ -3,7 +3,7 @@ import type { EncounterAttack, EncounterFight } from "./encounter-types";
 
 export type EncounterChoice = { type: "attack"; attack: EncounterAttack } | { type: "item"; item: string };
 
-export interface EncounterTargetOption {
+interface EncounterTargetOption {
   side: "enemy" | "party";
   name: string;
   hp: number;

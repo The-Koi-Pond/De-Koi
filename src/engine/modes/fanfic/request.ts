@@ -194,7 +194,7 @@ export function normalizeFanficOutline(raw: unknown): FanficOutline | null {
 const MAX_RESEARCH_SOURCES = 12;
 export const FANFIC_RESEARCH_NOTES_MAX = 12_000;
 
-export function normalizeFanficResearch(raw: unknown): FanficResearch | null {
+function normalizeFanficResearch(raw: unknown): FanficResearch | null {
   if (!isRecord(raw)) return null;
   const notes = text(raw.notes, FANFIC_RESEARCH_NOTES_MAX);
   if (!notes) return null;

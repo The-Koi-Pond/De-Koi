@@ -11,7 +11,7 @@ import { BUILT_IN_AGENT_IDS, chatAgentsEnabled } from "../../../contracts/types/
 import { normalizeSceneBackgrounds } from "./scene-backgrounds";
 
 /** Chat metadata key that records the staging was done. */
-export const STARTER_STAGING_APPLIED_KEY = "starterStagingApplied";
+const STARTER_STAGING_APPLIED_KEY = "starterStagingApplied";
 
 export interface StagingCharacter {
   id: string;
@@ -35,7 +35,7 @@ function hasBackground(metadata: Record<string, unknown>): boolean {
 }
 
 /** Whether a card asks for its sprites to be shown when a new Roleplay with it starts. */
-export function characterStartsStaged(extensions: Record<string, unknown> | null | undefined): boolean {
+function characterStartsStaged(extensions: Record<string, unknown> | null | undefined): boolean {
   return extensions?.startsStaged === true;
 }
 

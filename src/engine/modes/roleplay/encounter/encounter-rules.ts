@@ -59,7 +59,7 @@ function isStatusStat(value: string): value is EncounterStatusStat {
   return STATUS_STATS.some((stat) => stat === value);
 }
 
-export function isEncounterResult(value: string): value is EncounterResult {
+function isEncounterResult(value: string): value is EncounterResult {
   return RESULTS.some((result) => result === value);
 }
 

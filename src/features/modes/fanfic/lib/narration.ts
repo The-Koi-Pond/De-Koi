@@ -155,7 +155,7 @@ export function fanficSoundEffect(block: string): string | null {
 }
 
 /** Whether "[SFX: …]" paragraphs are played as sounds with these settings. */
-export function fanficSoundEffectsOn(config: Pick<TTSConfig, "source" | "baseUrl" | "fanficSoundEffects">): boolean {
+function fanficSoundEffectsOn(config: Pick<TTSConfig, "source" | "baseUrl" | "fanficSoundEffects">): boolean {
   return config.fanficSoundEffects && soundEffectsProviderReady(config);
 }
 

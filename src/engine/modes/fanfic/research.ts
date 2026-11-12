@@ -21,11 +21,11 @@ const QUERY_MAX_TOKENS = 1200;
 const NOTES_MAX_TOKENS = 4000;
 const SOURCE_TEXT_CHARS = 4000;
 
-export type { FanficWebResearchGateway, FanficWebResearchResult, FanficWebSource } from "./web-research";
+export type { FanficWebResearchGateway, FanficWebSource } from "./web-research";
 
 export type FanficResearchPhase = "choosing_searches" | "searching" | "writing_notes";
 
-export function buildFanficResearchQueryMessages(args: {
+function buildFanficResearchQueryMessages(args: {
   request: FanficRequest;
   castCards: string;
 }): Array<{ role: "system" | "user"; content: string }> {

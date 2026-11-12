@@ -202,7 +202,7 @@ function requestIdleWork(callback: () => void): () => void {
   return () => globalThis.clearTimeout(id);
 }
 
-export function useAutomaticMemoryMaintenance(): void {
+function useAutomaticMemoryMaintenance(): void {
   useEffect(() => {
     const worker = dependencies();
     let disposed = false;
@@ -238,7 +238,7 @@ export function useAutomaticMemoryMaintenance(): void {
  * Runs post-reply work (Director refreshes, Keeper backfills, summaries, story episodes, character interpretations,
  * helpers of a reply whose tab closed first) that a closed or reloaded tab left queued.
  */
-export function useResumeQueuedBackgroundJobs(): void {
+function useResumeQueuedBackgroundJobs(): void {
   useEffect(() => {
     resumeQueuedContinuityDirectorRefreshes({ storage: storageApi, llm: llmApi });
     resumeQueuedConversationSummaries({ storage: storageApi, llm: llmApi });

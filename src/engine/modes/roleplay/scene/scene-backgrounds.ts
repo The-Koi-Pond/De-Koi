@@ -51,7 +51,7 @@ function keywordPattern(keyword: string): RegExp {
 }
 
 /** How many of a scene's keywords the text mentions. */
-export function sceneKeywordHits(scene: CharacterSceneBackground, text: string): number {
+function sceneKeywordHits(scene: CharacterSceneBackground, text: string): number {
   let hits = 0;
   for (const keyword of scene.keywords) {
     if (keywordPattern(keyword).test(text)) hits += 1;

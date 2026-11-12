@@ -30,14 +30,14 @@ export interface EncounterCapabilities {
   llm: LlmGateway;
 }
 
-export type EncounterDebugSink = NonNullable<AgentContext["debugSink"]>;
+type EncounterDebugSink = NonNullable<AgentContext["debugSink"]>;
 
-export interface EncounterCallParameters {
+interface EncounterCallParameters {
   temperature: number;
   maxTokens: number;
 }
 
-export const ENCOUNTER_CALL_PARAMETERS: Record<EncounterCallKind, EncounterCallParameters> = {
+const ENCOUNTER_CALL_PARAMETERS: Record<EncounterCallKind, EncounterCallParameters> = {
   setup: { temperature: 0.8, maxTokens: 12_000 },
   turn: { temperature: 0.8, maxTokens: 8_192 },
   summary: { temperature: 0.9, maxTokens: 8_192 },
@@ -46,7 +46,7 @@ export const ENCOUNTER_CALL_PARAMETERS: Record<EncounterCallKind, EncounterCallP
 export const ENCOUNTER_SETUP_INVALID_MESSAGE = "The AI could not create a valid combat encounter. Try again.";
 export const ENCOUNTER_TURN_INVALID_MESSAGE = "AI returned an invalid response. Try again.";
 
-export interface EncounterModelRequest {
+interface EncounterModelRequest {
   kind: EncounterCallKind;
   chat: JsonRecord;
   messages: LlmMessage[];
@@ -86,7 +86,7 @@ async function encounterConnectionId(storage: StorageGateway, chat: JsonRecord):
  * call's parameters, and the caller's abort signal. A call cancelled while the model was answering throws instead of
  * returning, so a late answer can't reach the chat.
  */
-export async function requestEncounterText(
+async function requestEncounterText(
   capabilities: EncounterCapabilities,
   request: EncounterModelRequest,
 ): Promise<string> {

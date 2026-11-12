@@ -103,7 +103,7 @@ function jobSummary(job: RunnerJob) {
   };
 }
 
-export interface RunnerFeatures {
+interface RunnerFeatures {
   /** Phone notifications; null when the runner can't keep its key file. */
   push: PushStore | null;
   /** Run "characters text first" here instead of in the tabs. */
@@ -144,7 +144,7 @@ function savedReplyCharacterId(job: RunnerJob): string | null | undefined {
   return typeof data?.characterId === "string" ? data.characterId : null;
 }
 
-export function createRunnerServer(
+function createRunnerServer(
   config: RunnerConfig,
   registry = new JobRegistry(),
   features: RunnerFeatures = { push: null, textingFirst: false },

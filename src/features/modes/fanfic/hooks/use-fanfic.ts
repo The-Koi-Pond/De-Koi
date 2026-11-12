@@ -510,7 +510,7 @@ interface FanficChapterCheckResult {
   model: FanficModelRecord;
 }
 
-export interface FanficChapterCheckController<Result extends FanficChapterCheckResult, Phase extends string> {
+interface FanficChapterCheckController<Result extends FanficChapterCheckResult, Phase extends string> {
   check: (messageId: string) => void;
   stop: () => void;
   /** The chapter being checked, if any. */
@@ -822,7 +822,7 @@ export function useFanficPlan(chatId: string): FanficPlanController {
 }
 
 /** Whether the fic's connection can keep banned phrases out (the built-in local model or a llama.cpp server here). */
-export function useFanficPhraseBanSupport(connectionId: string | null): boolean {
+function useFanficPhraseBanSupport(connectionId: string | null): boolean {
   const { data } = useConnection(connectionId);
   if (connectionId === LOCAL_SIDECAR_CONNECTION_ID) return true;
   return fanficConnectionSupportsPhraseBans(data ?? null);

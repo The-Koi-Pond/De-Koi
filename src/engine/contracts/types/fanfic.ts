@@ -145,8 +145,7 @@ export interface FanficVersion {
   unfinished: FanficUnfinished | null;
 }
 
-export const FANFIC_POLISH_STEPS = ["prose", "continuity", "voice"] as const;
-export type FanficPolishStepId = (typeof FANFIC_POLISH_STEPS)[number];
+export type FanficPolishStepId = "prose" | "continuity" | "voice";
 
 /** One automatic polish step on a chapter: what it fixed, what it found and couldn't fix, or why it failed. */
 export interface FanficPolishStep {

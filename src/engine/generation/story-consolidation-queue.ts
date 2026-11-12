@@ -1059,7 +1059,7 @@ async function scheduleNextStoryPass(dependencies: StoryConsolidationDependencie
   scheduleStoryPassAfter(dependencies, Math.max(minimumDelayMs, nextRunAt - now));
 }
 
-export function scheduleStoryConsolidationQueueProcessing(dependencies: StoryConsolidationDependencies): void {
+function scheduleStoryConsolidationQueueProcessing(dependencies: StoryConsolidationDependencies): void {
   const { storage } = dependencies;
   if (!storage.acquireStoryConsolidationWorker || !storage.releaseStoryConsolidationWorker || !storage.createMemory) {
     return;

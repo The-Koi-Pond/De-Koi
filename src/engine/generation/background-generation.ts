@@ -10,7 +10,7 @@ interface BackgroundGenerationRequest {
   reason: string;
 }
 
-export interface GeneratedBackgroundImage {
+interface GeneratedBackgroundImage {
   filename: string;
   dataUrl: string;
   mimeType: string;

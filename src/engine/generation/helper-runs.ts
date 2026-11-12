@@ -245,7 +245,7 @@ export function findHelperRun(
 }
 
 /** The rule in words, for a sentence like "Ran on Cheap • small-model: <why>." */
-export function helperRunWhy(run: Pick<HelperRun, "task" | "rule">): string {
+function helperRunWhy(run: Pick<HelperRun, "task" | "rule">): string {
   const label = MODEL_ROUTE_TASK_LABELS[run.task];
   const fic = run.task === "judge" || run.task === "fanficPlanning" || run.task === "fanficChecks";
   switch (run.rule) {

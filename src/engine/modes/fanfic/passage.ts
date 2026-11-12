@@ -442,7 +442,7 @@ export async function applyFanficPassageRewrite(
  * opening banned, and only that sentence changes. Runs on the chapter's own prompt (author rules, request, outline,
  * voice sheets) and saves a new version when anything changed.
  */
-export async function removeFanficBannedPhrases(
+async function removeFanficBannedPhrases(
   deps: { storage: StorageGateway; llm: LlmGateway },
   input: { chatId: string; messageId: string; textKey: string; connectionId?: string | null },
   options: { signal?: AbortSignal } = {},

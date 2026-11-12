@@ -240,15 +240,6 @@ pub(crate) fn profile_backup_snapshot(state: &AppState) -> AppResult<Value> {
     }))
 }
 
-pub(crate) fn import_profile_file_path(
-    state: &AppState,
-    value: &str,
-    preview_fingerprint: Option<&str>,
-) -> AppResult<Value> {
-    let path = PathBuf::from(value.trim());
-    import_profile_file_with_preview_fingerprint(state, &path, preview_fingerprint)
-}
-
 pub(crate) fn import_profile_file_path_with_progress(
     state: &AppState,
     value: &str,

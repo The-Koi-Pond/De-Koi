@@ -56,7 +56,6 @@ vi.mock("../../../../shared/api/storage-api", () => ({ storageApi: { list: vi.fn
 vi.mock("../../../../shared/lib/app-dialogs", () => ({ showConfirmDialog: vi.fn() }));
 vi.mock("./ChoiceSelectionModal", () => ({ ChoiceSelectionModal: () => null }));
 vi.mock("../../library-folders", () => ({
-  LibraryFolderSelect: () => null,
   getNextUnnamedLibraryFolderName: () => "New Folder",
   useCreateLibraryFolder: () => ({ mutate: vi.fn() }),
   useDeleteLibraryFolder: () => ({ mutate: vi.fn() }),

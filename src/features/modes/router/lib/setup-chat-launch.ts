@@ -39,13 +39,13 @@ interface CreatedChat {
   id: string;
 }
 
-export interface CharacterLaunchContext {
+interface CharacterLaunchContext {
   characterName: string;
   firstMessage?: string;
   alternateGreetings?: string[];
 }
 
-export interface CharacterInitializationResult {
+interface CharacterInitializationResult {
   cleanup?: () => Promise<void>;
 }
 

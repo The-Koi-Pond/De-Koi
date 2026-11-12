@@ -4,7 +4,7 @@
 import type { FanficRequest } from "../../contracts/types/fanfic";
 import { stripFanficChapterHeading } from "./prompts";
 
-export type FanficRepeatKind = "pet_name" | "detail" | "phrase";
+type FanficRepeatKind = "pet_name" | "detail" | "phrase";
 
 export interface FanficRepeat {
   kind: FanficRepeatKind;

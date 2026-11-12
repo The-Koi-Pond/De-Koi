@@ -12,7 +12,7 @@ export type CharacterImageReferenceSubject = {
   spriteOwnerType: SpriteOwnerType;
 };
 
-export function recordName(record: JsonRecord): string {
+function recordName(record: JsonRecord): string {
   const data = parseRecord(record.data);
   return readString(data.name).trim() || readString(record.name).trim();
 }
