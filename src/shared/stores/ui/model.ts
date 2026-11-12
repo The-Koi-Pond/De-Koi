@@ -357,6 +357,8 @@ export interface UIState {
   pendingSettingsDestination: string | null;
   modal: { type: string; props?: Record<string, unknown> } | null;
   theme: "dark" | "light";
+  /** Keep `theme` matched to the device's light/dark setting. On for new installs; picking Dark or Light turns it off. */
+  followSystemTheme: boolean;
   chatBackground: string | null;
   /** Blur applied to the current chat background image in px. */
   chatBackgroundBlur: number;
@@ -597,6 +599,7 @@ export interface UIState {
   openModal: (type: string, props?: Record<string, unknown>) => void;
   closeModal: () => void;
   setTheme: (theme: "dark" | "light") => void;
+  setFollowSystemTheme: (follow: boolean) => void;
   setChatBackground: (url: string | null) => void;
   setChatBackgroundBlur: (v: number) => void;
   openCharacterDetail: (id: string, destination?: "memories") => void;
