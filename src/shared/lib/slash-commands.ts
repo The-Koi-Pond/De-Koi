@@ -155,6 +155,11 @@ export function buildSlashHelpText(): string {
   ].join("\n");
 }
 
+/** Each command's usage and what it does, for the Help page. */
+export function listSlashCommandHelp(): Array<{ usage: string; description: string }> {
+  return SLASH_COMMANDS.map(({ usage, description }) => ({ usage, description }));
+}
+
 function parseImpersonatePromptArg(args: string): string {
   let prompt = args.trim();
   if (!prompt) return "";

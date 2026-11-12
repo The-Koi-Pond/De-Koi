@@ -15,7 +15,7 @@ import { APP_VERSION } from "../../engine/contracts/constants/defaults";
 import { SUPPORT_LINKS } from "../../shared/config/support-links";
 import { openExternalUrl } from "../../shared/api/external-link-api";
 import { openBugReport } from "../../shared/lib/support-report";
-import { buildSlashHelpText } from "../../shared/lib/slash-commands";
+import { listSlashCommandHelp } from "../../shared/lib/slash-commands";
 import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
@@ -149,13 +149,23 @@ export function HelpHub() {
       </div>
 
       <section className="mt-4 rounded-md border border-[var(--border)] bg-[var(--card)]/60 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
+        <h3 className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
           <Keyboard size="0.875rem" aria-hidden />
-          Shortcut Reference
-        </div>
-        <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--background)]/75 p-2 text-[0.66rem] leading-relaxed text-[var(--muted-foreground)]">
-          {buildSlashHelpText()}
-        </pre>
+          Chat commands
+        </h3>
+        <p className="mt-1 text-[0.7rem] text-[var(--muted-foreground)]">
+          Type these in the message box. Start with / to see suggestions as you type.
+        </p>
+        <dl className="mt-2 max-h-56 divide-y divide-[var(--border)]/60 overflow-auto rounded-md bg-[var(--background)]/75 px-2">
+          {listSlashCommandHelp().map((command) => (
+            <div key={command.usage} className="py-1.5">
+              <dt>
+                <code className="text-[0.7rem] font-medium text-[var(--foreground)]">{command.usage}</code>
+              </dt>
+              <dd className="text-[0.7rem] leading-snug text-[var(--muted-foreground)]">{command.description}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <section

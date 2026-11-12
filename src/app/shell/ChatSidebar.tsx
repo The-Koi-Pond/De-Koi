@@ -1321,7 +1321,7 @@ export function ChatSidebar({
           )}
         </div>
 
-        {!multiSelectMode && <CatalogRowActions actions={rowActions} />}
+        {!multiSelectMode && <CatalogRowActions actions={rowActions} collapseOnPhone />}
       </div>
     );
   };

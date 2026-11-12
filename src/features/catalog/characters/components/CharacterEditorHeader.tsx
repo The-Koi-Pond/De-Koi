@@ -146,6 +146,23 @@ export function CharacterEditorHeader({
     </>
   );
 
+  const saveButton = (
+    <button
+      type="button"
+      onClick={() => void onSave()}
+      disabled={saveDisabled}
+      className={cn(
+        "flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium transition-all max-md:rounded-lg max-md:px-3 max-md:py-1.5",
+        !saveDisabled
+          ? "bg-gradient-to-r from-pink-400 to-purple-500 text-white shadow-md shadow-pink-500/20 hover:shadow-lg active:scale-[0.98]"
+          : "bg-[var(--secondary)] text-[var(--muted-foreground)] cursor-not-allowed",
+      )}
+    >
+      <Save size="0.8125rem" />
+      <span>{avatarUploading ? "Updating…" : saving ? "Saving…" : "Save"}</span>
+    </button>
+  );
+
   return (
     <div className="flex min-h-12 flex-shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-0 max-md:gap-2 max-md:px-3">
       {/* Keep room for the avatar and name so narrow panes wrap the actions instead of overlapping them. */}
@@ -237,23 +254,13 @@ export function CharacterEditorHeader({
       </div>
 
       <div className="hidden items-center gap-1 md:flex">{headerActions}</div>
+      <div className="hidden md:block">{saveButton}</div>
 
-      <button
-        type="button"
-        onClick={() => void onSave()}
-        disabled={saveDisabled}
-        className={cn(
-          "flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium transition-all",
-          !saveDisabled
-            ? "bg-gradient-to-r from-pink-400 to-purple-500 text-white shadow-md shadow-pink-500/20 hover:shadow-lg active:scale-[0.98]"
-            : "bg-[var(--secondary)] text-[var(--muted-foreground)] cursor-not-allowed",
-        )}
-      >
-        <Save size="0.8125rem" />
-        <span className="max-md:hidden">{avatarUploading ? "Updating…" : saving ? "Saving…" : "Save"}</span>
-      </button>
-
-      <div className="flex w-full items-center justify-end gap-1 md:hidden">{headerActions}</div>
+      {/* Phones: the actions and Save share one row under the name. */}
+      <div className="flex w-full items-center justify-end gap-1 md:hidden">
+        {headerActions}
+        <div className="ml-1">{saveButton}</div>
+      </div>
     </div>
   );
 }

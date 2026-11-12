@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { lazy, Suspense, useRef, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { ArrowUpDown, Check, Download, Minus, Plus, Search, Sparkles, Tag, X } from "lucide-react";
 
 import { cn } from "../../../shared/lib/utils";
@@ -10,6 +10,11 @@ import { countTagFilters, type TagFilterMode, type TagFilters } from "../lib/tag
  * strips touch the panel's edges; the filters are pills. DESIGN.md section 7
  * ("Navigation") describes the layout.
  */
+
+// Phones' "More actions" button and menu for a row, kept out of the home bundle.
+const CatalogRowActionsMenu = lazy(() =>
+  import("./CatalogRowActionsMenu").then((module) => ({ default: module.CatalogRowActionsMenu })),
+);
 
 /** The panel's colour: koi for Characters, jade for Personas (as on the Characters | Personas switch), amber for Lorebooks. */
 export type CatalogPanelTone = "koi" | "jade" | "amber";
@@ -389,33 +394,58 @@ export function catalogRowActionsRowProps(actionCount: number): { style: CSSProp
  * height equally; shown on hover or keyboard focus. Phones, where they always show, keep them side
  * by side. Touch screens without hover always show them too (`data-de-koi-action-group`, see
  * 07-responsive-accessibility.css). The row needs `group relative` and the `catalogRowActionsRowProps` height.
+ *
+ * `collapseOnPhone`: phones get one "More actions" button instead, so the row keeps its width for the name.
+ * Each menu item clicks the matching (hidden) button, so it runs the same handler; only use it for actions
+ * that don't position anything from the button they were clicked on.
  */
-export function CatalogRowActions({ actions }: { actions: CatalogRowAction[] }) {
+export function CatalogRowActions({
+  actions,
+  collapseOnPhone = false,
+}: {
+  actions: CatalogRowAction[];
+  collapseOnPhone?: boolean;
+}) {
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
   return (
-    <div
-      data-de-koi-action-group="catalog-row"
-      className="absolute inset-y-0 right-0 flex w-9 flex-col overflow-hidden rounded-r-xl border-l border-[var(--border)]/60 bg-[var(--sidebar)] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:static max-md:w-auto max-md:flex-row max-md:rounded-xl max-md:border max-md:opacity-100"
-    >
-      {actions.map((action, index) => (
-        <button
-          key={action.key}
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            action.onClick(event);
-          }}
-          className={cn(
-            "flex min-h-0 flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)] max-md:h-9 max-md:w-9 max-md:flex-none",
-            index > 0 && "border-t border-[var(--border)]/60 max-md:border-l max-md:border-t-0",
-            action.className,
-          )}
-          title={action.title}
-          aria-label={action.label}
-          aria-haspopup={action.hasPopup}
-        >
-          {action.icon}
-        </button>
-      ))}
-    </div>
+    <>
+      <div
+        data-de-koi-action-group="catalog-row"
+        className={cn(
+          "absolute inset-y-0 right-0 flex w-9 flex-col overflow-hidden rounded-r-xl border-l border-[var(--border)]/60 bg-[var(--sidebar)] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:static max-md:w-auto max-md:flex-row max-md:rounded-xl max-md:border max-md:opacity-100",
+          collapseOnPhone && "max-md:hidden",
+        )}
+      >
+        {actions.map((action, index) => (
+          <button
+            key={action.key}
+            ref={(element) => {
+              buttonRefs.current[index] = element;
+            }}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              action.onClick(event);
+            }}
+            className={cn(
+              "flex min-h-0 flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)] max-md:h-9 max-md:w-9 max-md:flex-none",
+              index > 0 && "border-t border-[var(--border)]/60 max-md:border-l max-md:border-t-0",
+              action.className,
+            )}
+            title={action.title}
+            aria-label={action.label}
+            aria-haspopup={action.hasPopup}
+          >
+            {action.icon}
+          </button>
+        ))}
+      </div>
+      {collapseOnPhone && (
+        <Suspense fallback={null}>
+          <CatalogRowActionsMenu actions={actions} buttonRefs={buttonRefs} />
+        </Suspense>
+      )}
+    </>
   );
 }
