@@ -14,10 +14,12 @@ import {
   tranceEstimatedMinutes,
   tranceStage,
   tranceTargetLines,
+  quickTranceRequest,
   withTranceRun,
   TRANCE_RUN_LIMIT,
 } from "./request";
 import { generateTranceScript, parseTranceReply, splitTranceLine, TranceScriptParseError } from "./script";
+import { parseTrancePitchReply, suggestTrancePitches, TrancePitchParseError } from "./pitches";
 import { recordTranceRun, saveTranceRequest, tranceButtonLabel } from "./session";
 
 function lines(prefix: string, count: number): string {
@@ -56,7 +58,8 @@ describe("trance request", () => {
     });
     expect(request.category).toBe("relax");
     expect(request.features).toEqual(["fractionation"]);
-    expect(request.mood).toBe("anxious");
+    // Sessions saved before moods were a list stored a single `mood`.
+    expect(request.moods).toEqual(["anxious"]);
     expect(request.minutes).toBe(10);
     expect(request.ending).toBe("sleep");
     expect(request.idea.length).toBe(600);
@@ -133,7 +136,7 @@ describe("trance prompt", () => {
     ...defaultTranceRequest(),
     type: "kinky",
     features: ["obedience"],
-    mood: "anxious",
+    moods: ["anxious", "lonely"],
     moodNote: "long day",
     idea: "a puppet in a box",
   };
@@ -155,6 +158,8 @@ describe("trance prompt", () => {
     expect(prompt).toMatch(/Jester teases the listener\./);
     expect(prompt).toMatch(/anxious/);
     expect(prompt).toMatch(/In their words: long day/);
+    expect(prompt).toMatch(/several things at once/);
+    expect(prompt).toMatch(/lonely/);
     expect(prompt).toMatch(/a puppet in a box/);
     expect(prompt).toMatch(/about 100 lines/);
     expect(prompt).toMatch(/Obedience/);
@@ -392,5 +397,117 @@ describe("saving requests and runs", () => {
       note: "felt odd",
       seconds: 540,
     });
+  });
+});
+
+describe("quickTranceRequest", () => {
+  const at = (hour: number) => new Date(2026, 10, 12, hour, 0, 0);
+
+  it("is gentle, 10 minutes and waking by day, 20 minutes drifting to sleep at night", () => {
+    expect(quickTranceRequest({ moods: [], moodNote: "", now: at(14) })).toMatchObject({
+      type: "gentle",
+      category: "relax",
+      minutes: 10,
+      ending: "wake",
+      features: [],
+    });
+    expect(quickTranceRequest({ moods: [], moodNote: "", now: at(23) })).toMatchObject({
+      category: "sleep",
+      minutes: 20,
+      ending: "sleep",
+    });
+    expect(quickTranceRequest({ moods: [], moodNote: "", now: at(4) }).ending).toBe("sleep");
+  });
+
+  it("adds fractionation for a restless mind and keeps how they feel", () => {
+    const request = quickTranceRequest({ moods: ["wired", "tired"], moodNote: "brain won't stop", now: at(14) });
+    expect(request.features).toEqual(["fractionation"]);
+    expect(request.moods).toEqual(["wired", "tired"]);
+    expect(request.moodNote).toBe("brain won't stop");
+  });
+});
+
+describe("session ideas", () => {
+  const input = {
+    connectionId: "conn",
+    characterId: "jester",
+    moods: ["tired" as const],
+    moodNote: "long week",
+    idea: "",
+  };
+  const pitch = (overrides: Record<string, unknown> = {}) => ({
+    title: "The Quiet Box",
+    summary: "You're tucked away somewhere soft and safe.",
+    sample: ["Well, hello there.", "You're reading this.", "And breathing."],
+    type: "gentle",
+    category: "relax",
+    features: ["fractionation"],
+    minutes: 10,
+    ending: "wake",
+    idea: "a velvet box",
+    ...overrides,
+  });
+
+  it("reads ideas into ready-to-save requests that remember the pitch", () => {
+    const [first] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
+    expect(first!.title).toBe("The Quiet Box");
+    expect(first!.request).toMatchObject({
+      category: "relax",
+      features: ["fractionation"],
+      idea: "a velvet box",
+      moods: ["tired"],
+      moodNote: "long week",
+      pitch: { title: "The Quiet Box", sample: ["Well, hello there.", "You're reading this.", "And breathing."] },
+    });
+  });
+
+  it("keeps sexual features off gentle ideas and drops ideas without a real taste", () => {
+    const pitches = parseTrancePitchReply(
+      JSON.stringify({
+        pitches: [pitch({ features: ["arousal"] }), pitch({ title: "Too short", sample: ["Hi."] })],
+      }),
+      input,
+    );
+    expect(pitches).toHaveLength(1);
+    expect(pitches[0]!.request.features).toEqual([]);
+  });
+
+  it("previews exactly the chosen settings whatever the model wrote", () => {
+    const exact = {
+      ...defaultTranceRequest(),
+      type: "kinky" as const,
+      features: ["obedience" as const],
+      minutes: 30 as const,
+    };
+    const [preview] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch(), pitch({ title: "Second" })] }), {
+      ...input,
+      exact,
+    });
+    expect(preview!.request).toMatchObject({ type: "kinky", features: ["obedience"], minutes: 30 });
+    expect(preview!.request.pitch?.title).toBe("The Quiet Box");
+  });
+
+  it("fails clearly when nothing usable came back", () => {
+    expect(() => parseTrancePitchReply("not json", input)).toThrow(TrancePitchParseError);
+  });
+
+  it("asks the character's voice once more after an unreadable reply", async () => {
+    const { storage } = storageFor(null);
+    const { llm, complete } = llmReplying("nonsense", JSON.stringify({ pitches: [pitch(), pitch({ title: "B" })] }));
+    const pitches = await suggestTrancePitches({ storage, llm }, input);
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(pitches.map((item) => item.title)).toEqual(["The Quiet Box", "B"]);
+    const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    expect(sent.messages[1]!.content).toMatch(/### Jester/);
+    expect(sent.messages[1]!.content).toMatch(/Tired; in their words: long week/);
+  });
+
+  it("tells the script writer to open with the lines that were previewed", () => {
+    const [chosen] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
+    const prompt = buildTranceRequestPrompt(chosen!.request, { name: "Jester" });
+    expect(prompt).toMatch(/## The session they picked/);
+    expect(prompt).toMatch(/Title: The Quiet Box/);
+    expect(prompt).toMatch(/word for word/);
+    expect(prompt).toMatch(/You're reading this\./);
   });
 });

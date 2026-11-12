@@ -19,6 +19,7 @@ import {
   type TranceLength,
   type TranceLine,
   type TranceMood,
+  type TrancePitchChoice,
   type TranceRequest,
   type TranceScript,
   type TranceState,
@@ -50,10 +51,16 @@ export const TRANCE_FEATURE_LABELS: Record<TranceFeature, string> = {
 
 export const TRANCE_MOOD_LABELS: Record<TranceMood, string> = {
   calm: "Calm",
+  good: "Good",
   anxious: "Anxious",
+  stressed: "Stressed",
+  overwhelmed: "Overwhelmed",
   wired: "Wired",
   tired: "Tired",
+  sad: "Sad",
   low: "Low",
+  lonely: "Lonely",
+  numb: "Numb",
   foggy: "Foggy",
   blank: "Just want to blank out",
 };
@@ -81,6 +88,31 @@ export function tranceEstimatedMinutes(lineCount: number): number {
   return Math.max(1, Math.round(lineCount / TRANCE_LINES_PER_MINUTE));
 }
 
+/** Night, for "Just put me under": from 9 pm to 5 am a session ends in sleep. */
+function isNight(now: Date): boolean {
+  const hour = now.getHours();
+  return hour >= 21 || hour < 5;
+}
+
+/**
+ * The session for someone who doesn't want to choose anything: gentle, about 10 minutes and waking up, or at night
+ * 20 minutes drifting to sleep. Restless moods get fractionation (rising a little before dropping deeper helps a
+ * busy mind settle). How they feel still shapes the script itself.
+ */
+export function quickTranceRequest(input: { moods: TranceMood[]; moodNote: string; now: Date }): TranceRequest {
+  const night = isNight(input.now);
+  const restless = input.moods.some((mood) => mood === "wired" || mood === "anxious" || mood === "stressed");
+  return normalizeTranceRequest({
+    ...defaultTranceRequest(),
+    category: night ? "sleep" : "relax",
+    ending: night ? "sleep" : "wake",
+    minutes: night ? 20 : 10,
+    features: restless ? ["fractionation"] : [],
+    moods: input.moods,
+    moodNote: input.moodNote,
+  });
+}
+
 /** A session's tags in one line, e.g. "Gentle · Relax · Fractionation". */
 export function tranceTagSummary(request: TranceRequest): string {
   return [
@@ -95,11 +127,12 @@ export function defaultTranceRequest(): TranceRequest {
     type: "gentle",
     category: "relax",
     features: [],
-    mood: "",
+    moods: [],
     moodNote: "",
     idea: "",
     minutes: 10,
     ending: "wake",
+    pitch: null,
   };
 }
 
@@ -121,6 +154,16 @@ export function tranceFeaturesForType(type: TranceType, features: readonly Tranc
   return TRANCE_FEATURES.filter((feature) => allowed.has(feature) && features.includes(feature));
 }
 
+function isMood(value: unknown): value is TranceMood {
+  return typeof value === "string" && (TRANCE_MOODS as readonly string[]).includes(value);
+}
+
+/** Picked moods in list order. Sessions saved before moods were a list stored one `mood`. */
+function normalizeMoods(record: Record<string, unknown>): TranceMood[] {
+  const picked = Array.isArray(record.moods) ? record.moods : [record.mood];
+  return TRANCE_MOODS.filter((mood) => picked.some((value) => isMood(value) && value === mood));
+}
+
 export function normalizeTranceRequest(value: unknown): TranceRequest {
   const defaults = defaultTranceRequest();
   const record = isRecord(value) ? value : {};
@@ -135,12 +178,26 @@ export function normalizeTranceRequest(value: unknown): TranceRequest {
     type,
     category: oneOf(record.category, TRANCE_CATEGORIES, defaults.category),
     features: tranceFeaturesForType(type, features),
-    mood: record.mood === "" ? "" : oneOf<TranceMood | "">(record.mood, TRANCE_MOODS, ""),
+    moods: normalizeMoods(record),
     moodNote: clip(record.moodNote),
     idea: clip(record.idea),
     minutes: minutes as TranceLength,
     ending: oneOf(record.ending, TRANCE_ENDINGS, defaults.ending),
+    pitch: normalizePitchChoice(record.pitch),
   };
+}
+
+/** Sample lines kept from a picked idea. */
+export const TRANCE_PITCH_SAMPLE_LIMIT = 5;
+
+function normalizePitchChoice(value: unknown): TrancePitchChoice | null {
+  if (!isRecord(value)) return null;
+  const title = readString(value.title).trim().slice(0, 120);
+  const sample = stringList(value.sample)
+    .map((line) => line.slice(0, 200))
+    .slice(0, TRANCE_PITCH_SAMPLE_LIMIT);
+  if (!title || sample.length === 0) return null;
+  return { title, summary: clip(value.summary), sample };
 }
 
 function stringList(value: unknown): string[] {

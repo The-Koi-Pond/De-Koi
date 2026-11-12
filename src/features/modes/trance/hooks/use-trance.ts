@@ -5,6 +5,11 @@ import type { TranceAfter, TranceState } from "../../../../engine/contracts/type
 import { readTranceState } from "../../../../engine/modes/trance/request";
 import { generateTranceScript } from "../../../../engine/modes/trance/script";
 import {
+  suggestTrancePitches,
+  type SuggestTranceInput,
+  type TrancePitch,
+} from "../../../../engine/modes/trance/pitches";
+import {
   recordTranceRun,
   saveTranceRequest,
   type SaveTranceRequestInput,
@@ -68,4 +73,20 @@ export function useTranceRecordRun(chatId: string) {
     mutationFn: (run: TranceAfter) => recordTranceRun(storageApi, chatId, run),
     onSettled: invalidate,
   });
+}
+
+/** Session ideas (or a preview of chosen settings) before anything is written. Nothing is saved; `stop` drops the call. */
+export function useTrancePitches() {
+  const controller = useRef<AbortController | null>(null);
+  const mutation = useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (input: SuggestTranceInput): Promise<TrancePitch[]> => {
+      controller.current?.abort();
+      const next = new AbortController();
+      controller.current = next;
+      return suggestTrancePitches({ storage: storageApi, llm: llmApi }, input, next.signal);
+    },
+  });
+  const stop = useCallback(() => controller.current?.abort(), []);
+  return { ...mutation, stop };
 }

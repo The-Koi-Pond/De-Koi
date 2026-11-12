@@ -140,6 +140,7 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           submitting={saveRequest.isPending}
           error={errorText(saveRequest.error, "The session couldn't be saved. Try again.")}
           onSubmit={submit}
+          initialPath={stage === "request" ? null : "build"}
           onCancel={stage === "request" ? undefined : () => setEditing(false)}
         />
       </div>
@@ -155,7 +156,11 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
       <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 px-4 py-8 text-center">
         <Orbit size="2rem" className="text-[var(--primary)]" aria-hidden="true" />
         <div>
-          <h2 className="text-lg font-bold text-[var(--foreground)]">{characterName}</h2>
+          <h2 className="text-lg font-bold text-[var(--foreground)]">{request.pitch?.title ?? characterName}</h2>
+          {request.pitch && <p className="text-sm text-[var(--muted-foreground)]">with {characterName}</p>}
+          {request.pitch?.summary && (
+            <p className="mx-auto mt-1 max-w-md text-sm text-[var(--foreground)]">{request.pitch.summary}</p>
+          )}
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
             {tranceTagSummary(request)} · about {minutes} min · {TRANCE_ENDING_LABELS[request.ending]}
           </p>
