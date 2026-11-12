@@ -249,13 +249,11 @@ interface ChatSettingsDrawerProps {
 const GENERIC_CHAT_TOOL_PICKER_HIDDEN_NAMES = new Set(["save_lorebook_entry"]);
 
 const MODE_INTROS: Record<ChatMode, string> = {
-  conversation: "Plain chat — no roleplay systems built in; autonomous messaging and other tools are optional below.",
-  roleplay:
-    "Plain roleplay surface — no built-in dice, combat, or GM pipeline; sprites, world-state tracking, and other helpers are available as optional agents below.",
-  fanfic:
-    "Fanfic request — the model writes your fic chapter by chapter from the request and outline; no agents, trackers, or persona turns.",
-  trance:
-    "Trance session — the model writes one hypnosis script in the character's voice from your request; no agents, trackers, or persona turns.",
+  conversation:
+    "Texting with your characters. Autonomous messages, voice notes and other extras can be turned on below.",
+  roleplay: "Story roleplay with a narrator. Sprites, world tracking and other helpers can be added as agents below.",
+  fanfic: "Your fic, written chapter by chapter from the request and outline.",
+  trance: "One hypnosis script in the character's voice, written from your request.",
 };
 
 type AvailableAgent = {
@@ -363,6 +361,7 @@ function ChatSettingsDrawerLoadingShell({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close chat settings"
             className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
           >
             <X size="1rem" />
@@ -1849,6 +1848,7 @@ function ChatSettingsDrawerInner({
           <h3 className="text-sm font-bold">Chat Settings</h3>
           <button
             onClick={onClose}
+            aria-label="Close chat settings"
             className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
           >
             <X size="1rem" />
@@ -1900,22 +1900,6 @@ function ChatSettingsDrawerInner({
             </div>
           )}
 
-          <Section
-            id="chat-settings-continuity"
-            label="Continuity"
-            icon={<Brain size="0.875rem" />}
-            count={continuityOverviewActiveCount}
-            help="Overview of the memory, summary, world-info, and tracker context this chat can carry forward."
-          >
-            <ContinuityOverviewPanel
-              model={continuityOverviewModel}
-              onOpenMemories={() => setShowMemoriesModal(true)}
-              onOpenDirector={onOpenContinuityDirector}
-              onOpenSummaries={() => setShowSummariesModal(true)}
-              onOpenStory={() => setShowStoryModal(true)}
-            />
-          </Section>
-
           <ChatBasicSettingsSections
             chat={chat}
             isConversation={isConversation}
@@ -1940,216 +1924,6 @@ function ChatSettingsDrawerInner({
               if (chat.promptPresetId) setChoiceModalPresetId(chat.promptPresetId);
             }}
           />
-
-          <ModePromptSettingsSections
-            isRoleplayMode={isRoleplayMode}
-            sceneSystemPrompt={sceneSystemPrompt}
-            narratorStyleDraft={narratorStyleDraft}
-            narratorStyleInstructions={narratorStyleInstructions}
-            narratorStyleExpanded={narratorStyleExpanded}
-            scenePromptDraft={scenePromptDraft}
-            scenePromptExpanded={scenePromptExpanded}
-            onNarratorStyleDraftChange={setNarratorStyleDraft}
-            onNarratorStyleExpandedChange={setNarratorStyleExpanded}
-            onScenePromptDraftChange={setScenePromptDraft}
-            onScenePromptExpandedChange={setScenePromptExpanded}
-            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
-          />
-
-          {(isRoleplayMode || isConversation) && (
-            <Section
-              label={isConversation ? "Texting Quality" : "Roleplay Quality"}
-              icon={<Sparkles size="0.875rem" />}
-              help={
-                isConversation
-                  ? "Keeps the character from falling into the same sign-offs, jokes and nags."
-                  : "Quiet protection against repeated habits and high-confidence prose and strict-agency problems."
-              }
-            >
-              <button
-                type="button"
-                role="switch"
-                aria-checked={automaticRoleplayQualityCorrection}
-                onClick={() =>
-                  updateMeta.mutate({
-                    id: chat.id,
-                    automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection,
-                  })
-                }
-                className={cn(
-                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                  automaticRoleplayQualityCorrection
-                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="text-xs font-medium">
-                    {isConversation ? "Habit check" : "Automatic high-confidence correction"}
-                  </span>
-                  <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-                    {isConversation
-                      ? "After each text, one small background model call looks for habits the character keeps repeating, so the next text drops them."
-                      : "After each reply, one small background model call looks for habits the replies keep repeating, so the next reply drops them. De-Koi corrects a reply only on strong local evidence and keeps the original whenever a correction is uncertain or fails."}
-                  </p>
-                </div>
-                <div
-                  className={cn(
-                    "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                    automaticRoleplayQualityCorrection ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                      automaticRoleplayQualityCorrection && "translate-x-3.5",
-                    )}
-                  />
-                </div>
-              </button>
-            </Section>
-          )}
-
-          {/* Persona */}
-          <Section
-            label="Persona"
-            icon={<User size="0.875rem" />}
-            help="Your persona defines who you are in this chat. The AI will address you by this persona's name and use its details for context."
-          >
-            {/* Currently selected persona */}
-            {chat.personaId ? (
-              <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-2.5 py-2">
-                {(() => {
-                  const p = personas.find((p) => p.id === chat.personaId);
-                  return p ? (
-                    <>
-                      {p.avatarPath ? (
-                        <PersonaAvatarImage
-                          persona={p}
-                          alt={p.name}
-                          className="h-7 w-7 shrink-0 rounded-full object-cover"
-                          thumbnailSize={64}
-                        />
-                      ) : (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
-                          <User size="0.75rem" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs">{p.name}</span>
-                        {p.comment && (
-                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
-                            {p.comment}
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="flex-1 truncate text-xs text-[var(--muted-foreground)]">Unknown persona</span>
-                  );
-                })()}
-                <button
-                  onClick={() => updateChat.mutate({ id: chat.id, personaId: null })}
-                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  title="Remove persona"
-                >
-                  <X size="0.75rem" />
-                </button>
-              </div>
-            ) : (
-              <p className="text-[0.6875rem] text-[var(--muted-foreground)]">No persona selected.</p>
-            )}
-
-            {/* Persona picker */}
-            {!showPersonaPicker ? (
-              <button
-                onClick={() => {
-                  setShowPersonaPicker(true);
-                  setPersonaSearch("");
-                }}
-                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
-              >
-                <Plus size="0.75rem" /> {chat.personaId ? "Change" : "Choose"} Persona
-              </button>
-            ) : (
-              <PickerDropdown
-                search={personaSearch}
-                onSearchChange={setPersonaSearch}
-                onClose={() => setShowPersonaPicker(false)}
-                placeholder="Search personas..."
-              >
-                {/* None option */}
-                <button
-                  onClick={() => {
-                    updateChat.mutate({ id: chat.id, personaId: null });
-                    setShowPersonaPicker(false);
-                  }}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                    !chat.personaId && "bg-[var(--primary)]/10",
-                  )}
-                >
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--muted-foreground)]">
-                    <X size="0.625rem" />
-                  </div>
-                  <span className="flex-1 truncate text-xs">None</span>
-                  {!chat.personaId && <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />}
-                </button>
-                {personas
-                  .filter(
-                    (p) =>
-                      p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
-                      (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
-                  )
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        updateChat.mutate({ id: chat.id, personaId: p.id });
-                        setShowPersonaPicker(false);
-                      }}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                        chat.personaId === p.id && "bg-[var(--primary)]/10",
-                      )}
-                    >
-                      {p.avatarPath ? (
-                        <PersonaAvatarImage
-                          persona={p}
-                          alt={p.name}
-                          className="h-6 w-6 shrink-0 rounded-full object-cover"
-                          thumbnailSize={64}
-                        />
-                      ) : (
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
-                          <User size="0.625rem" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs">{p.name}</span>
-                        {p.comment && (
-                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
-                            {p.comment}
-                          </span>
-                        )}
-                      </div>
-                      {chat.personaId === p.id && (
-                        <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />
-                      )}
-                    </button>
-                  ))}
-                {personas.filter(
-                  (p) =>
-                    p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
-                    (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
-                ).length === 0 && (
-                  <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                    {personas.length === 0 ? "No personas created yet." : "No matches."}
-                  </p>
-                )}
-              </PickerDropdown>
-            )}
-          </Section>
 
           {/* Characters — only show added ones + add button */}
           <Section
@@ -2321,6 +2095,7 @@ function ChatSettingsDrawerInner({
                 onSearchChange={setCharSearch}
                 onClose={() => setShowCharPicker(false)}
                 placeholder="Search characters…"
+                aria-label="Search characters"
               >
                 {filteredAvailableCharacters.map((c) => {
                   const name = charName(c);
@@ -2429,6 +2204,232 @@ function ChatSettingsDrawerInner({
                   })}
                 </PickerDropdown>
               ))}
+          </Section>
+
+          {/* Persona */}
+          <Section
+            label="Persona"
+            icon={<User size="0.875rem" />}
+            help="Your persona defines who you are in this chat. The AI will address you by this persona's name and use its details for context."
+          >
+            {/* Currently selected persona */}
+            {chat.personaId ? (
+              <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-2.5 py-2">
+                {(() => {
+                  const p = personas.find((p) => p.id === chat.personaId);
+                  return p ? (
+                    <>
+                      {p.avatarPath ? (
+                        <PersonaAvatarImage
+                          persona={p}
+                          alt={p.name}
+                          className="h-7 w-7 shrink-0 rounded-full object-cover"
+                          thumbnailSize={64}
+                        />
+                      ) : (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
+                          <User size="0.75rem" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs">{p.name}</span>
+                        {p.comment && (
+                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
+                            {p.comment}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="flex-1 truncate text-xs text-[var(--muted-foreground)]">Unknown persona</span>
+                  );
+                })()}
+                <button
+                  onClick={() => updateChat.mutate({ id: chat.id, personaId: null })}
+                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  title="Remove persona"
+                >
+                  <X size="0.75rem" />
+                </button>
+              </div>
+            ) : (
+              <p className="text-[0.6875rem] text-[var(--muted-foreground)]">No persona selected.</p>
+            )}
+
+            {/* Persona picker */}
+            {!showPersonaPicker ? (
+              <button
+                onClick={() => {
+                  setShowPersonaPicker(true);
+                  setPersonaSearch("");
+                }}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+              >
+                <Plus size="0.75rem" /> {chat.personaId ? "Change" : "Choose"} Persona
+              </button>
+            ) : (
+              <PickerDropdown
+                search={personaSearch}
+                onSearchChange={setPersonaSearch}
+                onClose={() => setShowPersonaPicker(false)}
+                placeholder="Search personas..."
+              >
+                {/* None option */}
+                <button
+                  onClick={() => {
+                    updateChat.mutate({ id: chat.id, personaId: null });
+                    setShowPersonaPicker(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                    !chat.personaId && "bg-[var(--primary)]/10",
+                  )}
+                >
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--muted-foreground)]">
+                    <X size="0.625rem" />
+                  </div>
+                  <span className="flex-1 truncate text-xs">None</span>
+                  {!chat.personaId && <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />}
+                </button>
+                {personas
+                  .filter(
+                    (p) =>
+                      p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
+                      (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
+                  )
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        updateChat.mutate({ id: chat.id, personaId: p.id });
+                        setShowPersonaPicker(false);
+                      }}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                        chat.personaId === p.id && "bg-[var(--primary)]/10",
+                      )}
+                    >
+                      {p.avatarPath ? (
+                        <PersonaAvatarImage
+                          persona={p}
+                          alt={p.name}
+                          className="h-6 w-6 shrink-0 rounded-full object-cover"
+                          thumbnailSize={64}
+                        />
+                      ) : (
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
+                          <User size="0.625rem" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs">{p.name}</span>
+                        {p.comment && (
+                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
+                            {p.comment}
+                          </span>
+                        )}
+                      </div>
+                      {chat.personaId === p.id && (
+                        <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />
+                      )}
+                    </button>
+                  ))}
+                {personas.filter(
+                  (p) =>
+                    p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
+                    (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
+                ).length === 0 && (
+                  <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
+                    {personas.length === 0 ? "No personas created yet." : "No matches."}
+                  </p>
+                )}
+              </PickerDropdown>
+            )}
+          </Section>
+
+          <ModePromptSettingsSections
+            isRoleplayMode={isRoleplayMode}
+            sceneSystemPrompt={sceneSystemPrompt}
+            narratorStyleDraft={narratorStyleDraft}
+            narratorStyleInstructions={narratorStyleInstructions}
+            narratorStyleExpanded={narratorStyleExpanded}
+            scenePromptDraft={scenePromptDraft}
+            scenePromptExpanded={scenePromptExpanded}
+            onNarratorStyleDraftChange={setNarratorStyleDraft}
+            onNarratorStyleExpandedChange={setNarratorStyleExpanded}
+            onScenePromptDraftChange={setScenePromptDraft}
+            onScenePromptExpandedChange={setScenePromptExpanded}
+            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
+          />
+
+          {(isRoleplayMode || isConversation) && (
+            <Section
+              label={isConversation ? "Texting Quality" : "Roleplay Quality"}
+              icon={<Sparkles size="0.875rem" />}
+              help={
+                isConversation
+                  ? "Keeps the character from falling into the same sign-offs, jokes and nags."
+                  : "Quiet protection against repeated habits and high-confidence prose and strict-agency problems."
+              }
+            >
+              <button
+                type="button"
+                role="switch"
+                aria-checked={automaticRoleplayQualityCorrection}
+                onClick={() =>
+                  updateMeta.mutate({
+                    id: chat.id,
+                    automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection,
+                  })
+                }
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                  automaticRoleplayQualityCorrection
+                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-medium">
+                    {isConversation ? "Habit check" : "Automatic high-confidence correction"}
+                  </span>
+                  <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                    {isConversation
+                      ? "After each text, one small background model call looks for habits the character keeps repeating, so the next text drops them."
+                      : "After each reply, one small background model call looks for habits the replies keep repeating, so the next reply drops them. De-Koi corrects a reply only on strong local evidence and keeps the original whenever a correction is uncertain or fails."}
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                    automaticRoleplayQualityCorrection ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      automaticRoleplayQualityCorrection && "translate-x-3.5",
+                    )}
+                  />
+                </div>
+              </button>
+            </Section>
+          )}
+
+          <Section
+            id="chat-settings-continuity"
+            label="Continuity"
+            icon={<Brain size="0.875rem" />}
+            count={continuityOverviewActiveCount}
+            help="Overview of the memory, summary, world-info, and tracker context this chat can carry forward."
+          >
+            <ContinuityOverviewPanel
+              model={continuityOverviewModel}
+              onOpenMemories={() => setShowMemoriesModal(true)}
+              onOpenDirector={onOpenContinuityDirector}
+              onOpenSummaries={() => setShowSummariesModal(true)}
+              onOpenStory={() => setShowStoryModal(true)}
+            />
           </Section>
 
           {isConversation && <ConversationPromptSection chat={chat} metadata={metadata} updateMeta={updateMeta} />}

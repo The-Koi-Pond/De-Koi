@@ -56,7 +56,7 @@ export function ConversationMessageLine({ context }: { context: ConversationMess
 
         <ConversationMessageAvatarColumn context={context} />
 
-        <div className="mari-message-body min-w-0 flex-1">
+        <div className="mari-message-body min-w-0 max-w-[70ch] flex-1">
           <ConversationMessageMeta context={context} />
           <ConversationMessageBodyContent context={context} />
           <ConversationMessageTranslation context={context} />

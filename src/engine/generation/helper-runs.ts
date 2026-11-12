@@ -244,7 +244,7 @@ export function findHelperRun(
   );
 }
 
-/** The rule in words, for a sentence like "Ran on Cheap • small-model: <why>." */
+/** The rule in words, for a sentence like "Last run used Cheap • small-model, <why>." */
 function helperRunWhy(run: Pick<HelperRun, "task" | "rule">): string {
   const label = MODEL_ROUTE_TASK_LABELS[run.task];
   const fic = run.task === "judge" || run.task === "fanficPlanning" || run.task === "fanficChecks";
@@ -258,22 +258,22 @@ function helperRunWhy(run: Pick<HelperRun, "task" | "rule">): string {
     case "agent":
       return "the Chat Summary agent's own connection";
     case "agentDefault":
-      return `Default for Agents (${label} has no Helper Models pick)`;
+      return `Default for Agents, because ${label} has no Helper Models pick`;
     case "chat":
       return fic
-        ? `this fic's connection (${label} has no Helper Models pick)`
-        : `the chat's connection (${label} has no Helper Models pick)`;
+        ? `this fic's connection, because ${label} has no Helper Models pick`
+        : `the chat's connection, because ${label} has no Helper Models pick`;
     case "appDefault":
-      return "the default connection (nothing else was set)";
+      return "the default connection, because nothing else was set";
     case "first":
-      return "the first text connection (nothing else was set)";
+      return "your first text connection, because nothing else was set";
   }
 }
 
 /** One line for a helper's last run: where it ran and why, or why it stopped. */
 export function describeHelperRun(run: HelperRun): string {
-  const part = run.job ? ` (${run.job})` : "";
-  if (run.problem) return `Stopped${part}: ${run.problem}`;
+  const what = run.job ? `Last ${run.job}` : "Last run";
+  if (run.problem) return `${what} stopped: ${run.problem}`;
   const where = run.model ? `${run.connectionName} • ${run.model}` : run.connectionName;
-  return `Ran${part} on ${where}: ${helperRunWhy(run)}.`;
+  return `${what} used ${where}, ${helperRunWhy(run)}.`;
 }

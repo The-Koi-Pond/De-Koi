@@ -244,9 +244,11 @@ describe("HelperModelsCard", () => {
     // Only the newest run of a task is shown under its row.
     expect(notes.filter((item) => item.getAttribute("data-helper-run") === "fanficChecks")).toHaveLength(1);
     expect(note("fanficChecks")).toContain(
-      "Ran (story ledger) on Cheap • small-model: your Helper Models pick for Fanfic checks.",
+      "Last story ledger used Cheap • small-model, your Helper Models pick for Fanfic checks.",
     );
-    expect(note("memory")).toContain("Stopped: The Memory helper is set to a connection that no longer exists.");
+    expect(note("memory")).toContain(
+      "Last run stopped: The Memory helper is set to a connection that no longer exists.",
+    );
     expect(note("status")).toBe("");
   });
 });

@@ -14,6 +14,15 @@ import {
   saveTranceRequest,
   type SaveTranceRequestInput,
 } from "../../../../engine/modes/trance/session";
+import {
+  buildTranceShare,
+  NOT_A_SHARED_TRANCE,
+  openSharedTrance,
+  parseTranceShare,
+  tranceShareFilename,
+  TranceShareError,
+} from "../../../../engine/modes/trance/share";
+import { triggerDownload } from "../../../../shared/api/download-payload";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -71,6 +80,33 @@ export function useTranceRecordRun(chatId: string) {
   return useMutation({
     meta: { handlesOwnErrors: true },
     mutationFn: (run: TranceAfter) => recordTranceRun(storageApi, chatId, run),
+    onSettled: invalidate,
+  });
+}
+
+/** Saves the written session as a .trance.json file a friend can open in their own De-Koi. */
+export function shareTranceSession(state: TranceState, guideName: string) {
+  const share = buildTranceShare(state, guideName, new Date());
+  triggerDownload({
+    blob: new Blob([JSON.stringify(share, null, 2)], { type: "application/json" }),
+    filename: tranceShareFilename(share),
+  });
+}
+
+/** Opens a shared .trance.json file in this (empty) trance chat, ready to play with no model call. */
+export function useOpenSharedTrance(chatId: string) {
+  const invalidate = useInvalidateChat(chatId);
+  return useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: async (file: File): Promise<TranceState> => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        throw new TranceShareError(NOT_A_SHARED_TRANCE);
+      }
+      return openSharedTrance(storageApi, chatId, parseTranceShare(parsed));
+    },
     onSettled: invalidate,
   });
 }

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Orbit, Play, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FolderOpen, Loader2, Orbit, Play, RefreshCw, Share2, SlidersHorizontal } from "lucide-react";
 import { useChatSurfaceCharacterSummariesByIds } from "../../../catalog/characters/index";
 import type { TranceAfter, TranceFinish, TranceState } from "../../../../engine/contracts/types/trance";
 import {
@@ -12,7 +12,14 @@ import {
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { useTranceChat, useTranceRecordRun, useTranceRequestSave, useTranceScript } from "../hooks/use-trance";
+import {
+  shareTranceSession,
+  useOpenSharedTrance,
+  useTranceChat,
+  useTranceRecordRun,
+  useTranceRequestSave,
+  useTranceScript,
+} from "../hooks/use-trance";
 import { tranceCharacterColors } from "../lib/trance-colors";
 import { TrancePlayer } from "./TrancePlayer";
 import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
@@ -61,6 +68,49 @@ function PastRuns({ state }: { state: TranceState }) {
   );
 }
 
+/** Lets someone open a session a friend shared, instead of filling in the form. */
+function OpenSharedTrance({ chatId }: { chatId: string }) {
+  const openShared = useOpenSharedTrance(chatId);
+  const input = useRef<HTMLInputElement>(null);
+  const error = errorText(openShared.error, "That shared trance couldn't be opened.");
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 pt-4 text-center">
+      <p className="text-sm text-[var(--muted-foreground)]">Got a trance from a friend?</p>
+      <input
+        ref={input}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) openShared.mutate(file);
+        }}
+      />
+      <button
+        type="button"
+        disabled={openShared.isPending}
+        onClick={() => input.current?.click()}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] disabled:opacity-60"
+      >
+        {openShared.isPending ? (
+          <Loader2 size="0.875rem" className="animate-spin" aria-hidden="true" />
+        ) : (
+          <FolderOpen size="0.875rem" aria-hidden="true" />
+        )}
+        Open a shared trance
+      </button>
+      {error && (
+        <p role="alert" className="w-full text-sm text-[var(--foreground)]">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const { chat, state, isLoading, error } = useTranceChat(activeChatId);
   const saveRequest = useTranceRequestSave(activeChatId);
@@ -77,7 +127,9 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
     characterIds.length > 0,
   );
   const guide = (characterRows as Array<{ data?: { name?: string; extensions?: unknown } }> | undefined)?.[0];
-  const characterName = guide?.data?.name?.trim() || "Your guide";
+  // The linked card's name, or the name a shared session came with.
+  const guideName = guide?.data?.name?.trim() || state?.guideName || "";
+  const characterName = guideName || "Your guide";
   const colors = useMemo(() => tranceCharacterColors(guide?.data?.extensions), [guide?.data?.extensions]);
 
   useEffect(() => {
@@ -147,6 +199,7 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   if (stage === "request" || editing) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {stage === "request" && <OpenSharedTrance chatId={activeChatId} />}
         <TranceRequestForm
           initial={state?.request ?? defaultTranceRequest()}
           initialCharacterId={characterIds[0] ?? null}
@@ -247,6 +300,16 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
               >
                 <RefreshCw size="0.875rem" aria-hidden="true" />
                 New script, same settings
+              </button>
+            )}
+            {stage === "ready" && state && (
+              <button
+                type="button"
+                onClick={() => shareTranceSession(state, guideName)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)]"
+              >
+                <Share2 size="0.875rem" aria-hidden="true" />
+                Share
               </button>
             )}
             <button
