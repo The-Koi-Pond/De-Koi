@@ -21,6 +21,14 @@ import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-op
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
+import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
+import {
+  appendSelfieReferenceGuidance,
+  referenceGuidanceSuitsImageConnection,
+  avatarReferenceImage,
+  characterImageReferenceSubject,
+  fullBodySpriteReferenceImage,
+} from "./character-image-references";
 import {
   compileImagePrompt,
   createDefaultImageStyleProfileSettings,
@@ -764,7 +772,7 @@ async function buildSelfiePrompt(args: {
   commandContext?: string;
   characterId: string | null;
   imagePromptSettings?: ImagePromptSettings;
-}): Promise<{ prompt: string; negativePrompt: string; characterName: string }> {
+}): Promise<{ prompt: string; negativePrompt: string; characterName: string; character: JsonRecord | null }> {
   const character = args.characterId ? await args.storage.get<JsonRecord>("characters", args.characterId) : null;
   const data = parseData(character ?? undefined);
   const characterName = nameOf(character ?? {}) || readString(data.name, "character") || "character";
@@ -844,7 +852,21 @@ async function buildSelfiePrompt(args: {
     ),
     userPositive: positive,
   });
-  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName };
+  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName, character };
+}
+
+/** The character's avatar first (their face), then a full-body sprite (their outfit and build) when there is one. */
+async function selfieReferenceImages(
+  visuals: VisualAssetGateway | undefined,
+  character: JsonRecord,
+  characterName: string,
+): Promise<string[]> {
+  const subject = { ...characterImageReferenceSubject(character, "character"), name: characterName };
+  const avatar = await avatarReferenceImage(visuals, subject);
+  const fullBody = await fullBodySpriteReferenceImage(visuals, subject);
+  // Drops empty, duplicate and oversized images.
+  return illustrationReferencesForRequest([avatar, fullBody].map((image) => ({ image, subjectName: characterName })))
+    .referenceImages;
 }
 
 async function generateSelfie(args: {
@@ -861,6 +883,7 @@ async function generateSelfie(args: {
   unprompted?: boolean;
   /** Whose selfie it is; defaults to the chat's first character. */
   characterId?: string | null;
+  visuals?: VisualAssetGateway;
 }): Promise<boolean> {
   const metadata = parseRecord(args.chat.metadata);
   const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
@@ -875,7 +898,7 @@ async function generateSelfie(args: {
   }
 
   try {
-    const { prompt, negativePrompt, characterName } = await buildSelfiePrompt({
+    const built = await buildSelfiePrompt({
       storage: args.storage,
       llm: args.llm,
       llmConnectionId: args.llmConnectionId,
@@ -884,6 +907,16 @@ async function generateSelfie(args: {
       characterId,
       imagePromptSettings: args.imagePromptSettings,
     });
+    const { negativePrompt, characterName } = built;
+    const referenceImages =
+      boolish(metadata.selfieUseAvatarReferences, false) && built.character
+        ? await selfieReferenceImages(args.visuals, built.character, characterName)
+        : [];
+    const imageConnection = await args.storage.get<JsonRecord>("connections", imageConnectionId);
+    const prompt =
+      referenceImages.length > 0 && referenceGuidanceSuitsImageConnection(imageConnection)
+        ? appendSelfieReferenceGuidance(built.prompt, characterName)
+        : built.prompt;
     const size = parseSelfieSize(metadata.selfieResolution);
     const image = await args.integrations.image.generate({
       connectionId: imageConnectionId,
@@ -894,6 +927,7 @@ async function generateSelfie(args: {
       negativePrompt: negativePrompt || undefined,
       width: size.width,
       height: size.height,
+      ...(referenceImages.length > 0 ? { referenceImages } : {}),
     });
     const normalizedImage = normalizeGeneratedImageResult(image);
     const imageUrl = normalizedImage.dataUrl;
@@ -1684,6 +1718,7 @@ async function executeCommand(
         imagePromptSettings,
         unprompted: options?.textsFirstPhoto === "send",
         characterId: options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : null,
+        visuals,
       }))
         ? { name: "selfie" }
         : null;
