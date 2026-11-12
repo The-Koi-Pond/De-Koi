@@ -777,7 +777,7 @@ type RoleplaySurfaceProps = {
   onRerunSingleTracker: (agentType: string) => void;
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
-  onStartEncounter: () => void;
+  onOpenEncounterSetup: () => void;
   onConcludeScene: () => void;
   onReopenScene: () => void;
   onAbandonScene: () => void;
@@ -883,7 +883,7 @@ export function ChatRoleplaySurface({
   onRerunSingleTracker,
   onRetryFailedAgents,
   onRetryAgent,
-  onStartEncounter,
+  onOpenEncounterSetup,
   onConcludeScene,
   onReopenScene,
   onAbandonScene,
@@ -1528,7 +1528,7 @@ export function ChatRoleplaySurface({
                     onReopen={onReopenScene}
                   />
                 )}
-                {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onStartEncounter} />}
+                {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onOpenEncounterSetup} />}
                 {!isConcludedScene && (
                   <ChatInput
                     mode={isRoleplay ? "roleplay" : "conversation"}

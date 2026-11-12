@@ -509,7 +509,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onRerunSingleTracker={timeline.handleRerunSingleTracker}
         onRetryFailedAgents={timeline.handleRetryFailedAgents}
         onRetryAgent={timeline.handleRetryAgent}
-        onStartEncounter={() => openEncounterSetup(activeChatId)}
+        onOpenEncounterSetup={() => openEncounterSetup(activeChatId)}
         onConcludeScene={() => concludeScene(activeChatId, data.chat?.connectionId ?? null)}
         onReopenScene={() => reopenScene(activeChatId)}
         onAbandonScene={() => abandonScene(activeChatId)}
