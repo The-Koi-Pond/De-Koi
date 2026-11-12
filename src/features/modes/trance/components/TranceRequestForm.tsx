@@ -117,6 +117,8 @@ function PathButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
+  // A disabled main path keeps the plain look: a dimmed orange fill read as "already picked".
+  const filled = primary && !disabled;
   return (
     <button
       type="button"
@@ -125,21 +127,21 @@ function PathButton({
       onClick={onClick}
       className={cn(
         "flex min-w-0 flex-1 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-        primary
+        filled
           ? "border-[var(--primary)] bg-[var(--primary)] hover:brightness-110"
           : selected
             ? "border-[var(--primary)] bg-[var(--primary)]/10"
             : "border-[var(--border)] bg-[var(--secondary)]/30 hover:bg-[var(--secondary)]/60",
       )}
     >
-      <span className={cn("mt-0.5 shrink-0", primary ? "text-[var(--primary-foreground)]" : "text-[var(--primary)]")}>
+      <span className={cn("mt-0.5 shrink-0", filled ? "text-[var(--primary-foreground)]" : "text-[var(--primary)]")}>
         {icon}
       </span>
       <span className="min-w-0">
         <span
           className={cn(
             "block text-sm font-bold",
-            primary ? "text-[var(--primary-foreground)]" : "text-[var(--foreground)]",
+            filled ? "text-[var(--primary-foreground)]" : "text-[var(--foreground)]",
           )}
         >
           {title}
@@ -147,7 +149,7 @@ function PathButton({
         <span
           className={cn(
             "block text-xs leading-snug",
-            primary ? "text-[var(--primary-foreground)]/80" : "text-[var(--muted-foreground)]",
+            filled ? "text-[var(--primary-foreground)]/80" : "text-[var(--muted-foreground)]",
           )}
         >
           {detail}

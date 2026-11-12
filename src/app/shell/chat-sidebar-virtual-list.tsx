@@ -70,7 +70,8 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
     }
   }
 
-  if (!pinnedOnly) {
+  // With no folders yet the heading would only repeat the Folder button above the list, so it waits for the first one.
+  if (!pinnedOnly && modeFolders.length > 0) {
     rows.push({
       type: "section",
       key: "section:folders",
