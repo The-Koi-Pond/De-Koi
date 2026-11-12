@@ -416,32 +416,57 @@ pub(crate) async fn dispatch_for_runtime_owner(
             )
             .await
         }
-        "spotify_playback_available" => {
-            spotify_direct(state, "POST", &["playback-available"], Value::Null).await
+        "music_resume" => {
+            music_direct(state, "POST", &["resume"], optional_value(&args, "body")).await
         }
-        "spotify_status" => {
-            spotify_direct(state, "POST", &["status"], optional_value(&args, "body")).await
-        }
-        "spotify_authorize" => {
-            spotify_direct(
+        "music_playback_state" => {
+            music_direct(
                 state,
                 "POST",
-                &["authorize"],
-                optional_value(&args, "input"),
+                &["playback-state"],
+                optional_value(&args, "body"),
             )
             .await
         }
-        "spotify_exchange" => {
-            spotify_direct(
+        "music_settings" => music_direct(state, "GET", &["settings"], Value::Null).await,
+        "music_update_settings" => {
+            music_direct(
                 state,
                 "POST",
-                &["exchange"],
-                json!({ "callbackUrl": required_string(&args, "callbackUrl")? }),
+                &["update-settings"],
+                optional_value(&args, "body"),
             )
             .await
         }
-        "spotify_disconnect" => {
-            spotify_direct(
+        "music_sign_in_start" => {
+            music_direct(
+                state,
+                "POST",
+                &["sign-in-start"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_sign_in_status" => {
+            music_direct(
+                state,
+                "POST",
+                &["sign-in-status"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_sign_in_finish" => {
+            music_direct(
+                state,
+                "POST",
+                &["sign-in-finish"],
+                optional_value(&args, "body"),
+            )
+            .await
+        }
+        "music_disconnect" => {
+            music_direct(
                 state,
                 "POST",
                 &["disconnect"],
@@ -449,129 +474,11 @@ pub(crate) async fn dispatch_for_runtime_owner(
             )
             .await
         }
-        "spotify_player" => {
-            spotify_direct(state, "GET", &["player"], optional_value(&args, "body")).await
+        "music_playlists" => {
+            music_direct(state, "POST", &["playlists"], optional_value(&args, "body")).await
         }
-        "spotify_devices" => {
-            spotify_direct(state, "GET", &["devices"], optional_value(&args, "body")).await
-        }
-        "spotify_access_token" => {
-            spotify_direct(
-                state,
-                "GET",
-                &["access-token"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_playlists" => spotify_playlists(state, &args).await,
-        "spotify_playlist_tracks" => {
-            spotify_direct(
-                state,
-                "POST",
-                &["playlist-tracks"],
-                optional_value(&args, "input"),
-            )
-            .await
-        }
-        "spotify_search_tracks" => {
-            spotify_direct(
-                state,
-                "POST",
-                &["search-tracks"],
-                optional_value(&args, "input"),
-            )
-            .await
-        }
-        "spotify_play_track" => {
-            spotify_direct(
-                state,
-                "POST",
-                &["play-track"],
-                optional_value(&args, "input"),
-            )
-            .await
-        }
-        "spotify_dj_deki_playlist" | "spotify_dj_mari_playlist" => {
-            spotify_direct(
-                state,
-                "POST",
-                &["dj-deki-playlist"],
-                optional_value(&args, "input"),
-            )
-            .await
-        }
-        "spotify_player_play" => {
-            spotify_direct(
-                state,
-                "PUT",
-                &["player", "play"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_pause" => {
-            spotify_direct(
-                state,
-                "PUT",
-                &["player", "pause"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_next" => {
-            spotify_direct(
-                state,
-                "POST",
-                &["player", "next"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_previous" => {
-            spotify_direct(
-                state,
-                "POST",
-                &["player", "previous"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_transfer" => {
-            spotify_direct(
-                state,
-                "PUT",
-                &["player", "transfer"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_volume" => {
-            spotify_direct(
-                state,
-                "PUT",
-                &["player", "volume"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_shuffle" => {
-            spotify_direct(
-                state,
-                "PUT",
-                &["player", "shuffle"],
-                optional_value(&args, "body"),
-            )
-            .await
-        }
-        "spotify_player_repeat" => {
-            spotify_direct(
-                state,
-                "PUT",
-                &["player", "repeat"],
-                optional_value(&args, "body"),
-            )
-            .await
+        "music_devices" => {
+            music_direct(state, "POST", &["devices"], optional_value(&args, "body")).await
         }
         "knowledge_sources_list" => {
             knowledge::knowledge_sources_call(state, "GET", &[], Value::Null)
@@ -1668,37 +1575,6 @@ async fn music_direct(
     body: Value,
 ) -> AppResult<Value> {
     integrations::music_call(state, method, rest, body).await
-}
-
-async fn spotify_direct(
-    state: &AppState,
-    method: &str,
-    rest: &[&str],
-    body: Value,
-) -> AppResult<Value> {
-    integrations::spotify_call(
-        state,
-        method,
-        rest,
-        &shared::ParsedPath::new("/spotify"),
-        body,
-    )
-    .await
-}
-
-async fn spotify_playlists(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {
-    let route = shared::ParsedPath::new(&format!(
-        "/spotify/playlists?limit={}",
-        optional_u32(args, "limit").unwrap_or(50)
-    ));
-    integrations::spotify_call(
-        state,
-        "GET",
-        &["playlists"],
-        &route,
-        json!({ "agentId": optional_value(args, "agentId") }),
-    )
-    .await
 }
 
 async fn connection_test(state: &AppState, args: &Map<String, Value>) -> AppResult<Value> {

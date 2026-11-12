@@ -109,7 +109,8 @@ function scoreCandidate(candidate: MusicCandidate, options: MusicCandidateRankin
 
   const id = candidateId(candidate);
   if (options.fresh && options.currentTrackId && id === options.currentTrackId) score -= 100;
-  if (options.fresh && options.recentTrackIds?.includes(id)) score -= 70;
+  // Recently played tracks sink on every pick, so they only win when nothing else fits.
+  if (options.recentTrackIds?.includes(id)) score -= 70;
 
   return score;
 }

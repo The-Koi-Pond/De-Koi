@@ -56,7 +56,10 @@ export type MusicPlaybackContextEventDetail = {
 export type MusicPlaybackEventDetail =
   | {
       type: "cue";
+      /** Search text: mood words, or a song's title and artist. */
       query?: string | null;
+      /** A direct link to play instead of searching. Only YouTube plays it; Spotify searches `query`. */
+      url?: string | null;
       track?: MusicCandidate | null;
       volume?: number | null;
       intent?: MusicDjIntent | null;
@@ -64,6 +67,8 @@ export type MusicPlaybackEventDetail =
     }
   | MusicPlaybackContextEventDetail
   | { type: "volume"; volume: number; intent?: MusicDjIntent | null }
+  /** Something outside the widget (a character's `[spotify: …]` command) already started this track. */
+  | { type: "now_playing"; track: MusicCandidate; message?: string | null }
   | { type: "stop" }
   | { type: "pause" };
 
@@ -94,9 +99,9 @@ export function dispatchMusicPlaybackEvent(detail: MusicPlaybackEventDetail): vo
   if (detail.type === "context") {
     lastMusicPlaybackContext = detail.query?.trim() ? detail : null;
   }
-  if (detail.type === "cue" && (detail.query?.trim() || detail.track)) {
+  if (detail.type === "cue" && (detail.query?.trim() || detail.url?.trim() || detail.track)) {
     pendingMusicPlaybackCue = detail;
-  } else if (detail.type === "stop" || detail.type === "pause") {
+  } else if (detail.type === "stop" || detail.type === "pause" || detail.type === "now_playing") {
     pendingMusicPlaybackCue = null;
   }
   if (typeof window === "undefined") return;

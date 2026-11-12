@@ -30,7 +30,6 @@ const agentResultTypeSchema = z.enum([
   "custom_tracker_update",
   "chat_summary",
   "music_control",
-  "spotify_control",
   "cyoa_choices",
   "secret_plot",
 ]);

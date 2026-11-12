@@ -10,7 +10,11 @@ import {
   type ReactNode,
 } from "react";
 
-import { musicApi, type MusicCandidate } from "../../../../shared/api/music-api";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { musicApi, spotifyMusicApi, type MusicCandidate, type SpotifyCueInput } from "../../../../shared/api/music-api";
+import { musicPlayerSettingsQuery, useMusicPlayerSettings } from "../../../../shared/hooks/use-music-player-settings";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { musicDjIntentLabel, type MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { rankMusicCandidates } from "../../../../shared/lib/music-candidate-ranking";
 import {
@@ -30,6 +34,7 @@ import {
   type MusicWidgetPosition,
   type MusicWidgetSize,
 } from "../lib/music-widget-position";
+import { useChatMusicHistory } from "../hooks/use-chat-music-history";
 import { getMusicPlayerDisplay } from "../lib/music-player-display";
 import { sendYouTubeIframeCommand } from "../lib/youtube-iframe-player";
 
@@ -37,6 +42,12 @@ const DEFAULT_WIDGET_SIZE: MusicWidgetSize = { width: 352, height: 188 };
 const LEGACY_DEFAULT_POSITION: MusicWidgetPosition = { x: 16, y: 96 };
 const NO_MUSIC_CUE_MESSAGE = "Music Player needs a current mood, scene cue, or YouTube URL before it can pick music.";
 const NO_MUSIC_CUE_EXPLANATION = `Nothing played: ${NO_MUSIC_CUE_MESSAGE}`;
+const SPOTIFY_REFRESH_INTERVAL_MS = 15_000;
+const SPOTIFY_VOLUME_DELAY_MS = 400;
+const SPOTIFY_PICK_FAILED_MESSAGE = "Spotify couldn't pick a track. Try again.";
+const SPOTIFY_CONTROL_FAILED_MESSAGE = "Spotify didn't take that. Try again.";
+const SPOTIFY_NO_MATCH_MESSAGE =
+  "Spotify found nothing for this cue. Try other mood words, or pick another source in this chat's settings.";
 
 function youtubeVideoIdFromText(raw: string): string | null {
   const text = raw.trim();
@@ -84,12 +95,14 @@ function musicChoiceExplanation({
   intent,
   fresh,
   usedDiscoveryFallback,
+  providerLabel = "YouTube",
 }: {
   track: MusicCandidate;
   searchQuery: string;
   intent?: MusicDjIntent | null;
   fresh: boolean;
   usedDiscoveryFallback: boolean;
+  providerLabel?: string;
 }): string {
   const title = track.title.trim() || "selected track";
   const label = intent ? musicDjIntentLabel(intent) : fresh ? "a fresh pick" : "the current cue";
@@ -103,7 +116,7 @@ function musicChoiceExplanation({
   } else if (fresh) {
     parts.push("Reason: Fresh Pick avoided the current and recent tracks when possible.");
   } else {
-    parts.push("Reason: This was the top ranked YouTube result for the cue.");
+    parts.push(`Reason: This was the top ranked ${providerLabel} result for the cue.`);
   }
   return parts.join(" ");
 }
@@ -130,10 +143,10 @@ function resolvedWidgetPosition(position: MusicWidgetPosition, widget: MusicWidg
 }
 
 function FloatingMusicShell({ children }: { children: ReactNode }) {
-  const collapsed = useUIStore((s) => s.spotifyMobileWidgetCollapsed);
-  const position = useUIStore((s) => s.spotifyMobileWidgetPosition);
-  const setCollapsed = useUIStore((s) => s.setSpotifyMobileWidgetCollapsed);
-  const setPosition = useUIStore((s) => s.setSpotifyMobileWidgetPosition);
+  const collapsed = useUIStore((s) => s.musicPlayerMobileWidgetCollapsed);
+  const position = useUIStore((s) => s.musicPlayerMobileWidgetPosition);
+  const setCollapsed = useUIStore((s) => s.setMusicPlayerMobileWidgetCollapsed);
+  const setPosition = useUIStore((s) => s.setMusicPlayerMobileWidgetPosition);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -261,26 +274,156 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
   const [query, setQuery] = useState("");
   const [lastDiscoveryQuery, setLastDiscoveryQuery] = useState("");
   const [track, setTrack] = useState<MusicCandidate | null>(null);
-  const [recentTrackIds, setRecentTrackIds] = useState<string[]>([]);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(55);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [choiceExplanation, setChoiceExplanation] = useState("No music has been picked yet.");
+  const [spotifyDeviceId, setSpotifyDeviceId] = useState<string | null>(null);
+  const spotifyVolumeTimerRef = useRef<number | null>(null);
+  const queryClient = useQueryClient();
+  const history = useChatMusicHistory();
+  const settingsQuery = useMusicPlayerSettings();
+  const spotifySelected = settingsQuery.data?.source === "spotify";
+  // Controls go to the provider of the track on screen, or to the selected source when there is none.
+  const spotifyControls = track ? track.provider === "spotify" : spotifySelected;
+  const floatingCollapsed = useUIStore((s) => s.musicPlayerMobileWidgetCollapsed);
+  const shown = visible && !(resolvedVariant === "floating" && floatingCollapsed);
 
   const videoId = youtubeVideoId(track);
   const src = useMemo(() => embedUrl(videoId, playing), [videoId, playing]);
   const display = getMusicPlayerDisplay(track);
   const displaySubtitle = message ?? display.subtitle;
+  const albumArt = track?.provider === "spotify" ? track.thumbnail?.trim() || null : null;
+  const queryPlaceholder = spotifySelected ? "Mood or genre" : "Mood, genre, or YouTube URL";
+  const searchTitle = spotifySelected
+    ? "Search Spotify from the mood text."
+    : "Search YouTube from the mood text, or play the pasted YouTube URL.";
+  const freshPickTitle = spotifySelected
+    ? "Pick a different Spotify track for the same mood"
+    : "Pick a different YouTube result for the same mood";
+  const playTitle = playing
+    ? "Pause Music Player"
+    : track
+      ? "Resume Music Player"
+      : spotifySelected
+        ? "Play a Spotify pick from the current mood"
+        : "Play a YouTube pick from the current mood";
 
-  async function playTrack(next: MusicCandidate, nextVolume = volume, nextChoiceExplanation?: string) {
+  /**
+   * Starts a Spotify track on the user's device; returns Spotify's note about it, if any. Throws on failure.
+   * A volume goes along only when one was asked for, so a pick leaves the device's own volume alone.
+   */
+  async function startSpotifyTrack(
+    next: MusicCandidate,
+    requestedVolume: number | null,
+    nextChoiceExplanation?: string,
+  ) {
     setTrack(next);
     if (nextChoiceExplanation) setChoiceExplanation(nextChoiceExplanation);
-    const key = musicTrackKey(next);
-    if (key) setRecentTrackIds((current) => [key, ...current.filter((entry) => entry !== key)].slice(0, 8));
-    await musicApi.play({ provider: next.provider, track: next, volume: nextVolume });
+    const result = await spotifyMusicApi.play(
+      requestedVolume === null ? { track: next } : { track: next, volume: requestedVolume },
+    );
+    setPlaying(true);
+    setSpotifyDeviceId(result.device?.id ?? null);
+    history.record({ provider: "spotify", id: next.id });
+    return result.message?.trim() || null;
+  }
+
+  async function refreshSpotifyPlayback() {
+    try {
+      const state = await spotifyMusicApi.playbackState();
+      setPlaying(state.state === "playing");
+      // Follow the device only while it plays, so a track changed in the Spotify app shows here
+      // and a stopped widget stays cleared.
+      if (state.state === "playing" && state.track) setTrack(state.track);
+      if (typeof state.volume === "number") setVolume(Math.max(0, Math.min(100, Math.trunc(state.volume))));
+      if (state.device?.id) setSpotifyDeviceId(state.device.id);
+    } catch (error) {
+      setMessage(toUserMessage(error, { fallback: SPOTIFY_CONTROL_FAILED_MESSAGE }));
+    }
+  }
+
+  /** `requestedVolume` is a volume a cue asked for; YouTube otherwise plays at the widget's volume. */
+  async function playTrack(
+    next: MusicCandidate,
+    requestedVolume: number | null = null,
+    nextChoiceExplanation?: string,
+  ) {
+    if (next.provider === "spotify") {
+      try {
+        const note = await startSpotifyTrack(next, requestedVolume, nextChoiceExplanation);
+        if (note) setMessage(note);
+      } catch (error) {
+        setMessage(toUserMessage(error, { fallback: SPOTIFY_CONTROL_FAILED_MESSAGE }));
+      }
+      return;
+    }
+    setTrack(next);
+    if (nextChoiceExplanation) setChoiceExplanation(nextChoiceExplanation);
+    await musicApi.play({ provider: next.provider, track: next, volume: requestedVolume ?? volume });
     setPlaying(true);
     sendYouTubeIframeCommand(iframeRef.current, "playVideo");
+    const key = musicTrackKey(next);
+    if (key) history.record({ provider: next.provider || "youtube", id: key });
+  }
+
+  async function pickSpotify(
+    fresh: boolean,
+    searchQuery: string,
+    intent: MusicDjIntent | null | undefined,
+    requestedVolume: number | null,
+  ) {
+    if (searchQuery) setLastDiscoveryQuery(searchQuery);
+    setBusy(true);
+    setMessage(null);
+    try {
+      const recent = history.recentTracks();
+      const currentTrackId = track?.provider === "spotify" ? track.id : null;
+      const input: SpotifyCueInput = {
+        source: history.spotifySource(),
+        query: searchQuery || null,
+        mood: intent?.mood ?? null,
+        setting: intent?.setting ?? null,
+        constraints: intent?.constraints ?? null,
+        recentIds: recent,
+        currentTrackId,
+        fresh,
+      };
+      const response = fresh ? await spotifyMusicApi.freshPick(input) : await spotifyMusicApi.candidates(input);
+      const next =
+        rankMusicCandidates(response.candidates, {
+          query: searchQuery,
+          intent,
+          currentTrackId,
+          recentTrackIds: recent.map((entry) => entry.id),
+          fresh,
+        })[0] ?? null;
+      const sourceNote = response.providerError?.message?.trim() || null;
+      if (!next) {
+        const cueLabel = searchQuery || (intent ? musicDjIntentLabel(intent) : "this cue");
+        setChoiceExplanation(`Nothing played: Spotify found nothing for "${cueLabel}".`);
+        setMessage(sourceNote ?? SPOTIFY_NO_MATCH_MESSAGE);
+        return;
+      }
+      const explanation = musicChoiceExplanation({
+        track: next,
+        searchQuery,
+        intent,
+        fresh,
+        usedDiscoveryFallback: false,
+        providerLabel: "Spotify",
+      });
+      const playbackNote = await startSpotifyTrack(next, requestedVolume, explanation);
+      const intentNote = intent
+        ? `Music Player: ${musicDjIntentLabel(intent)}${intent.reason ? ` - ${intent.reason}` : ""}`
+        : null;
+      setMessage([sourceNote, playbackNote, intentNote].filter(Boolean).join(" ") || null);
+    } catch (error) {
+      setMessage(toUserMessage(error, { fallback: SPOTIFY_PICK_FAILED_MESSAGE }));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function pick(
@@ -288,9 +431,23 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     overrideQuery?: string | null,
     intent?: MusicDjIntent | null,
     overrideVolume?: number | null,
+    directUrl?: string | null,
   ) {
-    const requestedQuery = (overrideQuery ?? query).trim();
-    const requestedVolume = typeof overrideVolume === "number" ? overrideVolume : volume;
+    const typedQuery = (overrideQuery ?? query).trim();
+    const requestedVolume = typeof overrideVolume === "number" ? overrideVolume : null;
+    let source: string;
+    try {
+      source = (await queryClient.ensureQueryData(musicPlayerSettingsQuery)).source;
+    } catch (error) {
+      setMessage(toUserMessage(error, { fallback: "Couldn't load the Music Player settings. Try again." }));
+      return;
+    }
+    if (source === "spotify") {
+      // Spotify can't play a YouTube link, so it searches the cue's title and artist instead.
+      await pickSpotify(fresh, typedQuery, intent, requestedVolume);
+      return;
+    }
+    const requestedQuery = directUrl?.trim() || typedQuery;
     const usedDiscoveryFallback = fresh && isDirectYouTubeTarget(requestedQuery);
     const searchQuery = usedDiscoveryFallback ? lastDiscoveryQuery.trim() : requestedQuery;
     if (!searchQuery) {
@@ -315,7 +472,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
         query: searchQuery,
         intent,
         currentTrackId,
-        recentTrackIds,
+        recentTrackIds: history.recentTracks().map((entry) => entry.id),
         fresh,
       });
       const next = ranked[0] ?? null;
@@ -370,7 +527,24 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     await pick(true);
   }
 
+  /** Runs a Spotify control, shows its error, then reads the device state back. */
+  async function spotifyControl(run: () => Promise<unknown>, options: { refresh?: boolean } = {}) {
+    try {
+      await run();
+    } catch (error) {
+      setMessage(toUserMessage(error, { fallback: SPOTIFY_CONTROL_FAILED_MESSAGE }));
+    }
+    if (options.refresh !== false) await refreshSpotifyPlayback();
+  }
+
   async function resumeOrPick() {
+    if (track?.provider === "spotify") {
+      await spotifyControl(async () => {
+        await spotifyMusicApi.resume(spotifyDeviceId);
+        setPlaying(true);
+      });
+      return;
+    }
     if (track) {
       await playTrack(track);
       return;
@@ -380,21 +554,61 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
 
   async function stop() {
     setPlaying(false);
+    if (spotifyControls) {
+      // Stop pauses the device and clears the now-playing track; reading the state back would show it again.
+      setTrack(null);
+      await spotifyControl(() => spotifyMusicApi.stop(spotifyDeviceId), { refresh: false });
+      return;
+    }
     sendYouTubeIframeCommand(iframeRef.current, "stopVideo");
     await musicApi.stop().catch(() => undefined);
   }
 
   async function pause() {
     setPlaying(false);
+    if (spotifyControls) {
+      await spotifyControl(() => spotifyMusicApi.pause(spotifyDeviceId));
+      return;
+    }
     sendYouTubeIframeCommand(iframeRef.current, "pauseVideo");
     await musicApi.pause().catch(() => undefined);
   }
 
   async function updateVolume(next: number) {
     setVolume(next);
+    if (spotifyControls) {
+      // The slider fires on every step; send the last value once it settles.
+      if (spotifyVolumeTimerRef.current !== null) window.clearTimeout(spotifyVolumeTimerRef.current);
+      spotifyVolumeTimerRef.current = window.setTimeout(() => {
+        spotifyVolumeTimerRef.current = null;
+        void spotifyControl(() => spotifyMusicApi.setVolume(next, spotifyDeviceId));
+      }, SPOTIFY_VOLUME_DELAY_MS);
+      return;
+    }
     sendYouTubeIframeCommand(iframeRef.current, "setVolume", [next]);
     await musicApi.setVolume({ volume: next }).catch(() => undefined);
   }
+
+  // Read Spotify's playback state when the widget opens, then at most every 15 s while it is on screen.
+  const refreshSpotifyPlaybackRef = useRef<() => Promise<void>>(async () => undefined);
+  useLayoutEffect(() => {
+    refreshSpotifyPlaybackRef.current = refreshSpotifyPlayback;
+  });
+  useEffect(() => {
+    if (!shown || !spotifySelected) return;
+    void refreshSpotifyPlaybackRef.current();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshSpotifyPlaybackRef.current();
+    }, SPOTIFY_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [shown, spotifySelected]);
+
+  useEffect(
+    () => () => {
+      if (spotifyVolumeTimerRef.current !== null) window.clearTimeout(spotifyVolumeTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!visible || !src) return;
@@ -418,13 +632,18 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       aiPickRequestIdRef.current += 1;
       setMessage((current) => (current === MUSIC_AI_PICK_CHOOSING_MESSAGE ? null : current));
       if (detail.type === "cue") {
-        if (typeof detail.volume === "number") setVolume(Math.max(0, Math.min(100, Math.trunc(detail.volume))));
+        const cueVolume =
+          typeof detail.volume === "number" ? Math.max(0, Math.min(100, Math.trunc(detail.volume))) : null;
+        if (cueVolume !== null) setVolume(cueVolume);
+        // Only a cue that changes the volume asks for one. Fresh Pick sends the widget's own volume
+        // along, and resending it would set (or fail to set) the Spotify device's volume on every pick.
+        const requestedVolume = cueVolume !== null && cueVolume !== volume ? cueVolume : null;
         if (detail.track) {
           if (detail.query) setQuery(detail.query);
           const searchQuery = detail.query?.trim() ?? "";
           void playTrack(
             detail.track,
-            typeof detail.volume === "number" ? detail.volume : volume,
+            requestedVolume,
             musicChoiceExplanation({
               track: detail.track,
               searchQuery,
@@ -434,9 +653,9 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
             }),
           );
           if (detail.intent) setMessage(`Music Player: ${musicDjIntentLabel(detail.intent)}`);
-        } else if (detail.query) {
-          setQuery(detail.query);
-          void pick(detail.fresh === true, detail.query, detail.intent ?? null, detail.volume ?? null);
+        } else if (detail.query || detail.url) {
+          setQuery((spotifySelected ? detail.query : detail.url || detail.query) ?? "");
+          void pick(detail.fresh === true, detail.query ?? "", detail.intent ?? null, requestedVolume, detail.url);
         }
       } else if (detail.type === "context") {
         const contextQuery = detail.query?.trim();
@@ -450,6 +669,13 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           setChoiceExplanation(NO_MUSIC_CUE_EXPLANATION);
         }
         if (detail.intent) setMessage(`Music Player ready: ${musicDjIntentLabel(detail.intent)}`);
+      } else if (detail.type === "now_playing") {
+        setTrack(detail.track);
+        setPlaying(true);
+        setChoiceExplanation(
+          `Playing "${detail.track.title.trim() || "selected track"}" because a character asked for it.`,
+        );
+        setMessage(detail.message?.trim() || null);
       } else if (detail.type === "volume") {
         if (detail.intent) setMessage(`Music Player volume: ${musicDjIntentLabel(detail.intent)}`);
         void updateVolume(detail.volume);
@@ -504,9 +730,13 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
     >
       <div className="mb-2 flex items-center justify-between gap-2 text-xs">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-[var(--muted)]">
-            <Volume2 className="h-3.5 w-3.5" />
-          </span>
+          {albumArt ? (
+            <img src={albumArt} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+          ) : (
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-[var(--muted)]">
+              <Volume2 className="h-3.5 w-3.5" />
+            </span>
+          )}
           <div className="min-w-0">
             <div className="truncate font-medium">{display.title}</div>
             <div className="truncate text-[var(--muted-foreground)]">{displaySubtitle}</div>
@@ -521,16 +751,24 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none"
-          placeholder="Mood, genre, or YouTube URL"
-          title="Type mood text for a YouTube search, or paste a YouTube URL to play it directly."
+          placeholder={queryPlaceholder}
+          title={
+            spotifySelected
+              ? "Type mood text for a Spotify pick from this chat's music source."
+              : "Type mood text for a YouTube search, or paste a YouTube URL to play it directly."
+          }
         />
         <button
           type="button"
           className="rounded border border-[var(--border)] p-1.5"
           onClick={() => pick(false)}
           disabled={busy}
-          aria-label="Search YouTube music from the current mood or URL"
-          title="Search YouTube from the mood text, or play the pasted YouTube URL."
+          aria-label={
+            spotifySelected
+              ? "Search Spotify music from the current mood"
+              : "Search YouTube music from the current mood or URL"
+          }
+          title={searchTitle}
         >
           <Search className="h-4 w-4" />
         </button>
@@ -540,7 +778,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           onClick={() => freshPick()}
           disabled={busy}
           aria-label="Fresh Music Player pick"
-          title="Pick a different YouTube result for the same mood."
+          title={`${freshPickTitle}.`}
         >
           <RotateCcw className="h-4 w-4" />
         </button>
@@ -552,9 +790,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="rounded border border-[var(--border)] p-1.5"
           onClick={() => (playing ? pause() : resumeOrPick())}
           aria-label={playing ? "Pause Music Player" : "Play Music Player"}
-          title={
-            playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"
-          }
+          title={playTitle}
         >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
@@ -592,9 +828,13 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
       >
         {youtubeFrame}
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--muted)] text-[var(--muted-foreground)]">
-            <Music2 className="h-3.5 w-3.5" />
-          </span>
+          {albumArt ? (
+            <img src={albumArt} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+          ) : (
+            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--muted)] text-[var(--muted-foreground)]">
+              <Music2 className="h-3.5 w-3.5" />
+            </span>
+          )}
           <div className="min-w-0 leading-tight">
             <div className="truncate text-xs font-medium">{display.title}</div>
             <div className="truncate text-[10px] text-[var(--muted-foreground)]">{displaySubtitle}</div>
@@ -605,9 +845,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
           onClick={() => (playing ? pause() : resumeOrPick())}
           aria-label={playing ? "Pause Music Player" : "Play Music Player"}
-          title={
-            playing ? "Pause Music Player" : track ? "Resume Music Player" : "Play a YouTube pick from the current mood"
-          }
+          title={playTitle}
         >
           {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
         </button>
@@ -627,7 +865,7 @@ export function MusicMiniPlayer({ mobile = false, variant }: { mobile?: boolean;
           onClick={() => freshPick()}
           disabled={busy}
           aria-label="Fresh Music Player pick"
-          title="Pick a different YouTube result for the same mood"
+          title={freshPickTitle}
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>

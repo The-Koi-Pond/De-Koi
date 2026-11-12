@@ -35,6 +35,7 @@ import { requestChatScrollToBottom } from "../../../../shared/lib/chat-scroll-ev
 import { reportPerformanceStageTiming } from "../../../../shared/lib/performance-diagnostics";
 import { showLocalChatNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
+import type { MusicCandidate } from "../../../../shared/api/music-api";
 import { dispatchMusicPlaybackEvent } from "../../../../shared/lib/music-playback-events";
 import type { MusicDjIntent } from "../../../../shared/lib/music-dj-intent";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
@@ -843,15 +844,6 @@ function formatAgentBubble(result: AgentResult, agentName: string): string | nul
           .filter(Boolean)
           .join("\n") || null
       );
-    }
-    case "spotify": {
-      const action = readString(data.action);
-      if (action === "none") return readString(data.mood, "Keeping current track");
-      if (action === "volume") return `Volume: ${data.volume ?? ""}`.trim();
-      const trackNames = Array.isArray(data.trackNames)
-        ? data.trackNames.map((track) => readString(track).trim()).filter(Boolean)
-        : [readString(data.trackName).trim()].filter(Boolean);
-      return trackNames.length ? trackNames.join("\n") : readString(data.mood).trim() || null;
     }
     case "persona-stats": {
       const status = readString(data.status).trim();
@@ -1928,6 +1920,20 @@ export async function runGenerationWithUi(
         case "message_reaction":
           scheduleChatQueryRefresh(queryClient, chatId);
           break;
+        case "music_now_playing": {
+          const data = parseMaybeRecord(event.data);
+          const track = parseMaybeRecord(data.track);
+          if (readString(track.id).trim() && readString(track.title).trim()) {
+            dispatchMusicPlaybackEvent({
+              type: "now_playing",
+              track: track as unknown as MusicCandidate,
+              message: readString(data.message).trim() || null,
+            });
+          }
+          // The command saved the track in this chat's recent history.
+          scheduleChatQueryRefresh(queryClient, chatId);
+          break;
+        }
         case "illustration_error": {
           const data = parseMaybeRecord(event.data);
           toast.error(readString(data.error, "Illustration generation failed."));

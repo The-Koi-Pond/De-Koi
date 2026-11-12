@@ -216,6 +216,8 @@ export interface PromptAssemblyInput {
   persistPromptVariables?: boolean;
   reusableContext?: PromptAssemblyReusableContext;
   regexScripts?: JsonRecord[];
+  /** Offer `[spotify: …]` to Conversation characters (Spotify is the Music Player source and connected). */
+  spotifyCommandAvailable?: boolean;
 }
 
 interface PromptAssemblyReusableContext {
@@ -3106,6 +3108,7 @@ function buildConversationCommandBlock(
   connectedMode: string | null,
   wrapFormat: WrapFormat,
   focused = false,
+  spotifyCommandAvailable = false,
   textsFirstPhoto?: unknown,
 ): ChatMLMessage | null {
   const meta = parseRecord(chat.metadata);
@@ -3126,13 +3129,6 @@ function buildConversationCommandBlock(
     commandCapabilityEnabled(capabilities, ["selfie", "canSelfie", "imageGeneration", "canGenerateImages"]);
   const canMemory = commandCapabilityEnabled(capabilities, ["memory", "canSaveMemory"]);
   const canStartScene = commandCapabilityEnabled(capabilities, ["scene", "canStartScene", "canStartScenes"]);
-  const spotifyPlaybackAvailable = commandCapabilityEnabled(
-    capabilities,
-    ["spotifyPlaybackAvailable", "spotifyPlayback", "spotifyAvailable"],
-    false,
-  );
-  const canSpotify =
-    spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
   const canReact = commandCapabilityEnabled(capabilities, ["react", "canReact"]);
   const instructions = [
     focused
@@ -3162,13 +3158,15 @@ function buildConversationCommandBlock(
         ? '- Start roleplay with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when clearly called for.'
         : '- Start a linked roleplay scene with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when the conversation clearly calls for a scene.'
       : "",
-    canSpotify
-      ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
-      : "",
     canReact
       ? focused
         ? '- Tapback with [react: emoji="❤️"] when it fits, with a reply or alone.'
         : '- Tapback their last text with [react: emoji="❤️"] when a person would (good news, a joke), with a reply or alone.'
+      : "",
+    spotifyCommandAvailable
+      ? focused
+        ? '- Play a song on the user\'s Spotify with [spotify: title="Song title", artist="Artist name"] when sharing one.'
+        : '- Play a specific song on the user\'s Spotify with [spotify: title="Song title", artist="Artist name"] when the character wants to share or put on that song. It plays on repeat.'
       : "",
     hasConnectedRoleplay
       ? "- Send linked-chat context with <influence>one-shot OOC steering note</influence> or <note>durable fact for the linked prompt</note> when this conversation should affect the linked roleplay."
@@ -3211,6 +3209,7 @@ async function buildConversationContextBlocks(
       linked.connectedMode,
       wrapFormat,
       focused,
+      input.spotifyCommandAvailable === true,
       input.request.textsFirstPhoto,
     ),
   ].filter((block): block is ChatMLMessage => block !== null);

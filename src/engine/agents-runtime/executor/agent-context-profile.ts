@@ -65,7 +65,6 @@ const BUILT_IN_AGENT_LORE_FIELDS = {
   html: NO_LORE_FIELDS,
   "chat-summary": NO_LORE_FIELDS,
   "music-dj": MUSIC_FIELDS,
-  spotify: MUSIC_FIELDS,
   editor: FULL_IDENTITY_FIELDS,
   "knowledge-retrieval": NARRATIVE_FIELDS,
   "knowledge-router": NARRATIVE_FIELDS,
