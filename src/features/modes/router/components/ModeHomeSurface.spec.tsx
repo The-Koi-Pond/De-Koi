@@ -35,10 +35,6 @@ vi.mock("../../shared/chat-ui/new-chat-gate", () => ({
   NewChatConnectionGate: () => null,
 }));
 
-vi.mock("./HomeCreditsModal", () => ({
-  HomeCreditsModal: () => null,
-}));
-
 vi.mock("./RecentChats", () => ({
   RecentChats: () => <div data-testid="recent-chats">Recent chats</div>,
 }));

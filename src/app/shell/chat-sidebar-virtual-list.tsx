@@ -21,6 +21,14 @@ export type ChatSidebarVirtualRow<TFolder extends FolderLike, TEntry extends Cha
       label: string;
     }
   | {
+      /** "FOLDERS (n)" with its create button, and a hint while there are none. */
+      type: "section";
+      key: string;
+      section: "folders";
+      label: string;
+      folderCount: number;
+    }
+  | {
       type: "folder";
       key: string;
       folder: TFolder;
@@ -41,6 +49,7 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
   folderChatsMap,
   unfiledChats,
   includeUnfiledDropZone = unfiledChats.length > 0,
+  pinnedOnly = false,
 }: {
   pinnedChats: TEntry[];
   localFolderOrder: string[];
@@ -48,6 +57,8 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
   folderChatsMap: Map<string, TEntry[]>;
   unfiledChats: TEntry[];
   includeUnfiledDropZone?: boolean;
+  /** The Pinned filter: pinned chats only live in the Pinned section, so folders would all show empty. */
+  pinnedOnly?: boolean;
 }): ChatSidebarVirtualRow<TFolder, TEntry>[] {
   const rows: ChatSidebarVirtualRow<TFolder, TEntry>[] = [];
   const foldersById = new Map(modeFolders.map((folder) => [folder.id, folder]));
@@ -59,14 +70,23 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
     }
   }
 
-  for (const folderId of localFolderOrder) {
-    const folder = foldersById.get(folderId);
-    if (!folder) continue;
-    const entries = folderChatsMap.get(folderId) ?? [];
-    rows.push({ type: "folder", key: `folder:${folder.id}`, folder, entriesCount: entries.length });
-    if (!folder.collapsed) {
-      for (const entry of entries) {
-        rows.push({ type: "chat", key: `chat:${entry.chat.groupId ?? entry.chat.id}`, entry, folderId, depth: 1 });
+  if (!pinnedOnly) {
+    rows.push({
+      type: "section",
+      key: "section:folders",
+      section: "folders",
+      label: "Folders",
+      folderCount: modeFolders.length,
+    });
+    for (const folderId of localFolderOrder) {
+      const folder = foldersById.get(folderId);
+      if (!folder) continue;
+      const entries = folderChatsMap.get(folderId) ?? [];
+      rows.push({ type: "folder", key: `folder:${folder.id}`, folder, entriesCount: entries.length });
+      if (!folder.collapsed) {
+        for (const entry of entries) {
+          rows.push({ type: "chat", key: `chat:${entry.chat.groupId ?? entry.chat.id}`, entry, folderId, depth: 1 });
+        }
       }
     }
   }
@@ -81,15 +101,23 @@ export function buildChatSidebarListRows<TFolder extends FolderLike, TEntry exte
   return rows;
 }
 
+/** Spread on a row's outer element so the list measures its real height (rows grow with text size and layout). */
+export type ChatSidebarRowMeasure = {
+  ref: ((node: Element | null) => void) | undefined;
+  "data-index": number;
+};
+
+// First guesses only: every row is measured once it renders.
 function estimateSidebarRowSize(row: ChatSidebarVirtualRow<FolderLike, ChatEntryLike>): number {
   switch (row.type) {
     case "section":
+      if (row.section === "folders") return row.folderCount > 0 ? 32 : 80;
       return row.section === "pinned" ? 26 : 12;
     case "folder":
       return 36;
     case "chat":
     default:
-      return 50;
+      return 74;
   }
 }
 
@@ -108,10 +136,12 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
   renderFolderHeader: (
     row: Extract<ChatSidebarVirtualRow<TFolder, TEntry>, { type: "folder" }>,
     style: CSSProperties,
+    measure: ChatSidebarRowMeasure,
   ) => ReactNode;
   renderSectionHeader: (
     row: Extract<ChatSidebarVirtualRow<TFolder, TEntry>, { type: "section" }>,
     style: CSSProperties,
+    measure: ChatSidebarRowMeasure,
   ) => ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -150,17 +180,21 @@ export function ChatSidebarVirtualList<TFolder extends FolderLike, TEntry extend
             top: virtualRow.start,
             width: "100%",
           };
+          const measure: ChatSidebarRowMeasure = {
+            ref: rowVirtualizer.measureElement,
+            "data-index": virtualRow.index,
+          };
 
           if (row.type === "folder") {
-            return renderFolderHeader(row, style);
+            return renderFolderHeader(row, style, measure);
           }
 
           if (row.type === "section") {
-            return renderSectionHeader(row, style);
+            return renderSectionHeader(row, style, measure);
           }
 
           return (
-            <div key={row.key} data-index={virtualRow.index} style={style} className="pb-0.5">
+            <div key={row.key} {...measure} style={style} className="pb-0.5">
               {renderChatRow(row.entry, row)}
             </div>
           );

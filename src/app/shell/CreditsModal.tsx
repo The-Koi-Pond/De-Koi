@@ -1,9 +1,9 @@
 import { ExternalLink } from "lucide-react";
 
-import { Modal } from "../../../../shared/components/ui/Modal";
-import { HOME_CREDIT_LINKS } from "./homeCredits";
+import { Modal } from "../../shared/components/ui/Modal";
+import { CREDIT_LINKS } from "./credits-links";
 
-export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreditsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Modal open={open} onClose={onClose} title="Credits" width="max-w-2xl">
       <div className="space-y-5">
@@ -12,7 +12,7 @@ export function HomeCreditsModal({ open, onClose }: { open: boolean; onClose: ()
             Project Notices
           </h3>
           <div className="grid gap-2 sm:grid-cols-2">
-            {HOME_CREDIT_LINKS.map((item) => (
+            {CREDIT_LINKS.map((item) => (
               <a
                 key={item.label}
                 href={item.url}

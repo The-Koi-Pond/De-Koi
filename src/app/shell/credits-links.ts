@@ -1,4 +1,4 @@
-export const HOME_CREDIT_LINKS = [
+export const CREDIT_LINKS = [
   {
     label: "Source",
     detail: "The-Koi-Pond/De-Koi",

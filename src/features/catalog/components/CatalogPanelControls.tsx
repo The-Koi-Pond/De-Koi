@@ -39,49 +39,89 @@ const TONE = {
   },
 } as const;
 
+/** One more plain cell in the action strip, before Select (the chat list's Folder). */
+export type CatalogStripAction = {
+  label: string;
+  title: string;
+  icon: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+};
+
+const STRIP_GRID_COLUMNS = ["grid-cols-2", "grid-cols-3", "grid-cols-4", "grid-cols-5"] as const;
+
 /**
  * New / Import / Maker / Select: joined cells in one strip across the top of the panel.
- * Without `onOpenMaker` (a library with no AI Maker) the strip has three cells.
+ * Without `onOpenMaker` (a library with no AI Maker) the strip has three cells; without
+ * `onImport` (the chat list) there's no Import cell, and `extraAction` adds a cell before Select.
  */
 export function CatalogActionBar({
   tone,
   selectionMode,
   onCreate,
+  createLabel = "New",
+  createTitle = createLabel,
+  createIcon,
   onImport,
   onOpenMaker,
+  extraAction,
   onToggleSelectionMode,
+  selectDisabled,
 }: {
   tone: CatalogPanelTone;
   selectionMode: boolean;
   onCreate: () => void;
-  onImport: () => void;
+  /** The New cell's words ("New chat"), its tooltip and its icon (a plus by default). */
+  createLabel?: string;
+  createTitle?: string;
+  createIcon?: ReactNode;
+  onImport?: () => void;
   onOpenMaker?: () => void;
+  extraAction?: CatalogStripAction;
   onToggleSelectionMode: () => void;
+  selectDisabled?: boolean;
 }) {
+  const cellCount = 2 + (onImport ? 1 : 0) + (onOpenMaker ? 1 : 0) + (extraAction ? 1 : 0);
   return (
-    <div className={cn("grid h-10 border-b border-[var(--border)]/60", onOpenMaker ? "grid-cols-4" : "grid-cols-3")}>
+    <div className={cn("grid h-10 border-b border-[var(--border)]/60", STRIP_GRID_COLUMNS[cellCount - 2])}>
       <button
         type="button"
         onClick={onCreate}
         className={cn(STRIP_CELL, TONE[tone].create, "text-white hover:brightness-110")}
-        title="New"
+        title={createTitle}
       >
-        <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">New</span>
+        {createIcon ?? <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" />}{" "}
+        <span className="truncate">{createLabel}</span>
       </button>
-      <button type="button" onClick={onImport} className={cn(STRIP_CELL, PLAIN_STRIP_CELL)} title="Import">
-        <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">Import</span>
-      </button>
+      {onImport && (
+        <button type="button" onClick={onImport} className={cn(STRIP_CELL, PLAIN_STRIP_CELL)} title="Import">
+          <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">Import</span>
+        </button>
+      )}
       {onOpenMaker && (
         <button type="button" onClick={onOpenMaker} className={cn(STRIP_CELL, PLAIN_STRIP_CELL)} title="AI Maker">
           <Sparkles size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">Maker</span>
         </button>
       )}
+      {extraAction && (
+        <button
+          type="button"
+          onClick={extraAction.onClick}
+          disabled={extraAction.disabled}
+          className={cn(STRIP_CELL, PLAIN_STRIP_CELL, "disabled:cursor-wait disabled:opacity-60")}
+          title={extraAction.title}
+        >
+          {extraAction.icon} <span className="truncate">{extraAction.label}</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={onToggleSelectionMode}
+        disabled={selectDisabled}
         className={cn(
           STRIP_CELL,
           "border-l border-[var(--border)]/60",
+          selectDisabled !== undefined && "disabled:opacity-40",
           selectionMode ? TONE[tone].selected : "text-[var(--foreground)] hover:bg-[var(--accent)]",
         )}
         aria-pressed={selectionMode}

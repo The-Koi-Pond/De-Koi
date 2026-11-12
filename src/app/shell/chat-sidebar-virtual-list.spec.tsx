@@ -10,6 +10,7 @@ import {
 
 const virtualIndexes = Array.from({ length: 12 }, (_, index) => index);
 const scrollToIndex = vi.fn();
+const measureElement = vi.fn();
 
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: vi.fn(({ count }: { count: number }) => ({
@@ -24,6 +25,7 @@ vi.mock("@tanstack/react-virtual", () => ({
           size: 44,
         })),
     scrollToIndex,
+    measureElement,
   })),
 }));
 
@@ -59,6 +61,7 @@ describe("chat sidebar virtual list", () => {
     Object.defineProperty(container, "clientHeight", { configurable: true, value: 420 });
     document.body.appendChild(container);
     scrollToIndex.mockClear();
+    measureElement.mockClear();
   });
 
   afterEach(() => {
@@ -85,12 +88,27 @@ describe("chat sidebar virtual list", () => {
     expect(rows.map((row) => row.key)).toEqual([
       "section:pinned",
       "chat:pinned",
+      "section:folders",
       "folder:folder-a",
       "chat:folder-chat",
       "folder:folder-b",
       "section:unfiled",
       "chat:unfiled",
     ]);
+  });
+
+  it("leaves out the folders heading and every folder under the Pinned filter", () => {
+    const folder: TestFolder = { id: "folder-a", name: "Folder A" };
+    const rows = buildChatSidebarListRows({
+      pinnedChats: [chat("pinned")],
+      localFolderOrder: [folder.id],
+      modeFolders: [folder],
+      folderChatsMap: new Map(),
+      unfiledChats: [],
+      pinnedOnly: true,
+    });
+
+    expect(rows.map((row) => row.key)).toEqual(["section:pinned", "chat:pinned"]);
   });
 
   it("mounts only virtualized rows from large chat lists and scrolls active chat into view", () => {
@@ -118,7 +136,12 @@ describe("chat sidebar virtual list", () => {
 
     expect(container!.querySelectorAll("[data-chat-row]").length).toBeLessThan(20);
     expect(container!.querySelector('[data-chat-id="chat-999"]')).toBeNull();
-    expect(scrollToIndex).toHaveBeenCalledWith(901, { align: "auto" });
+    // The folders heading and the unfiled drop zone come first.
+    expect(scrollToIndex).toHaveBeenCalledWith(902, { align: "auto" });
+    // Rows report their real height to the virtualizer.
+    const firstChatWrapper = container!.querySelector("[data-chat-row]")!.parentElement!;
+    expect(firstChatWrapper.getAttribute("data-index")).toBe("2");
+    expect(measureElement).toHaveBeenCalledWith(firstChatWrapper);
   });
 
   it("keeps folder rows vertically offset when reorder items own transform", () => {
@@ -151,6 +174,7 @@ describe("chat sidebar virtual list", () => {
 
     const folderRows = Array.from(container!.querySelectorAll<HTMLElement>("[data-folder-row]"));
     expect(folderRows).toHaveLength(2);
-    expect(folderRows.map((row) => row.style.top)).toEqual(["0px", "44px"]);
+    // Below the folders heading (row 0).
+    expect(folderRows.map((row) => row.style.top)).toEqual(["44px", "88px"]);
   });
 });

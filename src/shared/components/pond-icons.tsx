@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { KITSUNE_FACE, KITSUNE_MARKINGS } from "./pond-kitsune-paths";
 
 /*
  * De-Koi's own navigation icons, drawn for the Pond look (DESIGN.md section 7,
@@ -171,3 +172,52 @@ export const PondHelpIcon: PondIcon = (props) => (
     <circle style={koiFill} cx="12" cy="17" r="1.05" />
   </IconFrame>
 );
+
+/* ── The three modes ── */
+
+/** Conversation: a tea cup whose steam curls up into a speech bubble. */
+export const PondConversationIcon: PondIcon = (props) => (
+  <IconFrame {...props}>
+    <path d="M4 13.6h9l-.8 6.2a1.6 1.6 0 0 1-1.6 1.4H6.4a1.6 1.6 0 0 1-1.6-1.4Z" />
+    <path style={koiLine} d="M4.5 16.2h8" />
+    <path style={jadeLine} d="M8.4 12c-.9-.9-.9-1.9 0-2.7.7-.6 1.9-.9 3.4-.7" />
+    <path
+      style={jadeLine}
+      d="M12.5 2.6h7a2 2 0 0 1 2 2v2.6a2 2 0 0 1-2 2h-4.3l-2.6 1.8V9.2h-.1a2 2 0 0 1-2-2V4.6a2 2 0 0 1 2-2Z"
+    />
+    <circle style={koiFill} cx="14" cy="5.9" r=".75" />
+    <circle style={koiFill} cx="16" cy="5.9" r=".75" />
+    <circle style={koiFill} cx="18" cy="5.9" r=".75" />
+  </IconFrame>
+);
+
+/** Roleplay: a kitsune mask, for wearing a character. White face, vermilion markings, in every theme mode. */
+export const PondRoleplayIcon: PondIcon = (props) => (
+  <IconFrame {...props}>
+    <path style={{ fill: "#ffffff", stroke: "none" }} d={KITSUNE_FACE} />
+    <path style={koiFill} d={KITSUNE_MARKINGS} />
+  </IconFrame>
+);
+
+/** Fanfic: an ink brush over a looping jade stroke. */
+export const PondFanficIcon: PondIcon = (props) => (
+  <IconFrame {...props}>
+    <path
+      style={jadeFill}
+      d="M2.6 19.4c2.8-1.9 7.2-2.6 11-1.6 2 .5 2.6 1.6 1 2.5-2.4 1.2-7 1.5-10.6 1 3.1-.2 6.6-.7 8.6-1.4 1-.4.7-1-.7-1.2-3-.5-6.4 0-9.3.7Z"
+    />
+    <path d="M21 3 13.7 10.3" />
+    <path strokeWidth={2.6} d="m12.7 9.4 1.9 1.9" />
+    <path
+      style={koiFill}
+      d="M12.6 9.6c-3 .3-5.2 1.9-6 4.4-.4 1.3-1 2.3-2.1 3.1 2.5.4 4.9-.2 6.6-1.9 1.4-1.4 2-2.9 2-4.4Z"
+    />
+  </IconFrame>
+);
+
+/** The Pond icon for each mode, keyed like the chat's `mode` field. */
+export const POND_MODE_ICONS = {
+  conversation: PondConversationIcon,
+  roleplay: PondRoleplayIcon,
+  fanfic: PondFanficIcon,
+} as const satisfies Record<string, PondIcon>;

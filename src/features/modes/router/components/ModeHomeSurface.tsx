@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Plug, Server } from "lucide-react";
+import { BookOpen, Compass, Feather, Import, MessageSquare, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import {
@@ -11,7 +11,6 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
-import { HomeCreditsModal } from "./HomeCreditsModal";
 import { HomeKoiRing } from "./HomeKoiRing";
 import { HomeModeChoices } from "./HomeModeChoices";
 import { LotusDivider } from "../../../../shared/components/ui/LotusDivider";
@@ -108,7 +107,6 @@ export function ModeHomeSurface({
   const theme = useUIStore((state) => state.theme);
   // The Pond theme sets the logo inside a ring of swimming koi.
   const visualTheme = useUIStore((state) => state.visualTheme);
-  const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const libraryPresence = useLibraryPresence();
   const languageConnections = useMemo(
@@ -191,7 +189,6 @@ export function ModeHomeSurface({
 
   return (
     <>
-      <HomeCreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} />
       <div
         data-component="ChatArea.EmptyState"
         className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
@@ -362,80 +359,13 @@ export function ModeHomeSurface({
             </section>
           )}
 
-          {/* The credits sit at the bottom of the window when Home is shorter
-              than it (mt-auto in a full-height column), else after the content. */}
-          <footer className="mt-auto flex w-full flex-col items-center gap-4 pt-2 sm:gap-5">
-            {isPond ? (
+          {/* Pond closes Home with the lotus (a pause). The project notices, licence links, credits and the
+              tour now live in Help ("About De-Koi"). */}
+          {isPond && (
+            <footer className="mt-auto flex w-full justify-center pt-2">
               <LotusDivider />
-            ) : (
-              <div
-                className={cn(
-                  "w-48",
-                  showQuickStartEntranceEffects ? "retro-divider" : "h-px rounded-[1px] bg-[var(--border)]/40",
-                )}
-              />
-            )}
-
-            <div className="flex w-full max-w-2xl flex-col items-center gap-2">
-              <p className="max-w-[36rem] px-1 text-center text-[0.625rem] leading-snug text-[var(--muted-foreground)]/55 sm:text-xs">
-                De-Koi is an unofficial project that began as a fork of{" "}
-                <a
-                  href="https://github.com/Pasta-Devs/Marinara-Engine"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Marinara Engine
-                </a>
-                .
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-center text-[0.625rem] leading-tight text-[var(--muted-foreground)]/45">
-                <span>AGPL-3.0-or-later</span>
-                <span>No warranty</span>
-                <a
-                  href="https://github.com/The-Koi-Pond/De-Koi"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Source
-                </a>
-                <a
-                  href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/LICENSE.txt"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  License
-                </a>
-                <a
-                  href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/NOTICE.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Notices
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setCreditsOpen(true)}
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  <List size="0.75rem" aria-hidden="true" className="mr-1 inline-block align-[-0.125rem]" />
-                  Credits
-                </button>
-              </div>
-
-              <button
-                onClick={() => useUIStore.getState().setOnboardingTourOpen(true)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]/40 transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--muted-foreground)]"
-                title="Replay tutorial"
-              >
-                <HelpCircle size="0.75rem" />
-                Show me around
-              </button>
-            </div>
-          </footer>
+            </footer>
+          )}
         </div>
       </div>
       {pendingNewChatMode && (
