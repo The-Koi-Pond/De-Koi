@@ -11,7 +11,6 @@ import type {
   EncounterEnemy,
   EncounterFight,
   EncounterLogLine,
-  EncounterNarrationStyle,
   EncounterPartyMember,
   EncounterPlayerActions,
   EncounterResult,
@@ -22,20 +21,6 @@ import type {
 } from "./encounter-types";
 
 export const ENCOUNTER_HISTORY_DEPTH = 8;
-
-export const DEFAULT_COMBAT_NARRATION: EncounterNarrationStyle = {
-  tense: "present",
-  person: "third",
-  narration: "omniscient",
-  pov: "narrator",
-};
-
-export const DEFAULT_SUMMARY_NARRATION: EncounterNarrationStyle = {
-  tense: "past",
-  person: "third",
-  narration: "omniscient",
-  pov: "narrator",
-};
 
 export const DEFAULT_ENEMY_GLYPH = "👹";
 

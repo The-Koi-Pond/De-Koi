@@ -5,7 +5,7 @@ import { create } from "zustand";
 import {
   DEFAULT_COMBAT_NARRATION,
   DEFAULT_SUMMARY_NARRATION,
-} from "../../engine/modes/roleplay/encounter/encounter-rules";
+} from "../../engine/modes/roleplay/encounter/encounter-defaults";
 import type {
   EncounterCallKind,
   EncounterFight,
