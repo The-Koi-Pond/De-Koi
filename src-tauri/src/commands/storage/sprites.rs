@@ -4631,7 +4631,9 @@ mod background_remover_runtime_tests {
     fn backgroundremover_process_drains_large_output_while_waiting() {
         let _guard = PROCESS_ENV_TEST_LOCK.blocking_lock();
         let old_timeout = env::var_os("BACKGROUNDREMOVER_TIMEOUT_MS");
-        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "5000");
+        // A full output pipe would block the child forever, so this timeout only has to catch a hang. Keep it well
+        // above a cold PowerShell start on a busy Windows runner, which took 5 s once in CI.
+        env::set_var("BACKGROUNDREMOVER_TIMEOUT_MS", "30000");
 
         let command = if cfg!(windows) {
             let mut command = Command::new("powershell");
