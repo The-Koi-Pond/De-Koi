@@ -50,6 +50,8 @@ interface PositivePromptPart {
   value: string | null | undefined;
   sourcePrompt: boolean;
   required: boolean;
+  /** Keep this source text whole instead of distilling it down to the subject's look. */
+  keepScene?: boolean;
 }
 
 interface PositivePromptFragment {
@@ -87,7 +89,8 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
   const positiveParts: PositivePromptPart[] = compactPrompt
     ? [
         { value: generatedStyle, sourcePrompt: true, required: true },
-        { value: input.prompt, sourcePrompt: true, required: true },
+        // A selfie keeps the writer's setting, pose and state of dress; portraits, avatars and sprites keep only the look.
+        { value: input.prompt, sourcePrompt: true, required: true, keepScene: input.kind === "selfie" },
         { value: input.userPositive, sourcePrompt: false, required: true },
         { value: profileSubjectTags, sourcePrompt: false, required: true },
         { value: profile.positiveTags, sourcePrompt: false, required: false },
@@ -105,7 +108,7 @@ export function compileImagePrompt(input: CompileImagePromptInput): CompiledImag
   const negativeFragments: string[] = [];
 
   for (const part of positiveParts) {
-    const distillSourcePrompt = part.sourcePrompt && !preserveScenePrompt;
+    const distillSourcePrompt = part.sourcePrompt && !preserveScenePrompt && part.keepScene !== true;
     const fragmentPromptMode = part.sourcePrompt && preserveScenePrompt ? "natural" : fragmentMode;
     for (const fragment of splitPromptFragments(part.value, fragmentPromptMode, distillSourcePrompt)) {
       const negative = extractNegativeFragment(fragment);

@@ -970,7 +970,7 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's full-body sprite (or avatar) so they look like that character, and each character's Selfie look tags (on the Appearance tab) go into every selfie so their mask, hat or outfit stays on model.",
+    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's full-body sprite (or avatar) so they look like that character, and each character's Selfie look tags and outfit tags (on the Appearance tab) keep them on model; the outfit steps aside when a selfie asks for something else, like shirtless or in pajamas.",
     "keywords": [
       "image",
       "images",

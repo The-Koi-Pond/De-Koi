@@ -118,13 +118,26 @@ export function CharacterEditorTabContent({
             <label className="block space-y-1.5">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
                 Selfie look tags{" "}
-                <HelpTooltip text="Comma-separated image tags added to every selfie of this character, in any chat. List what makes them recognizable at a glance: mask, hat, outfit, hair. Keeps selfies on model instead of guessing from the description." />
+                <HelpTooltip text="Comma-separated image tags added to every selfie of this character, in any chat. List what makes them recognizable at a glance: face, mask, hair, markings. Keeps selfies on model instead of guessing from the description." />
               </span>
               <input
                 type="text"
                 value={(formData.extensions.selfieLookTags as string) ?? ""}
                 onChange={(event) => updateExtension("selfieLookTags", event.target.value)}
-                placeholder="white mask, wide grin, green jester hat with bells, black cape"
+                placeholder="white mask, wide grin, curly black hair"
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Selfie outfit tags{" "}
+                <HelpTooltip text="Comma-separated image tags for what this character usually wears. Added to every selfie unless the request changes their clothes (shirtless, in pajamas, in a towel, nude), so a costume stays consistent without blocking other looks." />
+              </span>
+              <input
+                type="text"
+                value={(formData.extensions.selfieOutfitTags as string) ?? ""}
+                onChange={(event) => updateExtension("selfieOutfitTags", event.target.value)}
+                placeholder="green jester hat with bells, black cape, striped sleeves"
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
               />
             </label>
