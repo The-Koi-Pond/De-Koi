@@ -3037,6 +3037,51 @@ function ChatSettingsDrawerInner({
                     </div>
                   )}
 
+                  {/* Selfie likeness: send the character's own pictures with each selfie */}
+                  {(metadata.imageGenConnectionId as string) && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={metadata.selfieUseAvatarReferences === true}
+                      onClick={() =>
+                        updateMeta.mutate({
+                          id: chat.id,
+                          selfieUseAvatarReferences: metadata.selfieUseAvatarReferences !== true,
+                        })
+                      }
+                      className={cn(
+                        "mt-2 flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                        metadata.selfieUseAvatarReferences === true
+                          ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                          : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs font-medium">Make selfies look like the character</span>
+                        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                          Sends their avatar, and a full-body sprite if they have one, with each selfie. Works best with
+                          services that read reference images, like Gemini, GPT Image and NovelAI. Some Stable Diffusion
+                          setups start from the picture instead, so those selfies stay close to the avatar.
+                        </p>
+                      </div>
+                      <div
+                        className={cn(
+                          "h-5 w-9 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors",
+                          metadata.selfieUseAvatarReferences === true
+                            ? "bg-[var(--primary)]"
+                            : "bg-[var(--muted-foreground)]/50",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                            metadata.selfieUseAvatarReferences === true && "translate-x-3.5",
+                          )}
+                        />
+                      </div>
+                    </button>
+                  )}
+
                   {/* Selfie prompt controls */}
                   {(metadata.imageGenConnectionId as string) && (
                     <SelfiePromptControls

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
+import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
@@ -818,6 +819,64 @@ describe("persistConnectedCommandTags", () => {
     });
 
     expect(imageRequests[0]).toMatchObject({ reviewTitle: "Selfie: Juno" });
+  });
+
+  it("sends the selfie character's avatar and full-body sprite as references only when the chat asks for it", async () => {
+    const miraAvatar = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}MAAA`;
+    const junoAvatar = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}JAAA`;
+    const junoFullBody = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}FAAA`;
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1", "char-2"],
+      metadata: { imageGenConnectionId: "image-1", selfieUseAvatarReferences: true },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        { id: "char-1", name: "Mira", avatarPath: miraAvatar, data: { name: "Mira" } },
+        { id: "char-2", name: "Juno", avatarPath: junoAvatar, data: { name: "Juno" } },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      spotify: {} as IntegrationGateway["spotify"],
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const visuals = {
+      async listSprites(ownerId: string) {
+        return ownerId === "char-2"
+          ? [
+              { expression: "happy", image: miraAvatar },
+              { expression: "full_idle", image: junoFullBody },
+            ]
+          : [];
+      },
+    } as unknown as VisualAssetGateway;
+    const run = (target: JsonRecord) =>
+      persistConnectedCommandTags(storage, target, "look", integrations, undefined, null, undefined, visuals, {
+        textsFirstPhoto: "send",
+        textsFirstCharacterId: "char-2",
+      });
+
+    await run(chat);
+    expect(imageRequests[0]).toMatchObject({
+      reviewTitle: "Selfie: Juno",
+      referenceImages: [junoAvatar, junoFullBody],
+    });
+    expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("attached reference image(s) for Juno"));
+
+    await run({ ...chat, metadata: { imageGenConnectionId: "image-1" } });
+    expect(imageRequests[1]).not.toHaveProperty("referenceImages");
+    expect(imageRequests[1]?.prompt).not.toEqual(expect.stringContaining("reference image"));
   });
 
   it("does not recover an implicit selfie when image generation is not configured", async () => {
