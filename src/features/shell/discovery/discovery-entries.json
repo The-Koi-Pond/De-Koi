@@ -852,6 +852,23 @@
     "coverage": "advanced"
   },
   {
+    "id": "voice-notes",
+    "title": "Voice Notes",
+    "category": "Media",
+    "summary": "Now and then a Conversation character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice: a play button with its length and the words behind Show transcript. Each one is made once and kept with the chat, so it replays without a new request, goes into backups and is deleted with the chat. Set per character from never to sometimes (rare by default); at most one photo or voice note until you reply when they text first. Notifications say \"sent a voice message\" without the words.",
+    "keywords": ["voice note", "voice message", "audio message", "tts", "unprompted", "texting"],
+    "audience": "Conversation users with Text to Speech set up who want characters to feel like they're messaging from their phone.",
+    "where": "Conversation chat settings > Voice Notes. Needs Text to Speech on in Settings.",
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "settings",
+        "label": "Open Settings"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "voice-calls",
     "title": "Voice Calls And Voice Input",
     "category": "Media",

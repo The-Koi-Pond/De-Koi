@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import type { Chat } from "../../../../../engine/contracts/types/chat";
+import { sentMediaFromEvents, sentMediaTitle } from "../../../../../engine/modes/chat/core/sent-media";
 import type { AvatarCropValue } from "../../../../../shared/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -110,7 +111,7 @@ export function useBackgroundAutonomousPolling() {
             generatingForRef.current.add(chat.id);
             const doGenerate = async () => {
               let receivedTokens = false;
-              let sentPhoto = false;
+              const mediaEvents: Array<{ type: string }> = [];
               let shouldClearAutonomousFlag = true;
               let controller: AbortController | null = null;
               try {
@@ -140,7 +141,7 @@ export function useBackgroundAutonomousPolling() {
                 )) {
                   const eventType = (event as { type: string }).type;
                   if (eventType === "token") receivedTokens = true;
-                  if (eventType === "selfie") sentPhoto = true;
+                  if (eventType === "selfie" || eventType === "voice_note") mediaEvents.push({ type: eventType });
                 }
 
                 // Only notify if the generation actually produced a message
@@ -191,11 +192,13 @@ export function useBackgroundAutonomousPolling() {
                   chatId: chat.id,
                   characterName: charName,
                   tag: `marinara-conversation-${chat.id}`,
-                  photo: sentPhoto,
+                  media: sentMediaFromEvents(mediaEvents),
                 });
 
                 // Show a global toast so the user knows even from a different chat
-                toast(sentPhoto ? `${charName} sent a photo` : `${charName} sent you a message`, { icon: "💬" });
+                toast(sentMediaTitle(charName, sentMediaFromEvents(mediaEvents)) ?? `${charName} sent you a message`, {
+                  icon: "💬",
+                });
               } catch {
                 // generation failed — non-critical
               } finally {

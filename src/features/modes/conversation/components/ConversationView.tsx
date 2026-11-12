@@ -76,7 +76,7 @@ import {
 } from "../../../catalog/characters/index";
 
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
-import { messageHasPhoto } from "../../../../engine/modes/chat/autonomous/unprompted-photos";
+import { sentMediaFromExtra } from "../../../../engine/modes/chat/core/sent-media";
 import { resolveConversationStatusMessagesEnabled } from "../../../../engine/modes/chat/status/conversation-status-settings";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../../../shared/api/conversation-settings-api";
@@ -1277,7 +1277,7 @@ export function ConversationView({
         chatId,
         characterName: getAssistantNotificationName(newAssistantMessage, characterMap, activeCharacterNames),
         tag: `marinara-conversation-${chatId}`,
-        photo: messageHasPhoto(newAssistantMessage.extra),
+        media: sentMediaFromExtra(newAssistantMessage.extra),
       });
     }
 

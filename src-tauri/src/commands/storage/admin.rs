@@ -57,7 +57,8 @@ fn execute_expunge_scope(
                 "game-state-snapshots",
             ],
             cleared_collections,
-        )?,
+        )
+        .and_then(|()| clear_voice_notes(state))?,
         "characters" => {
             let characters = state.storage.list("characters")?;
             let versions = state.storage.list("character-versions")?;
@@ -310,6 +311,15 @@ fn clear_collections(
         state.storage.replace_all(collection, Vec::new())?;
         remove_gallery_files_from_snapshot(state, &files);
         cleared.push((*collection).to_string());
+    }
+    Ok(())
+}
+
+/// Voice notes belong to chats: clearing every chat clears them too.
+fn clear_voice_notes(state: &AppState) -> AppResult<()> {
+    let dir = state.data_dir.join(super::integrations::VOICE_NOTES_DIR);
+    if dir.exists() {
+        fs::remove_dir_all(&dir)?;
     }
     Ok(())
 }

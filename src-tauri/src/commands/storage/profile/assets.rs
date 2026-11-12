@@ -18,6 +18,7 @@ const PROFILE_ASSET_DIRS: &[&str] = &[
     "fonts",
     "knowledge-sources",
     "lorebooks/images",
+    "voice-notes",
 ];
 pub(super) const MAX_PROFILE_ASSET_BYTES: u64 = 256 * 1024 * 1024;
 pub(super) const PROFILE_ARCHIVE_TOTAL_UNCOMPRESSED_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;

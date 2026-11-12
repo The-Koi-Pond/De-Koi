@@ -102,6 +102,9 @@ const NANOGPT_ELEVENLABS_VOICES: &[&str] = &[
 
 #[path = "tts_transcribe.rs"]
 mod transcribe;
+#[path = "tts_voice_note.rs"]
+mod voice_note;
+pub(crate) use voice_note::{voice_note_dir_for_chat, VOICE_NOTES_DIR};
 
 pub(crate) async fn tts_call(
     state: &AppState,
@@ -115,6 +118,7 @@ pub(crate) async fn tts_call(
         ("GET", ["voices"]) => voices(state).await,
         ("POST", ["speak"]) => speak(state, body).await,
         ("POST", ["transcribe"]) => transcribe::transcribe(state, body).await,
+        ("POST", ["voice-note"]) => voice_note::create_voice_note(state, body).await,
         _ => Err(AppError::new(
             "route_not_found",
             format!("Unknown tts route: {method} /{}", rest.join("/")),
@@ -1483,6 +1487,69 @@ mod tests {
         assert!(result["audioBase64"]
             .as_str()
             .is_some_and(|audio| !audio.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn voice_note_speaks_once_and_keeps_the_audio_with_the_chat() {
+        let base_url = serve_pockettts_audio().await;
+        let state = test_state("voice-note-create");
+        state
+            .storage
+            .upsert_with_id(
+                "app-settings",
+                TTS_SETTINGS_KEY,
+                json!({
+                    "value": {
+                        "enabled": true,
+                        "source": "pockettts",
+                        "baseUrl": base_url,
+                        "voice": "alba"
+                    }
+                }),
+            )
+            .expect("TTS settings should be stored");
+
+        let saved = tts_call(
+            &state,
+            "POST",
+            &["voice-note"],
+            json!({ "chatId": "chat-1", "text": "omw. save me a seat", "speaker": "Mira" }),
+        )
+        .await
+        .expect("voice note should be made");
+
+        let filename = saved["filename"].as_str().expect("filename");
+        let path = state
+            .data_dir
+            .join("voice-notes")
+            .join("chat-1")
+            .join(filename);
+        assert!(filename.ends_with(".wav"), "{filename}");
+        assert_eq!(saved["contentType"], "audio/wav");
+        assert!(std::fs::read(&path)
+            .expect("audio file")
+            .starts_with(b"RIFF"));
+        assert!(saved["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("voice-notes")));
+
+        let too_long = "a".repeat(voice_note::MAX_VOICE_NOTE_CHARS + 1);
+        assert!(tts_call(
+            &state,
+            "POST",
+            &["voice-note"],
+            json!({ "chatId": "chat-1", "text": too_long })
+        )
+        .await
+        .is_err());
+        assert!(tts_call(
+            &state,
+            "POST",
+            &["voice-note"],
+            json!({ "chatId": "../chat-1", "text": "hi" })
+        )
+        .await
+        .is_err());
     }
 
     #[tokio::test]
