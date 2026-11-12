@@ -99,9 +99,7 @@ export interface SpotifySignInStart {
 }
 
 export type SpotifySignInStatus =
-  | { status: "waiting"; expiresInMs: number }
-  | { status: "done" }
-  | { status: "failed"; message: string };
+  { status: "waiting"; expiresInMs: number } | { status: "done" } | { status: "failed"; message: string };
 
 export interface SpotifyPlaylist {
   id: string;
