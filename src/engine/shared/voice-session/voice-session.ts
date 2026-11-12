@@ -18,6 +18,9 @@ import type {
   VoiceSessionPorts,
 } from "../../capabilities/voice";
 import { soundsLikeReplyEcho } from "./echo";
+import { VoiceTurnTimer, type VoiceHeardMarks, type VoiceTurnTiming } from "./voice-turn-timing";
+
+export type { VoiceTurnTiming } from "./voice-turn-timing";
 
 export type VoiceSessionPhase =
   | "connecting"
@@ -52,6 +55,8 @@ export interface VoiceSessionSnapshot {
   readonly voiceReplies: boolean;
   /** True while a cut-off reply is being stopped, before the user's words are sent. */
   readonly stopping: boolean;
+  /** How long the latest voiced reply took to start, stage by stage; null until one has. */
+  readonly timing: VoiceTurnTiming | null;
 }
 
 export type VoiceSessionEvent =
@@ -62,6 +67,8 @@ export type VoiceSessionEvent =
   | { type: "reply"; sessionId: number; turn: number; text: string }
   | { type: "interrupted"; sessionId: number; turn: number; by: "voice" | "button" }
   | { type: "resumed"; sessionId: number; turn: number; reason: "silence" | "echo" }
+  /** A reply's voice started: how long it took, stage by stage. */
+  | { type: "timing"; sessionId: number; turn: number; timing: VoiceTurnTiming }
   | { type: "error"; sessionId: number; message: string }
   | { type: "ended"; sessionId: number };
 
@@ -98,6 +105,7 @@ interface Turn {
   /** Times this turn's voice was held for speech that turned out to be noise or its own echo. */
   falseAlarms: number;
   cancelled: boolean;
+  timer: VoiceTurnTimer;
   /** Resolves once the turn has finished or been stopped. */
   over: Promise<void>;
   markOver: () => void;
@@ -146,6 +154,10 @@ class Session<Utterance> implements VoiceSession {
   private discardUtterance = false;
   private speechIdleWaiters: Array<() => void> = [];
   private unmuteWaiters: Array<() => void> = [];
+  /** When the current recording's speech ended, as reported by the microphone. */
+  private speechEnd: Omit<VoiceHeardMarks, "textAt"> | null = null;
+  /** When the latest words to send were heard; the next turn is timed from them. */
+  private heardMarks: VoiceHeardMarks | null = null;
 
   constructor(private readonly ports: VoiceSessionPorts<Utterance>) {
     this.snapshot = {
@@ -161,6 +173,7 @@ class Session<Utterance> implements VoiceSession {
       muted: false,
       voiceReplies: true,
       stopping: false,
+      timing: null,
     };
   }
 
@@ -238,6 +251,7 @@ class Session<Utterance> implements VoiceSession {
 
       const listen = new AbortController();
       this.listenController = listen;
+      this.speechEnd = null;
       const unlink = linkAbort(this.life.signal, listen);
       let utterance: Utterance | null;
       try {
@@ -249,6 +263,11 @@ class Session<Utterance> implements VoiceSession {
           },
           onSpeechStart: () => {
             if (this.listenController === listen) this.onSpeechStart();
+          },
+          onSpeechEnd: (quietForMs) => {
+            if (this.listenController !== listen) return;
+            const now = Date.now();
+            this.speechEnd = { speechEndedAt: now - Math.max(0, quietForMs), recordingEndedAt: now };
           },
         });
       } catch (error) {
@@ -274,9 +293,19 @@ class Session<Utterance> implements VoiceSession {
         this.update({ mic: this.mic ? "listening" : "off" });
       }
       if (this.over) return;
+      if (text) this.heardMarks = this.heardFromRecording();
       this.dispatch(text);
       this.release("speech");
     }
+  }
+
+  /** When the words just transcribed were heard, from what the microphone reported about the recording. */
+  private heardFromRecording(): VoiceHeardMarks {
+    return {
+      speechEndedAt: this.speechEnd?.speechEndedAt ?? null,
+      recordingEndedAt: this.speechEnd?.recordingEndedAt ?? null,
+      textAt: Date.now(),
+    };
   }
 
   /** The recognizer owns the microphone, so it listens only between replies. */
@@ -313,6 +342,8 @@ class Session<Utterance> implements VoiceSession {
       }
       // Muted (or hung up) mid-utterance: what was caught before that isn't sent.
       if (this.over || listen.signal.aborted || !text) continue;
+      // The recognizer doesn't say when the user stopped talking: time the turn from its text.
+      this.heardMarks = { speechEndedAt: null, recordingEndedAt: null, textAt: Date.now() };
       this.startTurn(text);
     }
   }
@@ -330,6 +361,7 @@ class Session<Utterance> implements VoiceSession {
       return;
     }
     turn.pausedForUser = true;
+    turn.timer.hold();
     turn.speaker?.pause();
     this.update({ phase: "interrupted" });
   }
@@ -414,26 +446,32 @@ class Session<Utterance> implements VoiceSession {
     const over = new Promise<void>((resolve) => {
       markOver = resolve;
     });
-    const speaker = this.ports.speech.begin(`${this.id}:${id}`);
+    const heard = this.heardMarks;
+    this.heardMarks = null;
     const turn: Turn = {
       id,
-      speaker,
+      speaker: null,
       handle: null,
       replyText: "",
       pausedForUser: false,
       falseAlarms: 0,
       cancelled: false,
+      timer: new VoiceTurnTimer(id, heard, Date.now()),
       over,
       markOver,
     };
+    const speaker = this.ports.speech.begin(`${this.id}:${id}`, () => this.onFirstSound(turn));
+    turn.speaker = speaker;
     this.turn = turn;
     this.update({ phase: "thinking", heard: text, said: "" });
     this.emit({ type: "heard", turn: id, text });
     const live = () => this.turn === turn && !turn.cancelled && !this.over;
     turn.handle = this.ports.reply.send(text, (streamed) => {
       if (!live()) return;
+      turn.timer.firstWords(Date.now());
       this.setReplyText(turn, streamed);
       speaker?.push(streamed);
+      if (speaker?.started) turn.timer.firstPiece(Date.now());
       this.update(speaker?.started && !turn.pausedForUser ? { said: streamed, phase: "speaking" } : { said: streamed });
     });
     void this.followTurn(turn, live)
@@ -462,9 +500,19 @@ class Session<Utterance> implements VoiceSession {
     }
     if (turn.speaker) {
       if ((saved || turn.speaker.started) && !turn.pausedForUser) this.update({ phase: "speaking" });
-      await turn.speaker.finish(saved);
+      const finishing = turn.speaker.finish(saved);
+      if (turn.speaker.started) turn.timer.firstPiece(Date.now());
+      await finishing;
     }
     if (live()) this.endTurn(turn);
+  }
+
+  private onFirstSound(turn: Turn): void {
+    if (this.over || this.turn !== turn || turn.cancelled) return;
+    const timing = turn.timer.firstSound(Date.now());
+    if (!timing) return;
+    this.update({ timing });
+    this.emit({ type: "timing", turn: turn.id, timing });
   }
 
   private setReplyText(turn: Turn, text: string): void {

@@ -146,8 +146,8 @@ function microphoneErrorMessage(error: unknown): string {
 
 function microphoneFor(stream: MediaStream): VoiceMicrophone<Blob> {
   return {
-    listen: ({ signal, guarded, onLevel, onSpeechStart }) =>
-      recordUtterance(stream, signal, { guarded, onLevel, onSpeechStart, maxWaitMs: LISTEN_WINDOW_MS }),
+    listen: ({ signal, guarded, onLevel, onSpeechStart, onSpeechEnd }) =>
+      recordUtterance(stream, signal, { guarded, onLevel, onSpeechStart, onSpeechEnd, maxWaitMs: LISTEN_WINDOW_MS }),
     onEnded: (listener) => {
       const tracks = stream.getAudioTracks();
       const onEnded = () => listener();
@@ -285,9 +285,15 @@ function sendReply(
 
 // ── Speaker ───────────────────────────────────
 
-function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: string): VoiceReplySpeaker {
+function speakerFor(
+  config: TTSConfig,
+  character: VoiceCallCharacter,
+  turnKey: string,
+  onFirstSound: () => void,
+): VoiceReplySpeaker {
   const controller = new AbortController();
   const { signal } = controller;
+  let sounded = false;
   const speaker = new StreamingSpeaker({
     signal,
     prefetchAhead: PREFETCH_AHEAD,
@@ -315,6 +321,11 @@ function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: s
         playbackRate: clientSidePlaybackRate(config),
         lookahead: 1,
         throwOnError: true,
+        onPartAudible: () => {
+          if (sounded) return;
+          sounded = true;
+          onFirstSound();
+        },
       }),
   });
   return {
@@ -369,10 +380,10 @@ export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSess
     },
     reply: { send: (text, onText) => sendReply(context, text, onText) },
     speech: {
-      begin: (turnKey) => {
+      begin: (turnKey, onFirstSound) => {
         if (!config?.enabled) return null;
         const { chatId, character } = context();
-        return speakerFor(config, character, `voice-call:${chatId}:${Date.now()}:${turnKey}`);
+        return speakerFor(config, character, `voice-call:${chatId}:${Date.now()}:${turnKey}`, onFirstSound);
       },
     },
   };

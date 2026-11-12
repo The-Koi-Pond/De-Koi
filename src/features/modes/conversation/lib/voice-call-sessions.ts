@@ -7,6 +7,7 @@
 import { followVoiceReactions, type VoiceReactions } from "../../../../engine/shared/voice-session/voice-reactions";
 import { createVoiceSession, type VoiceSession } from "../../../../engine/shared/voice-session/voice-session";
 import { holdChatAutoplay } from "../../../../shared/lib/chat-autoplay-hold";
+import { markPerformanceMilestone } from "../../../../shared/lib/performance-diagnostics";
 import { createVoiceCallPorts, type VoiceCallContext } from "./voice-call-ports";
 
 interface Entry {
@@ -30,6 +31,10 @@ export function voiceCallSessionFor(context: VoiceCallContext): VoiceSession {
   const entry: Entry = { session: null as unknown as VoiceSession, context, holders: 0, releaseTimer: null };
   entry.session = createVoiceSession(createVoiceCallPorts(() => entry.context));
   reactionsBySession.set(entry.session, followVoiceReactions(entry.session));
+  // With performance diagnostics on, each reply's time to first sound goes to the console with the other spans.
+  entry.session.onEvent((event) => {
+    if (event.type === "timing") markPerformanceMilestone("voice_call.reply_timing", { ...event.timing });
+  });
   entries.set(context.chatId, entry);
   return entry.session;
 }
