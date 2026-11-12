@@ -15,6 +15,7 @@ use tokio::sync::watch;
 use crate::performance_diagnostics::log_span;
 use crate::seed_defaults::seed_bundled_defaults;
 use crate::storage_commands::{
+    canonical_memory::SemanticVectorCache,
     character_version_media::cleanup_orphaned_character_version_media,
     character_version_retention::prune_character_versions,
     contracts,
@@ -43,6 +44,8 @@ pub struct AppState {
     background_workers: Arc<Mutex<HashMap<String, BackgroundWorkerLease>>>,
     /// Serializes enqueue/claim/finish so a trigger landing mid-run is never lost to the finish.
     background_jobs_lock: Arc<Mutex<()>>,
+    /// Parsed memory vectors kept between semantic memory searches (see `canonical_memory/vector_cache.rs`).
+    semantic_vectors: Arc<Mutex<SemanticVectorCache>>,
 }
 
 struct BackgroundWorkerLease {
@@ -135,6 +138,7 @@ impl AppState {
             memory_capture_worker: Arc::new(Mutex::new(None)),
             background_workers: Arc::new(Mutex::new(HashMap::new())),
             background_jobs_lock: Arc::new(Mutex::new(())),
+            semantic_vectors: Arc::new(Mutex::new(SemanticVectorCache::default())),
         };
         let character_version_media_ready = match run_startup_migration_once(
             &state.storage,
@@ -335,6 +339,14 @@ impl AppState {
             seed_bundled_defaults(storage, Path::new(""))?;
         }
         Ok(())
+    }
+
+    pub(crate) fn semantic_vectors(
+        &self,
+    ) -> AppResult<std::sync::MutexGuard<'_, SemanticVectorCache>> {
+        self.semantic_vectors
+            .lock()
+            .map_err(|_| AppError::new("lock_error", "Semantic vector cache lock poisoned"))
     }
 
     pub fn background_path(&self, path: &str) -> AppResult<PathBuf> {
