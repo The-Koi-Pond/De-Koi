@@ -3692,6 +3692,7 @@ async function saveAssistantMessage(args: {
       chatId: args.input.chatId,
       messageId: regenerateMessageId,
       content,
+      attachments: args.attachments,
       ...(characterId ? { characterId } : {}),
       thinking: thinking || undefined,
       generationReplay,
@@ -3769,7 +3770,10 @@ async function saveRegeneratedMessage(args: {
   spriteExpressions?: Record<string, string> | null;
   agentExtra?: Record<string, unknown> | null;
   generationInfo?: Record<string, unknown> | null;
+  /** Images the reply sent (a selfie); they belong to this swipe like they belong to a new message. */
+  attachments?: JsonRecord[] | null;
 }): Promise<unknown | null> {
+  const attachmentExtra = args.attachments?.length ? { attachments: args.attachments } : {};
   const engineSwipeExtra = swipeScopedGenerationExtra({
     generationReplay: args.generationReplay,
     chatSummaryFingerprint: args.chatSummaryFingerprint,
@@ -3780,7 +3784,7 @@ async function saveRegeneratedMessage(args: {
     agentExtra: args.agentExtra,
     generationInfo: args.generationInfo,
   });
-  const swipeExtra = { ...args.savedExtra, ...engineSwipeExtra };
+  const swipeExtra = { ...args.savedExtra, ...engineSwipeExtra, ...attachmentExtra };
   await args.storage.addChatMessageSwipe(
     args.chatId,
     args.messageId,
@@ -3797,7 +3801,7 @@ async function saveRegeneratedMessage(args: {
     agentExtra: args.agentExtra,
     generationInfo: args.generationInfo,
   });
-  return args.storage.patchChatMessageExtra(args.messageId, { ...args.savedExtra, ...extraPatch });
+  return args.storage.patchChatMessageExtra(args.messageId, { ...args.savedExtra, ...extraPatch, ...attachmentExtra });
 }
 
 function swipeOptionsWithCharacterId(
