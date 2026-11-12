@@ -123,7 +123,7 @@ export function CharacterPublicProfilePopover({
     const cue = buildCharacterMusicPlaybackCue(displayedProfile.nowListening);
     if (!cue) return;
     void showMusicDjMiniPlayerHintIfNeeded();
-    dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
+    dispatchMusicPlaybackEvent({ type: "cue", query: cue.query, url: cue.url });
   }, [displayedProfile.nowListening]);
   const playProvidedProfileMusic = useCallback(() => {
     if (!onPlayMusic) return;

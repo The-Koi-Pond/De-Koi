@@ -18,7 +18,7 @@ export interface ResolvedAgent extends AgentExecConfig {
   model: string;
   /** Maximum number of concurrent agent LLM jobs allowed for this connection. */
   maxParallelJobs: number;
-  /** Optional tool context for agents that need function calling (e.g., Spotify). */
+  /** Optional tool context for agents that need function calling. */
   toolContext?: AgentToolContext;
   /** Source material selected for Knowledge Retrieval. */
   knowledgeSourceMaterial?: string;
@@ -165,11 +165,6 @@ function buildAgentContext(agentOrAgents: ResolvedAgent | ResolvedAgent[], conte
 }
 
 function shouldExecuteIndividually(agent: ResolvedAgent): boolean {
-  // Spotify agents in post_processing batch with others and return JSON intent;
-  // tool execution happens later via applySpotifyPlaybackFallback.
-  if (agent.type === "spotify" && agent.phase === "post_processing") {
-    return shouldRunAgentIndividually(agent);
-  }
   return (
     shouldRunAgentIndividually(agent) ||
     agent.type === "knowledge-retrieval" ||

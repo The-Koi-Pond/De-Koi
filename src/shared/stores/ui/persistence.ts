@@ -29,7 +29,22 @@ import {
 import type { UIState } from "./model";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 12;
+export const UI_STORE_VERSION = 13;
+
+/** Music Player settings saved under their old Spotify-era names, and their current names. */
+const RENAMED_MUSIC_PLAYER_KEYS = [
+  ["spotifyPlayerEnabled", "musicPlayerEnabled"],
+  ["spotifyMobileWidgetCollapsed", "musicPlayerMobileWidgetCollapsed"],
+  ["spotifyMobileWidgetPosition", "musicPlayerMobileWidgetPosition"],
+] as const;
+
+function renameMusicPlayerKeys(persisted: Record<string, unknown>): void {
+  for (const [oldKey, newKey] of RENAMED_MUSIC_PLAYER_KEYS) {
+    if (!(oldKey in persisted)) continue;
+    if (!(newKey in persisted)) persisted[newKey] = persisted[oldKey];
+    delete persisted[oldKey];
+  }
+}
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -173,10 +188,10 @@ export function partializeUiState(state: UIState) {
     quoteFormat: state.quoteFormat,
     trimIncompleteModelOutput: state.trimIncompleteModelOutput,
     speechToTextEnabled: state.speechToTextEnabled,
-    spotifyPlayerEnabled: state.spotifyPlayerEnabled,
+    musicPlayerEnabled: state.musicPlayerEnabled,
     remoteRuntimeUrl: state.remoteRuntimeUrl,
-    spotifyMobileWidgetCollapsed: state.spotifyMobileWidgetCollapsed,
-    spotifyMobileWidgetPosition: state.spotifyMobileWidgetPosition,
+    musicPlayerMobileWidgetCollapsed: state.musicPlayerMobileWidgetCollapsed,
+    musicPlayerMobileWidgetPosition: state.musicPlayerMobileWidgetPosition,
     intuitiveSwipeNavigation: state.intuitiveSwipeNavigation,
     intuitiveSwipeRerollLatest: state.intuitiveSwipeRerollLatest,
     editLastMessageOnArrowUp: state.editLastMessageOnArrowUp,
@@ -252,6 +267,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   const legacyWidth = persisted.trackerPanelWidth;
   delete (persisted as Record<string, unknown>)["chibiDekiEnabled"];
   delete (persisted as Record<string, unknown>)["chibiProfessorMariEnabled"];
+  renameMusicPlayerKeys(persisted as Record<string, unknown>);
   persisted.sidebarWidth = normalizePersistedWidth(
     persisted.sidebarWidth === LEGACY_SIDEBAR_WIDTH_DEFAULT ? SIDEBAR_WIDTH_DEFAULT : persisted.sidebarWidth,
     SIDEBAR_WIDTH_DEFAULT,

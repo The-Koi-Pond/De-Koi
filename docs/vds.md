@@ -112,6 +112,13 @@ Only use this on a network you already trust. If other people can reach the
 port, add reverse-proxy auth, `BASIC_AUTH_USER` and `BASIC_AUTH_PASS`, or
 `IP_ALLOWLIST`.
 
+## Spotify In The Music Player
+
+To let the server receive Spotify sign-ins for the Music Player's Spotify source, set
+`SPOTIFY_REDIRECT_URI=https://<your domain>/spotify/callback` in `.env`, register that exact address in your Spotify
+developer app, and restart the containers. Without it, sign-in still works by pasting the address the browser ends
+up on into "Browser couldn't reach the callback?" in Music Player settings.
+
 ## Data And Updates
 
 The default persistent data lives in the named Docker volume `de-koi-vds-data`.

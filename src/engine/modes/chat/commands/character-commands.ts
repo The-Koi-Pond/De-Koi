@@ -12,8 +12,8 @@
 // - [memory: target="CharName", summary="description of the memory"]
 // - <memory: target="CharName", summary="description of the memory"> (Conversation-only compatibility form)
 // - [scene: scenario="...", background="...", plan="..."] (initiate a mini-roleplay scene)
-// - [spotify: title="Song title", artist="Artist"] (play a song on the user's active Spotify player)
 // - [react: emoji="😂"] or [react: 😂] (Conversation: tapback on the user's latest message)
+// - [spotify: title="Song", artist="Artist"] (Conversation: play a song on repeat on the user's Spotify)
 // - <influence>text</influence> (OOC influence for connected roleplay, one-shot)
 // - <note>text</note> (durable note for connected roleplay, persists until cleared)
 // - [dm: character="CharName", message="text"] (Roleplay-only: open a direct-message conversation)
@@ -100,11 +100,10 @@ export interface ReactCommand {
   emoji: string;
 }
 
-interface SpotifyCommand {
+export interface SpotifyCommand {
   type: "spotify";
-  /** Exact song title to play */
+  /** Empty when the command left it out; execution reports that as a command error. */
   title: string;
-  /** Artist name to disambiguate the track */
   artist: string;
 }
 
@@ -313,8 +312,8 @@ export type CharacterCommand =
   | InfluenceCommand
   | NoteCommand
   | DirectMessageCommand
-  | SpotifyCommand
   | ReactCommand
+  | SpotifyCommand
   | AssistantCommand;
 
 // Param block matcher: any char that isn't `"` or `]`, OR a complete
@@ -333,7 +332,6 @@ const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
 const ANGLE_MEMORY_RE = /<memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)">/gi;
 const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
-const SPOTIFY_RE = new RegExp(`\\[spotify:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const REACT_RE = /\[react:\s*(?:emoji="([^"\]]{1,32})"|"([^"\]]{1,32})"|([^\]\r\n"]{1,32}))\s*\]/gi;
 // One emoji: a pictograph or flag, with optional variation selector, keycap, skin tone, or ZWJ-joined pictographs.
 const SINGLE_EMOJI_RE =
@@ -344,6 +342,9 @@ export function parseReactionEmoji(value: string): string | null {
   const trimmed = value.trim();
   return trimmed && SINGLE_EMOJI_RE.test(trimmed) ? trimmed : null;
 }
+// Like QUOTED_PARAM_BLOCK, but a curly double-quoted value (“…”) also keeps a `]` inside it.
+const SPOTIFY_RE =
+  /\[spotify:\s*((?:[^"\u201c\u201d\]]|"(?:\\.|[^"\\])*"|[\u201c\u201d][^\u201c\u201d]*[\u201c\u201d])*)\]/gi;
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const INFLUENCE_RE = /<influence>([\s\S]*?)<\/influence>/gi;
 const NOTE_RE = /<note>([\s\S]*?)<\/note>/gi;
@@ -931,20 +932,20 @@ export function parseCharacterCommands(
     if (text) commands.push({ type: "note", content: text });
   }
 
-  // Parse Spotify song commands
-  for (const match of content.matchAll(SPOTIFY_RE)) {
-    const params = match[1]!;
-    const title = parseQuotedParam(params, "title");
-    const artist = parseQuotedParam(params, "artist");
-    if (title && artist) {
-      commands.push({ type: "spotify", title, artist });
-    }
-  }
-
   // Parse reaction (tapback) commands
   for (const match of content.matchAll(REACT_RE)) {
     const emoji = parseReactionEmoji(match[1] ?? match[2] ?? match[3] ?? "");
     if (emoji) commands.push({ type: "react", emoji });
+  }
+
+  // Parse Spotify song commands
+  for (const match of content.matchAll(SPOTIFY_RE)) {
+    const params = match[1]!;
+    commands.push({
+      type: "spotify",
+      title: parseQuotedParam(params, "title")?.trim() ?? "",
+      artist: parseQuotedParam(params, "artist")?.trim() ?? "",
+    });
   }
 
   // Parse assistant commands (Deki-senpai)
@@ -1076,8 +1077,8 @@ export function parseCharacterCommands(
     .replace(MEMORY_RE, "")
     .replace(BARE_MEMORY_RE, "")
     .replace(SCENE_RE, "")
-    .replace(SPOTIFY_RE, "")
     .replace(REACT_RE, "")
+    .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")
     .replace(CREATE_PERSONA_RE, "")

@@ -66,6 +66,9 @@ describe("coreModulesApi legacy settings migration", () => {
         [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: true,
       },
     });
+    expect(
+      settingsFromLegacyUiStorageValue(JSON.stringify({ state: { musicPlayerEnabled: true }, version: 13 })),
+    ).toEqual({ enabled: { [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: true } });
   });
 
   it("ignores missing, disabled, or malformed legacy UI settings", () => {

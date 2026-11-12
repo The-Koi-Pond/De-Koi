@@ -185,6 +185,16 @@ Nothing to configure. If the runner isn't running, De-Koi falls back to running 
 runner uses the same `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` and `CSRF_TRUSTED_ORIGINS` as the server. Replies keep
 running in the tab when "review image prompts before sending" or debug mode is on.
 
+## Spotify In The Music Player
+
+The Music Player can use Spotify as its source (Music Player settings). Sign-in sends you back to a redirect
+address that you register in your own Spotify developer app. On a server, the easiest way is to press Connect,
+then paste the address the browser ends up on into "Browser couldn't reach the callback?".
+
+To let the server receive the sign-in itself, the page has to be on `https://` (see above). Set
+`SPOTIFY_REDIRECT_URI=https://<your address>/spotify/callback` in `.env`, register that exact address in the Spotify
+app, and restart the containers. The web container forwards `/spotify/callback` to the server.
+
 ## Auto Update Timer
 
 After one manual image update works, install the systemd timer templates:

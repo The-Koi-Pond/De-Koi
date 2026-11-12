@@ -44,8 +44,11 @@ export function settingsFromLegacyUiStorageValue(value: string | null): CoreModu
   try {
     const parsed: unknown = JSON.parse(value);
     const state = isRecord(parsed) ? parsed.state : null;
+    // `spotifyPlayerEnabled` is the switch's name before the UI store renamed it.
+    const musicPlayerEnabled =
+      isRecord(state) && (state.musicPlayerEnabled === true || state.spotifyPlayerEnabled === true);
     return normalizeSettings({
-      enabled: isRecord(state) && state.spotifyPlayerEnabled === true ? { [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: true } : {},
+      enabled: musicPlayerEnabled ? { [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: true } : {},
     });
   } catch {
     return normalizeSettings(null);

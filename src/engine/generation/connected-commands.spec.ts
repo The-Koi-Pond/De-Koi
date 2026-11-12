@@ -711,7 +711,6 @@ describe("persistConnectedCommandTags", () => {
           });
         },
       },
-      spotify: {} as IntegrationGateway["spotify"],
       customTools: {} as IntegrationGateway["customTools"],
     };
 
@@ -763,7 +762,6 @@ describe("persistConnectedCommandTags", () => {
           return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
         },
       },
-      spotify: {} as IntegrationGateway["spotify"],
       customTools: {} as IntegrationGateway["customTools"],
     };
     const run = (content: string, textsFirstPhoto: "send" | "withhold") =>
@@ -812,7 +810,6 @@ describe("persistConnectedCommandTags", () => {
           return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
         },
       },
-      spotify: {} as IntegrationGateway["spotify"],
       customTools: {} as IntegrationGateway["customTools"],
     };
 
@@ -859,7 +856,6 @@ describe("persistConnectedCommandTags", () => {
           return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
         },
       },
-      spotify: {} as IntegrationGateway["spotify"],
       customTools: {} as IntegrationGateway["customTools"],
     };
     const visuals = {
