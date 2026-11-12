@@ -1,5 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "{index,cli,main}.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "src/{index,cli,main}.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "src/runner/main.ts",
+    "vite.runner.config.ts",
+    "scripts/readme-screenshots/export-demo.mjs"
+  ],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs", "*.config.{js,ts}"],
   "ignoreDependencies": ["@tauri-apps/cli", "tailwindcss"],
   "ignoreIssues": {
@@ -24,11 +31,9 @@
     "src/engine/contracts/types/character.ts": ["types"],
     "src/engine/contracts/types/chat-preset.ts": ["exports"],
     "src/engine/contracts/types/chat.ts": ["types"],
-    "src/engine/contracts/types/combat-encounter.ts": ["types"],
     "src/engine/contracts/types/connection.ts": ["types"],
     "src/engine/contracts/types/core-module.ts": ["types"],
     "src/engine/contracts/types/export.ts": ["types"],
-    "src/engine/contracts/types/game.ts": ["types"],
     "src/engine/contracts/types/lorebook.ts": ["types"],
     "src/engine/contracts/types/persona.ts": ["types"],
     "src/engine/contracts/types/prompt.ts": ["exports", "types"],
@@ -40,8 +45,6 @@
     "src/engine/generation-core/llm/inline-thinking.ts": ["exports", "types"],
     "src/engine/generation/generate-route-utils.ts": ["exports"],
     "src/engine/generation/tools-runtime.ts": ["exports"],
-    "src/engine/mari/mari-entry.ts": ["types"],
-    "src/features/catalog/characters/hooks/use-characters.ts": ["exports"],
     "src/features/shell/plugins/components/CoreModulesSettings.tsx": ["exports"],
     "src/features/runtime/tracker/components/tracker-data-sidebar.constants.ts": ["duplicates"]
   }

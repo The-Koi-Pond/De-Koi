@@ -259,7 +259,7 @@ jobs:
         run: pnpm lint
       - if: needs.classify.outputs.frontend == 'true'
         run: pnpm test:allow-empty
-      - name: Unused code report
+      - name: Unused code check
         if: needs.classify.outputs.frontend == 'true'
         run: pnpm check:unused
 

@@ -19,7 +19,7 @@ import { toUserMessage } from "../../../../shared/lib/error-message";
 import { chatKeys } from "../../../catalog/chats/index";
 import { useGenerate } from "../../../runtime/generation/index";
 
-export const fanficCommentKeys = {
+const fanficCommentKeys = {
   threads: (ficChatId: string) => [...chatKeys.all, "fanfic-comments", ficChatId] as const,
 };
 

@@ -1,6 +1,6 @@
 import { toUserMessage } from "../../shared/lib/error-message";
 /** Chats per server request: each request is one storage pass, and chunks keep progress moving. */
-export const CHAT_DELETE_BATCH_SIZE = 25;
+const CHAT_DELETE_BATCH_SIZE = 25;
 
 type DeleteSelectedChatsInput = {
   chatIds: string[];

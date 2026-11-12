@@ -14,7 +14,7 @@ import {
   type JsonRecord,
 } from "../../../generation/runtime-records";
 
-export interface EncounterPersona {
+interface EncounterPersona {
   name: string;
   description: string;
   personality: string;
@@ -24,7 +24,7 @@ export interface EncounterPersona {
   maxHp: number | null;
 }
 
-export interface EncounterCharacter {
+interface EncounterCharacter {
   name: string;
   description: string;
   personality: string;

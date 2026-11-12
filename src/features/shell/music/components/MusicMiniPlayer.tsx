@@ -893,7 +893,3 @@ export function MusicToolbarPlayer() {
 export function MusicFloatingWidget() {
   return <MusicMiniPlayer variant="floating" />;
 }
-
-export function MusicMobileWidget() {
-  return <MusicFloatingWidget />;
-}

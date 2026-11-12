@@ -35,7 +35,7 @@ function chatMode(chat: JsonRecord): string {
  * a duplicate callback) are handled by the conditional write: on a clash the state is read again
  * and the boundary check decides, so the same boundary can't be offered twice.
  */
-export async function offerWorldTick(
+async function offerWorldTick(
   storage: StorageGateway,
   chatId: string,
   input: RecordWorldTickOfferInput,

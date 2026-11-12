@@ -66,11 +66,6 @@ export async function generationRunnerHealth(): Promise<RunnerHealth> {
   return value;
 }
 
-/** Forget the cached health result, e.g. after the runner refused a request. */
-export function resetGenerationRunnerHealth(): void {
-  health = null;
-}
-
 async function runnerFetch(path: string, init: RequestInit): Promise<Response> {
   const target = remoteRuntimeTarget();
   if (!target) throw remoteRuntimeNotConfiguredError();

@@ -27,14 +27,14 @@ const PLAN_MAX_TOKENS = 4000;
 const PLAN_VERSION = 1;
 const STEER_MAX_CHARS = 1500;
 
-export class FanficPlanParseError extends FanficReplyParseError {
+class FanficPlanParseError extends FanficReplyParseError {
   constructor(detail: string) {
     super(`The updated plan could not be read (${detail}).`);
     this.name = "FanficPlanParseError";
   }
 }
 
-export interface FanficPlanChapter {
+interface FanficPlanChapter {
   number: number;
   title: string;
   summary: string;
@@ -75,7 +75,7 @@ function outlineLines(outline: FanficOutline): string {
     .join("\n\n");
 }
 
-export function buildFanficPlanMessages(args: {
+function buildFanficPlanMessages(args: {
   state: FanficState;
   written: number;
   /** What the written chapters did: ledger summaries and state, or the chapters themselves. */

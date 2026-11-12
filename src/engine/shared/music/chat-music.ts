@@ -19,7 +19,7 @@ export interface MusicRecentTrackEntry {
 
 export const MUSIC_SPOTIFY_SOURCE_KEY = "musicSpotifySource";
 export const MUSIC_RECENT_TRACKS_KEY = "musicRecentTracks";
-export const MUSIC_RECENT_TRACKS_LIMIT = 24;
+const MUSIC_RECENT_TRACKS_LIMIT = 24;
 
 const LIKED_SONGS: ChatSpotifySource = { type: "liked" };
 const LEGACY_RECENT_TRACK_KEYS = ["spotifyRecentTracks", "gameRecentSpotifyTracks"] as const;

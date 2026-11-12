@@ -10,7 +10,7 @@ import { KITSUNE_FACE, KITSUNE_MARKINGS } from "./pond-kitsune-paths";
  * for small utility icons.
  */
 
-export type PondIconProps = {
+type PondIconProps = {
   size?: number | string;
   className?: string;
   "aria-hidden"?: boolean;
@@ -176,7 +176,7 @@ export const PondHelpIcon: PondIcon = (props) => (
 /* ── The three modes ── */
 
 /** Conversation: a tea cup whose steam curls up into a speech bubble. */
-export const PondConversationIcon: PondIcon = (props) => (
+const PondConversationIcon: PondIcon = (props) => (
   <IconFrame {...props}>
     <path d="M4 13.6h9l-.8 6.2a1.6 1.6 0 0 1-1.6 1.4H6.4a1.6 1.6 0 0 1-1.6-1.4Z" />
     <path style={koiLine} d="M4.5 16.2h8" />
@@ -192,7 +192,7 @@ export const PondConversationIcon: PondIcon = (props) => (
 );
 
 /** Roleplay: a kitsune mask, for wearing a character. White face, vermilion markings, in every theme mode. */
-export const PondRoleplayIcon: PondIcon = (props) => (
+const PondRoleplayIcon: PondIcon = (props) => (
   <IconFrame {...props}>
     <path style={{ fill: "#ffffff", stroke: "none" }} d={KITSUNE_FACE} />
     <path style={koiFill} d={KITSUNE_MARKINGS} />
@@ -200,7 +200,7 @@ export const PondRoleplayIcon: PondIcon = (props) => (
 );
 
 /** Fanfic: an ink brush over a looping jade stroke. */
-export const PondFanficIcon: PondIcon = (props) => (
+const PondFanficIcon: PondIcon = (props) => (
   <IconFrame {...props}>
     <path
       style={jadeFill}
@@ -216,7 +216,7 @@ export const PondFanficIcon: PondIcon = (props) => (
 );
 
 /** Trance: an ink spiral around a jade centre. */
-export const PondTranceIcon: PondIcon = (props) => (
+const PondTranceIcon: PondIcon = (props) => (
   <IconFrame {...props}>
     <path d="M12 12A1 1 0 0 1 14 12A2 2 0 0 1 10 12A3 3 0 0 1 16 12A4 4 0 0 1 8 12A5 5 0 0 1 18 12A6 6 0 0 1 6 12" />
     <circle style={jadeFill} cx="12" cy="12" r="1.1" />

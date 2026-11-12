@@ -16,7 +16,7 @@ type ReorderFoldersInput = {
 };
 
 /** Folder row drop zone relative to the hovered folder. */
-export type FolderDropZone = "before" | "inside" | "after";
+type FolderDropZone = "before" | "inside" | "after";
 export type FolderDropTarget = { id: string; zone: FolderDropZone };
 
 export function useLorebookEditorDragDrop({

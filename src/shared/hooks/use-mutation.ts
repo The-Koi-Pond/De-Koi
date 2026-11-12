@@ -25,7 +25,7 @@ declare module "@tanstack/react-query" {
 
 const DEFAULT_MUTATION_ERROR_MESSAGE = "Couldn't save that change. Try again.";
 
-export function notifyMutationFailure(error: unknown, message = DEFAULT_MUTATION_ERROR_MESSAGE) {
+function notifyMutationFailure(error: unknown, message = DEFAULT_MUTATION_ERROR_MESSAGE) {
   const text = toUserMessage(error, { fallback: message });
   // A burst of identical failures (offline, server down) collapses into one toast.
   toast.error(text, { id: `mutation-failure:${text}` });

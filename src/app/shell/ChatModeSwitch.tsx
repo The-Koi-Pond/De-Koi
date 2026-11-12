@@ -4,7 +4,7 @@ import { BookOpen, Feather, MessageSquare, Orbit } from "lucide-react";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import { ModeIcon } from "../../shared/components/ModeIcon";
 
-export const CHAT_SIDEBAR_TABS = ["conversation", "roleplay", "fanfic", "trance"] as const;
+const CHAT_SIDEBAR_TABS = ["conversation", "roleplay", "fanfic", "trance"] as const;
 export type ChatSidebarTab = (typeof CHAT_SIDEBAR_TABS)[number];
 
 /** Each mode's icon outside the Pond theme (Pond draws its own, see ModeIcon). */

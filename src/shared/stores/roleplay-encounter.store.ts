@@ -17,7 +17,7 @@ import type {
   EncounterTurnOutcome,
 } from "../../engine/modes/roleplay/encounter/encounter-types";
 
-export type EncounterStage = "setup" | "starting" | "start-failed" | "fighting" | "ended";
+type EncounterStage = "setup" | "starting" | "start-failed" | "fighting" | "ended";
 
 export type EncounterSummaryStatus = "idle" | "generating" | "written" | "failed";
 

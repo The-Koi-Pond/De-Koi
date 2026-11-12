@@ -56,7 +56,7 @@ function uniqueStrings(values: string[]): string[] {
   return result;
 }
 
-export function lorebookKeeperReviewRequired(chat: JsonRecord | null | undefined): boolean {
+function lorebookKeeperReviewRequired(chat: JsonRecord | null | undefined): boolean {
   return parseRecord(chat?.metadata).lorebookKeeperReviewRequired !== false;
 }
 
