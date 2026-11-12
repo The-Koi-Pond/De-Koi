@@ -9,8 +9,13 @@ use zip::write::SimpleFileOptions;
 
 #[path = "exports/card_v3.rs"]
 mod card_v3;
+#[path = "exports/linked_lorebooks.rs"]
+mod linked_lorebooks;
 
-use card_v3::{build_portable_card, CardTarget, ExportReport};
+use card_v3::{build_portable_card, character_book, CardTarget, DepthPlacement, ExportReport};
+use linked_lorebooks::{
+    character_filter_tags, entry_visible_to_character, linked_character_lorebooks,
+};
 
 #[derive(Clone, Copy)]
 enum SpriteExportOwnerKind {
@@ -101,7 +106,7 @@ pub(crate) fn export_record_with_options(
     }
     let compatible = format == Some("compatible") && collection != "prompts";
     let item = if compatible {
-        compatible_record(collection, &record)?
+        compatible_record(state, collection, &record)?
     } else {
         native_record_export(state, kind, collection, &record, include_memories)?
     };
@@ -134,7 +139,7 @@ pub(crate) fn export_records(
                 message_swipes::materialize_message(state, &mut record, true)?;
             }
             items.push(if format == Some("compatible") {
-                compatible_record(collection, &record)?
+                compatible_record(state, collection, &record)?
             } else {
                 record
             });
@@ -176,7 +181,7 @@ pub(crate) fn export_records(
 
 pub(crate) fn export_character_png(state: &AppState, id: &str) -> AppResult<Value> {
     let character = get_required(state, "characters", id)?;
-    let card = compatible_character_export(&character);
+    let card = compatible_character_card(state, &character)?;
     let name = card
         .get("data")
         .and_then(|data| data.get("name"))
@@ -539,7 +544,7 @@ fn export_named_records(
             continue;
         };
         let item = if compatible {
-            compatible_record(collection, &record)?
+            compatible_record(state, collection, &record)?
         } else {
             native_record_export(state, kind, collection, &record, include_memories)?
         };
@@ -638,9 +643,9 @@ fn no_matching_bulk_export_error(collection: &str) -> AppError {
     ))
 }
 
-fn compatible_record(collection: &str, record: &Value) -> AppResult<Value> {
+fn compatible_record(state: &AppState, collection: &str, record: &Value) -> AppResult<Value> {
     Ok(match collection {
-        "characters" => compatible_character_export(record),
+        "characters" => compatible_character_card(state, record)?,
         "personas" => compatible_persona_export(record),
         _ => record.clone(),
     })
@@ -759,6 +764,20 @@ fn compatible_character_export(character: &Value) -> Value {
         "spec_version": "2.0",
         "data": character_data_value(character)
     })
+}
+
+/// A single compatible (V2) card for the character, carrying its linked
+/// lorebooks the same way V3 and CHARX exports do.
+fn compatible_character_card(state: &AppState, character: &Value) -> AppResult<Value> {
+    let mut card = compatible_character_export(character);
+    let id = record_id(character, "character")?;
+    let data = character_data_value(character);
+    if let Some(book) = character_book(state, id, &data, DepthPlacement::ExtensionsOnly)? {
+        if let Some(object) = card["data"].as_object_mut() {
+            object.insert("character_book".to_string(), book);
+        }
+    }
+    Ok(card)
 }
 
 fn persona_export_envelope(state: &AppState, persona: &Value) -> AppResult<Value> {
@@ -1913,6 +1932,132 @@ mod tests {
             );
         }
         assert!(!skipped.contains("Character memories"));
+    }
+
+    fn decoded_json(download: &Value) -> Value {
+        let bytes = general_purpose::STANDARD
+            .decode(download["base64"].as_str().expect("base64"))
+            .expect("decode");
+        serde_json::from_slice(&bytes).expect("json download")
+    }
+
+    fn book_entry_names(card: &Value) -> Vec<String> {
+        card["data"]["character_book"]["entries"]
+            .as_array()
+            .expect("character_book entries")
+            .iter()
+            .map(|entry| entry["name"].as_str().unwrap_or("").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn card_exports_carry_shared_lorebooks_filtered_per_character() {
+        let state = test_state("shared-lorebook-cards");
+        seed_portable_character(&state);
+        state
+            .storage
+            .create(
+                "characters",
+                json!({ "id": "char-luna", "data": { "name": "Luna", "tags": [] } }),
+            )
+            .expect("seed second character");
+        for (id, enabled) in [("book-circus", true), ("book-off", false)] {
+            state
+                .storage
+                .create(
+                    "lorebooks",
+                    json!({
+                        "id": id,
+                        "name": if enabled { "Circus" } else { "Switched Off" },
+                        "characterIds": ["char-sol", "char-luna"],
+                        "enabled": enabled,
+                        "scanDepth": 3,
+                        "tokenBudget": 3000,
+                    }),
+                )
+                .expect("seed shared lorebook");
+        }
+        for (index, (book, name, filter)) in [
+            ("book-circus", "Everyone", json!({})),
+            ("book-circus", "Luna only", json!({ "characterFilterMode": "include", "characterFilterIds": ["char-luna"] })),
+            ("book-circus", "Not Sol", json!({ "characterFilterMode": "exclude", "characterFilterIds": ["char-sol"] })),
+            ("book-circus", "Fantasy cards", json!({ "characterTagFilterMode": "include", "characterTagFilters": [" Fantasy "] })),
+            ("book-circus", "Deep", json!({ "position": 2, "depth": 5 })),
+            ("book-off", "Never", json!({})),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut entry = json!({
+                "id": format!("shared-{index}"),
+                "lorebookId": book,
+                "name": name,
+                "content": format!("{name} lore"),
+                "keys": [name.to_ascii_lowercase()],
+                "order": index,
+                "enabled": true,
+            });
+            for (key, value) in filter.as_object().expect("filter object") {
+                entry[key] = value.clone();
+            }
+            state
+                .storage
+                .create("lorebook-entries", entry)
+                .expect("seed shared entry");
+        }
+
+        let sol = decoded_json(
+            &export_record_with_options(
+                &state,
+                "marinara_character",
+                "characters",
+                "char-sol",
+                Some("v3"),
+                false,
+            )
+            .expect("v3 export"),
+        );
+        assert_eq!(
+            book_entry_names(&sol),
+            [
+                "Koi",
+                "Lantern",
+                "Shrine",
+                "Note",
+                "Everyone",
+                "Fantasy cards",
+                "Deep"
+            ]
+        );
+        assert_eq!(
+            sol["data"]["character_book"]["name"],
+            "Sol Lorebook + Circus"
+        );
+        assert_eq!(sol["data"]["character_book"]["scan_depth"], 3);
+        assert!(!sol.to_string().contains("book-circus"));
+
+        let luna = decoded_json(
+            &export_record_with_options(
+                &state,
+                "marinara_character",
+                "characters",
+                "char-luna",
+                Some("compatible"),
+                false,
+            )
+            .expect("compatible export"),
+        );
+        assert_eq!(luna["spec"], "chara_card_v2");
+        assert_eq!(
+            book_entry_names(&luna),
+            ["Everyone", "Luna only", "Not Sol", "Deep"]
+        );
+        assert_eq!(luna["data"]["character_book"]["name"], "Circus");
+        assert_eq!(luna["data"]["character_book"]["token_budget"], 3000);
+        let deep = &luna["data"]["character_book"]["entries"][3];
+        assert_eq!(deep["content"], "Deep lore");
+        assert_eq!(deep["extensions"]["depth"], 5);
+        assert_eq!(deep["extensions"]["position"], 4);
     }
 
     #[test]
