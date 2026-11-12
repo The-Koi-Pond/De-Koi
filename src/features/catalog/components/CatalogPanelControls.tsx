@@ -18,21 +18,23 @@ const STRIP_CELL =
   "flex min-w-0 items-center justify-center gap-1 px-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]";
 const PLAIN_STRIP_CELL = "border-l border-[var(--border)]/60 text-[var(--foreground)] hover:bg-[var(--accent)]";
 const TONE = {
-  // The gradients are the panels' old button colours; the Pond theme maps them to its own koi and jade.
+  // Koi creates in the app's action colour (what Pond already did with the old pink-to-purple gradient), so the
+  // chat list, Characters and Presets match the mode accents and Add Connection. Jade and amber keep their
+  // panels' own colours.
   koi: {
-    create: "bg-gradient-to-r from-pink-400 to-purple-500",
+    create: "bg-[var(--primary)] text-[var(--primary-foreground)]",
     selected: "bg-[var(--primary)]/12 text-[var(--primary)]",
     activePill: "border-[var(--primary)]/40 bg-[var(--primary)]/12 text-[var(--primary)]",
     includedChip: "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30",
   },
   jade: {
-    create: "bg-gradient-to-r from-emerald-400 to-teal-500",
+    create: "bg-gradient-to-r from-emerald-400 to-teal-500 text-white",
     selected: "bg-emerald-400/12 text-emerald-400",
     activePill: "border-emerald-400/40 bg-emerald-400/12 text-emerald-400",
     includedChip: "bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30",
   },
   amber: {
-    create: "bg-gradient-to-r from-amber-400 to-orange-500",
+    create: "bg-gradient-to-r from-amber-400 to-orange-500 text-white",
     selected: "bg-amber-400/12 text-amber-400",
     activePill: "border-amber-400/40 bg-amber-400/12 text-amber-400",
     includedChip: "bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30",
@@ -87,7 +89,7 @@ export function CatalogActionBar({
       <button
         type="button"
         onClick={onCreate}
-        className={cn(STRIP_CELL, TONE[tone].create, "text-white hover:brightness-110")}
+        className={cn(STRIP_CELL, TONE[tone].create, "hover:brightness-110")}
         title={createTitle}
       >
         {createIcon ?? <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" />}{" "}

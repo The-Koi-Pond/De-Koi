@@ -335,7 +335,7 @@ export function AgentsPanel() {
         <button
           type="button"
           onClick={handleCreateAgent}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-violet-500 px-2.5 text-xs font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-2.5 text-xs font-medium text-[var(--primary-foreground)] shadow-sm transition-[filter] hover:brightness-110"
           title="Create custom agent"
         >
           <Plus size="0.8125rem" />

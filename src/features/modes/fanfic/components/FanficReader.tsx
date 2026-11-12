@@ -7,6 +7,7 @@ import {
   BookOpen,
   Check,
   Compass,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -23,6 +24,7 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Square,
   StepForward,
@@ -310,6 +312,29 @@ function WorkHeader({
   const [tagsOpen, setTagsOpen] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
   const [editingOutline, setEditingOutline] = useState(false);
+  // The model picker, the polish switch and the tools sit behind one toggle, so the story starts near the top.
+  // They stay shown while any tool's panel is open, and hiding them closes those panels.
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const panelToggles: Array<[boolean, () => void]> = [
+    [showOutline, onToggleOutline],
+    [researchOpen, () => setResearchOpen(false)],
+    [showQuality, onToggleQuality],
+    [showLedger, onToggleLedger],
+    [showVoices, onToggleVoices],
+    [showEditor, onToggleEditor],
+    [showContinue, onToggleContinue],
+  ];
+  const anyPanelOpen = panelToggles.some(([open]) => open);
+  const toolsShown = toolsOpen || anyPanelOpen;
+  const toggleTools = () => {
+    if (!toolsShown) {
+      setToolsOpen(true);
+      return;
+    }
+    setToolsOpen(false);
+    setEditingOutline(false);
+    for (const [open, close] of panelToggles) if (open) close();
+  };
   const extraTags = [
     ...request.warnings.map((warning) => FANFIC_WARNING_LABELS[warning]),
     ...request.relationships,
@@ -351,58 +376,73 @@ function WorkHeader({
           )}
         </div>
       )}
-      <div className="mt-3 max-w-xs">
-        <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
-      </div>
-      <div className="mt-3 max-w-prose">
-        <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <FanficButton
-          onClick={() => {
-            setEditingOutline(false);
-            onToggleOutline();
-          }}
-          aria-expanded={showOutline}
-        >
-          <ListOrdered size="0.9rem" aria-hidden="true" />
-          {showOutline ? "Hide outline" : "Outline"}
-        </FanficButton>
-        {state.research && (
-          <FanficButton onClick={() => setResearchOpen((open) => !open)} aria-expanded={researchOpen}>
-            <Search size="0.9rem" aria-hidden="true" />
-            {researchOpen ? "Hide research" : "Research"}
-          </FanficButton>
-        )}
-        <FanficButton onClick={onToggleQuality} aria-expanded={showQuality} disabled={chapterCount === 0}>
-          <Gauge size="0.9rem" aria-hidden="true" />
-          {showQuality ? "Hide quality" : "Quality"}
-        </FanficButton>
-        <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
-          <BookMarked size="0.9rem" aria-hidden="true" />
-          {showLedger ? "Hide ledger" : "Ledger"}
-        </FanficButton>
-        <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
-          <MessageSquareQuote size="0.9rem" aria-hidden="true" />
-          {showVoices ? "Hide voices" : "Voices"}
-        </FanficButton>
-        <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
-          <PenTool size="0.9rem" aria-hidden="true" />
-          {showEditor ? "Hide editor" : "Editor"}
-        </FanficButton>
-        <FanficButton onClick={onToggleContinue} aria-expanded={showContinue}>
-          <MessagesSquare size="0.9rem" aria-hidden="true" />
-          {showContinue ? "Hide roleplays and chats" : "Roleplays and chats"}
-        </FanficButton>
-        <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
-          <Download size="0.9rem" aria-hidden="true" />
-          Save as HTML
-        </FanficButton>
-        <FanficButton onClick={() => onExport("markdown")} disabled={chapterCount === 0}>
-          <Download size="0.9rem" aria-hidden="true" />
-          Markdown
+      <div className="mt-3">
+        <FanficButton onClick={toggleTools} aria-expanded={toolsShown} aria-controls={`fanfic-tools-${chatId}`}>
+          <SlidersHorizontal size="0.9rem" aria-hidden="true" />
+          {toolsShown ? "Hide tools" : "Tools"}
+          <ChevronDown
+            size="0.85rem"
+            aria-hidden="true"
+            className={cn("transition-transform", toolsShown && "rotate-180")}
+          />
         </FanficButton>
       </div>
+      {toolsShown && (
+        <div id={`fanfic-tools-${chatId}`}>
+          <div className="mt-3 max-w-xs">
+            <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
+          </div>
+          <div className="mt-3 max-w-prose">
+            <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <FanficButton
+              onClick={() => {
+                setEditingOutline(false);
+                onToggleOutline();
+              }}
+              aria-expanded={showOutline}
+            >
+              <ListOrdered size="0.9rem" aria-hidden="true" />
+              {showOutline ? "Hide outline" : "Outline"}
+            </FanficButton>
+            {state.research && (
+              <FanficButton onClick={() => setResearchOpen((open) => !open)} aria-expanded={researchOpen}>
+                <Search size="0.9rem" aria-hidden="true" />
+                {researchOpen ? "Hide research" : "Research"}
+              </FanficButton>
+            )}
+            <FanficButton onClick={onToggleQuality} aria-expanded={showQuality} disabled={chapterCount === 0}>
+              <Gauge size="0.9rem" aria-hidden="true" />
+              {showQuality ? "Hide quality" : "Quality"}
+            </FanficButton>
+            <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
+              <BookMarked size="0.9rem" aria-hidden="true" />
+              {showLedger ? "Hide ledger" : "Ledger"}
+            </FanficButton>
+            <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
+              <MessageSquareQuote size="0.9rem" aria-hidden="true" />
+              {showVoices ? "Hide voices" : "Voices"}
+            </FanficButton>
+            <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
+              <PenTool size="0.9rem" aria-hidden="true" />
+              {showEditor ? "Hide editor" : "Editor"}
+            </FanficButton>
+            <FanficButton onClick={onToggleContinue} aria-expanded={showContinue}>
+              <MessagesSquare size="0.9rem" aria-hidden="true" />
+              {showContinue ? "Hide roleplays and chats" : "Roleplays and chats"}
+            </FanficButton>
+            <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
+              <Download size="0.9rem" aria-hidden="true" />
+              Save as HTML
+            </FanficButton>
+            <FanficButton onClick={() => onExport("markdown")} disabled={chapterCount === 0}>
+              <Download size="0.9rem" aria-hidden="true" />
+              Markdown
+            </FanficButton>
+          </div>
+        </div>
+      )}
       {showOutline && outline && (
         <div className="mt-3 border-t border-[var(--border)] pt-3">
           {editingOutline ? (
