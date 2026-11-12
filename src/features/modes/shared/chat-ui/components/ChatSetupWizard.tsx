@@ -753,9 +753,21 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
     generationParameters,
   ]);
 
+  const closeSetup = onCancel ?? onFinish;
+  const libraryModalOpen = useUIStore((s) => s.modal !== null);
+  // Same as the roleplay wizard: Escape closes, unless a dialog opened from here (like Import) is on top.
+  useEffect(() => {
+    if (libraryModalOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) closeSetup();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [closeSetup, libraryModalOpen]);
+
   return (
     <>
-      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onCancel ?? onFinish} />
+      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={closeSetup} />
 
       <div className="absolute inset-0 z-50 flex items-center justify-center p-3 pointer-events-none max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
         <div
@@ -769,10 +781,13 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
               <h3 className="text-sm font-semibold text-[var(--foreground)]">New Conversation</h3>
             </div>
             <button
-              onClick={onCancel ?? onFinish}
+              type="button"
+              onClick={closeSetup}
+              aria-label="Close"
+              title="Close"
               className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
             >
-              <X size="0.875rem" />
+              <X size="0.875rem" aria-hidden />
             </button>
           </div>
 

@@ -26,6 +26,7 @@ export * from "./components/SwipeJumpControl";
 export * from "./components/CreatorNotesCssInjector";
 export * from "./hooks/use-chat-metadata-sync";
 export * from "./hooks/use-chat-overlays";
+export * from "./hooks/use-new-chat-draft";
 export * from "./hooks/use-chat-surface-data";
 export * from "./hooks/use-chat-timeline-actions";
 export * from "./hooks/use-chat-transcript-shortcuts";

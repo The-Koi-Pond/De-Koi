@@ -61,7 +61,7 @@ vi.mock("../../shared/chat-ui/index", () => ({
   CreatorNotesCssInjector: () => null,
   NewChatConnectionGate: () => null,
   isAbandonedChatDraft: () => false,
-  isEmptyNewChatSetup: () => false,
+  useNewChatDraft: () => ({ finish: vi.fn(), cancel: vi.fn() }),
   useChatMetadataSync: () => ({ chatBackground: null }),
   useChatOverlays: () => ({
     settingsOpen: false,
