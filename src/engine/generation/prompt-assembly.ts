@@ -26,6 +26,7 @@ import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/
 import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
 import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
 import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
+import { VOICE_CALL_DELIVERY_INSTRUCTION } from "../modes/chat/voice-call/delivery-tags";
 import {
   commandCapabilityEnabled,
   conversationCommandCapabilities,
@@ -3201,6 +3202,13 @@ async function buildConversationContextBlocks(
           role: "system" as const,
           contextKind: "prompt" as const,
           content: wrapContent(VOICE_NOTE_REPLY_INSTRUCTION, "voice_note", wrapFormat),
+        }
+      : null,
+    input.request.voiceCallDeliveryTags === true
+      ? {
+          role: "system" as const,
+          contextKind: "prompt" as const,
+          content: wrapContent(VOICE_CALL_DELIVERY_INSTRUCTION, "voice_call", wrapFormat),
         }
       : null,
     buildConversationCommandBlock(

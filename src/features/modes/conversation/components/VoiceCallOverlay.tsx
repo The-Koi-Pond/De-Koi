@@ -11,6 +11,8 @@ import { isFullBodySpriteExpression } from "../../../runtime/visuals/sprite-disp
 import { spriteUrlForExpression } from "../../../runtime/visuals/sprite-expression-lookup";
 import { useReplyWait } from "../../shared/chat-ui/index";
 import { useVoiceCall, type VoiceCallCharacter, type VoiceCallPhase } from "../hooks/use-voice-call";
+import type { VoiceCallSend } from "../lib/voice-call-ports";
+import { stripDeliveryTags } from "../../../../engine/modes/chat/voice-call/delivery-tags";
 
 const PHASE_TEXT: Record<VoiceCallPhase, string> = {
   connecting: "Connecting…",
@@ -26,7 +28,7 @@ const PHASE_TEXT: Record<VoiceCallPhase, string> = {
 export interface VoiceCallOverlayProps {
   chatId: string;
   character: VoiceCallCharacter & { avatarUrl?: string | null };
-  sendText: (text: string) => Promise<boolean>;
+  sendText: VoiceCallSend;
   onClose: () => void;
 }
 
@@ -229,7 +231,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
             {call.said && (
               <p className="whitespace-pre-line text-[var(--foreground)]">
                 <span className="font-medium">{character.name}: </span>
-                {call.said}
+                {stripDeliveryTags(call.said)}
               </p>
             )}
             {call.bargeIn === "button" && (phase === "thinking" || phase === "speaking") && (

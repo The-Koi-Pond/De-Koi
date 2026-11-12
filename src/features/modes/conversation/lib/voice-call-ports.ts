@@ -42,11 +42,29 @@ export interface VoiceCallCharacter {
   name: string;
 }
 
+export interface VoiceCallSendOptions {
+  /** The call's voice performs delivery tags ("[sighs]"), so the reply may use them. */
+  deliveryTags: boolean;
+}
+
+/** Sends the words as a text. Resolves once the reply has finished: false when no reply came. */
+export type VoiceCallSend = (text: string, options: VoiceCallSendOptions) => Promise<boolean>;
+
 export interface VoiceCallContext {
   chatId: string;
   character: VoiceCallCharacter;
-  /** Sends the words as a text. Resolves once the reply has finished: false when no reply came. */
-  sendText: (text: string) => Promise<boolean>;
+  sendText: VoiceCallSend;
+}
+
+/**
+ * True when the voice performs audio tags instead of reading them out: ElevenLabs Eleven v3 and v4 (older
+ * ElevenLabs models and other providers would say "sighs" out loud). Requests through a NanoGPT relay are left
+ * out because what reaches ElevenLabs there isn't known.
+ */
+export function voicePerformsDeliveryTags(config: TTSConfig | null): boolean {
+  if (!config?.enabled || config.source !== "elevenlabs") return false;
+  if (/nano-gpt\.com/i.test(config.baseUrl)) return false;
+  return /^eleven_v[34](?:_|$)/i.test(config.model.trim());
 }
 
 interface StoredMessage {
@@ -220,6 +238,7 @@ function sendReply(
   context: () => VoiceCallContext,
   text: string,
   onText: (streamed: string) => void,
+  options: VoiceCallSendOptions,
 ): VoiceReplyHandle {
   const { chatId, sendText } = context();
   const before = useChatStore.getState();
@@ -260,7 +279,7 @@ function sendReply(
     try {
       // A reply already being written here (sent just before the call started) goes first.
       await chatReplyFinished(chatId);
-      const replied = await sendText(text);
+      const replied = await sendText(text, options);
       if (!replied) return null;
     } finally {
       unfollow();
@@ -387,7 +406,9 @@ export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSess
         },
       };
     },
-    reply: { send: (text, onText) => sendReply(context, text, onText) },
+    reply: {
+      send: (text, onText) => sendReply(context, text, onText, { deliveryTags: voicePerformsDeliveryTags(config) }),
+    },
     speech: {
       begin: (turnKey, onFirstSound) => {
         if (!config?.enabled) return null;

@@ -87,6 +87,7 @@ import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import { useGenerate } from "../../../runtime/generation/index";
 import { VoiceCallOverlay } from "./VoiceCallOverlay";
+import type { VoiceCallSendOptions } from "../lib/voice-call-ports";
 
 const ConversationAutonomousEffects = lazy(async () => {
   const module = await import("./ConversationAutonomousEffects");
@@ -593,7 +594,13 @@ export function ConversationView({
     [callCharacterId, callCharacterInfo],
   );
   const sendCallText = useCallback(
-    (text: string) => generateForCall({ chatId, connectionId: null, userMessage: text }),
+    (text: string, options: VoiceCallSendOptions) =>
+      generateForCall({
+        chatId,
+        connectionId: null,
+        userMessage: text,
+        ...(options.deliveryTags ? { voiceCallDeliveryTags: true } : {}),
+      }),
     [chatId, generateForCall],
   );
   const [activeActionMessageId, setActiveActionMessageId] = useState<string | null>(null);
