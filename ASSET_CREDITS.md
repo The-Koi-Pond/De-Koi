@@ -2,8 +2,8 @@
 
 ## De-Koi Brand Assets
 
-The current De-Koi logo and app icon family are original project assets created
-by The Koi Pond team for De-Koi.
+The De-Koi logo and app icons are De-Koi's own project assets, not taken from
+Marinara Engine.
 
 This includes the logo's source files in `branding/de-koi-icon/`, the files
 built from them under `public/` (`favicon.svg`, `favicon.png`,
@@ -19,7 +19,7 @@ website's squishing `deki-steady.svg`), the avatars built from it by
 
 Pond Pebbles, The Koi Pond's own display font, is the team's as well:
 `public/fonts/PondPebbles.woff2` is a copy of the font built for the studio
-website from the team's drawn letter sheets. The Pond visual theme uses it for
+website. The Pond visual theme uses it for
 the app name and big panel titles.
 
 Unless a more specific file or directory notice says otherwise, these assets are

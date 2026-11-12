@@ -36,8 +36,7 @@ export function CreditsModal({ open, onClose }: { open: boolean; onClose: () => 
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Brand Assets</h3>
           <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-            The current De-Koi logo and app icon family are original project assets created by The Koi Pond team for
-            De-Koi.
+            The De-Koi logo and app icons are De-Koi&apos;s own project assets, not taken from Marinara Engine.
           </p>
         </section>
       </div>
