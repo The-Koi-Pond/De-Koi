@@ -10,6 +10,7 @@ import type {
   WorldTickTrigger,
 } from "../../../contracts/types/roleplay-world-tick";
 import { createId } from "../../../core/ids";
+import { isRecord } from "../../../shared/value-readers";
 
 export const WORLD_TICK_METADATA_KEY = "roleplayWorldTick";
 
@@ -46,10 +47,6 @@ const TRIGGERS = new Set<WorldTickTrigger>(["manual", "scene_concluded", "time_s
 
 function trigger(value: unknown): WorldTickTrigger {
   return TRIGGERS.has(value as WorldTickTrigger) ? (value as WorldTickTrigger) : "manual";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function boundedText(value: unknown, max: number): string {

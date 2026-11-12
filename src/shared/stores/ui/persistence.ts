@@ -29,6 +29,7 @@ import {
   normalizeTrackerThoughtBubbleDisplay,
 } from "./model";
 import type { UIState } from "./model";
+import { isRecord } from "../../../engine/shared/value-readers";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
 export const UI_STORE_VERSION = 13;
@@ -339,8 +340,4 @@ function normalizeLegacyImageStyleProfiles(raw: unknown, format: unknown): Image
 function hasPersistedImageStyleProfiles(raw: unknown): boolean {
   if (!isRecord(raw) || typeof raw.defaultProfileId !== "string" || !Array.isArray(raw.profiles)) return false;
   return raw.profiles.some((profile) => isRecord(profile) && typeof profile.id === "string" && !!profile.id.trim());
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }

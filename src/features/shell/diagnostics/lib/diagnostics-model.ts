@@ -1,6 +1,7 @@
 import type { ClientDiagnosticRecord } from "../../../../shared/lib/client-diagnostics";
 import { redactSensitiveValue } from "../../../../shared/lib/sensitive-data-redaction";
 import type { SupportPlatformInfo } from "../../../../shared/lib/support-report";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export type DiagnosticStatus = "ok" | "warning" | "degraded" | "error" | "unknown";
 export type DiagnosticsRuntimeMode = "embedded" | "remote" | "web-shell";
@@ -49,10 +50,6 @@ export interface TroubleshootingPacket {
   overallStatus: DiagnosticStatus;
   sections: DiagnosticsSection[];
   recentDiagnostics: ClientDiagnosticRecord[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function section(id: string, title: string, items: DiagnosticItem[]): DiagnosticsSection {

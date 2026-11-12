@@ -70,6 +70,7 @@ import {
 } from "../lib/memory-embedding-guidance";
 import { acquireChatGenerationController, releaseChatGenerationController } from "../lib/chat-generation-controller";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export type GenerateArgs = GenerationReplayInput & {
   chatId: string;
@@ -165,10 +166,6 @@ function dispatchGenerationFailureEvent(chatId: string, message: string): void {
       detail: { chatId, message },
     }),
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function readString(value: unknown, fallback = ""): string {

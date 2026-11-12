@@ -1,7 +1,7 @@
 import type { StorageGateway } from "../../../capabilities/storage";
 import { parseJsonObject } from "../../../core/json";
 import type { SceneFullPlan } from "../../../contracts/types/scene";
-import { readString as stringValue } from "../../../shared/value-readers";
+import { isRecord, readString as stringValue } from "../../../shared/value-readers";
 
 export const DE_KOI_UNIVERSAL_PRESET_ID = "preset_universal_v2";
 
@@ -149,8 +149,4 @@ function parseStringRecord(value: unknown): UniversalChoiceHints {
 
 function normalizeChoiceMatch(value: unknown): string {
   return stringValue(value).trim().toLowerCase();
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }

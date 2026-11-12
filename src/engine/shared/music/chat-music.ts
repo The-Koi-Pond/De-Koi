@@ -1,3 +1,4 @@
+import { isRecord } from "../value-readers";
 // Per-chat Music Player data in chat metadata: where Spotify picks come from
 // (`musicSpotifySource`) and the recently played history (`musicRecentTracks`),
 // including how the older Spotify metadata keys are read.
@@ -23,10 +24,6 @@ export const MUSIC_RECENT_TRACKS_LIMIT = 24;
 
 const LIKED_SONGS: ChatSpotifySource = { type: "liked" };
 const LEGACY_RECENT_TRACK_KEYS = ["spotifyRecentTracks", "gameRecentSpotifyTracks"] as const;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function metadataRecord(value: unknown): JsonRecord {
   if (isRecord(value)) return value;

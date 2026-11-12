@@ -11,6 +11,7 @@ import {
 } from "../executor/agent-executor.js";
 import { executeKnowledgeRetrieval } from "../knowledge/knowledge-retrieval.js";
 import { executeKnowledgeRouter, type KnowledgeRouterCandidateOptions } from "../knowledge/knowledge-router.js";
+import { isRecord } from "../../shared/value-readers";
 
 /** A fully resolved agent ready for execution. */
 export interface ResolvedAgent extends AgentExecConfig {
@@ -171,10 +172,6 @@ function shouldExecuteIndividually(agent: ResolvedAgent): boolean {
     agent.type === "knowledge-router" ||
     Boolean(agent.toolContext?.tools.length)
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function getAgentResultText(data: unknown): string {

@@ -1,4 +1,5 @@
 import type { MessageAttachment, MessageAttachmentExtraValue } from "../../../../../engine/contracts/types/chat";
+import { isRecord } from "../../../../../engine/shared/value-readers";
 
 const MESSAGE_ATTACHMENT_KEYS = [
   "type",
@@ -11,10 +12,6 @@ const MESSAGE_ATTACHMENT_KEYS = [
   "prompt",
   "galleryId",
 ] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function hasOwnKey(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);

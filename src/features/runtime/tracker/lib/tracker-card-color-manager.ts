@@ -18,6 +18,7 @@ import {
   normalizeMaybeJsonStringArray,
 } from "../../../../shared/lib/tracker-metadata";
 import type { TrackerCardColorEntityLabel } from "../../../../shared/components/ui/TrackerCardColorControls";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 type TrackerCardColorTargetKind = "persona" | "character";
 export type TrackerCardColorSaveState = "idle" | "dirty" | "saving" | "saved" | "error";
@@ -59,10 +60,6 @@ export interface TrackerCardColorTargetsInput {
   charactersData: unknown;
   currentPresentCharacters: readonly PresentCharacter[] | null | undefined;
   personasData: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 export function parseCharacterData(raw: unknown): Record<string, unknown> | null {

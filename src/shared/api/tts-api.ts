@@ -1,5 +1,6 @@
 import { ttsConfigSchema, type TTSConfig, type TTSVoicesResponse } from "../../engine/contracts/types/tts";
 import { invokeTauri } from "./tauri-client";
+import { isRecord } from "../../engine/shared/value-readers";
 
 export interface TtsSpeakInput {
   text: string;
@@ -70,10 +71,6 @@ function base64ToBlob(base64: string, contentType: string): Blob {
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizeTTSConfigResponse(value: unknown): TTSConfig {

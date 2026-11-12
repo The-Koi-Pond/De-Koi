@@ -3,6 +3,7 @@ import { LOCAL_SIDECAR_CONNECTION_ID } from "../../engine/contracts/types/sideca
 import { useUIStore } from "../stores/ui.store";
 import { ApiError, parseRetryAfterMs } from "./api-errors";
 import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
+import { isRecord } from "../../engine/shared/value-readers";
 
 const REMOTE_COMMANDS = new Set([
   "character_web_search",
@@ -490,10 +491,6 @@ function remoteInvokeHeaders(target: RuntimeTarget, command: string, args?: Reco
     "content-type": "application/json",
     ...(remoteInvokeRequiresAdmin(command, args) ? adminSecretHeader() : {}),
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function readString(value: unknown): string {

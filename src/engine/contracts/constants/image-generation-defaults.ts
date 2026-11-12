@@ -5,6 +5,7 @@ import type {
   ImageGenerationDefaultsProfile,
   NovelAiDefaults,
 } from "../types/image-generation-defaults.js";
+import { isRecord } from "../../shared/value-readers";
 
 export const IMAGE_DEFAULTS_STORAGE_KEY = "imageGeneration";
 const IMAGE_GENERATION_DEFAULTS_VERSION = 1 as const;
@@ -224,10 +225,6 @@ function normalizeNovelAiDefaults(rawDefaults: unknown): NovelAiDefaults {
     ),
     referenceStrength: readNumber(raw.referenceStrength, DEFAULT_NOVELAI_DEFAULTS.referenceStrength, 0, 1),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function readString(value: unknown, fallback: string): string {
