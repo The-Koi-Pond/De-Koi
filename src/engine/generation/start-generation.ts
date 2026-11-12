@@ -3406,6 +3406,15 @@ function agentExtraFromResults(args: {
   return extra;
 }
 
+/** Whether the user's latest message asks for a selfie, and if so that message, so the picture shows what they asked for. */
+function selfieRequestOptions(
+  latestUserInput: string,
+  recentMessages: unknown,
+): { pendingSelfieIntent: boolean; selfieRequest?: string } {
+  const pendingSelfieIntent = detectConversationSelfieRequestIntent({ latestUserInput, recentMessages });
+  return pendingSelfieIntent ? { pendingSelfieIntent, selfieRequest: latestUserInput } : { pendingSelfieIntent };
+}
+
 function textsFirstPhotoOf(input: StartGenerationInput): "send" | "withhold" | undefined {
   return input.textsFirstPhoto === "send" || input.textsFirstPhoto === "withhold" ? input.textsFirstPhoto : undefined;
 }
@@ -5924,10 +5933,7 @@ async function* startGenerationImpl(
           input.imagePromptSettings,
           deps.visuals,
           {
-            pendingSelfieIntent: detectConversationSelfieRequestIntent({
-              latestUserInput,
-              recentMessages: generationMessages,
-            }),
+            ...selfieRequestOptions(latestUserInput, generationMessages),
             reactionTarget: conversationReactionTarget(chat, input, generationMessages),
             textsFirstPhoto: textsFirstPhotoOf(input),
             textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
@@ -6358,10 +6364,7 @@ async function* startGenerationImpl(
         input.imagePromptSettings,
         deps.visuals,
         {
-          pendingSelfieIntent: detectConversationSelfieRequestIntent({
-            latestUserInput,
-            recentMessages: generationMessages,
-          }),
+          ...selfieRequestOptions(latestUserInput, generationMessages),
           reactionTarget: conversationReactionTarget(chat, input, generationMessages),
           textsFirstPhoto: textsFirstPhotoOf(input),
           textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,

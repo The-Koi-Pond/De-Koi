@@ -82,6 +82,8 @@ type SelfieCommand = Extract<CharacterCommand, { type: "selfie" }>;
 
 type ConnectedCommandOptions = {
   pendingSelfieIntent?: boolean;
+  /** The user's message asking for the selfie, so the picture shows what they asked for. */
+  selfieRequest?: string;
   /** The user message this reply answers and the replying character, for [react: ...] tapbacks. */
   reactionTarget?: { messageId: string; reactorId: string } | null;
   /** Texts-first only: "send" means this message carries a photo, "withhold" means it carries none. */
@@ -98,6 +100,11 @@ const ASSISTANT_SELFIE_CLAIM_RE =
 // Handing the photo over without naming it, right after the user asked for one: "Here.", "I'm already taking it".
 const ASSISTANT_PHOTO_HANDOVER_RE =
   /(?:^|[.!?…]\s+|\n\s*)(?:here|there)\s*[.!…]|\b(?:here you go|here it is|there you go|(?:taking|took|snapping|snapped|sending|sent) (?:it|one|this one))\b/i;
+// A selfie that changes what the character is wearing: their usual outfit is then a default, not a rule.
+const SELFIE_OUTFIT_CHANGE_RE =
+  /\b(?:shirtless|topless|nude|naked|nsfw|undress(?:ed|ing)?|unclothed|bare[- ]?chest(?:ed)?|no shirt|without (?:a |his |her |their |the )?(?:shirt|clothes|costume|outfit)|out of (?:his |her |their |the )?(?:clothes|costume|outfit)|underwear|boxers|briefs|lingerie|towel|bath|bathtub|shower|showering|pajamas|pyjamas|sleepwear|bathrobe|robe|stripped|stripping)\b/i;
+// Nudity or sex: image models such as NovelAI keep it suggestive unless the prompt carries the nsfw tag.
+const SELFIE_EXPLICIT_RE = /\b(?:nude|naked|nsfw|explicit|lewd|porn\w*)\b/i;
 const ASSISTANT_SELFIE_DECLINE_RE =
   /\b(?:can't|cannot|can not|won't|will not|unable|not able|do not|don't|rather not|prefer not to)\b[\s\S]{0,120}\b(?:send|show|share|take|attach|post|give|have)?[\s\S]{0,40}\b(?:selfie|photo|pic|picture|image)s?\b|\b(?:selfie|photo|pic|picture|image)s?\b[\s\S]{0,80}\b(?:not available|not possible|can't|cannot|unable|rather not|prefer not)\b/i;
 
@@ -776,6 +783,7 @@ async function buildSelfiePrompt(args: {
   llmConnectionId?: string | null;
   chat: JsonRecord;
   commandContext?: string;
+  selfieRequest?: string;
   characterId: string | null;
   imagePromptSettings?: ImagePromptSettings;
 }): Promise<{ prompt: string; negativePrompt: string; characterName: string; character: JsonRecord | null }> {
@@ -792,8 +800,17 @@ async function buildSelfiePrompt(args: {
   const metadata = parseRecord(args.chat.metadata);
   const chatPositive = readString(metadata.selfiePositivePrompt).trim() || stringArray(metadata.selfieTags).join(", ");
   // The character's own look tags go into every selfie, so the details that make them recognizable never get dropped.
-  const lookTags = readString(parseRecord(data.extensions).selfieLookTags).trim();
-  const positive = [lookTags, chatPositive].filter(Boolean).join(", ");
+  // Their usual outfit does too, unless this selfie changes what they are wearing.
+  const extensions = parseRecord(data.extensions);
+  const lookTags = readString(extensions.selfieLookTags).trim();
+  const outfitTags = readString(extensions.selfieOutfitTags).trim();
+  const request = readString(args.selfieRequest).replace(/\s+/g, " ").trim().slice(0, 400);
+  const asked = [args.commandContext, request].filter(Boolean).join(" ");
+  const outfitChanged = SELFIE_OUTFIT_CHANGE_RE.test(asked);
+  const explicit = SELFIE_EXPLICIT_RE.test(asked);
+  const positive = [explicit ? "nsfw" : "", lookTags, outfitChanged ? "" : outfitTags, chatPositive]
+    .filter(Boolean)
+    .join(", ");
   const template = readString(metadata.selfiePrompt).trim();
   const systemPrompt = await resolveConversationSelfieSystemPrompt({
     storage: args.storage,
@@ -826,7 +843,12 @@ async function buildSelfiePrompt(args: {
               `Character: ${characterName}`,
               appearance ? `Appearance: ${appearance}` : "",
               positive ? `Required image tags: ${positive}` : "",
+              outfitTags && outfitChanged
+                ? `Usual outfit: ${outfitTags}. This selfie changes what they are wearing, so follow the request and the context instead.`
+                : "",
               formatInstruction,
+              "Include the setting, pose and how dressed they are from the request and context.",
+              request ? `What the user asked for: ${request}` : "",
               userPrompt,
             ]
               .filter(Boolean)
@@ -896,6 +918,8 @@ async function generateSelfie(args: {
   /** Whose selfie it is; defaults to the chat's first character. */
   characterId?: string | null;
   visuals?: VisualAssetGateway;
+  /** The user's message asking for this selfie, when they asked. */
+  selfieRequest?: string;
 }): Promise<boolean> {
   const metadata = parseRecord(args.chat.metadata);
   const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
@@ -916,6 +940,7 @@ async function generateSelfie(args: {
       llmConnectionId: args.llmConnectionId,
       chat: args.chat,
       commandContext: args.command.context,
+      selfieRequest: args.selfieRequest,
       characterId,
       imagePromptSettings: args.imagePromptSettings,
     });
@@ -1765,6 +1790,7 @@ async function executeCommand(
         unprompted: options?.textsFirstPhoto === "send",
         characterId: options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : null,
         visuals,
+        selfieRequest: options?.textsFirstPhoto === "send" ? undefined : options?.selfieRequest,
       }))
         ? { name: "selfie" }
         : null;
