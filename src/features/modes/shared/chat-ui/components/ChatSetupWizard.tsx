@@ -822,6 +822,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                   }
                 }}
                 placeholder="Conversation name"
+                aria-label="Conversation name"
                 className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40 placeholder:text-[var(--muted-foreground)]"
               />
             </div>
@@ -933,6 +934,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search characters…"
+                    aria-label="Search characters"
                     className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
                     autoFocus
                   />
@@ -1646,6 +1648,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
               value={charSearch}
               onChange={(e) => setCharSearch(e.target.value)}
               placeholder="Search characters…"
+              aria-label="Search characters"
               className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
             />
           </div>
@@ -1941,6 +1944,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                       value={charSearch}
                       onChange={(e) => setCharSearch(e.target.value)}
                       placeholder="Search characters…"
+                      aria-label="Search characters"
                       className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
                     />
                   </div>

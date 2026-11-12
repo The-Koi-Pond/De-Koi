@@ -1727,6 +1727,7 @@ export function ConversationInput({
 
         <textarea
           ref={textareaRef}
+          aria-label="Message"
           placeholder={
             groupResponseOrder === "manual"
               ? characterNames.length > 0
@@ -1767,6 +1768,7 @@ export function ConversationInput({
                 gifOpen ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
               )}
               title="GIF"
+              aria-label="GIF"
             >
               <ImagePlay size="1.25rem" />
             </button>
@@ -1791,6 +1793,7 @@ export function ConversationInput({
                 emojiOpen ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
               )}
               title="Emoji"
+              aria-label="Emoji"
             >
               <Smile size="1.25rem" />
             </button>
