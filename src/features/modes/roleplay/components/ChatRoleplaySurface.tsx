@@ -27,7 +27,6 @@ import {
   PenLine,
   ScrollText,
   Settings2,
-  Swords,
   ChevronUp,
   ArrowRightLeft,
   GitBranch,
@@ -62,6 +61,7 @@ import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
 import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
+import { EncounterLauncher, LazyEncounterHost } from "../encounter/components/EncounterLauncher";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
@@ -120,11 +120,6 @@ const SpriteOverlay = lazy(async () => {
 const EchoChamberPanel = lazy(async () => {
   const module = await import("../../shared/chat-ui/index");
   return { default: module.EchoChamberPanel };
-});
-
-const EncounterModal = lazy(async () => {
-  const module = await import("./EncounterModal");
-  return { default: module.EncounterModal };
 });
 
 const SummaryPopover = lazy(async () => {
@@ -721,8 +716,10 @@ type RoleplaySurfaceProps = {
   expressionAgentEnabled: boolean;
   expressionAvatarsEnabled: boolean;
   expressionAvatarResolver?: ExpressionAvatarResolver;
-  combatAgentEnabled: boolean;
-  encounterActive: boolean;
+  /** The chat has the Combat agent on, which is what offers the Encounter button. */
+  encountersEnabled: boolean;
+  /** This chat owns the app's encounter, so its setup dialog or combat window shows. */
+  encounterShown: boolean;
   spritePosition: SpriteSide;
   spriteCharacterIds: string[];
   spriteDisplayModes: SpriteDisplayMode[];
@@ -780,7 +777,7 @@ type RoleplaySurfaceProps = {
   onRerunSingleTracker: (agentType: string) => void;
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
-  onStartEncounter: () => void;
+  onOpenEncounterSetup: () => void;
   onConcludeScene: () => void;
   onReopenScene: () => void;
   onAbandonScene: () => void;
@@ -828,8 +825,8 @@ export function ChatRoleplaySurface({
   expressionAgentEnabled,
   expressionAvatarsEnabled,
   expressionAvatarResolver,
-  combatAgentEnabled,
-  encounterActive,
+  encountersEnabled,
+  encounterShown,
   spritePosition,
   spriteCharacterIds,
   spriteDisplayModes,
@@ -886,7 +883,7 @@ export function ChatRoleplaySurface({
   onRerunSingleTracker,
   onRetryFailedAgents,
   onRetryAgent,
-  onStartEncounter,
+  onOpenEncounterSetup,
   onConcludeScene,
   onReopenScene,
   onAbandonScene,
@@ -1170,7 +1167,7 @@ export function ChatRoleplaySurface({
     if (topChromeRef.current) observer.observe(topChromeRef.current);
     if (inputChromeRef.current) observer.observe(inputChromeRef.current);
     return () => observer.disconnect();
-  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, combatAgentEnabled]);
+  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, encountersEnabled]);
 
   useEffect(() => {
     setAddonsReady(false);
@@ -1330,11 +1327,7 @@ export function ChatRoleplaySurface({
               </div>
             </div>
 
-            {encounterActive && (
-              <Suspense fallback={null}>
-                <EncounterModal />
-              </Suspense>
-            )}
+            {encounterShown && <LazyEncounterHost chatId={activeChatId} />}
 
             <div
               className={cn("absolute inset-0 z-10 overflow-clip min-w-0", TRACKER_SCROLL_AVOIDANCE_CLASS)}
@@ -1535,18 +1528,7 @@ export function ChatRoleplaySurface({
                     onReopen={onReopenScene}
                   />
                 )}
-                {!isConcludedScene && combatAgentEnabled && (
-                  <div className="flex justify-center py-1">
-                    <button
-                      onClick={onStartEncounter}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-foreground/50 transition-all hover:bg-foreground/10 hover:text-orange-300"
-                      title="Start Combat Encounter"
-                    >
-                      <Swords size="0.875rem" />
-                      <span>Encounter</span>
-                    </button>
-                  </div>
-                )}
+                {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onOpenEncounterSetup} />}
                 {!isConcludedScene && (
                   <ChatInput
                     mode={isRoleplay ? "roleplay" : "conversation"}

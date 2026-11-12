@@ -265,38 +265,34 @@ Output format:
 }`,
 
   /* ────────────────────────────────────────── */
-  combat: `Track combat encounters alongside the narrative. Analyze the latest message to determine combat state changes.
-1. Whether a combat encounter is active, starting, or ending.
-2. The initiative order and whose turn it is.
-3. HP and status of all combatants, estimate when exact numbers aren't given.
-4. Actions taken this turn (attacks, spells, abilities, items used).
-5. Environmental effects and conditions (terrain, hazards, weather impact).
-6. Combat outcome: victory, defeat, flee, or negotiation.
+  // Saved agent runs and users' edited prompts expect these output fields; keep their names.
+  combat: `Report the state of any fight happening in the story, as of the latest assistant message. Respond ONLY with valid JSON.
 Output format:
 {
   "encounterActive": boolean,
   "event": "none|start|turn|end",
+  "roundNumber": number,
+  "currentTurn": "string — name of the combatant acting now, or empty",
+  "lastAction": "string — the latest blow, spell, or move, or empty",
+  "summary": "string — one sentence on how the fight stands, or empty",
   "combatants": [
     {
-      "id": "string — character ID or name",
+      "id": "string — short stable id, such as the name in lowercase",
       "name": "string",
       "hp": { "current": number, "max": number },
-      "status": "string — active|unconscious|dead|fled",
-      "conditions": ["string — poisoned, stunned, etc."],
+      "status": "active|unconscious|dead|fled",
+      "conditions": ["string — such as bleeding, stunned, prone"],
       "initiativeOrder": number
     }
-  ],
-  "currentTurn": "string|null — name of character whose turn it is",
-  "lastAction": "string|null — description of the most recent combat action",
-  "roundNumber": number,
-  "summary": "string — brief summary of combat state"
+  ]
 }
-Instructions:
-1. Only set encounterActive to true when clear combat is happening — tension or threats alone don't count.
-2. Track HP changes realistically. A sword slash to the arm doesn't deal the same damage as a critical strike to the chest. Estimate based on the severity described.
-3. If combat hasn't started or has ended, return: { "encounterActive": false, "event": "none", "combatants": [], "currentTurn": null, "lastAction": null, "roundNumber": 0, "summary": "" }
-4. Preserve continuity with the previous combat state. Include both player characters and enemies as combatants.
-5. Characters who flee or are knocked unconscious should have their status updated, not removed.`,
+Rules:
+1. Only real fighting counts: blows landed or traded, spells cast at someone, weapons used. Threats, insults, posturing, and tension alone are not a fight.
+2. "event" is "start" on the message where the fight begins, "turn" while it goes on, and "end" on the message where it stops.
+3. Estimate HP from how bad each hit sounds: a graze costs little, a crushing or deep wound costs a lot. Keep max HP the same for the whole fight.
+4. With no fight, return exactly: {"encounterActive": false, "event": "none", "roundNumber": 0, "currentTurn": "", "lastAction": "", "summary": "", "combatants": []}
+5. Keep continuity with your last reported state: same ids, HP carried forward, round numbers counting up.
+6. A combatant who flees or is knocked out stays in the list with status "fled" or "unconscious"; never drop them mid-fight.`,
 
   /* ────────────────────────────────────────── */
   background: `Decide whether De-Koi should generate a reusable background image for the current roleplay scene.

@@ -230,7 +230,9 @@ then the model decides every enemy and ally action in the same call.
   has been added to the chat." with **Close Combat Window**, or "Failed to
   generate summary." with **Close Anyway** (decision 6).
 - **X** asks "End Combat" / "Close and end this combat?" (button "End Combat")
-  and throws the encounter away. Before the end, no summary is written.
+  and throws the encounter away. Before the end, no summary is written. Once
+  the fight has ended (the end screen shows), X and Escape close the window
+  without asking.
 - **The summary call** gets the characters and persona (no chat history), the
   result, every round (or "No detailed combat rounds were recorded.") and the
   summary style. It asks for a narrative summary of the whole fight, the
@@ -435,7 +437,8 @@ The type names in `combat-encounter.ts` are internal and may change.
 11. **Accessibility.** Recommended: mark the overlay and dialogs as labeled
     dialogs, move focus in and back, name the X "End combat", let Escape cancel
     the setup and target dialogs, and let Escape on the overlay ask the "End
-    Combat" question. **Agreed.**
+    Combat" question while the fight runs (after it ends, Escape just closes).
+    **Agreed.**
 12. **The background Combat agent** costs a model call per reply and nothing
     uses its answer. Recommended for this rebuild: keep it (same behavior, new
     prompt text). Stopping the per-reply run, or using its answer (like
