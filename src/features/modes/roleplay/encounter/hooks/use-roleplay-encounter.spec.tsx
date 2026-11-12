@@ -13,6 +13,7 @@ import type {
 } from "../../../../../engine/modes/roleplay/encounter/encounter-types";
 import { userFacingError } from "../../../../../engine/shared/user-facing-error";
 import { useRoleplayEncounterStore } from "../../../../../shared/stores/roleplay-encounter.store";
+import { chatKeys } from "../../../../catalog/chats/index";
 import { useRoleplayEncounter } from "./use-roleplay-encounter";
 
 const service = vi.hoisted(() => ({
@@ -163,8 +164,13 @@ describe("useRoleplayEncounter", () => {
 
   it("doesn't refresh messages for a summary that answers after you left the chat", async () => {
     await startFight();
-    const pending = deferred<string>();
-    service.writeEncounterSummary.mockReturnValueOnce(pending.promise);
+    const answer = deferred<string>();
+    // Like the engine: a call cancelled while the model answers throws instead of saving.
+    service.writeEncounterSummary.mockImplementationOnce(async (_capabilities, input: { signal: AbortSignal }) => {
+      const text = await answer.promise;
+      input.signal.throwIfAborted();
+      return text;
+    });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
     let concluding!: Promise<void>;
@@ -173,11 +179,34 @@ describe("useRoleplayEncounter", () => {
     });
     const signal = service.writeEncounterSummary.mock.calls[0]?.[1].signal as AbortSignal;
     act(() => state().leaveChat("chat-b"));
-    pending.resolve("Too late.");
+    answer.resolve("Too late.");
     await act(() => concluding);
 
     expect(signal.aborted).toBe(true);
     expect(state().encounter?.summaryStatus).toBe("failed");
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("treats a summary whose save started before you left as written, and never writes a second one", async () => {
+    await startFight();
+    const saved = deferred<string>();
+    service.writeEncounterSummary.mockImplementationOnce(async (_capabilities, input: { onSaveStart: () => void }) => {
+      input.onSaveStart();
+      return saved.promise;
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    let concluding!: Promise<void>;
+    act(() => {
+      concluding = encounter.conclude();
+    });
+    act(() => state().leaveChat("chat-b"));
+    saved.resolve("The warden fell.");
+    await act(() => concluding);
+    await act(() => encounter.retrySummary());
+
+    expect(state().encounter?.summaryStatus).toBe("written");
+    expect(service.writeEncounterSummary).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.messages("chat-a") });
   });
 });

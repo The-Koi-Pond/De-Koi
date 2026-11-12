@@ -54,20 +54,31 @@ export interface EncounterModelRequest {
   signal: AbortSignal;
 }
 
+const NO_CONNECTION_MESSAGE = "This chat has no model connection. Pick one in Chat Settings or add one in Connections.";
+const EMPTY_RANDOM_POOL_MESSAGE =
+  "No connections are in the random pool. Add one in Connections or pick one in Chat Settings.";
+
+// What `resolveGenerationConnection` throws when there's no connection to use: none at all, the chat's one deleted,
+// or an empty random pool. Its plain-text errors carry no code, so they're matched by their exact wording.
+const RESOLVER_MISSING_CONNECTION: Record<string, string> = {
+  "API connection was not found": NO_CONNECTION_MESSAGE,
+  "Chat connection was not found": NO_CONNECTION_MESSAGE,
+  "No connections are marked for the random pool": EMPTY_RANDOM_POOL_MESSAGE,
+};
+
 async function encounterConnectionId(storage: StorageGateway, chat: JsonRecord): Promise<string> {
-  let connectionId = "";
+  let connection: JsonRecord;
   try {
-    connectionId = readString((await resolveGenerationConnection(storage, chat, { connectionId: null })).id).trim();
-  } catch {
-    // Reported below in words that name the fix; the resolver's own text is internal.
+    connection = await resolveGenerationConnection(storage, chat, { connectionId: null });
+  } catch (error) {
+    const missing = error instanceof Error ? RESOLVER_MISSING_CONNECTION[error.message] : undefined;
+    // Anything else (a storage or server failure) keeps its own message (decision 10).
+    if (!missing) throw error;
+    throw userFacingError(missing);
   }
-  if (connectionId) return connectionId;
-  if (readString(chat.connectionId).trim() === "random") {
-    throw userFacingError(
-      "No connections are in the random pool. Add one in Connections or pick one in Chat Settings.",
-    );
-  }
-  throw userFacingError("This chat has no model connection. Pick one in Chat Settings or add one in Connections.");
+  const connectionId = readString(connection.id).trim();
+  if (!connectionId) throw userFacingError(NO_CONNECTION_MESSAGE);
+  return connectionId;
 }
 
 /**
@@ -198,6 +209,8 @@ export interface EncounterSummaryInput {
   result: EncounterResult;
   rounds: EncounterRound[];
   signal: AbortSignal;
+  /** Called once the message is being saved: from then on the summary counts as written, even if the call is left. */
+  onSaveStart: () => void;
 }
 
 /** Writes the fight's summary as one assistant message, the only change an encounter makes to its chat. */
@@ -223,6 +236,7 @@ export async function writeEncounterSummary(
   });
   const summary = cleanSummary(raw);
   if (!summary) throw userFacingError("The model returned an empty combat summary. Try again.");
+  input.onSaveStart();
   await storage.createChatMessage(input.chatId, { role: "assistant", characterId: null, content: summary });
   return summary;
 }

@@ -181,12 +181,13 @@ export async function loadEncounterHistory(
     orderBy: "createdAt",
     descending: true,
     limit,
-    fields: ["id", "role", "content", "extra", "createdAt"],
+    fields: ["id", "role", "content", "extra"],
   });
+  // The page comes newest first; reversing it (not re-sorting by createdAt) keeps equal timestamps in order.
   return rows
     .filter(isRecord)
-    .sort((a, b) => readString(a.createdAt).localeCompare(readString(b.createdAt)))
-    .slice(-limit)
+    .slice(0, limit)
+    .reverse()
     .filter((message) => !hiddenFromAi(message) && text(message.content))
     .map((message) => {
       const role = readString(message.role);

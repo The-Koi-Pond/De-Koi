@@ -53,6 +53,8 @@ interface PendingCall {
   id: number;
   kind: EncounterCallKind;
   controller: AbortController;
+  /** The summary message is being saved; leaving the chat can't stop that, so it no longer cancels the call. */
+  saving: boolean;
 }
 
 export const ENCOUNTER_LEFT_CHAT_MESSAGE = "Encounter action canceled when you left this chat.";
@@ -73,10 +75,14 @@ interface EncounterStoreState {
   failTurn: (callId: number, message: string) => void;
   conclude: () => void;
   beginSummary: () => EncounterCallTicket | null;
+  startSummarySave: (callId: number) => void;
   finishSummary: (callId: number) => void;
   failSummary: (callId: number) => void;
   isCurrent: (callId: number) => boolean;
-  /** Called on every chat switch: a pending call of an encounter in another chat is cancelled and settled. */
+  /**
+   * Called on every chat switch: a pending call of an encounter in another chat is cancelled and settled, except a
+   * summary already being saved, which finishes as written.
+   */
   leaveChat: (activeChatId: string | null) => void;
   reset: () => void;
 }
@@ -114,7 +120,7 @@ export const useRoleplayEncounterStore = create<EncounterStoreState>((set, get) 
 
   function begin(kind: EncounterCallKind, encounter: Encounter): EncounterCallTicket {
     abortPending();
-    const pending = { id: ++lastCallId, kind, controller: new AbortController() };
+    const pending = { id: ++lastCallId, kind, controller: new AbortController(), saving: false };
     set({ pending, encounter });
     return { id: pending.id, signal: pending.controller.signal };
   }
@@ -180,12 +186,16 @@ export const useRoleplayEncounterStore = create<EncounterStoreState>((set, get) 
       if (encounter?.stage !== "ended" || pending || encounter.summaryStatus === "written") return null;
       return begin("summary", { ...encounter, summaryStatus: "generating" });
     },
+    startSummarySave: (callId) => {
+      const { pending } = get();
+      if (pending?.id === callId && pending.kind === "summary") set({ pending: { ...pending, saving: true } });
+    },
     finishSummary: (callId) => settle(callId, () => ({ summaryStatus: "written" })),
     failSummary: (callId) => settle(callId, () => ({ summaryStatus: "failed" })),
     isCurrent: (callId) => get().pending?.id === callId,
     leaveChat: (activeChatId) => {
       const { encounter, pending } = get();
-      if (!encounter || !pending || encounter.chatId === activeChatId) return;
+      if (!encounter || !pending || pending.saving || encounter.chatId === activeChatId) return;
       pending.controller.abort();
       if (pending.kind === "setup") {
         set({ encounter: null, pending: null });

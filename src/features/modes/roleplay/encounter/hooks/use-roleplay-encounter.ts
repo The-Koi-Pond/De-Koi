@@ -1,5 +1,6 @@
 // Runs an encounter's model calls through the engine and settles the encounter store with their answers.
-// The store decides whether an answer is still current; a stale one changes nothing and refreshes nothing.
+// The store decides whether an answer is still current; a stale one changes nothing. A saved summary always
+// refreshes its chat's messages, since it is in the chat whatever happened to the encounter.
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
@@ -52,14 +53,15 @@ async function runSummary(queryClient: QueryClient): Promise<void> {
       result: encounter.result,
       rounds: encounter.rounds,
       signal: ticket.signal,
+      onSaveStart: () => useRoleplayEncounterStore.getState().startSummarySave(ticket.id),
     });
   } catch {
     // The end screen offers Try again; a cancelled call was already settled by whoever cancelled it.
     useRoleplayEncounterStore.getState().failSummary(ticket.id);
     return;
   }
-  if (!useRoleplayEncounterStore.getState().isCurrent(ticket.id)) return;
   useRoleplayEncounterStore.getState().finishSummary(ticket.id);
+  // The message is saved even if the encounter was closed meanwhile; an inactive chat refetches when it's reopened.
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: chatKeys.messages(encounter.chatId) }),
     queryClient.invalidateQueries({ queryKey: chatKeys.messageCount(encounter.chatId) }),

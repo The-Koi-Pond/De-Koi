@@ -34,26 +34,34 @@ const setupJson = JSON.stringify({
   environment: "A mirror-bright hall.",
 });
 
-function fakeStorage(options: { connections?: Array<Record<string, unknown>> } = {}) {
+function fakeStorage(
+  options: { connections?: Array<Record<string, unknown>>; chat?: Record<string, unknown>; listError?: Error } = {},
+) {
   const connections = options.connections ?? [{ id: "conn-1", isDefault: true }];
   const storage = {
     get: vi.fn(async (entity: string, id: string) => {
-      if (entity === "chats") return { id, characterIds: [], metadata: {} };
+      if (entity === "chats") return { id, characterIds: [], metadata: {}, ...options.chat };
       if (entity === "connections") return connections.find((connection) => connection.id === id) ?? null;
       return null;
     }),
     list: vi.fn(async (entity: string) => {
-      if (entity === "connections") return connections;
+      if (entity === "connections") {
+        if (options.listError) throw options.listError;
+        return connections;
+      }
       if (entity === "personas") return [{ id: "persona-1", name: "Mira", isActive: true }];
       return [];
     }),
-    listChatMessages: vi.fn(async () =>
+    // Like real storage: the newest `limit` messages, newest first. Equal timestamps keep their saved order.
+    listChatMessages: vi.fn(async (_chatId: string, query: { limit: number }) =>
       Array.from({ length: 10 }, (_, index) => ({
         id: `m${index}`,
         role: index % 2 ? "assistant" : "user",
         content: `Line ${index}`,
-        createdAt: `2026-01-01T00:00:${String(index).padStart(2, "0")}Z`,
-      })),
+        createdAt: "2026-01-01T00:00:00Z",
+      }))
+        .reverse()
+        .slice(0, query.limit),
     ),
     getWorldState: vi.fn(async () => null),
     listLorebookEntries: vi.fn(async () => []),
@@ -64,7 +72,7 @@ function fakeStorage(options: { connections?: Array<Record<string, unknown>> } =
 
 function fakeLlm(responses: Array<string | Error>) {
   const requests: LlmRequest[] = [];
-  const complete = vi.fn(async (request: LlmRequest) => {
+  const complete = vi.fn(async (request: LlmRequest, _signal?: AbortSignal) => {
     requests.push(request);
     const next = responses.shift();
     if (next === undefined || next instanceof Error) throw next ?? new Error("No queued response");
@@ -76,6 +84,8 @@ function fakeLlm(responses: Array<string | Error>) {
 function signal() {
   return new AbortController().signal;
 }
+
+function onSaveStart() {}
 
 describe("encounter model calls", () => {
   it("starts a fight on the chat's connection with the setup parameters and bounded history", async () => {
@@ -115,6 +125,48 @@ describe("encounter model calls", () => {
       startEncounterFight({ storage: gateway, llm: llm.gateway }, { chatId: "chat-1", settings, signal: signal() }),
     ).rejects.toThrow("This chat has no model connection");
     expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it("names an empty random pool", async () => {
+    const { gateway } = fakeStorage({ chat: { connectionId: "random" } });
+
+    await expect(
+      startEncounterFight(
+        { storage: gateway, llm: fakeLlm([setupJson]).gateway },
+        { chatId: "chat-1", settings, signal: signal() },
+      ),
+    ).rejects.toThrow("No connections are in the random pool");
+  });
+
+  it("keeps a storage failure's own error instead of calling it a missing connection", async () => {
+    const failure = Object.assign(new Error("The De-Koi server didn't answer. Check it's running."), {
+      code: "remote_runtime_unreachable",
+    });
+    const { gateway } = fakeStorage({ listError: failure });
+
+    await expect(
+      startEncounterFight(
+        { storage: gateway, llm: fakeLlm([setupJson]).gateway },
+        { chatId: "chat-1", settings, signal: signal() },
+      ),
+    ).rejects.toBe(failure);
+  });
+
+  it("uses the chat's own connection over the app default and passes the abort signal to the model call", async () => {
+    const { gateway } = fakeStorage({
+      connections: [{ id: "conn-1", isDefault: true }, { id: "conn-chat" }],
+      chat: { connectionId: "conn-chat" },
+    });
+    const llm = fakeLlm([JSON.stringify({ narrative: "Mira presses in." })]);
+    const controller = new AbortController();
+
+    await resolveEncounterTurn(
+      { storage: gateway, llm: llm.gateway },
+      { chatId: "chat-1", settings, fight, rounds: [], action: "Strike", signal: controller.signal },
+    );
+
+    expect(llm.requests[0]?.connectionId).toBe("conn-chat");
+    expect(llm.complete.mock.calls[0]?.[1]).toBe(controller.signal);
   });
 
   it("sends the three setup debug entries in order while debug mode is on", async () => {
@@ -165,12 +217,14 @@ describe("encounter model calls", () => {
   it("writes exactly one cleaned assistant message for a summary", async () => {
     const { storage, gateway } = fakeStorage();
     const llm = fakeLlm(["<thinking>plan</thinking>\nThe warden fell at last. [FIGHT CONCLUDED]"]);
+    const onSaveStart = vi.fn(() => expect(storage.createChatMessage).not.toHaveBeenCalled());
 
     await writeEncounterSummary(
       { storage: gateway, llm: llm.gateway },
-      { chatId: "chat-1", settings, result: "victory", rounds: [], signal: signal() },
+      { chatId: "chat-1", settings, result: "victory", rounds: [], signal: signal(), onSaveStart },
     );
 
+    expect(onSaveStart).toHaveBeenCalledTimes(1);
     expect(llm.requests[0]).toMatchObject({ parameters: { temperature: 0.9, maxTokens: 8_192 } });
     expect(storage.listChatMessages).not.toHaveBeenCalled();
     expect(storage.createChatMessage).toHaveBeenCalledTimes(1);
@@ -190,7 +244,7 @@ describe("encounter model calls", () => {
     await expect(
       writeEncounterSummary(
         { storage: gateway, llm: fakeLlm([response]).gateway },
-        { chatId: "chat-1", settings, result: "victory", rounds: [], signal: signal() },
+        { chatId: "chat-1", settings, result: "victory", rounds: [], signal: signal(), onSaveStart },
       ),
     ).rejects.toThrow();
     expect(storage.createChatMessage).not.toHaveBeenCalled();
@@ -199,6 +253,7 @@ describe("encounter model calls", () => {
   it("writes nothing when the summary is cancelled while the model answers", async () => {
     const { storage, gateway } = fakeStorage();
     const controller = new AbortController();
+    const onSaveStart = vi.fn();
     const llm = {
       complete: vi.fn(async () => {
         controller.abort();
@@ -209,9 +264,10 @@ describe("encounter model calls", () => {
     await expect(
       writeEncounterSummary(
         { storage: gateway, llm },
-        { chatId: "chat-1", settings, result: "victory", rounds: [], signal: controller.signal },
+        { chatId: "chat-1", settings, result: "victory", rounds: [], signal: controller.signal, onSaveStart },
       ),
     ).rejects.toThrow();
     expect(storage.createChatMessage).not.toHaveBeenCalled();
+    expect(onSaveStart).not.toHaveBeenCalled();
   });
 });

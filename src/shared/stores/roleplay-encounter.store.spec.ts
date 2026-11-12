@@ -114,6 +114,36 @@ describe("encounter store", () => {
     expect(store().encounter?.summaryStatus).toBe("failed");
   });
 
+  it("counts a summary as written once its save started, even if you leave the chat during the save", () => {
+    startFight();
+    store().conclude();
+    const summary = store().beginSummary()!;
+    store().startSummarySave(summary.id);
+
+    store().leaveChat("chat-b");
+    expect(summary.signal.aborted).toBe(false);
+    expect(store().encounter?.summaryStatus).toBe("generating");
+
+    store().finishSummary(summary.id);
+    expect(store().encounter?.summaryStatus).toBe("written");
+    expect(store().beginSummary()).toBeNull();
+  });
+
+  it("cancels a pending turn on Conclude and ignores its late answer", () => {
+    startFight();
+    const turn = store().beginTurn("Strike")!;
+
+    store().conclude();
+    expect(turn.signal.aborted).toBe(true);
+    expect(store().pending).toBeNull();
+    const summary = store().beginSummary();
+    expect(summary).not.toBeNull();
+
+    store().finishTurn(turn.id, outcome("Late narration"));
+    expect(store().encounter).toMatchObject({ stage: "ended", result: "interrupted", rounds: [] });
+    expect(logText()).toEqual(["Combat begins!", "You: Strike"]);
+  });
+
   it("lets a failed summary be tried again", () => {
     startFight();
     store().conclude();
