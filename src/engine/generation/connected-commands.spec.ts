@@ -824,7 +824,7 @@ describe("persistConnectedCommandTags", () => {
     expect(imageRequests[0]).toMatchObject({ reviewTitle: "Selfie: Juno" });
   });
 
-  it("sends the selfie character's avatar and full-body sprite as references only when the chat asks for it", async () => {
+  it("sends the selfie character's full-body sprite (not the avatar) as the reference only when the chat asks for it", async () => {
     const miraAvatar = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}MAAA`;
     const junoAvatar = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}JAAA`;
     const junoFullBody = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}FAAA`;
@@ -881,7 +881,7 @@ describe("persistConnectedCommandTags", () => {
     await run(chat);
     expect(imageRequests[0]).toMatchObject({
       reviewTitle: "Selfie: Juno",
-      referenceImages: [junoAvatar, junoFullBody],
+      referenceImages: [junoFullBody],
     });
     expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("same art style as the references"));
 
@@ -891,8 +891,15 @@ describe("persistConnectedCommandTags", () => {
 
     // NovelAI draws English sentences into the picture; its references carry the likeness without the guidance.
     await run({ ...chat, metadata: { imageGenConnectionId: "nai-1", selfieUseAvatarReferences: true } });
-    expect(imageRequests[2]).toMatchObject({ connectionId: "nai-1", referenceImages: [junoAvatar, junoFullBody] });
+    expect(imageRequests[2]).toMatchObject({ connectionId: "nai-1", referenceImages: [junoFullBody] });
     expect(imageRequests[2]?.prompt).not.toEqual(expect.stringContaining("Reference guidance"));
+
+    // Without a full-body sprite, the avatar is the reference.
+    await persistConnectedCommandTags(storage, chat, "look", integrations, undefined, null, undefined, visuals, {
+      textsFirstPhoto: "send",
+      textsFirstCharacterId: "char-1",
+    });
+    expect(imageRequests[3]).toMatchObject({ reviewTitle: "Selfie: Mira", referenceImages: [miraAvatar] });
   });
 
   it("does not recover an implicit selfie when image generation is not configured", async () => {

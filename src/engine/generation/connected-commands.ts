@@ -855,18 +855,21 @@ async function buildSelfiePrompt(args: {
   return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName, character };
 }
 
-/** The character's avatar first (their face), then a full-body sprite (their outfit and build) when there is one. */
+/**
+ * The character's full-body sprite when there is one, else their avatar. Same rule as illustrations: a sprite is the
+ * reference picture of the character, while an avatar can be any art (fan art, a crop, another artist's style), and
+ * sending both makes the model blend two different looks.
+ */
 async function selfieReferenceImages(
   visuals: VisualAssetGateway | undefined,
   character: JsonRecord,
   characterName: string,
 ): Promise<string[]> {
   const subject = { ...characterImageReferenceSubject(character, "character"), name: characterName };
-  const avatar = await avatarReferenceImage(visuals, subject);
-  const fullBody = await fullBodySpriteReferenceImage(visuals, subject);
-  // Drops empty, duplicate and oversized images.
-  return illustrationReferencesForRequest([avatar, fullBody].map((image) => ({ image, subjectName: characterName })))
-    .referenceImages;
+  const reference =
+    (await fullBodySpriteReferenceImage(visuals, subject)) || (await avatarReferenceImage(visuals, subject));
+  // Drops an empty or oversized image.
+  return illustrationReferencesForRequest([{ image: reference, subjectName: characterName }]).referenceImages;
 }
 
 async function generateSelfie(args: {
