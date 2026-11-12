@@ -7,9 +7,9 @@ const LINE_DELAY_MS = 350;
 
 const KIND_CLASSES: Record<EncounterLogKind, string> = {
   system: "text-[var(--muted-foreground)] italic",
-  player: "text-sky-400 font-medium",
-  enemy: "text-red-400",
-  ally: "text-emerald-400",
+  player: "text-sky-800 dark:text-sky-300 font-medium",
+  enemy: "text-red-800 dark:text-red-400",
+  ally: "text-emerald-800 dark:text-emerald-400",
   narration: "text-[var(--foreground)]",
 };
 
@@ -45,7 +45,7 @@ export function EncounterLog({ log }: { log: EncounterLogEntry[] }) {
       ref={listRef}
       role="log"
       aria-label="Combat log"
-      className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--background)]/60 p-2 text-xs leading-relaxed"
+      className="min-h-32 flex-1 space-y-1 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--background)]/60 p-2 text-xs leading-relaxed"
     >
       {log.slice(0, revealed).map((line) => (
         <li key={line.id} className={cn("motion-enter", KIND_CLASSES[line.kind])}>

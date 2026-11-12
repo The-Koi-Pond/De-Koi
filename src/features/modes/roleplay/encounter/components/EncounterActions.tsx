@@ -121,7 +121,7 @@ export function EncounterActions(props: {
   if (!props.fight.party.length) {
     body = <p className="text-xs text-[var(--muted-foreground)]">Waiting for combat data...</p>;
   } else if (!player || player.hp <= 0) {
-    body = <p className="text-xs text-red-300">You have been defeated...</p>;
+    body = <p className="text-xs text-red-800 dark:text-red-300">You have been defeated...</p>;
   } else if (props.processing) {
     body = (
       <p role="status" className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
@@ -178,7 +178,7 @@ export function EncounterActions(props: {
       <h2 className="text-xs font-semibold">Your actions</h2>
       {body}
       {props.turnError && (
-        <p role="alert" className="text-xs text-red-300">
+        <p role="alert" className="text-xs text-red-800 dark:text-red-300">
           {props.turnError}
         </p>
       )}

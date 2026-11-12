@@ -1,12 +1,14 @@
-import { useEffect, useId, useRef, type RefObject } from "react";
+import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Flag, Loader2, RotateCcw, X } from "lucide-react";
 import type { EncounterFight } from "../../../../../engine/modes/roleplay/encounter/encounter-types";
 import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
+import { keepTabInside } from "../../../../../shared/lib/focus-trap";
 import { motionStyle } from "../../../../../shared/lib/motion";
 import { cn } from "../../../../../shared/lib/utils";
 import { useRoleplayEncounterStore, type Encounter } from "../../../../../shared/stores/roleplay-encounter.store";
+import { useFocusInAndBack } from "../hooks/use-focus-in-and-back";
 import { useRoleplayEncounter } from "../hooks/use-roleplay-encounter";
 import { EncounterActions } from "./EncounterActions";
 import { EnemyCard, PartyCard } from "./EncounterCombatants";
@@ -56,50 +58,46 @@ function askToConclude(conclude: () => Promise<void>) {
   });
 }
 
-/** Focus moves into the window when it opens and back to where it was when it closes (decision 11). */
-function useFocusInAndBack(panelRef: RefObject<HTMLDivElement | null>) {
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    panelRef.current?.focus();
-    return () => {
-      if (previous?.isConnected) previous.focus();
-    };
-  }, [panelRef]);
-}
-
 function FightView(props: { encounter: Encounter; fight: EncounterFight }) {
   const { sendAction, retrySummary, close } = useRoleplayEncounter();
   const processing = useRoleplayEncounterStore((state) => state.pending?.kind === "turn");
   const { encounter, fight } = props;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <p className="text-center text-xs italic text-[var(--muted-foreground)]">{fight.environment || "Battle arena"}</p>
-      <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-3" aria-label="Enemies">
-        {fight.enemies.map((enemy, index) => (
-          <EnemyCard key={`${enemy.name}-${index}`} enemy={enemy} />
-        ))}
-      </ul>
-      <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="Party">
-        {fight.party.map((member, index) => (
-          <PartyCard key={`${member.name}-${index}`} member={member} />
-        ))}
-      </ul>
-      <EncounterLog log={encounter.log} />
-      {encounter.stage === "ended" && encounter.result ? (
-        <EncounterEnd
-          result={encounter.result}
-          summaryStatus={encounter.summaryStatus}
-          onRetrySummary={() => void retrySummary()}
-          onClose={close}
-        />
-      ) : (
-        <EncounterActions
-          fight={fight}
-          processing={processing}
-          turnError={encounter.turnError}
-          onAction={(text) => void sendAction(text)}
-        />
-      )}
+      {/* Big fights and phone screens scroll here, so the actions below always stay in reach. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
+        <p className="text-center text-xs italic text-[var(--muted-foreground)]">
+          {fight.environment || "Battle arena"}
+        </p>
+        <ul className="grid shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-3" aria-label="Enemies">
+          {fight.enemies.map((enemy, index) => (
+            <EnemyCard key={`${enemy.name}-${index}`} enemy={enemy} />
+          ))}
+        </ul>
+        <ul className="grid shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="Party">
+          {fight.party.map((member, index) => (
+            <PartyCard key={`${member.name}-${index}`} member={member} />
+          ))}
+        </ul>
+        <EncounterLog log={encounter.log} />
+      </div>
+      <div className="max-h-[50%] shrink-0 overflow-y-auto overscroll-contain border-t border-[var(--border)] pt-2">
+        {encounter.stage === "ended" && encounter.result ? (
+          <EncounterEnd
+            result={encounter.result}
+            summaryStatus={encounter.summaryStatus}
+            onRetrySummary={() => void retrySummary()}
+            onClose={close}
+          />
+        ) : (
+          <EncounterActions
+            fight={fight}
+            processing={processing}
+            turnError={encounter.turnError}
+            onAction={(text) => void sendAction(text)}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -109,7 +107,7 @@ function StartView({ encounter }: { encounter: Encounter }) {
   if (encounter.stage === "start-failed") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <p role="alert" className="max-w-sm text-sm text-red-300">
+        <p role="alert" className="max-w-sm text-sm text-red-800 dark:text-red-300">
           {encounter.startError}
         </p>
         <div className="flex gap-2">
@@ -145,9 +143,12 @@ export function EncounterOverlay({ encounter }: { encounter: Encounter }) {
   const { close, conclude } = useRoleplayEncounter();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // Once the fight is over there's nothing left to lose by closing (the summary is written or can't be), so no ask.
+  const fightOver = encounter.stage === "ended";
+  const requestClose = () => (fightOver ? close() : askToEndCombat(close));
   useFocusInAndBack(panelRef);
   useEscapeOverlay(() => {
-    askToEndCombat(close);
+    requestClose();
     return true;
   });
 
@@ -168,11 +169,14 @@ export function EncounterOverlay({ encounter }: { encounter: Encounter }) {
         tabIndex={-1}
         data-component="EncounterOverlay"
         style={PANEL_MOTION}
-        className={cn(
-          "motion-enter relative flex h-[85dvh] w-full max-w-[600px] flex-col gap-2 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] bg-gradient-to-b to-transparent p-3 text-[var(--card-foreground)] shadow-2xl shadow-black/50 outline-none",
-          tint,
-        )}
+        onKeyDown={(event) => keepTabInside(event, panelRef.current)}
+        className="motion-enter relative isolate flex h-[85dvh] w-full max-w-[600px] flex-col gap-2 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-[var(--card-foreground)] shadow-2xl shadow-black/50 outline-none"
       >
+        {/* A layer of its own: on the panel, the gradient would replace the card background instead of tinting it. */}
+        <div
+          aria-hidden="true"
+          className={cn("pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b to-transparent", tint)}
+        />
         <header className="flex shrink-0 items-center justify-between gap-2">
           <h2 id={titleId} className="text-sm font-semibold">
             Combat encounter
@@ -190,8 +194,8 @@ export function EncounterOverlay({ encounter }: { encounter: Encounter }) {
             )}
             <button
               type="button"
-              onClick={() => askToEndCombat(close)}
-              aria-label="End combat"
+              onClick={requestClose}
+              aria-label={fightOver ? "Close combat window" : "End combat"}
               className="de-koi-icon-target rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
             >
               <X size="1rem" aria-hidden="true" />

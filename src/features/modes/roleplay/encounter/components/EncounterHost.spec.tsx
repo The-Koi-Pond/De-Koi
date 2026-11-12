@@ -111,4 +111,44 @@ describe("EncounterHost", () => {
       message: "Close and end this combat?",
     });
   });
+
+  it("closes without asking once the fight is over", () => {
+    show(encounter({ stage: "ended", result: "victory", summaryStatus: "written" }));
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+
+    expect(useDialogStore.getState().dialog).toBeNull();
+    expect(useRoleplayEncounterStore.getState().encounter).toBeNull();
+  });
+
+  it("keeps Shift+Tab inside the combat window", () => {
+    show(encounter({}));
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(document.activeElement).toBe(dialog);
+
+    act(() => {
+      dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
+    });
+
+    const controls = Array.from(dialog.querySelectorAll("button:not([disabled]), input:not([disabled])"));
+    expect(document.activeElement).toBe(controls.at(-1));
+  });
+
+  it("shows the crash screen over the page, and Escape closes the encounter", () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    show(encounter({ fight: { ...fight, enemies: null as unknown as EncounterFight["enemies"] } }));
+    quiet.mockRestore();
+
+    const crash = document.body.querySelector('[role="alertdialog"]');
+    expect(crash?.textContent).toContain("Combat error");
+    expect(container.contains(crash)).toBe(false);
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+
+    expect(useRoleplayEncounterStore.getState().encounter).toBeNull();
+  });
 });

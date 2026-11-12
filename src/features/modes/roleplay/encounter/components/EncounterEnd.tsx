@@ -3,9 +3,9 @@ import type { EncounterResult } from "../../../../../engine/modes/roleplay/encou
 import type { EncounterSummaryStatus } from "../../../../../shared/stores/roleplay-encounter.store";
 
 const RESULT_LABELS: Record<EncounterResult, { glyph: string; label: string; className: string }> = {
-  victory: { glyph: "🏆", label: "Victory", className: "text-amber-400" },
-  defeat: { glyph: "💀", label: "Defeat", className: "text-red-400" },
-  fled: { glyph: "🏃", label: "Fled", className: "text-sky-400" },
+  victory: { glyph: "🏆", label: "Victory", className: "text-amber-800 dark:text-amber-300" },
+  defeat: { glyph: "💀", label: "Defeat", className: "text-red-800 dark:text-red-400" },
+  fled: { glyph: "🏃", label: "Fled", className: "text-sky-800 dark:text-sky-300" },
   interrupted: { glyph: "🚩", label: "Interrupted", className: "text-[var(--muted-foreground)]" },
 };
 
@@ -47,7 +47,7 @@ export function EncounterEnd(props: {
       )}
       {props.summaryStatus === "failed" && (
         <div className="space-y-2">
-          <p role="alert" className="text-xs text-red-300">
+          <p role="alert" className="text-xs text-red-800 dark:text-red-300">
             Failed to generate summary.
           </p>
           <div className="flex justify-center gap-2">
