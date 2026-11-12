@@ -182,8 +182,9 @@ pub(crate) fn export_character_png(state: &AppState, id: &str) -> AppResult<Valu
         .and_then(|data| data.get("name"))
         .and_then(Value::as_str)
         .unwrap_or("character");
-    let avatar_png =
-        avatar_data_url(state, &character).and_then(|value| png_data_url_bytes(&value));
+    let avatar_png = avatar_data_url(state, &character)
+        .map(|value| avatar_png_bytes(&value))
+        .transpose()?;
     Ok(binary_download(
         character_card_png(&card, avatar_png.as_deref())?,
         "image/png",
@@ -1388,12 +1389,32 @@ fn character_card_png(card: &Value, png_bytes: Option<&[u8]>) -> AppResult<Vec<u
     Ok(bytes)
 }
 
-fn png_data_url_bytes(value: &str) -> Option<Vec<u8>> {
-    let (header, payload) = value.split_once(',')?;
-    if !header.to_ascii_lowercase().starts_with("data:image/png") {
-        return None;
+/// The avatar as PNG bytes for a PNG card. PNG avatars pass through; JPEG,
+/// WebP and GIF avatars are converted so the card keeps its picture.
+fn avatar_png_bytes(data_url: &str) -> AppResult<Vec<u8>> {
+    let unreadable = |detail: String| {
+        AppError::new(
+            "png_export_error",
+            format!(
+                "The avatar could not be turned into a PNG card ({detail}). Export as CHARX or Character Card V3 instead."
+            ),
+        )
+    };
+    let (header, payload) = data_url
+        .split_once(',')
+        .ok_or_else(|| unreadable("not an inline image".to_string()))?;
+    let bytes = general_purpose::STANDARD
+        .decode(payload.trim())
+        .map_err(|error| unreadable(error.to_string()))?;
+    if header.to_ascii_lowercase().starts_with("data:image/png") {
+        return Ok(bytes);
     }
-    general_purpose::STANDARD.decode(payload).ok()
+    let image = image::load_from_memory(&bytes).map_err(|error| unreadable(error.to_string()))?;
+    let mut png = Cursor::new(Vec::new());
+    image
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| unreadable(error.to_string()))?;
+    Ok(png.into_inner())
 }
 
 fn inject_text_chunk(png: &[u8], keyword: &str, text: &str) -> AppResult<Vec<u8>> {
@@ -1587,6 +1608,61 @@ mod tests {
             "data:image/png;base64,{}",
             general_purpose::STANDARD.encode(tiny_png_bytes())
         )
+    }
+
+    #[test]
+    fn png_card_export_converts_jpeg_and_webp_avatars() {
+        let state = test_state("png-card-avatar-formats");
+        let picture = image::RgbImage::from_pixel(3, 2, image::Rgb([200, 40, 90]));
+        for (id, mime, format) in [
+            ("char-jpeg", "jpeg", image::ImageFormat::Jpeg),
+            ("char-webp", "webp", image::ImageFormat::WebP),
+        ] {
+            let mut encoded = Cursor::new(Vec::new());
+            picture
+                .write_to(&mut encoded, format)
+                .expect("encode avatar");
+            state
+                .storage
+                .create(
+                    "characters",
+                    json!({
+                        "id": id,
+                        "avatar": format!(
+                            "data:image/{mime};base64,{}",
+                            general_purpose::STANDARD.encode(encoded.into_inner())
+                        ),
+                        "data": { "name": format!("Avatar {mime}") }
+                    }),
+                )
+                .expect("seed character");
+
+            let download = export_character_png(&state, id).expect("png card export");
+            let bytes = general_purpose::STANDARD
+                .decode(download["base64"].as_str().expect("base64"))
+                .expect("decode");
+            let card = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+                .expect("export is a PNG");
+            assert_eq!((card.width(), card.height()), (3, 2), "{mime} avatar kept");
+            assert!(
+                bytes.windows(6).any(|window| window == b"chara\0"),
+                "{mime} card text embedded"
+            );
+        }
+
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-broken",
+                    "avatar": "data:image/jpeg;base64,bm90IGFuIGltYWdl",
+                    "data": { "name": "Broken" }
+                }),
+            )
+            .expect("seed broken avatar");
+        let error = export_character_png(&state, "char-broken").expect_err("unreadable avatar");
+        assert!(error.to_string().contains("CHARX"), "{error}");
     }
 
     fn seed_portable_character(state: &AppState) {
