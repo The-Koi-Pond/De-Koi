@@ -6,9 +6,35 @@ import type { TrackerState } from "../../../engine/contracts/types/tracker-state
 import { useTrackerStateStore } from "../../runtime/world-state";
 import { useAgentStore } from "../../../shared/stores/agent.store";
 import { useChatStore } from "../../../shared/stores/chat.store";
-import { useEncounterStore } from "../../../shared/stores/encounter.store";
+import { useRoleplayEncounterStore } from "../../../shared/stores/roleplay-encounter.store";
 import { useUIStore } from "../../../shared/stores/ui.store";
 import { resetClientDataState, resetClientSessionState } from "./client-session-reset";
+
+const narration = { tense: "present", person: "third", narration: "omniscient", pov: "narrator" } as const;
+
+/** A running fight in chat-1 with a turn still waiting on the model. */
+function startFightWithPendingTurn() {
+  useRoleplayEncounterStore.getState().openSetup("chat-1");
+  const start = useRoleplayEncounterStore.getState().beginStart({
+    combatNarration: narration,
+    summaryNarration: narration,
+    spellbookId: null,
+    historyDepth: 8,
+  });
+  useRoleplayEncounterStore.getState().finishStart(start!.id, {
+    party: [{ name: "Mira", hp: 20, maxHp: 20, attacks: [], items: [], statuses: [], isPlayer: true }],
+    enemies: [],
+    environment: "A hall.",
+    styleNotes: { environmentType: "dungeon", atmosphere: "tense", timeOfDay: "night", weather: "clear" },
+    playerActions: { attacks: [], items: [] },
+  });
+  return useRoleplayEncounterStore.getState().beginTurn("Strike")!;
+}
+
+function expectNoEncounterLeft(turn: { signal: AbortSignal }) {
+  expect(useRoleplayEncounterStore.getState()).toMatchObject({ encounter: null, pending: null });
+  expect(turn.signal.aborted).toBe(true);
+}
 
 describe("resetClientSessionState", () => {
   beforeEach(() => {
@@ -16,14 +42,14 @@ describe("resetClientSessionState", () => {
     useChatStore.getState().reset();
     useAgentStore.getState().reset();
     useTrackerStateStore.getState().reset();
-    useEncounterStore.getState().reset();
+    useRoleplayEncounterStore.getState().reset();
   });
 
   afterEach(() => {
     useChatStore.getState().reset();
     useAgentStore.getState().reset();
     useTrackerStateStore.getState().reset();
-    useEncounterStore.getState().reset();
+    useRoleplayEncounterStore.getState().reset();
     useUIStore.getState().closeAllDetails();
     useUIStore.getState().closeModal();
     useUIStore.getState().closeRightPanel();
@@ -38,7 +64,7 @@ describe("resetClientSessionState", () => {
     useChatStore.getState().setActiveChatId("chat-1");
     useAgentStore.getState().setProcessing(true);
     useTrackerStateStore.getState().setTrackerState({ chatId: "chat-1", location: "Harbor" } as TrackerState);
-    useEncounterStore.setState({ active: true, initialized: true, isProcessing: true });
+    const turn = startFightWithPendingTurn();
     useUIStore.setState({
       modal: { type: "confirm", props: {} },
       characterDetailId: "character-1",
@@ -52,11 +78,7 @@ describe("resetClientSessionState", () => {
     expect(useChatStore.getState().activeChatId).toBeNull();
     expect(useAgentStore.getState().isProcessing).toBe(false);
     expect(useTrackerStateStore.getState().current).toBeNull();
-    expect(useEncounterStore.getState()).toMatchObject({
-      active: false,
-      initialized: false,
-      isProcessing: false,
-    });
+    expectNoEncounterLeft(turn);
     expect(useUIStore.getState()).toMatchObject({
       modal: null,
       characterDetailId: null,
@@ -74,7 +96,7 @@ describe("resetClientSessionState", () => {
     useChatStore.getState().setActiveChatId("chat-1");
     useAgentStore.getState().setProcessing(true);
     useTrackerStateStore.getState().setTrackerState({ chatId: "chat-1", location: "Harbor" } as TrackerState);
-    useEncounterStore.setState({ active: true, initialized: true, isProcessing: true });
+    const turn = startFightWithPendingTurn();
     useUIStore.setState({
       modal: { type: "confirm", props: {} },
       characterDetailId: "character-1",
@@ -89,11 +111,7 @@ describe("resetClientSessionState", () => {
     expect(useChatStore.getState().activeChatId).toBeNull();
     expect(useAgentStore.getState().isProcessing).toBe(false);
     expect(useTrackerStateStore.getState().current).toBeNull();
-    expect(useEncounterStore.getState()).toMatchObject({
-      active: false,
-      initialized: false,
-      isProcessing: false,
-    });
+    expectNoEncounterLeft(turn);
     expect(useUIStore.getState()).toMatchObject({
       modal: { type: "confirm", props: {} },
       characterDetailId: "character-1",
