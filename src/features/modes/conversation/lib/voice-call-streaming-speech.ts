@@ -4,6 +4,7 @@
 // A call used to wait for the whole reply to be saved and then voice all of it, so every turn sat in silence for
 // the model's full reply time plus the voice provider's full synthesis time. This speaks each finished piece (a
 // line, or a sentence) as soon as it has streamed: its audio is requested right away and pieces play in order.
+import { stripDeliveryTags } from "../../../../engine/modes/chat/voice-call/delivery-tags";
 
 /**
  * Where the complete text in `text` ends: just past the last line break, or the last sentence end (. ! ? …
@@ -32,9 +33,12 @@ export function completeSpeechEnd(text: string, from: number, first = false): nu
   return end;
 }
 
-/** Collapses whitespace and drops markup the voice never reads, so streamed and saved text can be compared. */
+/**
+ * Collapses whitespace and drops markup the voice never reads, plus delivery tags the saved reply no longer has, so
+ * streamed and saved text can be compared.
+ */
 function comparable(text: string): string {
-  return text
+  return stripDeliveryTags(text)
     .replace(/\[[a-z_]+:[^\]]*\]/gi, "")
     .replace(/<[^>]+>/g, "")
     .replace(/\s+/g, " ")

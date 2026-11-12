@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { VoiceReaction } from "../../../../engine/shared/voice-session/voice-reactions";
 import type { VoiceSessionSnapshot } from "../../../../engine/shared/voice-session/voice-session";
-import type { VoiceCallCharacter } from "../lib/voice-call-ports";
+import type { VoiceCallCharacter, VoiceCallSend } from "../lib/voice-call-ports";
 import {
   hangUpVoiceCall,
   holdVoiceCallSession,
@@ -37,7 +37,7 @@ export function useVoiceCall({
   chatId: string;
   character: VoiceCallCharacter;
   /** Sends your words as a text and resolves when the character's reply is done (false when none came). */
-  sendText: (text: string) => Promise<boolean>;
+  sendText: VoiceCallSend;
 }): VoiceCall {
   const session = voiceCallSessionFor({ chatId, character, sendText });
   useEffect(() => holdVoiceCallSession(chatId, session), [chatId, session]);

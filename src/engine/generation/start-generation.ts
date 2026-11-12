@@ -35,6 +35,7 @@ import {
   voiceNoteFrequency,
   voiceNoteText,
 } from "../modes/chat/voice-notes/voice-notes";
+import { stripDeliveryTags } from "../modes/chat/voice-call/delivery-tags";
 import {
   assistantRepliesRefreshContinuityDirector,
   queueContinuityDirectorRefresh,
@@ -3192,7 +3193,9 @@ function trimIncompleteModelEnding(content: string): string {
   return body.slice(0, lastCompleteEnd).trimEnd() + trailingWhitespace;
 }
 
-function finalAssistantContent(input: StartGenerationInput, content: string): string {
+function finalAssistantContent(input: StartGenerationInput, rawContent: string): string {
+  // Delivery tags were for the call's voice, which has already spoken the streamed reply: the text keeps none.
+  const content = input.voiceCallDeliveryTags === true ? stripDeliveryTags(rawContent) : rawContent;
   if (input.trimIncompleteModelOutput !== true || input.impersonate === true) return content;
   return trimIncompleteModelEnding(content);
 }

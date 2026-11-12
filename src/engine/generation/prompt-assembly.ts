@@ -27,6 +27,7 @@ import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../mode
 import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
+import { VOICE_CALL_DELIVERY_INSTRUCTION } from "../modes/chat/voice-call/delivery-tags";
 import {
   commandCapabilityEnabled,
   conversationCommandCapabilities,
@@ -3206,6 +3207,13 @@ async function buildConversationContextBlocks(
           role: "system" as const,
           contextKind: "prompt" as const,
           content: wrapContent(VOICE_NOTE_REPLY_INSTRUCTION, "voice_note", wrapFormat),
+        }
+      : null,
+    input.request.voiceCallDeliveryTags === true
+      ? {
+          role: "system" as const,
+          contextKind: "prompt" as const,
+          content: wrapContent(VOICE_CALL_DELIVERY_INSTRUCTION, "voice_call", wrapFormat),
         }
       : null,
     buildConversationCommandBlock(
