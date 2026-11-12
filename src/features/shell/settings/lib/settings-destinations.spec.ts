@@ -11,6 +11,7 @@ const destinationOwnerFiles = [
   "src/features/shell/settings/components/settings/BackupExportSettings.tsx",
   "src/features/shell/settings/components/settings/ChatBehaviorSettings.tsx",
   "src/features/shell/settings/components/settings/ChatPresentationSettings.tsx",
+  "src/features/shell/settings/components/settings/RoleplaySceneSoundSettings.tsx",
   "src/features/shell/settings/components/ProfileImportSection.tsx",
   "src/features/shell/plugins/components/CoreModulesSettings.tsx",
   "src/features/shell/diagnostics/components/HealthDiagnosticsSettings.tsx",

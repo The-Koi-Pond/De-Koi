@@ -5,6 +5,7 @@ export * from "./hooks/use-chats";
 export { useExportChat } from "./hooks/use-export-chat";
 export * from "./lib/timeline-message";
 export { preserveRecentMessageContentEdit } from "./lib/recent-message-content-edits";
+export { withoutPendingMessageDeletes } from "./lib/pending-message-deletes";
 export { confirmChatDeletion } from "./lib/chat-delete-confirmation";
 export * from "./lib/memory-capture-log";
 export * from "./hooks/use-memory-capture-log";

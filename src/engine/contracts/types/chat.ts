@@ -430,6 +430,15 @@ export interface ChatMetadata {
   selfiePositivePrompt?: string;
   /** Extra negative prompt/tags sent with generated conversation selfies. */
   selfieNegativePrompt?: string;
+  /**
+   * Send the character's full-body sprite (or their avatar when they have none) to the image model with each selfie, so the
+   * picture keeps their look. Off unless turned on: some services start from the reference image instead of reading it.
+   */
+  selfieUseAvatarReferences?: boolean;
+  /** Per character: how often a texts-first message comes with a selfie. Missing means "rare". */
+  unpromptedPhotoFrequency?: Record<string, "never" | "rare" | "sometimes">;
+  /** Per character: how often a reply (or a text sent first) goes out as a voice note. Missing means "rare". */
+  voiceNoteFrequency?: Record<string, "never" | "rare" | "sometimes">;
 
   // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */

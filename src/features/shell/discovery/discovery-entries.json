@@ -3,7 +3,7 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
+    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first (now and then with a selfie, set per character from never to sometimes), slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
     "keywords": [
       "dm",
       "chat",
@@ -12,6 +12,7 @@
       "schedule",
       "autonomous",
       "texting",
+      "unprompted photo",
       "message",
       "bubbles",
       "speaker bubbles",
@@ -851,6 +852,23 @@
     "coverage": "advanced"
   },
   {
+    "id": "voice-notes",
+    "title": "Voice Notes",
+    "category": "Media",
+    "summary": "Now and then a Conversation character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice: a play button with its length and the words behind Show transcript. Each one is made once and kept with the chat, so it replays without a new request, goes into backups and is deleted with the chat. Set per character from never to sometimes (rare by default); at most one photo or voice note until you reply when they text first. Notifications say \"sent a voice message\" without the words.",
+    "keywords": ["voice note", "voice message", "audio message", "tts", "unprompted", "texting"],
+    "audience": "Conversation users with Text to Speech set up who want characters to feel like they're messaging from their phone.",
+    "where": "Conversation chat settings > Voice Notes. Needs Text to Speech on in Settings.",
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "settings",
+        "label": "Open Settings"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "voice-calls",
     "title": "Voice Calls And Voice Input",
     "category": "Media",
@@ -889,13 +907,15 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.",
+    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's full-body sprite (or avatar) so they look like that character.",
     "keywords": [
       "image",
       "images",
       "pictures",
       "sprites",
       "selfie",
+      "likeness",
+      "reference image",
       "background",
       "illustration",
       "portrait",
@@ -908,6 +928,7 @@
       "danbooru",
       "negative prompt",
       "novelai",
+      "reference strength",
       "dall-e"
     ],
     "audience": "Users who want visual scenes and character art generated from chat context.",
@@ -1602,6 +1623,61 @@
       {
         "type": "show-active-chat",
         "label": "Go to your chat"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
+    "id": "roleplay-scene-sound",
+    "title": "Scene sound",
+    "category": "Chat modes",
+    "summary": "Roleplay scenes can play a quiet background loop that fits where you are (rain, a tavern, the sea, a forest, a carnival at night) and one sound effect for a clear event in a reply, like a door slamming, thunder or breaking glass. The ambience changes when the scene moves, not on every reply, and an effect never plays twice in a row. The scene comes from World State, or from the scene text when a chat has none, with no extra model call. A reply that writes its own [SFX: ...] line plays that sound. Sounds are made by ElevenLabs the first time they're needed (it uses your ElevenLabs credits, shown in Settings before you turn it on), then kept on the device and replay free. Off by default, with separate ambience and effect volumes. If the browser holds sound back, as phones do until you tap, a bar above the message box says so and starts it in one tap.",
+    "keywords": [
+      "ambience",
+      "ambient sound",
+      "background sound",
+      "sound effects",
+      "sfx",
+      "rain sound",
+      "atmosphere",
+      "elevenlabs",
+      "immersion"
+    ],
+    "audience": "Roleplay users with ElevenLabs Text to Speech who want scenes to sound like where they are.",
+    "where": "Settings > Appearance > Effects > Scene sound.",
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "destination": "scene-sound",
+        "label": "Open Scene sound"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
+    "id": "roleplay-cinematic-starter",
+    "title": "Wisp, the starter that comes with art",
+    "category": "Chat modes",
+    "summary": "When your character library is empty, new Roleplay setup offers ready-made starter characters. Wisp, a proud spirit of blue fire trapped in an old lantern, comes with her own art: an avatar, twelve expression sprites and three painted scene backgrounds. A new Roleplay with her opens in your apartment with her sprite on screen, the background moves to the midnight back street and the Lantern Market as the story gets there, and her sprite changes with her mood. It all works with just a text model connected; no image connection needed. The Expression agent is switched on for that chat and runs on the chat's own model; the background changes need no model call. Pick your own background and it stays. Characters you make can do the same by listing scene backgrounds on their card.",
+    "keywords": [
+      "starter character",
+      "wisp",
+      "sprites",
+      "backgrounds",
+      "first roleplay",
+      "demo",
+      "visual novel",
+      "cinematic",
+      "scene backgrounds"
+    ],
+    "audience": "New Roleplay users, and anyone showing De-Koi to someone.",
+    "where": "New Roleplay > Characters step, with an empty character library > Start with one of these > Wisp.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "roleplay",
+        "label": "Start a Roleplay"
       }
     ],
     "coverage": "core"

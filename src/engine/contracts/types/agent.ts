@@ -544,7 +544,7 @@ function canonicalAgentActiveIds(value: unknown, options: { remapLegacySpotify?:
   return Array.from(new Set(value.map((id) => canonicalAgentActiveId(id, options)).filter(Boolean)));
 }
 
-function chatAgentsEnabled(metadata: unknown): boolean {
+export function chatAgentsEnabled(metadata: unknown): boolean {
   return !boolishFalse(metadataRecord(metadata).enableAgents);
 }
 

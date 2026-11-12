@@ -48,7 +48,9 @@ const SCAFFOLD_NOUNS = new Set(
     "cock dick ass nipple nipples hole cunt pussy clit balls name word words fault life time room door bed own " +
     // Common describing words that also sit after "his": "his open mouth", "his long fingers".
     "open long wet hot warm cold soft hard red black white little big small bare full empty slick sweet low rough " +
-    "quiet free other first last best only new old good bad"
+    "quiet free other first last best only new old good bad " +
+    // Sides: "his right hand" made "right" a detail, then every "all right" and "right now" counted toward it.
+    "right left"
   ).split(" "),
 );
 

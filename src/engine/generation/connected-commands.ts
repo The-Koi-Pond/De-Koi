@@ -21,6 +21,14 @@ import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-op
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
+import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
+import {
+  appendSelfieReferenceGuidance,
+  referenceGuidanceSuitsImageConnection,
+  avatarReferenceImage,
+  characterImageReferenceSubject,
+  fullBodySpriteReferenceImage,
+} from "./character-image-references";
 import {
   compileImagePrompt,
   createDefaultImageStyleProfileSettings,
@@ -74,6 +82,10 @@ type ConnectedCommandOptions = {
   pendingSelfieIntent?: boolean;
   /** The user message this reply answers and the replying character, for [react: ...] tapbacks. */
   reactionTarget?: { messageId: string; reactorId: string } | null;
+  /** Texts-first only: "send" means this message carries a photo, "withhold" means it carries none. */
+  textsFirstPhoto?: "send" | "withhold";
+  /** Texts-first only: the character texting, whose photo it is (in a group, not always the first character). */
+  textsFirstCharacterId?: string | null;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
@@ -150,6 +162,22 @@ function inferSelfieContextFromResponse(response: string): string | undefined {
     .trim()
     .slice(0, 240);
   return context || undefined;
+}
+
+/**
+ * Texting first, the photo roll decides: "withhold" drops any [selfie] the model wrote anyway (the frequency and
+ * one-per-burst cap hold), "send" keeps exactly one, adding it when the model left the tag out.
+ */
+function textsFirstPhotoCommands(
+  commands: CharacterCommand[],
+  response: string,
+  decision: "send" | "withhold" | undefined,
+): CharacterCommand[] {
+  if (!decision) return commands;
+  const others = commands.filter((command) => command.type !== "selfie");
+  if (decision === "withhold") return others;
+  const selfie = commands.find((command): command is SelfieCommand => command.type === "selfie");
+  return [...others, selfie ?? { type: "selfie", context: inferSelfieContextFromResponse(response) }];
 }
 
 function recoverImplicitSelfieCommand(args: {
@@ -744,7 +772,7 @@ async function buildSelfiePrompt(args: {
   commandContext?: string;
   characterId: string | null;
   imagePromptSettings?: ImagePromptSettings;
-}): Promise<{ prompt: string; negativePrompt: string; characterName: string }> {
+}): Promise<{ prompt: string; negativePrompt: string; characterName: string; character: JsonRecord | null }> {
   const character = args.characterId ? await args.storage.get<JsonRecord>("characters", args.characterId) : null;
   const data = parseData(character ?? undefined);
   const characterName = nameOf(character ?? {}) || readString(data.name, "character") || "character";
@@ -824,7 +852,24 @@ async function buildSelfiePrompt(args: {
     ),
     userPositive: positive,
   });
-  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName };
+  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName, character };
+}
+
+/**
+ * The character's full-body sprite when there is one, else their avatar. Same rule as illustrations: a sprite is the
+ * reference picture of the character, while an avatar can be any art (fan art, a crop, another artist's style), and
+ * sending both makes the model blend two different looks.
+ */
+async function selfieReferenceImages(
+  visuals: VisualAssetGateway | undefined,
+  character: JsonRecord,
+  characterName: string,
+): Promise<string[]> {
+  const subject = { ...characterImageReferenceSubject(character, "character"), name: characterName };
+  const reference =
+    (await fullBodySpriteReferenceImage(visuals, subject)) || (await avatarReferenceImage(visuals, subject));
+  // Drops an empty or oversized image.
+  return illustrationReferencesForRequest([{ image: reference, subjectName: characterName }]).referenceImages;
 }
 
 async function generateSelfie(args: {
@@ -837,10 +882,15 @@ async function generateSelfie(args: {
   events: ConnectedCommandEvent[];
   assistantAttachments: JsonRecord[];
   imagePromptSettings?: ImagePromptSettings;
+  /** Sent while texting first, not because the user asked. */
+  unprompted?: boolean;
+  /** Whose selfie it is; defaults to the chat's first character. */
+  characterId?: string | null;
+  visuals?: VisualAssetGateway;
 }): Promise<boolean> {
   const metadata = parseRecord(args.chat.metadata);
   const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
-  const characterId = activeCharacterId(args.chat);
+  const characterId = args.characterId || activeCharacterId(args.chat);
   if (!imageConnectionId) {
     eventsPushSelfieError(args.events, characterId, "No image generation connection configured for this chat.");
     return false;
@@ -851,7 +901,7 @@ async function generateSelfie(args: {
   }
 
   try {
-    const { prompt, negativePrompt, characterName } = await buildSelfiePrompt({
+    const built = await buildSelfiePrompt({
       storage: args.storage,
       llm: args.llm,
       llmConnectionId: args.llmConnectionId,
@@ -860,6 +910,16 @@ async function generateSelfie(args: {
       characterId,
       imagePromptSettings: args.imagePromptSettings,
     });
+    const { negativePrompt, characterName } = built;
+    const referenceImages =
+      boolish(metadata.selfieUseAvatarReferences, false) && built.character
+        ? await selfieReferenceImages(args.visuals, built.character, characterName)
+        : [];
+    const imageConnection = await args.storage.get<JsonRecord>("connections", imageConnectionId);
+    const prompt =
+      referenceImages.length > 0 && referenceGuidanceSuitsImageConnection(imageConnection)
+        ? appendSelfieReferenceGuidance(built.prompt, characterName)
+        : built.prompt;
     const size = parseSelfieSize(metadata.selfieResolution);
     const image = await args.integrations.image.generate({
       connectionId: imageConnectionId,
@@ -870,6 +930,7 @@ async function generateSelfie(args: {
       negativePrompt: negativePrompt || undefined,
       width: size.width,
       height: size.height,
+      ...(referenceImages.length > 0 ? { referenceImages } : {}),
     });
     const normalizedImage = normalizeGeneratedImageResult(image);
     const imageUrl = normalizedImage.dataUrl;
@@ -888,12 +949,16 @@ async function generateSelfie(args: {
       height: size.height,
     });
     const storedImageUrl = readString(gallery.url).trim() || imageUrl;
+    const description = args.command.context?.replace(/\s+/g, " ").trim();
     const attachment = {
       type: "image",
       url: storedImageUrl,
       filename,
       prompt,
       galleryId: readString(gallery.id) || null,
+      // What the character meant to show, so later prompts can say what was sent.
+      ...(description ? { description } : {}),
+      ...(args.unprompted ? { unprompted: true } : {}),
     };
     args.assistantAttachments.push(attachment);
     args.events.push({
@@ -1654,6 +1719,9 @@ async function executeCommand(
         events,
         assistantAttachments,
         imagePromptSettings,
+        unprompted: options?.textsFirstPhoto === "send",
+        characterId: options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : null,
+        visuals,
       }))
         ? { name: "selfie" }
         : null;
@@ -1686,7 +1754,11 @@ export async function persistConnectedCommandTags(
       readString(metadata.imageGenConnectionId).trim().length > 0 && conversationSelfieCommandEnabled(chat),
     existingCommands: parsed.commands,
   });
-  const commands = recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands;
+  const commands = textsFirstPhotoCommands(
+    recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands,
+    parsed.cleanContent,
+    options?.textsFirstPhoto,
+  );
   const executedCommands: string[] = [];
   const events: ConnectedCommandEvent[] = [...parsed.parseEvents];
   const assistantAttachments: JsonRecord[] = [];

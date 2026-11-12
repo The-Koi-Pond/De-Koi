@@ -25,3 +25,19 @@ the app name and big panel titles.
 Unless a more specific file or directory notice says otherwise, these assets are
 distributed with De-Koi under the same project terms as the rest of this
 repository.
+
+## Wisp, the cinematic starter character
+
+Wisp's art was made for De-Koi and is original to this project: the avatar and
+twelve expression sprites in `public/starters/wisp/`, and the three scene
+backgrounds `wisp-apartment.webp`, `wisp-back-street.webp` and
+`wisp-lantern-market.webp` in `src-tauri/resources/default-data/backgrounds/`.
+
+They were generated with an image model (Google Gemini 2.5 Flash Image) from
+text prompts written for this character, with every expression drawn from the
+same neutral sprite so she stays one character. The sprites' backgrounds were
+keyed out and the pictures cropped and compressed by hand; no existing artwork,
+character or artist's style was used as a reference.
+
+They are distributed with De-Koi under the same project terms as the rest of
+this repository.

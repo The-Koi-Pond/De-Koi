@@ -24,6 +24,8 @@ import {
 import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/regex-application";
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
 import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
+import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
+import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
 import {
   commandCapabilityEnabled,
   conversationCommandCapabilities,
@@ -3104,6 +3106,7 @@ function buildConversationCommandBlock(
   connectedMode: string | null,
   wrapFormat: WrapFormat,
   focused = false,
+  textsFirstPhoto?: unknown,
 ): ChatMLMessage | null {
   const meta = parseRecord(chat.metadata);
   if (!conversationCommandPromptEnabled(chat)) return null;
@@ -3115,12 +3118,12 @@ function buildConversationCommandBlock(
   const hasCharacters = characters.length > 0;
   const hasConnectedRoleplay = connectedMode === "roleplay";
   const canCrossPost = commandCapabilityEnabled(capabilities, ["crossPost", "canCrossPost"]);
-  const canSelfie = commandCapabilityEnabled(capabilities, [
-    "selfie",
-    "canSelfie",
-    "imageGeneration",
-    "canGenerateImages",
-  ]);
+  // Texting first, the engine already rolled for a photo: offer the tag only when this text carries one.
+  const sendTextsFirstPhoto = textsFirstPhoto === "send";
+  const canSelfie =
+    textsFirstPhoto !== "withhold" &&
+    !sendTextsFirstPhoto &&
+    commandCapabilityEnabled(capabilities, ["selfie", "canSelfie", "imageGeneration", "canGenerateImages"]);
   const canMemory = commandCapabilityEnabled(capabilities, ["memory", "canSaveMemory"]);
   const canStartScene = commandCapabilityEnabled(capabilities, ["scene", "canStartScene", "canStartScenes"]);
   const spotifyPlaybackAvailable = commandCapabilityEnabled(
@@ -3142,6 +3145,9 @@ function buildConversationCommandBlock(
       ? focused
         ? '- Cross-post with [cross_post: target="group or chat name"] when naturally sharing elsewhere.'
         : '- Cross-post a message with [cross_post: target="group or chat name"] when the character naturally wants to move or share a message across conversations.'
+      : "",
+    sendTextsFirstPhoto
+      ? '- This text comes with a photo of you. End it with [selfie: context="what the photo shows"], something from what you are doing right now, and mention it the way a person sending a pic would.'
       : "",
     canSelfie
       ? focused
@@ -3192,7 +3198,21 @@ async function buildConversationContextBlocks(
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
     crossChat,
     linked.block,
-    buildConversationCommandBlock(input.chat, characters, linked.connectedMode, wrapFormat, focused),
+    input.request.voiceNote === "send"
+      ? {
+          role: "system" as const,
+          contextKind: "prompt" as const,
+          content: wrapContent(VOICE_NOTE_REPLY_INSTRUCTION, "voice_note", wrapFormat),
+        }
+      : null,
+    buildConversationCommandBlock(
+      input.chat,
+      characters,
+      linked.connectedMode,
+      wrapFormat,
+      focused,
+      input.request.textsFirstPhoto,
+    ),
   ].filter((block): block is ChatMLMessage => block !== null);
 }
 
@@ -3343,16 +3363,25 @@ interface HistoryPromptSelection {
   requestedLimit: number;
 }
 
-/** "(Sam reacted ❤️)" after a reacted Conversation message, so the character knows how a text landed. */
+/**
+ * Notes after a Conversation message: "(sent a photo: …)" for a character's photo, so the model knows what it
+ * sent, and "(Sam reacted ❤️)" for a reaction, so the character knows how a text landed.
+ */
 function conversationReactionNote(
   characters: GenerationCharacterContext[],
   personaName: string | null,
 ): (message: JsonRecord) => string {
   const names = new Map(characters.map((character) => [character.id, character.name]));
   return (message) =>
-    reactionHistoryNote(readMessageReactions(message.extra), (by) =>
-      by === USER_REACTOR ? personaName?.trim() || "The user" : (names.get(by) ?? "Someone"),
-    );
+    [
+      readString(message.role) === "assistant" ? sentPhotoHistoryNote(message.extra) : "",
+      readString(message.role) === "assistant" ? voiceNoteHistoryNote(message.extra) : "",
+      reactionHistoryNote(readMessageReactions(message.extra), (by) =>
+        by === USER_REACTOR ? personaName?.trim() || "The user" : (names.get(by) ?? "Someone"),
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n");
 }
 
 function historyMessageSelection(
@@ -3389,14 +3418,15 @@ function historyMessageSelection(
     const images = Array.isArray(message.images)
       ? message.images.filter((image): image is string => typeof image === "string" && image.trim().length > 0)
       : [];
-    if (!content.length && images.length === 0) continue;
-    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     const note = historyNote(message);
+    // A photo-only text still counts: its note is what the model sees of it.
+    if (!content.length && images.length === 0 && !note) continue;
+    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     visibleMessages.push({
       source: message,
       prompt: {
         role,
-        content: note ? `${content}\n${note}` : content,
+        content: note ? (content ? `${content}\n${note}` : note) : content,
         contextKind: "history" as const,
         characterId: readString(message.characterId).trim() || undefined,
         name: readString(message.name).trim() || undefined,

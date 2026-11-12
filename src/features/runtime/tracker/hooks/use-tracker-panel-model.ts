@@ -19,7 +19,12 @@ import type {
   TrackerTemperatureUnit,
   TrackerThoughtBubbleDisplay,
 } from "../../../../shared/stores/ui.store";
-import { chatKeys, preserveRecentMessageContentEdit, useChat } from "../../../catalog/chats/index";
+import {
+  chatKeys,
+  preserveRecentMessageContentEdit,
+  useChat,
+  withoutPendingMessageDeletes,
+} from "../../../catalog/chats/index";
 import { characterAvatarUrl, useCharacterSummaries } from "../../../catalog/characters/index";
 import { usePersonas } from "../../../catalog/personas/index";
 import { useTrackerStateController } from "../../world-state/index";
@@ -45,7 +50,11 @@ function useTrackerSpriteMessages(chatId: string | null, enabled: boolean) {
       storageApi
         .listChatMessages<Message>(chatId!, { limit: TRACKER_SPRITE_MESSAGE_LIMIT })
         .then((messages) =>
-          chatId ? messages.map((message) => preserveRecentMessageContentEdit(chatId, message)) : messages,
+          chatId
+            ? withoutPendingMessageDeletes(chatId, messages).map((message) =>
+                preserveRecentMessageContentEdit(chatId, message),
+              )
+            : messages,
         ),
     enabled: !!chatId && enabled,
   });

@@ -61,6 +61,7 @@ import {
 import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
+import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays } from "../../shared/chat-ui/index";
@@ -1505,6 +1506,7 @@ export function ChatRoleplaySurface({
               )}
             >
               <div className={cn("pointer-events-auto relative", centerCompact ? "px-3" : "px-3 md:px-[12%]")}>
+                <RoleplaySceneSoundBar />
                 {chat && worldTickOffer && !worldTickOpen && (
                   <Suspense fallback={null}>
                     <RoleplayWorldTickOfferBar

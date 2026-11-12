@@ -29,6 +29,8 @@ import {
 } from "../../shared/chat-ui/index";
 import { useEncounter } from "../encounter/hooks/use-encounter";
 import { useAgentInjectionReview } from "../hooks/use-agent-injection-review";
+import { useRoleplaySceneBackgrounds } from "../hooks/use-roleplay-scene-backgrounds";
+import { useRoleplaySceneSound } from "../hooks/use-roleplay-scene-sound";
 import { useRoleplayTranscriptScroll } from "../hooks/use-roleplay-transcript-scroll";
 import { useScene } from "../hooks/use-scene";
 import { getSpriteOwnerId, getSpriteOwnerKind, makeSpriteOwnerKey } from "../../../runtime/visuals/sprite-owner-keys";
@@ -204,6 +206,22 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     messages: renderMessages,
     characterMap: data.characterMap,
     isStreaming: timeline.isStreaming,
+  });
+  useRoleplaySceneSound({
+    chatId: activeChatId,
+    messages: renderMessages,
+    isStreaming: timeline.isStreaming,
+    sceneText: metadataString(data.chatMeta.sceneDescription, ""),
+  });
+  useRoleplaySceneBackgrounds({
+    enabled: data.chatMode === "roleplay",
+    chatId: activeChatId,
+    chatMeta: data.chatMeta,
+    chatCharacterIds: data.chatCharIds,
+    characterRows: data.allCharacters,
+    messages: renderMessages,
+    isStreaming: timeline.isStreaming,
+    updateMeta,
   });
 
   const musicCharacterProfiles = useMemo(

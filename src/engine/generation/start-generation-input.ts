@@ -28,6 +28,12 @@ export interface StartGenerationInput extends JsonRecord {
   impersonateConnectionId?: string | null;
   impersonatePromptTemplate?: string | null;
   forCharacterId?: string | null;
+  /** A Conversation character texting first (not answering the user). */
+  textsFirst?: boolean;
+  /** Set by the engine for texts-first: whether this message carries a photo. */
+  textsFirstPhoto?: "send" | "withhold";
+  /** Set by the engine for Conversation replies: this reply goes out as a voice note. */
+  voiceNote?: "send";
   mentionedCharacterNames?: string[];
   attachments?: PromptAttachment[];
   /**

@@ -12,6 +12,7 @@ import {
   markGenerationInProgress,
   recordAssistantActivity,
 } from "../engine/modes/chat/autonomous/autonomous.service";
+import { sentMediaFromEvents, type SentMediaKind } from "../engine/modes/chat/core/sent-media";
 import { chatCommandApi } from "../shared/api/chat-command-api";
 import { storageApi } from "../shared/api/storage-api";
 import type { RunnerJob } from "./jobs";
@@ -25,8 +26,12 @@ export interface AutonomousSchedulerDeps {
   waitForJob: (job: RunnerJob) => Promise<boolean>;
   /** The user's status as last reported by any open app ("idle" when none has reported recently). */
   presence: () => PresenceStatus;
-  /** Called after a character texted first. */
-  onTexted: (chat: { id: string; name: string }, character: { id: string; name: string }) => Promise<void>;
+  /** Called after a character texted first; `media` when that text was a voice note or carried a photo. */
+  onTexted: (
+    chat: { id: string; name: string },
+    character: { id: string; name: string },
+    sent: { media: SentMediaKind | null },
+  ) => Promise<void>;
 }
 
 const POLL_INTERVAL_MS = 30_000;
@@ -65,13 +70,23 @@ export function startAutonomousScheduler(deps: AutonomousSchedulerDeps): () => v
     let saved = false;
     try {
       if (stopped || deps.runningForChat(chat.id)) return;
-      const job = deps.startJob({ chatId: chat.id, connectionId: null, forCharacterId: characterId, streaming: true });
+      const job = deps.startJob({
+        chatId: chat.id,
+        connectionId: null,
+        forCharacterId: characterId,
+        textsFirst: true,
+        streaming: true,
+      });
       saved = await deps.waitForJob(job);
       if (saved) {
         // Count the send so the next poll waits out the follow-up cooldown instead of texting again.
         recordAssistantActivity(chat.id, characterId);
         await chatCommandApi.markAutonomousUnread(chat.id, { characterId });
-        await deps.onTexted(chat, { id: characterId, name: await characterName(characterId) });
+        await deps.onTexted(
+          chat,
+          { id: characterId, name: await characterName(characterId) },
+          { media: sentMediaFromEvents(job.events) },
+        );
       }
     } catch (error) {
       console.warn(`[runner] texting first in chat ${chat.id} failed`, error);

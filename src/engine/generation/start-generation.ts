@@ -18,7 +18,7 @@ import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmChunk, LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { AddChatMessageSwipeOptions, ChatMessageListOptions, StorageGateway } from "../capabilities/storage";
 import type { BackgroundJobOutcome, ClaimedBackgroundJob } from "../capabilities/background-jobs";
-import type { SpriteOwnerType, VisualAssetGateway } from "../capabilities/visual-assets";
+import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import { buildGenerationGuideMessages } from "../shared/text/generation-guide";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint";
 import { collapseExcessBlankLines } from "../shared/text/newlines";
@@ -29,6 +29,13 @@ import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
+import { burstAlreadyHasMedia, decideTextsFirstPhoto } from "../modes/chat/autonomous/unprompted-photos";
+import {
+  buildVoiceNoteAttachment,
+  decideVoiceNote,
+  voiceNoteFrequency,
+  voiceNoteText,
+} from "../modes/chat/voice-notes/voice-notes";
 import {
   assistantRepliesRefreshContinuityDirector,
   queueContinuityDirectorRefresh,
@@ -161,9 +168,15 @@ import { illustrationSubjectMatches } from "../generation-core/images/illustrati
 import {
   illustrationImageRequestWireBytes,
   illustrationReferencesForRequest,
-  usableIllustrationReferenceImage,
   type IllustrationReferenceData,
 } from "../generation-core/images/illustration-reference-selection";
+import {
+  appendReferenceGuidance,
+  avatarReferenceImage,
+  characterImageReferenceSubject,
+  fullBodySpriteReferenceImage,
+  type CharacterImageReferenceSubject,
+} from "./character-image-references";
 export {
   illustrationImageRequestWireBytes,
   illustrationReferenceImagesForRequest,
@@ -796,15 +809,6 @@ type IllustrationImageSettings = {
 export const ILLUSTRATOR_TEXT_NEGATIVE_PROMPT =
   "dialogue boxes, speech bubbles, word balloons, captions, narration boxes, text boxes, manga sound effect text, SFX lettering, readable text, letters, subtitles, watermark, logo, signature";
 
-type IllustrationReferenceSubject = {
-  id: string;
-  name: string;
-  avatar: string;
-  avatarFilePath?: string | null;
-  avatarFilename?: string | null;
-  spriteOwnerType: SpriteOwnerType;
-};
-
 function promptContainsTag(prompt: string, tag: string): boolean {
   const normalizedPrompt = prompt.toLowerCase();
   const normalizedTag = tag.toLowerCase();
@@ -856,67 +860,11 @@ export function buildIllustrationNegativePrompt(args: {
   ]);
 }
 
-function recordName(record: JsonRecord): string {
-  const data = parseRecord(record.data);
-  return readString(data.name).trim() || readString(record.name).trim();
-}
-
-function recordAvatar(record: JsonRecord): string {
-  const data = parseRecord(record.data);
-  return readString(
-    record.avatarPath ?? record.avatar ?? record.avatarUrl ?? data.avatarPath ?? data.avatar ?? data.avatarUrl,
-  ).trim();
-}
-
-function matchesIllustrationSubject(subject: IllustrationReferenceSubject, item: IllustrationPromptData): boolean {
+function matchesIllustrationSubject(subject: CharacterImageReferenceSubject, item: IllustrationPromptData): boolean {
   return illustrationSubjectMatches(subject, {
     requestedNames: item.characterNames,
     prompt: item.prompt,
   });
-}
-
-async function resolveIllustrationReferenceImage(
-  visuals: VisualAssetGateway | undefined,
-  source: {
-    image?: unknown;
-    url?: unknown;
-    base64?: unknown;
-    mimeType?: unknown;
-    avatarFilePath?: unknown;
-    avatarFilename?: unknown;
-  },
-): Promise<string> {
-  const inline =
-    usableIllustrationReferenceImage(source.image) ||
-    usableIllustrationReferenceImage(source.url) ||
-    usableIllustrationReferenceImage(source.base64);
-  if (inline) return inline;
-  return (
-    (visuals?.resolveReferenceImage
-      ? await visuals
-          .resolveReferenceImage({
-            image: readString(source.image).trim() || null,
-            url: readString(source.url).trim() || null,
-            base64: readString(source.base64).trim() || null,
-            mimeType: readString(source.mimeType).trim() || null,
-            avatarFilePath: readString(source.avatarFilePath).trim() || null,
-            avatarFilename: readString(source.avatarFilename).trim() || null,
-          })
-          .catch(() => null)
-      : null) ?? ""
-  );
-}
-
-async function fullBodySpriteReference(
-  visuals: VisualAssetGateway | undefined,
-  sprites: Array<Record<string, unknown>>,
-): Promise<string> {
-  const fullBody = sprites.filter((sprite) => readString(sprite.expression).trim().toLowerCase().startsWith("full_"));
-  const preferred =
-    fullBody.find((sprite) =>
-      ["full_idle", "full_neutral", "full_default"].includes(readString(sprite.expression).trim().toLowerCase()),
-    ) ?? fullBody[0];
-  return preferred ? resolveIllustrationReferenceImage(visuals, preferred) : "";
 }
 
 async function defaultAgentImageConnectionId(storage: StorageGateway): Promise<string> {
@@ -980,28 +928,17 @@ async function illustrationImageSettings(args: {
 async function loadIllustrationReferenceSubjects(
   storage: StorageGateway,
   chat: JsonRecord,
-): Promise<IllustrationReferenceSubject[]> {
+): Promise<CharacterImageReferenceSubject[]> {
   const characterRows = await Promise.all(
     activeCharacterIds(chat).map((id) => storage.get<JsonRecord>("characters", id).catch(() => null)),
   );
-  const subjects: IllustrationReferenceSubject[] = characterRows.filter(isRecord).map((row) => ({
-    id: readString(row.id).trim(),
-    name: recordName(row),
-    avatar: recordAvatar(row),
-    avatarFilePath: readString(row.avatarFilePath ?? parseRecord(row.data).avatarFilePath).trim() || null,
-    avatarFilename: readString(row.avatarFilename ?? parseRecord(row.data).avatarFilename).trim() || null,
-    spriteOwnerType: "character",
-  }));
+  const subjects = characterRows.filter(isRecord).map((row) => characterImageReferenceSubject(row, "character"));
   const personaId = readString(chat.personaId).trim();
   const persona = personaId ? await storage.get<JsonRecord>("personas", personaId).catch(() => null) : null;
   if (isRecord(persona)) {
     subjects.push({
+      ...characterImageReferenceSubject(persona, "persona"),
       id: personaId || readString(persona.id).trim(),
-      name: recordName(persona),
-      avatar: recordAvatar(persona),
-      avatarFilePath: readString(persona.avatarFilePath ?? parseRecord(persona.data).avatarFilePath).trim() || null,
-      avatarFilename: readString(persona.avatarFilename ?? parseRecord(persona.data).avatarFilename).trim() || null,
-      spriteOwnerType: "persona",
     });
   }
   return subjects.filter((subject) => subject.id && subject.name);
@@ -1019,41 +956,12 @@ async function illustrationReferenceData(args: {
   const referenceSubjects = subjects.filter((subject) => matchesIllustrationSubject(subject, args.item));
   for (const subject of referenceSubjects) {
     if (!args.useAvatarReferences) continue;
-    const sprites = args.visuals
-      ? await args.visuals.listSprites(subject.id, subject.spriteOwnerType).catch(() => [])
-      : [];
-    const spriteReference = await fullBodySpriteReference(args.visuals, sprites as Array<Record<string, unknown>>);
     const reference =
-      spriteReference ||
-      (await resolveIllustrationReferenceImage(args.visuals, {
-        image: subject.avatar,
-        url: subject.avatar,
-        avatarFilePath: subject.avatarFilePath,
-        avatarFilename: subject.avatarFilename,
-      }));
+      (await fullBodySpriteReferenceImage(args.visuals, subject)) ||
+      (await avatarReferenceImage(args.visuals, subject));
     if (reference) referenceCandidates.push({ image: reference, subjectName: subject.name });
   }
   return illustrationReferencesForRequest(referenceCandidates);
-}
-
-function promptAlreadyMentionsReferences(prompt: string): boolean {
-  const text = prompt.toLowerCase();
-  return (
-    /\bconsult\b[\s\S]{0,80}\breference/.test(text) ||
-    /\b(attached|provided|included)\s+reference/.test(text) ||
-    /\breference\s+image/.test(text)
-  );
-}
-
-function appendReferenceGuidance(prompt: string, subjectNames: string[]): string {
-  const names = subjectNames.map((name) => name.trim()).filter(Boolean);
-  if (names.length === 0) return prompt.trim();
-  if (promptAlreadyMentionsReferences(prompt)) return prompt.trim();
-  const label = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  return [
-    prompt.trim(),
-    `Reference guidance: Consult the attached reference image(s) for ${label} to preserve identity, face, hair, body proportions, and distinctive visible features. Follow the scene prompt for the current outfit, pose, expression, injuries, lighting, and other moment-specific details; scene-specific appearance overrides default reference clothing.`,
-  ].join("\n\n");
 }
 
 function illustrationPromptText(data: JsonRecord): string {
@@ -3524,6 +3432,98 @@ function agentExtraFromResults(args: {
   return extra;
 }
 
+function textsFirstPhotoOf(input: StartGenerationInput): "send" | "withhold" | undefined {
+  return input.textsFirstPhoto === "send" || input.textsFirstPhoto === "withhold" ? input.textsFirstPhoto : undefined;
+}
+
+/**
+ * Conversation media for this reply, decided once before the prompt: whether a character texting first sends a
+ * photo (`textsFirstPhoto`), and whether this reply goes out as a voice note (`voiceNote`). Prompt assembly, the
+ * [selfie] command and the save all read the result. Callers can't set either: only this decides them.
+ */
+async function withMediaDecisions(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+): Promise<StartGenerationInput> {
+  const { textsFirstPhoto: _photo, voiceNote: _voice, ...rest } = input;
+  const next = rest as StartGenerationInput;
+  if (readString(chat.mode || chat.chatMode) !== "conversation") return next;
+  if (next.impersonate === true || readString(next.continueMessageId).trim()) return next;
+  if (readString(next.regenerateMessageId).trim()) return next;
+  const textsFirst = next.textsFirst === true;
+  const characterId = assistantMessageCharacterId(chat, next);
+  if (!characterId) return textsFirst ? { ...next, textsFirstPhoto: "withhold" } : next;
+
+  const mayVoice =
+    voiceNoteFrequency(chat.metadata, characterId) !== "never" &&
+    !!deps.integrations?.voiceNotes &&
+    (await deps.integrations.voiceNotes.available().catch((error: unknown) => {
+      console.warn("[generation] Text to Speech status unavailable; no voice note this reply", error);
+      return false;
+    }));
+  if (!textsFirst && !mayVoice) return next;
+
+  const listed = await deps.storage.listChatMessages<JsonRecord>(readString(chat.id), {
+    limit: 40,
+    fields: ["role", "extra"],
+    fieldSelections: { extra: ["attachments"] },
+  });
+  const messages = Array.isArray(listed) ? listed : [];
+  const textsFirstPhoto = textsFirst ? decideTextsFirstPhoto({ chat, characterId, messages }) : undefined;
+  const voiceNote =
+    mayVoice &&
+    decideVoiceNote({
+      chat,
+      characterId,
+      messages,
+      textsFirst,
+      sendsPhoto: textsFirstPhoto === "send",
+      burstHasMedia: textsFirst && burstAlreadyHasMedia(messages),
+    });
+  return {
+    ...next,
+    ...(textsFirstPhoto ? { textsFirstPhoto } : {}),
+    ...(voiceNote ? { voiceNote: "send" as const } : {}),
+  };
+}
+
+/**
+ * This reply as a voice note: its text spoken in the character's voice and kept with the chat. A reply that came
+ * out too long or empty stays text; a Text to Speech failure leaves the text and says why.
+ */
+async function voiceNoteForReply(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  characters: GenerationCharacterContext[],
+  content: string,
+): Promise<{ attachment: JsonRecord | null; events: GenerationEvent[] }> {
+  if (input.voiceNote !== "send" || !deps.integrations?.voiceNotes) return { attachment: null, events: [] };
+  const characterId = assistantMessageCharacterId(chat, input);
+  const text = voiceNoteText(content);
+  if (!characterId || !text) return { attachment: null, events: [] };
+  const speaker = characters.find((character) => character.id === characterId)?.name ?? "";
+  try {
+    const file = await deps.integrations.voiceNotes.create({
+      chatId: readString(chat.id),
+      text,
+      speaker,
+      characterId,
+    });
+    return {
+      attachment: buildVoiceNoteAttachment(file),
+      events: [{ type: "voice_note", data: { characterId, characterName: speaker } }],
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      attachment: null,
+      events: [{ type: "command_error", data: { command: "voice_note", error: `Voice note failed: ${reason}` } }],
+    };
+  }
+}
+
 function assistantMessageCharacterId(chat: JsonRecord, input: StartGenerationInput): string | null {
   const requestedCharacterId = readString(input.forCharacterId).trim();
   const chatCharacterIdList = activeCharacterIds(chat);
@@ -5389,6 +5389,8 @@ async function* startGenerationImpl(
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
+  input = await withMediaDecisions(deps, chat, input);
+  throwIfAborted(signal);
   // Send unlocks once a reply is saved, while its helpers may still be writing the trackers this turn
   // reads. Give them a bounded head start rather than build this turn on the state before them.
   if (postReplyWorkRunning(deps.storage, chatId)) {
@@ -5953,6 +5955,8 @@ async function* startGenerationImpl(
               recentMessages: generationMessages,
             }),
             reactionTarget: conversationReactionTarget(chat, input, generationMessages),
+            textsFirstPhoto: textsFirstPhotoOf(input),
+            textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
           },
         );
     throwIfAborted(signal);
@@ -5981,6 +5985,11 @@ async function* startGenerationImpl(
     content = displayContent;
     const replyWillBeSaved =
       !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
+    const voiceNote = replyWillBeSaved
+      ? await voiceNoteForReply(deps, chat, input, assembly.characters, displayContent)
+      : { attachment: null, events: [] };
+    for (const event of voiceNote.events) yield event;
+    throwIfAborted(signal);
     // Interpretations read only the character cards, never the reply, so they are queued before the
     // save: a tab closed the moment the reply lands can't drop them.
     const interpretationsForThisTab = replyWillBeSaved
@@ -6018,7 +6027,9 @@ async function* startGenerationImpl(
           agentResults: preSaveAgentResults,
           noteCount: connected.createdNotes.length + connected.executedCommands.length,
           chatSummaryFingerprint: assembly.chatSummaryFingerprint,
-          attachments: connected.assistantAttachments,
+          attachments: voiceNote.attachment
+            ? [...connected.assistantAttachments, voiceNote.attachment]
+            : connected.assistantAttachments,
           usage,
           providerMetadata,
           promptSnapshot,
@@ -6378,6 +6389,8 @@ async function* startGenerationImpl(
             recentMessages: generationMessages,
           }),
           reactionTarget: conversationReactionTarget(chat, input, generationMessages),
+          textsFirstPhoto: textsFirstPhotoOf(input),
+          textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
         },
       );
   throwIfAborted(signal);
@@ -6406,6 +6419,11 @@ async function* startGenerationImpl(
   content = displayContentDirect;
   const replyWillBeSaved =
     !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
+  const voiceNoteDirect = replyWillBeSaved
+    ? await voiceNoteForReply(deps, chat, input, assembly.characters, displayContentDirect)
+    : { attachment: null, events: [] };
+  for (const event of voiceNoteDirect.events) yield event;
+  throwIfAborted(signal);
   // Interpretations read only the character cards, never the reply, so they are queued before the
   // save: a tab closed the moment the reply lands can't drop them.
   const interpretationsForThisTab = replyWillBeSaved
@@ -6433,7 +6451,9 @@ async function* startGenerationImpl(
         agentResults: [],
         noteCount: connected.createdNotes.length + connected.executedCommands.length,
         chatSummaryFingerprint: assembly.chatSummaryFingerprint,
-        attachments: connected.assistantAttachments,
+        attachments: voiceNoteDirect.attachment
+          ? [...connected.assistantAttachments, voiceNoteDirect.attachment]
+          : connected.assistantAttachments,
         usage,
         providerMetadata,
         promptSnapshot: promptSnapshotDirect,

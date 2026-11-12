@@ -2184,6 +2184,15 @@ fn delete_gallery_for_chats(state: &AppState, chat_ids: &HashSet<String>) -> App
     }) {
         remove_managed_record_file(state, "gallery", row, "filePath", "filename");
     }
+    for chat_id in chat_ids {
+        if let Some(dir) = super::integrations::voice_note_dir_for_chat(state, chat_id) {
+            if dir.exists() {
+                if let Err(error) = fs::remove_dir_all(&dir) {
+                    log::warn!("could not delete voice notes in {}: {error}", dir.display());
+                }
+            }
+        }
+    }
     state.storage.delete_where_matching("gallery", |row| {
         row.get("chatId")
             .and_then(Value::as_str)
@@ -3296,6 +3305,31 @@ mod tests {
             vec!["influence-a", "memory-a"],
             "clear should remove durable notes without clearing influences"
         );
+    }
+
+    #[test]
+    fn delete_chat_removes_its_voice_notes_only() {
+        let state = test_state("voice-note-delete");
+        for id in ["chat-1", "chat-2"] {
+            state
+                .storage
+                .create("chats", json!({ "id": id, "name": id }))
+                .expect("chat should be created");
+            let dir = state.data_dir.join("voice-notes").join(id);
+            std::fs::create_dir_all(&dir).expect("voice note dir should be created");
+            std::fs::write(dir.join("voice-a.mp3"), b"audio")
+                .expect("voice note should be written");
+        }
+
+        delete_chat_with_messages(&state, "chat-1").expect("chat delete should succeed");
+
+        assert!(!state.data_dir.join("voice-notes").join("chat-1").exists());
+        assert!(state
+            .data_dir
+            .join("voice-notes")
+            .join("chat-2")
+            .join("voice-a.mp3")
+            .exists());
     }
 
     #[test]
@@ -4433,6 +4467,74 @@ mod tests {
 
         assert_eq!(updated["content"], json!(content));
         assert_eq!(updated["swipes"][1]["content"], json!(content));
+    }
+
+    #[test]
+    fn message_swipes_invalidates_knowledge_edges_sourced_from_the_message() {
+        let state = test_state("swipe-knowledge-edge");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Knowledge" }))
+            .expect("chat should seed");
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first",
+                "createdAt": "2026-06-01T10:00:00.000Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{ "content": "first" }]
+            }),
+        )
+        .expect("message should seed in append-only swipe storage");
+        crate::storage_commands::canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-1",
+                "kind": "fact",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "A claim",
+                "confidence": 0.8,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
+            }),
+        )
+        .expect("memory should be created");
+        crate::storage_commands::knowledge_edges::upsert_edge(
+            &state,
+            json!({
+                "memoryId": "memory-1",
+                "holder": { "kind": "character", "id": "alice" },
+                "stance": "believes",
+                "status": "active",
+                "provenance": [{
+                    "kind": "targeted_disclosure",
+                    "author": "system",
+                    "sourceChatId": "chat-1",
+                    "messageIds": ["message-1"],
+                    "createdAt": "2026-08-30T12:00:00.000Z"
+                }]
+            }),
+        )
+        .expect("knowledge edge should be created");
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second" }),
+        )
+        .expect("a new swipe on a knowledge-edge source should save");
+
+        assert_eq!(updated["content"], json!("second"));
+        let edges = crate::storage_commands::knowledge_edges::query_edges(
+            &state,
+            json!({ "memoryIds": ["memory-1"] }),
+        )
+        .expect("edges should be readable");
+        assert_eq!(edges[0]["status"], json!("invalidated"));
     }
 
     #[test]

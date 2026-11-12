@@ -20,6 +20,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { JobRegistry, type RunnerEvent, type RunnerJob } from "./jobs";
 import { runGenerationJob, configureRuntime, isFanficJobInput, nextRunnerJobInput } from "./engine";
 import { fanficWriteSavedFinished } from "../engine/modes/fanfic/batch";
+import { sentMediaFromEvents, sentMediaTitle, type SentMediaKind } from "../engine/modes/chat/core/sent-media";
 import { startAutonomousScheduler, type PresenceStatus } from "./autonomous";
 import { PushStore } from "./push-store";
 import { storageApi } from "../shared/api/storage-api";
@@ -155,7 +156,13 @@ export function createRunnerServer(
     Date.now() - presence.reportedAt < PRESENCE_MS ? presence.status : "idle";
   const autonomousJobs = new Set<string>();
 
-  const notify = (chatId: string, name: string, reason: "texted" | "replied" | "chapter" | "all-chapters") => {
+  const notify = (
+    chatId: string,
+    name: string,
+    reason: "texted" | "replied" | "chapter" | "all-chapters",
+    /** A text that was a voice note or carried a photo says so (never its content). */
+    media: SentMediaKind | null = null,
+  ) => {
     if (!features.push || features.push.count === 0 || someoneWatching()) return;
     const titles = {
       texted: `${name} texted you`,
@@ -165,7 +172,7 @@ export function createRunnerServer(
     };
     void features.push
       .notifyAll({
-        title: titles[reason],
+        title: sentMediaTitle(name, media) ?? titles[reason],
         body: "Open De-Koi to read it.",
         chatId,
         tag: `de-koi-chat-${chatId}`,
@@ -218,7 +225,7 @@ export function createRunnerServer(
             const allWritten = input.fanficBatch === true && fanficWriteSavedFinished(job.events);
             notify(chatId, await chatName(chatId), allWritten ? "all-chapters" : "chapter");
           } else {
-            notify(chatId, await characterName(replyCharacter), "replied");
+            notify(chatId, await characterName(replyCharacter), "replied", sentMediaFromEvents(job.events));
           }
         }
       } catch (error) {
@@ -271,7 +278,7 @@ export function createRunnerServer(
       runningForChat: (chatId) => registry.runningForChat(chatId),
       waitForJob: async (job) => (await registry.wait(job)) === "done" && savedReplyCharacterId(job) !== undefined,
       presence: presenceStatus,
-      onTexted: async (chat, character) => notify(chat.id, character.name, "texted"),
+      onTexted: async (chat, character, sent) => notify(chat.id, character.name, "texted", sent.media),
     });
   }
 
