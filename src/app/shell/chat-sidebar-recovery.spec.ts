@@ -74,9 +74,9 @@ describe("getChatSidebarRecovery", () => {
   });
 
   it.each([
-    ["conversation", "New Conversation"],
-    ["roleplay", "New Roleplay"],
-    ["fanfic", "New Fanfic"],
+    ["conversation", "New chat"],
+    ["roleplay", "New RP"],
+    ["fanfic", "New fic"],
   ] as const)("creates the correct %s mode from a true empty list", (mode, label) => {
     const recovery = getChatSidebarRecovery(null, { mode, state: "empty", hasFilters: false });
 
