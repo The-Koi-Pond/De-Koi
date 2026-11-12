@@ -34,7 +34,8 @@ async function loadExportNames(storage: ChatExportStorage, chat: Chat, messages:
 }
 
 export async function listChatIdsForExport(storage: ChatExportStorage): Promise<string[]> {
-  const rows = await storage.list<Pick<Chat, "id">>("chats", { fields: ["id"] });
+  // A fic's comment threads (chats it owns) are part of the fic, not chats of their own.
+  const rows = await storage.list<Pick<Chat, "id">>("chats", { fields: ["id"], filters: { ownerChatId: null } });
   return rows.map((chat) => chat.id).filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 

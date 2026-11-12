@@ -227,6 +227,24 @@ pub struct AtomicCollectionRows {
     collection: String,
     rows: Vec<Value>,
     write_requested: bool,
+    /// The rows as loaded, captured the first time `rows_mut` is called, so a
+    /// collection that was asked for mutably but left unchanged is not rewritten.
+    rows_before_write: Option<Vec<Value>>,
+}
+
+impl AtomicCollectionRows {
+    fn loaded(collection: &str, rows: Vec<Value>) -> Self {
+        Self {
+            collection: collection.to_string(),
+            rows,
+            write_requested: false,
+            rows_before_write: None,
+        }
+    }
+
+    fn changed(&self) -> bool {
+        self.write_requested && self.rows_before_write.as_ref() != Some(&self.rows)
+    }
 }
 
 struct PreparedCollectionReplacements {
@@ -244,7 +262,7 @@ struct MessagePageWindow<'a> {
 fn take_requested_replacements(entries: Vec<AtomicCollectionRows>) -> Vec<(String, Vec<Value>)> {
     entries
         .into_iter()
-        .filter(|entry| entry.write_requested)
+        .filter(AtomicCollectionRows::changed)
         .map(|entry| (entry.collection, entry.rows))
         .collect()
 }
@@ -304,7 +322,10 @@ impl AtomicCollectionRows {
     }
 
     pub fn rows_mut(&mut self) -> &mut Vec<Value> {
-        self.write_requested = true;
+        if !self.write_requested {
+            self.rows_before_write = Some(self.rows.clone());
+            self.write_requested = true;
+        }
         &mut self.rows
     }
 }
@@ -1439,15 +1460,11 @@ impl FileStorage {
             .write()
             .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
         let mut loaded = Vec::with_capacity(collections.len());
-        let mut original_rows = Vec::with_capacity(collections.len());
         for collection in collections {
-            let rows = self.read_collection(collection)?;
-            original_rows.push(rows.clone());
-            loaded.push(AtomicCollectionRows {
-                collection: collection.to_string(),
-                rows,
-                write_requested: false,
-            });
+            loaded.push(AtomicCollectionRows::loaded(
+                collection,
+                self.read_collection(collection)?,
+            ));
         }
 
         let output = update(&mut loaded)?;
@@ -1455,10 +1472,11 @@ impl FileStorage {
             .into_iter()
             .map(|(collection, rows)| (collection.to_string(), rows))
             .collect::<Vec<_>>();
-        for (entry, before) in loaded.into_iter().zip(original_rows) {
-            if !entry.write_requested {
+        for entry in loaded {
+            if !entry.changed() {
                 continue;
             }
+            let before = entry.rows_before_write.unwrap_or_default();
             let after_ids = entry
                 .rows
                 .iter()
@@ -1564,18 +1582,17 @@ impl FileStorage {
             let mut loaded = Vec::with_capacity(collections.len());
             let mut original_stamps = Vec::with_capacity(collections.len());
             for (collection, path) in collection_paths {
-                loaded.push(AtomicCollectionRows {
-                    collection: collection.clone(),
-                    rows: self.read_collection_no_recovery(&collection)?,
-                    write_requested: false,
-                });
+                loaded.push(AtomicCollectionRows::loaded(
+                    &collection,
+                    self.read_collection_no_recovery(&collection)?,
+                ));
                 original_stamps.push((collection, collection_content_stamp(&path)?));
             }
             (loaded, original_stamps)
         };
 
         let output = update(&mut entries)?;
-        if !entries.iter().any(|entry| entry.write_requested) {
+        if !entries.iter().any(AtomicCollectionRows::changed) {
             return Ok(output);
         }
 
@@ -3947,6 +3964,26 @@ mod tests {
         .unwrap()
     }
 
+    /// Same as `storage_with_journal_compaction_policy`, but writes never start the
+    /// debounced background flush. Tests that hook into a flush need this: the
+    /// background flush can empty the dirty set before the test's own flush runs.
+    fn storage_without_background_flush(
+        root: &Path,
+        policy: JournalCompactionPolicy,
+        now: SystemTime,
+    ) -> FileStorage {
+        FileStorage::new_with_journal_compaction_policy_and_scheduler(
+            root.to_path_buf(),
+            policy,
+            TestArc::new(move || now),
+            Duration::ZERO,
+            TestArc::new(|_| {}),
+            #[cfg(feature = "journal-compaction-bench")]
+            None,
+        )
+        .unwrap()
+    }
+
     #[cfg(unix)]
     fn file_identity(path: &Path) -> u128 {
         use std::os::unix::fs::MetadataExt;
@@ -4428,7 +4465,7 @@ mod tests {
     fn deferred_flush_clones_only_collections_selected_for_compaction() {
         let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
         let root = temp_storage_root("deferred-flush-selected-clones");
-        let storage = storage_with_journal_compaction_policy(
+        let storage = storage_without_background_flush(
             &root,
             JournalCompactionPolicy::new(Duration::from_secs(60), 2, u64::MAX),
             SystemTime::now(),
@@ -4489,7 +4526,7 @@ mod tests {
     fn reads_continue_while_deferred_compaction_clones_dirty_rows() {
         let _serial = DIRTY_FLUSH_CLONE_TEST_SERIAL.lock().unwrap();
         let root = temp_storage_root("deferred-flush-readable-during-compaction");
-        let storage = storage_with_journal_compaction_policy(
+        let storage = storage_without_background_flush(
             &root,
             JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
             SystemTime::now() + Duration::from_secs(1),
@@ -4566,7 +4603,7 @@ mod tests {
             &collections.join("characters.json"),
             vec![json!({ "id": "character-1", "name": "Cold cache" })],
         );
-        let storage = storage_with_journal_compaction_policy(
+        let storage = storage_without_background_flush(
             &root,
             JournalCompactionPolicy::new(Duration::ZERO, usize::MAX, u64::MAX),
             SystemTime::now() + Duration::from_secs(1),
@@ -7426,11 +7463,13 @@ mod tests {
                 collection: "messages".to_string(),
                 rows: requested_rows,
                 write_requested: true,
+                rows_before_write: Some(Vec::new()),
             },
             AtomicCollectionRows {
                 collection: "message-swipes".to_string(),
                 rows: vec![json!({ "id": "message-1::swipe::0" })],
                 write_requested: false,
+                rows_before_write: None,
             },
         ];
 
@@ -7493,6 +7532,42 @@ mod tests {
             serde_json::from_slice::<Vec<Value>>(&writer.bytes).unwrap(),
             rows
         );
+    }
+
+    #[test]
+    fn update_collections_atomically_skips_replacement_when_mutable_rows_are_unchanged() {
+        let root = temp_storage_root("update-collections-unchanged-mutable");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all("messages", vec![json!({ "id": "message-1" })])
+            .unwrap();
+        storage
+            .replace_all("chats", vec![json!({ "id": "chat-1", "name": "old" })])
+            .unwrap();
+        let messages_path = root.join("collections").join("messages.json");
+        let chats_path = root.join("collections").join("chats.json");
+        let messages_modified = fs::metadata(&messages_path).unwrap().modified().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        storage
+            .update_collections_atomically(vec!["messages", "chats"], |collections| {
+                // Cleanup helpers ask for mutable rows and then find nothing to change.
+                collections[0]
+                    .rows_mut()
+                    .retain(|row| row.get("id").and_then(Value::as_str) != Some("missing"));
+                collections[1].rows_mut()[0]["name"] = json!("new");
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(
+            fs::metadata(&messages_path).unwrap().modified().unwrap(),
+            messages_modified,
+            "an unchanged collection must not be rewritten"
+        );
+        assert_eq!(storage.list("chats").unwrap()[0]["name"], json!("new"));
+        assert!(fs::read_to_string(&chats_path).unwrap().contains("\"new\""));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -9324,6 +9399,56 @@ mod tests {
                 json!({ "id": "target-b", "data": { "name": "Target B" } }),
                 json!({ "id": "target-a", "data": { "name": "Target A" } })
             ]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn null_filter_matches_rows_without_the_field_on_every_read_path() {
+        let root = temp_storage_root("null-filter-missing-field");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "chats",
+                vec![
+                    json!({ "id": "old", "name": "Saved before the field existed" }),
+                    json!({ "id": "plain", "name": "Plain", "ownerChatId": null }),
+                    json!({ "id": "thread", "name": "Thread", "ownerChatId": "fic" }),
+                ],
+            )
+            .unwrap();
+        storage.flush().expect("rows should flush to disk");
+        let filters = Map::from_iter([("ownerChatId".to_string(), Value::Null)]);
+        let fields = vec!["id".to_string()];
+        let ids = |rows: Vec<Value>| {
+            rows.iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+                .collect::<Vec<_>>()
+        };
+        let unowned = vec!["old".to_string(), "plain".to_string()];
+
+        assert_eq!(ids(storage.list_where("chats", &filters).unwrap()), unowned);
+        assert_eq!(
+            ids(storage
+                .list_projected_where("chats", &filters, &fields, &Map::new())
+                .unwrap()),
+            unowned
+        );
+        // A cold instance streams the file through the projection visitor instead of the row cache.
+        let cold = FileStorage::new(&root).unwrap();
+        assert_eq!(
+            ids(cold
+                .list_projected_where("chats", &filters, &fields, &Map::new())
+                .unwrap()),
+            unowned
+        );
+        let owned = Map::from_iter([("ownerChatId".to_string(), json!("fic"))]);
+        assert_eq!(
+            ids(cold
+                .list_projected_where("chats", &owned, &fields, &Map::new())
+                .unwrap()),
+            vec!["thread".to_string()]
         );
 
         fs::remove_dir_all(root).unwrap();

@@ -3,7 +3,7 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first, slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
+    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first (now and then with a selfie, set per character from never to sometimes), slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
     "keywords": [
       "dm",
       "chat",
@@ -12,6 +12,7 @@
       "schedule",
       "autonomous",
       "texting",
+      "unprompted photo",
       "message",
       "bubbles",
       "speaker bubbles",
@@ -93,7 +94,7 @@
     "id": "fanfic-mode",
     "title": "Fanfic Mode",
     "category": "Chat modes",
-    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length, plus character cards and lorebooks from your library as canon notes. De-Koi can look up the canon online first, shows an outline you can edit or skip, then writes it chapter by chapter. Steer or rewrite chapters with notes, listen to them read aloud (audio-script fics can play their [SFX] cues as ElevenLabs sound effects), and run quality, continuity, and in-character checks with one-tap fixes. A story ledger of who knows what and per-character voice sheets with real canon lines keep long fics consistent. An editor pass rewrites only the weak scenes, the outline re-plans itself after each chapter, you can rewrite any passage you select and pick from versions, and local models can ban phrases outright. Switch the fic's model from the reader between chapters without re-planning, and each chapter shows which model wrote the version you're reading. If the provider cuts a chapter off (a content filter, a restarted reply, a failure, or the length limit), the text so far is kept as an unfinished chapter that says why, and you can Reset it, Continue it, or keep it as is, with a model change first if you like. After any chapter you can write extra chapters, numbered 2.5, 2.6 and so on, with an optional instruction. They start as side stories that later chapters ignore; tick Canon to let the next chapters build on them, and the next-chapter box shows and lets you switch what it continues from. Save it as HTML or Markdown.",
+    "summary": "Request a fanfic like an AO3 prompt: fandom, ships, rating, warnings, tropes, point of view, and length, plus character cards and lorebooks from your library as canon notes. De-Koi can look up the canon online first, shows an outline you can edit or skip, then writes it chapter by chapter, each new chapter opening on its own page as it starts. Write all remaining writes every planned chapter left, one after another, in one tap. On a hosted install (like a Raspberry Pi) chapters are written on the server, so they keep going and get saved when your phone locks or you leave the page, and the reader picks the chapter back up when you return. Each new chapter, redo, extra chapter and rewrite with notes is polished automatically (a switch on the request form and in the reader, on by default): prose that sounds AI-written or keeps repeating itself is rewritten, then continuity and in-character checks run and their fixes are applied, all in one new version with the chapter as first written one tap back and a note saying what changed. Steer or rewrite chapters with notes, listen to them read aloud (audio-script fics can play their [SFX] cues as ElevenLabs sound effects), and run quality, continuity, and in-character checks yourself with one-tap fixes. A story ledger of who knows what and per-character voice sheets with real canon lines keep long fics consistent. An editor pass rewrites only the weak scenes, the outline re-plans itself after each chapter and can be edited from the reader (Outline, then Edit outline), you can rewrite any passage you select and pick from versions, and local models can ban phrases outright. Switch the fic's model from the reader between chapters without re-planning, and each chapter shows which model wrote the version you're reading. If the provider cuts a chapter off (a content filter, a restarted reply, a failure, or the length limit), the text so far is kept as an unfinished chapter that says why, and you can Reset it, Continue it, or keep it as is, with a model change first if you like. After any chapter you can write extra chapters, numbered 2.5, 2.6 and so on, with an optional instruction. They start as side stories that later chapters ignore; tick Canon to let the next chapters build on them, and the next-chapter box shows and lets you switch what it continues from. Every chapter has an AO3-style comments section: leave a comment and the author (the model that wrote the chapter) replies with the request, the outline and the story so far in mind, talking through why the story went that way and offering alternatives and what each would change later. Reply back and forth in threads, redo a reply, and start a new thread for a new topic. When a thread lands on a change, Rewrite chapter with this or Re-plan with this has the author turn it into notes you can edit, then rewrites the chapter as a new version or re-plans the chapters still to come. Comments change nothing until you do that, and they stay out of your chat list. Any chat or roleplay can become a fic too: Make a fic from this chat (in the chat's files) has the chat's model draft a request that retells its story, which opens as a new fic for you to check before anything is written. To keep a story going in play, Roleplays and chats in the reader starts a roleplay or a texting chat that picks up after the last chapter: you play your own persona or one of the fic's characters, the story so far goes into the chat's summary, and characters without a card get one written from the fic. Link a fic and any roleplay or chat (both conversions link them for you) and each knows what happens in the other: the next chapter works in what happened in the linked chats since the previous chapter, and replies there know where the fic stands. Save it as HTML or Markdown.",
     "keywords": [
       "fanfic",
       "fanfiction",
@@ -130,6 +131,9 @@
       "stakes",
       "pacing",
       "re-plan",
+      "polish",
+      "auto polish",
+      "automatic",
       "living outline",
       "passage",
       "rewrite selection",
@@ -153,10 +157,20 @@
       "mark as canon",
       "non-canon",
       "N.5",
-      "continue from"
+      "continue from",
+      "comments",
+      "discuss",
+      "author notes",
+      "feedback",
+      "chat to fic",
+      "roleplay to fic",
+      "fic to roleplay",
+      "fic to chat",
+      "linked fic",
+      "fic awareness"
     ],
     "audience": "Readers who want a story written for them rather than a scene to play in.",
-    "where": "Home > Fanfic, then the request form, outline, and chapter reader.",
+    "where": "Home > Fanfic, then the request form, outline, and chapter reader. From a chat or roleplay: its chat files, Make a fic from this chat, and its settings, Linked Fic.",
     "actions": [
       {
         "type": "open-mode-setup",
@@ -184,7 +198,7 @@
       "jump to message"
     ],
     "audience": "Anyone with long chats who wants to find something said earlier.",
-    "where": "Sidebar > search box > Messages.",
+    "where": "Chats > search box > Messages (the filter pills step aside while message results show).",
     "actions": [
       {
         "type": "go-home",
@@ -346,7 +360,7 @@
     "summary": "Manage who you play as, including persona descriptions, avatars, and groups that chats can use for context.",
     "keywords": ["persona", "user", "player", "avatar", "self", "profile", "play as", "groups", "drag and drop"],
     "audience": "Users who want different identities or player characters for different chats.",
-    "where": "Title bar > Personas, or chat settings for per-chat persona choices.",
+    "where": "Title bar > Characters, then the Personas switch at the top; or chat settings for per-chat persona choices.",
     "actions": [
       {
         "type": "open-panel",
@@ -681,7 +695,7 @@
     "summary": "Browse downloadable character cards and related community resources from inside De-Koi.",
     "keywords": ["browser", "bots", "download", "community", "cards", "search"],
     "audience": "Users looking for characters and resources to start with.",
-    "where": "Title bar > Browser.",
+    "where": "Title bar > Characters, then Browse online at the bottom of the panel.",
     "actions": [
       {
         "type": "open-panel",
@@ -695,8 +709,23 @@
     "id": "help-hub",
     "title": "Help Hub",
     "category": "Help",
-    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, shortcut reference, and app version details.",
-    "keywords": ["help", "support", "about", "version", "shortcuts", "question mark", "diagnostics", "getting started"],
+    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, the shortcut reference, and About De-Koi: the app version, the project notice, the licence and source links, and credits.",
+    "keywords": [
+      "help",
+      "support",
+      "about",
+      "version",
+      "shortcuts",
+      "question mark",
+      "diagnostics",
+      "getting started",
+      "credits",
+      "license",
+      "licence",
+      "source code",
+      "notices",
+      "AGPL"
+    ],
     "audience": "Users who are stuck, confused, or want one place to find recovery actions.",
     "where": "Title bar Help button, mobile chat Help button, or press ? outside text inputs.",
     "actions": [
@@ -838,6 +867,23 @@
     "coverage": "advanced"
   },
   {
+    "id": "voice-notes",
+    "title": "Voice Notes",
+    "category": "Media",
+    "summary": "Now and then a Conversation character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice: a play button with its length and the words behind Show transcript. Each one is made once and kept with the chat, so it replays without a new request, goes into backups and is deleted with the chat. Set per character from never to sometimes (rare by default); at most one photo or voice note until you reply when they text first. Notifications say \"sent a voice message\" without the words.",
+    "keywords": ["voice note", "voice message", "audio message", "tts", "unprompted", "texting"],
+    "audience": "Conversation users with Text to Speech set up who want characters to feel like they're messaging from their phone.",
+    "where": "Conversation chat settings > Voice Notes. Needs Text to Speech on in Settings.",
+    "actions": [
+      {
+        "type": "open-panel",
+        "panel": "settings",
+        "label": "Open Settings"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "voice-calls",
     "title": "Voice Calls And Voice Input",
     "category": "Media",
@@ -876,13 +922,15 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations.",
+    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's full-body sprite (or avatar) so they look like that character.",
     "keywords": [
       "image",
       "images",
       "pictures",
       "sprites",
       "selfie",
+      "likeness",
+      "reference image",
       "background",
       "illustration",
       "portrait",
@@ -895,6 +943,7 @@
       "danbooru",
       "negative prompt",
       "novelai",
+      "reference strength",
       "dall-e"
     ],
     "audience": "Users who want visual scenes and character art generated from chat context.",
@@ -1413,7 +1462,21 @@
     "title": "Themes, Fonts, And Backgrounds",
     "category": "Settings",
     "summary": "Customize visual themes, custom CSS themes, fonts, chat backgrounds, gradient styling, and mode-specific appearance.",
-    "keywords": ["theme", "themes", "custom css", "fonts", "backgrounds", "appearance", "gradient", "visual style"],
+    "keywords": [
+      "theme",
+      "themes",
+      "custom css",
+      "fonts",
+      "backgrounds",
+      "appearance",
+      "gradient",
+      "visual style",
+      "pond",
+      "new look",
+      "koi ring",
+      "navigation rail",
+      "settings drawer"
+    ],
     "audience": "Users who want De-Koi to look or read differently for their setup, screenshots, or accessibility needs.",
     "where": "Settings > Appearance and Settings > Themes.",
     "actions": [
@@ -1585,6 +1648,61 @@
       {
         "type": "show-active-chat",
         "label": "Go to your chat"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
+    "id": "roleplay-scene-sound",
+    "title": "Scene sound",
+    "category": "Chat modes",
+    "summary": "Roleplay scenes can play a quiet background loop that fits where you are (rain, a tavern, the sea, a forest, a carnival at night) and one sound effect for a clear event in a reply, like a door slamming, thunder or breaking glass. The ambience changes when the scene moves, not on every reply, and an effect never plays twice in a row. The scene comes from World State, or from the scene text when a chat has none, with no extra model call. A reply that writes its own [SFX: ...] line plays that sound. Sounds are made by ElevenLabs the first time they're needed (it uses your ElevenLabs credits, shown in Settings before you turn it on), then kept on the device and replay free. Off by default, with separate ambience and effect volumes. If the browser holds sound back, as phones do until you tap, a bar above the message box says so and starts it in one tap.",
+    "keywords": [
+      "ambience",
+      "ambient sound",
+      "background sound",
+      "sound effects",
+      "sfx",
+      "rain sound",
+      "atmosphere",
+      "elevenlabs",
+      "immersion"
+    ],
+    "audience": "Roleplay users with ElevenLabs Text to Speech who want scenes to sound like where they are.",
+    "where": "Settings > Appearance > Effects > Scene sound.",
+    "actions": [
+      {
+        "type": "open-settings",
+        "tab": "appearance",
+        "destination": "scene-sound",
+        "label": "Open Scene sound"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
+    "id": "roleplay-cinematic-starter",
+    "title": "Wisp, the starter that comes with art",
+    "category": "Chat modes",
+    "summary": "When your character library is empty, new Roleplay setup offers ready-made starter characters. Wisp, a proud spirit of blue fire trapped in an old lantern, comes with her own art: an avatar, twelve expression sprites and three painted scene backgrounds. A new Roleplay with her opens in your apartment with her sprite on screen, the background moves to the midnight back street and the Lantern Market as the story gets there, and her sprite changes with her mood. It all works with just a text model connected; no image connection needed. The Expression agent is switched on for that chat and runs on the chat's own model; the background changes need no model call. Pick your own background and it stays. Characters you make can do the same by listing scene backgrounds on their card.",
+    "keywords": [
+      "starter character",
+      "wisp",
+      "sprites",
+      "backgrounds",
+      "first roleplay",
+      "demo",
+      "visual novel",
+      "cinematic",
+      "scene backgrounds"
+    ],
+    "audience": "New Roleplay users, and anyone showing De-Koi to someone.",
+    "where": "New Roleplay > Characters step, with an empty character library > Start with one of these > Wisp.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "roleplay",
+        "label": "Start a Roleplay"
       }
     ],
     "coverage": "core"

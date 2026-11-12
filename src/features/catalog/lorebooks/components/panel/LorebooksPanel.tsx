@@ -1,36 +1,53 @@
 // ──────────────────────────────────────────────
-// Panel: Lorebooks (overhauled)
-// Category tabs, search, click-to-edit, AI generate
+// Panel: Lorebooks
+// Action strip, search, All/Active + Type + Tags filters, folders, click-to-edit
 // ──────────────────────────────────────────────
-import { useRef, useState, useMemo, useCallback, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, type ChangeEvent, type DragEvent } from "react";
 import { toast } from "sonner";
 import {
-  Plus,
-  Download,
   Upload,
-  Check,
-  Sparkles,
   BookOpen,
-  Search,
-  ArrowUpDown,
+  Layers,
+  Star,
   Tag,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   FolderOpen,
   FolderPlus,
   Pencil,
-  X,
   Trash2,
 } from "lucide-react";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
-import { useLorebooks, useDeleteLorebook, useUpdateLorebook, useUploadLorebookImage } from "../../hooks/use-lorebooks";
+import {
+  useLorebooks,
+  useDeleteLorebook,
+  useDuplicateLorebook,
+  useUpdateLorebook,
+  useUploadLorebookImage,
+} from "../../hooks/use-lorebooks";
 import { useCharacterSummariesByIds } from "../../../characters/index";
 import { usePersonaSummaries } from "../../../personas/index";
 import type { Lorebook } from "../../../../../engine/contracts/types/lorebook";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../shared/lib/utils";
+import {
+  CatalogActionBar,
+  CatalogFilterPill,
+  CatalogFilterRow,
+  CatalogSearchStrip,
+  TagFilterChip,
+  TagFilterClear,
+  tagFilterSummary,
+} from "../../../components/CatalogPanelControls";
+import {
+  NO_TAG_FILTERS,
+  cycleTagFilter,
+  hasTagFilters,
+  keepExistingTagFilters,
+  withoutTagFilter,
+  type TagFilters,
+} from "../../../lib/tag-filters";
 import { exportApi } from "../../../../../shared/api/export-api";
 import { getChatCharacterIds } from "../../../../../shared/lib/chat-macros";
 import { ExportFormatDialog, type ExportFormatChoice } from "../../../../../shared/components/ui/ExportFormatDialog";
@@ -49,18 +66,37 @@ import {
   groupLorebooksByCategory,
   parseLorebookTags,
   sortLorebooksForPanel,
+  type LorebookPanelActiveFilter,
   type LorebookPanelSort,
 } from "./lorebook-panel-model";
-import { LOREBOOK_PANEL_CATEGORIES, type LorebookPanelCategory } from "./lorebook-panel-config";
+import { LOREBOOK_PANEL_CATEGORIES } from "./lorebook-panel-config";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 const LOREBOOK_LIBRARY_DRAG_MIME = "application/x-de-koi-lorebook-id";
 
+const SORT_OPTIONS: ReadonlyArray<{ value: LorebookPanelSort; label: string; short?: string }> = [
+  { value: "name-asc", label: "A-Z" },
+  { value: "name-desc", label: "Z-A" },
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "tokens", label: "Token Budget", short: "Budget" },
+];
+
+/** The lorebook types the Type filter offers (World … Other), without the All/Active views. */
+const LOREBOOK_TYPES = LOREBOOK_PANEL_CATEGORIES.filter(
+  (category) => category.id !== "all" && category.id !== "active",
+);
+
+// The selection toolbar's folder picker: "" is its prompt, this value means "out of any folder".
+const MOVE_TO_UNFILED = "__unfiled__";
+
 export function LorebooksPanel() {
-  const [activeCategory, setActiveCategory] = useState<LorebookPanelCategory>("all");
+  const [activeFilter, setActiveFilter] = useState<LorebookPanelActiveFilter>("all");
+  const [typeFilters, setTypeFilters] = useState<TagFilters>(NO_TAG_FILTERS);
+  const [typesExpanded, setTypesExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<LorebookPanelSort>("name-asc");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagFilters, setTagFilters] = useState<TagFilters>(NO_TAG_FILTERS);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLorebookIds, setSelectedLorebookIds] = useState<Set<string>>(new Set());
@@ -85,10 +121,8 @@ export function LorebooksPanel() {
     [activeChat, activeCharacterIds],
   );
 
-  // When "active" category is selected, fetch all lorebooks (no category filter) — we filter client-side
-  const { data: lorebooks, isLoading } = useLorebooks(
-    activeCategory === "active" || activeCategory === "all" ? undefined : activeCategory,
-  );
+  // All lorebooks; the Active, Type and Tags filters run client-side.
+  const { data: lorebooks, isLoading } = useLorebooks(undefined);
   const lorebookCharacterIds = useMemo(() => {
     const ids = new Set<string>();
     for (const lorebook of (lorebooks ?? []) as Lorebook[]) {
@@ -106,6 +140,7 @@ export function LorebooksPanel() {
   const { data: rawCharacters } = useCharacterSummariesByIds(lorebookCharacterIds, lorebookCharacterIds.length > 0);
   const { data: rawPersonas } = usePersonaSummaries();
   const deleteLorebook = useDeleteLorebook();
+  const duplicateLorebook = useDuplicateLorebook();
   const updateLorebook = useUpdateLorebook();
   const uploadLorebookImage = useUploadLorebookImage();
   const {
@@ -164,6 +199,12 @@ export function LorebooksPanel() {
     return collectLorebookTags(lorebooks as Lorebook[]);
   }, [lorebooks]);
 
+  // A filter on a tag no lorebook has any more would quietly hide the whole list. Wait for the list to load.
+  useEffect(() => {
+    if (!lorebooks) return;
+    setTagFilters((filters) => keepExistingTagFilters(filters, allTags));
+  }, [lorebooks, allTags]);
+
   const handleDeleteTag = useCallback(
     async (tag: string) => {
       if (
@@ -183,12 +224,12 @@ export function LorebooksPanel() {
           const newTags = parseLorebookTags(lb).filter((t) => t !== tag);
           await updateLorebook.mutateAsync({ id: lb.id, tags: newTags });
         }
-        if (activeTag === tag) setActiveTag(null);
+        setTagFilters((filters) => withoutTagFilter(filters, tag));
       } catch {
         toast.error("Couldn't remove the tag from some lorebooks. Try again.");
       }
     },
-    [lorebooks, updateLorebook, activeTag],
+    [lorebooks, updateLorebook],
   );
 
   // Filter by search
@@ -196,19 +237,21 @@ export function LorebooksPanel() {
     if (!lorebooks) return [];
     return filterLorebooksForPanel({
       lorebooks: lorebooks as Lorebook[],
-      activeCategory,
+      activeFilter,
       activeScopeContext: activeLorebookScopeContext,
-      activeTag,
+      typeFilters,
+      tagFilters,
       searchQuery,
       getCharacterNames,
       getPersonaNames,
     });
   }, [
     lorebooks,
-    activeCategory,
+    activeFilter,
+    typeFilters,
     activeLorebookScopeContext,
     searchQuery,
-    activeTag,
+    tagFilters,
     getCharacterNames,
     getPersonaNames,
   ]);
@@ -220,7 +263,13 @@ export function LorebooksPanel() {
   const lorebookFolderList = useMemo(() => lorebookFolders ?? [], [lorebookFolders]);
   const lorebookLibraryLoading = isLoading || lorebookFoldersLoading;
   const lorebookFolderDataReady = !lorebookFoldersLoading && !lorebookFoldersError;
-  const lorebookFiltersActive = activeCategory !== "all" || activeTag !== null || searchQuery.trim().length > 0;
+  const lorebookFiltersActive =
+    activeFilter === "active" ||
+    hasTagFilters(typeFilters) ||
+    hasTagFilters(tagFilters) ||
+    searchQuery.trim().length > 0;
+  // The "grouped by type" view shows only when nothing narrows the list by type or activity.
+  const showGroupedByType = activeFilter === "all" && !hasTagFilters(typeFilters);
 
   const lorebookFolderIds = useMemo(() => new Set(lorebookFolderList.map((folder) => folder.id)), [lorebookFolderList]);
 
@@ -247,9 +296,9 @@ export function LorebooksPanel() {
 
   // Group root-level lorebooks by category for "all" view.
   const grouped = useMemo(() => {
-    if (activeCategory !== "all") return null;
+    if (!showGroupedByType) return null;
     return groupLorebooksByCategory(rootLorebooks);
-  }, [rootLorebooks, activeCategory]);
+  }, [rootLorebooks, showGroupedByType]);
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -314,6 +363,33 @@ export function LorebooksPanel() {
     exitSelectionMode();
   }, [selectedLorebookIds, deleteLorebook, exitSelectionMode]);
 
+  const handleToggleEnabled = useCallback(
+    async (lorebook: Lorebook) => {
+      try {
+        await updateLorebook.mutateAsync({ id: lorebook.id, enabled: !lorebook.enabled });
+      } catch (error) {
+        toast.error(
+          toUserMessage(error, {
+            fallback: `Couldn't switch "${lorebook.name}" ${lorebook.enabled ? "off" : "on"}. Try again.`,
+          }),
+        );
+      }
+    },
+    [updateLorebook],
+  );
+
+  const handleDuplicate = useCallback(
+    async (lorebook: Lorebook) => {
+      try {
+        await duplicateLorebook.mutateAsync(lorebook.id);
+        toast.success(`Copied "${lorebook.name}"`);
+      } catch (error) {
+        toast.error(toUserMessage(error, { fallback: `Couldn't copy "${lorebook.name}". Try again.` }));
+      }
+    },
+    [duplicateLorebook],
+  );
+
   const handleCreateFolder = useCallback(() => {
     createLorebookFolder.mutate({ name: getNextUnnamedLibraryFolderName(lorebookFolderList) });
   }, [createLorebookFolder, lorebookFolderList]);
@@ -371,6 +447,37 @@ export function LorebooksPanel() {
   const lorebookFolderMoveOptions = useMemo(
     () => (lorebookFolderDataReady ? lorebookFolderList : []),
     [lorebookFolderDataReady, lorebookFolderList],
+  );
+
+  // Moving by folder picker (the keyboard- and touch-friendly way; dragging also works on desktop).
+  const handleMoveSelectedToFolder = useCallback(
+    async (folderId: string | null) => {
+      const lorebookById = new Map(((lorebooks ?? []) as Lorebook[]).map((lorebook) => [lorebook.id, lorebook]));
+      const ids = [...selectedLorebookIds].filter((id) => {
+        const existingFolderId = lorebookById.get(id)?.folderId ?? null;
+        const currentFolderId = existingFolderId && lorebookFolderIds.has(existingFolderId) ? existingFolderId : null;
+        return currentFolderId !== folderId;
+      });
+      if (ids.length === 0) return;
+
+      const results = await Promise.allSettled(ids.map((id) => moveLorebookItem.mutateAsync({ itemId: id, folderId })));
+      const failedCount = results.filter((result) => result.status === "rejected").length;
+      const movedCount = ids.length - failedCount;
+      const folderName = folderId ? lorebookFolderList.find((folder) => folder.id === folderId)?.name : null;
+
+      if (movedCount > 0) {
+        const plural = movedCount === 1 ? "" : "s";
+        toast.success(
+          folderName
+            ? `Moved ${movedCount} lorebook${plural} to "${folderName}"`
+            : `Moved ${movedCount} lorebook${plural} out of folders`,
+        );
+      }
+      if (failedCount > 0) {
+        toast.error(`Couldn't move ${failedCount} lorebook${failedCount === 1 ? "" : "s"}. Try again.`);
+      }
+    },
+    [lorebookFolderIds, lorebookFolderList, lorebooks, moveLorebookItem, selectedLorebookIds],
   );
 
   const handleLorebookDragStart = useCallback(
@@ -487,6 +594,8 @@ export function LorebooksPanel() {
             if (selectionMode) toggleSelection(lb.id);
             else openLorebookDetail(lb.id);
           }}
+          onToggleEnabled={() => void handleToggleEnabled(lb)}
+          onDuplicate={() => void handleDuplicate(lb)}
           onDelete={async () => {
             if (
               await showConfirmDialog({
@@ -507,14 +616,6 @@ export function LorebooksPanel() {
           isDragging={draggedLorebookId === lb.id}
           onDragStart={(event) => handleLorebookDragStart(event, lb.id)}
           onDragEnd={clearLorebookDragState}
-          folderOptions={lorebookFolderMoveOptions}
-          folderMoveDisabled={moveLorebookItem.isPending || !lorebookFolderDataReady}
-          onMoveToFolder={(folderId) => {
-            const currentFolderId = lb.folderId && lorebookFolderIds.has(lb.folderId) ? lb.folderId : null;
-            if (currentFolderId !== folderId) {
-              moveLorebookItem.mutate({ itemId: lb.id, folderId });
-            }
-          }}
         />
       );
     },
@@ -525,12 +626,10 @@ export function LorebooksPanel() {
       draggedLorebookId,
       getCharacterNames,
       getPersonaNames,
+      handleDuplicate,
       handleLorebookDragStart,
       handlePickLorebookImage,
-      lorebookFolderIds,
-      lorebookFolderDataReady,
-      moveLorebookItem,
-      lorebookFolderMoveOptions,
+      handleToggleEnabled,
       openLorebookDetail,
       selectedLorebookIds,
       selectionMode,
@@ -546,8 +645,103 @@ export function LorebooksPanel() {
     !lorebookLibraryLoading && !lorebookFoldersError && (sorted.length > 0 || displayedLorebookFolders.length > 0);
   const showLorebookFlatFallback = !lorebookLibraryLoading && lorebookFoldersError && sorted.length > 0;
 
+  const renderLorebookFolder = (folder: (typeof lorebookFolderList)[number]) => {
+    const folderLorebooks = lorebooksByFolder.get(folder.id) ?? [];
+    const isExpanded = !folder.collapsed;
+    const isDropTarget = lorebookDropTargetId === folder.id;
+    return (
+      <div
+        key={folder.id}
+        data-lorebook-library-folder-id={folder.id}
+        onDragOver={(event) => handleLorebookDragOver(event, folder.id)}
+        onDragLeave={handleLorebookDragLeave}
+        onDrop={(event) => handleLorebookDrop(event, folder.id)}
+        className={cn(
+          "rounded-xl border border-transparent bg-[var(--secondary)]/35 transition-colors",
+          isDropTarget && "border-amber-400/35 bg-amber-400/10",
+        )}
+      >
+        <div className="flex items-center gap-1.5 px-2 py-1.5">
+          <button
+            type="button"
+            onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+            className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            title={isExpanded ? "Collapse folder" : "Expand folder"}
+          >
+            <ChevronRight size="0.75rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
+          </button>
+          <FolderOpen size="0.875rem" className="shrink-0 text-amber-400" />
+          {editingFolderId === folder.id ? (
+            <input
+              autoFocus
+              value={editFolderName}
+              onChange={(event) => setEditFolderName(event.target.value)}
+              onBlur={() => handleRenameFolder(folder.id)}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleRenameFolder(folder.id);
+                if (event.key === "Escape") {
+                  setEditingFolderId(null);
+                  setEditFolderName("");
+                }
+              }}
+              className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none focus:border-amber-400/50"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
+              className="min-w-0 flex-1 truncate text-left text-xs font-medium text-[var(--foreground)]"
+              title={folder.name}
+            >
+              {folder.name}
+            </button>
+          )}
+          <span className="rounded-md bg-[var(--background)]/60 px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
+            {folderLorebooks.length}
+          </span>
+          {!selectionMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleStartRenameFolder(folder.id, folder.name)}
+                className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                title="Rename folder"
+              >
+                <Pencil size="0.6875rem" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteFolder(folder.id, folder.name)}
+                className="rounded-md p-1 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
+                title="Delete folder"
+              >
+                <Trash2 size="0.6875rem" />
+              </button>
+            </>
+          )}
+        </div>
+        {isExpanded && (
+          <div className="flex flex-col gap-1 px-1 pb-1">
+            {folderLorebooks.length > 0 ? (
+              folderLorebooks.map(renderLorebookRow)
+            ) : (
+              <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                Drop lorebooks here
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const typeSummary = tagFilterSummary(typeFilters);
+  const tagSummary = tagFilterSummary(tagFilters);
+
   return (
-    <div className="flex flex-col gap-2 p-3">
+    // The tool strips touch the panel's edges; only the list below has padding.
+    <div className="flex flex-col">
       <input
         ref={lorebookImageInputRef}
         type="file"
@@ -556,356 +750,252 @@ export function LorebooksPanel() {
         onChange={handleLorebookImageSelected}
       />
 
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => openModal("create-lorebook")}
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-2 py-2.5 text-xs font-medium text-white shadow-md shadow-amber-400/15 transition-all hover:shadow-lg hover:shadow-amber-400/25 active:scale-[0.98]"
-          title="New"
-        >
-          <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>New</span>
-        </button>
-        <button
-          onClick={() => openModal("import-lorebook")}
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-[var(--secondary)] px-2 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
-          title="Import"
-        >
-          <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Import</span>
-        </button>
-        <button
-          onClick={() => openModal("lorebook-maker")}
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-[var(--secondary)] px-2 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
-          title="AI Maker"
-        >
-          <Sparkles size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Maker</span>
-        </button>
-        <button
-          onClick={() => {
-            if (selectionMode) exitSelectionMode();
-            else setSelectionMode(true);
-          }}
-          className={cn(
-            "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
-          )}
-          aria-pressed={selectionMode}
-          title="Select"
-        >
-          <Check size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span>Select</span>
-        </button>
-      </div>
-
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedLorebookIds.size} selected
-          </span>
-          <button
-            onClick={() => setSelectedLorebookIds(new Set(sorted.map((lb) => lb.id)))}
-            disabled={sorted.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-amber-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedLorebookIds(new Set())}
-            disabled={selectedLorebookIds.size === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={selectedLorebookIds.size === 0}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-          >
-            <Trash2 size="0.6875rem" />
-            Delete
-          </button>
-          <button
-            onClick={() => setExportDialogOpen(true)}
-            disabled={selectedLorebookIds.size === 0 || exportingSelected}
-            className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export ZIP"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
-      <ExportFormatDialog
-        open={exportDialogOpen}
-        title="Export Lorebooks"
-        description="Native keeps De-Koi folders and entry fields. Compatible exports a folderless World Info JSON for other roleplay tools."
-        onClose={() => setExportDialogOpen(false)}
-        onSelect={handleExportSelected}
+      <CatalogActionBar
+        tone="amber"
+        selectionMode={selectionMode}
+        onCreate={() => openModal("create-lorebook")}
+        onImport={() => openModal("import-lorebook")}
+        onOpenMaker={() => openModal("lorebook-maker")}
+        onToggleSelectionMode={() => {
+          if (selectionMode) exitSelectionMode();
+          else setSelectionMode(true);
+        }}
       />
 
-      {/* Search + Sort */}
-      <div className="flex gap-1.5">
-        <div className="relative flex-1">
-          <Search
-            size="0.8125rem"
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
-          />
-          <input
-            type="text"
-            placeholder="Search lorebooks"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-xl bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-          />
-        </div>
-        <div className="relative">
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as typeof sort)}
-            className="h-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-2.5 pr-7 text-[0.6875rem] outline-none transition-colors focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-            title="Sort order"
+      <CatalogSearchStrip
+        search={searchQuery}
+        onSearchChange={setSearchQuery}
+        placeholder="Search lorebooks"
+        sort={sort}
+        sortOptions={SORT_OPTIONS}
+        onSortChange={setSort}
+      />
+
+      {/* The type and tag lists open underneath the pills. Clicking a type or tag cycles it
+          off → include → exclude → off. */}
+      <CatalogFilterRow label="Filter lorebooks">
+        {(["all", "active"] as const).map((option) => (
+          <CatalogFilterPill
+            key={option}
+            tone="amber"
+            active={activeFilter === option}
+            pressed={activeFilter === option}
+            title={option === "all" ? "All lorebooks" : "Lorebooks the open chat uses"}
+            onClick={() => setActiveFilter(option)}
           >
-            <option value="name-asc">A-Z</option>
-            <option value="name-desc">Z-A</option>
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="tokens">Token Budget</option>
-          </select>
-          <ArrowUpDown
-            size="0.625rem"
-            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
-          />
-        </div>
-      </div>
-
-      {/* Category tabs */}
-      <div className="flex flex-wrap gap-1">
-        {LOREBOOK_PANEL_CATEGORIES.map((cat) => {
-          const Icon = cat.icon;
-          const isActive = activeCategory === cat.id;
-          return (
-            <button
-              key={cat.id}
-              onClick={() => setActiveCategory(cat.id)}
-              className={cn(
-                "flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[0.6875rem] font-medium transition-all",
-                isActive
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]",
-              )}
-            >
-              <Icon size="0.75rem" />
-              {cat.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Tag filter */}
-      {allTags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1">
-          <button
+            {option === "active" && <Star size="0.5625rem" className="shrink-0" aria-hidden="true" />}
+            {option === "all" ? "All" : "Active"}
+          </CatalogFilterPill>
+        ))}
+        <CatalogFilterPill
+          tone="amber"
+          active={hasTagFilters(typeFilters) || typesExpanded}
+          expanded={typesExpanded}
+          title={typesExpanded ? "Hide types" : "Filter by type"}
+          onClick={() => setTypesExpanded(!typesExpanded)}
+        >
+          <Layers size="0.625rem" aria-hidden="true" />
+          Type{typeSummary && <span className="ml-0.5 opacity-70">· {typeSummary}</span>}
+          <ChevronDown size="0.625rem" className={cn("transition-transform", typesExpanded && "rotate-180")} />
+        </CatalogFilterPill>
+        {allTags.length > 0 && (
+          <CatalogFilterPill
+            tone="amber"
+            active={hasTagFilters(tagFilters) || tagsExpanded}
+            expanded={tagsExpanded}
+            title={tagsExpanded ? "Hide tags" : "Show tags"}
             onClick={() => setTagsExpanded(!tagsExpanded)}
-            className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-            title={tagsExpanded ? "Collapse tags" : "Expand tags"}
           >
-            <Tag size="0.6875rem" />
-            {tagsExpanded ? <ChevronUp size="0.625rem" /> : <ChevronDown size="0.625rem" />}
-          </button>
-          {(tagsExpanded ? allTags : allTags.slice(0, 5)).map((tag) => (
-            <div
+            <Tag size="0.625rem" aria-hidden="true" />
+            Tags ({allTags.length}){tagSummary && <span className="ml-0.5 opacity-70">· {tagSummary}</span>}
+            <ChevronDown size="0.625rem" className={cn("transition-transform", tagsExpanded && "rotate-180")} />
+          </CatalogFilterPill>
+        )}
+      </CatalogFilterRow>
+
+      {typesExpanded && (
+        <div className="flex flex-wrap gap-1 border-b border-[var(--border)]/60 p-2">
+          {hasTagFilters(typeFilters) && <TagFilterClear onClear={() => setTypeFilters(NO_TAG_FILTERS)} />}
+          {LOREBOOK_TYPES.map((type) => (
+            <TagFilterChip
+              key={type.id}
+              tag={type.label}
+              noun="Type"
+              tone="amber"
+              mode={typeFilters[type.id]}
+              onCycle={() => setTypeFilters((filters) => cycleTagFilter(filters, type.id))}
+            />
+          ))}
+        </div>
+      )}
+
+      {allTags.length > 0 && tagsExpanded && (
+        <div className="flex flex-wrap gap-1 border-b border-[var(--border)]/60 p-2">
+          {hasTagFilters(tagFilters) && <TagFilterClear onClear={() => setTagFilters(NO_TAG_FILTERS)} />}
+          {allTags.map((tag) => (
+            <TagFilterChip
               key={tag}
-              role="button"
-              tabIndex={0}
-              onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setActiveTag(activeTag === tag ? null : tag);
-                }
-              }}
-              className={cn(
-                "group/tag flex items-center gap-1 rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all cursor-pointer",
-                activeTag === tag
-                  ? "bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30"
-                  : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]",
-              )}
+              tag={tag}
+              tone="amber"
+              mode={tagFilters[tag]}
+              onCycle={() => setTagFilters((filters) => cycleTagFilter(filters, tag))}
+              onDelete={() => void handleDeleteTag(tag)}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 px-3 pb-3 pt-0.5">
+        {selectionMode && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
+            <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+              {selectedLorebookIds.size} selected
+            </span>
+            <button
+              onClick={() => setSelectedLorebookIds(new Set(sorted.map((lb) => lb.id)))}
+              disabled={sorted.length === 0}
+              className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-amber-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
             >
-              {tag}
+              Select visible
+            </button>
+            <button
+              onClick={() => setSelectedLorebookIds(new Set())}
+              disabled={selectedLorebookIds.size === 0}
+              className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
+            >
+              Clear
+            </button>
+            {lorebookFolderMoveOptions.length > 0 && (
+              <select
+                value=""
+                disabled={selectedLorebookIds.size === 0 || moveLorebookItem.isPending}
+                aria-label="Move selected lorebooks to folder"
+                title="Move to folder"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) return;
+                  void handleMoveSelectedToFolder(value === MOVE_TO_UNFILED ? null : value);
+                }}
+                className="h-6 max-w-[9rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-1.5 text-[0.625rem] font-medium text-[var(--foreground)] outline-none transition-colors focus:border-amber-400/50 disabled:opacity-40"
+              >
+                <option value="">Move to folder…</option>
+                <option value={MOVE_TO_UNFILED}>Unfiled</option>
+                {lorebookFolderMoveOptions.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={handleDeleteSelected}
+              disabled={selectedLorebookIds.size === 0}
+              className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
+            >
+              <Trash2 size="0.6875rem" />
+              Delete
+            </button>
+            <button
+              onClick={() => setExportDialogOpen(true)}
+              disabled={selectedLorebookIds.size === 0 || exportingSelected}
+              className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
+            >
+              <Upload size="0.6875rem" />
+              {exportingSelected ? "Exporting..." : "Export ZIP"}
+            </button>
+            <button
+              onClick={exitSelectionMode}
+              className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            >
+              Done
+            </button>
+          </div>
+        )}
+
+        <ExportFormatDialog
+          open={exportDialogOpen}
+          title="Export Lorebooks"
+          description="Native keeps De-Koi folders and entry fields. Compatible exports a folderless World Info JSON for other roleplay tools."
+          onClose={() => setExportDialogOpen(false)}
+          onSelect={handleExportSelected}
+        />
+
+        {/* Library folders: the heading's button makes one; lorebooks move in by dragging or the
+          selection toolbar's folder picker. */}
+        {!lorebookLibraryLoading && !lorebookFoldersError && (
+          <div className="mt-1">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 px-1 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                <FolderOpen size="0.6875rem" aria-hidden="true" />
+                Folders ({lorebookFolderList.length})
+              </span>
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteTag(tag);
-                }}
-                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-[var(--destructive)]/20 hover:text-[var(--destructive)]"
-                title={`Delete tag "${tag}"`}
+                onClick={handleCreateFolder}
+                className="rounded-lg p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-amber-400"
+                title="Create folder"
+                aria-label="Create folder"
               >
-                <X size="0.5rem" />
+                <FolderPlus size="0.8125rem" aria-hidden="true" />
               </button>
             </div>
-          ))}
-          {!tagsExpanded && allTags.length > 5 && (
-            <button
-              onClick={() => setTagsExpanded(true)}
-              className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-            >
-              +{allTags.length - 5} more
-            </button>
-          )}
-        </div>
-      )}
 
-      {!lorebookLibraryLoading && !lorebookFoldersError && (
-        <button
-          type="button"
-          onClick={handleCreateFolder}
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/70 px-2.5 py-1.5 text-[0.6875rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          title="New folder"
-        >
-          <FolderPlus size="0.75rem" />
-          New folder
-        </button>
-      )}
-
-      {/* Loading */}
-      {lorebookLibraryLoading && (
-        <div className="flex flex-col gap-2 py-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="shimmer h-14 rounded-xl" />
-          ))}
-        </div>
-      )}
-
-      {!lorebookLibraryLoading && lorebookFoldersError && (
-        <div className="rounded-xl border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
-          <p>Could not load lorebook folders.</p>
-          <button
-            type="button"
-            onClick={() => void refetchLorebookFolders()}
-            className="mt-1 rounded-md px-2 py-1 text-[0.625rem] font-medium ring-1 ring-[var(--destructive)]/30 hover:bg-[var(--destructive)]/10"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {showLorebookEmptyState && (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400/20 to-orange-500/20">
-            <BookOpen size="1.25rem" className="text-amber-400" />
-          </div>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            {searchQuery ? "No lorebooks match your search" : "No lorebooks yet"}
-          </p>
-        </div>
-      )}
-
-      {/* Lorebook list */}
-      {showLorebookFlatFallback && (
-        <div className="stagger-children flex flex-col gap-1">{sorted.map(renderLorebookRow)}</div>
-      )}
-
-      {showLorebookList && (
-        <div className="flex flex-col gap-1">
-          {displayedLorebookFolders.map((folder) => {
-            const folderLorebooks = lorebooksByFolder.get(folder.id) ?? [];
-            const isExpanded = !folder.collapsed;
-            const isDropTarget = lorebookDropTargetId === folder.id;
-            return (
-              <div
-                key={folder.id}
-                data-lorebook-library-folder-id={folder.id}
-                onDragOver={(event) => handleLorebookDragOver(event, folder.id)}
-                onDragLeave={handleLorebookDragLeave}
-                onDrop={(event) => handleLorebookDrop(event, folder.id)}
-                className={cn(
-                  "rounded-xl border border-transparent bg-[var(--secondary)]/35 transition-colors",
-                  isDropTarget && "border-amber-400/35 bg-amber-400/10",
-                )}
-              >
-                <div className="flex items-center gap-1.5 px-2 py-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
-                    className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                    title={isExpanded ? "Collapse folder" : "Expand folder"}
-                  >
-                    <ChevronRight size="0.75rem" className={cn("transition-transform", isExpanded && "rotate-90")} />
-                  </button>
-                  <FolderOpen size="0.875rem" className="shrink-0 text-amber-400" />
-                  {editingFolderId === folder.id ? (
-                    <input
-                      autoFocus
-                      value={editFolderName}
-                      onChange={(event) => setEditFolderName(event.target.value)}
-                      onBlur={() => handleRenameFolder(folder.id)}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") handleRenameFolder(folder.id);
-                        if (event.key === "Escape") {
-                          setEditingFolderId(null);
-                          setEditFolderName("");
-                        }
-                      }}
-                      className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs outline-none focus:border-amber-400/50"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleToggleFolderCollapsed(folder.id, !folder.collapsed)}
-                      className="min-w-0 flex-1 truncate text-left text-xs font-medium text-[var(--foreground)]"
-                      title={folder.name}
-                    >
-                      {folder.name}
-                    </button>
-                  )}
-                  <span className="rounded-md bg-[var(--background)]/60 px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)]">
-                    {folderLorebooks.length}
-                  </span>
-                  {!selectionMode && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleStartRenameFolder(folder.id, folder.name)}
-                        className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                        title="Rename folder"
-                      >
-                        <Pencil size="0.6875rem" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteFolder(folder.id, folder.name)}
-                        className="rounded-md p-1 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
-                        title="Delete folder"
-                      >
-                        <Trash2 size="0.6875rem" />
-                      </button>
-                    </>
-                  )}
+            <div className="mt-1 flex flex-col gap-1">
+              {displayedLorebookFolders.map(renderLorebookFolder)}
+              {lorebookFolderList.length === 0 && (
+                <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                  No folders yet - click <FolderPlus size="0.625rem" className="inline" aria-hidden="true" /> to create
+                  one
                 </div>
-                {isExpanded && (
-                  <div className="flex flex-col gap-1 px-1 pb-1">
-                    {folderLorebooks.length > 0 ? (
-                      folderLorebooks.map(renderLorebookRow)
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-[var(--border)] px-2 py-2 text-center text-[0.625rem] text-[var(--muted-foreground)]">
-                        Drop lorebooks here
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+              )}
+            </div>
+          </div>
+        )}
 
+        {/* Loading */}
+        {lorebookLibraryLoading && (
+          <div className="flex flex-col gap-2 py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="shimmer h-14 rounded-xl" />
+            ))}
+          </div>
+        )}
+
+        {!lorebookLibraryLoading && lorebookFoldersError && (
+          <div className="rounded-xl border border-[var(--destructive)]/25 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]">
+            <p>Could not load lorebook folders.</p>
+            <button
+              type="button"
+              onClick={() => void refetchLorebookFolders()}
+              className="mt-1 rounded-md px-2 py-1 text-[0.625rem] font-medium ring-1 ring-[var(--destructive)]/30 hover:bg-[var(--destructive)]/10"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {showLorebookEmptyState && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400/20 to-orange-500/20">
+              <BookOpen size="1.25rem" className="text-amber-400" />
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {searchQuery.trim()
+                ? "No lorebooks match your search"
+                : lorebookFiltersActive
+                  ? "No lorebooks match the current filters"
+                  : "No lorebooks yet"}
+            </p>
+          </div>
+        )}
+
+        {/* Lorebook list */}
+        {showLorebookFlatFallback && (
+          <div className="stagger-children flex flex-col gap-1">{sorted.map(renderLorebookRow)}</div>
+        )}
+
+        {showLorebookList && (
           <div
             data-lorebook-library-root
             onDragOver={(event) => handleLorebookDragOver(event, null)}
@@ -917,7 +1007,7 @@ export function LorebooksPanel() {
               lorebookDropTargetId === null && "bg-amber-400/10 ring-1 ring-amber-400/35",
             )}
           >
-            {activeCategory === "all" && grouped
+            {grouped
               ? Array.from(grouped.entries()).map(([category, books]) => {
                   const catMeta =
                     LOREBOOK_PANEL_CATEGORIES.find((c) => c.id === category) ??
@@ -942,8 +1032,8 @@ export function LorebooksPanel() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

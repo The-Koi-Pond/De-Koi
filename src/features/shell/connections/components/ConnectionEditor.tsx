@@ -2612,6 +2612,14 @@ function ImageGenerationDefaultsPanel({
                     max={4}
                     onCommit={(undesiredContentPreset) => updateNovelAi({ undesiredContentPreset })}
                   />
+                  <NumberSetting
+                    label="Reference Strength"
+                    value={novelai.referenceStrength}
+                    min={0}
+                    max={1}
+                    integer={false}
+                    onCommit={(referenceStrength) => updateNovelAi({ referenceStrength })}
+                  />
                 </>
               )}
             </div>

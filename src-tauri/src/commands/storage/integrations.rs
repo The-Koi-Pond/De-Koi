@@ -10,6 +10,7 @@ mod music_settings;
 mod music_spotify;
 #[path = "integrations/tts.rs"]
 mod tts;
+pub(crate) use tts::{voice_note_dir_for_chat, VOICE_NOTES_DIR};
 
 pub(crate) async fn tts_call(
     state: &AppState,

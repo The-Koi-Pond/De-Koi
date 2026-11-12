@@ -17,7 +17,8 @@ import type {
 } from "../hooks/use-fanfic";
 import { FanficReader } from "./FanficReader";
 
-const { mutation, checks, keep, canon, deleting, confirm, chat } = vi.hoisted(() => ({
+const { mutation, checks, keep, canon, deleting, confirm, chat, metadataUpdate } = vi.hoisted(() => ({
+  metadataUpdate: { mutate: vi.fn(), isPending: false },
   chat: { metadata: {} as Record<string, unknown> },
   mutation: () => ({ mutate: () => {}, mutateAsync: async () => {}, isPending: false }),
   checks: () => ({
@@ -40,11 +41,13 @@ vi.mock("../../../catalog/chats/index", () => ({
   useChat: () => ({ data: { id: "fic-1", connectionId: "conn-1", metadata: chat.metadata } }),
   useSetActiveSwipe: mutation,
   useUpdateMessage: mutation,
+  useUpdateChatMetadata: () => metadataUpdate,
 }));
 vi.mock("../../../catalog/connections/index", () => ({ HelperRunNote: () => null }));
 vi.mock("../../../runtime/generation/index", () => ({ GenerationFailureNotice: () => null }));
 vi.mock("./FanficConnectionSelect", () => ({ FanficReaderConnectionSelect: () => <span data-model-control="" /> }));
 vi.mock("./FanficQualityPanel", () => ({ FanficQualityPanel: () => null }));
+vi.mock("./FanficComments", () => ({ FanficComments: () => null }));
 vi.mock("../../../../shared/api/file-save-api", () => ({ saveTextFileToUserSelectedLocation: vi.fn() }));
 vi.mock("../../../../shared/lib/app-dialogs", () => ({ showConfirmDialog: confirm }));
 vi.mock("../hooks/use-fanfic", () => ({
@@ -136,6 +139,7 @@ describe("FanficReader", () => {
     deleting.mutate.mockReset();
     confirm.mockReset();
     chapterFinished.mockReset();
+    metadataUpdate.mutate.mockReset();
     chat.metadata = {};
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
@@ -189,6 +193,7 @@ describe("FanficReader", () => {
           ledger={{} as FanficLedgerController}
           voices={{} as FanficVoicesController}
           onSaveVoices={vi.fn()}
+          onSaveOutline={vi.fn()}
           editor={{} as FanficEditorController}
           plan={{ running: false, propose: vi.fn() } as unknown as FanficPlanController}
           phraseBans={{ supported: false } as FanficPhraseBanController}
@@ -249,6 +254,69 @@ describe("FanficReader", () => {
       const streaming = container.querySelector("article[aria-busy='true']")!;
       expect(streaming.textContent).toContain("The lamp flickered,");
       expect(streaming.querySelector("[role='status']")?.textContent).toContain("Writing…");
+    });
+  });
+
+  describe("auto-polish", () => {
+    const POLISHED = "Mira waited by the window. The snow kept on.";
+
+    it("keeps the chapter readable as written while it's polished, with the polish's progress", async () => {
+      await render([chapterMessage("m1", "The lamp flickered and went out.")], {
+        generating: true,
+        regeneratingMessageId: "m1",
+        polishing: "m1",
+        phase: "Polishing: checking continuity…",
+      });
+
+      const streaming = container.querySelector("article[aria-busy='true']")!;
+      expect(streaming.textContent).toContain("The lamp flickered and went out.");
+      expect(streaming.querySelector("[role='status']")?.textContent).toContain("Polishing: checking continuity…");
+    });
+
+    it("says under the chapter what the polish fixed and what it couldn't", async () => {
+      const message = chapterMessage("m1", POLISHED);
+      const extra = {
+        ...message.extra,
+        fanficPolish: {
+          textKey: fanficChapterTextKey(POLISHED),
+          steps: [
+            { step: "prose", status: "fixed", fixed: 1, left: 0, error: null },
+            { step: "continuity", status: "fixed", fixed: 2, left: 1, error: null },
+            { step: "voice", status: "failed", fixed: 0, left: 0, error: "The judge timed out." },
+          ],
+        },
+      };
+      await render([{ ...message, extra } as unknown as Message]);
+
+      const note = container.querySelector("[data-fanfic-polish-note]")!;
+      expect(note.textContent).toBe(
+        "Polished automatically: cleaned up the prose; fixed 2 continuity slips; 1 slip it couldn't fix (Check continuity shows it); couldn't check the voices (The judge timed out.). The chapter as first written is one version back.",
+      );
+      expect(note.getAttribute("role")).toBe("alert");
+    });
+
+    it("drops the note once the chapter's text is edited", async () => {
+      const message = chapterMessage("m1", `${POLISHED} Edited.`);
+      const extra = { ...message.extra, fanficPolish: { textKey: fanficChapterTextKey(POLISHED), steps: [] } };
+      await render([{ ...message, extra } as unknown as Message]);
+
+      expect(container.querySelector("[data-fanfic-polish-note]")).toBeNull();
+    });
+
+    it("turns the polish off from the reader, saving it on the request", async () => {
+      await render([chapterMessage("m1", POLISHED)]);
+      const toggle = Array.from(container.querySelectorAll("label")).find((label) =>
+        label.textContent?.startsWith("Polish each chapter automatically"),
+      )!;
+      const input = toggle.querySelector("input")!;
+      expect(input.checked).toBe(true);
+
+      await click(input);
+
+      expect(metadataUpdate.mutate).toHaveBeenCalledWith(
+        { id: "fic-1", fanfic: { ...state, request: { ...state.request, autoPolish: false } } },
+        expect.anything(),
+      );
     });
   });
 

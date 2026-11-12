@@ -2,17 +2,18 @@
 // Regex Script Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { patchSchema } from "./patch-schema";
 
 const regexPlacementSchema = z.enum(["ai_output", "user_input"]);
 
 export const createRegexScriptSchema = z.object({
   characterId: z.string().nullable().default(null),
-  targetCharacterIds: z.array(z.string()).default([]),
+  targetCharacterIds: z.array(z.string()).prefault([]),
   name: z.string().min(1).max(200),
   enabled: z.boolean().default(true),
   findRegex: z.string().min(1),
   replaceString: z.string().default(""),
-  trimStrings: z.array(z.string()).default([]),
+  trimStrings: z.array(z.string()).prefault([]),
   placement: z.array(regexPlacementSchema).min(1),
   flags: z.string().default("gi"),
   promptOnly: z.boolean().default(false),
@@ -23,7 +24,7 @@ export const createRegexScriptSchema = z.object({
   maxDepth: z.number().int().nullable().default(null),
 });
 
-export const updateRegexScriptSchema = createRegexScriptSchema.partial().extend({
+export const updateRegexScriptSchema = patchSchema(createRegexScriptSchema).extend({
   sortOrder: z.number().int().optional(),
 });
 export const reorderRegexScriptsSchema = z.object({

@@ -101,6 +101,151 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, transparent), var(--background));
 }
 
+/* The Characters | Personas switch (PeoplePanelSwitch in RightPanel.tsx): two
+   tabs in an inset track. The chosen one glows: koi orange for Characters,
+   jade for Personas. */
+.de-koi-people-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 0.5625rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--secondary) 72%, transparent),
+    color-mix(in srgb, var(--background) 78%, transparent)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.de-koi-people-switch-tab {
+  --people-switch-tone: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  /* Nearly the header's full height (3rem), so little empty space is left around the switch. */
+  min-height: 2.375rem;
+  border-radius: 0.4375rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  transition:
+    background-color 0.16s,
+    box-shadow 0.16s,
+    color 0.16s;
+}
+
+.de-koi-people-switch-tab + .de-koi-people-switch-tab {
+  --people-switch-tone: var(--pond-jade, #27b3aa);
+  border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.de-koi-people-switch-tab:hover,
+.de-koi-people-switch-tab:focus-visible {
+  color: var(--foreground);
+  outline: none;
+}
+
+.de-koi-people-switch-tab:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.de-koi-people-switch-tab[aria-selected="true"] {
+  border-left-color: transparent;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--people-switch-tone) 18%, transparent),
+    color-mix(in srgb, var(--people-switch-tone) 8%, transparent)
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--people-switch-tone) 32%, transparent),
+    0 6px 14px -10px color-mix(in srgb, var(--people-switch-tone) 78%, transparent);
+  color: var(--people-switch-tone);
+}
+
+.de-koi-people-switch-tab:has(+ [aria-selected="true"]) {
+  border-left-color: transparent;
+}
+
+/* The chat list's Conversation | Roleplay | Fanfic switch (ChatModeSwitch.tsx):
+   the same track with three cells, icon over name in plain case (three
+   uppercase names don't fit a third of the column), each mode in its own
+   colour: koi for Conversation, jade for Roleplay, Fanfic's pink. */
+.de-koi-mode-switch {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab {
+  position: relative;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.125rem 0.25rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="conversation"] {
+  --people-switch-tone: var(--primary);
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="roleplay"] {
+  --people-switch-tone: var(--pond-jade, #27b3aa);
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="fanfic"] {
+  --people-switch-tone: #e0607e;
+}
+
+/* In daylight the pink is a step darker, so its name stays readable. */
+[data-theme="light"] .de-koi-mode-switch .de-koi-people-switch-tab[data-mode="fanfic"] {
+  --people-switch-tone: #b23a59;
+}
+
+/* The fold-away tab (ColumnCollapseButton.tsx): a small half-pill attached to
+   the column's left edge, its flat side against the edge. "‹" folds the column
+   away; once folded, a "›" one stays at the rail's edge to bring it back. */
+.de-koi-column-tab {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 0.875rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  background: color-mix(in srgb, var(--secondary) 68%, transparent);
+  color: var(--muted-foreground);
+  transition:
+    background-color 0.16s,
+    border-color 0.16s,
+    color 0.16s,
+    transform 0.16s;
+}
+
+.de-koi-column-tab:hover,
+.de-koi-column-tab:focus-visible {
+  border-color: var(--border);
+  background: var(--secondary);
+  color: var(--foreground);
+  outline: none;
+  transform: translateX(1px);
+}
+
+.de-koi-column-tab:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .de-koi-column-tab:hover,
+  .de-koi-column-tab:focus-visible {
+    transform: none;
+  }
+}
+
 /* Firefox on Windows can rasterize text inside large blurred/translucent layout layers,
    which shows up most clearly on high-DPI displays. Fall back to opaque shell chrome there. */
 @supports (-moz-appearance: none) {
@@ -298,18 +443,13 @@
     0 0 1rem rgba(255, 137, 87, 0.12);
 }
 
-.koi-logo-tile {
-  background:
-    radial-gradient(circle at 50% 22%, rgba(82, 225, 218, 0.24), transparent 40%) padding-box,
-    linear-gradient(145deg, rgba(9, 20, 25, 0.95), rgba(5, 10, 14, 0.99)) padding-box,
-    linear-gradient(145deg, rgba(82, 225, 218, 0.46), rgba(255, 214, 166, 0.34) 48%, rgba(255, 137, 87, 0.38))
-      border-box;
-  border: 1px solid transparent;
-  box-shadow:
-    0 18px 46px rgba(0, 0, 0, 0.48),
-    0 0 24px rgba(82, 225, 218, 0.1),
-    0 0 18px rgba(255, 137, 87, 0.08),
-    inset 0 1px rgba(255, 225, 190, 0.14);
+/* Home logo (ModeHomeSurface picks the light or dark file by theme). */
+.koi-home-logo {
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.35));
+}
+
+[data-theme="light"] .koi-home-logo {
+  filter: drop-shadow(0 8px 18px rgba(26, 42, 46, 0.16));
 }
 
 .koi-home-hero {
@@ -344,6 +484,12 @@
 
 .koi-home-splash-text {
   display: inline-block;
+}
+
+/* Each word stays on one line, so long splash lines wrap between words. */
+.koi-home-splash-word {
+  display: inline-block;
+  white-space: nowrap;
 }
 
 .koi-home-splash-letter {
@@ -441,16 +587,6 @@
 
 /* Light theme home: paper tiles with the same mode rims. Mode label colors
    are tuned for dark tiles, so they are inked down to stay readable. */
-[data-theme="light"] .koi-logo-tile {
-  background:
-    radial-gradient(circle at 50% 22%, rgba(95, 178, 168, 0.22), transparent 44%) padding-box,
-    linear-gradient(145deg, #1d3a40, #10242a) padding-box,
-    linear-gradient(145deg, rgba(95, 178, 168, 0.6), rgba(216, 183, 123, 0.5) 48%, rgba(173, 75, 28, 0.5)) border-box;
-  box-shadow:
-    0 12px 28px rgba(26, 42, 46, 0.18),
-    inset 0 1px rgba(255, 255, 255, 0.12);
-}
-
 [data-theme="light"] .koi-glow-text {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }

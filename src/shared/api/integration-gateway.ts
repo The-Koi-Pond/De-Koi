@@ -9,6 +9,8 @@ import { imageGenerationApi } from "./image-generation-api";
 import { lorebookCommandApi } from "./lorebook-command-api";
 import { type MusicCandidate, musicApi, spotifyMusicApi } from "./music-api";
 import { invokeTauri } from "./tauri-client";
+import { ttsApi } from "./tts-api";
+import { resolveTTSVoiceForSpeaker } from "../lib/tts-dialogue";
 import { webResearchApi } from "./web-research-api";
 
 async function discordMirrorModuleEnabled(): Promise<boolean> {
@@ -87,6 +89,15 @@ export const integrationGateway: IntegrationGateway = {
     }) => {
       if (!(await discordMirrorModuleEnabled())) return undefined as T;
       return invokeTauri<T>("discord_webhook_send", { body: input });
+    },
+  },
+  voiceNotes: {
+    available: async () => (await ttsApi.config()).enabled,
+    create: async ({ chatId, text, speaker, characterId }) => {
+      const config = await ttsApi.config();
+      if (!config.enabled) throw new Error("Text to Speech is turned off.");
+      const voice = resolveTTSVoiceForSpeaker(config, speaker, characterId);
+      return ttsApi.voiceNote({ chatId, text, speaker, ...(voice ? { voice } : {}) });
     },
   },
 };

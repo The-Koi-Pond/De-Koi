@@ -17,6 +17,7 @@ import {
 import { lorebookEntryApi } from "../../../../shared/api/lorebook-entry-api";
 import { lorebookFolderApi } from "../../../../shared/api/lorebook-folder-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { lorebookCommandApi } from "../../../../shared/api/lorebook-command-api";
 import type {
@@ -224,6 +225,20 @@ export function useDeleteLorebook() {
       // missing this lets the character editor keep rendering stale
       // entries and a broken "Edit Linked Lorebook" button.
       invalidateLinkedCharacterBookQueries(qc);
+    },
+  });
+}
+
+/**
+ * Copies a whole lorebook: the record (named "… Copy"), its picture, its entry folders and all its
+ * entries, in one storage step on the server (`duplicate_lorebook` in the Rust storage layer).
+ */
+export function useDuplicateLorebook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => storageCommandsApi.duplicate<Lorebook>("lorebooks", id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: lorebookKeys.all });
     },
   });
 }

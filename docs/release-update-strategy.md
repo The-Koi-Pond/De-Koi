@@ -47,6 +47,32 @@ Only builds made by the `Release` workflow (`.github/workflows/release.yml`) car
 - Before it creates the release, the workflow checks every updater signature against the committed public key and the
   APK certificate against the committed fingerprint. A wrong or missing secret fails the run.
 
+## When to release
+
+The `Release Reminder` workflow (`.github/workflows/release-reminder.yml`) runs every day and whenever a release is
+published. It compares the latest release with `main` and opens one issue labelled `release-due` when any of these is
+true:
+
+- a security fix is waiting (a commit subject names a `RUSTSEC`, `CVE` or `GHSA` id, or says "security"),
+- the oldest unreleased user-facing change is 7 or more days old,
+- 20 or more user-facing changes are waiting.
+
+Changes that only touch docs, tests, CI, repo tooling or server deploy files don't count. The issue lists the waiting
+changes as draft release notes, names the modes whose prompt snapshot changed (those need a quality run, see
+[`release-readiness-checklist.md`](release-readiness-checklist.md)), and links the steps below. Later runs update it
+without a new notification, add a comment when a new security fix lands, and close it once nothing is waiting.
+
+Repository variables:
+
+| Variable                   | What it does                                                          |
+| -------------------------- | --------------------------------------------------------------------- |
+| `RELEASE_MANAGERS`         | Comma-separated GitHub logins assigned to the issue (so they're told) |
+| `RELEASE_REMINDER_DAYS`    | Days before the oldest waiting change makes a release due (default 7) |
+| `RELEASE_REMINDER_CHANGES` | Waiting changes that make a release due (default 20)                  |
+
+To preview the decision locally without writing anything:
+`GITHUB_TOKEN=$(gh auth token) GITHUB_REPOSITORY=The-Koi-Pond/De-Koi node scripts/release-reminder.mjs --dry-run`.
+
 ## Cutting a release
 
 1. Bump the version to `X.Y.Z` in `package.json`, `src-tauri/Cargo.toml` (and `Cargo.lock`) and

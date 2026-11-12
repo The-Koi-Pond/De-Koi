@@ -1,3 +1,4 @@
+import { patchSchema } from "../contracts/schemas/patch-schema";
 import { generationParametersSchema } from "../contracts/schemas/prompt.schema";
 import type { GenerationParameters } from "../contracts/types/prompt";
 import { normalizeCustomThinkingTags } from "../generation-core/llm/inline-thinking";
@@ -296,7 +297,7 @@ function parseStoredGenerationParameters(raw: unknown): StoredGenerationParamete
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
 
-  const result = generationParametersSchema.partial().safeParse(parsed);
+  const result = patchSchema(generationParametersSchema).safeParse(parsed);
   if (result.success) return result.data;
 
   // Older installs or extension callers may leave one malformed field in an

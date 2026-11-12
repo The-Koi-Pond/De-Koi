@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 // Runs replies on the server instead of in the browser tab, so a reply keeps going (and gets saved) when the tab
 // closes or the phone locks. It runs the same engine code as the app (startGeneration) against the de-koi-server
-// runtime API, with the same storage/LLM adapters the web app uses in remote mode.
+// runtime API, with the same storage/LLM adapters the web app uses in remote mode. Fanfic chapter writes run here
+// too (startFanficGeneration); a chapter's auto-polish and a "write all" run's next chapter chain as jobs finish.
 //
 //   GET  /runner/health
 //   POST /runner/generate            { input }  -> { jobId }   (409 + jobId when the chat already has one running)
@@ -17,7 +18,9 @@
 import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { JobRegistry, type RunnerEvent, type RunnerJob } from "./jobs";
-import { runGenerationJob, configureRuntime } from "./engine";
+import { runGenerationJob, configureRuntime, isFanficJobInput, nextRunnerJobInput } from "./engine";
+import { fanficWriteSavedFinished } from "../engine/modes/fanfic/batch";
+import { sentMediaFromEvents, sentMediaTitle, type SentMediaKind } from "../engine/modes/chat/core/sent-media";
 import { startAutonomousScheduler, type PresenceStatus } from "./autonomous";
 import { PushStore } from "./push-store";
 import { storageApi } from "../shared/api/storage-api";
@@ -119,6 +122,21 @@ async function characterName(characterId: unknown): Promise<string> {
   return typeof name === "string" && name.trim() ? name.trim() : "A character";
 }
 
+async function chatName(chatId: string): Promise<string> {
+  const row = await storageApi.get<{ name?: unknown }>("chats", chatId);
+  return typeof row?.name === "string" && row.name.trim() ? `"${row.name.trim()}"` : "your fic";
+}
+
+/** The job to chain after `job` (a polish, or the next "write all" chapter); a failed lookup ends the run instead. */
+async function nextJobAfter(job: RunnerJob): Promise<Record<string, unknown> | null> {
+  try {
+    return await nextRunnerJobInput(job.input, job.events);
+  } catch (error) {
+    console.error(`[runner] couldn't check for the next chapter of chat ${job.chatId}:`, error);
+    return null;
+  }
+}
+
 function savedReplyCharacterId(job: RunnerJob): string | null | undefined {
   const saved = [...job.events].reverse().find((event) => event.type === "assistant_message");
   if (!saved) return undefined;
@@ -138,11 +156,23 @@ export function createRunnerServer(
     Date.now() - presence.reportedAt < PRESENCE_MS ? presence.status : "idle";
   const autonomousJobs = new Set<string>();
 
-  const notify = (chatId: string, name: string, reason: "texted" | "replied") => {
+  const notify = (
+    chatId: string,
+    name: string,
+    reason: "texted" | "replied" | "chapter" | "all-chapters",
+    /** A text that was a voice note or carried a photo says so (never its content). */
+    media: SentMediaKind | null = null,
+  ) => {
     if (!features.push || features.push.count === 0 || someoneWatching()) return;
+    const titles = {
+      texted: `${name} texted you`,
+      replied: `${name} replied`,
+      chapter: `New chapter of ${name}`,
+      "all-chapters": `${name}: every chapter is written`,
+    };
     void features.push
       .notifyAll({
-        title: reason === "texted" ? `${name} texted you` : `${name} replied`,
+        title: sentMediaTitle(name, media) ?? titles[reason],
         body: "Open De-Koi to read it.",
         chatId,
         tag: `de-koi-chat-${chatId}`,
@@ -175,12 +205,28 @@ export function createRunnerServer(
     void (async () => {
       try {
         for await (const event of runGenerationJob(input, job.controller.signal)) registry.push(job, event);
+        // Decided before this job ends, so a screen that sees it end finds the next chapter already running.
+        const next = job.controller.signal.aborted ? null : await nextJobAfter(job);
         const watched = registry.followers(job) > 0;
         registry.finish(job, job.controller.signal.aborted ? "cancelled" : "done");
+        if (next && job.status === "done") {
+          try {
+            startJob(next);
+            return;
+          } catch (error) {
+            console.error(`[runner] couldn't start the next chapter for chat ${chatId}:`, error);
+          }
+        }
         // A reply that finished with no screen following it: tell the phone (texting-first jobs notify themselves).
         const replyCharacter = savedReplyCharacterId(job);
         if (job.status === "done" && !watched && replyCharacter !== undefined && !autonomousJobs.has(job.id)) {
-          notify(chatId, await characterName(replyCharacter), "replied");
+          if (isFanficJobInput(input)) {
+            // A run that ends on a finished chapter ran out of planned ones; one cut off just has a new chapter.
+            const allWritten = input.fanficBatch === true && fanficWriteSavedFinished(job.events);
+            notify(chatId, await chatName(chatId), allWritten ? "all-chapters" : "chapter");
+          } else {
+            notify(chatId, await characterName(replyCharacter), "replied", sentMediaFromEvents(job.events));
+          }
         }
       } catch (error) {
         const cancelled = job.controller.signal.aborted;
@@ -232,7 +278,7 @@ export function createRunnerServer(
       runningForChat: (chatId) => registry.runningForChat(chatId),
       waitForJob: async (job) => (await registry.wait(job)) === "done" && savedReplyCharacterId(job) !== undefined,
       presence: presenceStatus,
-      onTexted: async (chat, character) => notify(chat.id, character.name, "texted"),
+      onTexted: async (chat, character, sent) => notify(chat.id, character.name, "texted", sent.media),
     });
   }
 

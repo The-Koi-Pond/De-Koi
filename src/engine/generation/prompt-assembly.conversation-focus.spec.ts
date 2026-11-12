@@ -143,7 +143,9 @@ describe("long Conversation context focus", () => {
 
     const text = promptText(result.messages);
     const history = result.messages.filter((message) => message.contextKind === "history");
-    expect(history.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
+    // The whole conversation stays: the summary only covers past days, so a long same-day chat cut to its last
+    // few texts forgot what was said an hour earlier.
+    expect(history).toHaveLength(41);
     expect(text).toContain("<conversation_focus>");
     expect(text).toContain("Default to short replies.");
     expect(text).toContain("Do not over-explain your feelings.");
@@ -162,15 +164,16 @@ describe("long Conversation context focus", () => {
     expect(text).not.toContain("CARD_ROLEPLAY_SENTINEL");
     expect(text).not.toContain("CARD_FIRST_MESSAGE_SENTINEL");
     expect(text).toContain("old user turn 19");
-    expect(text).toContain("OLD_ASSISTANT_DRIFT_19");
+    expect(promptText(history)).toContain("OLD_ASSISTANT_DRIFT_3 ");
+    expect(promptText(history)).toContain("old user turn 2");
     expect(text).toContain("OLD_ASSISTANT_DRIFT_20");
-    expect(text).not.toContain("OLD_ASSISTANT_DRIFT_17");
     expect(text.match(/BLOATED_DESCRIPTION_MIDDLE/g)?.length ?? 0).toBeLessThan(25);
-    // The fixed per-turn prose style note is not context bloat. The freshness note reacts to this fixture's
-    // repetitive replies; it has its own small cap.
+    // The card is still compacted: everything but the transcript stays small. The fixed per-turn prose style note
+    // is not context bloat. The freshness note reacts to this fixture's repetitive replies; it has its own small cap.
+    const context = promptText(result.messages.filter((message) => message.contextKind !== "history"));
     const freshnessNote = /<conversation_freshness>[\s\S]*?<\/conversation_freshness>/.exec(text)?.[0] ?? "";
     expect(freshnessNote.length).toBeLessThan(600);
-    expect(text.replace(PROSE_STYLE_NOTE, "").replace(freshnessNote, "").length).toBeLessThan(7_000);
+    expect(context.replace(PROSE_STYLE_NOTE, "").replace(freshnessNote, "").length).toBeLessThan(7_000);
   });
 
   it("keeps the assistant replies that give follow-up questions their referents", async () => {
@@ -204,7 +207,13 @@ describe("long Conversation context focus", () => {
     });
 
     const history = result.messages.filter((message) => message.contextKind === "history");
-    expect(history.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant", "user"]);
+    expect(history.slice(-5).map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+    ]);
     expect(promptText(history)).toContain("before I decide whether going quiet is worth it");
     expect(promptText(history)).toContain("going quiet long enough to see whether you start checking my eyes");
   });
@@ -301,10 +310,7 @@ describe("long Conversation context focus", () => {
     });
 
     const text = promptText(result.messages);
-    expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(5);
-    expect(
-      result.messages.filter((message) => message.contextKind === "history").map((message) => message.role),
-    ).toEqual(["user", "assistant", "user", "assistant", "user"]);
+    expect(result.messages.filter((message) => message.contextKind === "history")).toHaveLength(41);
     expect(text).toContain("<conversation_voice_examples>");
     expect(text).toContain("Respond only as Mira");
     expect(text).toContain("casual group DM conversation");

@@ -35,10 +35,6 @@ vi.mock("../../shared/chat-ui/new-chat-gate", () => ({
   NewChatConnectionGate: () => null,
 }));
 
-vi.mock("./HomeCreditsModal", () => ({
-  HomeCreditsModal: () => null,
-}));
-
 vi.mock("./RecentChats", () => ({
   RecentChats: () => <div data-testid="recent-chats">Recent chats</div>,
 }));
@@ -56,12 +52,18 @@ vi.mock("../../../../shared/stores/chat.store", () => {
   return { useChatStore };
 });
 
-const { openRightPanel } = vi.hoisted(() => ({ openRightPanel: vi.fn() }));
+const { openRightPanel, uiVisualTheme } = vi.hoisted(() => ({
+  openRightPanel: vi.fn(),
+  uiVisualTheme: { current: "default" as "default" | "pond" },
+}));
 vi.mock("../../../../shared/stores/ui.store", () => {
   const state = {
     remoteRuntimeUrl: "",
     setHasCompletedOnboarding: vi.fn(),
     openRightPanel,
+    get visualTheme() {
+      return uiVisualTheme.current;
+    },
   };
   const useUIStore = (selector: (value: typeof state) => unknown) => selector(state);
   useUIStore.getState = () => state;
@@ -82,6 +84,7 @@ describe("ModeHomeSurface launch splash", () => {
     connectionRows.current = [];
     createChatMutate.mockClear();
     beginSetupJourney.mockClear();
+    openRightPanel.mockClear();
     libraryPresence.current = { status: "loading", isEmpty: null };
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -120,6 +123,89 @@ describe("ModeHomeSurface launch splash", () => {
     expect(splash?.querySelectorAll(".koi-home-splash-letter").length).toBeGreaterThan(0);
   });
 
+  it("keeps each splash word whole, so long lines wrap between words", async () => {
+    const longSplash = '"We have AI roleplay at home!" (AI roleplay at home:)';
+    vi.spyOn(Math, "random").mockReturnValue(HOME_SPLASH_TEXTS.indexOf(longSplash) / HOME_SPLASH_TEXTS.length);
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+
+    const words = [...container!.querySelectorAll(".koi-home-splash-word")].map((word) => word.textContent ?? "");
+    expect(words.join(" ")).toBe(longSplash);
+    expect(words.every((word) => !word.includes(" "))).toBe(true);
+  });
+
+  it("keeps the plain logo outside the Pond theme", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    expect(container!.querySelector(".koi-ring")).toBeNull();
+    expect(container!.querySelector(".deki-home-bubble")).toBeNull();
+    expect(container!.querySelector(".koi-home-logo")).toBeTruthy();
+  });
+
+  it("puts Deki in the koi ring in the Pond theme and lets them explain the mode you point at", async () => {
+    uiVisualTheme.current = "pond";
+    const onOpenDiscover = vi.fn();
+    try {
+      await act(async () => {
+        root = createRoot(container!);
+        root.render(<ModeHomeSurface onOpenDiscover={onOpenDiscover} />);
+      });
+      const ring = container!.querySelector(".koi-ring");
+      expect(ring?.querySelector("img.koi-ring-deki-live")?.getAttribute("src")).toBe("/deki-steady.svg");
+      expect(ring?.querySelector(".koi-home-splash")).toBeTruthy();
+      expect(ring?.querySelectorAll("[data-koi-orbit]")).toHaveLength(3);
+
+      // The modes are a visual-novel choice menu instead of cards, with recent
+      // chats under them, and no "Next steps" grid.
+      expect(container!.querySelectorAll(".vn-choice")).toHaveLength(3);
+      expect(container!.querySelector(".koi-start-card")).toBeNull();
+      expect(
+        [...container!.querySelectorAll("[data-home-section]")].map((s) => s.getAttribute("data-home-section")),
+      ).toEqual(["readiness", "mode-cards", "recent-chats"]);
+
+      // Deki's quick menu: the pending setup step, and Discover.
+      const actions = [...container!.querySelectorAll<HTMLButtonElement>(".deki-home-action")];
+      expect(actions.map((button) => button.textContent)).toEqual(["Connect a model", "Discover"]);
+      act(() => actions[0]!.click());
+      expect(openRightPanel).toHaveBeenCalledWith("connections");
+      act(() => actions[1]!.click());
+      expect(onOpenDiscover).toHaveBeenCalledTimes(1);
+
+      // With no model connection yet, Deki points at that first.
+      const bubble = container!.querySelector(".deki-home-bubble");
+      expect(bubble?.textContent).toMatch(/Connect a model first/);
+
+      // Each choice is named by its visible text and described by Deki's explanation.
+      const roleplayChoice = container!.querySelector<HTMLButtonElement>('.vn-choice[data-mode="roleplay"]')!;
+      expect(roleplayChoice.textContent).toBe("Let's play out a story!Roleplay");
+      expect(roleplayChoice.hasAttribute("aria-label")).toBe(false);
+      const description = document.getElementById(roleplayChoice.getAttribute("aria-describedby") ?? "");
+      expect(description?.textContent).toMatch(/^Roleplay:/);
+
+      await act(async () => {
+        roleplayChoice.focus();
+      });
+      expect(bubble?.textContent).toMatch(/^Roleplay:/);
+
+      await act(async () => {
+        roleplayChoice.blur();
+      });
+      expect(bubble?.textContent).toMatch(/Connect a model first/);
+
+      // Picking a choice starts that mode, like the cards do in other themes.
+      await act(async () => {
+        container!.querySelector<HTMLButtonElement>('.vn-choice[data-mode="fanfic"]')!.click();
+      });
+      expect(beginSetupJourney).toHaveBeenCalledWith("fanfic");
+    } finally {
+      uiVisualTheme.current = "default";
+    }
+  });
+
   it("runs the splash bounce twice while retaining reduced-motion opt out", () => {
     const css = readFileSync(resolve(process.cwd(), "src/styles/globals/04-surfaces-components.css"), "utf8");
 
@@ -140,6 +226,7 @@ describe("ModeHomeSurface quick-start prewarming", () => {
     connectionRows.current = [];
     createChatMutate.mockClear();
     beginSetupJourney.mockClear();
+    openRightPanel.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     requestIdleCallbackSpy = vi.fn();

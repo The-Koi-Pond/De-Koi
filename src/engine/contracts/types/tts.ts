@@ -130,10 +130,10 @@ export const ttsConfigSchema = z.object({
   /** ElevenLabs only: optional language_code. Empty means automatic language detection. */
   elevenLabsLanguageCode: z.string().max(8).default(""),
   voiceMode: ttsVoiceModeSchema.default("single"),
-  voiceAssignments: z.array(ttsVoiceAssignmentSchema).default([]),
+  voiceAssignments: z.array(ttsVoiceAssignmentSchema).prefault([]),
   npcDefaultVoicesEnabled: z.boolean().default(false),
-  npcDefaultMaleVoices: z.array(z.string()).default([]),
-  npcDefaultFemaleVoices: z.array(z.string()).default([]),
+  npcDefaultMaleVoices: z.array(z.string()).prefault([]),
+  npcDefaultFemaleVoices: z.array(z.string()).prefault([]),
   autoplayRP: z.boolean().default(false),
   autoplayConvo: z.boolean().default(false),
   autoplayGame: z.boolean().default(false),

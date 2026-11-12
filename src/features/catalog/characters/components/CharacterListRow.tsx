@@ -1,8 +1,13 @@
 import type { DragEvent } from "react";
-import { Check, Copy, Hash, Star, Trash2, User, X } from "lucide-react";
+import { Check, Copy, MessageSquarePlus, Star, Trash2, User, X } from "lucide-react";
 
 import { getCharacterTitle } from "../../../../shared/lib/character-display";
 import { cn } from "../../../../shared/lib/utils";
+import {
+  CatalogRowActions,
+  catalogRowActionsRowProps,
+  type CatalogRowAction,
+} from "../../components/CatalogPanelControls";
 import { characterAvatarUrl } from "../lib/character-avatar-url";
 import { getText } from "../lib/character-library-model";
 import { getCharacterPreviewMetadata, getCharacterTags, type ParsedCharacterRow } from "../lib/characters-panel-model";
@@ -80,6 +85,54 @@ export function CharacterListRow({
     : assigningGroup
       ? `${isInTargetGroup ? "Remove" : "Move"} ${charName}${favoriteStatusLabel} ${isInTargetGroup ? "from" : "to"} folder`
       : `Open ${charName}${favoriteStatusLabel}`;
+  const showActions = !isAssigning && !selectionMode;
+  // Start chat, duplicate and delete, plus add/remove while a chat is open.
+  const rowActions: CatalogRowAction[] = [
+    {
+      key: "start",
+      title: "Start a chat",
+      label: `Start a chat with ${charName}`,
+      icon: <MessageSquarePlus size="0.875rem" aria-hidden="true" />,
+      className: "text-[var(--primary)] hover:bg-[var(--primary)]/12",
+      hasPopup: "menu",
+      // The same menu as right-clicking the row, opened under this button: pick the mode.
+      onClick: (event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        onOpenContextMenu({ x: rect.left, y: rect.bottom, charId: character.id, charName });
+      },
+    },
+    ...(hasActiveChat
+      ? [
+          {
+            key: "chat",
+            title: isSelected ? "Remove from chat" : "Add to chat",
+            label: isSelected ? `Remove ${charName} from the chat` : `Add ${charName} to the chat`,
+            icon: isSelected ? <X size="0.75rem" aria-hidden="true" /> : <Check size="0.75rem" aria-hidden="true" />,
+            className: isSelected
+              ? "text-[var(--destructive)] hover:bg-[var(--destructive)]/15"
+              : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
+            onClick: () => onToggleChatCharacter(character.id),
+          },
+        ]
+      : []),
+    {
+      key: "duplicate",
+      title: "Duplicate",
+      label: `Duplicate ${charName}`,
+      icon: <Copy size="0.75rem" aria-hidden="true" />,
+      className: "text-[var(--muted-foreground)] hover:bg-sky-400/10 hover:text-sky-400",
+      onClick: () => onDuplicateCharacter(character),
+    },
+    {
+      key: "delete",
+      title: "Delete",
+      label: `Delete ${charName}`,
+      icon: <Trash2 size="0.75rem" aria-hidden="true" />,
+      className: "text-[var(--destructive)] hover:bg-[var(--destructive)]/15",
+      onClick: () => onDeleteCharacter(character),
+    },
+  ];
+  const rowActionsProps = catalogRowActionsRowProps(rowActions.length);
   const activateRow = () => {
     if (selectionMode) {
       onToggleSelection(character.id);
@@ -106,8 +159,10 @@ export function CharacterListRow({
           charName,
         });
       }}
+      style={showActions ? rowActionsProps.style : undefined}
       className={cn(
         "group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)]",
+        showActions && rowActionsProps.className,
         "has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-[var(--primary)]/45",
         selectionMode && isBulkSelected && "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/8",
         isSelected && !isAssigning && "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/5",
@@ -210,7 +265,6 @@ export function CharacterListRow({
         {charTitle && <div className="truncate text-[0.625rem] italic text-[var(--muted-foreground)]">{charTitle}</div>}
         {(isAssigning || previewMetadata) && (
           <div className="flex min-w-0 items-center gap-1 text-[0.625rem] text-[var(--muted-foreground)]">
-            {!isAssigning && <Hash size="0.625rem" className="shrink-0" />}
             <span className="truncate">
               {isAssigning
                 ? isInTargetGroup
@@ -243,47 +297,7 @@ export function CharacterListRow({
         )}
       </div>
 
-      {!isAssigning && !selectionMode && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
-          {hasActiveChat && (
-            <button
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleChatCharacter(character.id);
-              }}
-              className={cn(
-                "rounded-lg p-1.5 transition-all active:scale-90",
-                isSelected
-                  ? "text-[var(--destructive)] hover:bg-[var(--destructive)]/15"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
-              )}
-              title={isSelected ? "Remove from chat" : "Add to chat"}
-            >
-              {isSelected ? <X size="0.75rem" /> : <Check size="0.75rem" />}
-            </button>
-          )}
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              onDuplicateCharacter(character);
-            }}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
-            title="Duplicate"
-          >
-            <Copy size="0.75rem" />
-          </button>
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              onDeleteCharacter(character);
-            }}
-            className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-            title="Delete"
-          >
-            <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
-          </button>
-        </div>
-      )}
+      {showActions && <CatalogRowActions actions={rowActions} />}
     </div>
   );
 }

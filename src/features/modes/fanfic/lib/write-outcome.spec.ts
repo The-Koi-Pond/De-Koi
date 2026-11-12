@@ -56,18 +56,36 @@ describe("trackFanficWriteFinished", () => {
 });
 
 describe("fanficFollowUps", () => {
+  const plain = { polish: false, polishNext: false };
+  const settled = (proposePlan: boolean) => ({ phraseBansFor: "m3", updateLedger: true, proposePlan });
+
   it("cleans banned phrases from the chapter and re-plans after a chapter written as a new chapter", () => {
-    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" })).toEqual({ phraseBansFor: "m3", proposePlan: true });
+    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" }, plain)).toEqual(settled(true));
   });
 
   it.each(["regenerate", "revise", "extra"] as const)(
     "cleans banned phrases from the chapter without re-planning after a %s",
     (origin) => {
-      expect(fanficFollowUps({ messageId: "m3", origin })).toEqual({ phraseBansFor: "m3", proposePlan: false });
+      expect(fanficFollowUps({ messageId: "m3", origin }, plain)).toEqual(settled(false));
     },
   );
 
   it("cleans banned phrases without re-planning when the version record can't be read", () => {
-    expect(fanficFollowUps({ messageId: "m3", origin: null })).toEqual({ phraseBansFor: "m3", proposePlan: false });
+    expect(fanficFollowUps({ messageId: "m3", origin: null }, plain)).toEqual(settled(false));
+  });
+
+  it("re-plans right away but leaves bans and the ledger for the polished text while a polish comes next", () => {
+    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" }, { polish: false, polishNext: true })).toEqual({
+      phraseBansFor: null,
+      updateLedger: false,
+      proposePlan: true,
+    });
+  });
+
+  it("after the polish, cleans bans and updates the ledger without a second re-plan", () => {
+    // A polish that changed nothing still shows the version written as a new chapter.
+    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" }, { polish: true, polishNext: false })).toEqual(
+      settled(false),
+    );
   });
 });

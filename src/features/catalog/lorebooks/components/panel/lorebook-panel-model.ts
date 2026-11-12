@@ -3,9 +3,18 @@ import {
   resolveActiveLorebookScopeReasons,
   type ActiveLorebookScopeContext,
 } from "../../../../../engine/generation-core/lorebooks/active-lorebook-scope";
-import type { LorebookPanelCategory } from "./lorebook-panel-config";
+import { matchesTagFilters, type TagFilters } from "../../../lib/tag-filters";
 
 export type LorebookPanelSort = "name-asc" | "name-desc" | "newest" | "oldest" | "tokens";
+
+/** "All" lorebooks, or only the ones the active chat uses. */
+export type LorebookPanelActiveFilter = "all" | "active";
+
+/** A token budget as "800" or "1.2k", for the row's meta line. */
+export function formatLorebookTokenBudget(tokens: number): string {
+  if (tokens < 1000) return String(tokens);
+  return `${(tokens / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+}
 
 function readTagArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
@@ -37,28 +46,31 @@ export function collectLorebookTags(lorebooks: readonly Lorebook[]): string[] {
 
 export function filterLorebooksForPanel({
   lorebooks,
-  activeCategory,
+  activeFilter,
   activeScopeContext,
-  activeTag,
+  typeFilters,
+  tagFilters,
   searchQuery,
   getCharacterNames,
   getPersonaNames,
 }: {
   lorebooks: readonly Lorebook[];
-  activeCategory: LorebookPanelCategory;
+  activeFilter: LorebookPanelActiveFilter;
   activeScopeContext: ActiveLorebookScopeContext;
-  activeTag: string | null;
+  /** Included and excluded types, keyed by category id ("uncategorized" for Other). */
+  typeFilters: TagFilters;
+  /** Included and excluded tags (see `matchesTagFilters`). */
+  tagFilters: TagFilters;
   searchQuery: string;
   getCharacterNames: (lorebook: Lorebook) => string[];
   getPersonaNames: (lorebook: Lorebook) => string[];
 }): Lorebook[] {
   let list = [...lorebooks];
-  if (activeCategory === "active") {
+  if (activeFilter === "active") {
     list = list.filter((lorebook) => resolveActiveLorebookScopeReasons(lorebook, activeScopeContext).length > 0);
   }
-  if (activeTag) {
-    list = list.filter((lorebook) => parseLorebookTags(lorebook).includes(activeTag));
-  }
+  list = list.filter((lorebook) => matchesTagFilters([lorebook.category || "uncategorized"], typeFilters));
+  list = list.filter((lorebook) => matchesTagFilters(parseLorebookTags(lorebook), tagFilters));
   if (!searchQuery) return list;
 
   const query = searchQuery.toLowerCase();

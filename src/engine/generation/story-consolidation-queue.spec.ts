@@ -193,6 +193,84 @@ describe("story consolidation queue", () => {
     expect(first?.sourceMessageIds).toEqual(input.messages.map((message) => message.id));
   });
 
+  it("tries a failed recap again an hour later on the chat's current connection", async () => {
+    const test = harness();
+    const input = {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "nano",
+      provider: "nanogpt",
+      model: "google/gemini-4-argon",
+    };
+    const job = await enqueueStoryEpisodeJob(test.storage, input, "2026-10-27T01:00:00.000Z");
+    const rejected = Object.assign(
+      new Error("Provider returned HTTP 400 Bad Request: Invalid value for reasoning_effort"),
+      {
+        status: 400,
+      },
+    );
+    await processStoryConsolidationQueue(
+      {
+        storage: test.storage,
+        llm: { complete: vi.fn(async () => Promise.reject(rejected)) } as unknown as LlmGateway,
+      },
+      { now: "2026-10-27T01:00:00.000Z" },
+    );
+    expect(test.jobs.get(String(job?.id))?.status).toBe("failed");
+
+    const tooSoon = await enqueueStoryEpisodeJob(test.storage, input, "2026-10-27T01:30:00.000Z");
+    expect(tooSoon).toEqual(expect.objectContaining({ id: job?.id, status: "failed" }));
+
+    const later = await enqueueStoryEpisodeJob(
+      test.storage,
+      { ...input, connectionId: "nano-2", model: "google/gemini-4-argon-2" },
+      "2026-10-27T02:01:00.000Z",
+    );
+    expect(later).toEqual(
+      expect.objectContaining({
+        id: job?.id,
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        connectionId: "nano-2",
+        model: "google/gemini-4-argon-2",
+      }),
+    );
+    const complete = vi.fn(async () => llmResult());
+    const result = await processStoryConsolidationQueue(
+      { storage: test.storage, llm: { complete } as unknown as LlmGateway },
+      { now: "2026-10-27T02:01:00.000Z" },
+    );
+    expect(result.completed).toBe(1);
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "nano-2" }));
+    expect(test.jobs.get(String(job?.id))?.status).toBe("completed");
+  });
+
+  it("tries a failed recap again right away when the user asks for it", async () => {
+    const test = harness();
+    const input = {
+      chat: { id: "chat-1", mode: "roleplay", metadata: {} },
+      messages: Array.from({ length: 24 }, (_, index) => sourceMessage(index + 1)),
+      connectionId: "connection-1",
+    };
+    const job = await enqueueStoryEpisodeJob(test.storage, input, "2026-10-27T01:00:00.000Z");
+    test.jobs.set(String(job?.id), {
+      ...job!,
+      status: "failed",
+      attempts: 3,
+      lastError: "Provider returned HTTP 401 Unauthorized: Invalid session",
+      updatedAt: "2026-10-27T01:00:00.000Z",
+    });
+
+    const rebuilt = await enqueueStoryEpisodeJob(
+      test.storage,
+      { ...input, explicit: true },
+      "2026-10-27T01:05:00.000Z",
+    );
+
+    expect(rebuilt).toEqual(expect.objectContaining({ id: job?.id, status: "pending", attempts: 0 }));
+  });
+
   it("lets explicit backfill run when automatic consolidation is opted out", async () => {
     const test = harness();
     const input = {

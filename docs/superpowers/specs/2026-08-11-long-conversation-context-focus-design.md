@@ -33,7 +33,7 @@ Once active:
 - Replace the full prompt-facing character payload with bounded identity/voice fields. Preserve the beginning and end of long fields so typing rules at the end of a card survive.
 - Omit roleplay-shaped first messages, appearance-only material, creator notes, public profile, and behavioral interpretation from the focused character payload.
 - Prefer up to two clean card dialogue samples converted to plain Conversation dialogue; fill any remaining slots with early, non-roleplay Conversation pairs.
-- Keep the newest five visible transcript messages, including assistant replies and image attachments. This bounds self-imitation while normally preserving two complete recent user/assistant exchanges plus the newest user message.
+- Keep the normal Conversation transcript (see "Update 2026-11-06": this used to be only the newest five messages).
 - Continue using existing rolling summary, chat-memory recall, and canonical-memory retrieval for older continuity. Give those projections bounded long-conversation budgets rather than introducing another summarizer or provider call.
 - Preserve image-bearing recent history and assistant provider metadata through the existing history selector.
 
@@ -41,7 +41,7 @@ Short Conversation chats, untargeted group generations, impersonation, Roleplay,
 
 ## Ownership
 
-`src/engine/generation/conversation-context-focus.ts` owns the pure activation, text compaction, Conversation-example selection, and bounded recent-history policy. `src/engine/generation/prompt-assembly.ts` owns mode/target selection and applies focused history, summary, and memory budgets through existing assembly seams.
+`src/engine/generation/conversation-context-focus.ts` owns the pure activation, text compaction, and Conversation-example selection. `src/engine/generation/prompt-assembly.ts` owns mode/target selection and applies focused history, summary, and memory budgets through existing assembly seams.
 
 No storage, provider, Rust, shared API, React, or mode-routing boundary changes.
 
@@ -56,8 +56,16 @@ A focused prompt-assembly spec proves:
 - activation at the long-conversation threshold;
 - bounded prompt-facing character data with head/tail voice rules retained;
 - roleplay actions are stripped from card dialogue examples and early Conversation pairs remain available as fallback examples;
-- only the latest five transcript messages remain as recent history, retaining the assistant answers required by user follow-ups;
+- the whole transcript stays, including the assistant answers required by user follow-ups, while everything else in the prompt stays small;
 - hidden command guidance and current user input survive;
 - short Conversation, impersonation, untargeted group, and Roleplay paths remain unchanged.
+
+## Update 2026-11-06: keep the whole transcript
+
+The five-message tail relied on the rolling summary for older continuity, but Conversation summaries only cover past days, never today. A long same-day chat therefore lost everything said more than five messages ago except what keyword recall or a `[memory: ...]` tag happened to bring back: characters re-confessed secrets told twenty texts earlier, forgot whose dog it was, and lost dates.
+
+Evidence (Opus 5.5 writer, conversation quality lab, 30-text games, 12 per side, judge v3): continuity 5.25 -> 6.33, time 5.75 -> 6.83, attunement 7.08 -> 7.67, overall 6.54 -> 7.13; voice 7.79 -> 7.96 (no drift), habit hits and reply time unchanged. Tails of 12 and 20 messages helped less (continuity 5.8), because the missed facts were 40+ messages back. A blind replay of five late moments from real Harlequin chats preferred the whole-transcript reply 2 to 1, with one tie. The cost is a larger prompt in long chats (about twice the size by text 30).
+
+The focused card, voice examples and bounded memory budgets stay: they were the part of the August fix that carried the voice evidence. The August drift was measured on GLM-5.2; a weaker model that drifts on its own long history can still be capped with the chat's `contextMessageLimit`.
 
 Run the focused spec, neighboring Conversation/prompt-priority specs, TypeScript validation, architecture validation, and whitespace checks.

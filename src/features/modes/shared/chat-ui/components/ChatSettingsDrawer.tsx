@@ -41,6 +41,7 @@ import {
   Music2,
   Code2,
   Paintbrush,
+  Mic,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -59,6 +60,7 @@ import { AdvancedParametersSection } from "./settings/AdvancedParametersSection"
 import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
 import { ChatSpotifySourceSection } from "./settings/ChatSpotifySourceSection";
+import { LinkedFicSection } from "./settings/LinkedFicSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
 import { ModePromptSettingsSections } from "./settings/ModePromptSettingsSections";
@@ -66,6 +68,10 @@ import { ChatPresetBar } from "./settings/ChatPresetBar";
 import { ContinuityOverviewPanel } from "./settings/ContinuityOverviewPanel";
 import { StoryContinuityModal, storyContinuityQueryKey } from "./settings/StoryContinuityModal";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
+import { MediaFrequencyControls } from "./settings/MediaFrequencyControls";
+import { unpromptedPhotoFrequency } from "../../../../../engine/modes/chat/autonomous/unprompted-photos";
+import { voiceNoteFrequency } from "../../../../../engine/modes/chat/voice-notes/voice-notes";
+import { useTTSConfig } from "../../../../../shared/hooks/use-tts";
 import {
   ScopedRegexCharacterGroups,
   ScopedRegexModeSelector,
@@ -443,6 +449,7 @@ function ChatSettingsDrawerInner({
   const qc = useQueryClient();
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
+  const ttsConfig = useTTSConfig();
   const updateAgentConfig = useUpdateAgent();
   const createAgent = useCreateAgent();
   const createMessage = useCreateMessage(chat.id);
@@ -2724,6 +2731,23 @@ function ChatSettingsDrawerInner({
                   </div>
                 </button>
 
+                {autonomousMessagesEnabled && (
+                  <MediaFrequencyControls
+                    title="Photos when texting first"
+                    description="How often a text a character sends first comes with a selfie. At most one photo or voice note until you reply."
+                    unavailable={
+                      metadata.imageGenConnectionId
+                        ? null
+                        : "Needs a Selfie Connection (under Commands) before characters can send photos."
+                    }
+                    frequencyFor={(characterId) => unpromptedPhotoFrequency(metadata, characterId)}
+                    stored={metadata.unpromptedPhotoFrequency}
+                    chatCharIds={chatCharIds}
+                    charNameMap={charNameMap}
+                    onChange={(next) => updateMeta.mutate({ id: chat.id, unpromptedPhotoFrequency: next })}
+                  />
+                )}
+
                 {/* Character exchanges toggle (group chats only) */}
                 {chatCharIds.length > 1 && (
                   <button
@@ -2989,6 +3013,51 @@ function ChatSettingsDrawerInner({
                     </div>
                   )}
 
+                  {/* Selfie likeness: send the character's own pictures with each selfie */}
+                  {(metadata.imageGenConnectionId as string) && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={metadata.selfieUseAvatarReferences === true}
+                      onClick={() =>
+                        updateMeta.mutate({
+                          id: chat.id,
+                          selfieUseAvatarReferences: metadata.selfieUseAvatarReferences !== true,
+                        })
+                      }
+                      className={cn(
+                        "mt-2 flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                        metadata.selfieUseAvatarReferences === true
+                          ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                          : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs font-medium">Make selfies look like the character</span>
+                        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                          Sends their full-body sprite with each selfie, or their avatar if they have no sprite. Works
+                          best with services that read reference images, like Gemini, GPT Image and NovelAI. Some Stable
+                          Diffusion setups start from the picture instead, so those selfies stay close to that picture.
+                        </p>
+                      </div>
+                      <div
+                        className={cn(
+                          "h-5 w-9 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors",
+                          metadata.selfieUseAvatarReferences === true
+                            ? "bg-[var(--primary)]"
+                            : "bg-[var(--muted-foreground)]/50",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                            metadata.selfieUseAvatarReferences === true && "translate-x-3.5",
+                          )}
+                        />
+                      </div>
+                    </button>
+                  )}
+
                   {/* Selfie prompt controls */}
                   {(metadata.imageGenConnectionId as string) && (
                     <SelfiePromptControls
@@ -3006,6 +3075,30 @@ function ChatSettingsDrawerInner({
                   )}
                 </div>
               </div>
+            </Section>
+          )}
+
+          {/* Voice notes — conversation mode only */}
+          {isConversation && (
+            <Section
+              label="Voice Notes"
+              icon={<Mic size="0.875rem" />}
+              help="Now and then a character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice. It is made once and kept with the chat."
+            >
+              <MediaFrequencyControls
+                title="Voice notes"
+                description="How often a character's reply comes as a voice message. Each one is a Text to Speech request."
+                unavailable={
+                  ttsConfig.data?.enabled
+                    ? null
+                    : "Turn on Text to Speech in Settings before characters can send voice notes."
+                }
+                frequencyFor={(characterId) => voiceNoteFrequency(metadata, characterId)}
+                stored={metadata.voiceNoteFrequency}
+                chatCharIds={chatCharIds}
+                charNameMap={charNameMap}
+                onChange={(next) => updateMeta.mutate({ id: chat.id, voiceNoteFrequency: next })}
+              />
             </Section>
           )}
 
@@ -3209,6 +3302,9 @@ function ChatSettingsDrawerInner({
 
           {/* Notes from Conversation — durable notes saved by the connected conversation's character */}
           {!isConversation && chat.connectedChatId && <ConversationNotesSection chatId={chat.id} />}
+
+          {/* Linked Fic — roleplay and conversation: a fic that knows this chat, both ways */}
+          {(isRoleplayMode || isConversation) && <LinkedFicSection chat={chat} />}
 
           {/* Lorebooks */}
           <Section

@@ -2,6 +2,7 @@
 // Character Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { deepPatchSchema, patchSchema } from "./patch-schema";
 
 const characterMemoryPersistenceSchema = z.enum(["character", "chat"]);
 
@@ -11,15 +12,14 @@ const depthPromptSchema = z.object({
   role: z.enum(["system", "user", "assistant"]).default("system"),
 });
 
-const publicProfileSchema = z
-  .object({
+const publicProfileSchema = patchSchema(
+  z.object({
     displayName: z.string().default(""),
     handle: z.string().default(""),
     bio: z.string().default(""),
     bannerImage: z.string().default(""),
-  })
-  .partial()
-  .passthrough();
+  }),
+).passthrough();
 
 const musicFavoriteSongSchema = z
   .object({
@@ -29,23 +29,22 @@ const musicFavoriteSongSchema = z
   })
   .passthrough();
 
-const musicProfileSchema = z
-  .object({
+const musicProfileSchema = patchSchema(
+  z.object({
     publicListeningEnabled: z.boolean().default(false),
-    favoriteGenres: z.array(z.string()).default([]),
-    favoriteArtists: z.array(z.string()).default([]),
-    favoriteSongs: z.array(musicFavoriteSongSchema).default([]),
+    favoriteGenres: z.array(z.string()).prefault([]),
+    favoriteArtists: z.array(z.string()).prefault([]),
+    favoriteSongs: z.array(musicFavoriteSongSchema).prefault([]),
     vibeNotes: z.string().default(""),
-  })
-  .partial()
-  .passthrough();
+  }),
+).passthrough();
 
 export const characterExtensionsSchema = z
   .object({
     talkativeness: z.number().min(0).max(1).default(0.5),
     fav: z.boolean().default(false),
     world: z.string().default(""),
-    depth_prompt: depthPromptSchema.default({}),
+    depth_prompt: depthPromptSchema.prefault({}),
     publicProfile: publicProfileSchema.optional(),
     musicProfile: musicProfileSchema.optional(),
     backstory: z.string().default(""),
@@ -55,9 +54,9 @@ export const characterExtensionsSchema = z
 
 const characterBookEntrySchema = z
   .object({
-    keys: z.array(z.string()).default([]),
+    keys: z.array(z.string()).prefault([]),
     content: z.string().default(""),
-    extensions: z.record(z.unknown()).default({}),
+    extensions: z.record(z.string(), z.unknown()).prefault({}),
     enabled: z.boolean().default(true),
     insertion_order: z.number().default(100),
     case_sensitive: z.boolean().default(false),
@@ -66,7 +65,7 @@ const characterBookEntrySchema = z
     id: z.number().default(0),
     comment: z.string().default(""),
     selective: z.boolean().default(false),
-    secondary_keys: z.array(z.string()).default([]),
+    secondary_keys: z.array(z.string()).prefault([]),
     constant: z.boolean().default(false),
     position: z.enum(["before_char", "after_char"]).catch("before_char").default("before_char"),
   })
@@ -79,8 +78,8 @@ const characterBookSchema = z
     scan_depth: z.number().default(2),
     token_budget: z.number().default(512),
     recursive_scanning: z.boolean().default(false),
-    extensions: z.record(z.unknown()).default({}),
-    entries: z.array(characterBookEntrySchema).default([]),
+    extensions: z.record(z.string(), z.unknown()).prefault({}),
+    entries: z.array(characterBookEntrySchema).prefault([]),
   })
   .passthrough();
 
@@ -95,11 +94,11 @@ export const characterDataSchema = z
     creator_notes: z.string().default(""),
     system_prompt: z.string().default(""),
     post_history_instructions: z.string().default(""),
-    tags: z.array(z.string()).default([]),
+    tags: z.array(z.string()).prefault([]),
     creator: z.string().default(""),
     character_version: z.string().default(""),
-    alternate_greetings: z.array(z.string()).default([]),
-    extensions: characterExtensionsSchema.default({}),
+    alternate_greetings: z.array(z.string()).prefault([]),
+    extensions: characterExtensionsSchema.prefault({}),
     character_book: characterBookSchema.nullable().default(null),
   })
   .passthrough();
@@ -117,16 +116,14 @@ export const createCharacterSchema = z
   })
   .passthrough();
 
-const updateCharacterBookEntrySchema = characterBookEntrySchema.partial();
-const updateCharacterBookSchema = characterBookSchema
-  .omit({ entries: true })
-  .partial()
+const updateCharacterBookEntrySchema = patchSchema(characterBookEntrySchema);
+const updateCharacterBookSchema = patchSchema(characterBookSchema.omit({ entries: true }))
   .extend({
     entries: z.array(updateCharacterBookEntrySchema).optional(),
   })
   .nullable()
   .optional();
-const updateCharacterDataSchema = characterDataSchema.deepPartial().extend({
+const updateCharacterDataSchema = deepPatchSchema(characterDataSchema).extend({
   character_book: updateCharacterBookSchema,
 });
 
@@ -141,21 +138,21 @@ export const createGroupSchema = z
   .object({
     name: z.string().min(1),
     description: z.string().default(""),
-    characterIds: z.array(z.string()).default([]),
+    characterIds: z.array(z.string()).prefault([]),
   })
   .passthrough();
 
-export const updateGroupSchema = createGroupSchema.partial();
+export const updateGroupSchema = patchSchema(createGroupSchema);
 
 export const createPersonaGroupSchema = z
   .object({
     name: z.string().min(1),
     description: z.string().default(""),
-    personaIds: z.array(z.string()).default([]),
+    personaIds: z.array(z.string()).prefault([]),
   })
   .passthrough();
 
-export const updatePersonaGroupSchema = createPersonaGroupSchema.partial();
+export const updatePersonaGroupSchema = patchSchema(createPersonaGroupSchema);
 
 export type CreateCharacterInput = z.infer<typeof createCharacterSchema>;
 export type UpdateCharacterInput = z.infer<typeof updateCharacterSchema>;

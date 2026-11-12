@@ -13,11 +13,11 @@ function exportStorage(overrides: Partial<StorageGateway> = {}): StorageGateway 
 }
 
 describe("chat export loading", () => {
-  it("projects only chat IDs when discovering an all-chat export", async () => {
+  it("projects only chat IDs when discovering an all-chat export, leaving out chats another chat owns", async () => {
     const storage = exportStorage({ list: vi.fn().mockResolvedValue([{ id: "chat-1" }, { id: "chat-2" }]) });
 
     await expect(listChatIdsForExport(storage)).resolves.toEqual(["chat-1", "chat-2"]);
-    expect(storage.list).toHaveBeenCalledWith("chats", { fields: ["id"] });
+    expect(storage.list).toHaveBeenCalledWith("chats", { fields: ["id"], filters: { ownerChatId: null } });
   });
 
   it("deduplicates IDs while preserving caller order", async () => {

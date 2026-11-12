@@ -2,53 +2,65 @@
 name: "De-Koi"
 description: "A playful immersive AI chat, roleplay, and fanfic engine with visual novel warmth."
 colors:
-  pond-depth: "#05090d"
-  parchment-text: "#f1dfc9"
-  ink-glass: "#081218ec"
-  ember-primary: "#f06f3f"
-  ember-primary-foreground: "#0a0a0a"
-  lotus-panel: "#0a2325"
-  lotus-text: "#65d1c3"
-  koi-mist: "#a98c75"
-  pond-accent: "#174946"
+  pond-depth: "#020a12"
+  parchment-text: "#f2e6d4"
+  ink-glass: "#061722ec"
+  ember-primary: "#ff8957"
+  ember-primary-foreground: "#130804"
+  lotus-panel: "#082733"
+  lotus-text: "#52e1da"
+  koi-mist: "#a8a196"
+  pond-accent: "#0e4b58"
   accent-parchment: "#fff0dc"
-  coral-danger: "#ff7a59"
-  lotus-border: "#a45d3d3d"
-  sidebar-pond: "#02070a"
-  sidebar-divider: "#355d574d"
+  coral-danger: "#ff755f"
+  teal-rim: "#37d5ca34"
+  teal-input-rim: "#37d5ca38"
+  sidebar-pond: "#01070d"
+  sidebar-divider: "#1a536166"
   light-rice-paper: "#faf6ee"
   light-ink: "#1a2a2e"
   light-lacquer-primary: "#ad4b1c"
   light-celadon: "#e8efe9"
   light-panel: "#ffffffee"
   sillytavern-blue: "#4a72b0"
+  pond-theme-abyss: "#001012"
+  pond-theme-water: "#041719"
+  pond-theme-shallow: "#112527"
+  pond-theme-raise: "#172b2e"
+  pond-theme-line: "#233b3e"
+  pond-theme-ink: "#f1ebe5"
+  pond-theme-mist: "#a9b3ae"
+  pond-theme-koi: "#f7694a"
+  pond-theme-koi-tint: "#1d2829"
+  pond-theme-jade: "#7fbfae"
+  pond-theme-danger: "#ff6470"
 typography:
   display:
-    fontFamily: "Straight Quotes, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
     fontSize: "1.5rem"
     fontWeight: 700
     lineHeight: 1.3
     letterSpacing: "0"
   headline:
-    fontFamily: "Straight Quotes, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
     fontSize: "1.25rem"
     fontWeight: 700
     lineHeight: 1.3
     letterSpacing: "0"
   title:
-    fontFamily: "Straight Quotes, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
     fontSize: "1rem"
     fontWeight: 700
     lineHeight: 1.35
     letterSpacing: "0"
   body:
-    fontFamily: "Straight Quotes, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
     letterSpacing: "0"
   label:
-    fontFamily: "Straight Quotes, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
     fontSize: "0.8125rem"
     fontWeight: 600
     lineHeight: 1.25
@@ -90,7 +102,9 @@ components:
 
 **Creative North Star: "Koi Pond at Dusk"**
 
-De-Koi should feel like a lovingly built story machine: visual, intimate, a little magical, and still practical enough for power users who live in settings panels. The "Velvet Game Console" soul stays, but the default identity now reads as koi moving through dark water: near-black pond depth, warm ember-orange actions, lotus-teal support accents, copper rims, and parchment text. Light mode exists for comfort and accessibility as a rice-paper / shallow-pond version of the same identity.
+De-Koi should feel like a lovingly built story machine: visual, intimate, a little magical, and still practical enough for power users who live in settings panels. The "Velvet Game Console" soul stays, but the default identity now reads as koi moving through dark water: near-black pond depth, warm ember-orange actions, lotus-teal support accents and rims, and parchment text. Light mode exists for comfort and accessibility as a rice-paper / shallow-pond version of the same identity.
+
+This file describes the **Default** visual theme (`src/styles/globals/02-theme-tokens.css`), which is what the hex values below are. The opt-in **Pond** theme, De-Koi's new look, is described in section 7.
 
 The system rejects sterile SaaS dashboards, bland SillyTavern cloning, generic Discord surfaces, and developer-only control panels. Even dense controls should feel like part of an immersive engine, not a spreadsheet of toggles.
 
@@ -103,34 +117,33 @@ The system rejects sterile SaaS dashboards, bland SillyTavern cloning, generic D
 
 ## 2. Colors
 
-The palette is a pond nocturne: black-teal depth, warm koi-orange action, lotus-teal atmosphere, parchment text, subtle copper rims, and restrained coral danger.
+The palette is a pond nocturne: black-teal depth, warm koi-orange action, lotus-teal atmosphere and rims, parchment text, and restrained coral danger.
 
 ### Primary
 
-- **Ember Primary** (`#f06f3f`): Main action color, active icons, highlighted controls, and glow accents in the dark theme.
+- **Ember Primary** (`#ff8957`, `--primary`): Main action color, active icons, highlighted controls, and glow accents in the dark theme.
 - **Light Lacquer Primary** (`#ad4b1c`): Light theme equivalent for primary actions and active states. Dark enough for 4.5:1 as text on rice paper and under white button text.
 
 ### Secondary
 
-- **Lotus Panel** (`#0a2325`): Secondary panels, muted controls, and low-emphasis button backgrounds.
-- **Pond Accent** (`#174946`): Active tabs, selected areas, and roleplay mood accents.
+- **Lotus Panel** (`#082733`, `--secondary`): Secondary panels, muted controls, and low-emphasis button backgrounds. Its text color is **Lotus Text** (`#52e1da`).
+- **Pond Accent** (`#0e4b58`, `--accent`): Active tabs, selected areas, and roleplay mood accents.
 
 ### Tertiary
 
-- **Koi Mist** (`#a98c75`): Warm quiet metadata, low-emphasis labels, and footer text.
-- **Copper Rim** (`#a45d3d3d`): Default dark-theme border and input stroke; use it to give ink surfaces a quiet edge without outlining every panel loudly.
+- **Koi Mist** (`#a8a196`, `--muted-foreground`): Warm quiet metadata, low-emphasis labels, and footer text.
+- **Teal Rim** (`#37d5ca34`, `--border`; a touch stronger, `#37d5ca38`, for `--input`): Default dark-theme border and input stroke; use it to give ink surfaces a quiet edge without outlining every panel loudly.
 - **SillyTavern Blue** (`#4a72b0`): Compatibility theme primary color only. Do not let it overtake the De-Koi default identity.
 
 ### Neutral
 
-- **Pond Depth** (`#05090d`): Default app background.
-- **Parchment Text** (`#f1dfc9`): Default body text on dark surfaces.
-- **Ink Glass** (`#081218ec`): Card, popover, and elevated shell surfaces.
-- **Sidebar Pond** (`#02070a`): Persistent navigation and app frame.
-- **Sidebar Divider** (`#355d574d`): Faint teal shell edge used to separate menus from atmospheric art without louder copper.
+- **Pond Depth** (`#020a12`, `--background`): Default app background.
+- **Parchment Text** (`#f2e6d4`, `--foreground`): Default body text on dark surfaces.
+- **Ink Glass** (`#061722ec`, `--card`; popovers use the slightly more solid `#061722f2`, `--popover`): Card, popover, and elevated shell surfaces.
+- **Sidebar Pond** (`#01070d`, `--sidebar`): Persistent navigation and app frame.
+- **Sidebar Divider** (`#1a536166`, `--sidebar-border`): Faint teal shell edge used to separate menus from atmospheric art.
 - **Light Rice Paper** (`#faf6ee`): Light theme app background.
 - **Light Panel** (`#ffffffee`): Light theme panels and popovers.
-- **Lotus Border / Copper Rim** (`#a45d3d3d`): Default border and input stroke.
 
 ### Named Rules
 
@@ -138,21 +151,21 @@ The palette is a pond nocturne: black-teal depth, warm koi-orange action, lotus-
 
 **The Pond Reads First Rule.** The background is teal-ink, not violet-ink. Do not reintroduce purple casts in card surfaces, popovers, or scrollbars.
 
-**The Rim Gives Shape Rule.** Dark cards need a quiet copper rim, inset highlight, or mode-specific label color. Do not leave primary home tiles as flat teal panels, and do not let borders become the dominant visual.
+**The Rim Gives Shape Rule.** Dark cards need a quiet teal rim, inset highlight, or mode-specific label color. Do not leave primary home tiles as flat teal panels, and do not let borders become the dominant visual.
 
 **The Compatibility Theme Rule.** The SillyTavern visual theme is a compatibility skin, not the source of De-Koi's default visual identity.
 
 ### Signature Motifs
 
 - **Koi Mark** (`public/koi-mark.svg`): Small two-stroke mark used around the home wordmark.
-- **Lotus Divider** (`public/lotus-divider.svg`): Thin teal divider with a central lotus diamond for lightweight separators.
+- **Lotus Divider** (`public/lotus-divider.svg`): Thin teal divider with a central lotus diamond for lightweight separators. Nothing uses it at the moment.
 - **Koi Pond Background** (`public/koi-bg.svg`): Sumi-e koi silhouette mask for opt-in atmospheric shells only, starting with the mode home surface. Color it through CSS gradients, keep the center dark enough for content, and prefer the simplified silhouette over the detailed one for app chrome.
 - **Koi Ripple** (`.koi-ripple`): Short active-press feedback for quick-start tiles, disabled by reduced-motion preference.
 
 ## 3. Typography
 
-**Display Font:** Straight Quotes with Inter and system sans fallbacks.
-**Body Font:** Straight Quotes with Inter and system sans fallbacks.
+**Display and Body Font:** Inter when it is installed on the device, otherwise the system sans (Segoe UI on Windows, Roboto on Android, San Francisco on Apple). Inter is not bundled, so most Windows users see Segoe UI. A font chosen in Settings > Appearance replaces Inter (`--font-user`).
+**Straight Quotes:** Not a real font. A tiny `@font-face` (`03-base-shell.css`) that draws only `"` and `'` from Arial or Helvetica, so quotes stay straight whatever the main font is.
 **Label/Mono Font:** System sans for labels; Consolas, Monaco, Courier New for inline and fenced code.
 
 **Character:** The type system is clean and readable, with personality coming from color, surfaces, motion, sprites, and game UI rather than ornate fonts.
@@ -180,10 +193,10 @@ De-Koi uses a hybrid of tonal layering, low glow, and selective frosted surfaces
 
 ### Shadow Vocabulary
 
-- **Glass Strong** (`0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px rgba(255, 255, 255, 0.1)`): Modals, strong popovers, and elevated shell panels.
+- **Glass Strong** (`--glass-strong-shadow`: `0 18px 46px rgba(0, 0, 0, 0.48), inset 0 1px rgba(255, 230, 194, 0.12)`): Modals, strong popovers, and elevated shell panels.
 - **Control Lift** (`0 2px 6px rgba(0, 0, 0, 0.2)`): Primary compact buttons at rest.
 - **Control Hover Lift** (`0 3px 8px rgba(0, 0, 0, 0.3)`): Buttons that rise on hover or focus.
-- **Character Glow** (`0 0 10px rgba(240, 111, 63, 0.16), 0 4px 12px rgba(0, 0, 0, 0.15)`): Avatar rings, roleplay focus, and expressive character states.
+- **Character Glow** (`.glimmer-avatar-ring`: `0 0 12px` of the primary color at 25%, `0 4px 12px rgba(0, 0, 0, 0.15)`): Avatar rings, roleplay focus, and expressive character states.
 
 ### Named Rules
 
@@ -208,7 +221,7 @@ De-Koi uses a hybrid of tonal layering, low glow, and selective frosted surfaces
 - **Corner Style:** 8px to 12px for most panels; keep repeated cards restrained.
 - **Background:** Use Ink Glass or tokenized card surfaces. Use stronger opacity for editors, logs, and settings.
 - **Shadow Strategy:** Flat by default, lifted only for popovers, modals, hoverable cards, and special game surfaces.
-- **Border:** Use tokenized borders such as Copper Rim / Lotus Border. Avoid decorative side stripes.
+- **Border:** Use tokenized borders such as the Teal Rim (`--border`). Avoid decorative side stripes.
 - **Internal Padding:** 12px to 20px depending on density.
 
 ### Inputs / Fields
@@ -244,3 +257,76 @@ Conversation mode can use familiar message bubbles, but roleplay should feel mor
 - **Don't** build developer-only control panels that assume technical confidence. Advanced settings still need clear labels, forgiving defaults, and helpful validation.
 - **Don't** use colored side-stripe borders, decorative gradient text, nested cards, or glassmorphism as the default layout answer.
 - **Don't** rely on hover for important mobile actions.
+
+## 7. The Pond theme (the new look, opt-in)
+
+Pond is De-Koi's new look, picked in Settings > Appearance > Visual Style ("Pond (new look)"). It is being built in steps beside the Default theme, and is planned to become the default once the team is happy with it. Its styles live in `src/styles/themes/pond.css`, active when `data-visual-theme="pond"` is set on the root element.
+
+**Direction:** a measured step towards the De-Koi logo and The Koi Pond's studio look, without turning into a cartoon. Pond uses the studio palette from the website repository's `branding/BRAND.md` ("The pond colours"): the pond at night (dark) and tea-rice (light), paper, ink, mist, line, koi vermilion, jade and danger crimson. Change them there first, then here. One exception: De-Koi's dark layers are a deeper, tealer night than the studio's grey-green `#141b1b` (Xel's pick, 2026-11-04), noted in BRAND.md as De-Koi's own.
+
+### Colors
+
+A stack of solid surfaces, from deepest to highest. In light, Water, Shallow and Line are the brand's own colours; in dark, they are De-Koi's tealer night at the same lightness steps as the brand's. Abyss and Raise are one step either side:
+
+| Layer   | Dark      | Light     | Source                                         | Used for                                                                |
+| ------- | --------- | --------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| Abyss   | `#001012` | `#ebefed` | water, a step deeper                           | sidebars and the app frame, muted wells (`--sidebar`, `--muted`)        |
+| Water   | `#041719` | `#f3f6f4` | De-Koi's "Pond at night" / brand "Tea-rice"    | the app background (`--background`)                                     |
+| Shallow | `#112527` | `#ffffff` | De-Koi's "Paper" / brand "Paper"               | cards, panels and most inputs (`--card`, `--secondary`); light popovers |
+| Raise   | `#172b2e` | `#e5eae8` | a step above paper / tea-rice 50% towards Line | dark popovers, hover states (`--popover`, `--accent`)                   |
+| Line    | `#233b3e` | `#d8dddb` | De-Koi's "Line" / brand "Line"                 | borders and input strokes (`--border`, `--input`)                       |
+
+- **Ink** (`#f1ebe5`; `#2b2420` in light): text.
+- **Mist** (`#a9b3ae`; `#5f6b67` in light): quiet text.
+- **Koi vermilion** (`#f7694a`; `#b8341c` in light): actions, selection, focus rings and titles only. A clear, saturated orange-red (hue about 10°), deliberately not the dusty clay orange (about 15–19°, around 60% saturation) that reads as AI-made next to cream. Text on vermilion buttons is the water colour (`#041719`) in dark and white in light.
+- **Vermilion tint** (`#1d2829`, paper with 5% vermilion; `#f8ebe8` in light, the brand's): behind selected sidebar rows (`--sidebar-accent`), with vermilion text on it (5.10 and 5.09:1). A warmer tint turns brown on teal.
+- **Danger crimson** (`#ff6470`; `#b0213a` in light, `--destructive`): kept apart by hue from the vermilion and from Fanfic's pink. Still pair it with words or icons, never color alone.
+- **Jade** (`#7fbfae`; `#3f7668` in light): quiet accents and secondary text, your own messages in conversations, and placeholder avatars for characters without a picture. Text on solid jade is `#041719` in dark and white in light.
+- **Purple becomes jade:** Pond remaps Tailwind's purple, violet and indigo colours to a jade scale (400 and 600 are the two brand jades), so the purple accents across the editors and dialogs turn jade without touching those components. In light mode, shades 300–500 move one step darker so jade text stays readable. Pink and fuchsia stay pink, and rose stays for warnings. The create, save and generate buttons that faded pink into purple become solid vermilion instead.
+- **Scrollbars:** a grey-green thumb (`#738d88`; `#6e807b` in light), at least 3.3:1 against every layer, on a clear track.
+
+Every text colour reaches 4.5:1 on every layer, except jade on a light hover row (4.31:1).
+
+### Rules
+
+**The Solid Water Rule.** Surfaces are solid layers, not frosted glass. The shell panels (sidebars, right panel, top bar, tracker panel) are flat abyss with a single line between them: no blur, no shading, no big drop shadows. Conversations sit on the water; roleplay message boxes are pond night in dark and paper or jade tint in light, still under the chat's own background and opacity settings. Some toolbars and overlays with their own see-through backgrounds (`bg-[var(--card)]/80` and similar plus `backdrop-blur-*`) are not restyled yet.
+
+**The One Glow Rule.** Barely any glow. No Y2K stars, scanlines, noise or glowing title text; the body background and the home screen's koi silhouette give way to plain water. Roleplay drops the purple-pink glows around avatars, and the "writing" ring pulses jade.
+
+**The Pond Pebbles Rule.** Pond Pebbles (`public/fonts/PondPebbles.woff2`, The Koi Pond's own font) is for the app name and big panel titles only, in koi orange, through the `de-koi-display-title` class (which does nothing in other themes). Never for body text, buttons or labels. Body text keeps the plain app font.
+
+**The Attached Rule.** Attach by default; float only for a reason. Before a control becomes a rounded pill or tile sitting in empty padding, ask whether it truly needs to stand apart, or whether it looks better touching the bar, header, column or footer it belongs to: full height or full width, with a line between neighbours. Related controls join into one strip (search joined to its sort box, a row of actions as joined cells), and the open or chosen item fills its whole cell. Floating is fine when it earns it, such as tags (small content tokens) or a single action that has to stand out on its own. No coloured edge bars to mark the open item.
+
+### Navigation
+
+On desktop, Pond moves the navigation out of the title bar into a narrow rail down the left edge (`src/app/shell/NavRail.tsx`). The De-Koi logo at the top (Deki in a speech bubble) opens Deki-senpai's chat; then Home and Chats, the library (Characters, Lorebooks, Presets, Gallery), then Connections and Agents (Settings and Help are in the status strip's bottom-right corner, below). Icons only, each named in a tooltip. Every item is a full-width cell touching the rail's edges, with full-width lines between the groups; the open one fills its cell, and failed agents get an amber dot. The desktop app's title bar keeps only the window buttons (and the music player when it's on); in a browser tab it disappears. Phones keep their bottom tab bar.
+
+In every theme, Characters and Personas share one menu tab: a Characters | Personas switch in the panel's title bar moves between them, as two tabs in an inset track where the chosen one glows, koi orange for Characters and jade for Personas (`.de-koi-people-switch`) (`PeoplePanelSwitch` in `RightPanel.tsx`; the shared-tab rule lives in `shell-navigation.ts`). The Characters panel's tools are strips touching the panel's edges: New / Import / Maker / Select first, then search joined to its sort box, then the favourites filters and Tags as pills. Every tag filter (Characters, Personas, Lorebooks, the chat list) keeps its tags behind a "Tags (n)" button; clicking a tag cycles it off → include (tinted) → exclude (red, crossed out) → off, and the button counts them ("+1 · −2"). The rule lives in `src/features/catalog/lib/tag-filters.ts`: shown if it has any included tag, hidden if it has any excluded one. Lorebooks uses the same panel pieces in amber, with a "Type ▾" pill whose five types (World, Character, NPC, Spellbook, Other) cycle the same way; its rows stack switch on/off, copy and delete, a switched-on lorebook's picture carries a small lit lantern (a glowing amber dot), and a switched-off one is dimmed with its picture greyed out, and moving lorebooks into folders happens by dragging or from Select's "Move to folder…". Presets follows the same pattern: New / Import / Select (it has no Maker), a search strip with no sort box, the folders heading, rows stacking use-in-this-chat (when the open chat takes presets), set as default, copy and delete, and Regexes and Functions headings styled like the folders heading. On hover, a character row shows its actions stacked down its right edge (start a chat, which opens a Conversation / Roleplay / Fanfic menu, then duplicate and delete); the row grows just enough to keep each at least 24px tall. The Browser (finding characters online) has no menu item: "Browse online" and "Full library" share a split strip at the bottom of the Characters panel.
+
+The chat list follows the same pattern in every theme. A Conversation | Roleplay | Fanfic switch takes its title's place (`ChatModeSwitch.tsx`): the people switch's track with three cells, icon over name, glowing koi for Conversation, jade for Roleplay and Fanfic's pink. Under it come New chat / Folder / Select, search joined to its sort box ("Newest", "Oldest", "A-Z", "Z-A"), and All / Pinned / Tags as pills. The folders heading and its dashed "No folders yet" box sit above the folders, and chats move into folders by dragging or from Select's Move. Each row has a second line saying when the chat was last active ("2h ago") and who's in it, leaving out characters its name already mentions; on hover it stacks tags, pin and delete down its right edge.
+
+In the rail's column, a small half-pill "‹" tab attached to the left edge of each header (`ColumnCollapseButton.tsx`, `.de-koi-column-tab`) folds the whole column away, whatever it shows, so the page gets the full width. A "›" tab stays behind at the rail's edge and brings back what was there; the rail's buttons work too. Elsewhere (other themes, phones) panels keep a ✕, now a flush cell at the header's right edge.
+
+Along the whole window's bottom, under the rail, its column and the page, runs a permanent status strip (`src/app/shell/UserStatusBar.tsx`, like DeKoi's). It starts with your active persona: its avatar (larger, glowing on hover) switches persona, with "Manage personas…" at the end of the list; its name and status, in a small rounded highlight, open Active / Idle / Do Not Disturb. Right beside them, the "What are you doing?" bubble is as wide as its text and grows as you type. Discover (a looking glass over water, in koi orange so it's easy to find), Settings and Help sit as cells in the strip's bottom-right corner. Other themes and phones keep this bar at the bottom of the chat list, and Settings and Help in their usual places.
+
+Settings opens as a wide drawer over the page from the right, not as a side panel: its sections are flush rows with a line between each and a short hint under the name ("Everyday behavior", "Look and feel"...); the open one is tinted. Clicking the dimmed page or pressing Escape closes it.
+
+Help opens as a panel on the right. The other panels (Characters, Lorebooks, Connections...) open in the column right beside the rail, in place of the chat list, like DeKoi's Shoal; the page stays as it was (Home still counts as open). Chats or the logo brings their list back into the column. The column keeps one width, resizable from its edge, whichever list it shows.
+
+### Icons
+
+The rail uses De-Koi's own icons (`src/shared/components/pond-icons.tsx`) instead of plain line icons: a 24 grid, 1.5 ink lines with round ends in the text colour, and one touch of vermilion or jade each. Home is a house with upturned eaves and a vermilion door, Chats two bubbles (the back one jade), Characters two people (the back one jade), Lorebooks a stitch-bound book, Presets an unrolled scroll with a vermilion cord, Gallery a framed bonsai in a vermilion pot, Connections a vermilion drum bridge with railing posts over water, Agents a paper crane (vermilion on one side of the paper, white on the other), Settings an eight-tooth gear with a jade centre, Help a question in a round window. Drawn to read at 18px and up; Lucide stays for small utility icons.
+
+The three modes have their own icons: a tea cup whose steam talks for Conversation, a kitsune mask for Roleplay, an ink brush for Fanfic. `ModeIcon` (`src/shared/components/ModeIcon.tsx`) shows them in Pond only, where modes are shown: the chat list's mode switch and its empty list, Home's choices, Recent chats' badges (a bigger badge on the water colour, so the icon keeps its 18px) and a character's Start a chat menu. Other themes keep their Lucide icons.
+
+### Still to come
+
+Lanterns and empty-state drawings.
+
+### Home
+
+Deki (the squishing `deki-steady.svg`, hopping when they start explaining a mode) sits in the middle of a ring of three koi (in Deki's art colours) that circle at their own pace with faint wakes, while soft ripples spread out. Every few seconds one koi beats its tail and darts ahead, leaving a small splash. The "De-Koi" title sits above the ring. Below it the screen reads like a visual-novel scene: Deki's dialogue box (a vermilion "Deki-senpai" nameplate, their line, a blinking ▼) and, under it, the three modes as your replies ("Let's just talk.", "Let's play out a story!", "Write me something to read."), each with its mode name. The choice you point at (hover or keyboard focus) gets a vermilion ▶ cursor and tint, and Deki explains that mode; otherwise Deki names the next setup step. Along the box's lower edge sits a small quick menu, like a visual novel's Auto/Skip/Log row: a vermilion button for the setup step still to do (server, model, or library) and a quiet "Discover" button; Pond has no separate "Next steps" grid. Recent chats sit under the choices, and the lotus divider closes the page. The project notice, licence links and credits live in Help's "About De-Koi" block (in every theme), next to the app version, rather than on Home.
+
+### The lotus divider
+
+`LotusDivider` (`src/shared/components/ui/LotusDivider.tsx`, colours in `pond.css`): the lotus means a pause. A flame-shaped white bulb warming to soft yellow at its tip, lotus-pink wing petals and deeper back petals that fade to near-white on the side facing the bulb, and jade leaves whose tips run straight into the divider's fading lines. 40 px wide. The gaps between parts are real holes, so it works on any surface; in light mode the bulb gets a thin pink outline. Used on Home so far; meant for Settings sections and story scene breaks too. Chai's random splash line sits off the ring's lower right. With reduced motion or in low-power mode the koi rest in place; everything pauses while the window is hidden.

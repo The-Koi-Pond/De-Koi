@@ -72,7 +72,7 @@ const proposalSchema = z.object({
   events: z.array(
     z.object({
       text: z.string().min(1).max(2000),
-      characters: z.array(z.string()).default([]),
+      characters: z.array(z.string()).prefault([]),
     }),
   ),
 });

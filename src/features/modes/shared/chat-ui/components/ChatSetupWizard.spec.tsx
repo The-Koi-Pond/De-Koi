@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
   applyChatPreset: vi.fn(async () => undefined),
   applyPendingProfile: vi.fn(async () => true),
   chatPresets: [] as Array<Record<string, unknown>>,
-  createCharacter: vi.fn(async () => ({ id: "character-new" })),
+  connections: [] as Array<Record<string, unknown>>,
+  createCharacter: vi.fn(async (_input?: unknown) => ({ id: "character-new" })),
   createMessage: vi.fn(async () => ({ id: "message-1" })),
   lorebooks: [] as Array<Record<string, unknown>>,
   toastError: vi.fn(),
@@ -39,7 +40,20 @@ vi.mock("../../../../catalog/characters/index", async (importOriginal) => {
     useCharacterSummaries: () => ({ data: [], isError: false, isFetching: false }),
     useCharacterSummariesByIds: () => ({ data: [] }),
     useCreateCharacter: () => ({ isPending: false, mutateAsync: mocks.createCharacter }),
+    // Saving the starter's bundled pictures is the hook's own job; setup only needs the new card's id.
+    useAddStarterCharacter: () => ({
+      isPending: false,
+      add: async (starter: Parameters<typeof actual.starterCharacterCreateInput>[0]) => {
+        const result = await mocks.createCharacter(actual.starterCharacterCreateInput(starter));
+        return { id: result.id, artError: null };
+      },
+    }),
   };
+});
+
+vi.mock("../../../../catalog/connections/index", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../catalog/connections/index")>();
+  return { ...actual, useConnections: () => ({ data: mocks.connections }) };
 });
 
 vi.mock("../../../../catalog/lorebooks/index", async (importOriginal) => {
@@ -156,7 +170,37 @@ afterEach(() => {
   }
   vi.clearAllMocks();
   mocks.chatPresets.length = 0;
+  mocks.connections.length = 0;
   mocks.lorebooks.length = 0;
+});
+
+describe("ChatSetupWizard Conversation connection", () => {
+  it("gives a new conversation a connection that can reply, not a half-finished one listed first", () => {
+    mocks.connections.push(
+      { id: "unfinished", name: "OpenRouter", provider: "openrouter", model: "", hasApiKey: false },
+      { id: "working", name: "OpenRouter", provider: "openrouter", model: "openrouter/free", hasApiKey: true },
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    fixtures.push({ cancel: vi.fn(), container, finish: vi.fn(), queryClient, rerender: () => {}, root });
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ChatSetupWizard
+            chat={{ id: "chat-1", mode: "conversation", metadata: "{}" } as never}
+            onFinish={vi.fn()}
+            onCancel={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(mocks.updateChat).toHaveBeenCalledWith({ id: "chat-1", connectionId: "working" });
+    expect(mocks.updateChat).not.toHaveBeenCalledWith({ id: "chat-1", connectionId: "unfinished" });
+  });
 });
 
 describe("ChatSetupWizard Roleplay exits", () => {
@@ -209,6 +253,41 @@ describe("ChatSetupWizard Roleplay exits", () => {
     expect(input.data.description).toBe("A cheerful tavern keeper.");
     expect(mocks.updateChat.mock.calls.map(([update]) => update)).toContainEqual(
       expect.objectContaining({ id: "chat-1", characterIds: ["character-new"], name: "Mira" }),
+    );
+    expect(cancel).not.toHaveBeenCalled();
+    expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("starts an empty library with a ready-made character, greeting included", async () => {
+    const { cancel, container, finish } = renderRoleplayWizard();
+    advance(container, 3);
+
+    const wisp = [...container.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.trim().startsWith("Wisp"),
+    );
+    expect(wisp, "Wisp starter choice").toBeDefined();
+    await act(async () => {
+      wisp!.click();
+    });
+
+    expect(mocks.createCharacter).toHaveBeenCalledOnce();
+    const [input] = mocks.createCharacter.mock.calls[0] as unknown as [
+      {
+        name: string;
+        data: {
+          first_mes: string;
+          scenario: string;
+          extensions: { startsStaged?: boolean; sceneBackgrounds?: Array<{ background: string }> };
+        };
+      },
+    ];
+    expect(input.name).toBe("Wisp");
+    expect(input.data.first_mes).toContain("Do we have a deal");
+    expect(input.data.scenario).not.toBe("");
+    expect(input.data.extensions.startsStaged).toBe(true);
+    expect(input.data.extensions.sceneBackgrounds?.[0]?.background).toBe("wisp-apartment.webp");
+    expect(mocks.updateChat.mock.calls.map(([update]) => update)).toContainEqual(
+      expect.objectContaining({ id: "chat-1", characterIds: ["character-new"], name: "Wisp" }),
     );
     expect(cancel).not.toHaveBeenCalled();
     expect(finish).not.toHaveBeenCalled();
@@ -311,7 +390,7 @@ describe("ChatSetupWizard Roleplay exits", () => {
 
     expect(container.textContent).toContain("Choose a Workflow Profile");
     expect(button(container, "Done")).toBeDefined();
-    expect(container.textContent).toContain("To skip, press Done.");
+    expect(container.textContent).toContain("To start chatting now, press Done.");
     expect(container.textContent).not.toContain("ledger rows");
 
     click(container, "Pick workflow profile");

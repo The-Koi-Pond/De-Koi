@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Loader2, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { blankCharacterCreateInput, useCreateCharacter } from "../../../../catalog/characters/index";
+import {
+  blankCharacterCreateInput,
+  starterStagingAssetUrl,
+  useAddStarterCharacter,
+  useCreateCharacter,
+} from "../../../../catalog/characters/index";
+import type { StarterCharacter } from "../../../../../engine/modes/roleplay/starter-characters";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
 
 export function CharacterPickerEmptyState({
@@ -11,6 +17,7 @@ export function CharacterPickerEmptyState({
   onOpenCharacters,
   onCharacterCreated,
   onImportCharacters,
+  starters,
 }: {
   status: {
     hasError: boolean;
@@ -26,6 +33,8 @@ export function CharacterPickerEmptyState({
   onCharacterCreated?: (characterId: string, name: string) => void;
   /** When set, an empty library offers importing a card without leaving setup. */
   onImportCharacters?: () => void;
+  /** Ready-made characters an empty library can start with (needs `onCharacterCreated`). */
+  starters?: readonly StarterCharacter[];
 }) {
   const { hasError, isPending, hasSearch, hasCharacters, hasUnselectedCharacters } = status;
   const message = hasError
@@ -42,6 +51,9 @@ export function CharacterPickerEmptyState({
   return (
     <div className="flex flex-col items-center gap-2 px-3 py-3 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
       <p>{message}</p>
+      {libraryEmpty && onCharacterCreated && starters && starters.length > 0 && (
+        <StarterCharacterChoices starters={starters} onCreated={onCharacterCreated} />
+      )}
       {libraryEmpty && onCharacterCreated && <QuickCreateCharacter onCreated={onCharacterCreated} />}
       {libraryEmpty && onImportCharacters && (
         <button
@@ -66,6 +78,73 @@ export function CharacterPickerEmptyState({
           Open Characters
         </button>
       )}
+    </div>
+  );
+}
+
+function StarterCharacterChoices({
+  starters,
+  onCreated,
+}: {
+  starters: readonly StarterCharacter[];
+  onCreated: (characterId: string, name: string) => void;
+}) {
+  const { add } = useAddStarterCharacter();
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+
+  const choose = async (starter: StarterCharacter) => {
+    if (creatingId) return;
+    setCreatingId(starter.id);
+    try {
+      const { id, artError } = await add(starter);
+      if (artError) {
+        toast.error(`${starter.name} was added, but their pictures couldn't be saved.`, {
+          description: toUserMessage(artError, {
+            fallback: "You can add sprites and an avatar later in Characters.",
+          }),
+        });
+      }
+      onCreated(id, starter.name);
+    } catch (error) {
+      toast.error(toUserMessage(error, { fallback: `Couldn't add ${starter.name}. Try again.` }));
+    } finally {
+      setCreatingId(null);
+    }
+  };
+
+  return (
+    <div className="flex w-full flex-col gap-1.5 text-left">
+      <p className="text-[0.6875rem] font-medium text-[var(--foreground)]">Start with one of these</p>
+      {starters.map((starter) => (
+        <button
+          key={starter.id}
+          type="button"
+          disabled={creatingId !== null}
+          onClick={() => void choose(starter)}
+          className="flex items-start gap-2 rounded-lg bg-[var(--secondary)] px-2.5 py-2 text-left ring-1 ring-[var(--border)] transition-colors hover:ring-[var(--primary)] disabled:opacity-60"
+        >
+          {creatingId === starter.id ? (
+            <Loader2
+              size="0.875rem"
+              className="mt-0.5 shrink-0 animate-spin text-[var(--primary)]"
+              aria-hidden="true"
+            />
+          ) : starter.staging ? (
+            <img
+              src={starterStagingAssetUrl(starter.staging, starter.staging.avatar)}
+              alt=""
+              className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-[var(--border)]"
+            />
+          ) : (
+            <Plus size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+          )}
+          <span className="min-w-0">
+            <span className="block text-xs font-medium text-[var(--foreground)]">{starter.name}</span>
+            <span className="block text-[0.6875rem] text-[var(--muted-foreground)]">{starter.hook}</span>
+          </span>
+        </button>
+      ))}
+      <p className="pt-1 text-[0.6875rem] font-medium text-[var(--foreground)]">Or make your own</p>
     </div>
   );
 }

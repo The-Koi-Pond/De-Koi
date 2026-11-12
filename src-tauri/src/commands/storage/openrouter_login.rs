@@ -34,6 +34,16 @@ const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_REQUEST_HEAD_BYTES: usize = 8 * 1024;
 const MAX_CODE_CHARS: usize = 512;
 
+/// On Android the login page opens in the phone's browser, which has no obvious way back to the
+/// app. The page links here instead; MainActivity's intent filter in AndroidManifest.xml catches it.
+const RETURN_TO_APP_URL: &str = "dekoi://openrouter-login";
+const SHOW_RETURN_TO_APP: bool = cfg!(target_os = "android");
+const SUCCESS_MESSAGE: &str = if SHOW_RETURN_TO_APP {
+    "Your OpenRouter key is saved in De-Koi."
+} else {
+    "Your OpenRouter key is saved in De-Koi. You can close this tab and go back to De-Koi."
+};
+
 const EXPIRED_MESSAGE: &str =
     "This OpenRouter login timed out or was replaced. Start the login again.";
 
@@ -424,7 +434,7 @@ async fn handle_callback_connection(
         return false;
     };
     let reply = callback_reply(state, login_id, &head).await;
-    let page = callback_page(reply.title, &reply.message);
+    let page = callback_page(reply.title, &reply.message, SHOW_RETURN_TO_APP);
     let response = format!(
         "HTTP/1.1 {}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         reply.status,
@@ -521,7 +531,7 @@ async fn callback_reply(state: &AppState, login_id: &str, head: &str) -> Callbac
         Ok(_) => CallbackReply {
             status: "200 OK",
             title: "Logged in to OpenRouter",
-            message: "Your OpenRouter key is saved in De-Koi. You can close this tab and go back to De-Koi.".to_string(),
+            message: SUCCESS_MESSAGE.to_string(),
             finished: true,
         },
         Err(error) => CallbackReply {
@@ -583,9 +593,14 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&output).into_owned()
 }
 
-fn callback_page(title: &str, message: &str) -> String {
+fn callback_page(title: &str, message: &str, show_return_to_app: bool) -> String {
+    let return_to_app = if show_return_to_app {
+        format!("<p><a class=\"back\" href=\"{RETURN_TO_APP_URL}\">Back to De-Koi</a></p>")
+    } else {
+        String::new()
+    };
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>body{{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;line-height:1.5;color:#1d2433;background:#f5f7fb}}@media (prefers-color-scheme:dark){{body{{color:#e6e9ef;background:#11151c}}}}h1{{font-size:1.25rem}}</style></head><body><h1>{title}</h1><p>{message}</p></body></html>",
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title><style>body{{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;line-height:1.5;color:#1d2433;background:#f5f7fb}}@media (prefers-color-scheme:dark){{body{{color:#e6e9ef;background:#11151c}}}}h1{{font-size:1.25rem}}.back{{display:block;margin-top:1.5rem;padding:.9rem 1rem;border-radius:.75rem;background:#ff8a5c;color:#1d2433;font-weight:600;text-align:center;text-decoration:none}}</style></head><body><h1>{title}</h1><p>{message}</p>{return_to_app}</body></html>",
         title = html_escape(title),
         message = html_escape(message),
     )
@@ -932,6 +947,22 @@ mod tests {
         assert_eq!(params["state"], "x y");
         assert_eq!(params["flag"], "");
         assert_eq!(percent_decode("100%"), "100%");
-        assert!(callback_page("<b>", "<script>").contains("&lt;script&gt;"));
+        assert!(callback_page("<b>", "<script>", false).contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn android_pages_link_back_to_the_app_through_the_manifest_intent_filter() {
+        let desktop = callback_page("Logged in to OpenRouter", "Saved.", false);
+        assert!(!desktop.contains(RETURN_TO_APP_URL));
+        let android = callback_page("Logged in to OpenRouter", "Saved.", true);
+        assert!(android.contains(&format!("href=\"{RETURN_TO_APP_URL}\">Back to De-Koi</a>")));
+
+        // The link only opens the app if MainActivity claims it.
+        let manifest = include_str!("../../../gen/android/app/src/main/AndroidManifest.xml");
+        let (scheme, host) = RETURN_TO_APP_URL.split_once("://").unwrap();
+        assert!(manifest.contains("android.intent.category.BROWSABLE"));
+        assert!(manifest.contains(&format!(
+            "<data android:scheme=\"{scheme}\" android:host=\"{host}\" />"
+        )));
     }
 }

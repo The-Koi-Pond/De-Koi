@@ -3,13 +3,18 @@
 // ──────────────────────────────────────────────
 import type { TTSConfig } from "../../../../engine/contracts/types/tts";
 import { stripFanficChapterHeading } from "../../../../engine/modes/fanfic/prompts";
+import { soundCueDescription } from "../../../../engine/shared/sound-cues";
 import {
-  hashTTSCacheKey,
   resolveTTSNarratorVoice,
   splitTTSChunks,
   withTTSVoiceRequestCacheKeys,
   type CachedTTSVoiceRequest,
 } from "../../../../shared/lib/tts-dialogue";
+import {
+  legacyFanficSoundEffectCacheKey,
+  soundEffectCacheKey,
+  soundEffectsProviderReady,
+} from "../../../../shared/lib/sound-effects";
 
 export const FANFIC_SCENE_BREAK = /^(?:(?:\*\s*){3,}|-{3,}|_{3,}|~{3,}|#{1,6}|⁂)$/;
 
@@ -146,18 +151,12 @@ export function fanficScriptLine(
 
 /** A paragraph that is only a sound cue, like "[SFX: Rain on a window.]": its description, or null. */
 export function fanficSoundEffect(block: string): string | null {
-  const match = block.trim().match(/^\[\s*(?:SFX|FX|SOUND(?:\s+EFFECTS?)?)\s*:\s*([^\]]+)\]$/i);
-  const description = match?.[1]?.replace(/\s+/g, " ").trim();
-  return description || null;
+  return soundCueDescription(block);
 }
 
 /** Whether "[SFX: …]" paragraphs are played as sounds with these settings. */
 export function fanficSoundEffectsOn(config: Pick<TTSConfig, "source" | "baseUrl" | "fanficSoundEffects">): boolean {
-  return (
-    config.source === "elevenlabs" &&
-    config.fanficSoundEffects &&
-    !(config.baseUrl ?? "").toLowerCase().includes("nano-gpt.com")
-  );
+  return config.fanficSoundEffects && soundEffectsProviderReady(config);
 }
 
 export interface FanficNarrationChapter {
@@ -272,9 +271,8 @@ export function buildFanficNarration(chapters: FanficNarrationChapter[], config:
             text: piece.text,
             speaker: "Sound effect",
             kind: "sound_effect",
-            // Keyed by the description alone, so the same sound anywhere in any fic is made once and voice changes
-            // don't pay for it again.
-            cacheKey: `fanfic-sfx-v1:${hashTTSCacheKey(piece.text.toLowerCase())}`,
+            cacheKey: soundEffectCacheKey(piece.text),
+            cacheAliases: [legacyFanficSoundEffectCacheKey(piece.text)],
           }
         : cached[next++]!;
       parts.push({

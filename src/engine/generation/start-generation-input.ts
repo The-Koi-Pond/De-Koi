@@ -28,6 +28,12 @@ export interface StartGenerationInput extends JsonRecord {
   impersonateConnectionId?: string | null;
   impersonatePromptTemplate?: string | null;
   forCharacterId?: string | null;
+  /** A Conversation character texting first (not answering the user). */
+  textsFirst?: boolean;
+  /** Set by the engine for texts-first: whether this message carries a photo. */
+  textsFirstPhoto?: "send" | "withhold";
+  /** Set by the engine for Conversation replies: this reply goes out as a voice note. */
+  voiceNote?: "send";
   mentionedCharacterNames?: string[];
   attachments?: PromptAttachment[];
   /**
@@ -65,17 +71,17 @@ export interface StartGenerationInput extends JsonRecord {
 
 const optionalRecordSchema = z.preprocess(
   (value) => (value == null ? undefined : value),
-  z.record(z.unknown()).default({}),
+  z.record(z.string(), z.unknown()).prefault({}),
 );
 
 const optionalStringArraySchema = z.preprocess(
   (value) => (value == null ? undefined : value),
-  z.array(z.string()).default([]),
+  z.array(z.string()).prefault([]),
 );
 
 const optionalAttachmentArraySchema = z.preprocess(
   (value) => (value == null ? undefined : value),
-  z.array(z.record(z.unknown())).default([]),
+  z.array(z.record(z.string(), z.unknown())).prefault([]),
 );
 
 const optionalMessagesSchema = z.preprocess(
@@ -104,7 +110,7 @@ const optionalAgentInjectionOverridesSchema = z.preprocess(
         })
         .passthrough(),
     )
-    .default([]),
+    .prefault([]),
 );
 
 const optionalImagePromptSettingsSchema = z
@@ -112,7 +118,7 @@ const optionalImagePromptSettingsSchema = z
     includeAppearances: z.boolean().optional(),
     format: z.enum(["descriptive", "tags"]).optional(),
     styleProfileId: z.string().nullable().optional(),
-    styleProfiles: z.record(z.unknown()).optional(),
+    styleProfiles: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough()
   .optional();
@@ -147,7 +153,10 @@ const startGenerationInputSchema = z
     userActivity: z.string().max(120).optional().default(""),
     streaming: z.boolean().optional().default(true),
     trimIncompleteModelOutput: z.boolean().optional().default(false),
-    savedExtra: z.preprocess((value) => (value == null ? undefined : value), z.record(z.unknown()).optional()),
+    savedExtra: z.preprocess(
+      (value) => (value == null ? undefined : value),
+      z.record(z.string(), z.unknown()).optional(),
+    ),
     keepStreamedTextOnFailure: z.boolean().optional(),
     continueMessageId: z.preprocess((value) => (value == null ? undefined : value), z.string().optional()),
     historyMessageIds: z.preprocess((value) => (value == null ? undefined : value), z.array(z.string()).optional()),
@@ -156,7 +165,7 @@ const startGenerationInputSchema = z
     hideAutomatedSummarySourceMessages: z.boolean().optional().default(false),
     agentInjectionOverrides: optionalAgentInjectionOverridesSchema,
     historyLimit: z.union([z.number(), z.string()]).nullable().optional(),
-    options: z.preprocess((value) => (value == null ? undefined : value), z.record(z.unknown()).optional()),
+    options: z.preprocess((value) => (value == null ? undefined : value), z.record(z.string(), z.unknown()).optional()),
   })
   .passthrough();
 

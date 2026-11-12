@@ -440,6 +440,7 @@ fn managed_asset_path(state: &AppState, kind: &str, path: &str) -> Result<PathBu
         }
         "thumbnail" => managed_thumbnail_asset_path(state, path),
         "sprite" => sprite_asset_path(state, path),
+        "voice-note" => voice_note_asset_path(state, path),
         _ => Err(AppError::not_found("Managed asset type was not found")),
     }
 }
@@ -544,6 +545,20 @@ fn managed_asset_path_segment(
         return Err(AppError::not_found(not_found_message));
     }
     Ok(value.to_string())
+}
+
+/// `<chat id>/<file name>` inside `voice-notes/`.
+fn voice_note_asset_path(state: &AppState, path: &str) -> Result<PathBuf, AppError> {
+    const NOT_FOUND: &str = "Voice note was not found";
+    let (chat_id, filename) = path
+        .split_once('/')
+        .ok_or_else(|| AppError::not_found(NOT_FOUND))?;
+    let chat_id = managed_asset_path_segment(chat_id, NOT_FOUND)?;
+    Ok(state
+        .data_dir
+        .join(crate::storage_commands::integrations::VOICE_NOTES_DIR)
+        .join(chat_id)
+        .join(managed_asset_filename(filename, NOT_FOUND)?))
 }
 
 fn gallery_asset_path(state: &AppState, path: &str) -> Result<PathBuf, AppError> {
@@ -4267,6 +4282,32 @@ mod tests {
             gallery_asset_path(&state, "scene one.png").expect("gallery filename should resolve"),
             state.data_dir.join("gallery").join("scene one.png")
         );
+    }
+
+    #[test]
+    fn voice_note_asset_path_routes_chat_voice_notes_only() {
+        let state = test_state("voice-note-assets");
+
+        assert_eq!(
+            voice_note_asset_path(&state, "chat-1/voice-a.mp3").expect("voice note should resolve"),
+            state
+                .data_dir
+                .join("voice-notes")
+                .join("chat-1")
+                .join("voice-a.mp3")
+        );
+        for bad in [
+            "voice-a.mp3",
+            "../chat-1/voice-a.mp3",
+            "chat-1/../x.mp3",
+            "chat-1/a/b.mp3",
+            "C:x/a.mp3",
+        ] {
+            assert!(
+                voice_note_asset_path(&state, bad).is_err(),
+                "{bad:?} should be refused"
+            );
+        }
     }
 
     #[test]

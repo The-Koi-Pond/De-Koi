@@ -116,6 +116,56 @@ pub(crate) fn commit_story_projection(state: &AppState, body: Value) -> AppResul
     })
 }
 
+fn cited_source_message_ids(memory_or_patch: &Value) -> Vec<String> {
+    memory_or_patch
+        .get("payload")
+        .and_then(|payload| payload.get("sourceMessageIds"))
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn require_source_messages(state: &AppState, source_ids: &[String]) -> AppResult<()> {
+    for id in source_ids {
+        if state.storage.get("messages", id)?.is_none() {
+            return Err(AppError::invalid_input(
+                "Automatic memory capture is no longer eligible: a source message was deleted",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Capture's model calls take seconds, so a cited message can be deleted before the memory is written. Check
+/// before writing, and again after: a delete that commits in between has already run its memory cleanup without
+/// this row, so the row is soft-deleted here instead.
+fn write_captured_memory(
+    state: &AppState,
+    source_ids: &[String],
+    write: impl FnOnce() -> AppResult<Value>,
+) -> AppResult<Value> {
+    require_source_messages(state, source_ids)?;
+    let written = write()?;
+    if let Err(error) = require_source_messages(state, source_ids) {
+        let memory_id = written
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !memory_id.is_empty() {
+            canonical_memory::delete_memory(state, memory_id)?;
+        }
+        return Err(error);
+    }
+    Ok(written)
+}
+
 pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
     let lease_id = lease_id(&body)?;
     let memory = body
@@ -123,8 +173,11 @@ pub(crate) fn create_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Canonical memory body is required"))?;
     let knowledge_edges = knowledge_edges(&body)?;
+    let source_ids = cited_source_message_ids(&memory);
     state.with_memory_capture_lease(lease_id, || {
-        canonical_memory::create_memory_with_edges(state, memory, knowledge_edges)
+        write_captured_memory(state, &source_ids, || {
+            canonical_memory::create_memory_with_edges(state, memory, knowledge_edges)
+        })
     })
 }
 
@@ -141,8 +194,11 @@ pub(crate) fn update_memory(state: &AppState, body: Value) -> AppResult<Value> {
         .cloned()
         .ok_or_else(|| AppError::invalid_input("Canonical memory patch is required"))?;
     let knowledge_edges = knowledge_edges(&body)?;
+    let source_ids = cited_source_message_ids(&patch);
     state.with_memory_capture_lease(lease_id, || {
-        canonical_memory::update_memory_with_edges(state, memory_id, patch, knowledge_edges)
+        write_captured_memory(state, &source_ids, || {
+            canonical_memory::update_memory_with_edges(state, memory_id, patch, knowledge_edges)
+        })
     })
 }
 
@@ -545,6 +601,95 @@ mod tests {
                 .unwrap()
                 .unwrap()["status"],
             json!("processing")
+        );
+    }
+
+    fn captured_memory(id: &str, source: &str) -> Value {
+        json!({
+            "id": id,
+            "kind": "fact",
+            "status": "active",
+            "scope": { "kind": "character", "id": "character-1" },
+            "content": "Sam's locker code is 4165.",
+            "confidence": 0.9,
+            "provenance": { "sourceChatId": "chat-1", "messageIds": [source] },
+            "tags": ["automatic"],
+            "payload": { "automatic": true, "sourceMessageIds": [source], "referenceMessageIds": [] }
+        })
+    }
+
+    #[test]
+    fn capture_does_not_save_a_memory_whose_source_message_was_deleted() {
+        let state = test_state("capture-deleted-source");
+        state
+            .storage
+            .create(
+                "messages",
+                json!({ "id": "kept", "chatId": "chat-1", "content": "hello", "extra": {} }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "messages",
+                json!({ "id": "deleted-mid-write", "chatId": "chat-1", "content": "code 4165", "extra": {} }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                JOBS_COLLECTION,
+                json!({ "id": "job-1", "status": "pending" }),
+            )
+            .unwrap();
+        let lease = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().unwrap();
+
+        create_memory(
+            &state,
+            json!({ "leaseId": lease_id, "memory": captured_memory("memory-kept", "kept") }),
+        )
+        .expect("a memory whose source still exists is saved");
+
+        let refused = create_memory(
+            &state,
+            json!({ "leaseId": lease_id, "memory": captured_memory("memory-gone", "never-existed") }),
+        )
+        .expect_err("a memory citing a missing message is refused");
+        assert!(refused.message.contains("no longer eligible"));
+        assert!(state
+            .storage
+            .get("canonical-memories", "memory-gone")
+            .unwrap()
+            .is_none());
+
+        // The message is deleted after the pre-check passes but before the write lands.
+        let source = vec!["deleted-mid-write".to_string()];
+        let raced = write_captured_memory(&state, &source, || {
+            state.storage.delete("messages", "deleted-mid-write")?;
+            canonical_memory::create_memory_with_edges(
+                &state,
+                captured_memory("memory-raced", "deleted-mid-write"),
+                Vec::new(),
+            )
+        })
+        .expect_err("a delete that lands during the write is caught afterwards");
+        assert!(raced.message.contains("no longer eligible"));
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "memory-raced")
+                .unwrap()
+                .unwrap()["status"],
+            json!("deleted")
+        );
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "memory-kept")
+                .unwrap()
+                .unwrap()["status"],
+            json!("active")
         );
     }
 }

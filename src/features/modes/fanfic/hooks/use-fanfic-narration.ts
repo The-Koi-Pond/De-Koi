@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useTTSConfig } from "../../../../shared/hooks/use-tts";
+import { isMissingSoundEffectsPermission } from "../../../../shared/lib/sound-effects";
 import { clientSidePlaybackRate } from "../../../../shared/lib/tts-dialogue";
 import { ttsService } from "../../../../shared/lib/tts-service";
 import type { FanficNarrationPart } from "../lib/narration";
@@ -13,11 +14,7 @@ export type FanficNarrationStatus = "idle" | "loading" | "playing" | "paused";
 
 /** What to tell the reader when sound effects can't be made; the reading itself goes on. */
 export function fanficSoundEffectsFailureMessage(error: unknown): string {
-  const raw = [
-    error instanceof Error ? error.message : String(error),
-    JSON.stringify((error as { details?: unknown } | null)?.details ?? null),
-  ].join(" ");
-  if (/sound_generation|missing_permissions/i.test(raw)) {
+  if (isMissingSoundEffectsPermission(error)) {
     return "Sound effects are off for this read: your ElevenLabs API key is missing the Sound Effects permission. Turn it on for the key at elevenlabs.io, then press play again.";
   }
   return `Sound effects are off for this read. ${toUserMessage(error, { fallback: "The sound couldn't be made." })}`;

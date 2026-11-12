@@ -1445,6 +1445,13 @@ pub(crate) fn delete_message_rows_with_memory_prune(
                 &ids,
                 "source_message_deleted",
             )?;
+            canonical_memory::delete_automatic_memories_for_deleted_messages_in_collections(
+                collections,
+                4,
+                5,
+                7,
+                &ids,
+            )?;
             knowledge_edges::invalidate_message_sources_in_collections(
                 collections,
                 7,
@@ -2043,7 +2050,8 @@ pub(crate) fn delete_chat_with_messages(state: &AppState, chat_id: &str) -> AppR
     delete_chats_with_messages(state, &[chat_id.to_string()])
 }
 
-/// Deletes chats, their owned scene chats, and the records they own. Steps that rewrite
+/// Deletes chats, their owned scene chats, the chats shown inside them (a fic's comment
+/// threads, which name it as `ownerChatId`), and the records they own. Steps that rewrite
 /// a whole collection (messages and swipes above all) run once for the batch, not once
 /// per chat, which is what made deleting many chats slow on large data sets.
 pub(crate) fn delete_chats_with_messages(
@@ -2067,6 +2075,7 @@ pub(crate) fn delete_chats_with_messages(
         clear_character_scene_memories(state, &owned_scene_chat_ids)?;
         clear_deleted_scene_references(state, chat_id, &owned_scene_chat_ids)?;
         delete_ids.extend(owned_scene_chat_ids);
+        delete_ids.extend(owned_chat_ids(state, chat_id)?);
         delete_ids.insert(chat_id.clone());
     }
     if delete_ids.is_empty() {
@@ -2096,6 +2105,20 @@ pub(crate) fn delete_chats_with_messages(
             .is_some_and(|id| delete_id_set.contains(id))
     })?;
     Ok(delete_ids)
+}
+
+/// Chats that live inside another chat and go when it goes: a fanfic chapter's comment threads.
+fn owned_chat_ids(state: &AppState, owner_chat_id: &str) -> AppResult<Vec<String>> {
+    let filters = Map::from_iter([(
+        "ownerChatId".to_string(),
+        Value::String(owner_chat_id.to_string()),
+    )]);
+    Ok(state
+        .storage
+        .list_where("chats", &filters)?
+        .iter()
+        .filter_map(|chat| string_field(chat, "id"))
+        .collect())
 }
 
 /// Background work queued per chat (memory jobs, Director refreshes). Once the chat is gone these jobs can only fail against its
@@ -2160,6 +2183,15 @@ fn delete_gallery_for_chats(state: &AppState, chat_ids: &HashSet<String>) -> App
             .is_some_and(|chat_id| chat_ids.contains(chat_id))
     }) {
         remove_managed_record_file(state, "gallery", row, "filePath", "filename");
+    }
+    for chat_id in chat_ids {
+        if let Some(dir) = super::integrations::voice_note_dir_for_chat(state, chat_id) {
+            if dir.exists() {
+                if let Err(error) = fs::remove_dir_all(&dir) {
+                    log::warn!("could not delete voice notes in {}: {error}", dir.display());
+                }
+            }
+        }
     }
     state.storage.delete_where_matching("gallery", |row| {
         row.get("chatId")
@@ -3276,6 +3308,31 @@ mod tests {
     }
 
     #[test]
+    fn delete_chat_removes_its_voice_notes_only() {
+        let state = test_state("voice-note-delete");
+        for id in ["chat-1", "chat-2"] {
+            state
+                .storage
+                .create("chats", json!({ "id": id, "name": id }))
+                .expect("chat should be created");
+            let dir = state.data_dir.join("voice-notes").join(id);
+            std::fs::create_dir_all(&dir).expect("voice note dir should be created");
+            std::fs::write(dir.join("voice-a.mp3"), b"audio")
+                .expect("voice note should be written");
+        }
+
+        delete_chat_with_messages(&state, "chat-1").expect("chat delete should succeed");
+
+        assert!(!state.data_dir.join("voice-notes").join("chat-1").exists());
+        assert!(state
+            .data_dir
+            .join("voice-notes")
+            .join("chat-2")
+            .join("voice-a.mp3")
+            .exists());
+    }
+
+    #[test]
     fn delete_chat_removes_gallery_records_and_managed_files() {
         let state = test_state("gallery-delete");
         state
@@ -3548,6 +3605,44 @@ mod tests {
             ids(message_swipe_storage::COLLECTION),
             vec!["chat-keep-s1".to_string()]
         );
+    }
+
+    #[test]
+    fn deleting_a_chat_deletes_the_chats_it_owns_and_their_messages() {
+        let state = test_state("owned-chat-delete");
+        for chat in [
+            json!({ "id": "fic", "name": "Fic", "mode": "fanfic" }),
+            json!({ "id": "thread", "name": "Comments", "mode": "fanfic", "ownerChatId": "fic" }),
+            json!({ "id": "other-thread", "name": "Comments", "mode": "fanfic", "ownerChatId": "other-fic" }),
+        ] {
+            let id = chat["id"].as_str().unwrap().to_string();
+            state
+                .storage
+                .create("chats", chat)
+                .expect("chat should be created");
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({ "id": format!("{id}-m1"), "chatId": id, "role": "user", "content": "hi" }),
+                )
+                .expect("message should be created");
+        }
+
+        let deleted = delete_chat_with_messages(&state, "fic").expect("delete should succeed");
+
+        assert_eq!(deleted, vec!["fic".to_string(), "thread".to_string()]);
+        let ids = |collection: &str| {
+            state
+                .storage
+                .list(collection)
+                .expect("collection should list")
+                .iter()
+                .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToOwned::to_owned))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("chats"), vec!["other-thread".to_string()]);
+        assert_eq!(ids("messages"), vec!["other-thread-m1".to_string()]);
     }
 
     #[test]
@@ -4372,6 +4467,74 @@ mod tests {
 
         assert_eq!(updated["content"], json!(content));
         assert_eq!(updated["swipes"][1]["content"], json!(content));
+    }
+
+    #[test]
+    fn message_swipes_invalidates_knowledge_edges_sourced_from_the_message() {
+        let state = test_state("swipe-knowledge-edge");
+        state
+            .storage
+            .create("chats", json!({ "id": "chat-1", "name": "Knowledge" }))
+            .expect("chat should seed");
+        message_swipe_storage::create_message(
+            &state,
+            json!({
+                "id": "message-1",
+                "chatId": "chat-1",
+                "role": "assistant",
+                "content": "first",
+                "createdAt": "2026-06-01T10:00:00.000Z",
+                "activeSwipeIndex": 0,
+                "swipes": [{ "content": "first" }]
+            }),
+        )
+        .expect("message should seed in append-only swipe storage");
+        crate::storage_commands::canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-1",
+                "kind": "fact",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "A claim",
+                "confidence": 0.8,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
+            }),
+        )
+        .expect("memory should be created");
+        crate::storage_commands::knowledge_edges::upsert_edge(
+            &state,
+            json!({
+                "memoryId": "memory-1",
+                "holder": { "kind": "character", "id": "alice" },
+                "stance": "believes",
+                "status": "active",
+                "provenance": [{
+                    "kind": "targeted_disclosure",
+                    "author": "system",
+                    "sourceChatId": "chat-1",
+                    "messageIds": ["message-1"],
+                    "createdAt": "2026-08-30T12:00:00.000Z"
+                }]
+            }),
+        )
+        .expect("knowledge edge should be created");
+
+        let updated = message_swipes(
+            &state,
+            "POST",
+            "chat-1",
+            "message-1",
+            json!({ "content": "second" }),
+        )
+        .expect("a new swipe on a knowledge-edge source should save");
+
+        assert_eq!(updated["content"], json!("second"));
+        let edges = crate::storage_commands::knowledge_edges::query_edges(
+            &state,
+            json!({ "memoryIds": ["memory-1"] }),
+        )
+        .expect("edges should be readable");
+        assert_eq!(edges[0]["status"], json!("invalidated"));
     }
 
     #[test]
@@ -7166,6 +7329,138 @@ mod tests {
                 .unwrap()
                 .unwrap()["status"],
             json!("active")
+        );
+    }
+
+    #[test]
+    fn deleting_a_message_deletes_the_automatic_memories_captured_from_it() {
+        let state = test_state("delete-message-captured-memories");
+        let user = json!({
+            "id": "user-1",
+            "chatId": "chat-1",
+            "role": "user",
+            "content": "my locker code is 4165",
+            "createdAt": "2026-11-02T00:00:00Z",
+            "extra": {}
+        });
+        let reply = json!({
+            "id": "reply-1",
+            "chatId": "chat-1",
+            "role": "assistant",
+            "content": "noted",
+            "createdAt": "2026-11-02T00:00:01Z",
+            "extra": {}
+        });
+        state.storage.create("messages", user.clone()).unwrap();
+        state.storage.create("messages", reply).unwrap();
+        let seed = |id: &str, status: &str, payload: Value, message_ids: Value| {
+            canonical_memory::create_memory(
+                &state,
+                json!({
+                    "id": id,
+                    "kind": "fact",
+                    "status": status,
+                    "scope": { "kind": "character", "id": "character-1" },
+                    "content": format!("memory {id}"),
+                    "confidence": 0.9,
+                    "provenance": { "sourceChatId": "chat-1", "messageIds": message_ids },
+                    "tags": [],
+                    "payload": payload
+                }),
+            )
+            .unwrap();
+        };
+        let automatic = |sources: Value, references: Value| json!({ "automatic": true, "sourceMessageIds": sources, "referenceMessageIds": references });
+        seed(
+            "cited-deleted",
+            "active",
+            automatic(json!(["user-1", "reply-1"]), json!([])),
+            json!(["user-1", "reply-1"]),
+        );
+        seed(
+            "stale-cited-deleted",
+            "stale",
+            automatic(json!(["user-1"]), json!([])),
+            json!(["user-1"]),
+        );
+        seed(
+            "legacy-provenance",
+            "active",
+            json!({ "automatic": true }),
+            json!(["user-1"]),
+        );
+        seed(
+            "cites-reply-only",
+            "active",
+            automatic(json!(["reply-1"]), json!([])),
+            json!(["reply-1"]),
+        );
+        seed(
+            "reference-only",
+            "active",
+            automatic(json!(["reply-1"]), json!(["user-1"])),
+            json!(["reply-1", "user-1"]),
+        );
+        seed(
+            "pinned",
+            "pinned",
+            automatic(json!(["user-1"]), json!([])),
+            json!(["user-1"]),
+        );
+        seed("manual", "active", json!({}), json!(["user-1"]));
+        state
+            .storage
+            .create(
+                "memory-index-rows",
+                json!({ "id": "index-cited", "memoryId": "cited-deleted" }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                knowledge_edges::COLLECTION,
+                json!({
+                    "id": "edge-cited",
+                    "memoryId": "cited-deleted",
+                    "holder": { "kind": "character", "id": "character-1" },
+                    "stance": "believes",
+                    "status": "active",
+                    "provenance": [{ "kind": "targeted_disclosure", "author": "system", "messageIds": ["reply-1"] }]
+                }),
+            )
+            .unwrap();
+
+        let (deleted, _) =
+            delete_message_rows_with_memory_prune(&state, "chat-1", &[user]).unwrap();
+        assert_eq!(deleted, 1);
+
+        let status = |id: &str| {
+            state
+                .storage
+                .get("canonical-memories", id)
+                .unwrap()
+                .unwrap()["status"]
+                .clone()
+        };
+        assert_eq!(status("cited-deleted"), json!("deleted"));
+        assert_eq!(status("stale-cited-deleted"), json!("deleted"));
+        assert_eq!(status("legacy-provenance"), json!("deleted"));
+        assert_eq!(status("cites-reply-only"), json!("active"));
+        assert_eq!(status("reference-only"), json!("active"));
+        assert_eq!(status("pinned"), json!("pinned"));
+        assert_eq!(status("manual"), json!("active"));
+        assert!(state
+            .storage
+            .get("memory-index-rows", "index-cited")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            state
+                .storage
+                .get(knowledge_edges::COLLECTION, "edge-cited")
+                .unwrap()
+                .unwrap()["status"],
+            json!("invalidated")
         );
     }
 }

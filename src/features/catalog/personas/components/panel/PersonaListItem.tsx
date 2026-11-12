@@ -2,6 +2,11 @@ import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
 import { Camera, Check, Copy, Star, Trash2, User } from "lucide-react";
 
 import { cn } from "../../../../../shared/lib/utils";
+import {
+  CatalogRowActions,
+  catalogRowActionsRowProps,
+  type CatalogRowAction,
+} from "../../../components/CatalogPanelControls";
 import { PersonaAvatarImage } from "../PersonaAvatarImage";
 import type { PersonaPanelGroup, PersonaPanelRow } from "../../lib/personas-panel-model";
 
@@ -59,6 +64,38 @@ export function PersonaListItem({
       onOpen(persona.id);
     }
   };
+  // Set as active (unless it already is), duplicate and delete, stacked down the row's right edge.
+  const rowActions: CatalogRowAction[] = [
+    ...(active
+      ? []
+      : [
+          {
+            key: "activate",
+            title: "Set as active",
+            label: `Set ${persona.name} as the active persona`,
+            icon: <Star size="0.75rem" aria-hidden="true" />,
+            className: "text-emerald-400 hover:bg-emerald-400/10",
+            onClick: () => onActivate(persona.id),
+          },
+        ]),
+    {
+      key: "duplicate",
+      title: "Duplicate",
+      label: `Duplicate ${persona.name}`,
+      icon: <Copy size="0.75rem" aria-hidden="true" />,
+      className: "text-[var(--muted-foreground)] hover:bg-sky-400/10 hover:text-sky-400",
+      onClick: () => onDuplicate(persona),
+    },
+    {
+      key: "delete",
+      title: "Delete",
+      label: `Delete ${persona.name}`,
+      icon: <Trash2 size="0.75rem" aria-hidden="true" />,
+      className: "text-[var(--destructive)] hover:bg-[var(--destructive)]/15",
+      onClick: () => onDelete(persona),
+    },
+  ];
+  const rowActionsProps = catalogRowActionsRowProps(rowActions.length);
   const handleRowKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.currentTarget !== event.target) return;
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -71,8 +108,10 @@ export function PersonaListItem({
   return (
     <div
       draggable={draggable}
+      style={selectionMode ? undefined : rowActionsProps.style}
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)] has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-[var(--primary)]/50",
+        !selectionMode && rowActionsProps.className,
         selectionMode && isSelected && "bg-emerald-400/8 ring-1 ring-emerald-400/40",
         active && "bg-emerald-400/5 ring-1 ring-emerald-400/40",
         assigningToGroup && isInTargetGroup && "bg-violet-500/10 ring-1 ring-violet-500/50",
@@ -148,42 +187,7 @@ export function PersonaListItem({
         </div>
       </div>
 
-      {!selectionMode && (
-        <div className="absolute right-2 top-1/2 flex shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:static max-md:translate-y-0 max-md:opacity-100">
-          {!active && (
-            <button
-              onClick={(event) => {
-                event.stopPropagation();
-                onActivate(persona.id);
-              }}
-              className="rounded-lg p-1.5 text-emerald-400 transition-all hover:bg-emerald-400/10 active:scale-90"
-              title="Set as active"
-            >
-              <Star size="0.75rem" />
-            </button>
-          )}
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              onDuplicate(persona);
-            }}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
-            title="Duplicate"
-          >
-            <Copy size="0.75rem" />
-          </button>
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete(persona);
-            }}
-            className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-            title="Delete"
-          >
-            <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
-          </button>
-        </div>
-      )}
+      {!selectionMode && <CatalogRowActions actions={rowActions} />}
     </div>
   );
 }

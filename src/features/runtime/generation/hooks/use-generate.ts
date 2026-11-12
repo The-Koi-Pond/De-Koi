@@ -1332,7 +1332,11 @@ export async function* followRunnerReply(jobId: string, signal: AbortSignal): As
   }
 }
 
-async function* runReplyOnRunner(input: Record<string, unknown>, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+/** Starts a reply (or a fanfic chapter write) on the hosted runner and follows it. */
+export async function* runReplyOnRunner(
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
   const jobId = await generationRunnerApi.start(input);
   yield* followRunnerReply(jobId, signal);
 }

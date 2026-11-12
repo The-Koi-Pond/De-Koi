@@ -40,5 +40,10 @@ whose check becomes required.
   allowed for this repository".
 - The queue builds main plus the queued pull requests, runs CI Full on that
   commit, and squash-merges when `Required Validation` passes there.
+- When that commit's code is identical to the queued pull request's head (the
+  branch was already up to date with main), CI Full reuses the pull request's
+  own passing run instead of repeating every lane, so a lone, up-to-date pull
+  request merges within a minute. Updating the branch before queueing gets you
+  this shortcut; otherwise the queue runs the full checks as before.
 - A failing or conflicting pull request is removed from the queue without
   blocking the others. Fix it and queue it again.

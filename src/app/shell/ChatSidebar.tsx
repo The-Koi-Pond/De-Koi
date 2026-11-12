@@ -2,25 +2,18 @@
 // Layout: Chat Sidebar (polished with rich buttons)
 // ──────────────────────────────────────────────
 import {
-  Plus,
   MessageSquare,
-  Search,
   Trash2,
   BookOpen,
   GitBranch,
   AlertTriangle,
-  Circle,
-  Moon,
-  MinusCircle,
   FolderOpen,
   FolderPlus,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   GripVertical,
   CheckSquare,
   Square as SquareIcon,
-  ArrowUpDown,
   Tag,
   Pencil,
   Upload,
@@ -54,7 +47,7 @@ import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
 import { revealSetupJourney } from "../../shared/lib/setup-journey-reveal";
 import { showConfirmDialog } from "../../shared/lib/app-dialogs";
 import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
-import { useUIStore, type UserStatus } from "../../shared/stores/ui.store";
+import { useUIStore } from "../../shared/stores/ui.store";
 import { cn, copyToClipboard } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
 import { TagInput } from "../../shared/components/ui/TagInput";
@@ -65,9 +58,38 @@ import type { ChatFolder } from "../../engine/contracts/types/chat";
 import { Modal } from "../../shared/components/ui/Modal";
 import { parseChatMetadata, normalizeChatCharacterIds } from "../../shared/lib/chat-display";
 import { isNewChatJourneyPending, useStartNewChat } from "./useStartNewChat";
+import { ColumnCollapseButton } from "./ColumnCollapseButton";
+import { UserStatusBar } from "./UserStatusBar";
+import {
+  CatalogActionBar,
+  CatalogFilterPill,
+  CatalogFilterRow,
+  CatalogRowActions,
+  CatalogSearchStrip,
+  TagFilterChip,
+  TagFilterClear,
+  catalogRowActionsRowProps,
+  tagFilterSummary,
+  type CatalogRowAction,
+} from "../../features/catalog/components/CatalogPanelControls";
+import { ModeIcon } from "../../shared/components/ModeIcon";
+import { CHAT_MODE_LUCIDE_ICONS, ChatModeSwitch, type ChatSidebarTab } from "./ChatModeSwitch";
+import { chatRowCharacterNames, formatChatLastActive } from "./chat-sidebar-meta";
+import {
+  NO_TAG_FILTERS,
+  cycleTagFilter,
+  hasTagFilters,
+  keepExistingTagFilters,
+  matchesTagFilters,
+  type TagFilters,
+} from "../../features/catalog/lib/tag-filters";
 import { predictiveChatIntentHandlers } from "./predictive-chat-preload";
 import { usePredictiveChatPreload } from "./use-predictive-chat-preload";
-import { ChatSidebarVirtualList, buildChatSidebarListRows } from "./chat-sidebar-virtual-list";
+import {
+  ChatSidebarVirtualList,
+  buildChatSidebarListRows,
+  type ChatSidebarRowMeasure,
+} from "./chat-sidebar-virtual-list";
 import { ChatSidebarMessageResults } from "./ChatSidebarMessageResults";
 import { MESSAGE_SEARCH_MIN_CHARS } from "../../features/catalog/chats/sidebar";
 import type { MessageSearchResult } from "../../shared/api/message-search-api";
@@ -83,7 +105,7 @@ import {
   type ChatSidebarSortOption,
 } from "./chat-sidebar-rows";
 import { buildChatSidebarCharacterLookup, type ChatSidebarCharacterAvatar } from "./chat-sidebar-character-avatars";
-import { CHAT_ROW_ACTION_RAIL_CLASS_NAME, CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
+import { CHAT_ROW_TITLE_CLASS_NAME } from "./chat-sidebar-row-layout";
 import {
   chatSidebarRetryNote,
   getChatSidebarRecovery,
@@ -94,7 +116,7 @@ import { buildSupportReportText } from "../../shared/lib/support-report";
 import { toUserMessage } from "../../shared/lib/error-message";
 import { presenceDotClass } from "../../shared/lib/status-shapes";
 type ChatSortOption = ChatSidebarSortOption;
-export type ChatSidebarTab = "conversation" | "roleplay" | "fanfic";
+export type { ChatSidebarTab };
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
 type ChatDropTarget = { folderId: string | null } | null;
 
@@ -195,6 +217,10 @@ type ChatSidebarProps = {
   activeTab: ChatSidebarTab;
   onActiveTabChange: (tab: ChatSidebarTab) => void;
   onRequestClose: () => void;
+  /** In the Pond rail layout: the header's fold-away "‹" (see ColumnCollapseButton). */
+  onCollapse?: () => void;
+  /** The status bar is the strip along the window's bottom, so the chat list leaves its own out. */
+  statusInStrip?: boolean;
 };
 
 const CHAT_DRAG_MIME = "application/x-de-koi-chat-id";
@@ -270,7 +296,23 @@ const SIDEBAR_TAB_NOUNS: Record<ChatSidebarTab, { plural: string; newLabel: stri
   fanfic: { plural: "fics", newLabel: "fic" },
 };
 
-export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: ChatSidebarProps) {
+// "Active" is the chat's last change (its updatedAt), the same time the row's second line shows.
+const CHAT_SORT_OPTIONS: ReadonlyArray<{ value: ChatSortOption; label: string; short: string }> = [
+  { value: "newest", label: "Recently active first", short: "Newest" },
+  { value: "oldest", label: "Least recently active first", short: "Oldest" },
+  { value: "name-asc", label: "Name, A to Z", short: "A-Z" },
+  { value: "name-desc", label: "Name, Z to A", short: "Z-A" },
+];
+
+const NO_UNREAD_BY_TAB: Record<ChatSidebarTab, number> = { conversation: 0, roleplay: 0, fanfic: 0 };
+
+export function ChatSidebar({
+  activeTab,
+  onActiveTabChange,
+  onRequestClose,
+  onCollapse,
+  statusInStrip = false,
+}: ChatSidebarProps) {
   const {
     data: chats,
     error: chatsLoadError,
@@ -329,16 +371,22 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const [searchQuery, setSearchQuery] = useState("");
   const [searchScope, setSearchScope] = useState<"chats" | "messages">("chats");
   const [sort, setSort] = useState<ChatSortOption>("newest");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagFilters, setTagFilters] = useState<TagFilters>(NO_TAG_FILTERS);
   const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     chatId: string;
     groupId: string | null;
     branchCount: number;
   } | null>(null);
+  // The rows' "2h ago" moves on by itself.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Folder UI state
-  const [movingChatId, setMovingChatId] = useState<string | null>(null);
   const [tagEditingChatId, setTagEditingChatId] = useState<string | null>(null);
   const [tagDraftTags, setTagDraftTags] = useState<string[]>([]);
   const [tagDraftInput, setTagDraftInput] = useState("");
@@ -373,11 +421,20 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   // Exit multi-select when switching tabs
   useEffect(() => {
     exitMultiSelect();
-    setActiveTag(null);
+    setTagFilters(NO_TAG_FILTERS);
     setTagsExpanded(false);
+    setPinnedOnly(false);
   }, [activeTab, exitMultiSelect]);
 
   const modeChats = useMemo(() => (chats ?? []).filter((chat) => chat.mode === activeTab), [chats, activeTab]);
+
+  const unreadByTab = useMemo(() => {
+    const counts = { ...NO_UNREAD_BY_TAB };
+    for (const chat of chats ?? []) {
+      if (chat.mode in counts) counts[chat.mode as ChatSidebarTab] += unreadCounts.get(chat.id) || 0;
+    }
+    return counts;
+  }, [chats, unreadCounts]);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -387,11 +444,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     return [...tags].sort((a, b) => a.localeCompare(b));
   }, [modeChats]);
 
+  // A filter on a tag no chat has any more would quietly hide the whole list.
   useEffect(() => {
-    if (activeTag && !allTags.includes(activeTag)) {
-      setActiveTag(null);
-    }
-  }, [activeTag, allTags]);
+    setTagFilters((filters) => keepExistingTagFilters(filters, allTags));
+  }, [allTags]);
 
   // Detect if active chat belongs to a group (so its group row highlights)
   const activeChat = useMemo(() => chats?.find((c) => c.id === activeChatId), [chats, activeChatId]);
@@ -412,8 +468,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     const query = searchQuery.trim().toLowerCase();
 
     return modeChats.filter((chat) => {
+      if (pinnedOnly && !isChatPinned(chat)) return false;
       const tags = getChatTags(chat);
-      if (activeTag && !tags.includes(activeTag)) return false;
+      if (!matchesTagFilters(tags, tagFilters)) return false;
       if (!query) return true;
 
       const characterNames = normalizeChatCharacterIds((chat as { characterIds?: unknown }).characterIds)
@@ -426,7 +483,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         characterNames.some((name) => name.toLowerCase().includes(query))
       );
     });
-  }, [modeChats, searchQuery, activeTag, charLookup]);
+  }, [modeChats, pinnedOnly, searchQuery, tagFilters, charLookup]);
 
   // Message text search runs for Conversation and Roleplay; the Chats/Messages switch shows once the query is long enough.
   const messageSearchAvailable = activeTab !== "fanfic" && searchQuery.trim().length >= MESSAGE_SEARCH_MIN_CHARS;
@@ -492,8 +549,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         folderChatsMap,
         unfiledChats,
         includeUnfiledDropZone: unfiledChats.length > 0 || draggedChatId !== null,
+        pinnedOnly,
       }),
-    [draggedChatId, folderChatsMap, localFolderOrder, modeFolders, pinnedChats, unfiledChats],
+    [draggedChatId, folderChatsMap, localFolderOrder, modeFolders, pinnedChats, pinnedOnly, unfiledChats],
   );
 
   useEffect(() => {
@@ -566,8 +624,9 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       // user is actively browsing search results and shouldn't lose them).
       if (!internalNavRef.current) {
         setSearchQuery("");
-        setActiveTag(null);
+        setTagFilters(NO_TAG_FILTERS);
         setTagsExpanded(false);
+        setPinnedOnly(false);
       }
       internalNavRef.current = false;
       s.tabSynced = true;
@@ -621,9 +680,28 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
   const clearChatFilters = useCallback(() => {
     setSearchQuery("");
-    setActiveTag(null);
+    setTagFilters(NO_TAG_FILTERS);
     setTagsExpanded(false);
+    setPinnedOnly(false);
   }, []);
+
+  const selectTab = useCallback(
+    async (tab: ChatSidebarTab) => {
+      if (tab === activeTab) return true;
+      if (
+        !(await confirmDiscardPendingAppWork({
+          purpose: "navigation",
+          title: "Switch chat modes?",
+          confirmLabel: "Switch anyway",
+        }))
+      ) {
+        return false;
+      }
+      onActiveTabChange(tab);
+      return true;
+    },
+    [activeTab, onActiveTabChange],
+  );
 
   const openSettingsTab = useCallback(
     (tab: "advanced" | "health") => {
@@ -656,7 +734,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
   const emptyRecovery = getChatSidebarRecovery(null, {
     mode: activeTab,
     state: "empty",
-    hasFilters: Boolean(searchQuery.trim() || activeTag),
+    hasFilters: Boolean(searchQuery.trim()) || hasTagFilters(tagFilters) || pinnedOnly,
   });
 
   const runRecoveryAction = (actionId: ChatSidebarRecoveryActionId) =>
@@ -758,14 +836,6 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
     },
     [clearFolderDragState, draggedFolderId, handleFolderReorder, localFolderOrder],
   );
-  const handleMoveToFolder = useCallback(
-    (chatId: string, folderId: string | null) => {
-      moveChatMut.mutate({ chatId, folderId });
-      setMovingChatId(null);
-    },
-    [moveChatMut],
-  );
-
   const tagEditingChat = useMemo(
     () => chats?.find((chat) => chat.id === tagEditingChatId) ?? null,
     [chats, tagEditingChatId],
@@ -989,6 +1059,58 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
       useUIStore.getState().setMobileChatToolsOpen(false);
       if (window.innerWidth < 768) onRequestClose();
     };
+
+    // Second line: when it was last active, then who's in it (unless the name already says).
+    const lastActive = formatChatLastActive(chat.updatedAt, now);
+    const characterNames = chatRowCharacterNames(
+      toSearchText(chat.name),
+      normalizeChatCharacterIds((chat as { characterIds?: unknown }).characterIds).map(
+        (characterId) => charLookup.get(characterId)?.name ?? "",
+      ),
+    );
+    const metaLine = [lastActive, characterNames].filter(Boolean).join(" · ");
+    const hasMeta = Boolean(metaLine) || branchCount > 1;
+    const metaId = `chat-row-meta-${chat.id}`;
+
+    // Tags, pin and delete, stacked down the row's right edge. Moving to a folder is by dragging or Select's Move.
+    const rowActions: CatalogRowAction[] = [
+      {
+        key: "tags",
+        title: "Edit tags",
+        label: `Edit tags for ${chat.name}`,
+        icon: <Tag size="0.75rem" aria-hidden="true" />,
+        className: "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--primary)]",
+        onClick: () => openTagEditor(chat),
+      },
+      {
+        key: "pin",
+        title: pinned ? "Unpin chat" : "Pin chat",
+        label: pinned ? `Unpin ${chat.name}` : `Pin ${chat.name}`,
+        icon: <Star size="0.75rem" className={pinned ? "fill-current" : undefined} aria-hidden="true" />,
+        className: pinned
+          ? "text-amber-400 hover:bg-amber-400/10"
+          : "text-[var(--muted-foreground)] hover:bg-amber-400/10 hover:text-amber-400",
+        onClick: () => {
+          if (!updateChatMetadata.isPending) updateChatMetadata.mutate({ id: chat.id, pinned: !pinned });
+        },
+      },
+      {
+        key: "delete",
+        title: "Delete chat",
+        label: `Delete ${chat.name}`,
+        icon: <Trash2 size="0.75rem" aria-hidden="true" />,
+        className: "text-[var(--destructive)] hover:bg-[var(--destructive)]/15",
+        onClick: () => {
+          if (branchCount > 1 && chat.groupId) {
+            setDeleteTarget({ chatId: chat.id, groupId: chat.groupId, branchCount });
+          } else {
+            void handleSingleChatDelete(chat.id);
+          }
+        },
+      },
+    ];
+    const rowActionsProps = catalogRowActionsRowProps(rowActions.length);
+
     return (
       <div
         key={chat.groupId ?? chat.id}
@@ -998,8 +1120,10 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         onDragStart={(event) => handleChatDragStart(event, chat.id)}
         onDragEnd={clearChatDragState}
         onClick={() => void activateChatRow()}
+        style={multiSelectMode ? undefined : rowActionsProps.style}
         className={cn(
-          "group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
+          "group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-all duration-150",
+          !multiSelectMode && rowActionsProps.className,
           "has-[[data-row-action]:focus-visible]:ring-2 has-[[data-row-action]:focus-visible]:ring-[var(--primary)]/45",
           multiSelectMode && isSelected
             ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
@@ -1142,6 +1266,7 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           tabIndex={0}
           data-row-action
           aria-label={chat.name}
+          aria-describedby={hasMeta ? metaId : undefined}
           aria-current={isActive ? "true" : undefined}
           aria-pressed={multiSelectMode ? isSelected : undefined}
           onKeyDown={(event) => {
@@ -1162,289 +1287,173 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
           >
             {chat.name}
           </span>
+          {hasMeta && (
+            <span id={metaId} className="block truncate text-[0.6875rem] text-[var(--muted-foreground)]">
+              {/* Pinned rows sit under the "Pinned" heading; the star keeps them recognisable while the pin button hides. */}
+              {pinned && (
+                <Star
+                  size="0.5625rem"
+                  className="mr-1 inline fill-amber-400 align-[-0.0625rem] text-amber-400"
+                  aria-hidden="true"
+                />
+              )}
+              {/* Branch count leads the line so the row's action column never covers it. */}
+              {branchCount > 1 && (
+                <span className="mr-1 inline-flex items-center gap-0.5 rounded-full bg-[var(--secondary)] px-1 py-px align-[-0.0625rem] text-[0.625rem] font-medium leading-none">
+                  <GitBranch size="0.625rem" aria-hidden="true" />
+                  {branchCount}
+                  <span className="sr-only"> branches{metaLine ? "," : ""}</span>
+                </span>
+              )}
+              {metaLine}
+            </span>
+          )}
         </div>
 
-        {/* Branch count badge */}
-        {branchCount > 1 && (
-          <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] font-medium text-[var(--muted-foreground)]">
-            <GitBranch size="0.625rem" />
-            {branchCount}
-          </span>
-        )}
-
-        {!multiSelectMode && (
-          <div
-            className={cn(CHAT_ROW_ACTION_RAIL_CLASS_NAME, pinned && "pointer-events-auto max-w-32 px-1 opacity-100")}
-          >
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                openTagEditor(chat);
-              }}
-              className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--primary)]"
-              title="Edit tags"
-              aria-label={`Edit tags for ${chat.name}`}
-            >
-              <Tag size="0.75rem" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                updateChatMetadata.mutate({ id: chat.id, pinned: !pinned });
-              }}
-              disabled={updateChatMetadata.isPending}
-              className={cn(
-                "shrink-0 rounded-md p-1 transition-all hover:bg-[var(--accent)] disabled:opacity-50",
-                pinned ? "text-amber-400" : "text-[var(--muted-foreground)]",
-              )}
-              title={pinned ? "Unpin chat" : "Pin chat"}
-              aria-label={pinned ? "Unpin chat" : "Pin chat"}
-            >
-              <Star size="0.75rem" className={pinned ? "fill-current" : ""} />
-            </button>
-            {modeFolders.length > 0 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMovingChatId(chat.id);
-                }}
-                className="shrink-0 rounded-md p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
-                title="Move to folder"
-                aria-label={`Move ${chat.name} to folder`}
-              >
-                <FolderOpen size="0.75rem" />
-              </button>
-            )}
-            <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                if (branchCount > 1 && chat.groupId) {
-                  setDeleteTarget({ chatId: chat.id, groupId: chat.groupId, branchCount });
-                } else {
-                  await handleSingleChatDelete(chat.id);
-                }
-              }}
-              className="shrink-0 rounded-md p-1 text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
-              title="Delete chat"
-              aria-label={`Delete ${chat.name}`}
-            >
-              <Trash2 size="0.75rem" />
-            </button>
-          </div>
-        )}
+        {!multiSelectMode && <CatalogRowActions actions={rowActions} />}
       </div>
     );
   };
 
   return (
     <nav data-component="ChatSidebar" aria-label="Chat navigation" className="mari-chat-sidebar flex h-full flex-col">
-      {/* Header */}
-      <div className="mari-sidebar-header relative flex h-12 items-center justify-between bg-[var(--card)]/80 px-4 backdrop-blur-sm">
+      {/* Header: the mode switch takes the title's place, like Characters | Personas. The fold-away tab
+          sits against the left edge; on phones the ✕ is a flush cell at the right edge. */}
+      <div
+        className={cn(
+          "mari-sidebar-header relative flex h-12 flex-shrink-0 items-center gap-1 bg-[var(--card)]/80 backdrop-blur-sm",
+          onCollapse ? "pr-1" : "pl-1 md:pr-1",
+        )}
+      >
         <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--border)]/30" />
-        <h2 className="retro-glow-text truncate text-sm font-bold">✧ Chats</h2>
+        {onCollapse && <ColumnCollapseButton onCollapse={onCollapse} />}
+        <h2 className="sr-only">Chats</h2>
+        <ChatModeSwitch activeTab={activeTab} unreadByTab={unreadByTab} onSelect={selectTab} />
         <button
+          type="button"
           onClick={onRequestClose}
-          className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
+          className="flex w-12 shrink-0 items-center justify-center self-stretch border-l border-[var(--border)]/40 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)] md:hidden"
           title="Back to chat"
           aria-label="Back to chat"
         >
-          <X size="1rem" />
+          <X size="1rem" aria-hidden="true" />
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 px-3 pt-2">
-        {(["conversation", "roleplay", "fanfic"] as const).map((tab) => {
-          const cfg = MODE_CONFIG[tab];
-          const isActive = activeTab === tab;
-          const tabUnread =
-            chats?.filter((c) => c.mode === tab).reduce((sum, c) => sum + (unreadCounts.get(c.id) || 0), 0) ?? 0;
-          return (
+      {/* The panel's tools, strips touching its edges (like the library panels): New chat · Folder · Select.
+          While the setup checklist is open, New points back at it instead of showing a spinner for minutes. */}
+      <CatalogActionBar
+        tone="koi"
+        selectionMode={multiSelectMode}
+        onCreate={newChatJourneyPending ? handleRevealSetup : handleNewChatFromTab}
+        createLabel={newChatJourneyPending ? "Finish setup" : `New ${SIDEBAR_TAB_NOUNS[activeTab].newLabel}`}
+        createTitle={newChatJourneyPending ? "Your new chat opens once setup is finished" : undefined}
+        createIcon={
+          newChatJourneyPending ? <ListChecks size="0.8125rem" className="shrink-0" aria-hidden="true" /> : undefined
+        }
+        extraAction={{
+          label: "Folder",
+          title: "New folder",
+          icon: <FolderPlus size="0.8125rem" className="shrink-0" aria-hidden="true" />,
+          onClick: handleCreateFolder,
+          disabled: createFolderMut.isPending,
+        }}
+        onToggleSelectionMode={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
+        selectDisabled={batchDeleteProgress !== null || (!multiSelectMode && displayChats.length === 0)}
+      />
+
+      {/* Search joined to its sort box; the sort doesn't apply to message results, so it steps aside for them. */}
+      {showMessageResults ? (
+        <CatalogSearchStrip
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          placeholder={`Search ${SIDEBAR_TAB_NOUNS[activeTab].plural}...`}
+        />
+      ) : (
+        <CatalogSearchStrip
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          placeholder={`Search ${SIDEBAR_TAB_NOUNS[activeTab].plural}...`}
+          sort={sort}
+          sortOptions={CHAT_SORT_OPTIONS}
+          onSortChange={setSort}
+        />
+      )}
+      {messageSearchAvailable && (
+        <div role="tablist" aria-label="Search in" className="grid h-8 grid-cols-2 border-b border-[var(--border)]/60">
+          {(["chats", "messages"] as const).map((scope, index) => (
             <button
-              key={tab}
-              onClick={async () => {
-                if (tab === activeTab) return;
-                if (
-                  !(await confirmDiscardPendingAppWork({
-                    purpose: "navigation",
-                    title: "Switch chat modes?",
-                    confirmLabel: "Switch anyway",
-                  }))
-                ) {
-                  return;
-                }
-                onActiveTabChange(tab);
-              }}
+              key={scope}
+              type="button"
+              role="tab"
+              aria-selected={searchScope === scope}
+              onClick={() => setSearchScope(scope)}
               className={cn(
-                // Icon over label: four mode tabs leave too little width for "Conversation" side by side.
-                "relative flex min-h-[2.75rem] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 overflow-visible rounded-lg px-0.5 py-1.5 text-[0.625rem] leading-normal font-medium transition-all",
-                isActive
-                  ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)]",
+                "text-[0.6875rem] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]",
+                index > 0 && "border-l border-[var(--border)]/60",
+                searchScope === scope
+                  ? "bg-[var(--primary)]/12 text-[var(--primary)]"
+                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
               )}
             >
-              <span className="shrink-0 leading-none">{cfg.icon}</span>
-              <span className="block min-h-[1rem] max-w-full truncate pb-px leading-normal">{cfg.shortLabel}</span>
-              {tabUnread > 0 && !isActive && (
-                <span className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[0.5625rem] font-bold leading-none text-white">
-                  {tabUnread > 99 ? "99+" : tabUnread}
-                </span>
-              )}
+              {scope === "chats" ? "Chats" : "Messages"}
             </button>
-          );
-        })}
-      </div>
-
-      {/* Search + filters */}
-      <div className="space-y-1.5 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2 ring-1 ring-transparent transition-all focus-within:ring-[var(--primary)]/40">
-          <Search size="0.8125rem" className="shrink-0 text-[var(--muted-foreground)]" />
-          <input
-            type="text"
-            placeholder={`Search ${SIDEBAR_TAB_NOUNS[activeTab].plural}...`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none"
-          />
+          ))}
         </div>
-        {messageSearchAvailable && (
-          <div
-            role="tablist"
-            aria-label="Search in"
-            className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--secondary)] p-0.5"
+      )}
+
+      {/* Message results search every chat in the mode, so the chat filters step aside (unchanged) for them. */}
+      {!showMessageResults && (
+        <CatalogFilterRow label="Filter chats">
+          <CatalogFilterPill
+            active={!pinnedOnly}
+            pressed={!pinnedOnly}
+            title={`All ${SIDEBAR_TAB_NOUNS[activeTab].plural}`}
+            onClick={() => setPinnedOnly(false)}
           >
-            {(["chats", "messages"] as const).map((scope) => (
-              <button
-                key={scope}
-                type="button"
-                role="tab"
-                aria-selected={searchScope === scope}
-                onClick={() => setSearchScope(scope)}
-                className={cn(
-                  "rounded-md px-2 py-1 text-[0.6875rem] font-semibold transition-colors",
-                  searchScope === scope
-                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
-                )}
-              >
-                {scope === "chats" ? "Chats" : "Messages"}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          <div className={cn("relative", showMessageResults && "hidden")}>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as ChatSortOption)}
-              className="w-full appearance-none rounded-lg bg-[var(--secondary)] py-2 pl-2.5 pr-7 text-[0.6875rem] text-[var(--foreground)] outline-none ring-1 ring-transparent transition-all focus:ring-[var(--primary)]/40"
-              title="Sort chats"
-            >
-              <option value="newest">Sort: Newest</option>
-              <option value="oldest">Sort: Oldest</option>
-              <option value="name-asc">Sort: A-Z</option>
-              <option value="name-desc">Sort: Z-A</option>
-            </select>
-            <ArrowUpDown
-              size="0.625rem"
-              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5">
-            {/* While the setup checklist is open, point back at it instead of showing a spinner for minutes. */}
-            <button
-              onClick={newChatJourneyPending ? handleRevealSetup : handleNewChatFromTab}
-              title={newChatJourneyPending ? "Your new chat opens once setup is finished" : undefined}
-              className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-2.5 text-[0.72rem] font-semibold text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-            >
-              {newChatJourneyPending ? <ListChecks size="0.8rem" /> : <Plus size="0.8rem" />}
-              {newChatJourneyPending ? "Finish setup" : `New ${SIDEBAR_TAB_NOUNS[activeTab].newLabel}`}
-            </button>
-            <button
-              onClick={handleCreateFolder}
-              disabled={createFolderMut.isPending}
-              className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 text-[0.72rem] font-semibold text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--foreground)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-            >
-              <FolderPlus size="0.8rem" />
-              Folder
-            </button>
-          </div>
-
-          {displayChats.length > 0 && (
-            <button
-              onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
-              disabled={batchDeleteProgress !== null}
-              className={cn(
-                "flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[0.6875rem] font-medium transition-all disabled:opacity-40",
-                multiSelectMode
-                  ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                  : "bg-[var(--secondary)]/65 text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-              )}
-            >
-              <CheckSquare size="0.75rem" />
-              {multiSelectMode ? "Cancel selection" : "Select chats"}
-            </button>
-          )}
-
+            All
+          </CatalogFilterPill>
+          <CatalogFilterPill
+            active={pinnedOnly}
+            pressed={pinnedOnly}
+            title={`Only pinned ${SIDEBAR_TAB_NOUNS[activeTab].plural}`}
+            onClick={() => setPinnedOnly(true)}
+          >
+            <Star size="0.5625rem" className="shrink-0" aria-hidden="true" />
+            Pinned
+          </CatalogFilterPill>
           {allTags.length > 0 && (
-            <div className="flex max-w-full flex-wrap items-center gap-1">
-              <button
-                onClick={() => setTagsExpanded((prev) => !prev)}
-                className={cn(
-                  "flex max-w-full items-center gap-1 rounded-lg px-1.5 py-1 text-[0.625rem] transition-colors",
-                  activeTag
-                    ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-                )}
-                title={tagsExpanded ? "Collapse tags" : "Expand tags"}
-              >
-                <Tag size="0.6875rem" className="shrink-0" />
-                <span className="max-w-full truncate">
-                  {activeTag ? `Tag: ${activeTag}` : `Tags (${allTags.length})`}
-                </span>
-                {tagsExpanded ? (
-                  <ChevronUp size="0.625rem" className="shrink-0" />
-                ) : (
-                  <ChevronDown size="0.625rem" className="shrink-0" />
-                )}
-              </button>
-              {activeTag && (
-                <button
-                  onClick={() => setActiveTag(null)}
-                  className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/10"
-                >
-                  Clear
-                </button>
+            <CatalogFilterPill
+              active={hasTagFilters(tagFilters) || tagsExpanded}
+              expanded={tagsExpanded}
+              title={tagsExpanded ? "Hide tags" : "Show tags"}
+              onClick={() => setTagsExpanded((prev) => !prev)}
+            >
+              <Tag size="0.625rem" aria-hidden="true" />
+              Tags ({allTags.length})
+              {tagFilterSummary(tagFilters) && (
+                <span className="ml-0.5 opacity-70">· {tagFilterSummary(tagFilters)}</span>
               )}
-              {(tagsExpanded ? allTags : allTags.slice(0, 4)).map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => setActiveTag((prev) => (prev === tag ? null : tag))}
-                  className={cn(
-                    "max-w-full truncate rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-                    activeTag === tag
-                      ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                      : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-                  )}
-                  title={tag}
-                >
-                  {tag}
-                </button>
-              ))}
-              {!tagsExpanded && allTags.length > 4 && (
-                <button
-                  onClick={() => setTagsExpanded(true)}
-                  className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-                >
-                  +{allTags.length - 4} more
-                </button>
-              )}
-            </div>
+              <ChevronDown size="0.625rem" className={cn("transition-transform", tagsExpanded && "rotate-180")} />
+            </CatalogFilterPill>
           )}
+        </CatalogFilterRow>
+      )}
+
+      {/* Hidden until the Tags pill opens them. Clicking a tag cycles off → include → exclude → off. */}
+      {!showMessageResults && allTags.length > 0 && tagsExpanded && (
+        <div className="flex flex-wrap gap-1 border-b border-[var(--border)]/60 p-2">
+          {hasTagFilters(tagFilters) && <TagFilterClear onClear={() => setTagFilters(NO_TAG_FILTERS)} />}
+          {allTags.map((tag) => (
+            <TagFilterChip
+              key={tag}
+              tag={tag}
+              mode={tagFilters[tag]}
+              onCycle={() => setTagFilters((filters) => cycleTagFilter(filters, tag))}
+            />
+          ))}
         </div>
-      </div>
+      )}
 
       {/* Chat list */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-1">
@@ -1481,14 +1490,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
 
         {!showMessageResults && displayChats.length === 0 && !isLoading && !chatsError && (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-6 text-center">
-            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--secondary)]">
-              {activeTab === "conversation" ? (
-                <MessageSquare size="1.25rem" className="text-[var(--muted-foreground)]" />
-              ) : activeTab === "fanfic" ? (
-                <Feather size="1.25rem" className="text-[var(--muted-foreground)]" />
-              ) : (
-                <BookOpen size="1.25rem" className="text-[var(--muted-foreground)]" />
-              )}
+            <div className="animate-float flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--secondary)] text-[var(--muted-foreground)]">
+              <ModeIcon mode={activeTab} size="1.5rem" fallback={CHAT_MODE_LUCIDE_ICONS[activeTab]("1.25rem")} />
             </div>
             <ChatSidebarRecoveryView recovery={emptyRecovery} onAction={runRecoveryAction} />
           </div>
@@ -1518,12 +1521,13 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 {renderChatRow(entry)}
               </div>
             )}
-            renderFolderHeader={(row, style) => (
+            renderFolderHeader={(row, style, measure) => (
               <FolderHeaderRow
                 key={row.key}
                 folder={row.folder}
                 entriesCount={row.entriesCount}
                 style={style}
+                measure={measure}
                 isDropTarget={chatDropTarget?.folderId === row.folder.id}
                 isFolderDropTarget={folderDropTargetId === row.folder.id}
                 draggedChatId={draggedChatId}
@@ -1540,27 +1544,55 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 onFolderDragEnd={clearFolderDragState}
               />
             )}
-            renderSectionHeader={(row, style) =>
+            renderSectionHeader={(row, style, measure) =>
               row.section === "pinned" ? (
                 <div
                   key={row.key}
+                  {...measure}
                   style={style}
                   className="flex items-center gap-1 px-2 py-1 text-[0.5625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
                 >
                   <Star size="0.625rem" className="fill-amber-400 text-amber-400" />
                   {row.label}
                 </div>
+              ) : row.section === "folders" ? (
+                // Like the library panels' folders heading: its button makes a folder, the same as the Folder cell.
+                <div key={row.key} {...measure} style={style} className="px-1 pb-1">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 px-1 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                      <FolderOpen size="0.6875rem" aria-hidden="true" />
+                      {row.label} ({row.folderCount})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCreateFolder}
+                      disabled={createFolderMut.isPending}
+                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--primary)] disabled:cursor-wait disabled:opacity-60"
+                      title="Create folder"
+                      aria-label="Create folder"
+                    >
+                      <FolderPlus size="0.8125rem" aria-hidden="true" />
+                    </button>
+                  </div>
+                  {row.folderCount === 0 && (
+                    <div className="mt-1 rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
+                      No folders yet - click <FolderPlus size="0.625rem" className="inline" aria-hidden="true" /> to
+                      create one
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div
                   key={row.key}
+                  {...measure}
                   style={style}
                   data-chat-folder-root
                   onDragOver={(event) => handleChatDragOver(event, null)}
                   onDragLeave={handleChatDragLeave}
                   onDrop={(event) => handleChatDrop(event, null)}
                   className={cn(
-                    "rounded-lg transition-colors",
-                    draggedChatId && "min-h-2",
+                    // A small gap under the folders that's also where chats drop out of a folder.
+                    "h-3 rounded-lg transition-colors",
                     chatDropTarget &&
                       chatDropTarget.folderId === null &&
                       "bg-[var(--sidebar-accent)]/45 ring-1 ring-[var(--primary)]/25",
@@ -1653,8 +1685,8 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
         </div>
       )}
 
-      {/* ── User Status Selector ── */}
-      <UserStatusFooter />
+      {/* ── User Status Selector (in the Pond rail layout it's the strip along the window's bottom instead) ── */}
+      {!statusInStrip && <UserStatusBar variant="sidebar" />}
 
       {/* ── Delete Branch Modal ── */}
       <Modal
@@ -1701,37 +1733,6 @@ export function ChatSidebar({ activeTab, onActiveTabChange, onRequestClose }: Ch
                 {deleteChatGroup.isPending ? "Deleting group..." : "Delete Entire Group"}
               </button>
             </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* ── Move to Folder Modal ── */}
-      <Modal open={movingChatId !== null} onClose={() => setMovingChatId(null)} title="Move to Folder" width="max-w-xs">
-        {movingChatId && (
-          <div className="flex flex-col gap-1">
-            <button
-              onClick={() => handleMoveToFolder(movingChatId, null)}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-[var(--accent)]",
-                !chats?.find((c) => c.id === movingChatId)?.folderId && "bg-[var(--accent)] font-medium",
-              )}
-            >
-              <MessageSquare size="0.75rem" className="text-[var(--muted-foreground)]" />
-              Unfiled
-            </button>
-            {modeFolders.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => handleMoveToFolder(movingChatId, f.id)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-[var(--accent)]",
-                  chats?.find((c) => c.id === movingChatId)?.folderId === f.id && "bg-[var(--accent)] font-medium",
-                )}
-              >
-                <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: f.color || "#6b7280" }} />
-                {f.name}
-              </button>
-            ))}
           </div>
         )}
       </Modal>
@@ -1809,6 +1810,7 @@ export function FolderHeaderRow({
   folder,
   entriesCount,
   style,
+  measure,
   isDropTarget,
   isFolderDropTarget,
   draggedChatId,
@@ -1827,6 +1829,8 @@ export function FolderHeaderRow({
   folder: ChatFolder;
   entriesCount: number;
   style: CSSProperties;
+  /** From the chat list, so it measures the row's real height. */
+  measure?: ChatSidebarRowMeasure;
   isDropTarget: boolean;
   isFolderDropTarget: boolean;
   draggedChatId: string | null;
@@ -1848,6 +1852,7 @@ export function FolderHeaderRow({
   return (
     <div
       key={folder.id}
+      {...measure}
       style={style}
       onDragOver={(event) => {
         if (draggedFolderId || hasDataTransferType(event, FOLDER_DRAG_MIME)) {
@@ -1963,106 +1968,6 @@ export function FolderHeaderRow({
         >
           <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
         </button>
-      </div>
-    </div>
-  );
-}
-// ── Status config ──
-const STATUS_OPTIONS: Array<{
-  value: UserStatus;
-  label: string;
-  description: string;
-  color: string;
-  icon: React.ReactNode;
-}> = [
-  {
-    value: "active",
-    label: "Active",
-    description: "You're online and available",
-    color: "bg-green-500",
-    icon: <Circle size="0.625rem" className="fill-green-500 text-green-500" />,
-  },
-  {
-    value: "idle",
-    label: "Idle",
-    description: "Automatic when you're away",
-    color: "bg-yellow-500",
-    icon: <Moon size="0.625rem" className="text-yellow-500" />,
-  },
-  {
-    value: "dnd",
-    label: "Do Not Disturb",
-    description: "Suppress auto messages",
-    color: "bg-red-500",
-    icon: <MinusCircle size="0.625rem" className="text-red-500" />,
-  },
-];
-
-function UserStatusFooter() {
-  const userStatus = useUIStore((s) => s.userStatus);
-  const userActivity = useUIStore((s) => s.userActivity);
-  const setUserStatusManual = useUIStore((s) => s.setUserStatusManual);
-  const setUserActivity = useUIStore((s) => s.setUserActivity);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const current = STATUS_OPTIONS.find((s) => s.value === userStatus) ?? STATUS_OPTIONS[0]!;
-
-  return (
-    <div ref={ref} className="relative border-t border-[var(--border)]/30 px-3 py-2">
-      {/* Popup */}
-      {open && (
-        <div className="absolute bottom-full left-2 right-2 mb-1 rounded-xl bg-[var(--popover)] p-1.5 shadow-xl ring-1 ring-[var(--border)]/40">
-          {STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => {
-                setUserStatusManual(opt.value);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                userStatus === opt.value && "bg-[var(--accent)]",
-              )}
-            >
-              <span className={`h-2 w-2 rounded-full ${opt.color}`} />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-[var(--foreground)]">{opt.label}</div>
-                <div className="text-[0.625rem] text-[var(--muted-foreground)]">{opt.description}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="flex min-w-0 items-center gap-1.5">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-all hover:bg-[var(--sidebar-accent)]/60"
-          title="Change activity status"
-          aria-label="Change activity status"
-        >
-          <span className={`h-2 w-2 shrink-0 rounded-full ${current.color}`} />
-          <span className="max-w-20 truncate text-xs text-[var(--sidebar-foreground)]">{current.label}</span>
-        </button>
-        <input
-          value={userActivity}
-          onChange={(event) => setUserActivity(event.target.value)}
-          maxLength={120}
-          placeholder="What are you doing?"
-          aria-label="Custom activity"
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)]/40 bg-[var(--sidebar-accent)]/35 px-2 py-1.5 text-xs text-[var(--sidebar-foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/70 focus:border-[var(--primary)]/40 focus:bg-[var(--sidebar-accent)]/60"
-        />
       </div>
     </div>
   );

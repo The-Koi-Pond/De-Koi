@@ -1,5 +1,18 @@
 # De-Koi {{VERSION}} ({{CHANNEL}})
 
+## Get De-Koi
+
+- **Android phone:** [download De-Koi for Android](https://github.com/{{REPOSITORY}}/releases/download/{{TAG}}/De-Koi_{{VERSION}}_android-arm64.apk)
+- **Windows:** [download the installer](https://github.com/{{REPOSITORY}}/releases/download/{{TAG}}/De-Koi_{{VERSION}}_windows-x64-setup.exe)
+- **Linux:** [AppImage](https://github.com/{{REPOSITORY}}/releases/download/{{TAG}}/De-Koi_{{VERSION}}_linux-x64.AppImage) or [.deb](https://github.com/{{REPOSITORY}}/releases/download/{{TAG}}/De-Koi_{{VERSION}}_linux-x64.deb)
+
+**Installing on Android.** De-Koi isn't in the Play Store, so Android shows a few warnings. They're normal for any app installed this way:
+
+1. Chrome says **"File might be harmful"**. Tap **Download anyway**.
+2. Open the file: tap **Open** when the download finishes, or find it in Chrome's menu (⋮) under **Downloads**.
+3. Android says it **isn't allowed to install unknown apps from this source**. Tap **Settings**, turn on **Allow from this source**, then go back. If the install screen doesn't come back, open the file again.
+4. Tap **Install**, then **Open**. In De-Koi, choose **Log in with OpenRouter** to get a free AI model.
+
 {{OPERATOR_NOTES}}
 
 ## Before you install

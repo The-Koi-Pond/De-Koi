@@ -3,10 +3,22 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { chatKeys, useChat, useChatMessages, useDeleteMessages, useUpdateChat } from "../../../catalog/chats/index";
-import { runGenerationWithUi, type GenerateArgs } from "../../../runtime/generation/index";
+import {
+  followRunnerReply,
+  runGenerationWithUi,
+  runReplyOnRunner,
+  type GenerateArgs,
+} from "../../../runtime/generation/index";
+import {
+  generationRunnerApi,
+  generationRunnerAvailable,
+  type RunnerJobSummary,
+} from "../../../../shared/api/generation-runner-api";
+import { fanficFollowUpWrite } from "../../../../engine/modes/fanfic/batch";
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type { FanficModelRecord, FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
+  FANFIC_GENERATION_KINDS,
   keepFanficVersion,
   startFanficGeneration,
   type FanficGenerationKind,
@@ -127,6 +139,131 @@ export interface FanficWriteArgs {
   replacesVersion?: number;
   /** A new extra: the main chapter it follows. */
   parentChapter?: number;
+  /** "Write all": after this chapter, the remaining planned chapters are written one after another. */
+  batch?: boolean;
+  /** Follow this write, already running on the hosted runner, instead of starting one. */
+  runnerJobId?: string;
+}
+
+/** The write a job running on the hosted runner is doing, so the reader can show it in the right place. */
+function fanficWriteArgsFromRunnerJob(job: RunnerJobSummary): FanficWriteArgs | null {
+  const input = job.input;
+  const kind = FANFIC_GENERATION_KINDS.find((entry) => entry === input.fanficKind);
+  if (!kind) return null;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+  return {
+    kind,
+    messageId: text(input.continueMessageId) ?? text(input.regenerateMessageId),
+    ...(typeof input.replacesVersion === "number" ? { replacesVersion: input.replacesVersion } : {}),
+    ...(typeof input.parentChapter === "number" ? { parentChapter: input.parentChapter } : {}),
+    ...(input.fanficBatch === true ? { batch: true } : {}),
+    runnerJobId: job.id,
+  };
+}
+
+/** The chapter write running on the hosted runner for this fic, if any (none on desktop installs). */
+async function runningFanficJob(chatId: string): Promise<RunnerJobSummary | null> {
+  if (!(await generationRunnerAvailable())) return null;
+  const jobs = await generationRunnerApi.list(chatId);
+  return jobs.find((job) => job.status === "running" && typeof job.input.fanficKind === "string") ?? null;
+}
+
+/**
+ * The write that follows one that finished `finished`: its chapter's auto-polish, or the next chapter of a "write
+ * all" run (see fanficFollowUpWrite). On a hosted install the runner already started it (or nothing follows), so the
+ * reader follows that job; on desktop the reader starts it itself. After a Stop, a write the runner had already
+ * started is cancelled. Null when nothing follows.
+ */
+export async function nextFanficWrite(
+  chatId: string,
+  stopped: boolean,
+  write: Pick<FanficWriteArgs, "kind" | "batch">,
+  finished: FanficFinishedChapter | null,
+): Promise<FanficWriteArgs | null> {
+  if (await generationRunnerAvailable()) {
+    const job = await runningFanficJob(chatId);
+    if (!job) return null;
+    if (stopped) {
+      await generationRunnerApi.cancel(job.id);
+      return null;
+    }
+    return fanficWriteArgsFromRunnerJob(job);
+  }
+  if (stopped) return null;
+  const batch = write.batch === true;
+  const followUp = await fanficFollowUpWrite(storageApi, {
+    chatId,
+    kind: write.kind,
+    batch,
+    finishedId: finished?.messageId ?? null,
+  });
+  if (!followUp) return null;
+  if (followUp.kind === "chapter") return { kind: "chapter", batch: true };
+  return { kind: "polish", messageId: followUp.messageId, ...(batch ? { batch: true } : {}) };
+}
+
+/**
+ * When this fic has a chapter write running on the hosted runner (started before the phone slept, the tab closed, or
+ * on another device), hands it to `attach` so the reader shows it streaming. Checks on open and whenever the tab
+ * becomes visible again, once `ready` (the chapters are loaded, so a continue can show the text it adds to).
+ */
+export function useFanficRunnerReattach(chatId: string, ready: boolean, attach: (args: FanficWriteArgs) => void): void {
+  const attachRef = useRef(attach);
+  useEffect(() => {
+    attachRef.current = attach;
+  }, [attach]);
+  useEffect(() => {
+    if (!ready) return;
+    let disposed = false;
+    let checking = false;
+    const check = async () => {
+      if (disposed || checking || useChatStore.getState().abortControllers.has(chatId)) return;
+      checking = true;
+      try {
+        const job = await runningFanficJob(chatId);
+        const args = job ? fanficWriteArgsFromRunnerJob(job) : null;
+        if (!args || disposed || useChatStore.getState().abortControllers.has(chatId)) return;
+        attachRef.current(args);
+      } catch (error) {
+        console.warn("[fanfic] could not reattach to the chapter being written on the server", error);
+      } finally {
+        checking = false;
+      }
+    };
+    void check();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [chatId, ready]);
+}
+
+/**
+ * The events of one chapter write. Hosted installs write on the runner, so the chapter keeps going and gets saved
+ * when the phone locks or the tab closes; desktop installs write here.
+ */
+async function* fanficWriteEvents(
+  input: GenerateArgs & StartFanficGenerationInput,
+  options: { batch: boolean; runnerJobId: string | null },
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  if (options.runnerJobId) {
+    yield* followRunnerReply(options.runnerJobId, signal);
+    return;
+  }
+  if (await generationRunnerAvailable()) {
+    yield* runReplyOnRunner({ ...input, ...(options.batch ? { fanficBatch: true } : {}) }, signal);
+    return;
+  }
+  yield* startFanficGeneration(
+    { storage: storageApi, llm: llmApi, integrations: integrationGateway },
+    input,
+    signal,
+  ) as AsyncGenerator<StreamEvent>;
 }
 
 /** Writes a chapter; resolves with it only when it saved a finished one, so follow-ups skip one kept unfinished. */
@@ -139,9 +276,11 @@ export function useFanficWriter(chatId: string, connectionId: string | null) {
       notes = null,
       replacesVersion,
       parentChapter,
+      batch = false,
+      runnerJobId,
     }: FanficWriteArgs): Promise<FanficFinishedChapter | null> => {
       // A Reset of a new chapter or extra rewrites that chapter's message, so it runs (and streams) like a redo.
-      const rewrites = kind === "regenerate" || kind === "revise" || replacesVersion !== undefined;
+      const rewrites = kind === "regenerate" || kind === "revise" || kind === "polish" || replacesVersion !== undefined;
       const args: GenerateArgs & StartFanficGenerationInput = {
         chatId,
         connectionId,
@@ -156,11 +295,11 @@ export function useFanficWriter(chatId: string, connectionId: string | null) {
       let finished = (): FanficFinishedChapter | null => null;
       const written = await runGenerationWithUi(queryClient, args, (streamArgs, signal) => {
         const tracked = trackFanficWriteFinished(
-          startFanficGeneration(
-            { storage: storageApi, llm: llmApi, integrations: integrationGateway },
+          fanficWriteEvents(
             streamArgs as GenerateArgs & StartFanficGenerationInput,
+            { batch, runnerJobId: runnerJobId ?? null },
             signal,
-          ) as AsyncGenerator<StreamEvent>,
+          ),
         );
         finished = tracked.finished;
         return tracked.events;

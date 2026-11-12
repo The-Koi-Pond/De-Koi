@@ -47,6 +47,20 @@ export interface LorebookCommandsGateway {
   vectorizeEntries<T = unknown>(lorebookId: string, entryIds: string[]): Promise<T>;
 }
 
+/** A voice note's audio, kept as a managed file of its chat. */
+export interface VoiceNoteFile {
+  url: string;
+  filename: string;
+  contentType: string;
+}
+
+export interface VoiceNoteGateway {
+  /** Whether Text to Speech is set up, so a voice note can be made. */
+  available(): Promise<boolean>;
+  /** Speak `text` in the character's Text to Speech voice and keep the audio with the chat. */
+  create(input: { chatId: string; text: string; speaker: string; characterId: string }): Promise<VoiceNoteFile>;
+}
+
 export interface IntegrationGateway {
   music?: MusicGateway;
   customTools: CustomToolsGateway;
@@ -54,5 +68,6 @@ export interface IntegrationGateway {
   discord?: DiscordGateway;
   webResearch?: WebResearchGateway;
   lorebooks?: LorebookCommandsGateway;
+  voiceNotes?: VoiceNoteGateway;
 }
 import type { GeneratedImageResult } from "../contracts/generated-image";

@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Plug, Server } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { BookOpen, Compass, Feather, Import, MessageSquare, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import {
@@ -11,12 +11,15 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
-import { HomeCreditsModal } from "./HomeCreditsModal";
+import { HomeKoiRing } from "./HomeKoiRing";
+import { HomeModeChoices } from "./HomeModeChoices";
+import { LotusDivider } from "../../../../shared/components/ui/LotusDivider";
+import { getDekiHomeLine, SETUP_STEP_ACTION_LABELS, type HomeMode } from "../lib/deki-home-lines";
 import { RecentChats } from "./RecentChats";
 import { getHomeSuggestions, type HomeSuggestionDestination } from "../lib/home-suggestions";
 import { useLibraryPresence } from "../../../catalog/library-presence";
 
-type QuickStartMode = "conversation" | "roleplay" | "fanfic";
+type QuickStartMode = HomeMode;
 
 const quickStartModePreloads: Record<QuickStartMode, () => Promise<unknown>> = {
   conversation: () => import("../../conversation/index"),
@@ -24,6 +27,9 @@ const quickStartModePreloads: Record<QuickStartMode, () => Promise<unknown>> = {
   fanfic: () => import("../../fanfic/index"),
 };
 const preloadedQuickStartModes = new Set<QuickStartMode>();
+
+/** How long Deki's hop lasts when they start explaining a mode (Pond theme). */
+const DEKI_HOP_MS = 700;
 
 function prewarmQuickStartMode(mode: QuickStartMode): void {
   if (preloadedQuickStartModes.has(mode)) return;
@@ -39,8 +45,11 @@ export const HOME_SPLASH_TEXTS = [
   "Cloner? I hardly know-er.",
   '"We have AI roleplay at home!" (AI roleplay at home:)',
   "Vibe code go BRRRRRRRR",
-  "No rules just (CODE BREAKING SOUNDS)",
+  // "\n" starts a new line in the splash.
+  "No rules just\n(CODE BREAKING SOUNDS)",
   "8008135",
+  // A non-breaking space (U+00A0) keeps the frog on the same line as "passion".
+  "Graphic design is my passion\u00A0🐸",
 ] as const;
 
 export function pickHomeSplashText(random = Math.random): string {
@@ -49,15 +58,34 @@ export function pickHomeSplashText(random = Math.random): string {
 }
 
 function HomeSplashLetters({ text }: { text: string }) {
+  // Letters are grouped per word (each word stays on one line), so a long
+  // line wraps between words, never mid-word; "\n" in the text forces a new
+  // line. The bounce wave counts letters across the whole splash.
+  let letterIndex = 0;
+  const lines = text
+    .split("\n")
+    .map((line) => line.split(" ").map((word) => Array.from(word).map((letter) => ({ letter, index: letterIndex++ }))));
   return (
     <span aria-hidden="true" className="koi-home-splash-text">
-      {Array.from(text).map((letter, index) => (
-        <span
-          key={`${letter}-${index}`}
-          className="koi-home-splash-letter"
-          style={{ "--splash-letter-index": index } as CSSProperties}
-        >
-          {letter === " " ? "\u00A0" : letter}
+      {lines.map((words, lineIndex) => (
+        <span key={lineIndex}>
+          {lineIndex > 0 && <br />}
+          {words.map((letters, wordIndex) => (
+            <span key={wordIndex}>
+              {wordIndex > 0 && " "}
+              <span className="koi-home-splash-word">
+                {letters.map(({ letter, index }) => (
+                  <span
+                    key={index}
+                    className="koi-home-splash-letter"
+                    style={{ "--splash-letter-index": index } as CSSProperties}
+                  >
+                    {letter}
+                  </span>
+                ))}
+              </span>
+            </span>
+          ))}
         </span>
       ))}
     </span>
@@ -76,7 +104,9 @@ export function ModeHomeSurface({
   const { data: connections } = useConnections();
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
   const remoteRuntimeUrl = useUIStore((state) => state.remoteRuntimeUrl);
-  const [creditsOpen, setCreditsOpen] = useState(false);
+  const theme = useUIStore((state) => state.theme);
+  // The Pond theme sets the logo inside a ring of swimming koi.
+  const visualTheme = useUIStore((state) => state.visualTheme);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const libraryPresence = useLibraryPresence();
   const languageConnections = useMemo(
@@ -114,213 +144,228 @@ export function ModeHomeSurface({
 
   const showQuickStartEntranceEffects = true;
 
+  // Pond theme: Deki sits in the middle of the koi ring and explains the mode
+  // card you point at (hover or keyboard focus), hopping once each time.
+  const isPond = visualTheme === "pond";
+  const [hintedMode, setHintedMode] = useState<QuickStartMode | null>(null);
+  const [dekiHopping, setDekiHopping] = useState(false);
+  useEffect(() => {
+    if (!hintedMode) {
+      setDekiHopping(false);
+      return;
+    }
+    setDekiHopping(true);
+    const timer = window.setTimeout(() => setDekiHopping(false), DEKI_HOP_MS);
+    return () => window.clearTimeout(timer);
+  }, [hintedMode]);
+  const setModeHint = (mode: QuickStartMode, active: boolean) =>
+    setHintedMode((current) => (active ? mode : current === mode ? null : current));
+
+  const recentChats = (
+    <section data-home-section="recent-chats" aria-label="Recent chats" className="contents">
+      <RecentChats />
+    </section>
+  );
+  // Pond: the setup step still to do (if any) gets a button in Deki's dialogue box.
+  const pendingSetupStep = homeSuggestions
+    .map((suggestion) => suggestion.destination)
+    .find((destination): destination is keyof typeof SETUP_STEP_ACTION_LABELS => destination !== "discover");
+
+  const homeTitle = (
+    <h3 className="koi-glow-text de-koi-display-title inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
+      <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
+      <span>De-Koi</span>
+      <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12" />
+    </h3>
+  );
+
+  const splash = (
+    <p className="koi-home-splash">
+      {/* aria-label is not allowed on a plain <p>; screen readers get the text once, here. */}
+      <span className="sr-only">Launch splash: {homeSplashText}</span>
+      <HomeSplashLetters text={homeSplashText} />
+    </p>
+  );
+
   return (
     <>
-      <HomeCreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} />
       <div
         data-component="ChatArea.EmptyState"
         className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
       >
-        <div className="flex w-full max-w-3xl min-w-0 flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
+        <div className="flex w-full max-w-3xl min-w-0 flex-1 flex-col items-center gap-4 py-3 sm:gap-5 sm:py-5 lg:pt-6 lg:pb-7">
           <section data-home-section="readiness" aria-label="Setup readiness" className="contents">
             {readinessSurface}
           </section>
 
-          <section data-home-section="recent-chats" aria-label="Recent chats" className="contents">
-            <RecentChats />
-          </section>
+          {/* Pond shows recent chats under the mode choices instead. */}
+          {!isPond && recentChats}
 
           <section data-home-section="mode-cards" aria-label="Start a chat" className="contents">
             <div className="koi-home-hero relative flex flex-col items-center gap-4 sm:gap-5">
+              {isPond ? (
+                <>
+                  {homeTitle}
+                  <HomeKoiRing>
+                    {/* deki-steady.svg squishes on its own (and stops for reduced motion).
+                        Its squish can't be switched off from outside the file, so low-power
+                        mode shows the still deki.svg instead (pond.css swaps them). */}
+                    <span className={cn("koi-ring-deki", dekiHopping && "koi-ring-deki-hop")}>
+                      <img src="/deki-steady.svg" alt="Deki-senpai" draggable={false} className="koi-ring-deki-live" />
+                      <img src="/deki.svg" alt="Deki-senpai" draggable={false} className="koi-ring-deki-still" />
+                    </span>
+                    {splash}
+                  </HomeKoiRing>
+                  {/* A visual-novel dialogue box: Deki's nameplate, their line ending in a
+                      ▼ cue, and a small quick menu (the pending setup step, and Discover). */}
+                  <div className="deki-home-dialogue">
+                    <span className="deki-home-nameplate">Deki-senpai</span>
+                    <p className="deki-home-bubble">
+                      {getDekiHomeLine({ activeMode: hintedMode, nextStep: homeSuggestions[0]?.destination })}
+                      <span className="deki-home-next" aria-hidden="true">
+                        ▼
+                      </span>
+                    </p>
+                    <div className="deki-home-actions">
+                      {pendingSetupStep && (
+                        <button
+                          type="button"
+                          className="deki-home-action deki-home-action-primary"
+                          onClick={() => runHomeSuggestion(pendingSetupStep)}
+                        >
+                          {SETUP_STEP_ACTION_LABELS[pendingSetupStep]}
+                        </button>
+                      )}
+                      <button type="button" className="deki-home-action" onClick={() => runHomeSuggestion("discover")}>
+                        Discover
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* The logo's outline is ink on a light page and cream on a dark one, following
+                      De-Koi's own theme setting (not the computer's). */}
+                  <img
+                    src={theme === "light" ? "/de-koi-logo.svg" : "/de-koi-logo-dark.svg"}
+                    alt="De-Koi"
+                    width={96}
+                    height={96}
+                    decoding="async"
+                    className="koi-home-logo h-16 w-16 sm:h-24 sm:w-24"
+                  />
+                  {splash}
+                  <div className="text-center">
+                    {homeTitle}
+                    <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
+                      To get started, choose the type of chat you'd like to have with the AI
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {isPond ? (
+              <HomeModeChoices onPick={handleQuickStart} onPrewarm={prewarmQuickStartMode} onHint={setModeHint} />
+            ) : (
               <div
                 className={cn(
-                  "koi-logo-tile flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] sm:h-24 sm:w-24",
+                  "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 @xl:max-w-[32rem] @xl:gap-4",
+                  showQuickStartEntranceEffects && "stagger-children",
                 )}
               >
-                <img
-                  src="/logo.png"
-                  alt="De-Koi"
-                  width={80}
-                  height={80}
-                  decoding="async"
-                  className="h-full w-full object-contain p-1.5 sm:p-2"
+                <QuickStartCard
+                  icon={<MessageSquare size="1.125rem" />}
+                  label="Conversation"
+                  bg="linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)"
+                  iconColor="#fff4e8"
+                  labelColor="#ff8957"
+                  shadowColor="rgba(255,137,87,0.2)"
+                  tooltip="General chat with one or more characters, or a model itself"
+                  onPrewarm={() => prewarmQuickStartMode("conversation")}
+                  onClick={() => handleQuickStart("conversation")}
+                />
+                <QuickStartCard
+                  icon={<BookOpen size="1.125rem" />}
+                  label="Roleplay"
+                  bg="linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)"
+                  iconColor="#f4eadb"
+                  labelColor="#52e1da"
+                  shadowColor="rgba(82,225,218,0.16)"
+                  tooltip="For roleplaying or creative writing with one or more characters"
+                  onPrewarm={() => prewarmQuickStartMode("roleplay")}
+                  onClick={() => handleQuickStart("roleplay")}
+                />
+                <QuickStartCard
+                  icon={<Feather size="1.125rem" />}
+                  label="Fanfic"
+                  bg="linear-gradient(135deg, #ffb7c9 0%, #e0607e 55%, #7a2a40 100%)"
+                  iconColor="#fff4f6"
+                  labelColor="#f08aa6"
+                  shadowColor="rgba(240,138,166,0.18)"
+                  tooltip="Request a fanfic: fandom, ships, rating, and tropes, then read it chapter by chapter"
+                  onPrewarm={() => prewarmQuickStartMode("fanfic")}
+                  onClick={() => handleQuickStart("fanfic")}
                 />
               </div>
-
-              <p className="koi-home-splash">
-                {/* aria-label is not allowed on a plain <p>; screen readers get the text once, here. */}
-                <span className="sr-only">Launch splash: {homeSplashText}</span>
-                <HomeSplashLetters text={homeSplashText} />
-              </p>
-
-              <div className="text-center">
-                <h3 className="koi-glow-text inline-flex items-center justify-center gap-1 text-2xl font-black sm:gap-2 sm:text-4xl">
-                  <img src="/koi-mark.svg" alt="" aria-hidden="true" className="h-4 w-8 shrink-0 sm:h-5 sm:w-12" />
-                  <span>De-Koi</span>
-                  <img
-                    src="/koi-mark.svg"
-                    alt=""
-                    aria-hidden="true"
-                    className="h-4 w-8 shrink-0 -scale-x-100 sm:h-5 sm:w-12"
-                  />
-                </h3>
-                <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
-                  To get started, choose the type of chat you'd like to have with the AI
-                </p>
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 @xl:max-w-[32rem] @xl:gap-4",
-                showQuickStartEntranceEffects && "stagger-children",
-              )}
-            >
-              <QuickStartCard
-                icon={<MessageSquare size="1.125rem" />}
-                label="Conversation"
-                bg="linear-gradient(135deg, #ff9a66 0%, #ff7a4a 54%, #9c3c27 100%)"
-                iconColor="#fff4e8"
-                labelColor="#ff8957"
-                shadowColor="rgba(255,137,87,0.2)"
-                tooltip="General chat with one or more characters, or a model itself"
-                onPrewarm={() => prewarmQuickStartMode("conversation")}
-                onClick={() => handleQuickStart("conversation")}
-              />
-              <QuickStartCard
-                icon={<BookOpen size="1.125rem" />}
-                label="Roleplay"
-                bg="linear-gradient(135deg, #5ce7df 0%, #22b8b5 52%, #086873 100%)"
-                iconColor="#f4eadb"
-                labelColor="#52e1da"
-                shadowColor="rgba(82,225,218,0.16)"
-                tooltip="For roleplaying or creative writing with one or more characters"
-                onPrewarm={() => prewarmQuickStartMode("roleplay")}
-                onClick={() => handleQuickStart("roleplay")}
-              />
-              <QuickStartCard
-                icon={<Feather size="1.125rem" />}
-                label="Fanfic"
-                bg="linear-gradient(135deg, #ffb7c9 0%, #e0607e 55%, #7a2a40 100%)"
-                iconColor="#fff4f6"
-                labelColor="#f08aa6"
-                shadowColor="rgba(240,138,166,0.18)"
-                tooltip="Request a fanfic: fandom, ships, rating, and tropes, then read it chapter by chapter"
-                onPrewarm={() => prewarmQuickStartMode("fanfic")}
-                onClick={() => handleQuickStart("fanfic")}
-              />
-            </div>
-          </section>
-
-          <section data-home-section="suggestions" aria-labelledby="home-next-steps" className="w-full max-w-[32rem]">
-            <div className="mb-2 flex items-center justify-between gap-3 px-1">
-              <h4
-                id="home-next-steps"
-                className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
-              >
-                Next steps
-              </h4>
-              <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
-            </div>
-            <div className="grid gap-2 @md:grid-cols-2 @xl:grid-cols-3">
-              {homeSuggestions.map((suggestion) => {
-                const Icon =
-                  suggestion.destination === "server-setup"
-                    ? Server
-                    : suggestion.destination === "connect-model"
-                      ? Plug
-                      : suggestion.destination === "library-import"
-                        ? Import
-                        : Compass;
-                return (
-                  <button
-                    key={suggestion.destination}
-                    type="button"
-                    data-home-suggestion={suggestion.destination}
-                    onClick={() => runHomeSuggestion(suggestion.destination)}
-                    className="group min-h-24 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7"
-                  >
-                    <Icon
-                      size="1rem"
-                      className="mb-2 text-[var(--primary)] transition-transform group-hover:scale-110"
-                      aria-hidden
-                    />
-                    <span className="block text-xs font-semibold text-[var(--foreground)]">{suggestion.label}</span>
-                    <span className="mt-1 block text-[0.65rem] leading-snug text-[var(--muted-foreground)]">
-                      {suggestion.description}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <div
-            className={cn(
-              "w-48",
-              showQuickStartEntranceEffects ? "retro-divider" : "h-px rounded-[1px] bg-[var(--border)]/40",
             )}
-          />
+          </section>
 
-          <div className="flex w-full max-w-2xl flex-col items-center gap-2">
-            <p className="max-w-[36rem] px-1 text-center text-[0.625rem] leading-snug text-[var(--muted-foreground)]/55 sm:text-xs">
-              De-Koi is an unofficial project that began as a fork of{" "}
-              <a
-                href="https://github.com/Pasta-Devs/Marinara-Engine"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-              >
-                Marinara Engine
-              </a>
-              .
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-center text-[0.625rem] leading-tight text-[var(--muted-foreground)]/45">
-              <span>AGPL-3.0-or-later</span>
-              <span>No warranty</span>
-              <a
-                href="https://github.com/The-Koi-Pond/De-Koi"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-              >
-                Source
-              </a>
-              <a
-                href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/LICENSE.txt"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-              >
-                License
-              </a>
-              <a
-                href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/NOTICE.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-              >
-                Notices
-              </a>
-              <button
-                type="button"
-                onClick={() => setCreditsOpen(true)}
-                className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-              >
-                <List size="0.75rem" aria-hidden="true" className="mr-1 inline-block align-[-0.125rem]" />
-                Credits
-              </button>
-            </div>
+          {isPond && recentChats}
 
-            <button
-              onClick={() => useUIStore.getState().setOnboardingTourOpen(true)}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]/40 transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--muted-foreground)]"
-              title="Replay tutorial"
-            >
-              <HelpCircle size="0.75rem" />
-              Show me around
-            </button>
-          </div>
+          {/* Pond folds these into Deki's dialogue box (its quick menu). */}
+          {!isPond && (
+            <section data-home-section="suggestions" aria-labelledby="home-next-steps" className="w-full max-w-[32rem]">
+              <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                <h4
+                  id="home-next-steps"
+                  className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
+                >
+                  Next steps
+                </h4>
+                <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
+              </div>
+              <div className="grid gap-2 @md:grid-cols-2 @xl:grid-cols-3">
+                {homeSuggestions.map((suggestion) => {
+                  const Icon =
+                    suggestion.destination === "server-setup"
+                      ? Server
+                      : suggestion.destination === "connect-model"
+                        ? Plug
+                        : suggestion.destination === "library-import"
+                          ? Import
+                          : Compass;
+                  return (
+                    <button
+                      key={suggestion.destination}
+                      type="button"
+                      data-home-suggestion={suggestion.destination}
+                      onClick={() => runHomeSuggestion(suggestion.destination)}
+                      className="group min-h-24 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7"
+                    >
+                      <Icon
+                        size="1rem"
+                        className="mb-2 text-[var(--primary)] transition-transform group-hover:scale-110"
+                        aria-hidden
+                      />
+                      <span className="block text-xs font-semibold text-[var(--foreground)]">{suggestion.label}</span>
+                      <span className="mt-1 block text-[0.65rem] leading-snug text-[var(--muted-foreground)]">
+                        {suggestion.description}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Pond closes Home with the lotus (a pause). The project notices, licence links, credits and the
+              tour now live in Help ("About De-Koi"). */}
+          {isPond && (
+            <footer className="mt-auto flex w-full justify-center pt-2">
+              <LotusDivider />
+            </footer>
+          )}
         </div>
       </div>
       {pendingNewChatMode && (

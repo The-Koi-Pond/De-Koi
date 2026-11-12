@@ -20,7 +20,6 @@ interface FocusableConversationCharacter {
 
 export interface ConversationContextFocus<T extends FocusableConversationCharacter> {
   characters: T[];
-  historyLimit: number;
   includeAssistantHistory: boolean;
   summaryMaxContext: number;
   memoryRecallTokenBudget: number;
@@ -28,7 +27,6 @@ export interface ConversationContextFocus<T extends FocusableConversationCharact
 }
 
 const ASSISTANT_REPLY_THRESHOLD = 20;
-const HISTORY_MESSAGE_LIMIT = 5;
 const SUMMARY_MAX_CONTEXT = 9_600;
 const MEMORY_RECALL_TOKEN_BUDGET = 512;
 const CANONICAL_MEMORY_MAX_CONTEXT = 4_000;
@@ -216,7 +214,6 @@ export function conversationContextFocus<T extends FocusableConversationCharacte
     characters: input.characters.map((character) =>
       focusedCharacter(character, input.storedMessages, targetCharacterId, userName),
     ),
-    historyLimit: HISTORY_MESSAGE_LIMIT,
     includeAssistantHistory: true,
     summaryMaxContext: SUMMARY_MAX_CONTEXT,
     memoryRecallTokenBudget: MEMORY_RECALL_TOKEN_BUDGET,

@@ -385,6 +385,7 @@ struct NovelAiDefaults {
     prompt_guidance: f64,
     prompt_guidance_rescale: f64,
     undesired_content_preset: u64,
+    reference_strength: f64,
 }
 
 fn default_parameters_root(connection: &Value) -> Option<Value> {
@@ -481,6 +482,7 @@ fn resolve_novelai_defaults(connection: &Value) -> NovelAiDefaults {
         prompt_guidance: read_f64(defaults.get("promptGuidance"), 6.0, 0.0, 30.0),
         prompt_guidance_rescale: read_f64(defaults.get("promptGuidanceRescale"), 0.0, 0.0, 1.0),
         undesired_content_preset: read_u64(defaults.get("undesiredContentPreset"), 0, 0, 4),
+        reference_strength: read_f64(defaults.get("referenceStrength"), 0.6, 0.0, 1.0),
     }
 }
 
@@ -2877,7 +2879,12 @@ async fn generate_novelai(
             "use_coords": false,
             "use_order": true
         });
-        apply_novelai_reference_images(&mut parameters, &model, options)?;
+        apply_novelai_reference_images(
+            &mut parameters,
+            &model,
+            options,
+            defaults.reference_strength,
+        )?;
     }
     let body = json!({
         "input": prompt,
@@ -2907,18 +2914,74 @@ fn is_novelai_v45_model(model: &str) -> bool {
     model.starts_with("nai-diffusion-4-5")
 }
 
+/// NovelAI's director (character) references only work on these canvases; any other size gets HTTP 500 back.
+const NOVELAI_DIRECTOR_REFERENCE_CANVASES: [(u32, u32); 3] =
+    [(1024, 1536), (1536, 1024), (1472, 1472)];
+
+/// Scales the reference to fit the canvas closest to its shape and centers it on black, as NovelAI's own app does.
+fn novelai_director_reference_base64(reference: &str) -> AppResult<String> {
+    let decoded = decode_reference_image(reference)?;
+    let bytes = general_purpose::STANDARD
+        .decode(&decoded.base64)
+        .map_err(|error| {
+            AppError::invalid_input(format!("Invalid reference image data: {error}"))
+        })?;
+    let source = image::load_from_memory(&bytes).map_err(|error| {
+        AppError::invalid_input(format!(
+            "NovelAI reference image could not be read: {error}"
+        ))
+    })?;
+    let (width, height) = (source.width().max(1), source.height().max(1));
+    let aspect = (width as f64 / height as f64).ln();
+    let (canvas_width, canvas_height) = NOVELAI_DIRECTOR_REFERENCE_CANVASES
+        .into_iter()
+        .min_by(|a, b| {
+            let distance = |(w, h): (u32, u32)| ((w as f64 / h as f64).ln() - aspect).abs();
+            distance(*a).total_cmp(&distance(*b))
+        })
+        .unwrap_or((1472, 1472));
+    let scale = (canvas_width as f64 / width as f64).min(canvas_height as f64 / height as f64);
+    let fitted_width = ((width as f64 * scale).round() as u32).clamp(1, canvas_width);
+    let fitted_height = ((height as f64 * scale).round() as u32).clamp(1, canvas_height);
+    let fitted = source
+        .resize_exact(
+            fitted_width,
+            fitted_height,
+            image::imageops::FilterType::Lanczos3,
+        )
+        .to_rgba8();
+    let mut canvas =
+        image::RgbaImage::from_pixel(canvas_width, canvas_height, image::Rgba([0, 0, 0, 255]));
+    image::imageops::overlay(
+        &mut canvas,
+        &fitted,
+        i64::from((canvas_width - fitted_width) / 2),
+        i64::from((canvas_height - fitted_height) / 2),
+    );
+    let mut png = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(canvas)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| {
+            AppError::new(
+                "image_encode_error",
+                format!("NovelAI reference image: {error}"),
+            )
+        })?;
+    Ok(general_purpose::STANDARD.encode(png.into_inner()))
+}
+
 fn apply_novelai_reference_images(
     parameters: &mut Value,
     model: &str,
     options: &ImageGenerationOptions,
+    strength: f64,
 ) -> AppResult<()> {
-    let refs = options
-        .reference_images
-        .iter()
-        .map(|image| reference_base64(image))
-        .collect::<AppResult<Vec<_>>>()?;
-
     if is_novelai_v45_model(model) {
+        let refs = options
+            .reference_images
+            .iter()
+            .map(|image| novelai_director_reference_base64(image))
+            .collect::<AppResult<Vec<_>>>()?;
         if refs.is_empty() {
             return Ok(());
         }
@@ -2934,15 +2997,21 @@ fn apply_novelai_reference_images(
         parameters["director_reference_images"] = json!(refs);
         parameters["director_reference_descriptions"] = json!(descriptions);
         parameters["director_reference_information_extracted"] = json!(vec![1.0; refs.len()]);
-        parameters["director_reference_strength_values"] = json!(vec![0.6; refs.len()]);
+        parameters["director_reference_strength_values"] = json!(vec![strength; refs.len()]);
         parameters["director_reference_secondary_strength_values"] = json!(vec![0.0; refs.len()]);
         return Ok(());
     }
 
+    let refs = options
+        .reference_images
+        .iter()
+        .map(|image| reference_base64(image))
+        .collect::<AppResult<Vec<_>>>()?;
     parameters["reference_image_multiple"] = json!(refs);
     parameters["reference_information_extracted_multiple"] =
         json!(vec![1; options.reference_images.len()]);
-    parameters["reference_strength_multiple"] = json!(vec![0.6; options.reference_images.len()]);
+    parameters["reference_strength_multiple"] =
+        json!(vec![strength; options.reference_images.len()]);
     Ok(())
 }
 
@@ -4066,14 +4135,27 @@ mod tests {
 
     #[tokio::test]
     async fn novelai_v45_reference_images_use_director_reference_fields() {
-        let reference_image =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+        let mut reference_png = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            1,
+            1,
+            image::Rgba([255, 255, 255, 255]),
+        ))
+        .write_to(&mut reference_png, image::ImageFormat::Png)
+        .expect("test image should encode");
+        let reference_image = general_purpose::STANDARD.encode(reference_png.into_inner());
         let (base_url, request_handle) = serve_single_png_response().await;
         let connection = json!({
             "provider": "image_generation",
             "imageGenerationSource": "novelai",
             "baseUrl": format!("{base_url}/novelai.net"),
-            "model": "nai-diffusion-4-5-full"
+            "model": "nai-diffusion-4-5-full",
+            "defaultParameters": {
+                "imageGeneration": {
+                    "service": "novelai",
+                    "novelai": { "referenceStrength": 0.85 }
+                }
+            }
         });
 
         generate_novelai(
@@ -4100,10 +4182,17 @@ mod tests {
         let parameters = &payload["parameters"];
 
         assert_eq!(payload["model"], json!("nai-diffusion-4-5-full"));
-        assert_eq!(
-            parameters["director_reference_images"],
-            json!([reference_image])
-        );
+        let sent = parameters["director_reference_images"]
+            .as_array()
+            .expect("director references should be a list");
+        assert_eq!(sent.len(), 1);
+        let sent_image = image::load_from_memory(
+            &general_purpose::STANDARD
+                .decode(sent[0].as_str().expect("reference should be base64"))
+                .expect("reference should decode"),
+        )
+        .expect("reference should be an image");
+        assert_eq!((sent_image.width(), sent_image.height()), (1472, 1472));
         assert_eq!(
             parameters["director_reference_descriptions"],
             json!([{
@@ -4117,7 +4206,7 @@ mod tests {
         );
         assert_eq!(
             parameters["director_reference_strength_values"],
-            json!([0.6])
+            json!([0.85])
         );
         assert_eq!(
             parameters["director_reference_secondary_strength_values"],
@@ -4131,6 +4220,63 @@ mod tests {
     }
 
     #[test]
+    fn novelai_director_references_are_centered_on_the_closest_canvas() {
+        let png_base64 = |width: u32, height: u32| {
+            let mut buffer = Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                width,
+                height,
+                image::Rgba([255, 255, 255, 255]),
+            ))
+            .write_to(&mut buffer, image::ImageFormat::Png)
+            .expect("test image should encode");
+            format!(
+                "data:image/png;base64,{}",
+                general_purpose::STANDARD.encode(buffer.into_inner())
+            )
+        };
+        let padded = |width: u32, height: u32| {
+            image::load_from_memory(
+                &general_purpose::STANDARD
+                    .decode(
+                        novelai_director_reference_base64(&png_base64(width, height))
+                            .expect("reference should pad"),
+                    )
+                    .expect("padded reference should decode"),
+            )
+            .expect("padded reference should be an image")
+            .to_rgba8()
+        };
+
+        // A 736x975 avatar (the size that got HTTP 500 unpadded) lands on the portrait canvas, centered on black.
+        let portrait = padded(736, 975);
+        assert_eq!(portrait.dimensions(), (1024, 1536));
+        assert_eq!(
+            portrait.get_pixel(512, 768),
+            &image::Rgba([255, 255, 255, 255])
+        );
+        assert_eq!(portrait.get_pixel(512, 2), &image::Rgba([0, 0, 0, 255]));
+        assert_eq!(portrait.get_pixel(512, 1533), &image::Rgba([0, 0, 0, 255]));
+
+        assert_eq!(padded(1600, 900).dimensions(), (1536, 1024));
+        assert_eq!(padded(500, 520).dimensions(), (1472, 1472));
+    }
+
+    #[test]
+    fn novelai_reference_strength_defaults_to_point_six_and_reads_the_connection_setting() {
+        let plain = json!({ "imageGenerationSource": "novelai" });
+        assert_eq!(resolve_novelai_defaults(&plain).reference_strength, 0.6);
+
+        let tuned = json!({
+            "imageGenerationSource": "novelai",
+            "defaultParameters": {
+                "imageGeneration": { "service": "novelai", "novelai": { "referenceStrength": 1.0 } }
+            }
+        });
+        assert_eq!(resolve_novelai_defaults(&tuned).reference_strength, 1.0);
+    }
+
+    #[test]
     fn novelai_v45_without_references_omits_reference_parameters() {
         let mut parameters = json!({});
 
@@ -4138,6 +4284,7 @@ mod tests {
             &mut parameters,
             "nai-diffusion-4-5-full",
             &ImageGenerationOptions::default(),
+            0.6,
         )
         .expect("empty reference list should be valid");
 
@@ -4158,6 +4305,7 @@ mod tests {
                 reference_images: vec![reference_image.to_string()],
                 ..ImageGenerationOptions::default()
             },
+            0.6,
         )
         .expect("V4 reference image should be valid");
 

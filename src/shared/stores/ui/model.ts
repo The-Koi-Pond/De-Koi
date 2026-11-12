@@ -20,7 +20,7 @@ export type Panel =
   | "help"
   | "bot-browser";
 export type FontSize = 12 | 14 | 16 | 17 | 19 | 22;
-export type VisualTheme = "default" | "sillytavern";
+export type VisualTheme = "default" | "sillytavern" | "pond";
 export type HudPosition = "top" | "left" | "right";
 export type TrackerPanelSide = "left" | "right";
 export type TrackerThoughtBubbleDisplay = "inline" | "floating";
@@ -510,6 +510,12 @@ export interface UIState {
 
   // ── Roleplay Effects ──
   weatherEffects: boolean;
+  /** Roleplay scene sound: an ambient bed and sound effects made by ElevenLabs. Off by default (it costs credits). */
+  roleplaySceneSound: boolean;
+  /** 0 to 1. */
+  sceneAmbientVolume: number;
+  /** 0 to 1. */
+  sceneEffectsVolume: number;
 
   // ── HUD Layout ──
   hudPosition: HudPosition;
@@ -684,6 +690,9 @@ export interface UIState {
   setEnterToSendRP: (v: boolean) => void;
   setEnterToSendConvo: (v: boolean) => void;
   setWeatherEffects: (v: boolean) => void;
+  setRoleplaySceneSound: (v: boolean) => void;
+  setSceneAmbientVolume: (v: number) => void;
+  setSceneEffectsVolume: (v: number) => void;
   setHudPosition: (v: HudPosition) => void;
 
   // Impersonate settings actions

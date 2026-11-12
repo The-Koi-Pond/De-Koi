@@ -141,6 +141,7 @@ import { TrackerSizeTierIcon } from "../../../../../shared/components/ui/Tracker
 import { ImageUploadDropzone } from "../../../../../shared/components/ui/ImageUploadDropzone";
 import { ConversationSoundSetting, ToggleSetting } from "./SettingControls";
 import { PromptOverridesEditor } from "./PromptOverridesEditor";
+import { RoleplaySceneSoundSettings } from "./RoleplaySceneSoundSettings";
 import { ChatBehaviorSettings } from "./ChatBehaviorSettings";
 import { ChatPresentationSettings } from "./ChatPresentationSettings";
 import { DraftNumberInput } from "../../../../../shared/components/ui/DraftNumberInput";
@@ -1270,9 +1271,9 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-1.5">
           <Paintbrush size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Visual Style</span>
-          <HelpTooltip text="Choose how the entire app looks. 'Default' uses De-Koi's retro Y2K aesthetic with glow effects. 'SillyTavern' uses a clean, minimal look inspired by the original SillyTavern." />
+          <HelpTooltip text="Choose how the entire app looks. 'Default' uses De-Koi's retro Y2K aesthetic with glow effects. 'Pond' is De-Koi's new look, still being built: calm night water, solid panels and Pond Pebbles titles. 'SillyTavern' uses a clean, minimal look inspired by the original SillyTavern." />
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2">
           {(
             [
               {
@@ -1281,9 +1282,14 @@ export function AppearanceSettings() {
                 desc: "Y2K / retro aesthetic with glow effects",
               },
               {
+                id: "pond" as VisualTheme,
+                label: "Pond (new look)",
+                desc: "Calm night water, solid panels, Pond Pebbles titles",
+              },
+              {
                 id: "sillytavern" as VisualTheme,
                 label: "SillyTavern",
-                desc: "Classic SillyTavern look â€” clean & minimal",
+                desc: "Classic SillyTavern look, clean & minimal",
               },
             ] as const
           ).map((opt) => (
@@ -1753,7 +1759,7 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-1.5">
           <CloudRain size="0.75rem" className="text-[var(--muted-foreground)]" />
           <span className="text-xs font-medium">Effects</span>
-          <HelpTooltip text="Visual effects that enhance the roleplay atmosphere. Weather particles like rain, snow, and fog appear based on the story context." />
+          <HelpTooltip text="Effects that set the roleplay atmosphere: weather particles like rain, snow and fog, and optional scene sound, based on the story context." />
         </div>
         <ToggleSetting
           label="Dynamic weather effects (rain, snow, fog, etc.)"
@@ -1765,6 +1771,7 @@ export function AppearanceSettings() {
           <span className="font-medium">World State</span> agent to be enabled so weather data is extracted from the
           narrative.
         </p>
+        <RoleplaySceneSoundSettings />
       </div>
 
       {/* â”€â”€ Conversation Gradient (per color-scheme) â”€â”€ */}

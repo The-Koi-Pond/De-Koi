@@ -1,3 +1,4 @@
+import { readFanficDraftRequest } from "../../../../engine/modes/fanfic/from-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -6,7 +7,7 @@ import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import type { FanficOutline, FanficState, FanficVoiceSheet } from "../../../../engine/contracts/types/fanfic";
 import { applyFanficPlan, type FanficPlanProposal } from "../../../../engine/modes/fanfic/plan";
 import { fanficVoiceCharacters, withFanficVoices } from "../../../../engine/modes/fanfic/voices";
-import { approveFanficOutline } from "../../../../engine/modes/fanfic/outline";
+import { approveFanficOutline, editFanficOutline } from "../../../../engine/modes/fanfic/outline";
 import { withFanficResearchNotes } from "../../../../engine/modes/fanfic/research";
 import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanfic/request";
 import { useChatStore } from "../../../../shared/stores/chat.store";
@@ -24,6 +25,8 @@ import {
   useFanficOutline,
   useFanficRequestSave,
   useFanficWriter,
+  useFanficRunnerReattach,
+  nextFanficWrite,
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
@@ -82,42 +85,110 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
   useEffect(() => {
     chaptersRef.current = chapters;
   }, [chapters]);
-  // Once a chapter is finished (written, continued, reset or kept as is), the same follow-ups run for its kind.
+  // Once a chapter is finished (written, continued, reset, kept as is or polished), the same follow-ups run for its kind.
   const afterChapterFinished = useCallback(
-    (chapter: FanficFinishedChapter) => {
-      const followUps = fanficFollowUps(chapter);
+    (chapter: FanficFinishedChapter, options: { batch?: boolean; polish?: boolean; polishNext?: boolean } = {}) => {
+      const followUps = fanficFollowUps(chapter, {
+        polish: options.polish === true,
+        polishNext: options.polishNext === true,
+      });
       // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
-      if (bansSupported) removeBannedPhrases({ messageId: followUps.phraseBansFor, quiet: true });
+      if (bansSupported && followUps.phraseBansFor) {
+        removeBannedPhrases({ messageId: followUps.phraseBansFor, quiet: true });
+      }
       // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
-      updateLedger({ quiet: true });
-      // Living outline: after each new chapter, check the rest of the plan against what was written.
-      if (followUps.proposePlan) proposePlan({ quiet: true });
+      if (followUps.updateLedger) updateLedger({ quiet: true });
+      // Living outline: after each new chapter, check the rest of the plan against what was written. A "write all"
+      // run follows the outline as it is, so it skips the proposals nobody is there to use.
+      if (followUps.proposePlan && !options.batch) proposePlan({ quiet: true });
     },
     [bansSupported, proposePlan, removeBannedPhrases, updateLedger],
   );
-  const runWrite = useCallback(
+  // "Write all": set while a run of chapters is going. A Stop ends the whole run and skips the chapter's polish, not
+  // just the write on screen.
+  const [batchRunning, setBatchRunning] = useState(false);
+  const followUpsStopped = useRef(false);
+  // The chapter the auto-polish is working on: the reader keeps showing it as written until the polished one lands.
+  const [polishing, setPolishing] = useState<string | null>(null);
+  const writeChapterRef = useRef<(args: FanficWriteArgs) => void>(() => {});
+  // One write at a time: a reattach when the tab wakes between two chapters of a run must not race the run's own
+  // next write (the generation hook would refuse the second, but its settle would clear the first one's state).
+  const writeInFlight = useRef(false);
+  // One write; it goes on by itself to the chapter's polish, and in a "write all" run to the next chapter (see
+  // nextFanficWrite).
+  const writeChapter = useCallback(
     (args: FanficWriteArgs) => {
-      lastWrite.current = args;
+      if (writeInFlight.current) return;
+      writeInFlight.current = true;
+      // Retrying a write followed from the server starts a new one of the same kind.
+      const { runnerJobId: _followed, ...retry } = args;
+      lastWrite.current = retry;
+      const batch = args.batch === true;
+      setBatchRunning(batch);
       const continued =
         args.kind === "continue" ? chaptersRef.current.find((chapter) => chapter.message.id === args.messageId) : null;
       setContinuing(continued ? { messageId: continued.message.id, textSoFar: continued.message.content } : null);
       setWritingExtraAfter(args.kind === "extra" && !args.messageId ? (args.parentChapter ?? null) : null);
+      setPolishing(args.kind === "polish" ? (args.messageId ?? null) : null);
       void write(args)
-        .then((finished) => {
-          if (finished) afterChapterFinished(finished);
+        .then(async (finished) => {
+          if (!finished) return null;
+          let next: FanficWriteArgs | null = null;
+          try {
+            next = await nextFanficWrite(activeChatId, followUpsStopped.current, args, finished);
+          } catch (error) {
+            toast.error(
+              toUserMessage(error, {
+                fallback: batch
+                  ? "Couldn't start the next chapter. Write it from the button below to carry on."
+                  : "Couldn't start polishing the chapter. Its Check buttons still work.",
+              }),
+            );
+          }
+          afterChapterFinished(finished, {
+            batch,
+            polish: args.kind === "polish",
+            polishNext: next?.kind === "polish",
+          });
+          return next;
         })
         .catch((error: unknown) => {
           // The write's own failures are already on screen, and a Stop needs no message.
-          if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) return;
+          if (isReportedGenerationFailure(error) || (error instanceof Error && error.name === "AbortError")) {
+            return null;
+          }
           toast.error(toUserMessage(error, { fallback: "That write didn't finish. Try again." }));
+          return null;
         })
-        .finally(() => {
+        .then((next) => {
+          writeInFlight.current = false;
           setContinuing(null);
           setWritingExtraAfter(null);
+          setPolishing(null);
+          if (next) writeChapterRef.current(next);
+          else setBatchRunning(false);
         });
     },
-    [afterChapterFinished, write],
+    [activeChatId, afterChapterFinished, write],
   );
+  useEffect(() => {
+    writeChapterRef.current = writeChapter;
+  }, [writeChapter]);
+  // Every write the reader (or a reattach) starts; one the requester starts clears an earlier Stop.
+  const runWrite = useCallback(
+    (args: FanficWriteArgs) => {
+      if (!args.runnerJobId) followUpsStopped.current = false;
+      writeChapter(args);
+    },
+    [writeChapter],
+  );
+  const { stop: stopGeneration } = generation;
+  const stopWrite = useCallback(() => {
+    followUpsStopped.current = true;
+    stopGeneration();
+  }, [stopGeneration]);
+  // A chapter still being written on the server (the phone slept or the tab closed mid-write) streams here again.
+  useFanficRunnerReattach(activeChatId, messagesComplete && stage === "writing", runWrite);
 
   const chapterCount = useRef(chapters.length);
   useEffect(() => {
@@ -197,6 +268,26 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     }
   };
 
+  const saveOutline = async (edited: FanficOutline): Promise<boolean> => {
+    if (!state) return false;
+    let next: FanficState;
+    try {
+      next = editFanficOutline(state, edited);
+    } catch {
+      toast.error("Give every chapter a title or some beats before saving.");
+      return false;
+    }
+    try {
+      await saveState(next);
+      toast.success("Outline saved. The next chapter follows it.");
+      return true;
+    } catch (error) {
+      const text = errorText(error, "Couldn't save the outline. Try again.");
+      if (text) toast.error(text);
+      return false;
+    }
+  };
+
   const applyPlanProposal = async (proposal: FanficPlanProposal) => {
     if (!state) return;
     try {
@@ -254,7 +345,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
         <FanficRequestForm
           chatId={activeChatId}
           chatPersonaId={chat.personaId ?? null}
-          initialRequest={state?.request ?? defaultFanficRequest()}
+          initialRequest={state?.request ?? readFanficDraftRequest(chat.metadata) ?? defaultFanficRequest()}
           initialConnectionId={connectionId}
           initialCharacterIds={Array.isArray(chat.characterIds) ? chat.characterIds : []}
           initialLorebookIds={fanficPickedLorebookIds(chat.metadata)}
@@ -318,14 +409,17 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
           phase={generation.phase}
           regeneratingMessageId={generation.regeneratingMessageId}
           continuing={continuing}
+          polishing={polishing}
           writingExtraAfter={writingExtraAfter}
           onWrite={runWrite}
           onChapterFinished={afterChapterFinished}
           onRetry={() => runWrite(lastWrite.current)}
-          onStop={generation.stop}
+          onStop={stopWrite}
+          batchRunning={batchRunning}
           ledger={ledger}
           voices={voices}
           onSaveVoices={saveVoices}
+          onSaveOutline={saveOutline}
           editor={editor}
           plan={plan}
           phraseBans={phraseBans}

@@ -10,7 +10,6 @@ import {
   sameOriginRemoteRuntimeUrl,
   type RemoteRuntimeHealthCheck,
 } from "../../../../shared/api/remote-runtime";
-import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { SETUP_JOURNEY_REGION_ID } from "../../../../shared/lib/setup-journey-reveal";
@@ -18,7 +17,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
-import { buildSetupReadinessFacts } from "../lib/setup-readiness";
+import { buildSetupReadinessFacts, filterUsableLanguageConnections } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
 import {
   createSetupChatLaunchOrchestrator,
@@ -149,13 +148,9 @@ export function SetupReadinessJourney() {
     return () => controller.abort();
   }, [embedded, healthCheckAttempt, journeyActive, runtimeTarget]);
 
-  const languageConnections = useMemo(
-    () =>
-      filterLanguageGenerationConnections(connections).filter(
-        (row) => row.provider !== "tts" && row.provider !== "text_to_speech",
-      ),
-    [connections],
-  );
+  // Only connections that can reply: a half-finished one (no key or no model yet) must never be
+  // the one setup hands the new chat, or the first message gets no reply.
+  const languageConnections = useMemo(() => filterUsableLanguageConnections(connections), [connections]);
   const { data: chatSummaries, isPending: chatHistoryPending } = useChatSummaries();
   const recentConnectionIds = useMemo(
     () => connectionCatalogApi.recentChatConnectionIds(chatSummaries ?? []),
@@ -322,6 +317,11 @@ export function SetupReadinessJourney() {
             completed={intent.completed}
             onDismiss={() => useSetupJourneyStore.getState().dismiss()}
             onResume={() => useSetupJourneyStore.getState().resume()}
+            onCancel={() => {
+              // Drop the waiting new chat too: while it waits, the chat screen starts a fresh setup for it.
+              useChatStore.getState().setPendingNewChatMode(null);
+              useSetupJourneyStore.getState().clearIntent();
+            }}
             onConfigureRuntime={openSettings}
             onRepairRuntime={openSettings}
             onCreateConnection={openConnections}

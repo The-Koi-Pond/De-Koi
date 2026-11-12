@@ -30,11 +30,13 @@ import {
   X,
   Trash2,
   Wand2,
+  MessagesSquare,
 } from "lucide-react";
 import { useChat, useSetActiveSwipe, useUpdateMessage } from "../../../catalog/chats/index";
 import { HelperRunNote } from "../../../catalog/connections/index";
 import { GenerationFailureNotice } from "../../../runtime/generation/index";
 import type {
+  FanficOutline,
   FanficState,
   FanficUnfinished,
   FanficUnfinishedReason,
@@ -48,6 +50,7 @@ import {
   fanficUnfinishedReason,
   type FanficChapterRef,
 } from "../../../../engine/modes/fanfic/chapter-refs";
+import { fanficReplanScope } from "../../../../engine/modes/fanfic/comments";
 import { fanficDeletePlan } from "../../../../engine/modes/fanfic/extras";
 import { readFanficVersion } from "../../../../engine/modes/fanfic/versions";
 import { fanficVoiceCharacters } from "../../../../engine/modes/fanfic/voices";
@@ -56,6 +59,7 @@ import {
   detectFanficAiIsms,
   fanficAiIsmNeedsCleanup,
 } from "../../../../engine/modes/fanfic/ai-isms";
+import { fanficDurationLabel, fanficWriteAllEstimateMinutes } from "../../../../engine/modes/fanfic/batch";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import {
   buildFanficExport,
@@ -102,7 +106,7 @@ import {
   fanficProseBlocks,
   type FanficNarrationPlan,
 } from "../lib/narration";
-import { FanficResearchSources } from "./FanficOutlineView";
+import { FanficOutlineEditor, FanficResearchSources } from "./FanficOutlineView";
 import { FanficContinuityProgress, FanficContinuityResult } from "./FanficContinuityResult";
 import { FanficEditorPanel } from "./FanficEditorPanel";
 import { FanficLedgerPanel } from "./FanficLedgerPanel";
@@ -110,16 +114,23 @@ import { FanficVoiceProgress, FanficVoiceResult } from "./FanficVoiceResult";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
+import { FanficComments, type FanficCommentUses } from "./FanficComments";
+import { FanficContinuePanel } from "./FanficContinuePanel";
+import { FanficLinkedChatsPanel } from "./FanficLinkedChatsPanel";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
 import { FanficPassageEditor } from "./FanficPassageEditor";
 import { FanficPlanPanel } from "./FanficPlanPanel";
 import { FanficQualityPanel } from "./FanficQualityPanel";
 import { FanficButton, FanficChip, FanficWaitNote, fanficInputClass } from "./fanfic-ui";
+import { FanficAutoPolishSwitch, FanficPolishNote } from "./FanficPolish";
+import { readFanficPolishReport } from "../../../../engine/modes/fanfic/polish";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 
 /** The chapter on screen by message id, or the entire work. */
 type ReaderView = string;
 const ENTIRE_WORK: ReaderView = "all";
+/** The page of the new main chapter being written; it has no message until the chapter is saved. */
+const WRITING_NEXT: ReaderView = "writing-next";
 
 interface FanficReaderProps {
   chatId: string;
@@ -134,11 +145,15 @@ interface FanficReaderProps {
   continuing: { messageId: string; textSoFar: string } | null;
   /** The main chapter a running write of a new extra follows; the extra streams at the end of that chapter's chain. */
   writingExtraAfter: number | null;
+  /** The chapter the auto-polish is working on; it shows as written, with the polish's progress, until it lands. */
+  polishing?: string | null;
   onWrite: (args: FanficWriteArgs) => void;
   /** A chapter was finished outside a write (Keep as is); it gets the same follow-ups as a finished write. */
   onChapterFinished: (chapter: FanficFinishedChapter) => void;
   onRetry: () => void;
   onStop: () => void;
+  /** A "write all" run is going: the next-chapter box stays hidden between its chapters. */
+  batchRunning?: boolean;
   ledger: FanficLedgerController;
   voices: FanficVoicesController;
   editor: FanficEditorController;
@@ -149,6 +164,8 @@ interface FanficReaderProps {
   /** Uses a re-plan of the remaining chapters (the outline changes). */
   onUsePlan: (proposal: FanficPlanProposal) => Promise<void>;
   onSaveVoices: (voices: FanficVoiceSheet[]) => Promise<void>;
+  /** Saves the requester's edit of the outline; resolves false when it wasn't saved (the reason is on screen). */
+  onSaveOutline: (outline: FanficOutline) => Promise<boolean>;
 }
 
 function wordCount(text: string): number {
@@ -252,6 +269,8 @@ function WorkHeader({
   onExport,
   showOutline,
   onToggleOutline,
+  outlineLocked,
+  onSaveOutline,
   showQuality,
   onToggleQuality,
   showLedger,
@@ -260,6 +279,8 @@ function WorkHeader({
   onToggleVoices,
   showEditor,
   onToggleEditor,
+  showContinue,
+  onToggleContinue,
 }: {
   chatId: string;
   busy: boolean;
@@ -270,6 +291,9 @@ function WorkHeader({
   onExport: (format: FanficExportFormat) => void;
   showOutline: boolean;
   onToggleOutline: () => void;
+  /** A write or a "write all" run is going, so the outline can't change under it. */
+  outlineLocked: boolean;
+  onSaveOutline: (outline: FanficOutline) => Promise<boolean>;
   showQuality: boolean;
   onToggleQuality: () => void;
   showLedger: boolean;
@@ -278,11 +302,14 @@ function WorkHeader({
   onToggleVoices: () => void;
   showEditor: boolean;
   onToggleEditor: () => void;
+  showContinue: boolean;
+  onToggleContinue: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [editingOutline, setEditingOutline] = useState(false);
   const extraTags = [
     ...request.warnings.map((warning) => FANFIC_WARNING_LABELS[warning]),
     ...request.relationships,
@@ -327,8 +354,17 @@ function WorkHeader({
       <div className="mt-3 max-w-xs">
         <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
       </div>
+      <div className="mt-3 max-w-prose">
+        <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
+      </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <FanficButton onClick={onToggleOutline} aria-expanded={showOutline}>
+        <FanficButton
+          onClick={() => {
+            setEditingOutline(false);
+            onToggleOutline();
+          }}
+          aria-expanded={showOutline}
+        >
           <ListOrdered size="0.9rem" aria-hidden="true" />
           {showOutline ? "Hide outline" : "Outline"}
         </FanficButton>
@@ -354,6 +390,10 @@ function WorkHeader({
           <PenTool size="0.9rem" aria-hidden="true" />
           {showEditor ? "Hide editor" : "Editor"}
         </FanficButton>
+        <FanficButton onClick={onToggleContinue} aria-expanded={showContinue}>
+          <MessagesSquare size="0.9rem" aria-hidden="true" />
+          {showContinue ? "Hide roleplays and chats" : "Roleplays and chats"}
+        </FanficButton>
         <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
           <Download size="0.9rem" aria-hidden="true" />
           Save as HTML
@@ -364,19 +404,39 @@ function WorkHeader({
         </FanficButton>
       </div>
       {showOutline && outline && (
-        <ol className="mt-3 flex flex-col gap-2 border-t border-[var(--border)] pt-3">
-          {outline.chapters.map((chapter) => (
-            <li key={chapter.number} className="text-sm">
-              <p className="font-semibold text-[var(--foreground)]">
-                {chapter.number}. {chapter.title}
-                {chapter.number <= chapterCount && (
-                  <span className="ml-1.5 text-xs font-normal text-[var(--muted-foreground)]">written</span>
-                )}
-              </p>
-              <p className="text-[0.8125rem] leading-snug text-[var(--muted-foreground)]">{chapter.summary}</p>
-            </li>
-          ))}
-        </ol>
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          {editingOutline ? (
+            <FanficOutlineEditor
+              outline={outline}
+              writtenThrough={chapterCount}
+              locked={outlineLocked}
+              onSave={onSaveOutline}
+              onCancel={() => setEditingOutline(false)}
+            />
+          ) : (
+            <>
+              <div className="mb-2 flex justify-end">
+                <FanficButton onClick={() => setEditingOutline(true)} disabled={outlineLocked}>
+                  <Pencil size="0.9rem" aria-hidden="true" />
+                  Edit outline
+                </FanficButton>
+              </div>
+              <ol className="flex flex-col gap-2">
+                {outline.chapters.map((chapter) => (
+                  <li key={chapter.number} className="text-sm">
+                    <p className="font-semibold text-[var(--foreground)]">
+                      {chapter.number}. {chapter.title}
+                      {chapter.number <= chapterCount && (
+                        <span className="ml-1.5 text-xs font-normal text-[var(--muted-foreground)]">written</span>
+                      )}
+                    </p>
+                    <p className="text-[0.8125rem] leading-snug text-[var(--muted-foreground)]">{chapter.summary}</p>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
       )}
       {researchOpen && state.research && (
         <div className="mt-3 flex flex-col gap-2 border-t border-[var(--border)] pt-3">
@@ -1198,6 +1258,7 @@ function StreamingChapter({
   phase,
   onStop,
   waiting = false,
+  statusFirst = false,
 }: {
   chatId: string;
   heading: string;
@@ -1206,6 +1267,8 @@ function StreamingChapter({
   onStop: () => void;
   /** The text shown is the chapter so far and the new words haven't started yet. */
   waiting?: boolean;
+  /** The progress goes above the text (a polish: the whole chapter is shown and nothing streams after it). */
+  statusFirst?: boolean;
 }) {
   const startedAt = useChatStore((s) => s.generationPhaseStartedAtByChatId.get(chatId) ?? null);
   const status = (
@@ -1226,8 +1289,9 @@ function StreamingChapter({
           Stop
         </FanficButton>
       </div>
+      {text.trim() && waiting && statusFirst && status}
       {text.trim() ? <Prose text={text} keyBase="fanfic-stream" /> : status}
-      {text.trim() && waiting && status}
+      {text.trim() && waiting && !statusFirst && status}
     </article>
   );
 }
@@ -1246,9 +1310,15 @@ function NextChapterPanel({
   planning = false,
   onCancel,
   continuesFrom,
+  allowWriteAll = false,
+  mainChapterTimes = [],
 }: {
   state: FanficState;
   nextNumber: number;
+  /** Offer "Write all N remaining" next to the write button (the next main chapter's box only). */
+  allowWriteAll?: boolean;
+  /** When each main chapter was saved, for the "Write all" time estimate. */
+  mainChapterTimes?: readonly string[];
   /** Set for an extra chapter, by its N.x label: the outline doesn't plan it, so it has no title and no "complete". */
   extraLabel?: string;
   /** The box writes an unfinished chapter again (Reset) instead of a new one. */
@@ -1269,6 +1339,9 @@ function NextChapterPanel({
 }) {
   const planned = fanficPlannedChapterCount(state);
   const complete = !extraLabel && nextNumber > planned;
+  const remaining = planned - nextNumber + 1;
+  const writeAll = allowWriteAll && !extraLabel && !again && remaining >= 2;
+  const writeAllMinutes = writeAll ? fanficWriteAllEstimateMinutes(mainChapterTimes, remaining) : null;
   const label = extraLabel ?? String(nextNumber);
   const title = extraLabel ? "" : fanficChapterTitle(state, nextNumber);
   const newExtra = Boolean(extraLabel) && !again;
@@ -1344,6 +1417,20 @@ function NextChapterPanel({
             {complete ? "Suggest what's next" : "Re-plan the rest"}
           </FanficButton>
         )}
+        {writeAll && (
+          <FanficButton
+            disabled={busy || Boolean(blocked)}
+            title={blocked ?? `Writes chapters ${nextNumber} to ${planned} one after another.`}
+            className="min-h-11"
+            onClick={() => {
+              onWrite({ kind: "chapter", notes, batch: true });
+              setNotes("");
+            }}
+          >
+            <ListOrdered size="1rem" aria-hidden="true" />
+            Write all {remaining} remaining
+          </FanficButton>
+        )}
         <FanficButton
           tone="primary"
           disabled={busy || Boolean(blocked)}
@@ -1358,7 +1445,22 @@ function NextChapterPanel({
           {complete ? "Write a bonus chapter" : `Write chapter ${label}`}
         </FanficButton>
       </div>
+      {writeAllMinutes !== null && (
+        <p className="mt-1.5 text-right text-xs text-[var(--muted-foreground)]" data-fanfic-write-all-estimate="">
+          Writing all {remaining} takes {fanficDurationLabel(writeAllMinutes)} at this fic's pace so far.
+        </p>
+      )}
     </section>
+  );
+}
+
+/** Shown under the chapter being written while a "write all" run goes on. */
+function BatchRunNote({ chapter, planned }: { chapter: number; planned: number }) {
+  return (
+    <p role="status" className="px-1 text-xs text-[var(--muted-foreground)]">
+      Writing every remaining chapter, one after another: chapter {Math.min(chapter, planned)} of {planned}. Stop ends
+      the run; finished chapters stay.
+    </p>
   );
 }
 
@@ -1373,13 +1475,16 @@ export function FanficReader({
   regeneratingMessageId,
   continuing,
   writingExtraAfter,
+  polishing = null,
   onWrite,
   onChapterFinished,
   onRetry,
   onStop,
+  batchRunning = false,
   ledger,
   voices,
   onSaveVoices,
+  onSaveOutline,
   editor,
   plan,
   onUsePlan,
@@ -1408,6 +1513,10 @@ export function FanficReader({
     label: `${refHeading(state, ref, isOrphan(ref))}${isSideStory(ref) ? " (side story)" : ""}`,
   }));
   const chapterCount = layout.mains.length;
+  const mainChapterTimes = useMemo(() => {
+    const savedAt = new Map(chapters.map(({ message }) => [message.id, message.createdAt]));
+    return layout.mains.map((ref) => savedAt.get(ref.messageId) ?? "");
+  }, [chapters, layout]);
   const lastMain = layout.mains.at(-1);
   // A fic opens on its last main chapter.
   const [view, setView] = useState<ReaderView>(lastMain?.messageId ?? ENTIRE_WORK);
@@ -1453,6 +1562,7 @@ export function FanficReader({
   const [showQuality, setShowQuality] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
+  const [showContinue, setShowContinue] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [nextNotes, setNextNotes] = useState("");
   const bannedPhrases = useMemo(() => fanficBannedPhrases(state), [state]);
@@ -1513,10 +1623,28 @@ export function FanficReader({
 
   // Jump to a main chapter as soon as it is written.
   const lastMainId = lastMain?.messageId;
+  // A re-plan from a comment thread shows its plan after the latest chapter, so the reader is taken there.
+  const planRef = useRef<HTMLDivElement>(null);
+  const [revealPlan, setRevealPlan] = useState(false);
+  // The page of the chapter still being written stays open (in a "write all" run the last one can land late).
+  const onWritingPage = writingNew && view === WRITING_NEXT;
   useEffect(() => {
-    if (chapterCount > previousCount.current && lastMainId) setView(lastMainId);
+    if (chapterCount > previousCount.current && lastMainId && !onWritingPage) setView(lastMainId);
     previousCount.current = chapterCount;
-  }, [chapterCount, lastMainId]);
+  }, [chapterCount, lastMainId, onWritingPage]);
+  // A new main chapter is written on its own fresh page, opened at the top, when the reader is on the last page; a
+  // reader looking back at an earlier chapter (or the entire work) stays where they are.
+  const writingPage = onWritingPage;
+  const viewingLastPage = view !== ENTIRE_WORK && (!lastMain || refs.get(view)?.position === lastMain.position);
+  const wasWritingNew = useRef(writingNew);
+  useEffect(() => {
+    if (writingNew && !wasWritingNew.current && viewingLastPage) {
+      setView(WRITING_NEXT);
+      topRef.current?.scrollIntoView({ block: "start" });
+    }
+    if (!writingNew && view === WRITING_NEXT) setView(lastMainId ?? ENTIRE_WORK);
+    wasWritingNew.current = writingNew;
+  }, [lastMainId, view, viewingLastPage, writingNew]);
   // A new extra opens on its own page once it is written, as a new main chapter does.
   const extraIds = useMemo(() => layout.chapters.filter((ref) => ref.extra).map((ref) => ref.messageId), [layout]);
   const previousExtras = useRef(new Set(extraIds));
@@ -1554,10 +1682,36 @@ export function FanficReader({
 
   // Every chapter, extras included, is read on its own page.
   const visible = useMemo(
-    () => (viewed ? chapters.filter((chapter) => chapter.message.id === viewed.messageId) : chapters),
-    [chapters, viewed],
+    () =>
+      writingPage ? [] : viewed ? chapters.filter((chapter) => chapter.message.id === viewed.messageId) : chapters,
+    [chapters, viewed, writingPage],
   );
-  const viewingLast = !viewed || viewed.position >= (lastMain?.position ?? 0);
+  const viewingLast = writingPage || !viewed || viewed.position >= (lastMain?.position ?? 0);
+  useEffect(() => {
+    if (!revealPlan) return;
+    if (planRef.current) planRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Shown, or the re-plan ended without a panel (it failed and said why): either way, nothing left to reveal.
+    if (planRef.current || !plan.running) setRevealPlan(false);
+  }, [revealPlan, plan.running, view]);
+  const replanScope = fanficReplanScope(state, chapterCount);
+  const canReplan = Boolean(state.outline && state.outlineApproved);
+  const commentUses = (messageId: string, label: string): FanficCommentUses => ({
+    chapterLabel: label,
+    onRewrite: (notes) => onWrite({ kind: "revise", messageId, notes }),
+    rewriteDisabled: generating || Boolean(blocked),
+    onReplan: canReplan
+      ? (notes) => {
+          plan.propose({ steer: notes });
+          if (!viewingLast && lastMainId) {
+            stopNarration();
+            setView(lastMainId);
+          }
+          setRevealPlan(true);
+        }
+      : null,
+    replanDisabled: generating || plan.running,
+    replanScope,
+  });
   // A new extra streams in place of a page of its chain (its main chapter or one of its extras), and in the entire
   // work after the chain (null marks it). Any other chapter in view stays as it is.
   const shown = useMemo(() => {
@@ -1609,6 +1763,8 @@ export function FanficReader({
         onExport={(format) => void exportFic(format)}
         showOutline={showOutline}
         onToggleOutline={() => setShowOutline((open) => !open)}
+        outlineLocked={generating || batchRunning}
+        onSaveOutline={onSaveOutline}
         showQuality={showQuality}
         onToggleQuality={() => setShowQuality((open) => !open)}
         showLedger={showLedger}
@@ -1617,7 +1773,11 @@ export function FanficReader({
         onToggleVoices={() => setShowVoices((open) => !open)}
         showEditor={showEditor}
         onToggleEditor={() => setShowEditor((open) => !open)}
+        showContinue={showContinue}
+        onToggleContinue={() => setShowContinue((open) => !open)}
       />
+      {showContinue && chapterCount > 0 && <FanficContinuePanel chatId={chatId} state={state} busy={generating} />}
+      {showContinue && <FanficLinkedChatsPanel chatId={chatId} />}
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={canonLine} ledger={ledger} busy={generating} />
       )}
@@ -1667,9 +1827,20 @@ export function FanficReader({
         </div>
       )}
       <div ref={topRef} className="scroll-mt-4">
-        <ChapterNav options={navOptions} view={viewed?.messageId ?? ENTIRE_WORK} onChange={changeView} />
+        <ChapterNav
+          options={
+            writingNew
+              ? [
+                  ...navOptions,
+                  { messageId: WRITING_NEXT, label: `${chapterHeading(state, chapterCount + 1)} (writing…)` },
+                ]
+              : navOptions
+          }
+          view={writingPage ? WRITING_NEXT : (viewed?.messageId ?? ENTIRE_WORK)}
+          onChange={changeView}
+        />
       </div>
-      {narrationPlan && chapterCount > 0 && (
+      {narrationPlan && chapterCount > 0 && !writingPage && (
         <NarrationBar
           plan={narrationPlan}
           scopeLabel={narrationScope}
@@ -1706,11 +1877,28 @@ export function FanficReader({
           );
         }
         const ref = refs.get(chapter.message.id)!;
+        const polished = generating && polishing === chapter.message.id;
         const regenerating = generating && regeneratingMessageId === chapter.message.id;
         const continued = generating && continuing?.messageId === chapter.message.id ? continuing : null;
         const orphan = isOrphan(ref);
         const heading = refHeading(state, ref, orphan);
         const pool = repetitionPools.get(ref.messageId)!;
+        const polishReport = readFanficPolishReport(chapter.message.extra, chapter.message.content);
+        if (polished) {
+          // The chapter stays readable as written while it's polished; the polished version replaces it when done.
+          return (
+            <StreamingChapter
+              key={chapter.message.id}
+              chatId={chatId}
+              heading={heading}
+              text={chapter.message.content}
+              waiting
+              statusFirst
+              phase={phase || "Polishing…"}
+              onStop={onStop}
+            />
+          );
+        }
         if (regenerating || continued) {
           return (
             <StreamingChapter
@@ -1739,6 +1927,7 @@ export function FanficReader({
                 activeBlock={narratedPart?.chapterLabel === ref.label ? narratedPart.block : null}
               />
             </div>
+            {polishReport && <FanficPolishNote report={polishReport} />}
             <div className="border-t border-[var(--border)] pt-3">
               <ChapterTools
                 chatId={chatId}
@@ -1782,11 +1971,20 @@ export function FanficReader({
                 phraseBans={phraseBans}
               />
             </div>
+            <FanficComments
+              ficChatId={chatId}
+              chapterMessageId={chapter.message.id}
+              chapterLabel={ref.label}
+              chapterContent={chapter.message.content}
+              disabled={generating}
+              uses={commentUses(chapter.message.id, ref.label)}
+            />
           </article>
         );
       })}
 
-      {writingNew && (
+      {/* The new chapter streams on its own page (or at the end of the entire work), not under an earlier one. */}
+      {writingNew && (writingPage || view === ENTIRE_WORK || !lastMain) && (
         <StreamingChapter
           chatId={chatId}
           heading={chapterHeading(state, chapterCount + 1)}
@@ -1795,37 +1993,42 @@ export function FanficReader({
           onStop={onStop}
         />
       )}
+      {batchRunning && <BatchRunNote chapter={chapterCount + 1} planned={fanficPlannedChapterCount(state)} />}
 
       <GenerationFailureNotice chatId={chatId} onRetry={onRetry} />
 
       {viewingLast && !generating && (proposal || plan.running) && (
-        <FanficPlanPanel
-          proposal={proposal}
-          controller={plan}
-          busy={generating}
-          helperNote={
-            <HelperRunNote
-              task="fanficPlanning"
-              job="living outline"
-              chatId={chatId}
-              className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
-            />
-          }
-          onUse={async (used) => {
-            if (used.mode === "next") {
-              setNextNotes(fanficPlanNotes(used));
-              await plan.dismiss();
-              toast.success(
-                `Chapter ${used.chapters[0]?.number}'s notes are filled in below. Change anything before writing.`,
-              );
-            } else await onUsePlan(used);
-          }}
-        />
+        <div ref={planRef} className="scroll-mt-4">
+          <FanficPlanPanel
+            proposal={proposal}
+            controller={plan}
+            busy={generating}
+            helperNote={
+              <HelperRunNote
+                task="fanficPlanning"
+                job="living outline"
+                chatId={chatId}
+                className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]"
+              />
+            }
+            onUse={async (used) => {
+              if (used.mode === "next") {
+                setNextNotes(fanficPlanNotes(used));
+                await plan.dismiss();
+                toast.success(
+                  `Chapter ${used.chapters[0]?.number}'s notes are filled in below. Change anything before writing.`,
+                );
+              } else await onUsePlan(used);
+            }}
+          />
+        </div>
       )}
-      {viewingLast && !generating && (
+      {viewingLast && !generating && !batchRunning && (
         <NextChapterPanel
           state={state}
           nextNumber={chapterCount + 1}
+          allowWriteAll
+          mainChapterTimes={mainChapterTimes}
           busy={generating}
           blocked={blocked}
           onWrite={onWrite}

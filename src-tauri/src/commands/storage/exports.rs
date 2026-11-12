@@ -2707,4 +2707,49 @@ mod tests {
             .iter()
             .any(|entry| { entry.get("content").and_then(Value::as_str) == Some("first moon") }));
     }
+
+    #[test]
+    fn embedded_lorebook_reimport_keeps_a_copy_of_the_imported_book() {
+        let state = test_state("embedded-lorebook-reimport-copy");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "character-1",
+                    "name": "Mira",
+                    "data": {
+                        "name": "Mira",
+                        "character_book": {
+                            "entries": [{ "comment": "First", "content": "first moon", "key": ["moon"] }]
+                        }
+                    }
+                }),
+            )
+            .expect("character should be created");
+        let first = import_character_embedded_lorebook(&state, "character-1")
+            .expect("first import should succeed");
+        let lorebook_id = first["lorebookId"].as_str().unwrap().to_string();
+        let copy = crate::storage_commands::entity_commands::duplicate_entity(
+            &state,
+            "lorebooks",
+            &lorebook_id,
+        )
+        .expect("copy should succeed");
+        let copy_id = copy["id"].as_str().unwrap().to_string();
+        let copy_entries = entries_for_lorebook(&state, &copy_id);
+
+        let second = import_character_embedded_lorebook(&state, "character-1")
+            .expect("reimport should succeed");
+
+        assert_eq!(second["lorebookId"], lorebook_id);
+        let stored_copy = state
+            .storage
+            .get("lorebooks", &copy_id)
+            .expect("copy should read")
+            .expect("reimport must not delete the copy");
+        assert_eq!(stored_copy, copy);
+        assert_eq!(entries_for_lorebook(&state, &copy_id), copy_entries);
+        assert_eq!(copy_entries.len(), 1);
+    }
 }

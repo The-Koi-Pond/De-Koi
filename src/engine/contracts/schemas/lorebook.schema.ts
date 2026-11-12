@@ -15,7 +15,7 @@ const lorebookScopeModeSchema = z.enum(["all", "disabled", "specific"]);
 
 const lorebookScopeSchema = z.object({
   mode: lorebookScopeModeSchema.default("all"),
-  chatIds: z.array(z.string()).default([]),
+  chatIds: z.array(z.string()).prefault([]),
 });
 
 function defaultLorebookScope() {
@@ -39,9 +39,9 @@ const activationConditionSchema = z.object({
 });
 
 const lorebookScheduleSchema = z.object({
-  activeTimes: z.array(z.string()).default([]),
-  activeDates: z.array(z.string()).default([]),
-  activeLocations: z.array(z.string()).default([]),
+  activeTimes: z.array(z.string()).prefault([]),
+  activeDates: z.array(z.string()).prefault([]),
+  activeLocations: z.array(z.string()).prefault([]),
 });
 
 const lorebookEmbeddingSchema = z.array(z.number()).nullable();
@@ -88,15 +88,15 @@ export const createLorebookSchema = z.object({
   // When multiple active lorebooks enable recursion, the scanner uses the highest active depth.
   maxRecursionDepth: z.number().int().min(1).max(10).default(3),
   characterId: z.string().nullable().default(null),
-  characterIds: z.array(z.string()).default([]),
+  characterIds: z.array(z.string()).prefault([]),
   personaId: z.string().nullable().default(null),
-  personaIds: z.array(z.string()).default([]),
+  personaIds: z.array(z.string()).prefault([]),
   chatId: z.string().nullable().default(null),
-  scope: lorebookScopeSchema.default(defaultLorebookScope),
+  scope: lorebookScopeSchema.prefault(defaultLorebookScope),
   isGlobal: z.boolean().default(false),
   enabled: z.boolean().default(true),
   excludeFromVectorization: z.boolean().default(false),
-  tags: z.array(z.string()).default([]),
+  tags: z.array(z.string()).prefault([]),
   folderId: z.string().nullable().default(null),
   generatedBy: lorebookGeneratedBySchema.nullable().default(null),
   sourceAgentId: z.string().nullable().default(null),
@@ -166,8 +166,8 @@ export const createLorebookEntrySchema = z.object({
   description: z.string().default(""),
   sourceChatId: z.string().nullable().default(null),
   sourceMessageId: z.string().nullable().default(null),
-  keys: z.array(z.string()).default([]),
-  secondaryKeys: z.array(z.string()).default([]),
+  keys: z.array(z.string()).prefault([]),
+  secondaryKeys: z.array(z.string()).prefault([]),
   enabled: z.boolean().default(true),
   constant: z.boolean().default(false),
   selective: z.boolean().default(false),
@@ -178,12 +178,12 @@ export const createLorebookEntrySchema = z.object({
   caseSensitive: z.boolean().default(false),
   useRegex: z.boolean().default(false),
   characterFilterMode: lorebookFilterModeSchema.default("any"),
-  characterFilterIds: z.array(z.string()).default([]),
+  characterFilterIds: z.array(z.string()).prefault([]),
   characterTagFilterMode: lorebookFilterModeSchema.default("any"),
-  characterTagFilters: z.array(z.string()).default([]),
+  characterTagFilters: z.array(z.string()).prefault([]),
   generationTriggerFilterMode: lorebookFilterModeSchema.default("any"),
-  generationTriggerFilters: z.array(z.string()).default([]),
-  additionalMatchingSources: z.array(lorebookMatchingSourceSchema).default([]),
+  generationTriggerFilters: z.array(z.string()).prefault([]),
+  additionalMatchingSources: z.array(lorebookMatchingSourceSchema).prefault([]),
   position: z.number().int().min(0).max(2).default(0),
   depth: z.number().int().min(0).default(4),
   order: z.number().int().default(100),
@@ -205,9 +205,9 @@ export const createLorebookEntrySchema = z.object({
   useGroupScoring: z.boolean().default(false),
   locked: z.boolean().default(false),
   tag: z.string().default(""),
-  relationships: z.record(z.string()).default({}),
-  dynamicState: z.record(z.unknown()).default({}),
-  activationConditions: z.array(activationConditionSchema).default([]),
+  relationships: z.record(z.string(), z.string()).prefault({}),
+  dynamicState: z.record(z.string(), z.unknown()).prefault({}),
+  activationConditions: z.array(activationConditionSchema).prefault([]),
   schedule: lorebookScheduleSchema.nullable().default(null),
   excludeFromVectorization: z.boolean().default(false),
   embedding: lorebookEmbeddingSchema.optional(),
@@ -261,8 +261,8 @@ export const updateLorebookEntrySchema = z.object({
   useGroupScoring: z.boolean().optional(),
   locked: z.boolean().optional(),
   tag: z.string().optional(),
-  relationships: z.record(z.string()).optional(),
-  dynamicState: z.record(z.unknown()).optional(),
+  relationships: z.record(z.string(), z.string()).optional(),
+  dynamicState: z.record(z.string(), z.unknown()).optional(),
   activationConditions: z.array(activationConditionSchema).optional(),
   schedule: lorebookScheduleSchema.nullable().optional(),
   excludeFromVectorization: z.boolean().optional(),

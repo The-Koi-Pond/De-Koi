@@ -47,6 +47,11 @@ export interface Chat {
   connectionId: string | null;
   /** ID of a linked chat (conversation ↔ roleplay bidirectional link) */
   connectedChatId: string | null;
+  /**
+   * The chat this one lives inside (a fanfic chapter's comment thread names its fic). Such a chat stays out of the
+   * chat lists and search, opens only from its owner, and is deleted with it.
+   */
+  ownerChatId?: string | null;
   /** Folder this chat belongs to (null = root/unfiled) */
   folderId: string | null;
   /** Manual sort order within a folder (lower = higher). 0 = use default updatedAt sort. */
@@ -414,10 +419,21 @@ export interface ChatMetadata {
   selfiePositivePrompt?: string;
   /** Extra negative prompt/tags sent with generated conversation selfies. */
   selfieNegativePrompt?: string;
+  /**
+   * Send the character's full-body sprite (or their avatar when they have none) to the image model with each selfie, so the
+   * picture keeps their look. Off unless turned on: some services start from the reference image instead of reading it.
+   */
+  selfieUseAvatarReferences?: boolean;
+  /** Per character: how often a texts-first message comes with a selfie. Missing means "rare". */
+  unpromptedPhotoFrequency?: Record<string, "never" | "rare" | "sometimes">;
+  /** Per character: how often a reply (or a text sent first) goes out as a voice note. Missing means "rare". */
+  voiceNoteFrequency?: Record<string, "never" | "rare" | "sometimes">;
 
   // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */
   fanfic?: import("./fanfic.js").FanficState | null;
+  /** On a fanfic chapter's comment thread (a chat owned by the fic): the chapter it is under. */
+  fanficComment?: import("./fanfic.js").FanficCommentThread;
 
   // ── Conversation-Mode Auto-Summarization ──
   /** Per-day auto-generated conversation summaries (key: "DD.MM.YYYY"). */

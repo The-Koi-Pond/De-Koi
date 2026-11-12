@@ -47,12 +47,16 @@ import {
 } from "../../../../catalog/chat-presets/index";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
+import { ROLEPLAY_STARTER_CHARACTERS } from "../../../../../engine/modes/roleplay/starter-characters";
 import { boolish } from "../../../../../engine/generation/runtime-records";
 import { generateConversationSchedules } from "../../../../../engine/modes/chat/schedules/schedule.service";
 import { maybeRefreshConversationStatusMessages } from "../../../../../engine/modes/chat/status/status-message.service";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
-import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
+import {
+  filterLanguageGenerationConnections,
+  isConnectionReadyToReply,
+} from "../../../../../shared/lib/connection-filters";
 import { getCharacterTitle, parseCharacterDisplayData } from "../../../../../shared/lib/character-display";
 import { normalizeChatCharacterIds } from "../../../../../shared/lib/chat-display";
 import { ChoiceSelectionModal } from "../../../../catalog/presets/index";
@@ -97,7 +101,7 @@ const ALL_STEPS: WizardStep[] = [
   {
     key: "preset",
     title: "Pick a Preset",
-    body: "Presets control the system prompt structure and generation parameters. The default preset works great for most chats!",
+    body: "A preset is the set of writing instructions the AI follows. The default works well for most chats, so you can just press Next.",
     sprite: ASSISTANT_MARK_URL,
   },
   {
@@ -115,13 +119,13 @@ const ALL_STEPS: WizardStep[] = [
   {
     key: "lorebooks",
     title: "Attach Lorebooks",
-    body: "Lorebooks inject world info and lore into the AI's context when relevant keywords appear. Optional but great for rich worlds!",
+    body: "Lorebooks are notes about your world (places, people, history) that the AI reads when they come up. Optional, so you can press Next.",
     sprite: ASSISTANT_MARK_URL,
   },
   {
     key: "workflow-profile",
     title: "Choose a Workflow Profile",
-    body: "Optional: pick a ready-made set of Roleplay helpers. Picking one turns Done into Apply & finish, which saves it. To skip, press Done.",
+    body: "Optional extras for longer or more visual stories. To start chatting now, press Done. If you pick one, Done becomes Apply & finish.",
     sprite: ASSISTANT_MARK_URL,
   },
 ];
@@ -156,6 +160,8 @@ type ConnectionSetupOption = {
   id: string;
   name: string;
   provider?: string;
+  model?: string | null;
+  hasApiKey?: boolean | null;
   defaultParameters?: unknown;
 };
 
@@ -645,7 +651,8 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
 
   useEffect(() => {
     if (chat.connectionId || connectionOptions.length === 0 || updateChat.isPending) return;
-    updateChat.mutate({ id: chat.id, connectionId: connectionOptions[0]!.id });
+    const readyConnection = connectionOptions.find(isConnectionReadyToReply) ?? connectionOptions[0]!;
+    updateChat.mutate({ id: chat.id, connectionId: readyConnection.id });
   }, [chat.connectionId, chat.id, connectionOptions, updateChat]);
 
   const setPersona = useCallback(
@@ -1650,7 +1657,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
             {available.length === 0 && (
               <CharacterPickerEmptyState
                 status={characterEmptyState}
-                noCharactersText="No characters yet. Create or import one before adding them to this roleplay."
+                noCharactersText="No characters yet. Pick one to start with, or make or import your own."
                 allAddedText="All characters already added."
                 onOpenCharacters={() => {
                   openRightPanel("characters");
@@ -1658,6 +1665,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                 }}
                 onCharacterCreated={toggleCharacter}
                 onImportCharacters={() => openModal("import-character")}
+                starters={ROLEPLAY_STARTER_CHARACTERS}
               />
             )}
           </div>

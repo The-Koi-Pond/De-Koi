@@ -76,6 +76,7 @@ import {
 } from "../../../catalog/characters/index";
 
 import { getConversationStatus } from "../../../../engine/modes/chat/autonomous/autonomous.service";
+import { sentMediaFromExtra } from "../../../../engine/modes/chat/core/sent-media";
 import { resolveConversationStatusMessagesEnabled } from "../../../../engine/modes/chat/status/conversation-status-settings";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../../../shared/api/conversation-settings-api";
@@ -555,7 +556,8 @@ export function ConversationView({
     const isDefaultDark = convoGradient.dark.from === "#0a0a0e" && convoGradient.dark.to === "#1c2133";
     const isDefaultLight = convoGradient.light.from === "#f2eff7" && convoGradient.light.to === "#eae6f0";
     if ((theme === "dark" && isDefaultDark) || (theme === "light" && isDefaultLight)) {
-      return { background: "var(--secondary)" };
+      // A visual theme can set --convo-background; the others keep --secondary.
+      return { background: "var(--convo-background, var(--secondary))" };
     }
     return { background: `linear-gradient(135deg, ${g.from}, ${g.to})` };
   }, [convoGradient, theme]);
@@ -1275,6 +1277,7 @@ export function ConversationView({
         chatId,
         characterName: getAssistantNotificationName(newAssistantMessage, characterMap, activeCharacterNames),
         tag: `marinara-conversation-${chatId}`,
+        media: sentMediaFromExtra(newAssistantMessage.extra),
       });
     }
 

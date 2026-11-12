@@ -116,3 +116,67 @@ describe("conversation reactions in the prompt", () => {
     expect(history).toContain("SAM. cake. now\n(The user reacted ❤️)");
   });
 });
+
+describe("conversation photos in the prompt", () => {
+  const base = {
+    chat: { id: "chat-1", mode: "conversation", characterIds: ["juno"], metadata: { imageGenConnectionId: "img" } },
+    connection: { provider: "openai", model: "qa-model" },
+    latestUserInput: "",
+  };
+  const promptText = (result: Awaited<ReturnType<typeof assembleGenerationPrompt>>) =>
+    result.messages.map((message) => message.content).join("\n");
+
+  it("shows a sent photo as text, even when the photo was the whole message", async () => {
+    const result = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [
+        { id: "user-1", role: "user", content: "where are you" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          characterId: "juno",
+          content: "",
+          extra: { attachments: [{ type: "image", url: "/g/a.png", description: "juno on the pier at sunset" }] },
+        },
+      ],
+      request: {},
+    });
+
+    expect(promptText(result)).toContain("(sent a photo: juno on the pier at sunset)");
+  });
+
+  it("marks a voice note in history; its text is the transcript", async () => {
+    const result = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [
+        { id: "user-1", role: "user", content: "where are you" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          characterId: "juno",
+          content: "omw. save me a seat",
+          extra: { attachments: [{ type: "audio", voiceNote: true, url: "/v.mp3", filename: "v.mp3" }] },
+        },
+      ],
+      request: {},
+    });
+
+    expect(promptText(result)).toContain("omw. save me a seat\n(sent as a voice message)");
+  });
+
+  it("texting first, offers the photo tag only when this text carries one", async () => {
+    const send = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [{ id: "user-1", role: "user", content: "night" }],
+      request: { textsFirst: true, textsFirstPhoto: "send" },
+    });
+    const withhold = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [{ id: "user-1", role: "user", content: "night" }],
+      request: { textsFirst: true, textsFirstPhoto: "withhold" },
+    });
+
+    expect(promptText(send)).toContain("This text comes with a photo of you");
+    expect(promptText(withhold)).not.toContain("[selfie");
+  });
+});

@@ -27,6 +27,12 @@ pub async fn tts_speak(state: State<'_, AppState>, input: Value) -> Result<Value
     integrations::tts_call(&state, "POST", &["speak"], input).await
 }
 
+/// A character's voice note: speak the text and keep the audio as a managed file of the chat.
+#[tauri::command]
+pub async fn tts_voice_note(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
+    integrations::tts_call(&state, "POST", &["voice-note"], input).await
+}
+
 #[tauri::command]
 pub async fn stt_transcribe(state: State<'_, AppState>, input: Value) -> Result<Value, AppError> {
     integrations::tts_call(&state, "POST", &["transcribe"], input).await

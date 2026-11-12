@@ -888,6 +888,124 @@ fn stale_story_job_rows(
     Ok(())
 }
 
+/// The messages an automatic memory was captured from: the capture's cited `sourceMessageIds`, or the provenance
+/// ids for older rows that never stored them. Reference rows only resolved names, so they don't count.
+fn automatic_memory_source_ids(memory: &Value) -> Option<Vec<String>> {
+    let payload = memory.get("payload").and_then(Value::as_object)?;
+    if payload.get("automatic").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let ids = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let cited = ids(payload.get("sourceMessageIds"));
+    if !cited.is_empty() {
+        return Some(cited);
+    }
+    let references = ids(payload.get("referenceMessageIds"))
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let provenance = ids(memory
+        .get("provenance")
+        .and_then(|provenance| provenance.get("messageIds")))
+    .into_iter()
+    .filter(|id| !references.contains(id))
+    .collect::<Vec<_>>();
+    (!provenance.is_empty()).then_some(provenance)
+}
+
+/// Deleting a message deletes the automatic memories captured from it, so the model stops being told what the
+/// user removed. Rows are soft-deleted (status `deleted`), their index rows dropped and their knowledge edges
+/// invalidated in the same write. Pinned memories, manual memories and story projections are left alone.
+pub(crate) fn delete_automatic_memories_for_deleted_messages_in_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    index_collection_index: usize,
+    edge_collection_index: usize,
+    message_ids: &[String],
+) -> AppResult<usize> {
+    let deleted_message_ids = message_ids
+        .iter()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<HashSet<_>>();
+    if deleted_message_ids.is_empty() {
+        return Ok(0);
+    }
+    let now = now_iso();
+    let mut deleted = Vec::new();
+    for memory in collections
+        .get_mut(memory_collection_index)
+        .ok_or_else(|| AppError::new("storage_error", "Canonical memory collection missing"))?
+        .rows_mut()
+        .iter_mut()
+    {
+        let status = read_string(memory.get("status"));
+        if matches!(status.as_str(), "deleted" | "pinned")
+            || story_projection_payload(memory).is_some()
+        {
+            continue;
+        }
+        let Some(sources) = automatic_memory_source_ids(memory) else {
+            continue;
+        };
+        if !sources.iter().any(|id| deleted_message_ids.contains(id)) {
+            continue;
+        }
+        let object = memory
+            .as_object_mut()
+            .ok_or_else(|| AppError::invalid_input("Canonical memory row is not an object"))?;
+        object.insert("status".to_string(), Value::String("deleted".to_string()));
+        object.insert("updatedAt".to_string(), Value::String(now.clone()));
+        if let Some(payload) = object.get_mut("payload").and_then(Value::as_object_mut) {
+            payload.insert(
+                "deletedReason".to_string(),
+                Value::String("source_message_deleted".to_string()),
+            );
+        }
+        deleted.push((read_string(memory.get("id")), status));
+    }
+    if deleted.is_empty() {
+        return Ok(0);
+    }
+    let deleted_ids = deleted
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect::<HashSet<_>>();
+    collections
+        .get_mut(index_collection_index)
+        .ok_or_else(|| AppError::new("storage_error", "Memory index collection missing"))?
+        .rows_mut()
+        .retain(|row| !deleted_ids.contains(&read_string(row.get("memoryId"))));
+    let edges = collections
+        .get_mut(edge_collection_index)
+        .ok_or_else(|| AppError::new("storage_error", "Knowledge edge collection missing"))?
+        .rows_mut();
+    for (memory_id, previous_status) in &deleted {
+        knowledge_edges::apply_memory_lifecycle(
+            edges,
+            memory_id,
+            false,
+            previous_status,
+            "deleted",
+            &now,
+        )?;
+    }
+    Ok(deleted.len())
+}
+
 pub(crate) fn stale_story_projections_in_collections(
     collections: &mut [marinara_storage::AtomicCollectionRows],
     memory_collection_index: usize,
