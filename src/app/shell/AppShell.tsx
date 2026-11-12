@@ -1545,7 +1545,7 @@ export function AppShell() {
             onOpenDeki={() => openActiveDeki()}
             onOpenHelp={openHelpHub}
             onGoHome={closeDekiShell}
-            onCloseLeftSidebar={() => setLeftSidebarPanel(null)}
+            onShowChatList={() => setLeftSidebarPanel("chats")}
           />
           {!activeChatId && (
             <div className="mari-mobile-homebar relative z-30 flex h-[3.25rem] shrink-0 items-center justify-end px-2 md:hidden">

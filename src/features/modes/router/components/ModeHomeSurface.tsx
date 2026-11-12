@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { BookOpen, Compass, Feather, Import, MessageSquare, Orbit, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
+import { useRecentChatSummaries } from "../../../catalog/chats/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import {
   filterLanguageGenerationConnections,
@@ -110,6 +111,9 @@ export function ModeHomeSurface({
   const visualTheme = useUIStore((state) => state.visualTheme);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const libraryPresence = useLibraryPresence();
+  // Same query RecentChats reads, so this costs no extra request.
+  const { data: recentChatSummaries } = useRecentChatSummaries(3);
+  const hasChats = (recentChatSummaries?.length ?? 0) > 0;
   const languageConnections = useMemo(
     () =>
       filterLanguageGenerationConnections(
@@ -259,7 +263,9 @@ export function ModeHomeSurface({
                   <div className="text-center">
                     {homeTitle}
                     <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
-                      To get started, choose the type of chat you'd like to have with the AI
+                      {hasChats
+                        ? "Pick up a recent chat, or start something new"
+                        : "To get started, choose the type of chat you'd like to have with the AI"}
                     </p>
                   </div>
                 </>
@@ -328,16 +334,13 @@ export function ModeHomeSurface({
           {/* Pond folds these into Deki's dialogue box (its quick menu). */}
           {!isPond && (
             <section data-home-section="suggestions" aria-labelledby="home-next-steps" className="w-full max-w-[32rem]">
-              <div className="mb-2 flex items-center justify-between gap-3 px-1">
-                <h4
-                  id="home-next-steps"
-                  className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
-                >
-                  Next steps
-                </h4>
-                <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
-              </div>
-              <div className="grid gap-2 @md:grid-cols-2 @xl:grid-cols-3">
+              <h4
+                id="home-next-steps"
+                className="mb-2 px-1 text-center text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
+              >
+                Next steps
+              </h4>
+              <div className="flex flex-wrap justify-center gap-2">
                 {homeSuggestions.map((suggestion) => {
                   const Icon =
                     suggestion.destination === "server-setup"
@@ -347,13 +350,21 @@ export function ModeHomeSurface({
                         : suggestion.destination === "library-import"
                           ? Import
                           : Compass;
+                  // Nothing replies until a model is connected, so that step stands out from the optional ones.
+                  const blocking =
+                    suggestion.destination === "connect-model" || suggestion.destination === "server-setup";
                   return (
                     <button
                       key={suggestion.destination}
                       type="button"
                       data-home-suggestion={suggestion.destination}
                       onClick={() => runHomeSuggestion(suggestion.destination)}
-                      className="group min-h-24 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7"
+                      className={cn(
+                        "group min-h-24 w-full rounded-xl border p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7 @md:w-[calc(50%-0.25rem)] @xl:w-[calc(33.333%-0.34rem)]",
+                        blocking
+                          ? "border-[var(--primary)]/55 bg-[var(--primary)]/10"
+                          : "border-[var(--border)] bg-[var(--card)]/70",
+                      )}
                     >
                       <Icon
                         size="1rem"

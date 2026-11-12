@@ -136,11 +136,12 @@ describe("chat sidebar virtual list", () => {
 
     expect(container!.querySelectorAll("[data-chat-row]").length).toBeLessThan(20);
     expect(container!.querySelector('[data-chat-id="chat-999"]')).toBeNull();
-    // The folders heading and the unfiled drop zone come first.
-    expect(scrollToIndex).toHaveBeenCalledWith(902, { align: "auto" });
+    // With no folders there is no folders heading row, so every index is one lower than with one.
+    expect(rows.some((row) => row.key === "section:folders")).toBe(false);
+    expect(scrollToIndex).toHaveBeenCalledWith(901, { align: "auto" });
     // Rows report their real height to the virtualizer.
     const firstChatWrapper = container!.querySelector("[data-chat-row]")!.parentElement!;
-    expect(firstChatWrapper.getAttribute("data-index")).toBe("2");
+    expect(firstChatWrapper.getAttribute("data-index")).toBe("1");
     expect(measureElement).toHaveBeenCalledWith(firstChatWrapper);
   });
 

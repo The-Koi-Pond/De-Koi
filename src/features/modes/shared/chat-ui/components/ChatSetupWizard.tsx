@@ -154,6 +154,8 @@ type PersonaSetupOption = PersonaDisplayInfo & {
   avatarFilePath?: string | null;
   avatarFilename?: string | null;
   avatarCrop?: unknown;
+  isActive?: unknown;
+  active?: unknown;
 };
 
 type ConnectionSetupOption = {
@@ -379,28 +381,33 @@ function PersonaPicker({
   value: string | null;
   onChange: (personaId: string | null) => void;
 }) {
-  const selectedId = value ?? "";
+  // A chat with no persona of its own speaks as the active persona (prompt-assembly loadPersona), so show that
+  // persona as the pick, and only offer "None" when there is no active persona to fall back to.
+  const activePersona = personas.find((persona) => boolish(persona.isActive ?? persona.active, false)) ?? null;
+  const selectedId = value ?? activePersona?.id ?? "";
 
   return (
     <div className="overflow-hidden rounded-lg bg-[var(--secondary)]/50 ring-1 ring-[var(--border)]">
-      <button
-        type="button"
-        onClick={() => onChange(null)}
-        aria-pressed={!selectedId}
-        className={cn(
-          "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-          !selectedId && "bg-[var(--primary)]/10 ring-1 ring-inset ring-[var(--primary)]/25",
-        )}
-      >
-        <PersonaAvatar persona={null} />
-        <div className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-medium">None</span>
-          <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">Stay anonymous</span>
-        </div>
-        {!selectedId && <Check size="0.75rem" className="shrink-0 text-[var(--primary)]" />}
-      </button>
+      {!activePersona && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          aria-pressed={!selectedId}
+          className={cn(
+            "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+            !selectedId && "bg-[var(--primary)]/10 ring-1 ring-inset ring-[var(--primary)]/25",
+          )}
+        >
+          <PersonaAvatar persona={null} />
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium">None</span>
+            <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">Stay anonymous</span>
+          </div>
+          {!selectedId && <Check size="0.75rem" className="shrink-0 text-[var(--primary)]" />}
+        </button>
+      )}
 
-      {personas.length > 0 && <div className="border-t border-[var(--border)]" />}
+      {!activePersona && personas.length > 0 && <div className="border-t border-[var(--border)]" />}
 
       <div className="max-h-40 overflow-y-auto">
         {personas.map((persona) => {
@@ -421,8 +428,12 @@ function PersonaPicker({
               <PersonaAvatar persona={persona} />
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium">{persona.name}</span>
-                {title && (
-                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">{title}</span>
+                {(title || persona.id === activePersona?.id) && (
+                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                    {[title, persona.id === activePersona?.id ? "Your default persona" : ""]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
                 )}
               </div>
               {isSelected && <Check size="0.75rem" className="shrink-0 text-[var(--primary)]" />}
@@ -556,6 +567,8 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
     avatarFilename?: string | null;
     avatarCrop?: unknown;
     comment?: string | null;
+    isActive?: unknown;
+    active?: unknown;
   }>;
   const metadata = useMemo(() => {
     const raw = (chat as unknown as { metadata?: string | Record<string, unknown> }).metadata;
@@ -1208,6 +1221,8 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
     name: string;
     avatarPath: string | null;
     comment?: string | null;
+    isActive?: unknown;
+    active?: unknown;
   }>;
   const connectionOptions = useMemo(
     () => filterLanguageGenerationConnections((connections ?? []) as ConnectionSetupOption[]),

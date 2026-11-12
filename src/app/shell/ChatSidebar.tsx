@@ -1585,12 +1585,6 @@ export function ChatSidebar({
                       <FolderPlus size="0.8125rem" aria-hidden="true" />
                     </button>
                   </div>
-                  {row.folderCount === 0 && (
-                    <div className="mt-1 rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
-                      No folders yet - click <FolderPlus size="0.625rem" className="inline" aria-hidden="true" /> to
-                      create one
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div
