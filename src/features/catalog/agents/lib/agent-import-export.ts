@@ -4,6 +4,7 @@ import {
 } from "../../../../engine/contracts/schemas/agent.schema";
 import type { AgentPhase } from "../../../../engine/contracts/types/agent";
 import type { AgentConfigRow } from "../hooks/use-agents";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export const AGENT_FOLDER_EXPORT_KIND = "marinara.agent-folder";
 export const AGENT_MANIFEST_KIND = "marinara.agent";
@@ -25,10 +26,6 @@ type AgentFolderExport = {
     manifest: AgentManifest;
   }>;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

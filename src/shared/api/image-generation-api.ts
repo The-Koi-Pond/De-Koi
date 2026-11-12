@@ -11,6 +11,7 @@ import {
   resolveGalleryFileUrl,
   resolveSpriteFileUrl,
 } from "./local-file-api";
+import { isRecord } from "../../engine/shared/value-readers";
 
 export type SpriteOwnerType = "character" | "persona";
 
@@ -34,10 +35,6 @@ type SpriteRecord = {
   ownerType?: unknown;
   url?: unknown;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;

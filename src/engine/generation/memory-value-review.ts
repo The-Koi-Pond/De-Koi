@@ -12,6 +12,7 @@ import {
   validateCleanupProposal,
 } from "../entities/memory-maintenance";
 import { generateStructured } from "./structured-generation";
+import { isRecord } from "../shared/value-readers";
 
 const VALUE_SYSTEM_PROMPT = [
   "You review stored De-Koi memories for future contextual value.",
@@ -44,10 +45,6 @@ export interface MemoryValueReviewInput {
   llm: LlmGateway;
   signal?: AbortSignal;
   onGroupComplete?: () => void;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function scopeKey(scope: MemoryCleanupScope): string {

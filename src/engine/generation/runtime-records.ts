@@ -1,14 +1,10 @@
 import { systemClock } from "../core/clock";
 import { createId } from "../core/ids";
-import { readString } from "../shared/value-readers";
+import { isRecord, readString } from "../shared/value-readers";
 
-export { readString };
+export { isRecord, readString };
 
 export type JsonRecord = Record<string, unknown>;
-
-export function isRecord(value: unknown): value is JsonRecord {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 export function parseRecord(value: unknown): JsonRecord {
   if (isRecord(value)) return value;

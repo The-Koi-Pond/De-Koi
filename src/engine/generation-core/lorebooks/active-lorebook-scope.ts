@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/value-readers";
 type ActiveLorebookScopeReasonType = "global" | "character" | "persona" | "chat" | "selected";
 export type ActiveLorebookScopeReasonLabel = "Global" | "Character" | "Persona" | "Chat";
 
@@ -46,10 +47,6 @@ export interface ActiveLorebookScopeContext {
   chat: ActiveLorebookScopeChatContext | null | undefined;
   characters: ActiveLorebookScopeCharacterContext[];
   persona: ActiveLorebookScopePersonaContext | null | undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {

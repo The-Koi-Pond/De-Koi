@@ -19,6 +19,7 @@ import {
 } from "../../contracts/types/fanfic";
 import { parseJsonObject } from "../../core/json";
 import { normalizeFanficBannedPhrases } from "./phrase-bans";
+import { isRecord } from "../../shared/value-readers";
 
 const FANFIC_MIN_CHAPTERS = 1;
 export const FANFIC_MAX_CHAPTERS = 30;
@@ -79,10 +80,6 @@ export function defaultFanficRequest(): FanficRequest {
     research: true,
     autoPolish: true,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function text(value: unknown, max: number): string {

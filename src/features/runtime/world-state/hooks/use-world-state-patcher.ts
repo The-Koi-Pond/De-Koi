@@ -3,6 +3,7 @@ import type { TrackerState, PlayerStats } from "../../../../engine/contracts/typ
 import type { TrackerStatePatchField, TrackerStatePatchValue } from "../types";
 import { worldStateApi } from "../api/world-state-api";
 import { useTrackerStateStore } from "../stores/world-state.store";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 type TrackerStatePatch = Partial<TrackerStatePatchValue>;
 type TrackerStatePatchTarget = {
@@ -95,10 +96,6 @@ function cloneQueuedPatch(queued: QueuedTrackerStatePatch): QueuedTrackerStatePa
     fields: { ...queued.fields },
     revision: queued.revision,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function validateStoredPatchEntry(value: unknown): [string, QueuedTrackerStatePatch] | null {

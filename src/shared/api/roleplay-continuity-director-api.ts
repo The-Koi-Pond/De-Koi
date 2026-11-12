@@ -20,6 +20,7 @@ import {
 import { parseRecord, type JsonRecord } from "../../engine/generation/runtime-records";
 import { llmApi } from "./llm-api";
 import { storageApi } from "./storage-api";
+import { errorMessage } from "../../engine/shared/error-text";
 export { roleplayContinuityDirectorKeys } from "./roleplay-continuity-director-query-keys";
 
 export type ContinuityDirectorApiErrorCode =
@@ -78,10 +79,6 @@ function stateFromChat(chat: JsonRecord, now: string): RoleplayContinuityDirecto
 
 function rawStateFromChat(chat: JsonRecord): unknown {
   return parseRecord(chat.metadata).roleplayContinuityDirector ?? null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function createRoleplayContinuityDirectorApi(

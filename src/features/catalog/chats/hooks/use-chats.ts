@@ -63,6 +63,7 @@ import type {
 import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/memory";
 import { activeCharacterIds } from "../../../../engine/generation/active-characters";
 import { effectiveCharacterMemoryPersistence } from "../../../../engine/generation/character-memory-scope";
+import { isRecord, readString } from "../../../../engine/shared/value-readers";
 
 export { chatKeys } from "../query-keys";
 export { useCreateChat, useDeleteChat, useDeleteChatGroup, useUpdateChatMetadata } from "./use-chat-lifecycle";
@@ -208,10 +209,6 @@ function assertDeletedMessages(result: unknown, expectedCount: number) {
   if (deletedCount !== null && deletedCount < expectedCount) {
     throw new Error(expectedCount === 1 ? "Message was not found." : "Some selected messages were not found.");
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isMemoryRecallExportEnvelope(value: unknown): value is ExportEnvelope<ChatMemoryRecallExportPayload> {
@@ -1114,10 +1111,6 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
     summaryContextSize: limit,
   });
   return { summary: appended.summary ?? content, messageIds: selected.map((message) => message.id) };
-}
-
-function readString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function summaryPromptTemplates(value: unknown): ChatSummaryPromptTemplate[] {

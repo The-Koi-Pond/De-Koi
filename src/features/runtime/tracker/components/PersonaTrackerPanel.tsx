@@ -50,6 +50,7 @@ import { AddRowButton, SectionHeader } from "./tracker-data-sidebar.controls";
 import { StatList } from "./tracker-data-sidebar.stats";
 import { PersonaInventoryRow } from "./PersonaInventoryRow";
 import { PersonaPortraitStage } from "./PersonaPortraitStage";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 const PERSONA_COCKPIT_SHELF_CLASS = cn(
   "pointer-events-none absolute inset-x-0 top-5 z-0 h-[9rem] overflow-hidden border-b border-[color-mix(in_srgb,var(--tracker-profile-dialogue-border)_46%,transparent)] shadow-[inset_0_10px_18px_color-mix(in_srgb,var(--background)_20%,transparent),inset_0_-12px_22px_color-mix(in_srgb,var(--background)_44%,transparent)] @min-[380px]:h-[10.5rem]",
@@ -72,10 +73,6 @@ interface PersonaPortraitPendingSave {
   portraitFocusX: number;
   portraitFocusY: number;
   portraitZoom: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isSamePersonaPortraitPendingSave(

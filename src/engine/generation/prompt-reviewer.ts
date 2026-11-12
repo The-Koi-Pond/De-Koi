@@ -1,7 +1,7 @@
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
-import { readString as stringValue } from "../shared/value-readers";
+import { isRecord, readString as stringValue } from "../shared/value-readers";
 
 export type PromptReviewInput = {
   presetId: string;
@@ -202,10 +202,6 @@ async function assemblePromptReviewView(storage: StorageGateway, presetId: strin
 function orderValue(section: JsonRecord): number {
   const value = section.sortOrder ?? section.order ?? section.injectionOrder;
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function llmChunkText(chunk: { text?: unknown; data?: unknown; error?: unknown; message?: unknown }): string {

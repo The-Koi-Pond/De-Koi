@@ -5,7 +5,7 @@ import { parseJsonArray, parseJsonObject } from "../../../core/json";
 import { resolveGenerationConnection } from "../../../generation/context";
 import { hiddenFromAi } from "../../../generation/runtime-records";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
-import { readString as stringValue } from "../../../shared/value-readers";
+import { isRecord, readString as stringValue } from "../../../shared/value-readers";
 import { chatSpotifySourceSetting, MUSIC_SPOTIFY_SOURCE_KEY } from "../../../shared/music/chat-music";
 import type {
   SceneCreateRequest,
@@ -1471,10 +1471,6 @@ function parseObject(raw: string): JsonRecord {
 
 function stringArray(value: unknown): string[] {
   return parseJsonArray<string>(value).filter((item) => typeof item === "string" && item.trim().length > 0);
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function sceneFolderIdForOriginMode(mode: unknown, folderId: unknown): unknown {

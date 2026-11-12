@@ -4,6 +4,7 @@ import { coreModuleSettingsSchema } from "../../engine/contracts/schemas/core-mo
 import type { CoreModuleSettings } from "../../engine/contracts/types/core-module";
 import { transformAppSettings } from "./app-settings-api";
 import { storageApi } from "./storage-api";
+import { isRecord } from "../../engine/shared/value-readers";
 
 const CORE_MODULE_SETTINGS_ID = "core-modules";
 const LEGACY_UI_STORE_NAME = "marinara-engine-ui-tauri";
@@ -14,10 +15,6 @@ type AppSettingsRecord = {
 
 function normalizeSettings(value: unknown): CoreModuleSettings {
   return coreModuleSettingsSchema.parse(value ?? undefined);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /**

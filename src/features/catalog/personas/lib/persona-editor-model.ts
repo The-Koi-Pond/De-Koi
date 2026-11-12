@@ -1,6 +1,7 @@
 import { parseAvatarCropJson, type AvatarCrop, type LegacyAvatarCrop } from "../../../../shared/lib/utils";
 import { formatTextQuotes, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
 import { normalizePersonaTags } from "./persona-tags";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export interface AltDescriptionEntry {
   id: string;
@@ -132,10 +133,6 @@ function cloneDefaultPersonaStats(): PersonaStatsData {
     bars: DEFAULT_PERSONA_STATS.bars.map((bar) => ({ ...bar })),
     rpgStats: cloneDefaultRpgStats(),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parsePersonaStatsValue(value: PersonaRow["personaStats"]): PersonaStatsData | null {

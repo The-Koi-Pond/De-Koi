@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/value-readers";
 export type DekiWorkspaceToolName =
   | "read"
   | "grep"
@@ -661,10 +662,6 @@ function normalizeDekiWebResearchScope(value: unknown): DekiWebResearchScope | n
       ? { allowedDomains: allowedDomains.map((domain) => domain.trim()).slice(0, 10) }
       : {}),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isDekiActionEntity(value: unknown): value is DekiActionEntity {

@@ -41,7 +41,8 @@ import {
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { boolish } from "../../../../engine/generation/runtime-records";
-import { isRecord, normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
+import { isRecord } from "../../../../engine/shared/value-readers";
+import { normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
 import {
   CatalogActionBar,
   CatalogRowActions,

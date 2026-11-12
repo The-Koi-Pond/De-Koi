@@ -1,4 +1,5 @@
 import { hasLorebookEntries } from "../../../../shared/lib/character-import";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export interface CharacterDetailImportData {
   name?: string;
@@ -16,10 +17,6 @@ export interface CharacterDetailImportData {
   tags?: string[];
   characterVersion?: string;
   providerExtensions?: Record<string, unknown>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function setStringField(target: Record<string, unknown>, key: string, value: unknown) {
