@@ -1,6 +1,6 @@
 # Roleplay Encounters: Behavior Spec
 
-Status: draft. Spec written 2026-11-12. Part of the code provenance plan
+Status: agreed 2026-11-12, every decision as recommended. Part of the code provenance plan
 (`docs/code-provenance-plan.md`, tracked in #1580).
 
 This spec describes what Roleplay combat encounters must do. It is the only
@@ -404,28 +404,26 @@ The type names in `combat-encounter.ts` are internal and may change.
    the made-up fallback turn, so "I try to escape the grapple" can end the
    fight as fled, and guessed damage can declare a victory. Recommended: end
    only on `combatEnd: true` with a valid result, or when every enemy is at 0
-   HP (victory) or every party member is (defeat). **Needs Xel's OK.**
+   HP (victory) or every party member is (defeat). **Agreed.**
 2. **Empty lists.** An empty `items` or `statuses` list is ignored, so the last
    potion never goes and statuses never wear off. Recommended: empty means
-   empty; only a missing field keeps the old value. **Needs Xel's OK.**
+   empty; only a missing field keeps the old value. **Agreed.**
 3. **Matching combatants.** Returned combatants are matched by position: one
    the model leaves out vanishes, and a new one past the end inherits the
    player's name, items and player flag. Recommended: match by name (any case),
-   keep left-out combatants unchanged, add new ones as non-players. **Needs
-   Xel's OK.**
+   keep left-out combatants unchanged, add new ones as non-players. **Agreed.**
 4. **One player:** the first member flagged `isPlayer`, else the one named like
    the persona, else the first. Bug fix.
 5. **Real cancelling.** Cancelled calls keep running, and a cancelled summary
    is still written to the chat while the overlay says it failed. Recommended:
    abort the call, and write the summary only if it's still current when the
-   model answers. **Needs Xel's OK.**
+   model answers. **Agreed.**
 6. **Summary retry.** Recommended: **Try again** beside Close Anyway, reusing the
-   fight record. **Needs Xel's OK.**
+   fight record. **Agreed.**
 7. **Unused setup fields:** stop requesting them. Shorter prompt, nothing
    visible.
 8. **Enemy glyph.** `sprite` is shown as large text, usually the word "enemy".
-   Recommended: ask for one emoji, and show 👹 when the value isn't one. **Needs
-   Xel's OK.**
+   Recommended: ask for one emoji, and show 👹 when the value isn't one. **Agreed.**
 9. **Log after remount.** The visible log resets to "Combat begins!" when the
    overlay remounts (switching chats and back), and the "You: …" line can be
    lost when a turn's lines arrive. Recommended: keep the visible log in
@@ -433,19 +431,19 @@ The type names in `combat-encounter.ts` are internal and may change.
 10. **Setup error wording.** A missing connection or provider error shows the
     same "could not create a valid combat encounter" message as junk output.
     Recommended: show the real cause for those; keep the generic one for junk.
-    **Needs Xel's OK.**
+    **Agreed.**
 11. **Accessibility.** Recommended: mark the overlay and dialogs as labeled
     dialogs, move focus in and back, name the X "End combat", let Escape cancel
     the setup and target dialogs, and let Escape on the overlay ask the "End
-    Combat" question. **Needs Xel's OK.**
+    Combat" question. **Agreed.**
 12. **The background Combat agent** costs a model call per reply and nothing
     uses its answer. Recommended for this rebuild: keep it (same behavior, new
     prompt text). Stopping the per-reply run, or using its answer (like
-    offering to start an encounter), is a separate change. **Needs Xel's OK**
-    to change.
+    offering to start an encounter), is a separate change. **Agreed:** keep it
+    for now.
 13. **Wording.** Headings and buttons use Title Case ("Begin Combat", "Select
     Target"). Recommended: sentence case per the app's writing rules, same
-    meaning. **Needs Xel's OK.**
+    meaning. **Agreed.**
 14. **Saving a fight in progress:** not in this rebuild. Memory-only, as today.
 
 ## Later, separate pull request: helper routing
