@@ -1,0 +1,184 @@
+/* Trance mode backdrops (TranceBackdrop.tsx): slow, low-contrast motion behind a session's lines. Nothing flashes or
+   strobes; with reduced motion asked for, every backdrop holds still. The colours follow the session (deeper going
+   down, brighter during the wake-up count) and fade between phases instead of snapping. */
+
+@property --trance-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0d0b1a;
+}
+
+@property --trance-a {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #6d4bd8;
+}
+
+@property --trance-b {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #2a7f8f;
+}
+
+@property --trance-c {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8a3f7a;
+}
+
+.trance-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background-color: var(--trance-bg);
+  transition:
+    --trance-bg 6s ease,
+    --trance-a 6s ease,
+    --trance-b 6s ease,
+    --trance-c 6s ease;
+}
+
+/* Drift: three soft colour clouds wandering on long, out-of-step loops. */
+.trance-drift-cloud {
+  position: absolute;
+  width: 75vmax;
+  height: 75vmax;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.42;
+}
+
+.trance-drift-cloud:nth-child(1) {
+  top: -30%;
+  left: -25%;
+  background: radial-gradient(
+    circle closest-side,
+    var(--trance-a) 0%,
+    color-mix(in srgb, var(--trance-a) 72%, transparent) 22%,
+    color-mix(in srgb, var(--trance-a) 42%, transparent) 45%,
+    color-mix(in srgb, var(--trance-a) 18%, transparent) 68%,
+    color-mix(in srgb, var(--trance-a) 5%, transparent) 86%,
+    transparent 100%
+  );
+  animation: trance-drift-a 47s ease-in-out infinite alternate;
+}
+
+.trance-drift-cloud:nth-child(2) {
+  right: -30%;
+  bottom: -35%;
+  background: radial-gradient(
+    circle closest-side,
+    var(--trance-b) 0%,
+    color-mix(in srgb, var(--trance-b) 72%, transparent) 22%,
+    color-mix(in srgb, var(--trance-b) 42%, transparent) 45%,
+    color-mix(in srgb, var(--trance-b) 18%, transparent) 68%,
+    color-mix(in srgb, var(--trance-b) 5%, transparent) 86%,
+    transparent 100%
+  );
+  animation: trance-drift-b 61s ease-in-out infinite alternate;
+}
+
+.trance-drift-cloud:nth-child(3) {
+  top: 20%;
+  left: 15%;
+  width: 55vmax;
+  height: 55vmax;
+  opacity: 0.3;
+  background: radial-gradient(
+    circle closest-side,
+    var(--trance-c) 0%,
+    color-mix(in srgb, var(--trance-c) 72%, transparent) 22%,
+    color-mix(in srgb, var(--trance-c) 42%, transparent) 45%,
+    color-mix(in srgb, var(--trance-c) 18%, transparent) 68%,
+    color-mix(in srgb, var(--trance-c) 5%, transparent) 86%,
+    transparent 100%
+  );
+  animation: trance-drift-c 73s ease-in-out infinite alternate;
+}
+
+@keyframes trance-drift-a {
+  to {
+    transform: translate(20vmax, 14vmax) scale(1.15);
+  }
+}
+
+@keyframes trance-drift-b {
+  to {
+    transform: translate(-18vmax, -12vmax) scale(0.9);
+  }
+}
+
+@keyframes trance-drift-c {
+  to {
+    transform: translate(10vmax, -16vmax) scale(1.2);
+  }
+}
+
+/* Breathe: a glow that swells for 4 seconds and settles for 6, about six breaths a minute. Every glow here fades out
+   on an eased curve, so there is no visible edge where it ends. */
+.trance-breathe-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 90vmin;
+  height: 90vmin;
+  margin: -45vmin 0 0 -45vmin;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    var(--trance-a) 0%,
+    color-mix(in srgb, var(--trance-a) 72%, transparent) 22%,
+    color-mix(in srgb, var(--trance-a) 42%, transparent) 45%,
+    color-mix(in srgb, var(--trance-a) 18%, transparent) 68%,
+    color-mix(in srgb, var(--trance-a) 5%, transparent) 86%,
+    transparent 100%
+  );
+  filter: blur(28px);
+  animation: trance-breathe 10s ease-in-out infinite;
+}
+
+@keyframes trance-breathe {
+  0%,
+  100% {
+    transform: scale(0.55);
+    opacity: 0.16;
+  }
+
+  40% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+}
+
+/* Spiral: one slow turn every 40 seconds, faint enough to read over. */
+.trance-spiral {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160vmax;
+  height: 160vmax;
+  margin: -80vmax 0 0 -80vmax;
+  color: var(--trance-a);
+  opacity: 0.16;
+  animation: trance-spin 40s linear infinite;
+}
+
+@keyframes trance-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The line stays readable over any backdrop. */
+.trance-line {
+  text-shadow: 0 1px 14px rgb(0 0 0 / 0.65);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trance-backdrop,
+  .trance-backdrop * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

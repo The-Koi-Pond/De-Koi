@@ -5,6 +5,12 @@ import type { CustomNotificationSound, NotificationSoundId } from "../../lib/not
 import type { CustomTextBlipSound, TextBlipMode } from "../../lib/text-blip-sound";
 import type { ImageStyleProfileSettings } from "../../../engine/generation/image-style-profile-settings";
 
+export const TRANCE_BACKDROPS = ["drift", "breathe", "spiral", "plain"] as const;
+export type TranceBackdrop = (typeof TRANCE_BACKDROPS)[number];
+
+export const TRANCE_VOICE_MODES = ["off", "read-along", "eyes-closed"] as const;
+export type TranceVoiceMode = (typeof TRANCE_VOICE_MODES)[number];
+
 export type { QuoteFormat, TextBlipMode };
 
 export type Panel =
@@ -512,6 +518,10 @@ export interface UIState {
   weatherEffects: boolean;
   /** Roleplay scene sound: an ambient bed and sound effects made by ElevenLabs. Off by default (it costs credits). */
   roleplaySceneSound: boolean;
+  /** What moves behind a trance session's lines. */
+  tranceBackdrop: TranceBackdrop;
+  /** Whether a trance session is read aloud, and whether it moves on by itself (eyes closed). Off by default (it costs credits). */
+  tranceVoice: TranceVoiceMode;
   /** 0 to 1. */
   sceneAmbientVolume: number;
   /** 0 to 1. */
@@ -691,6 +701,8 @@ export interface UIState {
   setEnterToSendConvo: (v: boolean) => void;
   setWeatherEffects: (v: boolean) => void;
   setRoleplaySceneSound: (v: boolean) => void;
+  setTranceBackdrop: (v: TranceBackdrop) => void;
+  setTranceVoice: (v: TranceVoiceMode) => void;
   setSceneAmbientVolume: (v: number) => void;
   setSceneEffectsVolume: (v: number) => void;
   setHudPosition: (v: HudPosition) => void;
