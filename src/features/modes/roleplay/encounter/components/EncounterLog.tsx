@@ -40,9 +40,9 @@ export function EncounterLog({ log }: { log: EncounterLogEntry[] }) {
     const list = listRef.current;
     if (!list) return;
     list.scrollTop = list.scrollHeight;
-    // On a small screen the log can sit below the cards, out of view: bring each new line into view there too.
-    // Not on first show, so reopening a fight starts at the top with the cards.
-    if (shownOnce.current) list.lastElementChild?.scrollIntoView?.({ block: "nearest" });
+    // On a small screen the log can sit below the cards, out of view: bring each new turn line into view there too.
+    // Not on first show or for the opening line, so a fight starts at the top with the cards.
+    if (shownOnce.current && revealed > 1) list.lastElementChild?.scrollIntoView?.({ block: "nearest" });
     shownOnce.current = true;
   }, [revealed]);
 
