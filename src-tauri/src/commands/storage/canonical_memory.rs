@@ -9,7 +9,10 @@ use std::hash::{Hash, Hasher};
 
 #[path = "canonical_memory/semantic.rs"]
 mod semantic;
+#[path = "canonical_memory/vector_cache.rs"]
+mod vector_cache;
 pub(crate) use semantic::query_memories_semantic;
+pub(crate) use vector_cache::SemanticVectorCache;
 
 pub(crate) const MEMORY_COLLECTION: &str = "canonical-memories";
 pub(crate) const INDEX_COLLECTION: &str = "memory-index-rows";

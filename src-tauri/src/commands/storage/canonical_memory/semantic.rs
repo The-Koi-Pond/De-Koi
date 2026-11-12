@@ -1,9 +1,11 @@
+use super::vector_cache::SemanticVectorKey;
 use super::{batch_queries, query_memories_batch, read_string, sha256_hash, INDEX_COLLECTION};
 use crate::state::AppState;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 const DEFAULT_SIMILARITY_THRESHOLD: f64 = 0.28;
 const DEFAULT_RESULT_LIMIT: usize = 24;
@@ -78,6 +80,54 @@ fn semantic_index_row(
         "canonicalUpdatedAt": canonical_updated_at,
         "vector": vector
     }))
+}
+
+/// The cache key for `memory`'s vector: the same fields `semantic_index_plan` checks to call a stored row fresh.
+fn semantic_vector_key(memory: &Value, identity: &SemanticIndexIdentity) -> SemanticVectorKey {
+    SemanticVectorKey {
+        identity: format!(
+            "{}:{}:{}",
+            identity.connection_id, identity.provider, identity.model
+        ),
+        memory_id: read_string(memory.get("id")),
+        updated_at: read_string(memory.get("updatedAt")),
+        content_hash: sha256_hash(&read_string(memory.get("content"))),
+    }
+}
+
+/// Vectors for `memories` that are in the cache with the expected size, by memory id.
+fn cached_semantic_vectors(
+    state: &AppState,
+    memories: &[Value],
+    identity: &SemanticIndexIdentity,
+    dimensions: usize,
+) -> AppResult<HashMap<String, Vec<f64>>> {
+    let cache = state.semantic_vectors()?;
+    Ok(memories
+        .iter()
+        .filter_map(|memory| {
+            let vector = cache.get(&semantic_vector_key(memory, identity))?;
+            (vector.len() == dimensions).then(|| (read_string(memory.get("id")), vector.to_vec()))
+        })
+        .collect())
+}
+
+fn remember_semantic_vectors(
+    state: &AppState,
+    memories: &[Value],
+    vectors: &HashMap<String, Vec<f64>>,
+    identity: &SemanticIndexIdentity,
+) -> AppResult<()> {
+    let mut cache = state.semantic_vectors()?;
+    for memory in memories {
+        if let Some(vector) = vectors.get(&read_string(memory.get("id"))) {
+            cache.insert(
+                semantic_vector_key(memory, identity),
+                Arc::new(vector.clone()),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn semantic_row_matches_identity(row: &Value, identity: &SemanticIndexIdentity) -> bool {
@@ -313,7 +363,6 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         },
         model,
     };
-    let index_rows = semantic_index_rows_for_candidates(state, &memories, &identity)?;
     let mut query_embeddings =
         super::super::prompts::embed_texts(&connection, &identity.model, &[query_text.as_str()])
             .await?;
@@ -331,7 +380,24 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         ));
     }
     let dimensions = query_vector.len();
-    let plan = semantic_index_plan(&memories, &index_rows, &identity, dimensions);
+    // Only memories whose vectors aren't cached are looked up in the index collection, which means reading all
+    // of it: with every candidate cached, the reply skips that read.
+    let cached = cached_semantic_vectors(state, &memories, &identity, dimensions)?;
+    let uncached = memories
+        .iter()
+        .filter(|memory| !cached.contains_key(&read_string(memory.get("id"))))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut plan = if uncached.is_empty() {
+        SemanticIndexPlan {
+            cached_vectors: HashMap::new(),
+            missing_memory_ids: Vec::new(),
+        }
+    } else {
+        let index_rows = semantic_index_rows_for_candidates(state, &uncached, &identity)?;
+        semantic_index_plan(&uncached, &index_rows, &identity, dimensions)
+    };
+    plan.cached_vectors.extend(cached);
     let by_id = memories
         .iter()
         .map(|memory| (read_string(memory.get("id")), memory))
@@ -375,6 +441,7 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         vectors.insert(memory_id, vector);
     }
     replace_semantic_index_rows(state, &identity, new_rows)?;
+    remember_semantic_vectors(state, &memories, &vectors, &identity)?;
     Ok(Value::Array(rank_semantic_matches(
         &memories,
         &vectors,
@@ -649,6 +716,109 @@ mod tests {
             all_rows.len(),
             targeted_rows.len()
         );
+        drop(state);
+        std::fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn cached_vectors_are_reused_only_where_a_fresh_stored_row_would_be() {
+        let (state, data_dir) = semantic_test_state("vector-cache");
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        let memory = json!({
+            "id": "memory",
+            "content": "Freddy hates the gravy pump",
+            "updatedAt": "2026-11-12T10:00:00Z"
+        });
+        remember_semantic_vectors(
+            &state,
+            std::slice::from_ref(&memory),
+            &HashMap::from([("memory".to_string(), vec![0.5, 0.5])]),
+            &identity,
+        )
+        .unwrap();
+
+        let hit =
+            cached_semantic_vectors(&state, std::slice::from_ref(&memory), &identity, 2).unwrap();
+        assert_eq!(hit.get("memory"), Some(&vec![0.5, 0.5]));
+
+        let edited = json!({ "id": "memory", "content": "Freddy loves the gravy pump", "updatedAt": "2026-11-12T10:00:00Z" });
+        let touched = json!({ "id": "memory", "content": "Freddy hates the gravy pump", "updatedAt": "2026-11-12T11:00:00Z" });
+        let other_model = SemanticIndexIdentity {
+            model: "text-embedding-3-large".to_string(),
+            ..identity.clone()
+        };
+        assert!(cached_semantic_vectors(&state, &[edited], &identity, 2)
+            .unwrap()
+            .is_empty());
+        assert!(cached_semantic_vectors(&state, &[touched], &identity, 2)
+            .unwrap()
+            .is_empty());
+        assert!(
+            cached_semantic_vectors(&state, std::slice::from_ref(&memory), &other_model, 2)
+                .unwrap()
+                .is_empty()
+        );
+        // A query vector of another size can't be compared with it.
+        assert!(
+            cached_semantic_vectors(&state, std::slice::from_ref(&memory), &identity, 3)
+                .unwrap()
+                .is_empty()
+        );
+        drop(state);
+        // Best effort: Windows can still hold a file in the temp folder for a moment.
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    #[ignore = "manual performance measurement"]
+    fn semantic_vector_cache_large_index_benchmark() {
+        // The size of one real Pi install's index: 1,508 vectors of 1,536 dimensions (about 20 MB of JSON).
+        const DIMENSIONS: usize = 1_536;
+        const STORED_ROWS: usize = 1_508;
+        const CANDIDATES: usize = 6;
+        let (state, data_dir) = semantic_test_state("vector-cache-benchmark");
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        let memories = (0..CANDIDATES)
+            .map(|index| json!({ "id": format!("candidate-{index}"), "content": format!("Candidate fact {index}"), "updatedAt": "2026-11-12T10:00:00Z" }))
+            .collect::<Vec<_>>();
+        let vector = |seed: usize| {
+            (0..DIMENSIONS)
+                .map(|index| ((seed * 31 + index) as f64 * 0.000_123_456_789).sin())
+                .collect::<Vec<_>>()
+        };
+        let mut rows = (CANDIDATES..STORED_ROWS)
+            .map(|index| {
+                let memory = json!({ "id": format!("other-{index}"), "content": format!("Other fact {index}"), "updatedAt": "2026-11-12T10:00:00Z" });
+                semantic_index_row(&memory, &identity, vector(index)).unwrap()
+            })
+            .collect::<Vec<_>>();
+        rows.extend(
+            memories.iter().enumerate().map(|(index, memory)| {
+                semantic_index_row(memory, &identity, vector(index)).unwrap()
+            }),
+        );
+        state.storage.replace_all(INDEX_COLLECTION, rows).unwrap();
+
+        let cold_started = Instant::now();
+        let index_rows = semantic_index_rows_for_candidates(&state, &memories, &identity).unwrap();
+        let plan = semantic_index_plan(&memories, &index_rows, &identity, DIMENSIONS);
+        let cold = cold_started.elapsed();
+        assert_eq!(plan.cached_vectors.len(), CANDIDATES);
+        remember_semantic_vectors(&state, &memories, &plan.cached_vectors, &identity).unwrap();
+
+        let warm_started = Instant::now();
+        let cached = cached_semantic_vectors(&state, &memories, &identity, DIMENSIONS).unwrap();
+        let warm = warm_started.elapsed();
+        assert_eq!(cached, plan.cached_vectors);
+        eprintln!("semantic vector cache benchmark: rows={STORED_ROWS}; cold index read={cold:?}; cached={warm:?}");
         drop(state);
         std::fs::remove_dir_all(data_dir).unwrap();
     }
