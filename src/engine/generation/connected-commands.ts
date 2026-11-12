@@ -95,6 +95,9 @@ const LEGACY_ASSISTANT_CONTEXT_METADATA_KEY = "mariContext";
 const SELFIE_WORD_RE = /\b(?:selfie|photo|pic|picture|image)\b/i;
 const ASSISTANT_SELFIE_CLAIM_RE =
   /\b(?:send|sent|sending|show|showing|share|shares|shared|attach|attaches|attached|post|posts|posted|take|takes|took|snap|snaps|snapped|here's|here is)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\[\s*[^\]]{0,80}\b(?:send|sends|sent|show|shows|share|shares|take|takes|snap|snaps)\b[^\]]{0,120}\b(?:selfie|photo|pic|picture)\b[^\]]*\]/i;
+// Handing the photo over without naming it, right after the user asked for one: "Here.", "I'm already taking it".
+const ASSISTANT_PHOTO_HANDOVER_RE =
+  /(?:^|[.!?…]\s+|\n\s*)(?:here|there)\s*[.!…]|\b(?:here you go|here it is|there you go|(?:taking|took|snapping|snapped|sending|sent) (?:it|one|this one))\b/i;
 const ASSISTANT_SELFIE_DECLINE_RE =
   /\b(?:can't|cannot|can not|won't|will not|unable|not able|do not|don't|rather not|prefer not to)\b[\s\S]{0,120}\b(?:send|show|share|take|attach|post|give|have)?[\s\S]{0,40}\b(?:selfie|photo|pic|picture|image)s?\b|\b(?:selfie|photo|pic|picture|image)s?\b[\s\S]{0,80}\b(?:not available|not possible|can't|cannot|unable|rather not|prefer not)\b/i;
 
@@ -192,9 +195,10 @@ function recoverImplicitSelfieCommand(args: {
   if (args.existingCommands.some((command) => command.type === "selfie")) return null;
   if (!args.pendingSelfieIntent) return null;
   const response = args.response.trim();
-  if (!SELFIE_WORD_RE.test(response)) return null;
   if (ASSISTANT_SELFIE_DECLINE_RE.test(response)) return null;
-  const assistantClaimsSelfie = ASSISTANT_SELFIE_CLAIM_RE.test(response);
+  const assistantClaimsSelfie =
+    (SELFIE_WORD_RE.test(response) && ASSISTANT_SELFIE_CLAIM_RE.test(response)) ||
+    ASSISTANT_PHOTO_HANDOVER_RE.test(response);
   if (!assistantClaimsSelfie) return null;
   return { type: "selfie", context: inferSelfieContextFromResponse(response) };
 }
