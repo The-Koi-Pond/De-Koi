@@ -918,6 +918,65 @@ describe("persistConnectedCommandTags", () => {
     expect(nude).not.toContain("green jester hat with bells");
   });
 
+  it("leaves headwear to the prompt writer and always adds the character's avoid tags", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieNegativePrompt: "blurry" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        {
+          id: "char-1",
+          name: "Harlequin",
+          data: {
+            name: "Harlequin",
+            extensions: {
+              selfieLookTags: "white mask, paper-white skin",
+              selfieHeadwearTags: "green jester hat with bells",
+              selfieAvoidTags: "pink skin, tan skin",
+            },
+          },
+        },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const llmRequests: string[] = [];
+    const llm = {
+      complete: async (input: { messages: Array<{ content: string }> }) => {
+        llmRequests.push(input.messages.map((message) => message.content).join(" "));
+        return "lying in bed in his tent";
+      },
+    } as unknown as LlmGateway;
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const send = (selfieRequest: string) =>
+      persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, llm, "llm-1", undefined, undefined, {
+        pendingSelfieIntent: true,
+        selfieRequest,
+      });
+
+    await send("send me a selfie?");
+    expect(llmRequests[0]).toContain("Usual headwear: green jester hat with bells. Include it unless the moment");
+    expect(String(imageRequests[0]?.prompt)).not.toContain("green jester hat with bells");
+    expect(String(imageRequests[0]?.negativePrompt)).toContain("pink skin");
+    expect(String(imageRequests[0]?.negativePrompt)).toContain("blurry");
+
+    await send("one with your hat off?");
+    expect(llmRequests[1]).toContain("The request takes it off, so leave it out.");
+  });
+
   it("texting first: a withheld photo drops the [selfie] tag and a sent one is described for later prompts", async () => {
     const chat = {
       id: "chat-1",

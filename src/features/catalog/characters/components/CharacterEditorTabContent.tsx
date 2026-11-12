@@ -131,13 +131,39 @@ export function CharacterEditorTabContent({
             <label className="block space-y-1.5">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
                 Selfie outfit tags{" "}
-                <HelpTooltip text="Comma-separated image tags for what this character usually wears. Added to every selfie unless the request changes their clothes (shirtless, in pajamas, in a towel, nude), so a costume stays consistent without blocking other looks." />
+                <HelpTooltip text="Comma-separated image tags for what this character usually wears, apart from headwear. Added to every selfie unless the request changes their clothes (shirtless, in pajamas, in a towel, nude), so a costume stays consistent without blocking other looks." />
               </span>
               <input
                 type="text"
                 value={(formData.extensions.selfieOutfitTags as string) ?? ""}
                 onChange={(event) => updateExtension("selfieOutfitTags", event.target.value)}
                 placeholder="green jester hat with bells, black cape, striped sleeves"
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Selfie headwear tags{" "}
+                <HelpTooltip text="Comma-separated image tags for a hat, hood or crown. Usually worn in selfies, but left off when the request asks (no hat) or the moment suits it, like bathing or asleep." />
+              </span>
+              <input
+                type="text"
+                value={(formData.extensions.selfieHeadwearTags as string) ?? ""}
+                onChange={(event) => updateExtension("selfieHeadwearTags", event.target.value)}
+                placeholder="green and black jester hat with bells"
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Selfie avoid tags{" "}
+                <HelpTooltip text="Comma-separated image tags this character's selfies should never show, in any chat. For example the wrong skin or hair color." />
+              </span>
+              <input
+                type="text"
+                value={(formData.extensions.selfieAvoidTags as string) ?? ""}
+                onChange={(event) => updateExtension("selfieAvoidTags", event.target.value)}
+                placeholder="pink skin, tan skin"
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
               />
             </label>
