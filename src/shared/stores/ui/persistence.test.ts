@@ -10,8 +10,14 @@ import {
 } from "./persistence";
 
 describe("ui persistence migration", () => {
-  it("bumps the store version for the Music Player setting names", () => {
-    expect(UI_STORE_VERSION).toBe(13);
+  it("bumps the store version for the Match system color scheme", () => {
+    expect(UI_STORE_VERSION).toBe(14);
+  });
+
+  it("keeps the color scheme of installs saved before Match system existed", () => {
+    expect(migrateUiState({ theme: "light" })).toMatchObject({ theme: "light", followSystemTheme: false });
+    expect(migrateUiState({ theme: "dark" }).followSystemTheme).toBe(false);
+    expect(migrateUiState({ theme: "dark", followSystemTheme: true }).followSystemTheme).toBe(true);
   });
 
   it("moves the Spotify-era Music Player settings to their new names once", () => {

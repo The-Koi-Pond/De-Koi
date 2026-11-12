@@ -51,8 +51,17 @@ import { confirmDiscardPendingAppWork } from "../../shared/lib/app-close-guard";
 import { useUIStore } from "../../shared/stores/ui.store";
 import { cn, copyToClipboard } from "../../shared/lib/utils";
 import { AvatarImage } from "../../shared/components/ui/AvatarImage";
-import { TagInput } from "../../shared/components/ui/TagInput";
-import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties, type DragEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  type CSSProperties,
+  type DragEvent,
+} from "react";
 import { toast } from "sonner";
 import { CHAT_MODES } from "../../engine/contracts/constants/chat-modes";
 import type { ChatFolder } from "../../engine/contracts/types/chat";
@@ -116,6 +125,11 @@ import {
 import { buildSupportReportText } from "../../shared/lib/support-report";
 import { toUserMessage } from "../../shared/lib/error-message";
 import { presenceDotClass } from "../../shared/lib/status-shapes";
+
+// Only the Edit Tags dialog uses it, so it loads when that opens instead of with the home screen.
+const TagInput = lazy(() =>
+  import("../../shared/components/ui/TagInput").then((module) => ({ default: module.TagInput })),
+);
 type ChatSortOption = ChatSidebarSortOption;
 export type { ChatSidebarTab };
 type ChatSidebarRow = DerivedChatSidebarRow<NonNullable<ReturnType<typeof useChatSummaries>["data"]>[number]>;
@@ -1745,16 +1759,18 @@ export function ChatSidebar({
       <Modal open={tagEditingChatId !== null} onClose={closeTagEditor} title="Edit Tags" width="max-w-sm">
         {tagEditingChat && (
           <div className="flex flex-col gap-3">
-            <TagInput
-              label="Tags"
-              tags={tagDraftTags}
-              inputValue={tagDraftInput}
-              onInputChange={setTagDraftInput}
-              onTagsChange={setTagDraftTags}
-              suggestions={allTags}
-              inputAriaLabel={`Tags for ${tagEditingChat.name}`}
-              separatorPattern={/[,.\n]/}
-            />
+            <Suspense fallback={<div className="h-16" aria-hidden />}>
+              <TagInput
+                label="Tags"
+                tags={tagDraftTags}
+                inputValue={tagDraftInput}
+                onInputChange={setTagDraftInput}
+                onTagsChange={setTagDraftTags}
+                suggestions={allTags}
+                inputAriaLabel={`Tags for ${tagEditingChat.name}`}
+                separatorPattern={/[,.\n]/}
+              />
+            </Suspense>
             <div className="flex justify-end gap-2">
               <button
                 type="button"

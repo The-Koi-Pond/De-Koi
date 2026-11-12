@@ -32,7 +32,7 @@ import type { UIState } from "./model";
 import { isRecord } from "../../../engine/shared/value-readers";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 13;
+export const UI_STORE_VERSION = 14;
 
 /** Music Player settings saved under their old Spotify-era names, and their current names. */
 const RENAMED_MUSIC_PLAYER_KEYS = [
@@ -154,6 +154,7 @@ export function partializeUiState(state: UIState) {
     trackerPanelCollapsedSections: state.trackerPanelCollapsedSections,
     trackerPanelSectionOrder: state.trackerPanelSectionOrder,
     theme: state.theme,
+    followSystemTheme: state.followSystemTheme,
     chatBackground: state.chatBackground,
     chatBackgroundBlur: state.chatBackgroundBlur,
     fontSize: state.fontSize,
@@ -317,6 +318,8 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.textBlipMode = normalizeTextBlipMode(persisted.textBlipMode);
   persisted.customTextBlipSound = normalizeCustomTextBlipSound(persisted.customTextBlipSound);
   persisted.mobileChatToolsOpen = false;
+  // Saved before "Match system" existed: keep the scheme people already had. Only new installs follow the device.
+  persisted.followSystemTheme = persisted.followSystemTheme === true;
   persisted.tranceBackdrop = (TRANCE_BACKDROPS as readonly unknown[]).includes(persisted.tranceBackdrop)
     ? persisted.tranceBackdrop
     : "drift";

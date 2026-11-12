@@ -1,6 +1,7 @@
 // --------------------------------------------------
 // Zustand Store: UI Slice
 // --------------------------------------------------
+import { systemColorScheme } from "../lib/system-color-scheme";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { normalizeQuoteFormat } from "../lib/dialogue-quotes";
@@ -124,7 +125,8 @@ export const useUIStore = create<UIState>()(
       settingsTab: "general",
       pendingSettingsDestination: null,
       modal: null,
-      theme: "dark" as const,
+      theme: systemColorScheme(),
+      followSystemTheme: true,
       chatBackground: null,
       chatBackgroundBlur: 0,
       characterDetailId: null,
@@ -307,6 +309,7 @@ export const useUIStore = create<UIState>()(
       openModal: (type, props) => set({ modal: { type, props } }),
       closeModal: () => set({ modal: null }),
       setTheme: (theme) => set({ theme }),
+      setFollowSystemTheme: (follow) => set({ followSystemTheme: follow }),
       setChatBackground: (url) => set({ chatBackground: url }),
       setChatBackgroundBlur: (v) =>
         set({ chatBackgroundBlur: Math.max(0, Math.min(24, Math.round(Number.isFinite(v) ? v : 0))) }),
