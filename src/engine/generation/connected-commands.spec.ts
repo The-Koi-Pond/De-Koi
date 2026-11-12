@@ -793,6 +793,61 @@ describe("persistConnectedCommandTags", () => {
     ]);
   });
 
+  it("puts the character's selfie look tags in every selfie even when the prompt writer leaves them out", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfiePositivePrompt: "night" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        {
+          id: "char-1",
+          name: "Harlequin",
+          data: {
+            name: "Harlequin",
+            extensions: {
+              appearance: "Curly black hair. Without the mask, his eyes glow green.",
+              selfieLookTags: "white mask, sharp-tooth grin, green jester hat with bells",
+            },
+          },
+        },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const llmRequests: string[] = [];
+    const llm = {
+      complete: async (input: { messages: Array<{ content: string }> }) => {
+        llmRequests.push(input.messages.map((message) => message.content).join(" "));
+        return "curly black hair, glowing green eyes, turtleneck, selfie by a window";
+      },
+    } as unknown as LlmGateway;
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    await persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, llm, "llm-1");
+
+    expect(llmRequests[0]).toContain(
+      "Required image tags: white mask, sharp-tooth grin, green jester hat with bells, night",
+    );
+    const prompt = String(imageRequests[0]?.prompt);
+    expect(prompt).toContain("white mask");
+    expect(prompt).toContain("sharp-tooth grin");
+    expect(prompt).toContain("green jester hat with bells");
+    expect(prompt).toContain("night");
+  });
+
   it("texting first: a withheld photo drops the [selfie] tag and a sent one is described for later prompts", async () => {
     const chat = {
       id: "chat-1",
