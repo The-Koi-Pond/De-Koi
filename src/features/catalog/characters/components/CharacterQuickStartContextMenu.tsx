@@ -1,4 +1,4 @@
-import { Feather, MessageCircle, Wand2 } from "lucide-react";
+import { Feather, MessageCircle, Orbit, Wand2 } from "lucide-react";
 
 import { ModeIcon } from "../../../../shared/components/ModeIcon";
 import { ContextMenu, type ContextMenuItem } from "../../../../shared/components/ui/ContextMenu";
@@ -23,6 +23,7 @@ export function CharacterQuickStartContextMenu({
   onStartRoleplay,
   onStartConversation,
   onStartFanfic,
+  onStartTrance,
 }: {
   menu: CharacterQuickStartContextMenuState;
   pendingStartCharacterId: string | null;
@@ -30,6 +31,7 @@ export function CharacterQuickStartContextMenu({
   onStartRoleplay: (menu: CharacterQuickStartContextMenuState) => void;
   onStartConversation: (menu: CharacterQuickStartContextMenuState) => void;
   onStartFanfic: (menu: CharacterQuickStartContextMenuState) => void;
+  onStartTrance: (menu: CharacterQuickStartContextMenuState) => void;
 }) {
   const items: ContextMenuItem[] = [
     {
@@ -47,6 +49,11 @@ export function CharacterQuickStartContextMenu({
       label: "Quick Start Fanfic",
       icon: <ModeIcon mode="fanfic" className="block" fallback={<Feather size="0.75rem" />} />,
       onSelect: () => onStartFanfic(menu),
+    },
+    {
+      label: "Quick Start Trance",
+      icon: <ModeIcon mode="trance" className="block" fallback={<Orbit size="0.75rem" />} />,
+      onSelect: () => onStartTrance(menu),
     },
   ];
 

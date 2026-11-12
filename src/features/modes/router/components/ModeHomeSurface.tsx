@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, Feather, Import, MessageSquare, Plug, Server } from "lucide-react";
+import { BookOpen, Compass, Feather, Import, MessageSquare, Orbit, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import {
@@ -25,6 +25,7 @@ const quickStartModePreloads: Record<QuickStartMode, () => Promise<unknown>> = {
   conversation: () => import("../../conversation/index"),
   roleplay: () => import("../../roleplay/index"),
   fanfic: () => import("../../fanfic/index"),
+  trance: () => import("../../trance/index"),
 };
 const preloadedQuickStartModes = new Set<QuickStartMode>();
 
@@ -270,7 +271,7 @@ export function ModeHomeSurface({
             ) : (
               <div
                 className={cn(
-                  "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 @xl:max-w-[32rem] @xl:gap-4",
+                  "grid w-full max-w-[22rem] min-w-0 grid-cols-2 gap-2 px-0 @xl:max-w-[42rem] @xl:grid-cols-4 @xl:gap-4",
                   showQuickStartEntranceEffects && "stagger-children",
                 )}
               >
@@ -306,6 +307,17 @@ export function ModeHomeSurface({
                   tooltip="Request a fanfic: fandom, ships, rating, and tropes, then read it chapter by chapter"
                   onPrewarm={() => prewarmQuickStartMode("fanfic")}
                   onClick={() => handleQuickStart("fanfic")}
+                />
+                <QuickStartCard
+                  icon={<Orbit size="1.125rem" />}
+                  label="Trance"
+                  bg="linear-gradient(135deg, #c4b5ff 0%, #8065f0 55%, #33246e 100%)"
+                  iconColor="#f3efff"
+                  labelColor="#a993ff"
+                  shadowColor="rgba(169,147,255,0.18)"
+                  tooltip="A hypnosis session in a character's voice: pick the feel and length, then read it one line at a time"
+                  onPrewarm={() => prewarmQuickStartMode("trance")}
+                  onClick={() => handleQuickStart("trance")}
                 />
               </div>
             )}

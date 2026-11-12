@@ -175,6 +175,18 @@ export function useCharactersPanelChatActions() {
     [startChatFromCharacter],
   );
 
+  // A new trance session guided by this character; the session form opens to pick the rest.
+  const handleStartTrance = useCallback(
+    (characterId: string, characterName: string) => {
+      startChatFromCharacter({
+        characterId,
+        characterName,
+        mode: "trance",
+      });
+    },
+    [startChatFromCharacter],
+  );
+
   const handleStartNewChat = useCallback(
     (characterId: string, characterName: string) => {
       handleStartConversation(characterId, characterName);
@@ -228,6 +240,7 @@ export function useCharactersPanelChatActions() {
     handleStartFanfic,
     handleStartNewChat,
     handleStartRoleplay,
+    handleStartTrance,
     hasActiveChat: !!activeChat,
     isStartingChat,
     pendingStartCharacterId,

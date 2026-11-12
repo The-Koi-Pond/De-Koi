@@ -254,6 +254,8 @@ const MODE_INTROS: Record<ChatMode, string> = {
     "Plain roleplay surface — no built-in dice, combat, or GM pipeline; sprites, world-state tracking, and other helpers are available as optional agents below.",
   fanfic:
     "Fanfic request — the model writes your fic chapter by chapter from the request and outline; no agents, trackers, or persona turns.",
+  trance:
+    "Trance session — the model writes one hypnosis script in the character's voice from your request; no agents, trackers, or persona turns.",
 };
 
 type AvailableAgent = {

@@ -10,7 +10,7 @@ import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-dire
 import type { RoleplayWorldTickState } from "./roleplay-world-tick.js";
 
 /** The primary chat modes the engine supports. */
-export type ChatMode = "conversation" | "roleplay" | "fanfic";
+export type ChatMode = "conversation" | "roleplay" | "fanfic" | "trance";
 /** Legacy persisted/imported mode name. New inputs should migrate this to "roleplay". */
 export type LegacyChatMode = "visual_novel";
 
@@ -247,6 +247,8 @@ export function getEffectiveMemoryRecallEnabled(
 ): boolean {
   // Fanfic chats are written from the request and outline; recall would leak other chats into the fic.
   if (chatMode === "fanfic") return false;
+  // Trance sessions are written from the request alone and have no messages to recall from.
+  if (chatMode === "trance") return false;
   if (typeof metadata?.enableMemoryRecall === "boolean") return metadata.enableMemoryRecall;
   if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "visual_novel") return true;
   return metadata?.sceneStatus === "active";
@@ -427,6 +429,10 @@ export interface ChatMetadata {
   fanfic?: import("./fanfic.js").FanficState | null;
   /** On a fanfic chapter's comment thread (a chat owned by the fic): the chapter it is under. */
   fanficComment?: import("./fanfic.js").FanficCommentThread;
+
+  // ── Trance Mode Fields ──
+  /** Trance mode request, written script and past runs. */
+  trance?: import("./trance.js").TranceState | null;
 
   // ── Conversation-Mode Auto-Summarization ──
   /** Per-day auto-generated conversation summaries (key: "DD.MM.YYYY"). */

@@ -29,9 +29,10 @@ type Health = RemoteRuntimeHealthCheck | { status: "checking"; message: string }
 type CheckedHealth = { checkedUrl: string; result: Health };
 const SETUP_PROGRESS_TIMEOUT_MS = 15_000;
 
-function pendingLaunchLabel(mode: "conversation" | "roleplay" | "fanfic"): string {
+function pendingLaunchLabel(mode: "conversation" | "roleplay" | "fanfic" | "trance"): string {
   if (mode === "roleplay") return "Starting your roleplay...";
   if (mode === "fanfic") return "Opening your fanfic request...";
+  if (mode === "trance") return "Opening your trance session...";
   return "Starting your conversation...";
 }
 

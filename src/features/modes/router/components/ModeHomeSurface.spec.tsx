@@ -161,7 +161,7 @@ describe("ModeHomeSurface launch splash", () => {
 
       // The modes are a visual-novel choice menu instead of cards, with recent
       // chats under them, and no "Next steps" grid.
-      expect(container!.querySelectorAll(".vn-choice")).toHaveLength(3);
+      expect(container!.querySelectorAll(".vn-choice")).toHaveLength(4);
       expect(container!.querySelector(".koi-start-card")).toBeNull();
       expect(
         [...container!.querySelectorAll("[data-home-section]")].map((s) => s.getAttribute("data-home-section")),

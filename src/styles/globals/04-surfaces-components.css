@@ -170,19 +170,21 @@
   border-left-color: transparent;
 }
 
-/* The chat list's Conversation | Roleplay | Fanfic switch (ChatModeSwitch.tsx):
-   the same track with three cells, icon over name in plain case (three
-   uppercase names don't fit a third of the column), each mode in its own
-   colour: koi for Conversation, jade for Roleplay, Fanfic's pink. */
+/* The chat list's Conversation | Roleplay | Fanfic | Trance switch (ChatModeSwitch.tsx):
+   the same track with four cells, icon over name in plain case (uppercase
+   names don't fit a quarter of the column), each mode in its own colour:
+   koi for Conversation, jade for Roleplay, Fanfic's pink, Trance's violet. */
 .de-koi-mode-switch {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .de-koi-mode-switch .de-koi-people-switch-tab {
   position: relative;
   flex-direction: column;
   gap: 0.125rem;
-  padding: 0.125rem 0.25rem;
+  padding: 0.125rem 0.125rem;
+  /* A step under the people switch, so "Conversation" fits a quarter of a phone-width column. */
+  font-size: 0.625rem;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -197,6 +199,14 @@
 
 .de-koi-mode-switch .de-koi-people-switch-tab[data-mode="fanfic"] {
   --people-switch-tone: #e0607e;
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="trance"] {
+  --people-switch-tone: #9a83ff;
+}
+
+[data-theme="light"] .de-koi-mode-switch .de-koi-people-switch-tab[data-mode="trance"] {
+  --people-switch-tone: #6247d6;
 }
 
 /* In daylight the pink is a step darker, so its name stays readable. */

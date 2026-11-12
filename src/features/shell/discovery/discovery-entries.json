@@ -181,6 +181,39 @@
     "coverage": "core"
   },
   {
+    "id": "trance-mode",
+    "title": "Trance Mode",
+    "category": "Chat modes",
+    "summary": "A text hypnosis session in a character's voice, with no back-and-forth chat. Pick the character, say how you feel today (a mood plus an optional note), choose the type (Gentle, Erotic or Kinky), the category (Relax, Sleep, Fantasy, Transformation or Effect), optional features (Fractionation, Amnesia, Obedience, Arousal, Orgasm), the length (5 to 30 minutes), whether it ends by waking you up or letting you drift to sleep, and an optional idea. The whole session is written at once, then shown one large line at a time: press the button under each line (its words follow the session, like \"So nice\" going down and \"More aware\" coming up) or Space to go on. \"I need out\" is always at the top: wake gently with a short count up, a calm exit if something upset you, or just stop. Afterwards say how you feel (1 to 10), whether you're fully awake (if not, it walks you back up), and what worked. Play a session again, write a new one with the same settings, or change them.",
+    "keywords": [
+      "trance",
+      "hypnosis",
+      "hypno",
+      "self-hypnosis",
+      "induction",
+      "relax",
+      "sleep",
+      "fractionation",
+      "script",
+      "one line at a time",
+      "wake up",
+      "head empty",
+      "calm",
+      "meditation",
+      "guided"
+    ],
+    "audience": "Anyone who wants a hypnosis session from a character they like without having to chat, plan, or listen to audio.",
+    "where": "Home > Trance, or right-click a character and choose Quick Start Trance. Then the session form, the player, and the after-check.",
+    "actions": [
+      {
+        "type": "open-mode-setup",
+        "mode": "trance",
+        "label": "Start a trance session"
+      }
+    ],
+    "coverage": "core"
+  },
+  {
     "id": "message-search",
     "title": "Message Search",
     "category": "Chat modes",

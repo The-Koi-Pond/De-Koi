@@ -86,6 +86,7 @@ export function CharactersPanel() {
     handleAddFirstMessage,
     handleStartConversation,
     handleStartFanfic,
+    handleStartTrance,
     handleStartNewChat,
     handleStartRoleplay,
     hasActiveChat,
@@ -451,6 +452,7 @@ export function CharactersPanel() {
             }}
             onStartConversation={(menu) => handleStartConversation(menu.charId, menu.charName)}
             onStartFanfic={(menu) => handleStartFanfic(menu.charId, menu.charName)}
+            onStartTrance={(menu) => handleStartTrance(menu.charId, menu.charName)}
           />
         )}
 

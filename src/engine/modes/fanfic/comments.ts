@@ -13,7 +13,8 @@ import { isRecord, parseRecord, readString, type JsonRecord } from "../../genera
 import { userFacingError } from "../../shared/user-facing-error";
 import { fanficCanonLine, fanficChapterLayout } from "./chapter-refs";
 import { fanficChapterTextKey, readFanficLedger, renderFanficLedgerForPrompt } from "./ledger";
-import { cleanFanficReply, FANFIC_NO_CONNECTION, loadFanficConnection, untilAborted } from "./llm-json";
+import { cleanFanficReply, FANFIC_NO_CONNECTION, loadFanficConnection } from "./llm-json";
+import { untilAborted } from "../../shared/until-aborted";
 import {
   fanficContentRules,
   renderFanficOutline,

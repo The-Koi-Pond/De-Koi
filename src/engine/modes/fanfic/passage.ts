@@ -28,9 +28,9 @@ import {
   fanficCallBudget,
   fanficMessageChars,
   FanficWindowTooSmallError,
-  untilAborted,
   loadFanficConnection,
 } from "./llm-json";
+import { untilAborted } from "../../shared/until-aborted";
 import {
   buildFanficChapterGuide,
   buildFanficExtraGuide,

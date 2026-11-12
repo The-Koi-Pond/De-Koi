@@ -17,6 +17,7 @@ const CHOICES: ReadonlyArray<{ mode: HomeMode; line: string; label: string }> = 
   { mode: "conversation", line: "Let's just talk.", label: "Conversation" },
   { mode: "roleplay", line: "Let's play out a story!", label: "Roleplay" },
   { mode: "fanfic", line: "Write me something to read.", label: "Fanfic" },
+  { mode: "trance", line: "Put me under for a while.", label: "Trance" },
 ];
 
 export function HomeModeChoices({
