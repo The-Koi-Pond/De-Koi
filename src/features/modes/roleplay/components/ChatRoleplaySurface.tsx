@@ -573,6 +573,7 @@ function SummaryButton({
           )
         }
         title="Chat Summary"
+        aria-label="Chat Summary"
       >
         {children ?? <ScrollText size="0.875rem" />}
       </button>
@@ -646,6 +647,7 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
               : "bg-foreground/5 border-foreground/10 text-foreground/60 hover:bg-foreground/10 hover:text-foreground",
         )}
         title="Author's Notes"
+        aria-label="Author's Notes"
       >
         <PenLine size="0.875rem" />
       </button>
