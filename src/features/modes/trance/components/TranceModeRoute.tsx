@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Orbit, Play, RefreshCw, SlidersHorizontal } from "lucide-react";
-import { useCharacterSummariesByIds } from "../../../catalog/characters/index";
+import { useChatSurfaceCharacterSummariesByIds } from "../../../catalog/characters/index";
 import type { TranceAfter, TranceFinish, TranceState } from "../../../../engine/contracts/types/trance";
 import {
   TRANCE_ENDING_LABELS,
@@ -13,6 +13,7 @@ import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useTranceChat, useTranceRecordRun, useTranceRequestSave, useTranceScript } from "../hooks/use-trance";
+import { tranceCharacterColors } from "../lib/trance-colors";
 import { TrancePlayer } from "./TrancePlayer";
 import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
 import { TranceSessionOptions } from "./TranceSessionOptions";
@@ -71,9 +72,13 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const voiceMode = useUIStore((state) => state.tranceVoice);
   const stage = tranceStage(state);
   const characterIds = useMemo(() => chat?.characterIds ?? [], [chat?.characterIds]);
-  const { data: characterRows } = useCharacterSummariesByIds(characterIds.slice(0, 1), characterIds.length > 0);
-  const characterName =
-    (characterRows as Array<{ data?: { name?: string } }> | undefined)?.[0]?.data?.name?.trim() || "Your guide";
+  const { data: characterRows } = useChatSurfaceCharacterSummariesByIds(
+    characterIds.slice(0, 1),
+    characterIds.length > 0,
+  );
+  const guide = (characterRows as Array<{ data?: { name?: string; extensions?: unknown } }> | undefined)?.[0];
+  const characterName = guide?.data?.name?.trim() || "Your guide";
+  const colors = useMemo(() => tranceCharacterColors(guide?.data?.extensions), [guide?.data?.extensions]);
 
   useEffect(() => {
     if (chat) useChatStore.getState().setActiveChat(chat);
@@ -120,6 +125,7 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           voiceMode={voiceMode}
           characterId={characterIds[0] ?? null}
           characterName={characterName}
+          colors={colors}
         />
       </div>
     );
