@@ -21,6 +21,7 @@ import {
 import { generateTranceScript, parseTranceReply, splitTranceLine, TranceScriptParseError } from "./script";
 import { parseTrancePitchReply, suggestTrancePitches, TrancePitchParseError } from "./pitches";
 import { recordTranceRun, saveTranceRequest, tranceButtonLabel } from "./session";
+import { buildTranceShare, openSharedTrance, parseTranceShare, tranceShareFilename } from "./share";
 
 function lines(prefix: string, count: number): string {
   return Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}.`).join("\n");
@@ -509,5 +510,76 @@ describe("session ideas", () => {
     expect(prompt).toMatch(/Title: The Quiet Box/);
     expect(prompt).toMatch(/word for word/);
     expect(prompt).toMatch(/You're reading this\./);
+  });
+});
+
+describe("sharing a session", () => {
+  const written: TranceState = {
+    ...createTranceState({
+      ...defaultTranceRequest(),
+      moods: ["lonely", "anxious"],
+      moodNote: "rough day at work",
+      pitch: { title: "Stage Fright", summary: "Strings go slack.", sample: ["Sit down."] },
+    }),
+    script: {
+      lines: [
+        { phase: "pretalk", text: "Sit down." },
+        { phase: "induction", text: "Breathe." },
+      ],
+      exits: { gentle: ["Up."], calm: ["Safe."] },
+      connectionId: "private-connection",
+      createdAt: "2026-11-12T20:00:00.000Z",
+    },
+    runs: [{ finishedBy: "completed", rating: 9, fullyAwake: true, note: "slept", seconds: 600, at: "t" }],
+  };
+
+  function withCharacters(storage: StorageGateway, names: Record<string, string>) {
+    (storage as unknown as { list: () => Promise<unknown[]> }).list = async () =>
+      Object.entries(names).map(([id, name]) => ({ id, data: { name } }));
+    return storage;
+  }
+
+  it("leaves out how the sharer felt, their runs and their connection", () => {
+    const share = buildTranceShare(written, "Jester", new Date("2026-11-12T21:00:00.000Z"));
+    const text = JSON.stringify(share);
+    for (const secret of ["lonely", "rough day", "private-connection", "slept"]) expect(text).not.toContain(secret);
+    expect(share.script.lines).toHaveLength(2);
+    expect(share.request.pitch?.title).toBe("Stage Fright");
+    expect(tranceShareFilename(share)).toBe("Jester - Stage Fright.trance.json");
+  });
+
+  it("opens a shared file ready to play, with the matching card as guide", async () => {
+    const { storage, chats } = storageFor(null, { name: "New Trance", characterIds: [] });
+    withCharacters(storage, { "my-jester": "jester", other: "Pierrot" });
+    const file = JSON.parse(JSON.stringify(buildTranceShare(written, "Jester", new Date())));
+
+    const state = await openSharedTrance(storage, "s1", parseTranceShare(file));
+
+    expect(tranceStage(state)).toBe("ready");
+    expect(state.runs).toEqual([]);
+    expect(state.script?.connectionId).toBeNull();
+    expect(chats.get("s1")!.characterIds).toEqual(["my-jester"]);
+    expect(chats.get("s1")!.name).toBe("Jester - Trance");
+    expect(readTranceState(chats.get("s1")!.metadata)?.guideName).toBe("Jester");
+  });
+
+  it("keeps the guide's name when no card matches, and refuses a chat that already has a session", async () => {
+    const empty = storageFor(null, { characterIds: [] });
+    withCharacters(empty.storage, { other: "Pierrot" });
+    await openSharedTrance(empty.storage, "s1", parseTranceShare(buildTranceShare(written, "Jester", new Date())));
+    expect(empty.chats.get("s1")!.characterIds).toEqual([]);
+    expect(readTranceState(empty.chats.get("s1")!.metadata)?.guideName).toBe("Jester");
+
+    const busy = storageFor(createTranceState(defaultTranceRequest()));
+    withCharacters(busy.storage, {});
+    await expect(
+      openSharedTrance(busy.storage, "s1", parseTranceShare(buildTranceShare(written, "Jester", new Date()))),
+    ).rejects.toThrow("already has settings");
+  });
+
+  it("explains files that aren't shared trances", () => {
+    expect(() => parseTranceShare({ type: "marinara_character" })).toThrow("isn't a shared trance");
+    expect(() => parseTranceShare({ type: "de-koi-trance", version: 2 })).toThrow("newer De-Koi");
+    expect(() => parseTranceShare({ type: "de-koi-trance", version: 1, script: { lines: [] } })).toThrow("no lines");
   });
 });
