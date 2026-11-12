@@ -35,6 +35,7 @@ import {
 } from "../../../../shared/lib/voice-recorder";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { StreamingSpeaker } from "./voice-call-streaming-speech";
+import { prepareThinkingSounds, type VoiceCallThinkingSounds } from "./voice-call-thinking-sounds";
 
 export interface VoiceCallCharacter {
   id: string | null;
@@ -289,6 +290,7 @@ function speakerFor(
   character: VoiceCallCharacter,
   turnKey: string,
   onFirstSound: () => void,
+  thinkingSounds: VoiceCallThinkingSounds | null,
 ): VoiceReplySpeaker {
   const controller = new AbortController();
   const { signal } = controller;
@@ -314,8 +316,11 @@ function speakerFor(
         signal,
       ).catch(() => undefined); // Reported when the piece plays and fetches it again.
     },
-    play: (requests) =>
-      ttsService.speakSequence(requests, turnKey, {
+    play: async (requests) => {
+      // A thinking sound still playing finishes first: the reply starts right after it instead of cutting it off.
+      await thinkingSounds?.idle();
+      if (signal.aborted) return;
+      await ttsService.speakSequence(requests, turnKey, {
         signal,
         playbackRate: clientSidePlaybackRate(config),
         lookahead: 1,
@@ -325,7 +330,8 @@ function speakerFor(
           sounded = true;
           onFirstSound();
         },
-      }),
+      });
+    },
   });
   return {
     get started() {
@@ -355,10 +361,14 @@ function speakerFor(
 /** `context` is read on every use, so the session follows the latest character and send function. */
 export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSessionPorts<Blob> {
   let config: TTSConfig | null = null;
+  let thinkingSounds: VoiceCallThinkingSounds | null = null;
   return {
-    setup: async () => {
+    setup: async (signal) => {
       config = await loadSpeechConfig(true);
       const voiceReplies = Boolean(config?.enabled);
+      if (config?.enabled && config.voiceCallThinkingSounds) {
+        thinkingSounds = prepareThinkingSounds(config, context().character, signal);
+      }
       if (config && providerSpeechInputEnabled(config)) {
         if (!canRecordAudio()) throw new Error(VOICE_NEEDS_HTTPS_MESSAGE);
         return { voiceReplies, input: recorderInput(config) };
@@ -382,8 +392,15 @@ export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSess
       begin: (turnKey, onFirstSound) => {
         if (!config?.enabled) return null;
         const { chatId, character } = context();
-        return speakerFor(config, character, `voice-call:${chatId}:${Date.now()}:${turnKey}`, onFirstSound);
+        return speakerFor(
+          config,
+          character,
+          `voice-call:${chatId}:${Date.now()}:${turnKey}`,
+          onFirstSound,
+          thinkingSounds,
+        );
       },
+      thinkingSound: () => thinkingSounds?.next() ?? null,
     },
   };
 }

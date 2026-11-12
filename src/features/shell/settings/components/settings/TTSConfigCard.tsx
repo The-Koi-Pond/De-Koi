@@ -348,6 +348,7 @@ export function TTSConfigCard() {
   const [dialogueOnly, setDialogueOnly] = useState(false);
   const [fanficSoundEffects, setFanficSoundEffects] = useState(false);
   const [speechInputProvider, setSpeechInputProvider] = useState(false);
+  const [voiceCallThinkingSounds, setVoiceCallThinkingSounds] = useState(true);
   const [sttModel, setSttModel] = useState("");
 
   const [expanded, setExpanded] = useState(false);
@@ -383,6 +384,7 @@ export function TTSConfigCard() {
     setAudioFormat(savedConfig.audioFormat ?? "mp3");
     setNarratorVoiceEnabled(savedConfig.narratorVoiceEnabled ?? false);
     setSpeechInputProvider(savedConfig.speechInputProvider ?? false);
+    setVoiceCallThinkingSounds(savedConfig.voiceCallThinkingSounds ?? true);
     setSttModel(savedConfig.sttModel ?? "");
     setNarratorVoice(savedConfig.narratorVoice ?? "");
     setVoiceMode(savedConfig.voiceMode ?? "single");
@@ -452,6 +454,7 @@ export function TTSConfigCard() {
     dialogueScope: "all",
     dialogueCharacterName: "",
     speechInputProvider,
+    voiceCallThinkingSounds,
     sttModel,
     ...overrides,
   });
@@ -1069,6 +1072,22 @@ export function TTSConfigCard() {
                   className={INPUT_CLS}
                 />
               )}
+            </div>
+          </FieldRow>
+
+          <FieldRow
+            label="Voice Call Sounds"
+            help="On a voice call, the character sometimes makes a short sound like “Hmm…” in their own voice while they think up a reply, never while you're talking. Each voice's sounds are made once (a few credits) and then replay free."
+          >
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-2">
+              <ToggleRow
+                label="Thinking sounds on voice calls"
+                checked={voiceCallThinkingSounds}
+                onChange={(next) => {
+                  setVoiceCallThinkingSounds(next);
+                  mark({ voiceCallThinkingSounds: next });
+                }}
+              />
             </div>
           </FieldRow>
 

@@ -154,7 +154,8 @@ fn default_config() -> Value {
         "dialogueOnly": false,
         "dialogueScope": "all",
         "dialogueCharacterName": "",
-        "fanficSoundEffects": false
+        "fanficSoundEffects": false,
+        "voiceCallThinkingSounds": true
     })
 }
 
