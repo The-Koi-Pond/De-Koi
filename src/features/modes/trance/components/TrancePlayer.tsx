@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { LifeBuoy, Volume2, VolumeX } from "lucide-react";
 import type {
   TranceAfter,
@@ -14,6 +14,7 @@ import { cn } from "../../../../shared/lib/utils";
 import type { TranceBackdrop as TranceBackdropKind, TranceVoiceMode } from "../../../../shared/stores/ui/model";
 import { useTranceVoice } from "../hooks/use-trance-voice";
 import { TranceBackdrop, type TranceShade } from "./TranceBackdrop";
+import type { TranceCharacterColors } from "../lib/trance-colors";
 
 type Track = "main" | "gentle" | "calm" | "stop" | "realert";
 
@@ -180,6 +181,19 @@ function AfterCheck({
   );
 }
 
+/** The guide's name in the card's name colour, as a gradient when the card has one. */
+function guideNameStyle(colors: TranceCharacterColors): CSSProperties {
+  if (!colors.name) return { color: colors.words };
+  if (!colors.name.includes("gradient(")) return { color: colors.name };
+  return {
+    backgroundImage: colors.name,
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    color: "transparent",
+  };
+}
+
 export function TrancePlayer({
   script,
   ending,
@@ -190,6 +204,7 @@ export function TrancePlayer({
   voiceMode = "off",
   characterId = null,
   characterName = "",
+  colors = null,
 }: {
   script: TranceScript;
   ending: TranceEnding;
@@ -200,6 +215,8 @@ export function TrancePlayer({
   voiceMode?: TranceVoiceMode;
   characterId?: string | null;
   characterName?: string;
+  /** The guide's colours; null keeps the session's own. */
+  colors?: TranceCharacterColors | null;
 }) {
   const [track, setTrack] = useState<Track>("main");
   const [index, setIndex] = useState(0);
@@ -372,7 +389,7 @@ export function TrancePlayer({
   const inExit = track !== "main";
   return (
     <div className="relative isolate flex min-h-full flex-1 flex-col bg-[#0d0b1a] text-[#ece8ff]">
-      <TranceBackdrop kind={backdrop} shade={shade} />
+      <TranceBackdrop kind={backdrop} shade={shade} guide={colors?.palettes ?? null} />
       <div className="relative z-10 flex min-h-[3.75rem] items-center justify-end gap-2 p-3">
         {voiceMode !== "off" && (voice.active || muted) && (
           <button
@@ -452,17 +469,36 @@ export function TrancePlayer({
       )}
 
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-6 text-center">
-        <p aria-hidden="true" className="max-w-3xl text-[clamp(1rem,2.4vmin,1.5rem)] leading-snug text-[#ece8ff]/25">
+        <p
+          aria-hidden="true"
+          className={cn(
+            "max-w-3xl text-[clamp(1rem,2.4vmin,1.5rem)] leading-snug",
+            colors ? "opacity-30" : "text-[#ece8ff]/25",
+          )}
+          style={colors ? { color: colors.words } : undefined}
+        >
           {previousLine?.text ?? ""}
         </p>
-        <p
-          key={`${track}:${index}`}
-          ref={fadeRef}
-          aria-live="polite"
-          className="trance-line max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
-        >
-          {line.text}
-        </p>
+        <div className="flex flex-col items-center gap-2">
+          {colors && characterName && (
+            <span
+              data-testid="trance-guide-name"
+              className="text-[clamp(0.875rem,2vmin,1.125rem)] font-semibold tracking-wide opacity-90"
+              style={guideNameStyle(colors)}
+            >
+              {characterName}
+            </span>
+          )}
+          <p
+            key={`${track}:${index}`}
+            ref={fadeRef}
+            aria-live="polite"
+            className="trance-line max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
+            style={colors ? { color: colors.words } : undefined}
+          >
+            {line.text}
+          </p>
+        </div>
       </div>
 
       <div className="relative z-10 flex justify-center px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
@@ -471,6 +507,11 @@ export function TrancePlayer({
           type="button"
           onClick={advance}
           className="min-w-[12rem] rounded-full bg-[#ece8ff]/10 px-8 py-3 text-[clamp(1rem,2.6vmin,1.375rem)] text-[#ece8ff] transition-colors hover:bg-[#ece8ff]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a993ff]"
+          style={
+            colors
+              ? { color: colors.words, backgroundColor: `${colors.words}1f`, outlineColor: colors.words }
+              : undefined
+          }
         >
           {line.button}
         </button>
