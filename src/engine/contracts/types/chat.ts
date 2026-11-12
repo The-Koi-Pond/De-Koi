@@ -431,7 +431,7 @@ export interface ChatMetadata {
   /** Extra negative prompt/tags sent with generated conversation selfies. */
   selfieNegativePrompt?: string;
   /**
-   * Send the character's avatar (and full-body sprite, when there is one) to the image model with each selfie, so the
+   * Send the character's full-body sprite (or their avatar when they have none) to the image model with each selfie, so the
    * picture keeps their look. Off unless turned on: some services start from the reference image instead of reading it.
    */
   selfieUseAvatarReferences?: boolean;

@@ -3070,9 +3070,9 @@ function ChatSettingsDrawerInner({
                       <div className="min-w-0 flex-1">
                         <span className="text-xs font-medium">Make selfies look like the character</span>
                         <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                          Sends their avatar, and a full-body sprite if they have one, with each selfie. Works best with
-                          services that read reference images, like Gemini, GPT Image and NovelAI. Some Stable Diffusion
-                          setups start from the picture instead, so those selfies stay close to the avatar.
+                          Sends their full-body sprite with each selfie, or their avatar if they have no sprite. Works
+                          best with services that read reference images, like Gemini, GPT Image and NovelAI. Some Stable
+                          Diffusion setups start from the picture instead, so those selfies stay close to that picture.
                         </p>
                       </div>
                       <div
