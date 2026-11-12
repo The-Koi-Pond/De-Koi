@@ -59,6 +59,7 @@ import { SummariesEditorModal } from "./SummariesEditorModal";
 import { AdvancedParametersSection } from "./settings/AdvancedParametersSection";
 import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
+import { ChatSpotifySourceSection } from "./settings/ChatSpotifySourceSection";
 import { LinkedFicSection } from "./settings/LinkedFicSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
@@ -139,7 +140,6 @@ import { coreModulesApi } from "../../../../../shared/api/core-modules-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { storyContinuityApi } from "../../../../../shared/api/story-continuity-api";
-import { spotifyApi } from "../../../../../shared/api/integration-utility-api";
 import { spriteApi } from "../../../../../shared/api/image-generation-api";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
 import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
@@ -176,7 +176,13 @@ import {
 import { getEffectiveStoryConsolidationEnabled } from "../../../../../engine/generation/story-projections";
 import type { StoryProjectionPayload } from "../../../../../engine/contracts/types/memory";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
+import {
+  isCustomAgentConfig,
+  useAgentConfigs,
+  useCreateAgent,
+  useUpdateAgent,
+  type AgentConfigRow,
+} from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
@@ -240,20 +246,7 @@ interface ChatSettingsDrawerProps {
   settingsDestination?: string | null;
 }
 
-type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
-
-const SPOTIFY_SOURCE_OPTIONS: Array<{ id: SpotifySourceType; label: string; description: string }> = [
-  { id: "liked", label: "Liked Songs", description: "Pick from the user's saved tracks first." },
-  { id: "playlist", label: "Playlist", description: "Keep choices inside one Spotify playlist." },
-  { id: "artist", label: "Artist", description: "Search only around a named artist, like HOYO-MiX." },
-  { id: "any", label: "Any Spotify", description: "Legacy Spotify DJ can search Spotify when it fits." },
-];
-
 const GENERIC_CHAT_TOOL_PICKER_HIDDEN_NAMES = new Set(["save_lorebook_entry"]);
-
-function normalizeSpotifySourceType(value: unknown): SpotifySourceType {
-  return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
-}
 
 const MODE_INTROS: Record<ChatMode, string> = {
   conversation: "Plain chat — no roleplay systems built in; autonomous messaging and other tools are optional below.",
@@ -689,10 +682,6 @@ function ChatSettingsDrawerInner({
   const scopedRegexScripts = useMemo(() => (allRegexScripts ?? []).filter(isRegexScriptScoped), [allRegexScripts]);
   const scopedRegexCount = scopedRegexScripts.length;
   const musicDjActive = activeAgentIds.includes("music-dj");
-  const spotifyActive = activeAgentIds.includes("spotify");
-  const spotifySourceType = normalizeSpotifySourceType(metadata.spotifySourceType);
-  const spotifyPlaylistId = typeof metadata.spotifyPlaylistId === "string" ? metadata.spotifyPlaylistId : "";
-  const spotifyArtist = typeof metadata.spotifyArtist === "string" ? metadata.spotifyArtist : "";
   const spriteCharacterIds = useMemo<string[]>(
     () => (Array.isArray(metadata.spriteCharacterIds) ? metadata.spriteCharacterIds : []),
     [metadata.spriteCharacterIds],
@@ -705,22 +694,6 @@ function ChatSettingsDrawerInner({
   const [spriteScalePercent, setSpriteScalePercent] = useState(() => Math.round(spriteScale * 100));
   const [spriteOpacityPercent, setSpriteOpacityPercent] = useState(() => Math.round(spriteOpacity * 100));
   const hasCustomSpritePlacements = Object.keys(normalizeSpritePlacements(metadata.spritePlacements)).length > 0;
-  const spotifyPlaylistsQuery = useQuery({
-    queryKey: ["spotify", "playlists", 50],
-    queryFn: () =>
-      spotifyApi.playlists<{
-        playlists: Array<{
-          id: string;
-          name: string;
-          uri: string;
-          trackCount: number | null;
-          owned: boolean | null;
-        }>;
-      }>({ limit: 50 }),
-    enabled: open && isRoleplayMode && agentsEnabled && spotifyActive && spotifySourceType === "playlist",
-    staleTime: 60_000,
-    retry: false,
-  });
 
   useEffect(() => {
     setSpriteScalePercent(Math.round(spriteScale * 100));
@@ -755,10 +728,10 @@ function ChatSettingsDrawerInner({
         builtIn: true,
       });
     }
-    // Custom agents from DB
+    // Custom agents from DB. Records of retired built-in types (such as the legacy `spotify` agent) stay hidden.
     if (agentConfigs) {
       for (const c of agentConfigs as AgentConfigRow[]) {
-        if (!BUILT_IN_AGENTS.some((b) => b.id === c.type)) {
+        if (isCustomAgentConfig(c)) {
           agents.push({
             id: c.type,
             name: c.name,
@@ -1002,9 +975,7 @@ function ChatSettingsDrawerInner({
   const charAvatarCrop = useCallback((c: { data?: unknown }) => {
     return (
       ((c.data as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop as
-        | AvatarCrop
-        | null
-        | undefined) ?? null
+        AvatarCrop | null | undefined) ?? null
     );
   }, []);
   const musicProfileForCharacter = useCallback((c: { data?: unknown }) => {
@@ -1052,7 +1023,7 @@ function ChatSettingsDrawerInner({
     (c: { id: string; data?: unknown; comment?: string | null }) => {
       const cue = buildCharacterMusicPlaybackCue(characterPublicProfile(c).nowListening);
       if (!cue) return;
-      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
+      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query, url: cue.url });
       toast.success("Music Player cued character music.", { duration: 1800 });
     },
     [characterPublicProfile],
@@ -1437,7 +1408,6 @@ function ChatSettingsDrawerInner({
   const [narratorStyleExpanded, setNarratorStyleExpanded] = useState(false);
   const [groupScenarioDraft, setGroupScenarioDraft] = useState(groupScenarioText);
   const [groupScenarioExpanded, setGroupScenarioExpanded] = useState(false);
-  const [spotifyArtistDraft, setSpotifyArtistDraft] = useState(spotifyArtist);
 
   // ── Chat Settings Presets ──
   const presetMode = chatMode;
@@ -1480,10 +1450,6 @@ function ChatSettingsDrawerInner({
     setNarratorStyleDraft(narratorStyleInstructions);
     setGroupScenarioDraft(groupScenarioText);
   }, [chat.id, sceneSystemPrompt, narratorStyleInstructions, groupScenarioText]);
-
-  useEffect(() => {
-    setSpotifyArtistDraft(spotifyArtist);
-  }, [chat.id, spotifyArtist]);
 
   const openAgentConfigModal = (agent: AvailableAgent, mode: AgentAddPreview["mode"]) => {
     setAgentAddCadenceInputFocused(false);
@@ -1537,10 +1503,7 @@ function ChatSettingsDrawerInner({
     if (intervalMeta && runInterval != null) {
       nextSettings.runInterval = runInterval;
     }
-    if (
-      builtInMeta &&
-      (!Array.isArray(nextSettings.enabledTools) || (agent.id === "spotify" && nextSettings.enabledTools.length === 0))
-    ) {
+    if (builtInMeta && !Array.isArray(nextSettings.enabledTools)) {
       nextSettings.enabledTools = DEFAULT_AGENT_TOOLS[agent.id] ?? [];
     }
 
@@ -3889,130 +3852,6 @@ function ChatSettingsDrawerInner({
                   </div>
                 )}
 
-                {agentsEnabled && isRoleplayMode && spotifyActive && (
-                  <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 p-3">
-                    <div className="flex items-start gap-2">
-                      <Music2 size="0.75rem" className="mt-0.5 text-[var(--primary)]" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[0.6875rem] font-medium">Spotify DJ (Legacy)</div>
-                        <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Choose where the DJ should look for roleplay music when it reacts to the scene.
-                        </p>
-                      </div>
-                    </div>
-
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Music source</span>
-                      <select
-                        value={spotifySourceType}
-                        onChange={(event) => {
-                          const next = normalizeSpotifySourceType(event.target.value);
-                          updateMeta.mutate({
-                            id: chat.id,
-                            spotifySourceType: next,
-                            spotifyPlaylistId: next === "playlist" ? spotifyPlaylistId || null : null,
-                            spotifyPlaylistName:
-                              next === "playlist" ? (metadata.spotifyPlaylistName as string) || null : null,
-                            spotifyArtist: next === "artist" ? spotifyArtistDraft.trim() || null : null,
-                          });
-                        }}
-                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
-                      >
-                        {SPOTIFY_SOURCE_OPTIONS.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="text-[0.5625rem] text-[var(--muted-foreground)]">
-                        {SPOTIFY_SOURCE_OPTIONS.find((option) => option.id === spotifySourceType)?.description ?? ""}
-                      </span>
-                    </label>
-
-                    {spotifySourceType === "playlist" && (
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Playlist</span>
-                        {spotifyPlaylistsQuery.data?.playlists.length ? (
-                          <select
-                            value={spotifyPlaylistId}
-                            onChange={(event) => {
-                              const playlist = spotifyPlaylistsQuery.data?.playlists.find(
-                                (entry) => entry.id === event.target.value,
-                              );
-                              updateMeta.mutate({
-                                id: chat.id,
-                                spotifyPlaylistId: event.target.value || null,
-                                spotifyPlaylistName: playlist?.name ?? null,
-                              });
-                            }}
-                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
-                          >
-                            <option value="">Choose playlist...</option>
-                            {spotifyPlaylistsQuery.data.playlists.map((playlist) => {
-                              const suffix =
-                                typeof playlist.trackCount === "number"
-                                  ? ` (${playlist.trackCount})`
-                                  : playlist.owned === false
-                                    ? " (followed, unavailable)"
-                                    : "";
-                              return (
-                                <option key={playlist.id} value={playlist.id}>
-                                  {playlist.name}
-                                  {suffix}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        ) : (
-                          <input
-                            key={`${chat.id}-${spotifyPlaylistId}`}
-                            defaultValue={spotifyPlaylistId}
-                            onBlur={(event) =>
-                              updateMeta.mutate({
-                                id: chat.id,
-                                spotifyPlaylistId: event.target.value.trim() || null,
-                                spotifyPlaylistName: null,
-                              })
-                            }
-                            placeholder={
-                              spotifyPlaylistsQuery.isFetching ? "Loading playlists..." : "Paste playlist ID"
-                            }
-                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
-                          />
-                        )}
-                        {spotifyPlaylistsQuery.isError && (
-                          <span className="text-[0.5625rem] text-amber-400/90">
-                            Connect Spotify in the Spotify DJ agent to load playlist names.
-                          </span>
-                        )}
-                      </label>
-                    )}
-
-                    {spotifySourceType === "artist" && (
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Artist</span>
-                        <input
-                          value={spotifyArtistDraft}
-                          onChange={(event) => setSpotifyArtistDraft(event.target.value)}
-                          onBlur={() =>
-                            updateMeta.mutate({
-                              id: chat.id,
-                              spotifyArtist: spotifyArtistDraft.trim() || null,
-                            })
-                          }
-                          placeholder="HOYO-MiX"
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
-                        />
-                      </label>
-                    )}
-
-                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Roleplay DJ queues several fitting tracks when it changes music. Spotify Premium, a connected
-                      account, and an active Spotify device are still required.
-                    </p>
-                  </div>
-                )}
-
                 {/* Manual trackers toggle - roleplay only */}
                 {agentsEnabled && isRoleplayMode && (
                   <button
@@ -4463,6 +4302,11 @@ function ChatSettingsDrawerInner({
               </div>
             </Section>
           )}
+
+          <ChatSpotifySourceSection
+            metadata={metadata}
+            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
+          />
 
           {/* Discord Webhook */}
           <Section

@@ -5,17 +5,7 @@
  */
 
 export type SceneAmbientId =
-  | "tavern"
-  | "carnival"
-  | "cave"
-  | "storm"
-  | "rain"
-  | "wind"
-  | "ocean"
-  | "forest"
-  | "city"
-  | "fireplace"
-  | "night";
+  "tavern" | "carnival" | "cave" | "storm" | "rain" | "wind" | "ocean" | "forest" | "city" | "fireplace" | "night";
 
 export interface SceneSound {
   /** Stable id: the cache key and the "don't repeat" check use it. */

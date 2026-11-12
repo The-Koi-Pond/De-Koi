@@ -109,42 +109,6 @@ input[type="range"]:disabled {
   opacity: 0.55;
 }
 
-input[type="range"].mari-spotify-volume-slider {
-  --range-track-color: oklch(0.36 0.006 145);
-  --range-fill-color: oklch(0.96 0.006 145);
-  --range-thumb-color: oklch(0.96 0.006 145);
-  --range-thumb-size: 0.6875rem;
-  --range-track-height: 0.25rem;
-  --range-thumb-shadow: 0 0 0 0.125rem oklch(0.16 0.006 145);
-  accent-color: oklch(0.96 0.006 145);
-}
-
-input[type="range"].mari-spotify-volume-slider::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
-    oklch(0.96 0.006 145) 0%,
-    oklch(0.96 0.006 145) var(--range-progress),
-    oklch(0.36 0.006 145) var(--range-progress),
-    oklch(0.36 0.006 145) 100%
-  );
-}
-
-input[type="range"].mari-spotify-volume-slider::-moz-range-track {
-  background: oklch(0.36 0.006 145);
-}
-
-input[type="range"].mari-spotify-volume-slider::-moz-range-progress {
-  background: oklch(0.96 0.006 145);
-}
-
-input[type="range"].mari-spotify-volume-slider::-webkit-slider-thumb {
-  background: oklch(0.96 0.006 145);
-}
-
-input[type="range"].mari-spotify-volume-slider::-moz-range-thumb {
-  background: oklch(0.96 0.006 145);
-}
-
 * {
   -webkit-tap-highlight-color: transparent;
 }
@@ -344,7 +308,6 @@ body {
 .mari-window-controls,
 .mari-window-control,
 .mari-window-actions,
-.mari-titlebar-spotify,
 .mari-window-actions button,
 .mari-topbar button,
 .mari-topbar a {

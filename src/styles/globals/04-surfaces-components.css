@@ -170,6 +170,40 @@
   border-left-color: transparent;
 }
 
+/* The chat list's Conversation | Roleplay | Fanfic switch (ChatModeSwitch.tsx):
+   the same track with three cells, icon over name in plain case (three
+   uppercase names don't fit a third of the column), each mode in its own
+   colour: koi for Conversation, jade for Roleplay, Fanfic's pink. */
+.de-koi-mode-switch {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab {
+  position: relative;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.125rem 0.25rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="conversation"] {
+  --people-switch-tone: var(--primary);
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="roleplay"] {
+  --people-switch-tone: var(--pond-jade, #27b3aa);
+}
+
+.de-koi-mode-switch .de-koi-people-switch-tab[data-mode="fanfic"] {
+  --people-switch-tone: #e0607e;
+}
+
+/* In daylight the pink is a step darker, so its name stays readable. */
+[data-theme="light"] .de-koi-mode-switch .de-koi-people-switch-tab[data-mode="fanfic"] {
+  --people-switch-tone: #b23a59;
+}
+
 /* The fold-away tab (ColumnCollapseButton.tsx): a small half-pill attached to
    the column's left edge, its flat side against the edge. "‹" folds the column
    away; once folded, a "›" one stays at the rail's edge to bring it back. */

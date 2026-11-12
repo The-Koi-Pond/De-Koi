@@ -225,9 +225,7 @@ Expected: only Task 1 files plus the approved docs are changed; no commit is cre
 
 ```ts
 export type StandaloneMemoryFailure =
-  | "generic_speaker_label"
-  | "unresolved_opening_reference"
-  | "dangling_topic_reference";
+  "generic_speaker_label" | "unresolved_opening_reference" | "dangling_topic_reference";
 
 export function standaloneMemoryFailure(content: string): StandaloneMemoryFailure | null;
 ```
@@ -511,11 +509,7 @@ Add:
 ```ts
 export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "clarify" | "conflict";
 export type MemoryCleanupReason =
-  | "Low-value memory"
-  | "Repeated fact"
-  | "Overlapping memories"
-  | "Context clarification"
-  | "Possible conflict";
+  "Low-value memory" | "Repeated fact" | "Overlapping memories" | "Context clarification" | "Possible conflict";
 ```
 
 In `validateCleanupProposal`, enforce the exact single-source shape and source-kind preservation. Update preview totals so `clarify`, like `combine`, consumes one and creates one.

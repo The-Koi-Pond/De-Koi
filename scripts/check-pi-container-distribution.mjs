@@ -451,7 +451,10 @@ assertNotMatch(
 assertNotMatch(".github/workflows/pi-container-images.yml", workflow, /type=raw,value=latest/);
 assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "build-pi-bare-metal");
 assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "ubuntu-24.04-arm");
-assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, "dtolnay/rust-toolchain@1.100.0");
+// dtolnay/rust-toolchain's ref names the Rust version, so it must match the repository's pinned toolchain.
+const pinnedRust = read("rust-toolchain.toml").match(/^channel\s*=\s*"([^"]+)"/m)?.[1];
+if (!pinnedRust) throw new Error('rust-toolchain.toml must set channel = "<version>"');
+assertContains(".github/workflows/baremetal-pi-build.yml", prealphaWorkflow, `dtolnay/rust-toolchain@${pinnedRust}`);
 assertContains(
   ".github/workflows/baremetal-pi-build.yml",
   prealphaWorkflow,

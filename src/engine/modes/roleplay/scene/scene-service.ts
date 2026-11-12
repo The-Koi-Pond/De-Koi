@@ -6,6 +6,7 @@ import { resolveGenerationConnection } from "../../../generation/context";
 import { hiddenFromAi } from "../../../generation/runtime-records";
 import { parseGameJsonish } from "../../../shared/parsing-jsonish";
 import { readString as stringValue } from "../../../shared/value-readers";
+import { chatSpotifySourceSetting, MUSIC_SPOTIFY_SOURCE_KEY } from "../../../shared/music/chat-music";
 import type {
   SceneCreateRequest,
   SceneCreateResponse,
@@ -235,6 +236,7 @@ async function createRoleplaySceneUnlocked(
     ...stringArray(originChat.activeLorebookIds),
   ].filter((id, index, ids) => ids.indexOf(id) === index);
   const inheritedSceneOptions = sceneCarryoverOptions(originMeta);
+  const inheritedMusicSpotifySource = chatSpotifySourceSetting(originMeta);
   const sceneSystemPrompt = [plan.systemPrompt, SCENE_GUIDELINES].filter((part) => part.trim()).join("\n\n");
   const universalPreset = await resolveSceneUniversalPreset(storage, { plan, sceneConversationContext });
   const sceneFolderId = sceneFolderIdForOriginMode(originChat.mode, originChat.folderId);
@@ -250,6 +252,7 @@ async function createRoleplaySceneUnlocked(
     sceneConversationContext,
     activeLorebookIds: inheritedActiveLorebookIds,
     ...inheritedSceneOptions,
+    ...(inheritedMusicSpotifySource ? { [MUSIC_SPOTIFY_SOURCE_KEY]: inheritedMusicSpotifySource } : {}),
     sceneRating: plan.rating === "nsfw" ? "nsfw" : "sfw",
     sceneStatus: "active",
     enableMemoryRecall: true,
@@ -608,13 +611,7 @@ type SceneFinalSummaryContext = SceneSummaryContext & {
 };
 
 type SceneStorySectionKey =
-  | "events"
-  | "choices"
-  | "relationshipShifts"
-  | "promises"
-  | "reveals"
-  | "unresolvedHooks"
-  | "currentState";
+  "events" | "choices" | "relationshipShifts" | "promises" | "reveals" | "unresolvedHooks" | "currentState";
 
 type SceneStorySummary = {
   summary: string;
@@ -1437,12 +1434,6 @@ const SCENE_CARRYOVER_METADATA_KEYS = [
   "toolSelectionMode",
   "expressionAvatarsEnabled",
   "spriteSide",
-  "spotifySourceType",
-  "spotifyPlaylistId",
-  "spotifyPlaylistName",
-  "spotifyArtist",
-  "spotifyVolume",
-  "spotifyMood",
 ] as const;
 
 function sceneCarryoverSource(originMeta: JsonRecord): JsonRecord {

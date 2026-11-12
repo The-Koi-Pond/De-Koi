@@ -30,7 +30,6 @@ export type AgentResultType =
   | "persona_stats_update"
   | "custom_tracker_update"
   | "chat_summary"
-  | "spotify_control"
   | "music_control"
   | "cyoa_choices"
   | "secret_plot";
@@ -214,7 +213,6 @@ export const BUILT_IN_AGENT_IDS = {
   HTML: "html",
   CHAT_SUMMARY: "chat-summary",
   MUSIC_DJ: "music-dj",
-  SPOTIFY: "spotify",
   EDITOR: "editor",
   KNOWLEDGE_RETRIEVAL: "knowledge-retrieval",
   KNOWLEDGE_ROUTER: "knowledge-router",
@@ -412,7 +410,7 @@ const BUILT_IN_AGENT_DEFINITIONS: Array<Omit<BuiltInAgentMeta, "credit">> = [
     id: "music-dj",
     name: "Music Player",
     description:
-      "Analyzes conversation and roleplay scenes, resolves fitting YouTube music, and keeps character playlists without requiring Spotify setup.",
+      "Analyzes conversation and roleplay scenes and plays fitting music from YouTube, or from your Spotify account when you connect it in the Music Player settings.",
     phase: "post_processing",
     enabledByDefault: false,
     category: "misc",
@@ -578,9 +576,10 @@ export function enabledChatAgentIds(metadata: unknown, mode: unknown): string[] 
   const record = metadataRecord(metadata);
   if (!chatAgentsEnabled(record) || isAgentFreeChatMode(mode)) return [];
   const chatMode = normalizeAgentChatMode(mode);
-  return canonicalAgentActiveIds(record.activeAgentIds, {
-    remapLegacySpotify: chatMode === "roleplay",
-  }).filter((id) => isBuiltInAgentAvailableInChatMode(chatMode, id));
+  // A chat that listed the retired `spotify` agent gets the Music Player in every mode.
+  return canonicalAgentActiveIds(record.activeAgentIds, { remapLegacySpotify: true }).filter((id) =>
+    isBuiltInAgentAvailableInChatMode(chatMode, id),
+  );
 }
 
 export function enabledChatAgentIdSet(metadata: unknown, mode: unknown): Set<string> {
@@ -648,21 +647,12 @@ export const DEFAULT_AGENT_TOOLS: Record<string, string[]> = {
   "persona-stats": ["update_game_state"],
   html: [],
   "chat-summary": [],
-  // Also used server-side to identify Spotify tools that require token refresh.
   "music-dj": [
     "music_get_current_playback",
     "music_resolve_candidates",
     "music_play",
     "music_set_volume",
     "music_feedback",
-  ],
-  spotify: [
-    "spotify_get_current_playback",
-    "spotify_get_playlists",
-    "spotify_get_playlist_tracks",
-    "spotify_search",
-    "spotify_play",
-    "spotify_set_volume",
   ],
   editor: [],
   "knowledge-retrieval": ["search_lorebook"],
@@ -1030,117 +1020,6 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
         videoId: { type: "string", description: "YouTube video ID" },
       },
       required: ["action", "videoId"],
-    },
-  },
-  {
-    name: "spotify_get_current_playback",
-    description:
-      "Get the user's current Spotify playback state, track, active device, and volume. Use this before changing music so you do not restart or replace a fitting track.",
-    parameters: {
-      type: "object",
-      properties: {},
-    },
-  },
-  {
-    name: "spotify_get_playlists",
-    description:
-      "Get the user's Spotify playlists and saved library. Returns playlist names and URIs. Use this FIRST to see what the user already has before searching.",
-    parameters: {
-      type: "object",
-      properties: {
-        limit: { type: "number", description: "Number of playlists to return (default: 20, max: 50)" },
-      },
-    },
-  },
-  {
-    name: "spotify_get_playlist_tracks",
-    description:
-      "Get track candidates from a specific playlist or the user's Liked Songs. By default, the server indexes/caches the full source and returns only a compact scored shortlist for the model. Supplying offset switches to raw page mode.",
-    parameters: {
-      type: "object",
-      properties: {
-        playlistId: {
-          type: "string",
-          description: "Playlist ID (from spotify_get_playlists), or 'liked' for the user's Liked Songs library",
-        },
-        query: {
-          type: "string",
-          description:
-            "Scene/mood search terms used to score candidates from the full cached playlist, e.g. 'tense battle orchestral' or 'quiet melancholy'.",
-        },
-        mood: {
-          type: "string",
-          description: "Optional short mood label to combine with query when choosing candidates.",
-        },
-        candidateLimit: {
-          type: "number",
-          description: "How many candidate tracks to return in candidate mode (default: 60, max: 80).",
-        },
-        limit: {
-          type: "number",
-          description: "Candidate count in default mode, or page size when offset is provided (page max: 50).",
-        },
-        offset: {
-          type: "number",
-          description:
-            "Optional raw-page offset. Only use for manual browsing; default mode is cached candidate selection.",
-        },
-      },
-      required: ["playlistId"],
-    },
-  },
-  {
-    name: "spotify_search",
-    description:
-      "Search Spotify for tracks matching a mood, genre, or specific query. Returns a list of track URIs. Prefer using the user's playlists/liked songs first.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description:
-            "Search query — mood keywords, genre, artist, or track name (e.g. 'dark ambient orchestral', 'battle music epic')",
-        },
-        limit: { type: "number", description: "Number of results to return (default: 5)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "spotify_play",
-    description: "Play one or more tracks, or a playlist, on the user's active Spotify device.",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: {
-          type: "string",
-          description:
-            "Single Spotify URI to play (e.g. 'spotify:track:xxx' or 'spotify:playlist:xxx'). Use 'uris' instead when queueing multiple tracks.",
-        },
-        uris: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "Array of Spotify track URIs to play as a queue (e.g. ['spotify:track:xxx', 'spotify:track:yyy']). The first track plays immediately, the rest are queued.",
-        },
-        reason: { type: "string", description: "Why this track fits the current scene mood" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "spotify_set_volume",
-    description: "Set the playback volume on the user's active Spotify device (0-100).",
-    parameters: {
-      type: "object",
-      properties: {
-        volume: { type: "number", description: "Volume level (0-100)" },
-        reason: {
-          type: "string",
-          description: "Why the volume is being adjusted (e.g. 'quiet scene', 'intense battle')",
-        },
-      },
-      required: ["volume"],
     },
   },
 ];

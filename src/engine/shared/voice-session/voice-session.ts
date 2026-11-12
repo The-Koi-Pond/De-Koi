@@ -23,14 +23,7 @@ import { VoiceTurnTimer, type VoiceHeardMarks, type VoiceTurnTiming } from "./vo
 export type { VoiceTurnTiming } from "./voice-turn-timing";
 
 export type VoiceSessionPhase =
-  | "connecting"
-  | "listening"
-  | "transcribing"
-  | "thinking"
-  | "speaking"
-  | "interrupted"
-  | "ended"
-  | "error";
+  "connecting" | "listening" | "transcribing" | "thinking" | "speaking" | "interrupted" | "ended" | "error";
 
 /** What the microphone is doing. "sending" means audio is on its way to `destination`. */
 export type VoiceMicState = "off" | "opening" | "listening" | "sending";

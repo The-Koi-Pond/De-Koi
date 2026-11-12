@@ -32,12 +32,7 @@ const rerollCandidateSchema = z
   .strict();
 
 type ContinuityDirectorPlannerErrorCode =
-  | "disabled"
-  | "connection_unavailable"
-  | "invalid_output"
-  | "timeout"
-  | "source_unavailable"
-  | "persistence_failed";
+  "disabled" | "connection_unavailable" | "invalid_output" | "timeout" | "source_unavailable" | "persistence_failed";
 
 export type ContinuityDirectorPlannerResult =
   | { ok: true; state: RoleplayContinuityDirectorState; rejectedUnsafeBeats: number }

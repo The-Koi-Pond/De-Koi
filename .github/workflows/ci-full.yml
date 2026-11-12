@@ -6,6 +6,10 @@ name: CI Full
 #
 # merge_group runs every lane on the merge queue's commit (main plus the queued
 # pull requests), so Required Validation reports there before anything merges.
+# One shortcut: when the queue's code is identical (same git tree) to the queued
+# pull request's head, and that head's latest pull_request run passed every lane,
+# the queue reuses that result instead of running the same checks again. If main
+# moved on, or anything can't be confirmed, every lane runs as usual.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -23,12 +27,65 @@ jobs:
   classify:
     name: Change Classification
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
-      frontend: ${{ steps.non_pr.outputs.frontend || steps.sync_off.outputs.frontend || steps.full_mode.outputs.frontend || steps.classify.outputs.frontend }}
-      rust: ${{ steps.non_pr.outputs.rust || steps.sync_off.outputs.rust || steps.full_mode.outputs.rust || steps.classify.outputs.rust }}
-      browser: ${{ steps.non_pr.outputs.browser || steps.sync_off.outputs.browser || steps.full_mode.outputs.browser || steps.classify.outputs.browser }}
-      docs: ${{ steps.non_pr.outputs.docs || steps.sync_off.outputs.docs || steps.full_mode.outputs.docs || steps.classify.outputs.docs }}
+      # queue_reuse only writes outputs when it reuses a result, so it goes first.
+      reused: ${{ steps.queue_reuse.outputs.reused || 'false' }}
+      frontend: ${{ steps.queue_reuse.outputs.frontend || steps.non_pr.outputs.frontend || steps.sync_off.outputs.frontend || steps.full_mode.outputs.frontend || steps.classify.outputs.frontend }}
+      rust: ${{ steps.queue_reuse.outputs.rust || steps.non_pr.outputs.rust || steps.sync_off.outputs.rust || steps.full_mode.outputs.rust || steps.classify.outputs.rust }}
+      browser: ${{ steps.queue_reuse.outputs.browser || steps.non_pr.outputs.browser || steps.sync_off.outputs.browser || steps.full_mode.outputs.browser || steps.classify.outputs.browser }}
+      docs: ${{ steps.queue_reuse.outputs.docs || steps.non_pr.outputs.docs || steps.sync_off.outputs.docs || steps.full_mode.outputs.docs || steps.classify.outputs.docs }}
     steps:
+      - id: queue_reuse
+        name: Reuse the pull request's result when the queue changes nothing
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          GROUP_SHA: ${{ github.event.merge_group.head_sha }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Any doubt means a normal full run: print why and leave the outputs empty.
+          full_run() {
+            echo "$1 Running every lane."
+            exit 0
+          }
+
+          [[ "$GROUP_REF" =~ /pr-([0-9]+)-[0-9a-f]+$ ]] || full_run "Can't tell which pull request this queue entry is for."
+          PR="${BASH_REMATCH[1]}"
+          PR_SHA="$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" || full_run "Couldn't read pull request #$PR."
+          GROUP_TREE="$(gh api "repos/$REPO/git/commits/$GROUP_SHA" --jq .tree.sha)" || full_run "Couldn't read the queue commit."
+          PR_TREE="$(gh api "repos/$REPO/git/commits/$PR_SHA" --jq .tree.sha)" || full_run "Couldn't read #$PR's head commit."
+          if [ -z "$GROUP_TREE" ] || [ "$GROUP_TREE" != "$PR_TREE" ]; then
+            full_run "The queue's code differs from #$PR's head (main moved on or other pull requests are ahead)."
+          fi
+
+          # The latest pull_request run of this workflow on that exact commit must have
+          # finished successfully, with every lane run and passed (not skipped).
+          RUN_ID="$(gh api "repos/$REPO/actions/workflows/ci-full.yml/runs?head_sha=$PR_SHA&event=pull_request&per_page=1" \
+            --jq '.workflow_runs[0] | select(.status == "completed" and .conclusion == "success") | .id')" ||
+            full_run "Couldn't read #$PR's CI runs."
+          [ -n "$RUN_ID" ] || full_run "#$PR's latest CI run on this commit hasn't passed."
+          PASSED="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '[.jobs[] | select(.conclusion == "success") | .name]')" ||
+            full_run "Couldn't read the jobs of run $RUN_ID."
+          for job in "Deterministic Repository Gates" "Frontend Build and Size Budget" "Rust Capability Layer" "Browser Smoke and Performance" "Required Validation"; do
+            jq -e --arg job "$job" 'index($job) != null' <<<"$PASSED" > /dev/null || full_run "Run $RUN_ID didn't pass \"$job\"."
+          done
+
+          echo "The queue's code is identical to #$PR's head $PR_SHA, and its run $RUN_ID passed every lane: reusing that result."
+          {
+            echo "reused=true"
+            echo "frontend=false"
+            echo "rust=false"
+            echo "browser=false"
+            echo "docs=false"
+          } >> "$GITHUB_OUTPUT"
+
       - id: non_pr
         name: Route non-PR event
         if: github.event_name != 'pull_request'
@@ -162,7 +219,8 @@ jobs:
     name: Deterministic Repository Gates
     needs: classify
     if: >
-      github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      needs.classify.outputs.reused != 'true'
     runs-on: ${{ fromJSON(vars.DE_KOI_CI_RUNS_ON || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@v7
@@ -172,7 +230,7 @@ jobs:
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
@@ -219,7 +277,7 @@ jobs:
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
@@ -252,7 +310,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - uses: taiki-e/install-action@v2.85.2
+      - uses: taiki-e/install-action@v2.90.1
         with:
           tool: nextest,cargo-deny,cargo-machete
       - name: Install Tauri Linux dependencies
@@ -293,7 +351,7 @@ jobs:
       - name: Reset self-hosted pnpm tool home
         if: runner.environment != 'github-hosted'
         run: rm -rf "$HOME/setup-pnpm"
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: 10.33.2
       - name: Set up Node with pnpm cache
@@ -334,6 +392,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
+          REUSED: ${{ needs.classify.outputs.reused }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           FRONTEND_REQUIRED: ${{ needs.classify.outputs.frontend }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -349,6 +408,10 @@ jobs:
             exit 0
           fi
           [ "$CLASSIFY_RESULT" = "success" ]
+          if [ "$EVENT_NAME" = "merge_group" ] && [ "$REUSED" = "true" ]; then
+            echo "Merge queue: the code is identical to the pull request's head, whose run passed every lane."
+            exit 0
+          fi
           [ "$FRONTEND_RESULT" = "success" ]
           if [ "$FRONTEND_REQUIRED" = "true" ]; then
             [ "$BUILD_RESULT" = "success" ]

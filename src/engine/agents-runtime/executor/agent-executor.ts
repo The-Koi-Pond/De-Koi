@@ -189,7 +189,6 @@ export async function executeAgent(
   provider: BaseLLMProvider,
   model: string,
   toolContext?: AgentToolContext,
-  fallbackToolContext: AgentToolContext | null | undefined = toolContext,
 ): Promise<AgentResult> {
   const startTime = Date.now();
   const logger = createAgentRuntimeDebug(context);
@@ -210,9 +209,7 @@ export async function executeAgent(
             ? buildKnowledgeRetrievalAgentMessages(config, template, context)
             : config.type === "music-dj"
               ? buildMusicDjAgentMessages(config, template, context)
-              : config.type === "spotify"
-                ? buildSpotifyAgentMessages(config, template, context)
-                : buildStandardAgentMessages(config, template, context);
+              : buildStandardAgentMessages(config, template, context);
 
     const temperature = agentTemperature(config);
     const maxTokens = applyProviderMaxTokensOverride(provider, normalizeAgentMaxTokens(config.settings.maxTokens));
@@ -336,24 +333,15 @@ export async function executeAgent(
       durationMs = promptRepair.durationMs;
     }
 
-    const fallback = await applySpotifyPlaybackFallback(
-      config,
-      parsed.data,
-      fallbackToolContext,
-      null,
-      [],
-      (err) => logger.warn(err, "[agent-tools] spotify playback fallback failed"),
-      context,
-    );
     return {
       agentId: config.id,
       agentType: config.type,
       type: parsed.type,
-      data: fallback.data,
+      data: parsed.data,
       tokensUsed: totalTokens,
       durationMs,
-      success: fallback.error === null,
-      error: fallback.error,
+      success: true,
+      error: null,
     };
   } catch (err) {
     return makeError(config, extractErrorMessage(err), startTime);
@@ -383,9 +371,6 @@ async function executeAgentWithTools(
   const logger = createAgentRuntimeDebug(context);
   const debugAgentsEnabled = logger.isLevelEnabled("debug");
   const emit = (entry: AgentRuntimeDebugEntry) => logger.emit(entry);
-  let spotifyPlayResult: Record<string, unknown> | null = null;
-  let spotifyVolumeResult: Record<string, unknown> | null = null;
-  let spotifyCandidateUris: string[] = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const result = await provider.chatComplete(
@@ -427,25 +412,15 @@ async function executeAgentWithTools(
       if (parsed.error) {
         return makeError(config, formatAgentParseError(config, parsed.error), startTime);
       }
-      const fallback = await applySpotifyPlaybackFallback(
-        config,
-        parsed.data,
-        toolContext,
-        spotifyPlayResult,
-        spotifyCandidateUris,
-        (err) => logger.warn(err, "[agent-tools] spotify playback fallback failed"),
-        context,
-        spotifyVolumeResult,
-      );
       return {
         agentId: config.id,
         agentType: config.type,
         type: parsed.type,
-        data: fallback.data,
+        data: parsed.data,
         tokensUsed: totalTokens,
         durationMs: Date.now() - startTime,
-        success: fallback.error === null,
-        error: fallback.error,
+        success: true,
+        error: null,
       };
     }
     totalTokens += result.usage?.totalTokens ?? 0;
@@ -487,40 +462,6 @@ async function executeAgentWithTools(
       }
       if (toolSucceeded) {
         logger.info("[agent-tools] %s %s completed", config.type, tc.function.name);
-        // Track candidate URIs returned by Spotify candidate tools.
-        if (
-          config.type === "spotify" &&
-          (tc.function.name === "spotify_get_playlist_tracks" || tc.function.name === "spotify_search")
-        ) {
-          try {
-            const parsed = JSON.parse(toolResult);
-            if (Array.isArray(parsed?.tracks)) {
-              spotifyCandidateUris = parsed.tracks
-                .map((t: unknown) => (isJsonRecord(t) ? t.uri : null))
-                .filter((uri: unknown): uri is string => typeof uri === "string");
-            }
-          } catch {
-            // Ignore parse errors — candidate list is best-effort
-          }
-        }
-        // Track accepted spotify_play results, including pending verification.
-        // A thrown call is recovered above, so leaving this unset still lets the
-        // fallback retry real playback.
-        if (config.type === "spotify" && tc.function.name === "spotify_play") {
-          const parsedToolResult = parseSpotifyPlaybackFallbackResult(toolResult);
-          if (isJsonRecord(parsedToolResult) && spotifyPlaybackApplied(parsedToolResult)) {
-            const acceptedUris = spotifyAcceptedPlaybackTrackUris(parsedToolResult, tc);
-            if (acceptedUris.length > 0) {
-              spotifyPlayResult = { ...parsedToolResult, trackUris: acceptedUris };
-            }
-          }
-        }
-        if (config.type === "spotify" && tc.function.name === "spotify_set_volume") {
-          const parsedToolResult = parseSpotifyPlaybackFallbackResult(toolResult);
-          if (isJsonRecord(parsedToolResult) && spotifyVolumeApplied(parsedToolResult)) {
-            spotifyVolumeResult = { ...parsedToolResult, volume: parsedToolResult.volume ?? spotifyToolCallVolume(tc) };
-          }
-        }
       }
       emit({
         level: "info",
@@ -575,542 +516,20 @@ async function executeAgentWithTools(
   if (parsed.error) {
     return makeError(config, formatAgentParseError(config, parsed.error), startTime);
   }
-  const fallback = await applySpotifyPlaybackFallback(
-    config,
-    parsed.data,
-    toolContext,
-    spotifyPlayResult,
-    spotifyCandidateUris,
-    (err) => logger.warn(err, "[agent-tools] spotify playback fallback failed"),
-    context,
-    spotifyVolumeResult,
-  );
   return {
     agentId: config.id,
     agentType: config.type,
     type: parsed.type,
-    data: fallback.data,
+    data: parsed.data,
     tokensUsed: totalTokens,
     durationMs: Date.now() - startTime,
-    success: fallback.error === null,
-    error: fallback.error,
+    success: true,
+    error: null,
   };
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-function normalizeSpotifyTrackUri(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const uri = value.trim();
-  const suffixedTrack = uri.match(/^spotify:track:([A-Za-z0-9]{22})_candidate$/);
-  if (suffixedTrack) return `spotify:track:${suffixedTrack[1]}`;
-  return /^spotify:track:[A-Za-z0-9]{22}$/i.test(uri) ? uri : null;
-}
-
-function normalizeSpotifyTrackUris(values: unknown[]): string[] {
-  const uris = values.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
-  return Array.from(new Set(uris));
-}
-
-function spotifyTrackUrisFromAgentData(data: unknown): string[] {
-  if (!isJsonRecord(data) || data.action !== "play") return [];
-  const rawUris = Array.isArray(data.trackUris) ? data.trackUris : [];
-  return normalizeSpotifyTrackUris(rawUris).slice(0, 5);
-}
-
-function spotifyVolumeFromAgentData(data: Record<string, unknown>): number | null {
-  const rawVolume = data.volume;
-  const parsed =
-    typeof rawVolume === "number"
-      ? rawVolume
-      : typeof rawVolume === "string" && rawVolume.trim()
-        ? Number(rawVolume)
-        : NaN;
-  if (!Number.isFinite(parsed)) return null;
-  return Math.max(0, Math.min(100, Math.trunc(parsed)));
-}
-
-function spotifyToolCall(name: string, args: Record<string, unknown>): LLMToolCall {
-  const encodedArgs = JSON.stringify(args);
-  return {
-    id: `spotify-fallback-${name}-${Date.now().toString(36)}`,
-    name,
-    arguments: encodedArgs,
-    function: {
-      name,
-      arguments: encodedArgs,
-    },
-  };
-}
-
-function spotifyPlaybackFallbackCall(uris: string[]): LLMToolCall {
-  const args = uris.length === 1 ? { uri: uris[0] } : { uris };
-  return spotifyToolCall("spotify_play", args);
-}
-
-function spotifyVolumeFallbackCall(volume: number): LLMToolCall {
-  return spotifyToolCall("spotify_set_volume", { volume });
-}
-
-function parseSpotifyPlaybackFallbackResult(playback: string): unknown {
-  try {
-    return JSON.parse(playback);
-  } catch {
-    return playback;
-  }
-}
-
-interface SpotifyPlaybackFallbackResult {
-  data: unknown;
-  error: string | null;
-}
-
-interface SpotifyFallbackCandidates {
-  uris: string[];
-  names: string[];
-}
-
-function spotifyFallbackFailureData(
-  data: unknown,
-  error: string,
-  tool: "spotify_play" | "spotify_set_volume",
-): unknown {
-  if (!isJsonRecord(data)) return data;
-  return {
-    ...data,
-    toolFallbackApplied: false,
-    toolFallbackFailed: true,
-    toolFallbackError: error,
-    playback: {
-      success: false,
-      code: tool === "spotify_set_volume" ? "spotify_volume_fallback_failed" : "spotify_playback_fallback_failed",
-      tool,
-      error,
-    },
-  };
-}
-
-function spotifyPlaybackFallbackFailureData(data: unknown, error: string): unknown {
-  return spotifyFallbackFailureData(data, error, "spotify_play");
-}
-
-function spotifyPlaybackApplied(playback: Record<string, unknown>): boolean {
-  return playback.applied === true && playback.success !== false;
-}
-
-function spotifyPlaybackFallbackError(playback: Record<string, unknown>): string | null {
-  if (spotifyPlaybackApplied(playback)) return null;
-  const error = playback.error;
-  if (typeof error === "string" && error.trim()) {
-    return `Spotify playback failed: ${error}`;
-  }
-  return "Spotify playback failed: Spotify play did not apply playback.";
-}
-
-function spotifyVolumeApplied(volumeResult: Record<string, unknown>): boolean {
-  return volumeResult.success !== false;
-}
-
-function spotifyVolumeFallbackError(volumeResult: Record<string, unknown>): string | null {
-  if (spotifyVolumeApplied(volumeResult)) return null;
-  const error = volumeResult.error;
-  if (typeof error === "string" && error.trim()) {
-    return `Spotify volume failed: ${error}`;
-  }
-  return "Spotify volume failed: Spotify volume did not apply.";
-}
-
-function spotifyPlaybackStringField(playback: Record<string, unknown>, key: string): string | null {
-  const value = playback[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function spotifyPlaybackCurrentUri(playback: Record<string, unknown>): string | null {
-  const direct = spotifyPlaybackStringField(playback, "currentUri");
-  if (direct) return direct;
-  const track = playback.track;
-  if (isJsonRecord(track)) {
-    const uri = track.uri;
-    if (typeof uri === "string" && uri.startsWith("spotify:")) return uri;
-  }
-  return null;
-}
-
-function spotifyPlaybackDirectTrackUris(playback: Record<string, unknown>, includeCurrentUri: boolean): string[] {
-  const values = [playback.trackUris, playback.uris, playback.queued].filter(Array.isArray).flatMap((source) => source);
-  values.push(playback.trackUri, playback.uri);
-  const track = playback.track;
-  if (isJsonRecord(track)) {
-    values.push(track.uri);
-  }
-  if (includeCurrentUri) {
-    values.push(playback.currentUri);
-  }
-  return normalizeSpotifyTrackUris(values);
-}
-
-function spotifyPlaybackQueuedCount(playback: Record<string, unknown>, fallbackUris: string[]): number {
-  const queued = playback.queued;
-  if (typeof queued === "number" && Number.isFinite(queued)) return Math.max(0, Math.floor(queued));
-  if (Array.isArray(queued)) return queued.length;
-  const uris = playback.uris;
-  if (Array.isArray(uris)) return uris.length;
-  return fallbackUris.length;
-}
-
-function spotifyPlaybackTrackUris(playback: Record<string, unknown>): string[] {
-  return spotifyPlaybackDirectTrackUris(playback, playback.playbackPending !== true);
-}
-
-function spotifyToolCallTrackUris(call: LLMToolCall): string[] {
-  const parsedArgs = parseSpotifyPlaybackFallbackResult(call.function.arguments);
-  if (!isJsonRecord(parsedArgs)) return [];
-  const rawUris = Array.isArray(parsedArgs.uris) ? parsedArgs.uris : [];
-  return normalizeSpotifyTrackUris([parsedArgs.uri, ...rawUris]);
-}
-
-function spotifyToolCallVolume(call: LLMToolCall): number | null {
-  const parsedArgs = parseSpotifyPlaybackFallbackResult(call.function.arguments);
-  return isJsonRecord(parsedArgs) ? spotifyVolumeFromAgentData(parsedArgs) : null;
-}
-
-function spotifyAcceptedPlaybackTrackUris(playback: Record<string, unknown>, call: LLMToolCall): string[] {
-  const playbackUris = spotifyPlaybackTrackUris(playback);
-  return playbackUris.length > 0 ? playbackUris : spotifyToolCallTrackUris(call);
-}
-
-function spotifyToolEnabled(toolContext: AgentToolContext | null | undefined, name: string): boolean {
-  return !!toolContext?.tools.some((tool) => tool.name === name);
-}
-
-function spotifyStringField(record: Record<string, unknown> | null | undefined, key: string): string {
-  const value = record?.[key];
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function spotifyFallbackConstraints(context: AgentContext | undefined): Record<string, unknown> | null {
-  const constraints = context?.memory._spotifyDjConstraints;
-  return isJsonRecord(constraints) ? constraints : null;
-}
-
-function spotifyFallbackQuery(data: Record<string, unknown>, constraints: Record<string, unknown> | null): string {
-  return (
-    spotifyStringField(data, "searchQuery") ||
-    spotifyStringField(data, "mood") ||
-    spotifyStringField(constraints, "mood") ||
-    "cinematic adventure soundtrack"
-  );
-}
-
-function spotifyFallbackDesiredCount(data: Record<string, unknown>): number {
-  const requestedCount = Array.isArray(data.trackUris) ? data.trackUris.length : 0;
-  return Math.max(3, Math.min(5, requestedCount || 3));
-}
-
-function spotifyCandidateLookupCall(
-  data: Record<string, unknown>,
-  toolContext: AgentToolContext,
-  context: AgentContext | undefined,
-): LLMToolCall | null {
-  const constraints = spotifyFallbackConstraints(context);
-  const query = spotifyFallbackQuery(data, constraints);
-  const mood = spotifyStringField(data, "mood");
-  const sourceType = spotifyStringField(data, "sourceType") || spotifyStringField(constraints, "sourceType");
-  const playlistId = spotifyStringField(data, "playlistId") || spotifyStringField(constraints, "playlistId");
-  const playlistName = spotifyStringField(data, "playlistName") || spotifyStringField(constraints, "playlistName");
-  const artist = spotifyStringField(data, "artist") || spotifyStringField(constraints, "artist");
-  const canUsePlaylist = spotifyToolEnabled(toolContext, "spotify_get_playlist_tracks");
-  const canUseSearch = spotifyToolEnabled(toolContext, "spotify_search");
-
-  if (
-    canUsePlaylist &&
-    (sourceType === "liked" || playlistId === "liked" || (sourceType === "playlist" && playlistId))
-  ) {
-    return spotifyToolCall("spotify_get_playlist_tracks", {
-      playlistId: playlistId || "liked",
-      ...(playlistName ? { playlistName } : {}),
-      query,
-      ...(mood ? { mood } : {}),
-      candidateLimit: 50,
-    });
-  }
-
-  if (canUseSearch) {
-    const searchQuery = sourceType === "artist" && artist ? `artist:"${artist}" ${query}` : query;
-    return spotifyToolCall("spotify_search", { query: searchQuery, limit: 10 });
-  }
-
-  if (canUsePlaylist) {
-    return spotifyToolCall("spotify_get_playlist_tracks", {
-      playlistId: "liked",
-      query,
-      ...(mood ? { mood } : {}),
-      candidateLimit: 50,
-    });
-  }
-
-  return null;
-}
-
-function spotifyCandidateDisplay(track: Record<string, unknown>): string | null {
-  const display = spotifyStringField(track, "display");
-  if (display) return display;
-  const name = spotifyStringField(track, "name");
-  const artist = spotifyStringField(track, "artist");
-  if (name && artist) return `${name} - ${artist}`;
-  return name || null;
-}
-
-function spotifyCandidateTracks(value: unknown, limit: number): SpotifyFallbackCandidates {
-  const record = isJsonRecord(value) ? value : null;
-  const tracks = Array.isArray(record?.tracks) ? record.tracks : Array.isArray(value) ? value : [];
-  const seen = new Set<string>();
-  const uris: string[] = [];
-  const names: string[] = [];
-  for (const track of tracks) {
-    if (!isJsonRecord(track)) continue;
-    const uri = normalizeSpotifyTrackUri(track.uri);
-    if (!uri || seen.has(uri)) continue;
-    seen.add(uri);
-    uris.push(uri);
-    const name = spotifyCandidateDisplay(track);
-    if (name) names.push(name);
-    if (uris.length >= limit) break;
-  }
-  return { uris, names };
-}
-
-function spotifyDataWithTracks(
-  data: Record<string, unknown>,
-  tracks: SpotifyFallbackCandidates,
-): Record<string, unknown> {
-  return {
-    ...data,
-    trackUris: tracks.uris,
-    trackNames: tracks.names,
-  };
-}
-
-async function retrieveSpotifyFallbackCandidates(
-  data: Record<string, unknown>,
-  toolContext: AgentToolContext,
-  context: AgentContext | undefined,
-  desiredCount: number,
-  onFallbackError?: (err: unknown) => void,
-): Promise<SpotifyFallbackCandidates | string> {
-  const call = spotifyCandidateLookupCall(data, toolContext, context);
-  if (!call) {
-    return "Spotify playback failed: Spotify DJ did not provide usable track URIs, and no Spotify candidate lookup tool is enabled.";
-  }
-
-  let rawCandidates: string;
-  try {
-    rawCandidates = await toolContext.executeToolCall(call);
-  } catch (err) {
-    onFallbackError?.(err);
-    return `Spotify playback failed: ${extractErrorMessage(err, "Spotify candidate fallback failed")}`;
-  }
-
-  const parsedCandidates = parseSpotifyPlaybackFallbackResult(rawCandidates);
-  const candidates = spotifyCandidateTracks(parsedCandidates, desiredCount);
-  if (candidates.uris.length === 0) {
-    return "Spotify playback failed: Spotify candidate fallback returned no playable track URIs.";
-  }
-  return candidates;
-}
-
-function spotifyPlaybackDevice(playback: Record<string, unknown>): unknown {
-  const device = playback.device;
-  if (isJsonRecord(device)) {
-    const name = device.name;
-    if (typeof name === "string" && name.trim()) return name;
-  }
-  return device ?? null;
-}
-
-function spotifyPlaybackSuccessData(
-  data: unknown,
-  playback: Record<string, unknown>,
-  fallbackUris: string[],
-  appliedKey: "toolFallbackApplied" | "toolPlaybackApplied",
-): unknown {
-  if (!isJsonRecord(data)) return data;
-  const playbackUris = spotifyPlaybackTrackUris(playback);
-  const uris = playbackUris.length > 0 ? playbackUris : fallbackUris;
-  const queued = spotifyPlaybackQueuedCount(playback, uris);
-  const trackNames = Array.isArray(data.trackNames)
-    ? data.trackNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
-    : [];
-  const display = spotifyPlaybackStringField(playback, "display");
-  const queueStatus = spotifyPlaybackStringField(playback, "queueStatus");
-  return {
-    ...data,
-    ...(uris.length > 0 ? { trackUris: uris } : {}),
-    ...(trackNames.length > 0 ? { trackNames } : {}),
-    [appliedKey]: true,
-    playbackPending: playback.playbackPending === true,
-    currentUri: spotifyPlaybackCurrentUri(playback),
-    queued,
-    ...(queueStatus ? { queueStatus } : {}),
-    ...(playback.partialQueueFailure === true ? { partialQueueFailure: true } : {}),
-    device: spotifyPlaybackDevice(playback),
-    display: display ?? data.display,
-    playback,
-  };
-}
-
-function spotifyVolumeSuccessData(
-  data: unknown,
-  volumeResult: Record<string, unknown>,
-  fallbackVolume: number | null,
-  appliedKey: "toolFallbackApplied" | "toolPlaybackApplied",
-): unknown {
-  if (!isJsonRecord(data)) return data;
-  const rawVolume = volumeResult.volume;
-  const volume =
-    typeof rawVolume === "number" && Number.isFinite(rawVolume)
-      ? Math.max(0, Math.min(100, Math.trunc(rawVolume)))
-      : fallbackVolume;
-  return {
-    ...data,
-    ...(volume !== null ? { volume } : {}),
-    [appliedKey]: true,
-    playback: volumeResult,
-  };
-}
-
-async function applySpotifyVolumeFallback(
-  data: Record<string, unknown>,
-  toolContext: AgentToolContext | null | undefined,
-  spotifyVolumeResult: Record<string, unknown> | null,
-  onFallbackError?: (err: unknown) => void,
-): Promise<SpotifyPlaybackFallbackResult> {
-  const volume = spotifyVolumeFromAgentData(data);
-  if (spotifyVolumeResult) {
-    return { data: spotifyVolumeSuccessData(data, spotifyVolumeResult, volume, "toolPlaybackApplied"), error: null };
-  }
-  if (!toolContext || !spotifyToolEnabled(toolContext, "spotify_set_volume")) {
-    const error =
-      "Spotify volume failed: Spotify DJ chose volume, but spotify_set_volume is not enabled for this agent.";
-    return { data: spotifyFallbackFailureData(data, error, "spotify_set_volume"), error };
-  }
-  if (volume === null) {
-    const error = "Spotify volume failed: Spotify DJ chose volume, but did not provide a valid volume.";
-    return { data: spotifyFallbackFailureData(data, error, "spotify_set_volume"), error };
-  }
-
-  let rawVolumeResult: string;
-  try {
-    rawVolumeResult = await toolContext.executeToolCall(spotifyVolumeFallbackCall(volume));
-  } catch (err) {
-    onFallbackError?.(err);
-    const error = `Spotify volume failed: ${extractErrorMessage(err, "Spotify volume fallback failed")}`;
-    return { data: spotifyFallbackFailureData(data, error, "spotify_set_volume"), error };
-  }
-
-  const parsedVolumeResult = parseSpotifyPlaybackFallbackResult(rawVolumeResult);
-  if (!isJsonRecord(parsedVolumeResult)) {
-    const error = "Spotify volume failed: Spotify volume returned an unreadable response.";
-    return { data: spotifyFallbackFailureData(data, error, "spotify_set_volume"), error };
-  }
-  const volumeError = spotifyVolumeFallbackError(parsedVolumeResult);
-  if (volumeError) {
-    return { data: spotifyFallbackFailureData(data, volumeError, "spotify_set_volume"), error: volumeError };
-  }
-  return { data: spotifyVolumeSuccessData(data, parsedVolumeResult, volume, "toolFallbackApplied"), error: null };
-}
-
-async function applySpotifyPlaybackFallback(
-  config: Pick<AgentExecConfig, "type">,
-  data: unknown,
-  toolContext: AgentToolContext | null | undefined,
-  spotifyPlayResult: Record<string, unknown> | null,
-  candidateUris: string[],
-  onFallbackError?: (err: unknown) => void,
-  context?: AgentContext,
-  spotifyVolumeResult: Record<string, unknown> | null = null,
-): Promise<SpotifyPlaybackFallbackResult> {
-  if (config.type !== "spotify") return { data, error: null };
-  if (spotifyPlayResult) {
-    return {
-      data: spotifyPlaybackSuccessData(
-        data,
-        spotifyPlayResult,
-        spotifyTrackUrisFromAgentData(data),
-        "toolPlaybackApplied",
-      ),
-      error: null,
-    };
-  }
-  if (!isJsonRecord(data)) return { data, error: null };
-  if (data.action === "volume") {
-    return applySpotifyVolumeFallback(data, toolContext, spotifyVolumeResult, onFallbackError);
-  }
-  if (data.action !== "play") return { data, error: null };
-  if (!toolContext || !spotifyToolEnabled(toolContext, "spotify_play")) {
-    const error = "Spotify playback failed: Spotify DJ chose music, but spotify_play is not enabled for this agent.";
-    return { data: spotifyPlaybackFallbackFailureData(data, error), error };
-  }
-
-  let fallbackData = data;
-  let uris = spotifyTrackUrisFromAgentData(fallbackData);
-  const desiredCount = spotifyFallbackDesiredCount(data);
-  if (uris.length === 0) {
-    const freshCandidates = await retrieveSpotifyFallbackCandidates(
-      data,
-      toolContext,
-      context,
-      desiredCount,
-      onFallbackError,
-    );
-    if (typeof freshCandidates === "string") {
-      return { data: spotifyPlaybackFallbackFailureData(data, freshCandidates), error: freshCandidates };
-    }
-    fallbackData = spotifyDataWithTracks(data, freshCandidates);
-    uris = freshCandidates.uris;
-  }
-
-  if (candidateUris.length > 0) {
-    const knownUris = uris.filter((uri) => candidateUris.includes(uri));
-    if (knownUris.length === 0) {
-      const freshCandidates = await retrieveSpotifyFallbackCandidates(
-        data,
-        toolContext,
-        context,
-        desiredCount,
-        onFallbackError,
-      );
-      if (typeof freshCandidates === "string") {
-        return { data: spotifyPlaybackFallbackFailureData(data, freshCandidates), error: freshCandidates };
-      }
-      fallbackData = spotifyDataWithTracks(data, freshCandidates);
-      uris = freshCandidates.uris;
-    } else if (knownUris.length < uris.length) {
-      const filteredCandidates = { uris: knownUris, names: [] };
-      fallbackData = spotifyDataWithTracks(fallbackData, filteredCandidates);
-      uris = knownUris;
-    }
-  }
-
-  let playback: string;
-  try {
-    playback = await toolContext.executeToolCall(spotifyPlaybackFallbackCall(uris));
-  } catch (err) {
-    onFallbackError?.(err);
-    const error = `Spotify playback failed: ${extractErrorMessage(err, "Spotify playback fallback failed")}`;
-    return { data: spotifyPlaybackFallbackFailureData(fallbackData, error), error };
-  }
-  const parsedPlayback = parseSpotifyPlaybackFallbackResult(playback);
-  if (!isJsonRecord(parsedPlayback)) {
-    const error = "Spotify playback failed: Spotify playback returned an unreadable response.";
-    return { data: spotifyPlaybackFallbackFailureData(fallbackData, error), error };
-  }
-  const playbackError = spotifyPlaybackFallbackError(parsedPlayback);
-  if (playbackError) {
-    return { data: spotifyPlaybackFallbackFailureData(fallbackData, playbackError), error: playbackError };
-  }
-  return { data: spotifyPlaybackSuccessData(fallbackData, parsedPlayback, uris, "toolFallbackApplied"), error: null };
 }
 
 // ──────────────────────────────────────────────
@@ -1178,16 +597,7 @@ export async function executeAgentBatch(
   }
   if (configs.length === 1) {
     logger.info(`[agent-batch] Only 1 agent (${configs[0]!.type}), running individually`);
-    return [
-      await executeAgent(
-        configs[0]!,
-        context,
-        provider,
-        model,
-        undefined,
-        spotifyBatchFallbackToolContext(configs[0]!),
-      ),
-    ];
+    return [await executeAgent(configs[0]!, context, provider, model)];
   }
 
   logger.info(`[agent-batch] Batching ${configs.length} agents: [${configs.map((c) => c.type).join(", ")}]`);
@@ -1288,7 +698,7 @@ export async function executeAgentBatch(
 
     // Parse the batched response into individual results
     await yieldToHost();
-    const { parsed, failed } = await parseBatchResponse(configs, context, responseText, durationMs, totalTokens);
+    const { parsed, failed } = await parseBatchResponse(configs, responseText, durationMs, totalTokens);
 
     logger.info(
       "[agent-batch] Batch parse: %d parsed, %d failed %s",
@@ -1301,9 +711,7 @@ export async function executeAgentBatch(
     if (failed.length > 0) {
       logger.info(`[agent-batch] Retrying ${failed.length} failed agents individually...`);
       const retrySettled = await Promise.allSettled(
-        failed.map((config) =>
-          executeAgent(config, context, provider, model, undefined, spotifyBatchFallbackToolContext(config)),
-        ),
+        failed.map((config) => executeAgent(config, context, provider, model)),
       );
       const retries: AgentResult[] = [];
       for (let i = 0; i < retrySettled.length; i++) {
@@ -1328,10 +736,6 @@ export async function executeAgentBatch(
     logger.error(err, "[agent-batch] Batch call FAILED: %s", errMsg);
     return configs.map((c) => makeError(c, errMsg, startTime));
   }
-}
-
-function spotifyBatchFallbackToolContext(config: AgentExecConfig): AgentToolContext | undefined {
-  return config.type === "spotify" ? config.toolContext : undefined;
 }
 
 /**
@@ -1416,7 +820,6 @@ function buildBatchFinalInstruction(configs: AgentExecConfig[]): string {
  */
 async function parseBatchResponse(
   configs: AgentExecConfig[],
-  context: AgentContext,
   responseText: string,
   totalDurationMs: number,
   totalTokens: number = 0,
@@ -1439,24 +842,15 @@ async function parseBatchResponse(
         failed.push(config);
         continue;
       }
-      const fallback = await applySpotifyPlaybackFallback(
-        config,
-        parsedResult.data,
-        spotifyBatchFallbackToolContext(config),
-        null,
-        [],
-        undefined,
-        context,
-      );
       parsed.push({
         agentId: config.id,
         agentType: config.type,
         type: parsedResult.type,
-        data: fallback.data,
+        data: parsedResult.data,
         tokensUsed: perAgentTokens,
         durationMs: perAgentDuration,
-        success: fallback.error === null,
-        error: fallback.error,
+        success: true,
+        error: null,
       });
     } else {
       // Could not find this agent's output — mark for individual retry
@@ -1786,7 +1180,7 @@ async function repairManualIllustratorPromptResponse(args: {
   return { parsed: repaired, totalTokens, durationMs };
 }
 function shouldRetryInvalidJsonAgent(config: Pick<AgentExecConfig, "type" | "settings">): boolean {
-  return config.type !== "spotify" && agentResponseIsJson(config);
+  return agentResponseIsJson(config);
 }
 
 function buildInvalidJsonRetryMessages(messages: ChatMessage[], resultType: AgentResultType): ChatMessage[] {
@@ -1987,66 +1381,6 @@ function buildMusicDjAgentMessages(config: AgentExecConfig, template: string, co
       : message,
   );
 }
-function buildSpotifyAgentMessages(config: AgentExecConfig, template: string, context: AgentContext): ChatMessage[] {
-  const systemParts: string[] = [];
-  systemParts.push(`<role>`);
-  systemParts.push(`You are a specialized Spotify DJ agent for the current roleplay turn.`);
-  systemParts.push(`</role>`);
-  systemParts.push(``);
-  systemParts.push(buildLoreBlock(context, ["spotify"]));
-  systemParts.push(``);
-  systemParts.push(`<agents>`);
-  systemParts.push(`Fulfill the requested task here and return the output in the format specified:`);
-  systemParts.push(template);
-  systemParts.push(`</agents>`);
-
-  const extras = buildAgentExtras(context, ["spotify"]);
-  if (extras) {
-    systemParts.push(``);
-    systemParts.push(extras);
-  }
-
-  const agentContextSize = normalizeAgentContextSize(config.settings.contextSize);
-  const recentContext = context.recentMessages.slice(-agentContextSize).filter((message) => message.content.trim());
-  const latestUser = findLatestUserMessage(context);
-  const latestTurn = context.mainResponse?.trim() || findLatestAssistantMessage(context)?.content || "";
-  const userParts: string[] = [];
-
-  if (recentContext.length > 0) {
-    userParts.push(`<recent_context>`);
-    for (const message of recentContext) {
-      const speaker = agentSpeakerLabel(message, context);
-      userParts.push(`${speaker}: ${truncateAgentText(message.content, 1200)}`);
-    }
-    userParts.push(`</recent_context>`);
-    userParts.push(``);
-  }
-
-  if (latestUser?.content) {
-    userParts.push(`<last_user_input>`);
-    userParts.push(truncateAgentText(latestUser.content, 2000));
-    userParts.push(`</last_user_input>`);
-    userParts.push(``);
-  }
-
-  if (latestTurn) {
-    userParts.push(`<last_roleplay_turn>`);
-    userParts.push(truncateAgentText(latestTurn, 5000));
-    userParts.push(`</last_roleplay_turn>`);
-    userParts.push(``);
-  }
-
-  userParts.push(
-    `Pick music for this roleplay turn only. Use tools to inspect playback and fetch/search candidate tracks.`,
-  );
-  userParts.push(`Now return the requested format.`);
-
-  return [
-    { role: "system", content: systemParts.join("\n"), contextKind: "prompt" },
-    { role: "user", content: userParts.join("\n"), contextKind: "history" },
-  ];
-}
-
 function buildEchoChamberAgentMessages(
   config: AgentExecConfig,
   template: string,
@@ -2457,12 +1791,6 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
     }
   }
 
-  if (agentTypes.includes("spotify") && context.memory._spotifyDjConstraints) {
-    parts.push(`<spotify_dj_constraints>`);
-    parts.push(JSON.stringify(context.memory._spotifyDjConstraints));
-    parts.push(`</spotify_dj_constraints>`);
-  }
-
   if (agentTypes.includes("music-dj") && context.memory._musicDjConstraints) {
     parts.push(`<music_dj_constraints>`);
     parts.push(JSON.stringify(context.memory._musicDjConstraints));
@@ -2579,7 +1907,6 @@ const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   "custom-tracker": "custom_tracker_update",
   "chat-summary": "chat_summary",
   "music-dj": "music_control",
-  spotify: "spotify_control",
   editor: "text_rewrite",
   "knowledge-retrieval": "context_injection",
   cyoa: "cyoa_choices",
@@ -2603,7 +1930,6 @@ const AGENT_RESULT_TYPES = new Set<AgentResultType>([
   "persona_stats_update",
   "custom_tracker_update",
   "chat_summary",
-  "spotify_control",
   "cyoa_choices",
   "secret_plot",
 ]);
@@ -2654,7 +1980,6 @@ const JSON_AGENTS = new Set([
   "persona-stats",
   "custom-tracker",
   "chat-summary",
-  "spotify",
   "editor",
   "cyoa",
 ]);

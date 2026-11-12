@@ -265,38 +265,34 @@ Output format:
 }`,
 
   /* ────────────────────────────────────────── */
-  combat: `Track combat encounters alongside the narrative. Analyze the latest message to determine combat state changes.
-1. Whether a combat encounter is active, starting, or ending.
-2. The initiative order and whose turn it is.
-3. HP and status of all combatants, estimate when exact numbers aren't given.
-4. Actions taken this turn (attacks, spells, abilities, items used).
-5. Environmental effects and conditions (terrain, hazards, weather impact).
-6. Combat outcome: victory, defeat, flee, or negotiation.
+  // Saved agent runs and users' edited prompts expect these output fields; keep their names.
+  combat: `Report the state of any fight happening in the story, as of the latest assistant message. Respond ONLY with valid JSON.
 Output format:
 {
   "encounterActive": boolean,
   "event": "none|start|turn|end",
+  "roundNumber": number,
+  "currentTurn": "string — name of the combatant acting now, or empty",
+  "lastAction": "string — the latest blow, spell, or move, or empty",
+  "summary": "string — one sentence on how the fight stands, or empty",
   "combatants": [
     {
-      "id": "string — character ID or name",
+      "id": "string — short stable id, such as the name in lowercase",
       "name": "string",
       "hp": { "current": number, "max": number },
-      "status": "string — active|unconscious|dead|fled",
-      "conditions": ["string — poisoned, stunned, etc."],
+      "status": "active|unconscious|dead|fled",
+      "conditions": ["string — such as bleeding, stunned, prone"],
       "initiativeOrder": number
     }
-  ],
-  "currentTurn": "string|null — name of character whose turn it is",
-  "lastAction": "string|null — description of the most recent combat action",
-  "roundNumber": number,
-  "summary": "string — brief summary of combat state"
+  ]
 }
-Instructions:
-1. Only set encounterActive to true when clear combat is happening — tension or threats alone don't count.
-2. Track HP changes realistically. A sword slash to the arm doesn't deal the same damage as a critical strike to the chest. Estimate based on the severity described.
-3. If combat hasn't started or has ended, return: { "encounterActive": false, "event": "none", "combatants": [], "currentTurn": null, "lastAction": null, "roundNumber": 0, "summary": "" }
-4. Preserve continuity with the previous combat state. Include both player characters and enemies as combatants.
-5. Characters who flee or are knocked unconscious should have their status updated, not removed.`,
+Rules:
+1. Only real fighting counts: blows landed or traded, spells cast at someone, weapons used. Threats, insults, posturing, and tension alone are not a fight.
+2. "event" is "start" on the message where the fight begins, "turn" while it goes on, and "end" on the message where it stops.
+3. Estimate HP from how bad each hit sounds: a graze costs little, a crushing or deep wound costs a lot. Keep max HP the same for the whole fight.
+4. With no fight, return exactly: {"encounterActive": false, "event": "none", "roundNumber": 0, "currentTurn": "", "lastAction": "", "summary": "", "combatants": []}
+5. Keep continuity with your last reported state: same ids, HP carried forward, round numbers counting up.
+6. A combatant who flees or is knocked out stays in the list with status "fled" or "unconscious"; never drop them mid-fight.`,
 
   /* ────────────────────────────────────────── */
   background: `Decide whether De-Koi should generate a reusable background image for the current roleplay scene.
@@ -453,51 +449,6 @@ Schema:
   "volume": "number|null - volume 0-100 if action is volume or play",
   "reason": "string - one short explanation of why the cue fits or why no change is needed"
 }`,
-  spotify: `Analyze the current narrative mood, scene, and emotional tone, then control Spotify playback to match.
-Consider:
-- Emotional tone of the latest message (tense, romantic, melancholy, triumphant, etc.).
-- Setting (tavern, battlefield, peaceful meadow, dark dungeon, etc.).
-- Pace (action, slow dialogue, exploration, rest).
-- Genre cues (fantasy → orchestral/folk, sci-fi → synth/electronic, horror → dark ambient).
-You may have six tools available:
-1. spotify_get_current_playback — Check what is already playing and on which device.
-2. spotify_get_playlists — List the user's playlists.
-3. spotify_get_playlist_tracks — Get a compact candidate shortlist from a playlist or Liked Songs. The server indexes/caches the full source and returns only scored candidates.
-4. spotify_search — Search Spotify's catalogue by mood, genre, artist, or keywords.
-5. spotify_play — Play a specific track or playlist URI.
-6. spotify_set_volume — Adjust volume (lower for quiet dialogue, higher for action).
-When tools ARE available:
-- To play music, call spotify_play with the URI. Do NOT just return a URI in JSON without calling the tool.
-- To inspect current playback, call spotify_get_current_playback. To search, call spotify_search. To list playlists, call spotify_get_playlists.
-- To adjust volume, call spotify_set_volume.
-- Use Spotify URIs exactly as returned by spotify_get_playlist_tracks or spotify_search. Do NOT append labels or suffixes such as "_candidate" to a URI.
-- Only AFTER you have used the tools should you respond with the JSON summary below.
-When tools are NOT available (grouped execution):
-- Return ONLY valid JSON with the intent. Do NOT include any other text.
-- Do not invent Spotify URIs. If you have not seen real URI candidates, set trackUris and trackNames to empty arrays.
-- The server will retrieve real Spotify candidates and apply playback after the grouped response is parsed.
-Rules:
-1. If tools are available, check current playback first. If there is no active playback or no current track, choose fitting music and call spotify_play. If <spotify_dj_constraints> includes manualRetry or forceFreshPick, choose a different fitting track and call spotify_play even if the current track still fits. Otherwise, if the existing track still fits, keep it and return action "none" or adjust volume only. If tools are not available, infer the best action from the scene and constraints without claiming that playback already changed.
-2. Respect any <spotify_dj_constraints> block. If it says Liked Songs, use playlistId='liked'. If it names an artist, search with artist:<name>. If it names a playlist, use that playlist before searching elsewhere.
-3. Pick from the user's personal library whenever a good match exists — they chose those songs for a reason. Only search the catalogue if the configured source allows it or nothing personal fits.
-4. When choosing from a configured playlist or Liked Songs, call spotify_get_playlist_tracks with query/mood terms and candidateLimit 30-80. Do NOT manually page through the whole playlist.
-4b. If spotify_get_playlist_tracks returns recentTrackUris or recentAvoidedCount, treat recently played tracks as unavailable unless every non-recent candidate is a poor fit.
-5. Only change music when the mood noticeably shifts. Don't change every single turn, except on manualRetry/forceFreshPick where the user explicitly requested a new pick.
-6. Playing an entire playlist URI is fine if it fits the mood (e.g., a "battle music" or "chill" playlist).
-7. Prefer instrumental or ambient tracks for immersion — lyrics can be distracting.
-8. Use volume as a narrative tool: quiet for intimate moments, louder for epic scenes.
-9. If the current scene doesn't warrant a change, respond with action "none".
-10. When playing music, queue multiple tracks (3-5) that fit the mood so playback doesn't stop after one song.
-Respond with ONLY valid JSON.
-Schema:
-{
-  "action": "play" | "volume" | "none",
-  "mood": "string — brief description of the detected mood (e.g., 'tense anticipation', 'peaceful rest')",
-  "searchQuery": "string|null — if action is 'play', the search query used",
-  "trackUris": ["string array — Spotify URIs that were queued"],
-  "trackNames": ["string array — human-readable track/artist names for display"],
-  "volume": "number|null — volume level 0-100 if action is 'volume'"
-}`,
 
   /* ────────────────────────────────────────── */
   editor: `You receive the model's generated roleplay response inside <assistant_response> tags, along with agent data (character tracker state, persona stats, world state, quest progress, writer-agent directives, continuity notes, etc.).
@@ -611,4 +562,17 @@ Schema:
 /** Get the default prompt template for a built-in agent type. */
 export function getDefaultAgentPrompt(agentType: string): string {
   return DEFAULT_AGENT_PROMPTS[agentType] ?? "";
+}
+
+const MUSIC_DJ_YOUTUBE_WORDING: ReadonlyArray<readonly [string, string]> = [
+  ["the YouTube-first Music Player", "the Music Player"],
+  ["free YouTube-searchable background music", "searchable background music"],
+  ["a YouTube video ID", "a track ID"],
+  ["real YouTube candidates", "real music candidates"],
+  ["a YouTube music search query", "a music search query"],
+];
+
+/** The Music Player prompt worded for music in general, for when Spotify is the source. The output format is unchanged. */
+export function musicDjPromptForSpotify(template: string): string {
+  return MUSIC_DJ_YOUTUBE_WORDING.reduce((text, [youtube, general]) => text.replaceAll(youtube, general), template);
 }

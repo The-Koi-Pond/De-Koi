@@ -97,7 +97,7 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "Release ${tag} from ${GITHUB_SHA}"
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         if: steps.mode.outputs.dry_run == 'true'
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -147,7 +147,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -273,7 +273,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.1.1
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -283,7 +283,7 @@ jobs:
           cache: pnpm
 
       - name: Setup Java for Android Gradle
-        uses: actions/setup-java@v5.6.0
+        uses: actions/setup-java@v5.7.0
         with:
           distribution: temurin
           java-version: "17"

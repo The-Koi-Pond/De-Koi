@@ -1,4 +1,4 @@
-export const HOME_CREDIT_LINKS = [
+export const CREDIT_LINKS = [
   {
     label: "Source",
     detail: "The-Koi-Pond/De-Koi",
@@ -16,7 +16,7 @@ export const HOME_CREDIT_LINKS = [
   },
   {
     label: "Asset Credits",
-    detail: "Current De-Koi logo by The Koi Pond",
+    detail: "De-Koi's logo, icons and other assets",
     url: "https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/ASSET_CREDITS.md",
   },
   {

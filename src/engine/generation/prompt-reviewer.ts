@@ -11,9 +11,7 @@ export type PromptReviewInput = {
 };
 
 export type PromptReviewEvent =
-  | { type: "token"; data: string }
-  | { type: "done"; data: string }
-  | { type: "error"; data: string };
+  { type: "token"; data: string } | { type: "done"; data: string } | { type: "error"; data: string };
 
 const PROMPT_REVIEWER_SYSTEM_PROMPT = `You are an expert prompt engineer reviewing prompt presets for AI roleplay applications. Analyze the prompt structure and content, then return a structured review in JSON:
 

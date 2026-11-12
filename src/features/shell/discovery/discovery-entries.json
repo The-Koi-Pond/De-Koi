@@ -198,7 +198,7 @@
       "jump to message"
     ],
     "audience": "Anyone with long chats who wants to find something said earlier.",
-    "where": "Sidebar > search box > Messages.",
+    "where": "Chats > search box > Messages (the filter pills step aside while message results show).",
     "actions": [
       {
         "type": "go-home",
@@ -709,8 +709,23 @@
     "id": "help-hub",
     "title": "Help Hub",
     "category": "Help",
-    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, shortcut reference, and app version details.",
-    "keywords": ["help", "support", "about", "version", "shortcuts", "question mark", "diagnostics", "getting started"],
+    "summary": "A central Help surface for diagnostics, bug reports, onboarding replay, the shortcut reference, and About De-Koi: the app version, the project notice, the licence and source links, and credits.",
+    "keywords": [
+      "help",
+      "support",
+      "about",
+      "version",
+      "shortcuts",
+      "question mark",
+      "diagnostics",
+      "getting started",
+      "credits",
+      "license",
+      "licence",
+      "source code",
+      "notices",
+      "AGPL"
+    ],
     "audience": "Users who are stuck, confused, or want one place to find recovery actions.",
     "where": "Title bar Help button, mobile chat Help button, or press ? outside text inputs.",
     "actions": [
@@ -1116,10 +1131,14 @@
     "id": "music-dj",
     "title": "Music Player",
     "category": "Media",
-    "summary": "Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.",
+    "summary": "Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. It plays from YouTube, or from your Spotify account (Liked Songs, a playlist, an artist, or anything) once you connect it. Each character's Music Taste adds songs to their profile that you can play yourself.",
     "keywords": [
       "youtube",
-      "spotify legacy",
+      "spotify",
+      "connect spotify",
+      "liked songs",
+      "spotify playlist",
+      "music source",
       "music",
       "dj",
       "playlist",
@@ -1135,8 +1154,14 @@
       "draggable"
     ],
     "audience": "Users who want music controls, smarter roleplay cues, or mood-matched playlists inside chats.",
-    "where": "Settings > Modules for automatic roleplay music and visible controls, and Character editor > Metadata > Music Taste for profile cues.",
+    "where": "Settings > Modules > Music Player to turn it on, pick YouTube or Spotify, and connect Spotify; Chat settings > Spotify music from for each chat's Spotify source; and Character editor > Metadata > Music Taste for profile cues.",
     "actions": [
+      {
+        "type": "open-settings",
+        "tab": "plugins",
+        "destination": "modules",
+        "label": "Open Music Player settings"
+      },
       {
         "type": "open-panel",
         "panel": "agents",
@@ -1626,6 +1651,33 @@
       }
     ],
     "coverage": "core"
+  },
+  {
+    "id": "roleplay-combat-encounters",
+    "title": "Combat encounters",
+    "category": "Chat modes",
+    "summary": "Play out a fight from a Roleplay chat in its own window, turn by turn. Your chat's model sets up the enemies and your party from the scene, your persona and characters, and an optional spellbook lorebook. Each round you pick an attack or item and a target, or describe what you do; the model then has every enemy and ally act and narrates the round. HP bars, status effects and a combat log keep track. The fight ends when one side is down, when you flee or win by the model's call, or when you conclude it early, and then one summary of the whole fight is added to the chat. Nothing in the chat changes until then. It makes one model call to set up, one per round and one for the summary.",
+    "keywords": [
+      "combat",
+      "fight",
+      "battle",
+      "encounter",
+      "turn-based",
+      "hp",
+      "initiative",
+      "spellbook",
+      "enemies",
+      "rpg"
+    ],
+    "audience": "Roleplay users who want fights with stakes, HP and turns instead of only prose.",
+    "where": "Open a Roleplay chat > Chat settings > Agents > Misc agents > add Combat, then press Encounter above the message box.",
+    "actions": [
+      {
+        "type": "show-active-chat",
+        "label": "Go to your chat"
+      }
+    ],
+    "coverage": "advanced"
   },
   {
     "id": "roleplay-scene-sound",

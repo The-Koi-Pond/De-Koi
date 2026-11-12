@@ -135,8 +135,7 @@ describe("character library summary query", () => {
     );
 
     const options = vi.mocked(storageApi.list).mock.calls[0]?.[1] as
-      | { fieldSelections?: { data?: string[] } }
-      | undefined;
+      { fieldSelections?: { data?: string[] } } | undefined;
     expect(options?.fieldSelections?.data).not.toEqual(
       expect.arrayContaining([
         "scenario",
@@ -161,8 +160,7 @@ describe("chat surface character summary query", () => {
 
     expect(useQuery).toHaveBeenCalledTimes(1);
     const queryOptions = vi.mocked(useQuery).mock.calls[0]?.[0] as unknown as
-      | { queryFn: () => Promise<unknown> }
-      | undefined;
+      { queryFn: () => Promise<unknown> } | undefined;
     await queryOptions?.queryFn();
 
     expect(storageApi.list).toHaveBeenCalledWith(
@@ -207,8 +205,7 @@ describe("chat surface character summary query", () => {
     );
 
     const options = vi.mocked(storageApi.list).mock.calls[0]?.[1] as
-      | { fieldSelections?: { data?: string[] } }
-      | undefined;
+      { fieldSelections?: { data?: string[] } } | undefined;
     expect(options?.fieldSelections?.data).not.toEqual(
       expect.arrayContaining(["first_mes", "alternate_greetings", "character_book"]),
     );
