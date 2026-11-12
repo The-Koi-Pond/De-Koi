@@ -215,9 +215,19 @@ export const PondFanficIcon: PondIcon = (props) => (
   </IconFrame>
 );
 
+/** Trance: an ink spiral around a jade centre. */
+export const PondTranceIcon: PondIcon = (props) => (
+  <IconFrame {...props}>
+    <path d="M12 12A1 1 0 0 1 14 12A2 2 0 0 1 10 12A3 3 0 0 1 16 12A4 4 0 0 1 8 12A5 5 0 0 1 18 12A6 6 0 0 1 6 12" />
+    <circle style={jadeFill} cx="12" cy="12" r="1.1" />
+    <circle style={koiFill} cx="6" cy="12" r="1" />
+  </IconFrame>
+);
+
 /** The Pond icon for each mode, keyed like the chat's `mode` field. */
 export const POND_MODE_ICONS = {
   conversation: PondConversationIcon,
   roleplay: PondRoleplayIcon,
   fanfic: PondFanficIcon,
+  trance: PondTranceIcon,
 } as const satisfies Record<string, PondIcon>;

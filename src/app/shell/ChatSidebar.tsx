@@ -22,6 +22,7 @@ import {
   Loader2,
   ListChecks,
   Feather,
+  Orbit,
 } from "lucide-react";
 import {
   useBulkExportChats,
@@ -288,12 +289,21 @@ const MODE_CONFIG: Record<
     iconForeground: "#fff4f6",
     description: CHAT_MODES.fanfic.description,
   },
+  trance: {
+    icon: <Orbit size="0.75rem" />,
+    label: CHAT_MODES.trance.name,
+    shortLabel: CHAT_MODES.trance.name,
+    bg: "linear-gradient(135deg, #c4b5ff 0%, #8065f0 55%, #33246e 100%)",
+    iconForeground: "#f3efff",
+    description: CHAT_MODES.trance.description,
+  },
 };
 
 const SIDEBAR_TAB_NOUNS: Record<ChatSidebarTab, { plural: string; newLabel: string }> = {
   conversation: { plural: "conversations", newLabel: "chat" },
   roleplay: { plural: "roleplays", newLabel: "RP" },
   fanfic: { plural: "fics", newLabel: "fic" },
+  trance: { plural: "trance sessions", newLabel: "session" },
 };
 
 // "Active" is the chat's last change (its updatedAt), the same time the row's second line shows.
@@ -304,7 +314,7 @@ const CHAT_SORT_OPTIONS: ReadonlyArray<{ value: ChatSortOption; label: string; s
   { value: "name-desc", label: "Name, Z to A", short: "Z-A" },
 ];
 
-const NO_UNREAD_BY_TAB: Record<ChatSidebarTab, number> = { conversation: 0, roleplay: 0, fanfic: 0 };
+const NO_UNREAD_BY_TAB: Record<ChatSidebarTab, number> = { conversation: 0, roleplay: 0, fanfic: 0, trance: 0 };
 
 export function ChatSidebar({
   activeTab,
@@ -486,7 +496,8 @@ export function ChatSidebar({
   }, [modeChats, pinnedOnly, searchQuery, tagFilters, charLookup]);
 
   // Message text search runs for Conversation and Roleplay; the Chats/Messages switch shows once the query is long enough.
-  const messageSearchAvailable = activeTab !== "fanfic" && searchQuery.trim().length >= MESSAGE_SEARCH_MIN_CHARS;
+  const messageSearchAvailable =
+    activeTab !== "fanfic" && activeTab !== "trance" && searchQuery.trim().length >= MESSAGE_SEARCH_MIN_CHARS;
   const showMessageResults = messageSearchAvailable && searchScope === "messages";
 
   // ── Collapse chats that share a groupId into one entry ──
@@ -616,7 +627,7 @@ export function ChatSidebar({
     // 1. Tab sync — once per chat switch
     if (!s.tabSynced) {
       const chatMode = chat.mode as ChatSidebarTab;
-      if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "fanfic") {
+      if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "fanfic" || chatMode === "trance") {
         onActiveTabChange(chatMode);
       }
       // Clear search so the active chat isn't hidden by a stale filter.

@@ -18,13 +18,14 @@ type ChatSidebarRecoveryError = {
 };
 
 export type ChatSidebarRecoveryContext =
-  | { mode: "conversation" | "roleplay" | "fanfic"; state: "error" }
-  | { mode: "conversation" | "roleplay" | "fanfic"; state: "empty"; hasFilters: boolean };
+  | { mode: "conversation" | "roleplay" | "fanfic" | "trance"; state: "error" }
+  | { mode: "conversation" | "roleplay" | "fanfic" | "trance"; state: "empty"; hasFilters: boolean };
 
 const EMPTY_NOUNS: Record<ChatSidebarRecoveryContext["mode"], { plural: string; singular: string; create: string }> = {
   conversation: { plural: "conversations", singular: "conversation", create: "New Conversation" },
   roleplay: { plural: "roleplays", singular: "roleplay", create: "New Roleplay" },
   fanfic: { plural: "fics", singular: "fic", create: "New Fanfic" },
+  trance: { plural: "trance sessions", singular: "trance session", create: "New Trance" },
 };
 
 const RETRY = { id: "retry", label: "Retry" } as const;

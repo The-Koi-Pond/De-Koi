@@ -497,9 +497,9 @@ const RETIRED_NARRATIVE_AGENT_ID_SET = new Set<string>(RETIRED_NARRATIVE_AGENT_I
 const CONVERSATION_BUILT_IN_AGENT_ID_SET = new Set<string>(CONVERSATION_BUILT_IN_AGENT_IDS);
 const ROLEPLAY_AGENT_PICKER_HIDDEN_ID_SET = new Set<string>(ROLEPLAY_AGENT_PICKER_HIDDEN_IDS);
 
-/** Fanfic chats are written from the request and outline alone; no built-in or custom agent runs there. */
+/** Fanfic and Trance chats are written from their request alone; no built-in or custom agent runs there. */
 function isAgentFreeChatMode(mode: unknown): boolean {
-  return mode === "fanfic";
+  return mode === "fanfic" || mode === "trance";
 }
 
 function normalizeAgentChatMode(mode: unknown): Exclude<AgentChatMode, "visual_novel"> {

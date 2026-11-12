@@ -43,7 +43,7 @@ export function getSetupJourneyHost({
 }
 
 export function shouldBeginSetupJourney(
-  pendingMode: "conversation" | "roleplay" | "fanfic" | null,
+  pendingMode: "conversation" | "roleplay" | "fanfic" | "trance" | null,
   intent: { mode: string; completed: boolean } | null,
 ): boolean {
   return !!pendingMode && (!intent || intent.mode !== pendingMode || intent.completed);

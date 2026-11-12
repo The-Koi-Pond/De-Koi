@@ -18,6 +18,7 @@ const DESTINATION_MODES: Partial<Record<DiscoveryChatDestination, readonly Disco
 
 function modeLabel(mode: DiscoveryMode) {
   if (mode === "fanfic") return "Fanfic";
+  if (mode === "trance") return "Trance";
   return mode === "roleplay" ? "Roleplay" : "Conversation";
 }
 
