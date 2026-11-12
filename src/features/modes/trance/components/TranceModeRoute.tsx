@@ -11,9 +11,11 @@ import {
 } from "../../../../engine/modes/trance/request";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useTranceChat, useTranceRecordRun, useTranceRequestSave, useTranceScript } from "../hooks/use-trance";
 import { TrancePlayer } from "./TrancePlayer";
 import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
+import { TranceSessionOptions } from "./TranceSessionOptions";
 
 export interface TranceModeRouteProps {
   activeChatId: string;
@@ -65,6 +67,8 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const recordRun = useTranceRecordRun(activeChatId);
   const [editing, setEditing] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const backdrop = useUIStore((state) => state.tranceBackdrop);
+  const voiceMode = useUIStore((state) => state.tranceVoice);
   const stage = tranceStage(state);
   const characterIds = useMemo(() => chat?.characterIds ?? [], [chat?.characterIds]);
   const { data: characterRows } = useCharacterSummariesByIds(characterIds.slice(0, 1), characterIds.length > 0);
@@ -112,6 +116,10 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           saving={recordRun.isPending}
           saveError={errorText(recordRun.error, "That couldn't be saved. Try again.")}
           onFinish={(after: TranceAfter) => recordRun.mutate(after, { onSuccess: () => setPlaying(false) })}
+          backdrop={backdrop}
+          voiceMode={voiceMode}
+          characterId={characterIds[0] ?? null}
+          characterName={characterName}
         />
       </div>
     );
@@ -183,8 +191,12 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           </div>
         ) : stage === "ready" ? (
           <>
+            <TranceSessionOptions characterId={characterIds[0] ?? null} characterName={characterName} />
             <p className="max-w-md text-sm text-[var(--muted-foreground)]">
-              Settle in somewhere comfortable. Read each line as it comes and press the button (or Space) to go on.{" "}
+              Settle in somewhere comfortable.{" "}
+              {voiceMode === "eyes-closed"
+                ? "Close your eyes whenever you like and listen; each line follows by itself."
+                : "Read each line as it comes and press the button (or Space) to go on."}{" "}
               <strong className="font-semibold text-[var(--foreground)]">I need out</strong> is always at the top if you
               want to stop.
             </p>

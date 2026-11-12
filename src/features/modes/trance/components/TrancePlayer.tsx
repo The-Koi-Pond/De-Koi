@@ -1,22 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LifeBuoy } from "lucide-react";
+import { LifeBuoy, Volume2, VolumeX } from "lucide-react";
 import type {
   TranceAfter,
   TranceEnding,
   TranceFinish,
   TranceLine,
+  TrancePhase,
   TranceScript,
 } from "../../../../engine/contracts/types/trance";
 import { TRANCE_NOTE_LIMIT } from "../../../../engine/modes/trance/request";
 import { TRANCE_STOP_LINE, tranceButtonLabel } from "../../../../engine/modes/trance/session";
 import { cn } from "../../../../shared/lib/utils";
+import type { TranceBackdrop as TranceBackdropKind, TranceVoiceMode } from "../../../../shared/stores/ui/model";
+import { useTranceVoice } from "../hooks/use-trance-voice";
+import { TranceBackdrop, type TranceShade } from "./TranceBackdrop";
 
 type Track = "main" | "gentle" | "calm" | "stop" | "realert";
 
 interface PlayerLine {
   text: string;
   button: string;
+  /** Main session lines only: the part of the session the line is in. */
+  phase?: TrancePhase;
 }
+
+/** Eyes closed: the quiet after a line is spoken before the next one starts. Longer while going deep. */
+const PAUSE_AFTER_MS: Record<TrancePhase | "exit", number> = {
+  pretalk: 900,
+  induction: 1400,
+  deepener: 1800,
+  suggestions: 1600,
+  wake: 900,
+  sleep: 2200,
+  exit: 1100,
+};
 
 const FADE_MS = 900;
 
@@ -39,7 +56,7 @@ function mainLines(lines: readonly TranceLine[], ending: TranceEnding): PlayerLi
         : "Goodnight"
       : tranceButtonLabel(line.phase, line.text, previous);
     previous = button;
-    return { text: line.text, button };
+    return { text: line.text, button, phase: line.phase };
   });
 }
 
@@ -169,12 +186,20 @@ export function TrancePlayer({
   saving,
   saveError,
   onFinish,
+  backdrop = "plain",
+  voiceMode = "off",
+  characterId = null,
+  characterName = "",
 }: {
   script: TranceScript;
   ending: TranceEnding;
   saving: boolean;
   saveError: string | null;
   onFinish: (after: TranceAfter) => void;
+  backdrop?: TranceBackdropKind;
+  voiceMode?: TranceVoiceMode;
+  characterId?: string | null;
+  characterName?: string;
 }) {
   const [track, setTrack] = useState<Track>("main");
   const [index, setIndex] = useState(0);
@@ -185,7 +210,10 @@ export function TrancePlayer({
   const startedAt = useRef(Date.now());
   const endedAt = useRef<number | null>(null);
   const [exitMenuOpen, setExitMenuOpen] = useState(false);
+  const [muted, setMuted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const voice = useTranceVoice({ enabled: voiceMode !== "off" && !muted, characterId, characterName });
+  const handsFree = voiceMode === "eyes-closed" && voice.active && !voice.error;
 
   const tracks = useMemo<Record<Track, PlayerLine[]>>(() => {
     const stop: PlayerLine[] = [{ text: TRANCE_STOP_LINE, button: "I'm back" }];
@@ -237,6 +265,48 @@ export function TrancePlayer({
     },
     [startTrack],
   );
+
+  const shade = useMemo<TranceShade>(() => {
+    if (track === "realert") return { kind: "wake", progress: lines.length > 1 ? index / (lines.length - 1) : 1 };
+    if (track !== "main") return { kind: "exit" };
+    const phase = line.phase ?? "induction";
+    if (phase === "pretalk" || phase === "induction") return { kind: "down" };
+    if (phase === "deepener" || phase === "suggestions") return { kind: "deep" };
+    if (phase === "sleep") return { kind: "sleep" };
+    const first = lines.findIndex((item) => item.phase === "wake");
+    const count = lines.length - first;
+    return { kind: "wake", progress: count > 1 ? (index - first) / (count - 1) : 1 };
+  }, [index, line.phase, lines, track]);
+
+  // The latest advance, for the timer that moves on by itself with eyes closed.
+  const advanceRef = useRef(advance);
+  useEffect(() => {
+    advanceRef.current = advance;
+  }, [advance]);
+
+  // Each line is spoken as it appears; with eyes closed, the next one follows after a pause. Opening the way-out
+  // menu, the after-check and the dark sleep screen are quiet.
+  const { speak, stop: stopVoice, active: voiceOn } = voice;
+  // Read when a line ends, not as a dependency: a voice error turning hands-free off must not re-speak the line.
+  const handsFreeRef = useRef(handsFree);
+  useEffect(() => {
+    handsFreeRef.current = handsFree;
+  }, [handsFree]);
+  useEffect(() => {
+    if (showingAfter || sleeping || exitMenuOpen || !voiceOn) {
+      stopVoice();
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const upcoming = lines.slice(index + 1).map((item) => item.text);
+    const pause = PAUSE_AFTER_MS[track === "main" ? (line.phase ?? "induction") : "exit"];
+    speak(line.text, upcoming, () => {
+      if (handsFreeRef.current) timer = setTimeout(() => advanceRef.current(), pause);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [exitMenuOpen, index, line, lines, showingAfter, sleeping, speak, stopVoice, track, voiceOn]);
 
   // Space, Enter or 1 moves on; Escape opens the way out. Typing in the after-check is left alone.
   useEffect(() => {
@@ -301,8 +371,25 @@ export function TrancePlayer({
 
   const inExit = track !== "main";
   return (
-    <div className="relative flex min-h-full flex-1 flex-col bg-[#0d0b1a] text-[#ece8ff]">
-      <div className="flex min-h-[3.75rem] items-center justify-end gap-2 p-3">
+    <div className="relative isolate flex min-h-full flex-1 flex-col bg-[#0d0b1a] text-[#ece8ff]">
+      <TranceBackdrop kind={backdrop} shade={shade} />
+      <div className="relative z-10 flex min-h-[3.75rem] items-center justify-end gap-2 p-3">
+        {voiceMode !== "off" && (voice.active || muted) && (
+          <button
+            type="button"
+            onClick={() => {
+              setMuted(!muted);
+              // Back to the main button, so Space keeps moving on instead of toggling the voice.
+              buttonRef.current?.focus({ preventScroll: true });
+            }}
+            aria-pressed={muted}
+            aria-label={muted ? "Turn the voice back on" : "Mute the voice"}
+            title={muted ? "Turn the voice back on" : "Mute the voice"}
+            className="mr-auto rounded-full border border-[#ece8ff]/20 p-2 text-[#ece8ff]/70 hover:text-[#ece8ff]"
+          >
+            {muted ? <VolumeX size="1rem" aria-hidden="true" /> : <Volume2 size="1rem" aria-hidden="true" />}
+          </button>
+        )}
         {track !== "stop" && (
           <button
             type="button"
@@ -319,7 +406,7 @@ export function TrancePlayer({
         <div
           role="menu"
           aria-label="Ways out"
-          className="absolute right-3 top-14 z-10 flex w-64 flex-col gap-1 rounded-xl border border-[#ece8ff]/15 bg-[#1b1733] p-2 shadow-xl"
+          className="absolute right-3 top-14 z-20 flex w-64 flex-col gap-1 rounded-xl border border-[#ece8ff]/15 bg-[#1b1733] p-2 shadow-xl"
         >
           {!inExit && (
             <button
@@ -355,7 +442,16 @@ export function TrancePlayer({
         </div>
       )}
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-6 text-center">
+      {voice.error && (
+        <p
+          role="status"
+          className="relative z-10 mx-auto max-w-md rounded-full bg-black/40 px-4 py-1.5 text-center text-xs text-[#ece8ff]/80"
+        >
+          The voice stopped ({voice.error}). Read on and press to go on.
+        </p>
+      )}
+
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-6 text-center">
         <p aria-hidden="true" className="max-w-3xl text-[clamp(1rem,2.4vmin,1.5rem)] leading-snug text-[#ece8ff]/25">
           {previousLine?.text ?? ""}
         </p>
@@ -363,13 +459,13 @@ export function TrancePlayer({
           key={`${track}:${index}`}
           ref={fadeRef}
           aria-live="polite"
-          className="max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
+          className="trance-line max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
         >
           {line.text}
         </p>
       </div>
 
-      <div className="flex justify-center px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="relative z-10 flex justify-center px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <button
           ref={buttonRef}
           type="button"

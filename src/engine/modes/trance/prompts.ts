@@ -117,7 +117,7 @@ export function buildTranceSystemPrompt(): string {
     "## How lines work",
     "- One short sentence or fragment per line, usually under 15 words. Each line is its own screen.",
     "- Rhythm and repetition are good. A single word can be a line.",
-    "- Their eyes stay open to read. Suggest softening focus, heavy eyelids and slow blinks, but never ask them to close their eyes until the sleep ending.",
+    "- Some read with their eyes open; some have each line read aloud and listen with their eyes closed. Suggest softening focus, heavy eyelids and slow blinks, and if the eyes want to close, let that be fine either way. Never require closed or open eyes, and never say whether they are reading or listening.",
     "- Second person. Never name the listener or guess their gender.",
     "- The app shows its own buttons and ways out. Never mention buttons, exits, stopping, the app or this format in the session itself.",
     "- These instructions describe what to do, not what to say. Put every idea in the character's own words; never reuse the wording here.",

@@ -16,6 +16,8 @@ import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
+  TRANCE_BACKDROPS,
+  TRANCE_VOICE_MODES,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerPanelSizeProfile,
   normalizeConversationMessageStyle,
@@ -212,6 +214,8 @@ export function partializeUiState(state: UIState) {
     enterToSendConvo: state.enterToSendConvo,
     weatherEffects: state.weatherEffects,
     roleplaySceneSound: state.roleplaySceneSound,
+    tranceBackdrop: state.tranceBackdrop,
+    tranceVoice: state.tranceVoice,
     sceneAmbientVolume: state.sceneAmbientVolume,
     sceneEffectsVolume: state.sceneEffectsVolume,
     hudPosition: state.hudPosition,
@@ -312,6 +316,12 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.textBlipMode = normalizeTextBlipMode(persisted.textBlipMode);
   persisted.customTextBlipSound = normalizeCustomTextBlipSound(persisted.customTextBlipSound);
   persisted.mobileChatToolsOpen = false;
+  persisted.tranceBackdrop = (TRANCE_BACKDROPS as readonly unknown[]).includes(persisted.tranceBackdrop)
+    ? persisted.tranceBackdrop
+    : "drift";
+  persisted.tranceVoice = (TRANCE_VOICE_MODES as readonly unknown[]).includes(persisted.tranceVoice)
+    ? persisted.tranceVoice
+    : "off";
   delete persisted.trackerPanelWidth;
 
   return persisted;
