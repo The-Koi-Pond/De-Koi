@@ -2,6 +2,7 @@ import { Component, useId, useRef, type ErrorInfo, type ReactNode } from "react"
 import { createPortal } from "react-dom";
 import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import { recordClientDiagnostic } from "../../../../../shared/lib/client-diagnostics";
+import { keepTabInside } from "../../../../../shared/lib/focus-trap";
 import { useRoleplayEncounterStore } from "../../../../../shared/stores/roleplay-encounter.store";
 import { useFocusInAndBack } from "../hooks/use-focus-in-and-back";
 import { EncounterOverlay } from "./EncounterOverlay";
@@ -10,6 +11,7 @@ import { EncounterSetupDialog } from "./EncounterSetupDialog";
 /** Shown over the page like the combat window it replaces; Escape closes it the same as its button. */
 function CombatCrashScreen({ onClose }: { onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useFocusInAndBack(closeRef);
   useEscapeOverlay(() => {
@@ -19,9 +21,11 @@ function CombatCrashScreen({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm">
       <div
+        ref={panelRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onKeyDown={(event) => keepTabInside(event, panelRef.current)}
         className="w-full max-w-sm space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-center text-[var(--card-foreground)]"
       >
         <h2 id={titleId} className="text-sm font-semibold">

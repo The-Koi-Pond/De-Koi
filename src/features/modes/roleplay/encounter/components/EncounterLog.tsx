@@ -34,10 +34,16 @@ function useRevealedCount(log: EncounterLogEntry[]): number {
 export function EncounterLog({ log }: { log: EncounterLogEntry[] }) {
   const revealed = useRevealedCount(log);
   const listRef = useRef<HTMLOListElement>(null);
+  const shownOnce = useRef(false);
 
   useEffect(() => {
     const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+    // On a small screen the log can sit below the cards, out of view: bring each new line into view there too.
+    // Not on first show, so reopening a fight starts at the top with the cards.
+    if (shownOnce.current) list.lastElementChild?.scrollIntoView?.({ block: "nearest" });
+    shownOnce.current = true;
   }, [revealed]);
 
   return (
