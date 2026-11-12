@@ -400,6 +400,7 @@ fn is_managed_local_binary_asset(data_dir: &Path, path: &Path) -> bool {
         "knowledge-sources",
         "lorebooks/images",
         "sprites",
+        "voice-notes",
     ];
 
     LOCAL_BINARY_ASSET_DIRS.iter().any(|asset_dir| {

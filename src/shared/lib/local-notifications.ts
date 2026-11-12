@@ -1,3 +1,5 @@
+import { sentMediaTitle, type SentMediaKind } from "../../engine/modes/chat/core/sent-media";
+
 type TauriNotificationApi = typeof import("@tauri-apps/plugin-notification");
 
 export type LocalNotificationPermission = NotificationPermission | "unsupported";
@@ -13,8 +15,8 @@ export type LocalChatNotificationOptions = {
   chatId: string;
   characterName?: string | null;
   tag?: string;
-  /** The message carried a photo: say so, without showing it. */
-  photo?: boolean;
+  /** The message was a voice note or carried a photo: say so, without showing it. */
+  media?: SentMediaKind | null;
 };
 
 declare global {
@@ -85,7 +87,7 @@ export async function showLocalChatNotification({
   chatId,
   characterName,
   tag,
-  photo = false,
+  media = null,
 }: LocalChatNotificationOptions): Promise<boolean> {
   const permission = await getLocalNotificationPermission();
   if (
@@ -99,7 +101,8 @@ export async function showLocalChatNotification({
   }
 
   const name = typeof characterName === "string" && characterName.trim() ? characterName.trim() : "Character";
-  const title = photo ? `${name.slice(0, 80)} sent a photo` : `New message from ${name.slice(0, 80)}`;
+  const shortName = name.slice(0, 80);
+  const title = sentMediaTitle(shortName, media) ?? `New message from ${shortName}`;
   const body = "Open De-Koi to read it.";
 
   const tauriNotifications = await getTauriNotificationApi();

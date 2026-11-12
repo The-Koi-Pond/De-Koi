@@ -10,7 +10,8 @@ export type RemoteManagedAssetKind =
   | "gallery"
   | "lorebook"
   | "sprite"
-  | "thumbnail";
+  | "thumbnail"
+  | "voice-note";
 
 type RemoteManagedAsset = {
   url: string;

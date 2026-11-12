@@ -2184,6 +2184,15 @@ fn delete_gallery_for_chats(state: &AppState, chat_ids: &HashSet<String>) -> App
     }) {
         remove_managed_record_file(state, "gallery", row, "filePath", "filename");
     }
+    for chat_id in chat_ids {
+        if let Some(dir) = super::integrations::voice_note_dir_for_chat(state, chat_id) {
+            if dir.exists() {
+                if let Err(error) = fs::remove_dir_all(&dir) {
+                    log::warn!("could not delete voice notes in {}: {error}", dir.display());
+                }
+            }
+        }
+    }
     state.storage.delete_where_matching("gallery", |row| {
         row.get("chatId")
             .and_then(Value::as_str)
@@ -3296,6 +3305,31 @@ mod tests {
             vec!["influence-a", "memory-a"],
             "clear should remove durable notes without clearing influences"
         );
+    }
+
+    #[test]
+    fn delete_chat_removes_its_voice_notes_only() {
+        let state = test_state("voice-note-delete");
+        for id in ["chat-1", "chat-2"] {
+            state
+                .storage
+                .create("chats", json!({ "id": id, "name": id }))
+                .expect("chat should be created");
+            let dir = state.data_dir.join("voice-notes").join(id);
+            std::fs::create_dir_all(&dir).expect("voice note dir should be created");
+            std::fs::write(dir.join("voice-a.mp3"), b"audio")
+                .expect("voice note should be written");
+        }
+
+        delete_chat_with_messages(&state, "chat-1").expect("chat delete should succeed");
+
+        assert!(!state.data_dir.join("voice-notes").join("chat-1").exists());
+        assert!(state
+            .data_dir
+            .join("voice-notes")
+            .join("chat-2")
+            .join("voice-a.mp3")
+            .exists());
     }
 
     #[test]

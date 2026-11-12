@@ -26,4 +26,5 @@ export {
   resolveManagedLocalAssetThumbnailUrl,
   resolveManagedLocalAssetUrl,
   resolveSpriteFileUrl,
+  resolveVoiceNoteFileUrl,
 } from "./managed-asset-resolvers";

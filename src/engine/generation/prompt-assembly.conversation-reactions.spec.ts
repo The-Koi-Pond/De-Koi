@@ -145,6 +145,25 @@ describe("conversation photos in the prompt", () => {
     expect(promptText(result)).toContain("(sent a photo: juno on the pier at sunset)");
   });
 
+  it("marks a voice note in history; its text is the transcript", async () => {
+    const result = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [
+        { id: "user-1", role: "user", content: "where are you" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          characterId: "juno",
+          content: "omw. save me a seat",
+          extra: { attachments: [{ type: "audio", voiceNote: true, url: "/v.mp3", filename: "v.mp3" }] },
+        },
+      ],
+      request: {},
+    });
+
+    expect(promptText(result)).toContain("omw. save me a seat\n(sent as a voice message)");
+  });
+
   it("texting first, offers the photo tag only when this text carries one", async () => {
     const send = await assembleGenerationPrompt(conversationStorage(juno), {
       ...base,

@@ -29,7 +29,13 @@ import { buildImpersonateInstruction } from "../modes/chat/commands/impersonate-
 import { conversationCommandPromptEnabled } from "../modes/chat/commands/activation";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { getConversationStatus } from "../modes/chat/autonomous/autonomous.service";
-import { decideTextsFirstPhoto } from "../modes/chat/autonomous/unprompted-photos";
+import { burstAlreadyHasMedia, decideTextsFirstPhoto } from "../modes/chat/autonomous/unprompted-photos";
+import {
+  buildVoiceNoteAttachment,
+  decideVoiceNote,
+  voiceNoteFrequency,
+  voiceNoteText,
+} from "../modes/chat/voice-notes/voice-notes";
 import {
   assistantRepliesRefreshContinuityDirector,
   queueContinuityDirectorRefresh,
@@ -3431,31 +3437,91 @@ function textsFirstPhotoOf(input: StartGenerationInput): "send" | "withhold" | u
 }
 
 /**
- * A Conversation character texting first: decide once whether this message carries a photo (the chat's
- * per-character frequency, one photo per burst). Prompt assembly and the [selfie] command both read the result.
+ * Conversation media for this reply, decided once before the prompt: whether a character texting first sends a
+ * photo (`textsFirstPhoto`), and whether this reply goes out as a voice note (`voiceNote`). Prompt assembly, the
+ * [selfie] command and the save all read the result. Callers can't set either: only this decides them.
  */
-async function withTextsFirstPhotoDecision(
-  storage: StorageGateway,
+async function withMediaDecisions(
+  deps: GenerationEngineDeps,
   chat: JsonRecord,
   input: StartGenerationInput,
 ): Promise<StartGenerationInput> {
-  if (input.textsFirst !== true || readString(chat.mode || chat.chatMode) !== "conversation") {
-    // Only the engine sets this, and only for texts-first.
-    if (input.textsFirstPhoto === undefined) return input;
-    const { textsFirstPhoto: _callerValue, ...rest } = input;
-    return rest as StartGenerationInput;
-  }
-  const characterId = assistantMessageCharacterId(chat, input);
-  if (!characterId) return { ...input, textsFirstPhoto: "withhold" };
-  const messages = await storage.listChatMessages<JsonRecord>(readString(chat.id), {
+  const { textsFirstPhoto: _photo, voiceNote: _voice, ...rest } = input;
+  const next = rest as StartGenerationInput;
+  if (readString(chat.mode || chat.chatMode) !== "conversation") return next;
+  if (next.impersonate === true || readString(next.continueMessageId).trim()) return next;
+  if (readString(next.regenerateMessageId).trim()) return next;
+  const textsFirst = next.textsFirst === true;
+  const characterId = assistantMessageCharacterId(chat, next);
+  if (!characterId) return textsFirst ? { ...next, textsFirstPhoto: "withhold" } : next;
+
+  const mayVoice =
+    voiceNoteFrequency(chat.metadata, characterId) !== "never" &&
+    !!deps.integrations?.voiceNotes &&
+    (await deps.integrations.voiceNotes.available().catch((error: unknown) => {
+      console.warn("[generation] Text to Speech status unavailable; no voice note this reply", error);
+      return false;
+    }));
+  if (!textsFirst && !mayVoice) return next;
+
+  const listed = await deps.storage.listChatMessages<JsonRecord>(readString(chat.id), {
     limit: 40,
     fields: ["role", "extra"],
     fieldSelections: { extra: ["attachments"] },
   });
+  const messages = Array.isArray(listed) ? listed : [];
+  const textsFirstPhoto = textsFirst ? decideTextsFirstPhoto({ chat, characterId, messages }) : undefined;
+  const voiceNote =
+    mayVoice &&
+    decideVoiceNote({
+      chat,
+      characterId,
+      messages,
+      textsFirst,
+      sendsPhoto: textsFirstPhoto === "send",
+      burstHasMedia: textsFirst && burstAlreadyHasMedia(messages),
+    });
   return {
-    ...input,
-    textsFirstPhoto: decideTextsFirstPhoto({ chat, characterId, messages: Array.isArray(messages) ? messages : [] }),
+    ...next,
+    ...(textsFirstPhoto ? { textsFirstPhoto } : {}),
+    ...(voiceNote ? { voiceNote: "send" as const } : {}),
   };
+}
+
+/**
+ * This reply as a voice note: its text spoken in the character's voice and kept with the chat. A reply that came
+ * out too long or empty stays text; a Text to Speech failure leaves the text and says why.
+ */
+async function voiceNoteForReply(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  characters: GenerationCharacterContext[],
+  content: string,
+): Promise<{ attachment: JsonRecord | null; events: GenerationEvent[] }> {
+  if (input.voiceNote !== "send" || !deps.integrations?.voiceNotes) return { attachment: null, events: [] };
+  const characterId = assistantMessageCharacterId(chat, input);
+  const text = voiceNoteText(content);
+  if (!characterId || !text) return { attachment: null, events: [] };
+  const speaker = characters.find((character) => character.id === characterId)?.name ?? "";
+  try {
+    const file = await deps.integrations.voiceNotes.create({
+      chatId: readString(chat.id),
+      text,
+      speaker,
+      characterId,
+    });
+    return {
+      attachment: buildVoiceNoteAttachment(file),
+      events: [{ type: "voice_note", data: { characterId, characterName: speaker } }],
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      attachment: null,
+      events: [{ type: "command_error", data: { command: "voice_note", error: `Voice note failed: ${reason}` } }],
+    };
+  }
 }
 
 function assistantMessageCharacterId(chat: JsonRecord, input: StartGenerationInput): string | null {
@@ -5323,7 +5389,7 @@ async function* startGenerationImpl(
   input = await inputWithStoredGenerationReplay(deps.storage, chat, chatId, input);
   throwIfAborted(signal);
   assertChatCanGenerate(chat, input);
-  input = await withTextsFirstPhotoDecision(deps.storage, chat, input);
+  input = await withMediaDecisions(deps, chat, input);
   throwIfAborted(signal);
   // Send unlocks once a reply is saved, while its helpers may still be writing the trackers this turn
   // reads. Give them a bounded head start rather than build this turn on the state before them.
@@ -5919,6 +5985,11 @@ async function* startGenerationImpl(
     content = displayContent;
     const replyWillBeSaved =
       !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
+    const voiceNote = replyWillBeSaved
+      ? await voiceNoteForReply(deps, chat, input, assembly.characters, displayContent)
+      : { attachment: null, events: [] };
+    for (const event of voiceNote.events) yield event;
+    throwIfAborted(signal);
     // Interpretations read only the character cards, never the reply, so they are queued before the
     // save: a tab closed the moment the reply lands can't drop them.
     const interpretationsForThisTab = replyWillBeSaved
@@ -5956,7 +6027,9 @@ async function* startGenerationImpl(
           agentResults: preSaveAgentResults,
           noteCount: connected.createdNotes.length + connected.executedCommands.length,
           chatSummaryFingerprint: assembly.chatSummaryFingerprint,
-          attachments: connected.assistantAttachments,
+          attachments: voiceNote.attachment
+            ? [...connected.assistantAttachments, voiceNote.attachment]
+            : connected.assistantAttachments,
           usage,
           providerMetadata,
           promptSnapshot,
@@ -6346,6 +6419,11 @@ async function* startGenerationImpl(
   content = displayContentDirect;
   const replyWillBeSaved =
     !connected.suppressAssistantMessage && input.impersonate !== true && !isUserMessageRegeneration;
+  const voiceNoteDirect = replyWillBeSaved
+    ? await voiceNoteForReply(deps, chat, input, assembly.characters, displayContentDirect)
+    : { attachment: null, events: [] };
+  for (const event of voiceNoteDirect.events) yield event;
+  throwIfAborted(signal);
   // Interpretations read only the character cards, never the reply, so they are queued before the
   // save: a tab closed the moment the reply lands can't drop them.
   const interpretationsForThisTab = replyWillBeSaved
@@ -6373,7 +6451,9 @@ async function* startGenerationImpl(
         agentResults: [],
         noteCount: connected.createdNotes.length + connected.executedCommands.length,
         chatSummaryFingerprint: assembly.chatSummaryFingerprint,
-        attachments: connected.assistantAttachments,
+        attachments: voiceNoteDirect.attachment
+          ? [...connected.assistantAttachments, voiceNoteDirect.attachment]
+          : connected.assistantAttachments,
         usage,
         providerMetadata,
         promptSnapshot: promptSnapshotDirect,

@@ -437,6 +437,8 @@ export interface ChatMetadata {
   selfieUseAvatarReferences?: boolean;
   /** Per character: how often a texts-first message comes with a selfie. Missing means "rare". */
   unpromptedPhotoFrequency?: Record<string, "never" | "rare" | "sometimes">;
+  /** Per character: how often a reply (or a text sent first) goes out as a voice note. Missing means "rare". */
+  voiceNoteFrequency?: Record<string, "never" | "rare" | "sometimes">;
 
   // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */

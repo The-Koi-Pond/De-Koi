@@ -25,6 +25,7 @@ import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/rege
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
 import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
 import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
+import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
 import {
   commandCapabilityEnabled,
   conversationCommandCapabilities,
@@ -3197,6 +3198,13 @@ async function buildConversationContextBlocks(
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
     crossChat,
     linked.block,
+    input.request.voiceNote === "send"
+      ? {
+          role: "system" as const,
+          contextKind: "prompt" as const,
+          content: wrapContent(VOICE_NOTE_REPLY_INSTRUCTION, "voice_note", wrapFormat),
+        }
+      : null,
     buildConversationCommandBlock(
       input.chat,
       characters,
@@ -3367,6 +3375,7 @@ function conversationReactionNote(
   return (message) =>
     [
       readString(message.role) === "assistant" ? sentPhotoHistoryNote(message.extra) : "",
+      readString(message.role) === "assistant" ? voiceNoteHistoryNote(message.extra) : "",
       reactionHistoryNote(readMessageReactions(message.extra), (by) =>
         by === USER_REACTOR ? personaName?.trim() || "The user" : (names.get(by) ?? "Someone"),
       ),

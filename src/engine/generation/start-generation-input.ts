@@ -32,6 +32,8 @@ export interface StartGenerationInput extends JsonRecord {
   textsFirst?: boolean;
   /** Set by the engine for texts-first: whether this message carries a photo. */
   textsFirstPhoto?: "send" | "withhold";
+  /** Set by the engine for Conversation replies: this reply goes out as a voice note. */
+  voiceNote?: "send";
   mentionedCharacterNames?: string[];
   attachments?: PromptAttachment[];
   /**

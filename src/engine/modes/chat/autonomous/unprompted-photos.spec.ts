@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { burstAlreadyHasPhoto, decideTextsFirstPhoto, sentPhotoHistoryNote } from "./unprompted-photos";
+import { burstAlreadyHasMedia, decideTextsFirstPhoto, sentPhotoHistoryNote } from "./unprompted-photos";
 
 const photo = { attachments: [{ type: "image", url: "/gallery/a.png", description: "at the pier" }] };
 const chat = (metadata: Record<string, unknown>) => ({ id: "c", mode: "conversation", metadata });
@@ -30,8 +30,10 @@ describe("texts-first photos", () => {
     const text = { role: "assistant", extra: {} };
     const sent = { role: "assistant", extra: photo };
 
-    expect(burstAlreadyHasPhoto([user, text, sent, text])).toBe(true);
-    expect(burstAlreadyHasPhoto([sent, user, text])).toBe(false);
+    expect(burstAlreadyHasMedia([user, text, sent, text])).toBe(true);
+    expect(burstAlreadyHasMedia([sent, user, text])).toBe(false);
+    const voice = { role: "assistant", extra: { attachments: [{ type: "audio", voiceNote: true, url: "/v.mp3" }] } };
+    expect(burstAlreadyHasMedia([user, voice])).toBe(true);
     expect(
       decideTextsFirstPhoto({ chat: chat(ready), characterId: "mira", messages: [user, sent], random: () => 0 }),
     ).toBe("withhold");

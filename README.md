@@ -144,9 +144,10 @@ it.
 </details>
 
 <details>
-<summary><b>Media</b> (4)</summary>
+<summary><b>Media</b> (5)</summary>
 
 - **Text-to-Speech**: Configure voice providers and let chats, narration, or characters speak with assigned voices.
+- **Voice Notes**: Now and then a Conversation character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice: a play button with its length and the words behind Show transcript. Each one is made once and kept with the chat, so it replays without a new request, goes into backups and is deleted with the chat. Set per character from never to sometimes (rare by default); at most one photo or voice note until you reply when they text first. Notifications say "sent a voice message" without the words.
 - **Voice Calls And Voice Input**: Call a Conversation character: talk, and they answer out loud in their Text to Speech voice, hands-free, with every turn kept in the chat as texts. With provider transcription (OpenAI Whisper or ElevenLabs Scribe, also used by the mic button) you can talk over them to cut in; the desktop app needs it for calls. A character with expression sprites reacts on the call: listening, thinking, the mood of what they say, startled when you cut in. A mic light shows whenever the microphone is on and where your voice is sent. Needs microphone access, so hosted installs need an https:// address.
 - **Image Generation**: Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's avatar and full-body sprite so they look like that character.
 - **Music Player**: Turn on the Music Player module and it picks music that fits the roleplay scene, with a Fresh Pick button for a new track. Each character's Music Taste adds songs to their profile that you can play yourself.

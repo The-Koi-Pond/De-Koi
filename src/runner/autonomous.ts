@@ -12,6 +12,7 @@ import {
   markGenerationInProgress,
   recordAssistantActivity,
 } from "../engine/modes/chat/autonomous/autonomous.service";
+import { sentMediaFromEvents, type SentMediaKind } from "../engine/modes/chat/core/sent-media";
 import { chatCommandApi } from "../shared/api/chat-command-api";
 import { storageApi } from "../shared/api/storage-api";
 import type { RunnerJob } from "./jobs";
@@ -25,11 +26,11 @@ export interface AutonomousSchedulerDeps {
   waitForJob: (job: RunnerJob) => Promise<boolean>;
   /** The user's status as last reported by any open app ("idle" when none has reported recently). */
   presence: () => PresenceStatus;
-  /** Called after a character texted first; `photo` when that text carried a photo. */
+  /** Called after a character texted first; `media` when that text was a voice note or carried a photo. */
   onTexted: (
     chat: { id: string; name: string },
     character: { id: string; name: string },
-    sent: { photo: boolean },
+    sent: { media: SentMediaKind | null },
   ) => Promise<void>;
 }
 
@@ -84,7 +85,7 @@ export function startAutonomousScheduler(deps: AutonomousSchedulerDeps): () => v
         await deps.onTexted(
           chat,
           { id: characterId, name: await characterName(characterId) },
-          { photo: job.events.some((event) => event.type === "selfie") },
+          { media: sentMediaFromEvents(job.events) },
         );
       }
     } catch (error) {

@@ -10,7 +10,7 @@
 import { conversationSelfieCommandEnabled } from "../commands/activation";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
 
-export const UNPROMPTED_PHOTO_FREQUENCIES = ["never", "rare", "sometimes"] as const;
+const UNPROMPTED_PHOTO_FREQUENCIES = ["never", "rare", "sometimes"] as const;
 export type UnpromptedPhotoFrequency = (typeof UNPROMPTED_PHOTO_FREQUENCIES)[number];
 const DEFAULT_UNPROMPTED_PHOTO_FREQUENCY: UnpromptedPhotoFrequency = "rare";
 
@@ -41,13 +41,29 @@ export function messageHasPhoto(extra: unknown): boolean {
   );
 }
 
-/** Whether anything since the user's last message already carried a photo (the one-per-burst cap). */
-export function burstAlreadyHasPhoto(messages: readonly JsonRecord[]): boolean {
+/** Whether a message carries a photo or a voice note. */
+function messageHasMedia(extra: unknown): boolean {
+  const attachments = parseRecord(extra).attachments;
+  return (
+    Array.isArray(attachments) &&
+    attachments.some(
+      (attachment) =>
+        isRecord(attachment) &&
+        (readString(attachment.type).startsWith("image") || readString(attachment.type) === "audio"),
+    )
+  );
+}
+
+/**
+ * Whether anything since the user's last message already carried a photo or a voice note: texting first, a
+ * character sends at most one such media message until the user replies.
+ */
+export function burstAlreadyHasMedia(messages: readonly JsonRecord[]): boolean {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     const role = readString(message.role);
     if (role === "user") return false;
-    if (role === "assistant" && messageHasPhoto(message.extra)) return true;
+    if (role === "assistant" && messageHasMedia(message.extra)) return true;
   }
   return false;
 }
@@ -64,7 +80,7 @@ export function decideTextsFirstPhoto(args: {
   if (!conversationSelfieCommandEnabled(args.chat)) return "withhold";
   const chance = UNPROMPTED_PHOTO_CHANCE[unpromptedPhotoFrequency(metadata, args.characterId)];
   if (chance <= 0) return "withhold";
-  if (burstAlreadyHasPhoto(args.messages)) return "withhold";
+  if (burstAlreadyHasMedia(args.messages)) return "withhold";
   return (args.random ?? Math.random)() < chance ? "send" : "withhold";
 }
 

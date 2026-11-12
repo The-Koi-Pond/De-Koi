@@ -14,6 +14,7 @@ mod spotify_callback;
 mod spotify_query;
 #[path = "integrations/tts.rs"]
 mod tts;
+pub(crate) use tts::{voice_note_dir_for_chat, VOICE_NOTES_DIR};
 
 pub(crate) async fn tts_call(
     state: &AppState,

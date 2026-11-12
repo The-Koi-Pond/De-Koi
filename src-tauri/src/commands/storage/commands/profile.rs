@@ -17,6 +17,7 @@ const LOCAL_BINARY_ASSET_DIRS: &[&str] = &[
     "knowledge-sources",
     "lorebooks/images",
     "sprites",
+    "voice-notes",
 ];
 
 async fn run_blocking_export(

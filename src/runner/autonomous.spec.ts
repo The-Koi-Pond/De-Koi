@@ -62,7 +62,7 @@ describe("runner: characters who text first", () => {
     expect(onTexted).toHaveBeenCalledWith(
       { id: "chat-on", name: "Wren" },
       { id: "char-wren", name: "Wren Hollis" },
-      { photo: true },
+      { media: "photo" },
     );
   });
 

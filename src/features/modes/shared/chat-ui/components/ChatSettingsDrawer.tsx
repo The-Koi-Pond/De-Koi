@@ -41,6 +41,7 @@ import {
   Music2,
   Code2,
   Paintbrush,
+  Mic,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -66,7 +67,10 @@ import { ChatPresetBar } from "./settings/ChatPresetBar";
 import { ContinuityOverviewPanel } from "./settings/ContinuityOverviewPanel";
 import { StoryContinuityModal, storyContinuityQueryKey } from "./settings/StoryContinuityModal";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
-import { TextsFirstPhotoControls } from "./settings/TextsFirstPhotoControls";
+import { MediaFrequencyControls } from "./settings/MediaFrequencyControls";
+import { unpromptedPhotoFrequency } from "../../../../../engine/modes/chat/autonomous/unprompted-photos";
+import { voiceNoteFrequency } from "../../../../../engine/modes/chat/voice-notes/voice-notes";
+import { useTTSConfig } from "../../../../../shared/hooks/use-tts";
 import {
   ScopedRegexCharacterGroups,
   ScopedRegexModeSelector,
@@ -452,6 +456,7 @@ function ChatSettingsDrawerInner({
   const qc = useQueryClient();
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
+  const ttsConfig = useTTSConfig();
   const updateAgentConfig = useUpdateAgent();
   const createAgent = useCreateAgent();
   const createMessage = useCreateMessage(chat.id);
@@ -2762,13 +2767,19 @@ function ChatSettingsDrawerInner({
                 </button>
 
                 {autonomousMessagesEnabled && (
-                  <TextsFirstPhotoControls
-                    metadata={metadata}
+                  <MediaFrequencyControls
+                    title="Photos when texting first"
+                    description="How often a text a character sends first comes with a selfie. At most one photo or voice note until you reply."
+                    unavailable={
+                      metadata.imageGenConnectionId
+                        ? null
+                        : "Needs a Selfie Connection (under Commands) before characters can send photos."
+                    }
+                    frequencyFor={(characterId) => unpromptedPhotoFrequency(metadata, characterId)}
+                    stored={metadata.unpromptedPhotoFrequency}
                     chatCharIds={chatCharIds}
                     charNameMap={charNameMap}
-                    onChange={(unpromptedPhotoFrequency) =>
-                      updateMeta.mutate({ id: chat.id, unpromptedPhotoFrequency })
-                    }
+                    onChange={(next) => updateMeta.mutate({ id: chat.id, unpromptedPhotoFrequency: next })}
                   />
                 )}
 
@@ -3099,6 +3110,30 @@ function ChatSettingsDrawerInner({
                   )}
                 </div>
               </div>
+            </Section>
+          )}
+
+          {/* Voice notes — conversation mode only */}
+          {isConversation && (
+            <Section
+              label="Voice Notes"
+              icon={<Mic size="0.875rem" />}
+              help="Now and then a character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice. It is made once and kept with the chat."
+            >
+              <MediaFrequencyControls
+                title="Voice notes"
+                description="How often a character's reply comes as a voice message. Each one is a Text to Speech request."
+                unavailable={
+                  ttsConfig.data?.enabled
+                    ? null
+                    : "Turn on Text to Speech in Settings before characters can send voice notes."
+                }
+                frequencyFor={(characterId) => voiceNoteFrequency(metadata, characterId)}
+                stored={metadata.voiceNoteFrequency}
+                chatCharIds={chatCharIds}
+                charNameMap={charNameMap}
+                onChange={(next) => updateMeta.mutate({ id: chat.id, voiceNoteFrequency: next })}
+              />
             </Section>
           )}
 
