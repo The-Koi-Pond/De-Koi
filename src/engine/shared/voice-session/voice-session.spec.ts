@@ -60,6 +60,8 @@ class FakeSpeaker implements VoiceReplySpeaker {
   audible = false;
   finishedWith: Array<string | null> = [];
   finishing = deferred<void>();
+  /** What the session asked to hear about the reply's first sound. */
+  firstSound: () => void = () => undefined;
   push(text: string) {
     this.pushed.push(text);
     if (/[.!?]/.test(text)) this.started = true;
@@ -135,9 +137,10 @@ function harness(options: { setup?: () => Promise<VoiceSessionSetup<string>>; vo
       },
     },
     speech: {
-      begin: () => {
+      begin: (_turnKey, onFirstSound) => {
         if (options.voice === false) return null;
         const speaker = new FakeSpeaker();
+        speaker.firstSound = onFirstSound;
         speakers.push(speaker);
         return speaker;
       },
@@ -586,6 +589,64 @@ describe("voice session", () => {
     await settle();
     expect(recognitions).toHaveLength(2);
     expect(h.snap()).toMatchObject({ phase: "listening", stopping: false });
+  });
+
+  it("times a turn from when the user stopped talking to the reply's first sound, stage by stage", async () => {
+    let clock = 10_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      const h = harness();
+      h.session.start();
+      await settle();
+      const listen = h.mics[0]!.current;
+      listen.options.onSpeechStart();
+      clock = 12_000;
+      listen.options.onSpeechEnd(1_100); // quiet since 10_900
+      listen.resolve("audio");
+      await settle();
+      clock = 12_400;
+      h.transcripts[0]!.resolve("hey");
+      await settle();
+      clock = 13_400;
+      h.replies[0]!.onText("Hey");
+      clock = 13_600;
+      h.replies[0]!.onText("Hey kid. ");
+      clock = 14_100;
+      h.speakers[0]!.firstSound();
+      h.speakers[0]!.firstSound(); // later parts don't report again
+
+      const timing = {
+        turn: 1,
+        totalMs: 3_200,
+        endOfSpeechMs: 1_100,
+        transcribeMs: 400,
+        sendMs: 0,
+        firstWordsMs: 1_000,
+        firstSentenceMs: 200,
+        voiceMs: 500,
+      };
+      expect(h.snap().timing).toEqual(timing);
+      expect(h.events.filter((event) => event.type === "timing")).toEqual([
+        { type: "timing", sessionId: h.session.id, turn: 1, timing },
+      ]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("doesn't time a reply whose voice was held for the user before it made a sound", async () => {
+    const h = harness();
+    h.session.start();
+    await say(h, "hi");
+    h.replies[0]!.onText("Hello there. ");
+    h.mics[0]!.current.options.onSpeechStart();
+    h.mics[0]!.current.resolve("audio:cough");
+    await settle();
+    h.transcripts.at(-1)!.resolve(""); // just noise: the voice resumes
+    await settle();
+    h.speakers[0]!.firstSound();
+    expect(h.snap().timing).toBeNull();
+    expect(h.events.some((event) => event.type === "timing")).toBe(false);
   });
 
   it("start is idempotent and every event names its session", async () => {

@@ -954,11 +954,13 @@ async function generateSelfie(args: {
       height: size.height,
     });
     const storedImageUrl = readString(gallery.url).trim() || imageUrl;
+    // The gallery may store the file under a cleaned-up, de-duplicated name; the chat finds the picture by it.
+    const storedFilename = readString(gallery.filename).trim() || filename;
     const description = args.command.context?.replace(/\s+/g, " ").trim();
     const attachment = {
       type: "image",
       url: storedImageUrl,
-      filename,
+      filename: storedFilename,
       prompt,
       galleryId: readString(gallery.id) || null,
       // What the character meant to show, so later prompts can say what was sent.
