@@ -25,6 +25,7 @@ import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/rege
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
 import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
 import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
+import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
 import {
   commandCapabilityEnabled,
@@ -3110,6 +3111,7 @@ function buildConversationCommandBlock(
   focused = false,
   spotifyCommandAvailable = false,
   textsFirstPhoto?: unknown,
+  selfieRequested = false,
 ): ChatMLMessage | null {
   const meta = parseRecord(chat.metadata);
   if (!conversationCommandPromptEnabled(chat)) return null;
@@ -3149,6 +3151,9 @@ function buildConversationCommandBlock(
       ? focused
         ? '- Send an appropriate image with [selfie] or [selfie: context="brief visual context"]. Any claim of sending, taking, or attaching a photo must include the tag in that response.'
         : '- Request an image with [selfie] or [selfie: context="brief visual context"] when a casual conversation selfie is appropriate and image generation is configured. If you say you are sending, sharing, taking, or attaching a selfie/photo/pic, include [selfie] in that same response; do not only narrate the action.'
+      : "",
+    canSelfie && selfieRequested
+      ? '- The last message asks for a photo of you. If you send it, end the reply with [selfie: context="what the photo shows"]. Saying "here" or that you are taking or sending it, without the tag, sends nothing.'
       : "",
     hasCharacters && canMemory
       ? '- Save a durable character memory with [memory: target="Character Name", summary="brief memory"] when the character learns something they should remember later.'
@@ -3211,6 +3216,10 @@ async function buildConversationContextBlocks(
       focused,
       input.spotifyCommandAvailable === true,
       input.request.textsFirstPhoto,
+      detectConversationSelfieRequestIntent({
+        latestUserInput: input.latestUserInput,
+        recentMessages: input.storedMessages,
+      }),
     ),
   ].filter((block): block is ChatMLMessage => block !== null);
 }

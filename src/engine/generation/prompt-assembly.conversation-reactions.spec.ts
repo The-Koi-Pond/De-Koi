@@ -164,6 +164,24 @@ describe("conversation photos in the prompt", () => {
     expect(promptText(result)).toContain("omw. save me a seat\n(sent as a voice message)");
   });
 
+  it("reminds the character to use the photo tag when the last message asks for a selfie", async () => {
+    const asked = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [{ id: "user-1", role: "user", content: "can i get a selfie?" }],
+      latestUserInput: "can i get a selfie?",
+      request: {},
+    });
+    const chatting = await assembleGenerationPrompt(conversationStorage(juno), {
+      ...base,
+      storedMessages: [{ id: "user-1", role: "user", content: "how was the show" }],
+      latestUserInput: "how was the show",
+      request: {},
+    });
+
+    expect(promptText(asked)).toContain("The last message asks for a photo of you.");
+    expect(promptText(chatting)).not.toContain("The last message asks for a photo of you.");
+  });
+
   it("texting first, offers the photo tag only when this text carries one", async () => {
     const send = await assembleGenerationPrompt(conversationStorage(juno), {
       ...base,

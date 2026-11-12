@@ -1005,6 +1005,48 @@ describe("persistConnectedCommandTags", () => {
     expect(imageRequests[3]).toMatchObject({ reviewTitle: "Selfie: Mira", referenceImages: [miraAvatar] });
   });
 
+  it("recovers the selfie when the character hands it over without naming it, but not when he holds it back", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Harlequin", data: { name: "Harlequin" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(): Promise<T> {
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const reply = (content: string) =>
+      persistConnectedCommandTags(storage, chat, content, integrations, undefined, null, undefined, undefined, {
+        pendingSelfieIntent: true,
+      });
+
+    for (const handover of [
+      "Asking so nicely before noon, meu bem? Here. Ignore the lighting in the rigging.",
+      "Mm. Ask nicely first. Just kidding, I'm already taking it. Look closely, pet.",
+      "there you go. don't stare too long",
+    ]) {
+      expect((await reply(handover)).executedCommands).toEqual(["selfie"]);
+    }
+    for (const holdBack of [
+      "Not yet. Tell me what you're wearing first, then come here and ask properly.",
+      "You aren't getting one tonight, pet. Earn it.",
+      "I won't send a photo before noon.",
+    ]) {
+      expect((await reply(holdBack)).executedCommands).toEqual([]);
+    }
+  });
+
   it("does not recover an implicit selfie when image generation is not configured", async () => {
     const chat = { id: "chat-1", mode: "conversation", characterIds: ["char-1"], metadata: {} };
     const storage = commandStorage({
