@@ -142,8 +142,7 @@ Every PR should include:
 
 Before opening or updating a PR after the final diff, run `pnpm check`.
 This is the general pre-PR gate for line endings, architecture, TypeScript,
-Rust compile, docs, discovery metadata, agent workflow, and a warning-only
-unused-code report.
+Rust compile, docs, discovery metadata, agent workflow, and unused-code checks.
 It does not replace targeted proof when the change needs it, such as existing
 test output, lint, build, size checks, clippy, native Tauri QA, or browser
 checks.
