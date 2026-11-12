@@ -69,21 +69,12 @@ export function getCharacterPreviewMetadata(char: ParsedCharacterRow): string | 
   const parts: string[] = [];
   const creator = typeof char.parsed.creator === "string" ? char.parsed.creator.trim() : "";
   const version = typeof char.parsed.character_version === "string" ? char.parsed.character_version.trim() : "";
-  const extensions = characterExtensions(char);
-  const importMetadata = readRecord(extensions.importMetadata);
-  const cardMetadata =
-    importMetadata.card && typeof importMetadata.card === "object"
-      ? (importMetadata.card as Record<string, unknown>)
-      : {};
-  const spec = typeof cardMetadata.spec === "string" ? cardMetadata.spec.trim() : "";
-  const specVersion = typeof cardMetadata.specVersion === "string" ? cardMetadata.specVersion.trim() : "";
 
-  // Creator and card details only. Tags show as their own chips on the row, so they aren't repeated here;
-  // a token count would need the whole card, which the list doesn't load.
+  // Creator and card version only. Tags show as their own chips on the row, the card format (chara_card_v2 and
+  // its spec version) means nothing to most people, and a token count would need the whole card, which the list
+  // doesn't load.
   if (creator) parts.push(`by ${creator}`);
   if (version) parts.push(`v${version}`);
-  if (spec) parts.push(spec);
-  if (specVersion) parts.push(`spec ${specVersion}`);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
