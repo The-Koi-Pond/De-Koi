@@ -63,7 +63,7 @@ import type {
 import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/memory";
 import { activeCharacterIds } from "../../../../engine/generation/active-characters";
 import { effectiveCharacterMemoryPersistence } from "../../../../engine/generation/character-memory-scope";
-import { isRecord } from "../../../../engine/shared/value-readers";
+import { isRecord, readString } from "../../../../engine/shared/value-readers";
 
 export { chatKeys } from "../query-keys";
 export {
@@ -1117,10 +1117,6 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
     summaryContextSize: limit,
   });
   return { summary: appended.summary ?? content, messageIds: selected.map((message) => message.id) };
-}
-
-function readString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function summaryPromptTemplates(value: unknown): ChatSummaryPromptTemplate[] {

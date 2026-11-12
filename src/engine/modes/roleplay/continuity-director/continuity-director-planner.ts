@@ -14,6 +14,7 @@ import {
   recordContinuityDirectorPlanningAttempt,
   recordContinuityDirectorPlanningFailure,
 } from "./continuity-director-state";
+import { errorMessage } from "../../../shared/error-text";
 
 const DIRECTOR_METADATA_KEY = "roleplayContinuityDirector";
 
@@ -136,10 +137,6 @@ function planningInput(source: ContinuityDirectorSource, rerollTarget?: { id: st
     null,
     2,
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 interface PlanningClaim {

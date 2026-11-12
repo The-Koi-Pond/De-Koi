@@ -8,6 +8,7 @@ import { chatConnectionRule, noteHelperRun, resolveHelperRoute } from "../../../
 import { formatZonedDate, normalizeUserTimeZone } from "../../../../shared/time/timezone";
 import { readString as stringValue } from "../../../../shared/value-readers";
 import { stripConversationPromptTimestamps } from "./transcript-sanitize.js";
+import { errorMessage } from "../../../../shared/error-text";
 
 interface ConversationSummaryMessage {
   id?: string;
@@ -535,10 +536,6 @@ function weekSummarySystemPrompt(rangeLabel: string): string {
     `Respond with ONLY valid JSON. No markdown fences, no extra text.`,
     `Example: { "keyDetails": ["Alice's sister Clara visiting next weekend", "Bob still off alcohol after the tequila incidents", "They agreed to weekend plans on Saturday"], "summary": "Mostly late-evening chats, often past midnight. Alice leaning on him through some recurring work doubts. Tone shifted from playful to tender mid-week after a vulnerable confession. Both more openly affectionate by Sunday." }`,
   ].join("\n");
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function generateMissingConversationSummaries(

@@ -7,6 +7,7 @@ import {
   type CharacterScopedSearchTerm,
   type CharacterSearchData,
 } from "./character-search";
+import { readString } from "../../../../engine/shared/value-readers";
 
 export type CharacterRow = {
   id: string;
@@ -42,10 +43,6 @@ const UNGROUPED_CHARACTER_GROUP_ID = "__ungrouped-characters__";
 
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function readString(value: unknown): string {
-  return typeof value === "string" ? value : "";
 }
 
 function isGroupRow(value: unknown): value is GroupRow {

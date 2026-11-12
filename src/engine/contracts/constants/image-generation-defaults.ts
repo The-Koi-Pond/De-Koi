@@ -5,7 +5,7 @@ import type {
   ImageGenerationDefaultsProfile,
   NovelAiDefaults,
 } from "../types/image-generation-defaults.js";
-import { isRecord } from "../../shared/value-readers";
+import { isRecord, readString } from "../../shared/value-readers";
 
 export const IMAGE_DEFAULTS_STORAGE_KEY = "imageGeneration";
 const IMAGE_GENERATION_DEFAULTS_VERSION = 1 as const;
@@ -225,10 +225,6 @@ function normalizeNovelAiDefaults(rawDefaults: unknown): NovelAiDefaults {
     ),
     referenceStrength: readNumber(raw.referenceStrength, DEFAULT_NOVELAI_DEFAULTS.referenceStrength, 0, 1),
   };
-}
-
-function readString(value: unknown, fallback: string): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function readNullableString(value: unknown): string | null {

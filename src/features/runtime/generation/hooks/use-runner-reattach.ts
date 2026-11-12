@@ -3,10 +3,7 @@ import { useEffect } from "react";
 import { generationRunnerApi, generationRunnerAvailable } from "../../../../shared/api/generation-runner-api";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { followRunnerReply, runGenerationWithUi, type GenerateArgs } from "./use-generate";
-
-function readString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
+import { readString } from "../../../../engine/shared/value-readers";
 
 /**
  * When the open chat has a reply still running on the hosted runner (started in a tab that was closed, on another

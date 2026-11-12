@@ -70,7 +70,7 @@ import {
 } from "../lib/memory-embedding-guidance";
 import { acquireChatGenerationController, releaseChatGenerationController } from "../lib/chat-generation-controller";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
-import { isRecord } from "../../../../engine/shared/value-readers";
+import { isRecord, readString } from "../../../../engine/shared/value-readers";
 
 export type GenerateArgs = GenerationReplayInput & {
   chatId: string;
@@ -166,10 +166,6 @@ function dispatchGenerationFailureEvent(chatId: string, message: string): void {
       detail: { chatId, message },
     }),
   );
-}
-
-function readString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function readPositiveNumber(value: unknown, fallback: number): number {

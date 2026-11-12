@@ -1,6 +1,7 @@
 import type { LlmGateway, LlmMessage, LlmRequest } from "../capabilities/llm";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import type { z } from "zod";
+import { errorMessage } from "../shared/error-text";
 
 interface StructuredGenerationFailure {
   taskName: string;
@@ -157,8 +158,4 @@ function stripFences(raw: string): string {
 function formatIssue(issue: z.ZodIssue): string {
   const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
   return `${path}: ${issue.message}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
