@@ -219,7 +219,7 @@ function normalizeExits(value: unknown): TranceExits {
   return { gentle: stringList(record.gentle), calm: stringList(record.calm) };
 }
 
-function normalizeScript(value: unknown): TranceScript | null {
+export function normalizeTranceScript(value: unknown): TranceScript | null {
   if (!isRecord(value)) return null;
   const lines = normalizeLines(value.lines);
   if (lines.length === 0) return null;
@@ -259,8 +259,9 @@ export function readTranceState(metadata: unknown): TranceState | null {
   return {
     version: 1,
     request: normalizeTranceRequest(record.request),
-    script: normalizeScript(record.script),
+    script: normalizeTranceScript(record.script),
     runs: Array.isArray(record.runs) ? record.runs.map(normalizeRun).filter((run) => run !== null) : [],
+    ...(readString(record.guideName).trim() ? { guideName: readString(record.guideName).trim().slice(0, 120) } : {}),
   };
 }
 

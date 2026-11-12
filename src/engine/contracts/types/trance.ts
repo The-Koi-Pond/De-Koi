@@ -113,4 +113,6 @@ export interface TranceState {
   script: TranceScript | null;
   /** Newest first. */
   runs: TranceAfter[];
+  /** The guide's name from a shared session, shown when no character of this library is linked. */
+  guideName?: string;
 }

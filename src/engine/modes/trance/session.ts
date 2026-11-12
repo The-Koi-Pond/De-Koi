@@ -61,9 +61,14 @@ export interface SaveTranceRequestInput {
 /** Names set by the app, not the person: these follow the guiding character. */
 const AUTO_NAME = /^(?:New Trance|.+ - Trance)$/;
 
+/** True for an empty name or one the app made ("New Trance", "Jester - Trance"); the person's own names stay. */
+export function isAppMadeTranceName(name: string): boolean {
+  return !name.trim() || AUTO_NAME.test(name.trim());
+}
+
 /** "Jester - Trance" when the chat still has an app-made name; null when the person named it or the card is gone. */
 async function tranceChatName(storage: StorageGateway, current: string, characterId: string): Promise<string | null> {
-  if (current.trim() && !AUTO_NAME.test(current.trim())) return null;
+  if (!isAppMadeTranceName(current)) return null;
   const character = await storage.get("characters", characterId);
   const name = isRecord(character) ? readString(parseRecord(character.data).name).trim() : "";
   return name ? `${name} - Trance` : null;
