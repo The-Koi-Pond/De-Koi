@@ -27,7 +27,7 @@ function cardField(label: string, value: string | undefined, name: string): stri
   return `${label}: ${text}`;
 }
 
-function renderTranceCharacterCard(card: TranceCharacterCard): string {
+export function renderTranceCharacterCard(card: TranceCharacterCard): string {
   const name = card.name.trim() || "The hypnotist";
   return [
     `### ${name}`,
@@ -54,6 +54,14 @@ const TRANCE_REPLY_HEADINGS = {
 
 const MOOD_OPENINGS: Record<TranceMood, string> = {
   calm: "They arrive calm. Build on that ease; you can go a little faster into the induction.",
+  good: "They arrive in a good mood. Keep it light and enjoyable; the session is a treat, not a fix.",
+  stressed:
+    "They arrive stressed. Acknowledge the weight without naming causes, then set it down piece by piece before deepening.",
+  overwhelmed:
+    "They arrive overwhelmed. Make everything smaller: very short lines, one simple thing at a time, nothing to figure out.",
+  sad: "They arrive sad. Be gentle and warm; let the sadness be allowed without trying to cheer them up.",
+  lonely: "They arrive lonely. Let your presence be felt: you are here with them the whole time, attentive and close.",
+  numb: "They arrive numb. Don't demand big feelings; start with small, simple sensations and let warmth come slowly.",
   anxious:
     "They arrive anxious. Open by acknowledging the worry without asking about it, let it be there, and slow everything down: longer breathing, more pacing, more permission, before any deepening.",
   wired:
@@ -147,7 +155,7 @@ export function buildTranceSystemPrompt(): string {
 export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCharacterCard): string {
   const target = tranceTargetLines(request.minutes);
   const features = request.features.map((feature) => `- ${FEATURE_RULES[feature]}`);
-  const mood = request.mood ? MOOD_OPENINGS[request.mood] : "";
+  const moods = request.moods.map((mood) => MOOD_OPENINGS[mood]);
   return [
     "## The character",
     renderTranceCharacterCard(card),
@@ -160,11 +168,22 @@ export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCha
     sectionShares(target, request.ending),
     ...(features.length > 0 ? ["", "## Picked features", ...features] : []),
     ...(request.idea ? ["", "## Their idea", request.idea] : []),
-    ...(mood || request.moodNote
+    ...(request.pitch
+      ? [
+          "",
+          "## The session they picked",
+          `Title: ${request.pitch.title}`,
+          ...(request.pitch.summary ? [`What it is: ${request.pitch.summary}`] : []),
+          "They saw these opening lines before choosing it. Start the pretalk with them, word for word and in this order, then carry on:",
+          ...request.pitch.sample,
+        ]
+      : []),
+    ...(moods.length || request.moodNote
       ? [
           "",
           "## How they feel today",
-          ...(mood ? [mood] : []),
+          ...(moods.length > 1 ? ["They feel several things at once; weave these together:"] : []),
+          ...moods,
           ...(request.moodNote ? [`In their words: ${request.moodNote}`] : []),
         ]
       : []),

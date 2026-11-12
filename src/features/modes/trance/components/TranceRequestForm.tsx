@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Loader2, Orbit } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Eye, Loader2, Orbit, Sparkles, Wand2 } from "lucide-react";
 import { useCharacterSummaries } from "../../../catalog/characters/index";
 import { useConnections } from "../../../catalog/connections/index";
 import {
@@ -12,8 +12,10 @@ import {
   TRANCE_TYPES,
   type TranceCategory,
   type TranceFeature,
+  type TranceMood,
   type TranceRequest,
 } from "../../../../engine/contracts/types/trance";
+import type { TrancePitch } from "../../../../engine/modes/trance/pitches";
 import {
   TRANCE_CATEGORY_LABELS,
   TRANCE_ENDING_LABELS,
@@ -21,16 +23,24 @@ import {
   TRANCE_MOOD_LABELS,
   TRANCE_NOTE_LIMIT,
   TRANCE_TYPE_LABELS,
+  quickTranceRequest,
   tranceFeaturesForType,
+  tranceTagSummary,
 } from "../../../../engine/modes/trance/request";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
+import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn } from "../../../../shared/lib/utils";
+import { useTrancePitches } from "../hooks/use-trance";
+import { TrancePitchCard } from "./TrancePitchCard";
 
 export interface TranceRequestSubmit {
   request: TranceRequest;
   connectionId: string | null;
   characterId: string;
 }
+
+/** How the person wants to set the session up: no choices, pick from ideas, or build it. */
+export type TranceSetupPath = "ideas" | "build";
 
 const inputClass =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45 px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/70 focus:border-[var(--primary)]/60 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/25";
@@ -90,14 +100,78 @@ function ChipRow({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function PathButton({
+  selected,
+  primary,
+  icon,
+  title,
+  detail,
+  disabled,
+  onClick,
+}: {
+  selected?: boolean;
+  primary?: boolean;
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "flex min-w-0 flex-1 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        primary
+          ? "border-[var(--primary)] bg-[var(--primary)] hover:brightness-110"
+          : selected
+            ? "border-[var(--primary)] bg-[var(--primary)]/10"
+            : "border-[var(--border)] bg-[var(--secondary)]/30 hover:bg-[var(--secondary)]/60",
+      )}
+    >
+      <span className={cn("mt-0.5 shrink-0", primary ? "text-[var(--primary-foreground)]" : "text-[var(--primary)]")}>
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span
+          className={cn(
+            "block text-sm font-bold",
+            primary ? "text-[var(--primary-foreground)]" : "text-[var(--foreground)]",
+          )}
+        >
+          {title}
+        </span>
+        <span
+          className={cn(
+            "block text-xs leading-snug",
+            primary ? "text-[var(--primary-foreground)]/80" : "text-[var(--muted-foreground)]",
+          )}
+        >
+          {detail}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function characterName(row: { data?: { name?: string } }): string {
   return row.data?.name?.trim() || "Unnamed";
+}
+
+function pitchError(error: unknown): string | null {
+  if (!error) return null;
+  if (error instanceof DOMException && error.name === "AbortError") return null;
+  return toUserMessage(error, { fallback: "That didn't work. Try again." });
 }
 
 export function TranceRequestForm({
   initial,
   initialCharacterId,
   initialConnectionId,
+  initialPath = null,
   submitting,
   error,
   onSubmit,
@@ -106,15 +180,26 @@ export function TranceRequestForm({
   initial: TranceRequest;
   initialCharacterId: string | null;
   initialConnectionId: string | null;
+  initialPath?: TranceSetupPath | null;
   submitting: boolean;
   error: string | null;
   onSubmit: (submit: TranceRequestSubmit) => void;
   onCancel?: () => void;
 }) {
-  const [request, setRequest] = useState<TranceRequest>(initial);
+  const [request, setRequest] = useState<TranceRequest>({ ...initial, pitch: null });
   const [characterId, setCharacterId] = useState(initialCharacterId ?? "");
   const [characterFilter, setCharacterFilter] = useState("");
   const [connectionId, setConnectionId] = useState(initialConnectionId ?? "");
+  const [path, setPath] = useState<TranceSetupPath | null>(initialPath);
+  const [ownWords, setOwnWords] = useState(!!initial.moodNote);
+  const [ideas, setIdeas] = useState<TrancePitch[]>([]);
+  const [preview, setPreview] = useState<TrancePitch | null>(null);
+  const suggest = useTrancePitches();
+  const pathSection = useRef<HTMLDivElement | null>(null);
+  // Opening ideas or the builder brings it into view; on a phone it would otherwise start below the fold.
+  useEffect(() => {
+    if (path) pathSection.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [path]);
   const { data: connectionRows } = useConnections();
   const { data: characterRows } = useCharacterSummaries(true);
 
@@ -139,9 +224,20 @@ export function TranceRequestForm({
   }, [characterFilter, characterId, characters]);
 
   const effectiveConnectionId = connectionId || (connections.length === 1 ? connections[0]!.id : "");
-  const canSubmit = !!characterId && !!effectiveConnectionId && !submitting;
+  const ready = !!characterId && !!effectiveConnectionId;
+  const busy = submitting || suggest.isPending;
+  const quick = quickTranceRequest({ moods: request.moods, moodNote: request.moodNote, now: new Date() });
 
-  const update = (patch: Partial<TranceRequest>) => setRequest((current) => ({ ...current, ...patch }));
+  // A change to the settings makes an earlier preview stale.
+  const update = (patch: Partial<TranceRequest>) => {
+    setPreview(null);
+    setRequest((current) => ({ ...current, ...patch }));
+  };
+  const toggleMood = (mood: TranceMood) =>
+    setRequest((current) => ({
+      ...current,
+      moods: current.moods.includes(mood) ? current.moods.filter((item) => item !== mood) : [...current.moods, mood],
+    }));
   const setCategory = (category: TranceCategory) =>
     update({ category, ...(category === "sleep" ? { ending: "sleep" as const } : {}) });
   const toggleFeature = (feature: TranceFeature) =>
@@ -151,25 +247,60 @@ export function TranceRequestForm({
         : [...request.features, feature],
     });
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!canSubmit) return;
-    onSubmit({
-      request: { ...request, features: tranceFeaturesForType(request.type, request.features) },
-      connectionId: effectiveConnectionId,
-      characterId,
-    });
+  const send = (next: TranceRequest) => {
+    if (!ready || busy) return;
+    onSubmit({ request: next, connectionId: effectiveConnectionId, characterId });
   };
+  const built = (): TranceRequest => ({
+    ...request,
+    features: tranceFeaturesForType(request.type, request.features),
+    pitch: null,
+  });
+  const askForIdeas = (more: boolean) => {
+    if (!ready) return;
+    setPath("ideas");
+    if (!more) setIdeas([]);
+    suggest.mutate(
+      {
+        connectionId: effectiveConnectionId,
+        characterId,
+        moods: request.moods,
+        moodNote: request.moodNote,
+        idea: request.idea,
+        avoidTitles: more ? ideas.map((pitch) => pitch.title) : [],
+      },
+      { onSuccess: setIdeas },
+    );
+  };
+  const askForPreview = () => {
+    if (!ready) return;
+    setPreview(null);
+    suggest.mutate(
+      {
+        connectionId: effectiveConnectionId,
+        characterId,
+        moods: request.moods,
+        moodNote: request.moodNote,
+        idea: request.idea,
+        exact: built(),
+      },
+      { onSuccess: (pitches) => setPreview(pitches[0] ?? null) },
+    );
+  };
+  const tweak = (pitch: TrancePitch) => {
+    setRequest({ ...pitch.request, moods: request.moods, moodNote: request.moodNote, pitch: null });
+    setPreview(null);
+    setPath("build");
+  };
+  const shownError = pitchError(suggest.error) ?? error;
 
   return (
-    <form onSubmit={submit} className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-3 py-4 sm:px-4">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-3 py-4 sm:px-4">
       <header className="flex items-center gap-2 px-1">
         <Orbit size="1.25rem" className="text-[var(--primary)]" aria-hidden="true" />
         <div>
           <h2 className="text-base font-bold text-[var(--foreground)]">New trance session</h2>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            Pick who guides you and how it should feel. You'll read it one line at a time.
-          </p>
+          <p className="text-xs text-[var(--muted-foreground)]">You'll read it one line at a time.</p>
         </div>
       </header>
 
@@ -224,122 +355,232 @@ export function TranceRequestForm({
         )}
       </Section>
 
-      <Section title="How are you feeling?" hint="Optional. The session starts from where you are.">
-        <ChipRow label="Right now">
+      <Section title="How are you feeling?" hint="Pick any that fit, say it in your own words, or skip it.">
+        <div role="group" aria-label="How you feel" className="flex flex-wrap gap-1.5">
           {TRANCE_MOODS.map((mood) => (
-            <Chip
-              key={mood}
-              selected={request.mood === mood}
-              onClick={() => update({ mood: request.mood === mood ? "" : mood })}
-            >
+            <Chip key={mood} selected={request.moods.includes(mood)} onClick={() => toggleMood(mood)}>
               {TRANCE_MOOD_LABELS[mood]}
             </Chip>
           ))}
-        </ChipRow>
-        <textarea
-          className={cn(inputClass, "min-h-[4rem] resize-y")}
-          placeholder="Anything else about today? (optional)"
-          aria-label="Anything else about how you feel"
-          maxLength={TRANCE_NOTE_LIMIT}
-          value={request.moodNote}
-          onChange={(event) => update({ moodNote: event.target.value })}
-        />
+          <Chip selected={ownWords} onClick={() => setOwnWords(!ownWords)}>
+            Something else…
+          </Chip>
+        </div>
+        {(ownWords || request.moodNote) && (
+          <textarea
+            className={cn(inputClass, "min-h-[4rem] resize-y")}
+            placeholder="In your own words, however it comes out"
+            aria-label="How you feel, in your own words"
+            maxLength={TRANCE_NOTE_LIMIT}
+            value={request.moodNote}
+            onChange={(event) => setRequest((current) => ({ ...current, moodNote: event.target.value }))}
+          />
+        )}
       </Section>
 
-      <Section title="The session">
-        <ChipRow label="Type">
-          {TRANCE_TYPES.map((type) => (
-            <Chip key={type} selected={request.type === type} onClick={() => update({ type })}>
-              {TRANCE_TYPE_LABELS[type]}
-            </Chip>
-          ))}
-        </ChipRow>
-        <ChipRow label="Category">
-          {TRANCE_CATEGORIES.map((category) => (
-            <Chip key={category} selected={request.category === category} onClick={() => setCategory(category)}>
-              {TRANCE_CATEGORY_LABELS[category]}
-            </Chip>
-          ))}
-        </ChipRow>
-        <ChipRow label="Features">
-          {TRANCE_FEATURES.map((feature) => {
-            const needsSpicy = request.type === "gentle" && TRANCE_SEXUAL_FEATURES.includes(feature);
-            return (
-              <Chip
-                key={feature}
-                selected={request.features.includes(feature) && !needsSpicy}
-                disabled={needsSpicy}
-                title={needsSpicy ? "Pick Erotic or Kinky for this one" : undefined}
-                onClick={() => toggleFeature(feature)}
-              >
-                {TRANCE_FEATURE_LABELS[feature]}
-              </Chip>
-            );
-          })}
-        </ChipRow>
-        <ChipRow label="Length">
-          {TRANCE_LENGTHS.map((minutes) => (
-            <Chip key={minutes} selected={request.minutes === minutes} onClick={() => update({ minutes })}>
-              {minutes} min
-            </Chip>
-          ))}
-        </ChipRow>
-        <ChipRow label="Ending">
-          {TRANCE_ENDINGS.map((ending) => (
-            <Chip key={ending} selected={request.ending === ending} onClick={() => update({ ending })}>
-              {TRANCE_ENDING_LABELS[ending]}
-            </Chip>
-          ))}
-        </ChipRow>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="trance-idea" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
-            Idea (optional)
-          </label>
-          <textarea
-            id="trance-idea"
-            className={cn(inputClass, "min-h-[4rem] resize-y")}
-            placeholder="A theme or image, like “a puppet put away in a box for safekeeping”"
-            maxLength={TRANCE_NOTE_LIMIT}
-            value={request.idea}
-            onChange={(event) => update({ idea: event.target.value })}
+      <Section title="How do you want to do this?">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <PathButton
+            primary
+            icon={
+              submitting && !path ? <Loader2 size="1.125rem" className="animate-spin" /> : <Sparkles size="1.125rem" />
+            }
+            title="Just put me under"
+            detail={`No choices. ${tranceTagSummary(quick)}, about ${quick.minutes} min, ${TRANCE_ENDING_LABELS[quick.ending].toLowerCase()}.`}
+            disabled={!ready || busy}
+            onClick={() => send(quick)}
+          />
+          <PathButton
+            selected={path === "ideas"}
+            icon={<Eye size="1.125rem" />}
+            title="Help me choose"
+            detail="See three ideas with a taste of each, then pick one."
+            disabled={!ready || busy}
+            onClick={() => askForIdeas(false)}
+          />
+          <PathButton
+            selected={path === "build"}
+            icon={<Wand2 size="1.125rem" />}
+            title="I'll build it"
+            detail="Pick the type, features, length and ending yourself."
+            disabled={busy}
+            onClick={() => setPath("build")}
           />
         </div>
+        {!characterId && <p className="text-xs text-[var(--muted-foreground)]">Pick a character first.</p>}
+        {characterId && !effectiveConnectionId && (
+          <p className="text-xs text-[var(--muted-foreground)]">Pick a model connection first.</p>
+        )}
       </Section>
 
-      {error && (
+      <div ref={pathSection} className="scroll-mt-2" />
+      {path === "ideas" && (
+        <Section title="Ideas" hint="Each one shows how it would open.">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="trance-ideas-idea" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
+              Anything you'd like in it? (optional)
+            </label>
+            <input
+              id="trance-ideas-idea"
+              className={inputClass}
+              placeholder="A place, an image, a feeling…"
+              maxLength={TRANCE_NOTE_LIMIT}
+              value={request.idea}
+              onChange={(event) => setRequest((current) => ({ ...current, idea: event.target.value }))}
+            />
+          </div>
+          {suggest.isPending && (
+            <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+              <Loader2 size="1rem" className="animate-spin" aria-hidden="true" />
+              Thinking up a few ideas…
+              <button type="button" onClick={suggest.stop} className="ml-auto text-xs hover:text-[var(--foreground)]">
+                Stop
+              </button>
+            </div>
+          )}
+          {ideas.map((pitch) => (
+            <TrancePitchCard
+              key={pitch.title}
+              pitch={pitch}
+              disabled={!ready || busy}
+              onWrite={() => send(pitch.request)}
+              onTweak={() => tweak(pitch)}
+            />
+          ))}
+          {!suggest.isPending && (
+            <button
+              type="button"
+              disabled={!ready || busy}
+              onClick={() => askForIdeas(ideas.length > 0)}
+              className="self-start rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] disabled:opacity-50"
+            >
+              {ideas.length > 0 ? "Show me others" : "Suggest ideas"}
+            </button>
+          )}
+        </Section>
+      )}
+
+      {path === "build" && (
+        <Section title="Build it">
+          <ChipRow label="Type">
+            {TRANCE_TYPES.map((type) => (
+              <Chip key={type} selected={request.type === type} onClick={() => update({ type })}>
+                {TRANCE_TYPE_LABELS[type]}
+              </Chip>
+            ))}
+          </ChipRow>
+          <ChipRow label="Category">
+            {TRANCE_CATEGORIES.map((category) => (
+              <Chip key={category} selected={request.category === category} onClick={() => setCategory(category)}>
+                {TRANCE_CATEGORY_LABELS[category]}
+              </Chip>
+            ))}
+          </ChipRow>
+          <ChipRow label="Features">
+            {TRANCE_FEATURES.map((feature) => {
+              const needsSpicy = request.type === "gentle" && TRANCE_SEXUAL_FEATURES.includes(feature);
+              return (
+                <Chip
+                  key={feature}
+                  selected={request.features.includes(feature) && !needsSpicy}
+                  disabled={needsSpicy}
+                  title={needsSpicy ? "Pick Erotic or Kinky for this one" : undefined}
+                  onClick={() => toggleFeature(feature)}
+                >
+                  {TRANCE_FEATURE_LABELS[feature]}
+                </Chip>
+              );
+            })}
+          </ChipRow>
+          <ChipRow label="Length">
+            {TRANCE_LENGTHS.map((minutes) => (
+              <Chip key={minutes} selected={request.minutes === minutes} onClick={() => update({ minutes })}>
+                {minutes} min
+              </Chip>
+            ))}
+          </ChipRow>
+          <ChipRow label="Ending">
+            {TRANCE_ENDINGS.map((ending) => (
+              <Chip key={ending} selected={request.ending === ending} onClick={() => update({ ending })}>
+                {TRANCE_ENDING_LABELS[ending]}
+              </Chip>
+            ))}
+          </ChipRow>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="trance-idea" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
+              Idea (optional)
+            </label>
+            <textarea
+              id="trance-idea"
+              className={cn(inputClass, "min-h-[4rem] resize-y")}
+              placeholder="A theme or image, like “a puppet put away in a box for safekeeping”"
+              maxLength={TRANCE_NOTE_LIMIT}
+              value={request.idea}
+              onChange={(event) => update({ idea: event.target.value })}
+            />
+          </div>
+          {suggest.isPending && (
+            <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+              <Loader2 size="1rem" className="animate-spin" aria-hidden="true" />
+              Writing a taste of it…
+              <button type="button" onClick={suggest.stop} className="ml-auto text-xs hover:text-[var(--foreground)]">
+                Stop
+              </button>
+            </div>
+          )}
+          {preview && (
+            <TrancePitchCard pitch={preview} disabled={!ready || busy} onWrite={() => send(preview.request)} />
+          )}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="mr-auto rounded-lg px-3 py-2 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={!ready || busy}
+              onClick={askForPreview}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] disabled:opacity-50"
+            >
+              <Eye size="1rem" aria-hidden="true" />
+              Preview
+            </button>
+            <button
+              type="button"
+              disabled={!ready || busy}
+              onClick={() => send(built())}
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
+            >
+              {submitting && <Loader2 size="1rem" className="animate-spin" aria-hidden="true" />}
+              Write my session
+            </button>
+          </div>
+        </Section>
+      )}
+
+      {path !== "build" && onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="self-end rounded-lg px-3 py-2 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        >
+          Cancel
+        </button>
+      )}
+
+      {shownError && (
         <p
           role="alert"
           className="rounded-lg border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--foreground)]"
         >
-          {error}
+          {shownError}
         </p>
       )}
-
-      <div className="sticky bottom-0 flex items-center justify-end gap-2 bg-[var(--background)]/90 py-2 backdrop-blur">
-        {!characterId && (
-          <span className="mr-auto text-xs text-[var(--muted-foreground)]">Pick a character first.</span>
-        )}
-        {characterId && !effectiveConnectionId && (
-          <span className="mr-auto text-xs text-[var(--muted-foreground)]">Pick a model connection first.</span>
-        )}
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg px-3 py-2 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-          >
-            Cancel
-          </button>
-        )}
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
-        >
-          {submitting && <Loader2 size="1rem" className="animate-spin" aria-hidden="true" />}
-          Write my session
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }
