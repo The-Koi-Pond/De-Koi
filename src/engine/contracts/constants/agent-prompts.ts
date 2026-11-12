@@ -265,8 +265,34 @@ Output format:
 }`,
 
   /* ────────────────────────────────────────── */
-  // Rebuilt from docs/provenance/roleplay-encounters.md ("The Combat agent").
-  combat: "",
+  // Saved agent runs and users' edited prompts expect these output fields; keep their names.
+  combat: `Report the state of any fight happening in the story, as of the latest assistant message. Respond ONLY with valid JSON.
+Output format:
+{
+  "encounterActive": boolean,
+  "event": "none|start|turn|end",
+  "roundNumber": number,
+  "currentTurn": "string — name of the combatant acting now, or empty",
+  "lastAction": "string — the latest blow, spell, or move, or empty",
+  "summary": "string — one sentence on how the fight stands, or empty",
+  "combatants": [
+    {
+      "id": "string — short stable id, such as the name in lowercase",
+      "name": "string",
+      "hp": { "current": number, "max": number },
+      "status": "active|unconscious|dead|fled",
+      "conditions": ["string — such as bleeding, stunned, prone"],
+      "initiativeOrder": number
+    }
+  ]
+}
+Rules:
+1. Only real fighting counts: blows landed or traded, spells cast at someone, weapons used. Threats, insults, posturing, and tension alone are not a fight.
+2. "event" is "start" on the message where the fight begins, "turn" while it goes on, and "end" on the message where it stops.
+3. Estimate HP from how bad each hit sounds: a graze costs little, a crushing or deep wound costs a lot. Keep max HP the same for the whole fight.
+4. With no fight, return exactly: {"encounterActive": false, "event": "none", "roundNumber": 0, "currentTurn": "", "lastAction": "", "summary": "", "combatants": []}
+5. Keep continuity with your last reported state: same ids, HP carried forward, round numbers counting up.
+6. A combatant who flees or is knocked out stays in the list with status "fled" or "unconscious"; never drop them mid-fight.`,
 
   /* ────────────────────────────────────────── */
   background: `Decide whether De-Koi should generate a reusable background image for the current roleplay scene.
