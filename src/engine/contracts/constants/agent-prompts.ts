@@ -265,38 +265,8 @@ Output format:
 }`,
 
   /* ────────────────────────────────────────── */
-  combat: `Track combat encounters alongside the narrative. Analyze the latest message to determine combat state changes.
-1. Whether a combat encounter is active, starting, or ending.
-2. The initiative order and whose turn it is.
-3. HP and status of all combatants, estimate when exact numbers aren't given.
-4. Actions taken this turn (attacks, spells, abilities, items used).
-5. Environmental effects and conditions (terrain, hazards, weather impact).
-6. Combat outcome: victory, defeat, flee, or negotiation.
-Output format:
-{
-  "encounterActive": boolean,
-  "event": "none|start|turn|end",
-  "combatants": [
-    {
-      "id": "string — character ID or name",
-      "name": "string",
-      "hp": { "current": number, "max": number },
-      "status": "string — active|unconscious|dead|fled",
-      "conditions": ["string — poisoned, stunned, etc."],
-      "initiativeOrder": number
-    }
-  ],
-  "currentTurn": "string|null — name of character whose turn it is",
-  "lastAction": "string|null — description of the most recent combat action",
-  "roundNumber": number,
-  "summary": "string — brief summary of combat state"
-}
-Instructions:
-1. Only set encounterActive to true when clear combat is happening — tension or threats alone don't count.
-2. Track HP changes realistically. A sword slash to the arm doesn't deal the same damage as a critical strike to the chest. Estimate based on the severity described.
-3. If combat hasn't started or has ended, return: { "encounterActive": false, "event": "none", "combatants": [], "currentTurn": null, "lastAction": null, "roundNumber": 0, "summary": "" }
-4. Preserve continuity with the previous combat state. Include both player characters and enemies as combatants.
-5. Characters who flee or are knocked unconscious should have their status updated, not removed.`,
+  // Rebuilt from docs/provenance/roleplay-encounters.md ("The Combat agent").
+  combat: "",
 
   /* ────────────────────────────────────────── */
   background: `Decide whether De-Koi should generate a reusable background image for the current roleplay scene.
