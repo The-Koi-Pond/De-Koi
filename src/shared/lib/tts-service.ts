@@ -25,6 +25,8 @@ interface TTSSequenceOptions extends Pick<TTSSpeakOptions, "signal" | "throwOnEr
   lookahead?: number;
   /** Called with the index into `requests` each time a part starts playing. */
   onPartStart?: (index: number) => void;
+  /** Called with the index into `requests` once a part's audio is actually playing (the browser has started it). */
+  onPartAudible?: (index: number) => void;
   /**
    * Called once when a sound effect part can't be made. The sequence goes on without it and skips the rest of its
    * sound effects, so a missing provider permission doesn't stop the reading or retry on every effect.
@@ -311,7 +313,8 @@ class TTSService {
         this.audio = audio;
         this.setState("playing", id ?? null);
         playedAny = true;
-        options.onPartStart?.(playableRequests[position]!.index);
+        const partIndex = playableRequests[position]!.index;
+        options.onPartStart?.(partIndex);
 
         const playbackResult = await new Promise<"ended" | "aborted">((resolve, reject) => {
           let onAbort: (() => void) | null = null;
@@ -338,10 +341,15 @@ class TTSService {
             return;
           }
           abortController.signal.addEventListener("abort", onAbort, { once: true });
-          audio.play().catch((err: unknown) => {
-            cleanupListeners();
-            reject(err instanceof Error ? err : new Error("Browser blocked audio playback"));
-          });
+          audio.play().then(
+            () => {
+              if (this.audio === audio && !abortController.signal.aborted) options.onPartAudible?.(partIndex);
+            },
+            (err: unknown) => {
+              cleanupListeners();
+              reject(err instanceof Error ? err : new Error("Browser blocked audio playback"));
+            },
+          );
         });
 
         if (!this.isCurrentSequence(sequence)) return;

@@ -88,6 +88,8 @@ export interface UtteranceOptions {
   onLevel?: (level: number) => void;
   /** Fires when speech starts (the call screen uses it to interrupt the character). */
   onSpeechStart?: () => void;
+  /** Fires when the pause that ends the utterance is detected, with how long the speaker had been quiet by then. */
+  onSpeechEnd?: (quietForMs: number) => void;
   /**
    * Checked on every frame until speech starts. While it returns true (the character's voice is playing), speech
    * has to be louder and last longer to count, so the speakers don't start an utterance.
@@ -178,6 +180,7 @@ export function recordUtterance(
         options.onSpeechStart?.();
       }
       if (speechStartedAt !== null && (now - lastSpeechAt > endSilenceMs || now - speechStartedAt > maxUtteranceMs)) {
+        options.onSpeechEnd?.(now - lastSpeechAt);
         void finish("speech");
         return;
       }

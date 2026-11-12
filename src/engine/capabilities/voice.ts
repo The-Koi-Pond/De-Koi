@@ -16,6 +16,11 @@ export interface VoiceListenOptions {
   onLevel: (level: number) => void;
   /** Fires as soon as speech starts, before the utterance is over. */
   onSpeechStart: () => void;
+  /**
+   * Fires once the pause that ends the utterance has been detected, with how long the user had been quiet by then,
+   * so the session can time the turn from when they actually stopped talking.
+   */
+  onSpeechEnd: (quietForMs: number) => void;
 }
 
 /** An open microphone. `Utterance` is opaque to the engine: only the transcriber reads it. */
@@ -92,8 +97,11 @@ export interface VoiceReplySpeaker {
 }
 
 interface VoiceSpeechPort {
-  /** A speaker for one reply, or null when replies are text only (no voice set up). */
-  begin(turnKey: string): VoiceReplySpeaker | null;
+  /**
+   * A speaker for one reply, or null when replies are text only (no voice set up). `onFirstSound` is called when
+   * the reply's audio actually starts playing.
+   */
+  begin(turnKey: string, onFirstSound: () => void): VoiceReplySpeaker | null;
 }
 
 export interface VoiceSessionPorts<Utterance> {
