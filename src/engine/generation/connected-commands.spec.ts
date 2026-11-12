@@ -872,7 +872,7 @@ describe("persistConnectedCommandTags", () => {
       reviewTitle: "Selfie: Juno",
       referenceImages: [junoAvatar, junoFullBody],
     });
-    expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("attached reference image(s) for Juno"));
+    expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("same art style as the references"));
 
     await run({ ...chat, metadata: { imageGenConnectionId: "image-1" } });
     expect(imageRequests[1]).not.toHaveProperty("referenceImages");

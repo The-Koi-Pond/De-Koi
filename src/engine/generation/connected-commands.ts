@@ -23,7 +23,7 @@ import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thin
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
 import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
 import {
-  appendReferenceGuidance,
+  appendSelfieReferenceGuidance,
   avatarReferenceImage,
   characterImageReferenceSubject,
   fullBodySpriteReferenceImage,
@@ -911,7 +911,8 @@ async function generateSelfie(args: {
       boolish(metadata.selfieUseAvatarReferences, false) && built.character
         ? await selfieReferenceImages(args.visuals, built.character, characterName)
         : [];
-    const prompt = referenceImages.length > 0 ? appendReferenceGuidance(built.prompt, [characterName]) : built.prompt;
+    const prompt =
+      referenceImages.length > 0 ? appendSelfieReferenceGuidance(built.prompt, characterName) : built.prompt;
     const size = parseSelfieSize(metadata.selfieResolution);
     const image = await args.integrations.image.generate({
       connectionId: imageConnectionId,

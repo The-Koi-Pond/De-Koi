@@ -122,3 +122,15 @@ export function appendReferenceGuidance(prompt: string, subjectNames: string[]):
     `Reference guidance: Consult the attached reference image(s) for ${label} to preserve identity, face, hair, body proportions, and distinctive visible features. Follow the scene prompt for the current outfit, pose, expression, injuries, lighting, and other moment-specific details; scene-specific appearance overrides default reference clothing.`,
   ].join("\n\n");
 }
+
+/**
+ * Selfie version: also keeps the references' art style, because a character drawn in another style stops looking like
+ * them, and asks for a fresh pose so the model doesn't just redraw the avatar.
+ */
+export function appendSelfieReferenceGuidance(prompt: string, characterName: string): string {
+  const name = characterName.trim() || "the character";
+  return [
+    prompt.trim(),
+    `Reference guidance: The attached reference image(s) show ${name}. Keep ${name}'s identity, face, hair, body proportions, outfit details, and distinctive features, and draw the selfie in the same art style as the references (line work, coloring, face and eye shape), as if the same artist drew it. Ignore anything in the references that is not part of the character, such as app windows, palettes, text, or signatures. Use a new selfie pose and framing from the prompt, not the pose in the references; follow the prompt for the expression, setting, lighting, and any outfit it names.`,
+  ].join("\n\n");
+}
