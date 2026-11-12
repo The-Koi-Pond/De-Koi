@@ -122,9 +122,9 @@ const EchoChamberPanel = lazy(async () => {
   return { default: module.EchoChamberPanel };
 });
 
-const EncounterModal = lazy(async () => {
-  const module = await import("./EncounterModal");
-  return { default: module.EncounterModal };
+const EncounterHost = lazy(async () => {
+  const module = await import("../encounter/components/EncounterHost");
+  return { default: module.EncounterHost };
 });
 
 const SummaryPopover = lazy(async () => {
@@ -721,8 +721,10 @@ type RoleplaySurfaceProps = {
   expressionAgentEnabled: boolean;
   expressionAvatarsEnabled: boolean;
   expressionAvatarResolver?: ExpressionAvatarResolver;
-  combatAgentEnabled: boolean;
-  encounterActive: boolean;
+  /** The chat has the Combat agent on, which is what offers the Encounter button. */
+  encountersEnabled: boolean;
+  /** This chat owns the app's encounter, so its setup dialog or combat window shows. */
+  encounterShown: boolean;
   spritePosition: SpriteSide;
   spriteCharacterIds: string[];
   spriteDisplayModes: SpriteDisplayMode[];
@@ -828,8 +830,8 @@ export function ChatRoleplaySurface({
   expressionAgentEnabled,
   expressionAvatarsEnabled,
   expressionAvatarResolver,
-  combatAgentEnabled,
-  encounterActive,
+  encountersEnabled,
+  encounterShown,
   spritePosition,
   spriteCharacterIds,
   spriteDisplayModes,
@@ -1170,7 +1172,7 @@ export function ChatRoleplaySurface({
     if (topChromeRef.current) observer.observe(topChromeRef.current);
     if (inputChromeRef.current) observer.observe(inputChromeRef.current);
     return () => observer.disconnect();
-  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, combatAgentEnabled]);
+  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, encountersEnabled]);
 
   useEffect(() => {
     setAddonsReady(false);
@@ -1330,9 +1332,9 @@ export function ChatRoleplaySurface({
               </div>
             </div>
 
-            {encounterActive && (
+            {encounterShown && (
               <Suspense fallback={null}>
-                <EncounterModal />
+                <EncounterHost chatId={activeChatId} />
               </Suspense>
             )}
 
@@ -1535,15 +1537,16 @@ export function ChatRoleplaySurface({
                     onReopen={onReopenScene}
                   />
                 )}
-                {!isConcludedScene && combatAgentEnabled && (
+                {encountersEnabled && !isConcludedScene && (
                   <div className="flex justify-center py-1">
                     <button
+                      type="button"
                       onClick={onStartEncounter}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-foreground/50 transition-all hover:bg-foreground/10 hover:text-orange-300"
-                      title="Start Combat Encounter"
+                      title="Start combat encounter"
+                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
                     >
-                      <Swords size="0.875rem" />
-                      <span>Encounter</span>
+                      <Swords size="0.875rem" aria-hidden="true" />
+                      Encounter
                     </button>
                   </div>
                 )}
