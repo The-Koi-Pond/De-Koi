@@ -35,6 +35,7 @@ function nonCurrentScheduleDayName(): string {
 function commandStorage(args: {
   characters?: JsonRecord[];
   chats?: JsonRecord[];
+  connections?: JsonRecord[];
   lorebooks: JsonRecord[];
   lorebookEntries: JsonRecord[];
   creates?: Array<{ entity: StorageEntity; value: JsonRecord }>;
@@ -56,11 +57,13 @@ function commandStorage(args: {
           ? (args.characters ?? [])
           : entity === "chats"
             ? (args.chats ?? [])
-            : entity === "lorebooks"
-              ? args.lorebooks
-              : entity === "lorebook-entries"
-                ? args.lorebookEntries
-                : [];
+            : entity === "connections"
+              ? (args.connections ?? [])
+              : entity === "lorebooks"
+                ? args.lorebooks
+                : entity === "lorebook-entries"
+                  ? args.lorebookEntries
+                  : [];
       return asStorageValue<T | null>(rows.find((row) => row.id === id) ?? null);
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -837,6 +840,14 @@ describe("persistConnectedCommandTags", () => {
         { id: "char-1", name: "Mira", avatarPath: miraAvatar, data: { name: "Mira" } },
         { id: "char-2", name: "Juno", avatarPath: junoAvatar, data: { name: "Juno" } },
       ],
+      connections: [
+        {
+          id: "nai-1",
+          provider: "image_generation",
+          imageGenerationSource: "novelai",
+          model: "nai-diffusion-4-5-full",
+        },
+      ],
       lorebooks: [],
       lorebookEntries: [],
     });
@@ -877,6 +888,11 @@ describe("persistConnectedCommandTags", () => {
     await run({ ...chat, metadata: { imageGenConnectionId: "image-1" } });
     expect(imageRequests[1]).not.toHaveProperty("referenceImages");
     expect(imageRequests[1]?.prompt).not.toEqual(expect.stringContaining("reference image"));
+
+    // NovelAI draws English sentences into the picture; its references carry the likeness without the guidance.
+    await run({ ...chat, metadata: { imageGenConnectionId: "nai-1", selfieUseAvatarReferences: true } });
+    expect(imageRequests[2]).toMatchObject({ connectionId: "nai-1", referenceImages: [junoAvatar, junoFullBody] });
+    expect(imageRequests[2]?.prompt).not.toEqual(expect.stringContaining("Reference guidance"));
   });
 
   it("does not recover an implicit selfie when image generation is not configured", async () => {

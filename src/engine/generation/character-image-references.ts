@@ -124,6 +124,21 @@ export function appendReferenceGuidance(prompt: string, subjectNames: string[]):
 }
 
 /**
+ * NovelAI reads the prompt as tags and draws English sentences into the picture as text; its director references carry
+ * the likeness on their own. Same NovelAI detection as the Rust image provider (`infer_image_source`).
+ */
+export function referenceGuidanceSuitsImageConnection(connection: JsonRecord | null | undefined): boolean {
+  if (!connection) return true;
+  const source = (readString(connection.imageGenerationSource) || readString(connection.imageService))
+    .trim()
+    .toLowerCase();
+  if (source) return source !== "novelai";
+  const model = readString(connection.model).trim().toLowerCase();
+  const baseUrl = readString(connection.baseUrl).trim().toLowerCase();
+  return !(model.includes("nai-diffusion") || baseUrl.includes("novelai.net"));
+}
+
+/**
  * Selfie version: also keeps the references' art style, because a character drawn in another style stops looking like
  * them, and asks for a fresh pose so the model doesn't just redraw the avatar.
  */
