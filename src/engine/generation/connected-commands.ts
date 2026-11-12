@@ -103,6 +103,9 @@ const ASSISTANT_PHOTO_HANDOVER_RE =
 // A selfie that changes what the character is wearing: their usual outfit is then a default, not a rule.
 const SELFIE_OUTFIT_CHANGE_RE =
   /\b(?:shirtless|topless|nude|naked|nsfw|undress(?:ed|ing)?|unclothed|bare[- ]?chest(?:ed)?|no shirt|without (?:a |his |her |their |the )?(?:shirt|clothes|costume|outfit)|out of (?:his |her |their |the )?(?:clothes|costume|outfit)|underwear|boxers|briefs|lingerie|towel|bath|bathtub|shower|showering|pajamas|pyjamas|sleepwear|bathrobe|robe|stripped|stripping)\b/i;
+// A selfie that asks for the character's hat or hood to be off.
+const SELFIE_HEADWEAR_OFF_RE =
+  /\b(?:no (?:hat|hood|cap)|(?:hat|hood|cap) off|hood down|hatless|bare[- ]?headed|without (?:a |his |her |their |the |your )?(?:hat|hood|cap)|(?:take|took|taking) (?:off )?(?:your |his |her |their |the )?(?:hat|hood|cap)(?: off)?)\b/i;
 // Nudity or sex: image models such as NovelAI keep it suggestive unless the prompt carries the nsfw tag.
 const SELFIE_EXPLICIT_RE = /\b(?:nude|naked|nsfw|explicit|lewd|porn\w*)\b/i;
 const ASSISTANT_SELFIE_DECLINE_RE =
@@ -804,9 +807,13 @@ async function buildSelfiePrompt(args: {
   const extensions = parseRecord(data.extensions);
   const lookTags = readString(extensions.selfieLookTags).trim();
   const outfitTags = readString(extensions.selfieOutfitTags).trim();
+  // Headwear is the prompt writer's call (on unless the moment calls for it off); avoid tags are this character's negatives.
+  const headwearTags = readString(extensions.selfieHeadwearTags).trim();
+  const avoidTags = readString(extensions.selfieAvoidTags).trim();
   const request = readString(args.selfieRequest).replace(/\s+/g, " ").trim().slice(0, 400);
   const asked = [args.commandContext, request].filter(Boolean).join(" ");
   const outfitChanged = SELFIE_OUTFIT_CHANGE_RE.test(asked);
+  const headwearOff = SELFIE_HEADWEAR_OFF_RE.test(asked);
   const explicit = SELFIE_EXPLICIT_RE.test(asked);
   const positive = [explicit ? "nsfw" : "", lookTags, outfitChanged ? "" : outfitTags, chatPositive]
     .filter(Boolean)
@@ -846,6 +853,11 @@ async function buildSelfiePrompt(args: {
               outfitTags && outfitChanged
                 ? `Usual outfit: ${outfitTags}. This selfie changes what they are wearing, so follow the request and the context instead.`
                 : "",
+              headwearTags
+                ? headwearOff
+                  ? `Usual headwear: ${headwearTags}. The request takes it off, so leave it out.`
+                  : `Usual headwear: ${headwearTags}. Include it unless the moment calls for it off (for example bathing, asleep, or hair let down).`
+                : "",
               formatInstruction,
               "Include the setting, pose and how dressed they are from the request and context.",
               request ? `What the user asked for: ${request}` : "",
@@ -869,6 +881,7 @@ async function buildSelfiePrompt(args: {
         ? "selfie, casual camera angle, expressive face, detailed lighting"
         : "casual camera angle, expressive face, detailed lighting",
       positive,
+      headwearOff ? "" : headwearTags,
     ]
       .filter((part) => readString(part).trim())
       .join(", ");
@@ -876,7 +889,7 @@ async function buildSelfiePrompt(args: {
   const compiled = compileImagePrompt({
     kind: "selfie",
     prompt,
-    negativePrompt: readString(metadata.selfieNegativePrompt).trim(),
+    negativePrompt: [readString(metadata.selfieNegativePrompt).trim(), avoidTags].filter(Boolean).join(", "),
     styleProfileId: args.imagePromptSettings?.styleProfileId,
     styleProfiles: normalizeImageStyleProfileSettings(
       args.imagePromptSettings?.styleProfiles ?? createDefaultImageStyleProfileSettings(),
