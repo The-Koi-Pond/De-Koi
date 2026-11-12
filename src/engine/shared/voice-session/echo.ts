@@ -40,3 +40,17 @@ export function soundsLikeReplyEcho(heard: string, reply: string): boolean {
   const run = longestSharedRun(heardWords, words(reply));
   return run >= Math.max(3, Math.ceil(heardWords.length * 0.6));
 }
+
+/** "Hmm", "mm", "hm": how a transcriber writes a hum, whatever the thinking sound's own spelling. */
+const HUM = /^h*m+$/;
+
+/**
+ * True when `heard` is only the thinking sound the speakers just played ("Hmm…" coming back as "Hm." or "Mm"), so
+ * the microphone picking it up doesn't count as the user talking.
+ */
+export function soundsLikeThinkingSound(heard: string, sound: string): boolean {
+  const heardWords = words(heard);
+  if (heardWords.length === 0) return false;
+  const soundWords = new Set(words(sound));
+  return heardWords.every((word) => soundWords.has(word) || HUM.test(word));
+}

@@ -7,7 +7,7 @@ import type {
   VoiceSessionPorts,
   VoiceSessionSetup,
 } from "../../capabilities/voice";
-import { soundsLikeReplyEcho } from "./echo";
+import { soundsLikeReplyEcho, soundsLikeThinkingSound } from "./echo";
 import { createVoiceSession, type VoiceSessionEvent } from "./voice-session";
 
 function deferred<T>() {
@@ -94,8 +94,23 @@ interface SentReply {
   cancel: ReturnType<typeof vi.fn>;
 }
 
-function harness(options: { setup?: () => Promise<VoiceSessionSetup<string>>; voice?: boolean } = {}) {
+class FakeThinkingSound {
+  playing = deferred<void>();
+  constructor(readonly text: string) {}
+  play = vi.fn(() => this.playing.promise);
+  stop = vi.fn(() => this.playing.resolve());
+}
+
+function harness(
+  options: {
+    setup?: () => Promise<VoiceSessionSetup<string>>;
+    voice?: boolean;
+    thinkingSounds?: boolean;
+    thinkingSoundDelayMs?: number;
+  } = {},
+) {
   const mics: FakeMic[] = [];
+  const thinkingSounds: FakeThinkingSound[] = [];
   const opens: Array<ReturnType<typeof deferred<FakeMic>>> = [];
   const transcripts: Array<ReturnType<typeof deferred<string>>> = [];
   const replies: SentReply[] = [];
@@ -146,7 +161,14 @@ function harness(options: { setup?: () => Promise<VoiceSessionSetup<string>>; vo
       },
     },
   };
-  const session = createVoiceSession(ports);
+  if (options.thinkingSounds) {
+    ports.speech.thinkingSound = () => {
+      const sound = new FakeThinkingSound("Hmm...");
+      thinkingSounds.push(sound);
+      return sound;
+    };
+  }
+  const session = createVoiceSession(ports, { thinkingSoundDelayMs: options.thinkingSoundDelayMs ?? 0 });
   session.onEvent((event) => events.push(event));
   return {
     session,
@@ -156,6 +178,7 @@ function harness(options: { setup?: () => Promise<VoiceSessionSetup<string>>; vo
     replies,
     speakers,
     events,
+    thinkingSounds,
     holdOpen: () => {
       autoOpen = false;
     },
@@ -649,6 +672,91 @@ describe("voice session", () => {
     expect(h.events.some((event) => event.type === "timing")).toBe(false);
   });
 
+  describe("thinking sounds", () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const finishTurn = async (h: ReturnType<typeof harness>, index: number, saved: string) => {
+      h.replies[index]!.done.resolve(saved);
+      await settle();
+      h.speakers[index]!.finishing.resolve();
+      await settle();
+    };
+
+    it("fills a silent reply with one sound, and never on two turns in a row", async () => {
+      const h = harness({ thinkingSounds: true });
+      h.session.start();
+      await say(h, "hey Freddy");
+      expect(h.thinkingSounds).toHaveLength(1);
+      expect(h.thinkingSounds[0]!.play).toHaveBeenCalledTimes(1);
+      expect(h.events.filter((event) => event.type === "thinking_sound")).toEqual([
+        { type: "thinking_sound", sessionId: h.session.id, turn: 1, text: "Hmm..." },
+      ]);
+      await finishTurn(h, 0, "Hey kid.");
+
+      await say(h, "what's up");
+      expect(h.thinkingSounds).toHaveLength(1);
+      await finishTurn(h, 1, "Nothing much.");
+
+      await say(h, "cool");
+      expect(h.thinkingSounds).toHaveLength(2);
+    });
+
+    it("stays quiet once the reply has started speaking", async () => {
+      const h = harness({ thinkingSounds: true, thinkingSoundDelayMs: 250 });
+      h.session.start();
+      await say(h, "hi");
+      h.replies[0]!.onText("Hello there. ");
+      await wait(350);
+      expect(h.thinkingSounds).toHaveLength(0);
+    });
+
+    it("never plays while the user is talking, and stops the moment they start", async () => {
+      const quiet = harness({ thinkingSounds: true, thinkingSoundDelayMs: 250 });
+      quiet.session.start();
+      await say(quiet, "so I was thinking");
+      quiet.mics[0]!.current.options.onSpeechStart(); // still talking
+      await wait(350);
+      expect(quiet.thinkingSounds).toHaveLength(0);
+
+      const h = harness({ thinkingSounds: true });
+      h.session.start();
+      await say(h, "hi");
+      const sound = h.thinkingSounds[0]!;
+      expect(sound.stop).not.toHaveBeenCalled();
+      h.mics[0]!.current.options.onSpeechStart();
+      expect(sound.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it("its own echo in the microphone doesn't cut the reply off", async () => {
+      const h = harness({ thinkingSounds: true });
+      h.session.start();
+      await say(h, "hi");
+      const mic = h.mics[0]!;
+      mic.current.options.onSpeechStart(); // the speakers' "Hmm" set it off
+      mic.current.resolve("audio:hm");
+      await settle();
+      h.transcripts.at(-1)!.resolve("Hm.");
+      await settle();
+      expect(h.replies[0]!.cancel).not.toHaveBeenCalled();
+      expect(h.events.filter((event) => event.type === "resumed")).toEqual([
+        { type: "resumed", sessionId: h.session.id, turn: 1, reason: "echo" },
+      ]);
+    });
+
+    it("stops at once on hang-up and on Interrupt", async () => {
+      const h = harness({ thinkingSounds: true });
+      h.session.start();
+      await say(h, "hi");
+      h.session.interrupt();
+      expect(h.thinkingSounds[0]!.stop).toHaveBeenCalled();
+
+      const call = harness({ thinkingSounds: true });
+      call.session.start();
+      await say(call, "hi");
+      call.session.end();
+      expect(call.thinkingSounds[0]!.stop).toHaveBeenCalled();
+    });
+  });
+
   it("start is idempotent and every event names its session", async () => {
     const h = harness();
     h.session.start();
@@ -656,6 +764,20 @@ describe("voice session", () => {
     await settle();
     expect(h.mics).toHaveLength(1);
     expect(h.events.every((event) => event.sessionId === h.session.id)).toBe(true);
+  });
+});
+
+describe("soundsLikeThinkingSound", () => {
+  it("matches the sound coming back however the transcriber spells a hum", () => {
+    expect(soundsLikeThinkingSound("Hmm.", "Hmm...")).toBe(true);
+    expect(soundsLikeThinkingSound("Mm", "Hmm...")).toBe(true);
+    expect(soundsLikeThinkingSound("hm okay", "Hm, okay...")).toBe(true);
+  });
+
+  it("does not swallow the user's own words", () => {
+    expect(soundsLikeThinkingSound("Hmm, wait, actually", "Hmm...")).toBe(false);
+    expect(soundsLikeThinkingSound("okay", "Hmm...")).toBe(false);
+    expect(soundsLikeThinkingSound("", "Hmm...")).toBe(false);
   });
 });
 
