@@ -147,9 +147,14 @@ describe("encounter store", () => {
   it("lets a failed summary be tried again", () => {
     startFight();
     store().conclude();
-    store().failSummary(store().beginSummary()!.id, null);
+    store().failSummary(
+      store().beginSummary()!.id,
+      "The Encounters helper is set to a connection that no longer exists.",
+    );
 
     const retry = store().beginSummary()!;
+    // The last failure's reason mustn't come back if the retry fails another way.
+    expect(store().encounter?.summaryError).toBeNull();
     store().finishSummary(retry.id);
 
     expect(store().encounter?.summaryStatus).toBe("written");

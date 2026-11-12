@@ -335,6 +335,23 @@ describe("encounter helper route", () => {
     ]);
   });
 
+  it("doesn't note a call cancelled before it starts", async () => {
+    const { gateway } = fakeStorage({ connections: routedConnections, chat: { connectionId: "conn-chat" } });
+    const llm = fakeLlm([turnResponse]);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      resolveEncounterTurn(
+        { storage: gateway, llm: llm.gateway },
+        { chatId: "chat-1", settings, fight, rounds: [], action: "Strike", signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+
+    expect(llm.requests).toHaveLength(0);
+    expect((await readHelperRuns(gateway)).encounters ?? []).toEqual([]);
+  });
+
   it("sends setup, every turn and the summary to the Encounters route", async () => {
     const { gateway } = fakeStorage({
       connections: routedConnections,

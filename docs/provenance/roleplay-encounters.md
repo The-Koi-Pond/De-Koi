@@ -272,7 +272,8 @@ which takes the call kind (setup, turn, summary), the chat, the messages, the
 parameters and an abort signal, and returns the text. Only it picks the
 connection.
 
-**Connection, unchanged:** `resolveGenerationConnection` with no override: the
+**Connection, unchanged when Encounters has no Helper Models route:**
+`resolveGenerationConnection` with no override: the
 chat's `connectionId` (`"random"` draws from the random pool on every call),
 else the app default, else the first enabled connection. The `combat` agent's
 own connection setting isn't used.

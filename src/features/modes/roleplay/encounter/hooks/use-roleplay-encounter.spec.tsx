@@ -172,7 +172,8 @@ describe("useRoleplayEncounter", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
     await act(() => encounter.conclude());
-    expect(state().encounter).toMatchObject({ result: "interrupted", summaryStatus: "failed" });
+    // Only a Helper Models route error explains itself; a provider's own wording stays off the end screen.
+    expect(state().encounter).toMatchObject({ result: "interrupted", summaryStatus: "failed", summaryError: null });
     expect(invalidate).not.toHaveBeenCalled();
 
     service.writeEncounterSummary.mockResolvedValueOnce("Cut short.");

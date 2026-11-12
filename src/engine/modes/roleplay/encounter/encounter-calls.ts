@@ -87,6 +87,8 @@ async function encounterConnectionId(storage: StorageGateway, request: Encounter
   const connection = routed ?? (await chatConnection(storage, request.chat));
   const connectionId = readString(connection.id).trim();
   if (!connectionId) throw userFacingError(NO_CONNECTION_MESSAGE);
+  // A call cancelled before it starts never ran, so Helper Models shouldn't list it.
+  request.signal.throwIfAborted();
   await noteHelperRun(storage, {
     task: "encounters",
     rule: routed ? "route" : chatConnectionRule(connection, request.chat.connectionId),
