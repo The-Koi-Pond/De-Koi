@@ -385,6 +385,7 @@ struct NovelAiDefaults {
     prompt_guidance: f64,
     prompt_guidance_rescale: f64,
     undesired_content_preset: u64,
+    reference_strength: f64,
 }
 
 fn default_parameters_root(connection: &Value) -> Option<Value> {
@@ -481,6 +482,7 @@ fn resolve_novelai_defaults(connection: &Value) -> NovelAiDefaults {
         prompt_guidance: read_f64(defaults.get("promptGuidance"), 6.0, 0.0, 30.0),
         prompt_guidance_rescale: read_f64(defaults.get("promptGuidanceRescale"), 0.0, 0.0, 1.0),
         undesired_content_preset: read_u64(defaults.get("undesiredContentPreset"), 0, 0, 4),
+        reference_strength: read_f64(defaults.get("referenceStrength"), 0.6, 0.0, 1.0),
     }
 }
 
@@ -2877,7 +2879,12 @@ async fn generate_novelai(
             "use_coords": false,
             "use_order": true
         });
-        apply_novelai_reference_images(&mut parameters, &model, options)?;
+        apply_novelai_reference_images(
+            &mut parameters,
+            &model,
+            options,
+            defaults.reference_strength,
+        )?;
     }
     let body = json!({
         "input": prompt,
@@ -2967,6 +2974,7 @@ fn apply_novelai_reference_images(
     parameters: &mut Value,
     model: &str,
     options: &ImageGenerationOptions,
+    strength: f64,
 ) -> AppResult<()> {
     if is_novelai_v45_model(model) {
         let refs = options
@@ -2989,7 +2997,7 @@ fn apply_novelai_reference_images(
         parameters["director_reference_images"] = json!(refs);
         parameters["director_reference_descriptions"] = json!(descriptions);
         parameters["director_reference_information_extracted"] = json!(vec![1.0; refs.len()]);
-        parameters["director_reference_strength_values"] = json!(vec![0.6; refs.len()]);
+        parameters["director_reference_strength_values"] = json!(vec![strength; refs.len()]);
         parameters["director_reference_secondary_strength_values"] = json!(vec![0.0; refs.len()]);
         return Ok(());
     }
@@ -3002,7 +3010,8 @@ fn apply_novelai_reference_images(
     parameters["reference_image_multiple"] = json!(refs);
     parameters["reference_information_extracted_multiple"] =
         json!(vec![1; options.reference_images.len()]);
-    parameters["reference_strength_multiple"] = json!(vec![0.6; options.reference_images.len()]);
+    parameters["reference_strength_multiple"] =
+        json!(vec![strength; options.reference_images.len()]);
     Ok(())
 }
 
@@ -4140,7 +4149,13 @@ mod tests {
             "provider": "image_generation",
             "imageGenerationSource": "novelai",
             "baseUrl": format!("{base_url}/novelai.net"),
-            "model": "nai-diffusion-4-5-full"
+            "model": "nai-diffusion-4-5-full",
+            "defaultParameters": {
+                "imageGeneration": {
+                    "service": "novelai",
+                    "novelai": { "referenceStrength": 0.85 }
+                }
+            }
         });
 
         generate_novelai(
@@ -4191,7 +4206,7 @@ mod tests {
         );
         assert_eq!(
             parameters["director_reference_strength_values"],
-            json!([0.6])
+            json!([0.85])
         );
         assert_eq!(
             parameters["director_reference_secondary_strength_values"],
@@ -4248,6 +4263,20 @@ mod tests {
     }
 
     #[test]
+    fn novelai_reference_strength_defaults_to_point_six_and_reads_the_connection_setting() {
+        let plain = json!({ "imageGenerationSource": "novelai" });
+        assert_eq!(resolve_novelai_defaults(&plain).reference_strength, 0.6);
+
+        let tuned = json!({
+            "imageGenerationSource": "novelai",
+            "defaultParameters": {
+                "imageGeneration": { "service": "novelai", "novelai": { "referenceStrength": 1.0 } }
+            }
+        });
+        assert_eq!(resolve_novelai_defaults(&tuned).reference_strength, 1.0);
+    }
+
+    #[test]
     fn novelai_v45_without_references_omits_reference_parameters() {
         let mut parameters = json!({});
 
@@ -4255,6 +4284,7 @@ mod tests {
             &mut parameters,
             "nai-diffusion-4-5-full",
             &ImageGenerationOptions::default(),
+            0.6,
         )
         .expect("empty reference list should be valid");
 
@@ -4275,6 +4305,7 @@ mod tests {
                 reference_images: vec![reference_image.to_string()],
                 ..ImageGenerationOptions::default()
             },
+            0.6,
         )
         .expect("V4 reference image should be valid");
 

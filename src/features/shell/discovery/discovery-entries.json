@@ -928,6 +928,7 @@
       "danbooru",
       "negative prompt",
       "novelai",
+      "reference strength",
       "dall-e"
     ],
     "audience": "Users who want visual scenes and character art generated from chat context.",
