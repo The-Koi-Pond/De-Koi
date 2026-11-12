@@ -89,9 +89,7 @@ describe("connection folder row layout", () => {
     root = rendered.root;
     container = rendered.container;
 
-    expect(container.textContent).toContain(
-      "Choose a text connection below, then enable Use as default agent connection",
-    );
+    expect(container.textContent).toContain("Open a text connection and turn on Use as default agent connection");
   });
 
   it("shows the normal chat default separately from the agent default", () => {
@@ -123,6 +121,6 @@ describe("connection folder row layout", () => {
     expect(container.textContent).toContain("Default for Chats");
     expect(container.textContent).toContain("Everyday Chat");
     expect(container.textContent).not.toContain("Agent Worker");
-    expect(container.textContent).toContain("Use as default chat connection");
+    expect(container.textContent).not.toContain("Use as default chat connection");
   });
 });
