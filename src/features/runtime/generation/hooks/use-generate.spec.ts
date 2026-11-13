@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { chatKeys } from "../../../catalog/chats/index";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
+import { storageApi } from "../../../../shared/api/storage-api";
 import { getRecentClientDiagnostics } from "../../../../shared/lib/client-diagnostics";
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../../../shared/lib/chat-scroll-events";
 import { MUSIC_PLAYBACK_EVENT, type MusicPlaybackEventDetail } from "../../../../shared/lib/music-playback-events";
@@ -20,6 +21,7 @@ import {
   showAgentWarningToast,
   type GenerateArgs,
 } from "./use-generate";
+import { markMessageSentDuringReply } from "../lib/sent-during-reply";
 import type { AgentResult } from "../../../../engine/contracts/types/agent";
 import type { Chat, Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 
@@ -551,6 +553,81 @@ describe("showAgentWarningToast", () => {
   });
 });
 describe("runGenerationWithUi", () => {
+  it("answers a message the user sent while the reply was being written", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-sent-during-reply";
+    queryClient.setQueryData(chatKeys.detail(chatId), { id: chatId, mode: "conversation", metadata: {} } as Chat);
+    const message = (id: string, role: string, answers?: string) =>
+      ({
+        id,
+        chatId,
+        role,
+        characterId: role === "assistant" ? "char-1" : null,
+        content: id,
+        activeSwipeIndex: 0,
+        createdAt: "2026-11-05T19:27:35.000Z",
+        extra: answers ? { answersUserVersion: { messageId: answers, index: 0 } } : {},
+      }) as Message;
+    // u2 came in while r1 (answering u1) was being written; r2 is the follow-up that answers it.
+    const stored = [message("u1", "user"), message("u2", "user"), message("r1", "assistant", "u1")];
+    const listMessages = vi.spyOn(storageApi, "listChatMessages").mockImplementation(async () => [...stored] as never);
+    const calls: GenerateArgs[] = [];
+    let followUpDone!: () => void;
+    const followUpFinished = new Promise<void>((resolve) => {
+      followUpDone = resolve;
+    });
+    async function* stream(args: GenerateArgs): AsyncGenerator<StreamEvent> {
+      calls.push(args);
+      if (calls.length === 1) {
+        markMessageSentDuringReply(chatId);
+        yield { type: "assistant_message", data: stored[2] } as StreamEvent;
+      } else {
+        stored.push(message("r2", "assistant", "u2"));
+        yield { type: "assistant_message", data: stored[3] } as StreamEvent;
+        followUpDone();
+      }
+      yield { type: "done" } as StreamEvent;
+    }
+
+    try {
+      await runGenerationWithUi(queryClient, { chatId, userMessage: "u1" }, stream);
+      await followUpFinished;
+      await vi.waitFor(() => expect(useChatStore.getState().abortControllers.has(chatId)).toBe(false));
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toEqual({ chatId, connectionId: null });
+      // The follow-up answered u2, so nothing else runs.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(calls).toHaveLength(2);
+    } finally {
+      listMessages.mockRestore();
+      queryClient.clear();
+    }
+  });
+
+  it("leaves a message sent during a failed reply for the Retry button", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-sent-during-failed-reply";
+    queryClient.setQueryData(chatKeys.detail(chatId), { id: chatId, mode: "conversation", metadata: {} } as Chat);
+    const listMessages = vi.spyOn(storageApi, "listChatMessages");
+    let calls = 0;
+    // eslint-disable-next-line require-yield
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      calls += 1;
+      markMessageSentDuringReply(chatId);
+      throw new Error("Provider returned reasoning but no final assistant text.");
+    }
+
+    try {
+      await expect(runGenerationWithUi(queryClient, { chatId }, stream)).rejects.toThrow();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(calls).toBe(1);
+      expect(listMessages).not.toHaveBeenCalled();
+    } finally {
+      listMessages.mockRestore();
+      queryClient.clear();
+    }
+  });
+
   it("keeps a saved assistant reply visible when an older timeline request finishes late", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-late-timeline-response";

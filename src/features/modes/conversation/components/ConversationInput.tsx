@@ -40,7 +40,12 @@ import {
   prepareManagedImageAttachmentBatch,
   type PreparedManagedImageAttachments,
 } from "../../../../shared/api/message-attachment-api";
-import { GenerationFailureNotice, isReportedGenerationFailure, useGenerate } from "../../../runtime/generation/index";
+import {
+  GenerationFailureNotice,
+  isReportedGenerationFailure,
+  markMessageSentDuringReply,
+  useGenerate,
+} from "../../../runtime/generation/index";
 import { readScopedRegexMode, useApplyRegex } from "../../../catalog/regex-scripts/regex-application";
 import {
   useCreateMessage,
@@ -546,9 +551,8 @@ export function ConversationInput({
       return;
     }
 
-    // If already generating for this chat, just save the message without
-    // triggering another generation ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the in-progress generation will see
-    // it (server re-reads messages after any busy delay).
+    // While a reply is being written, the message is only saved: the reply sees it if it is still waiting out a
+    // busy delay; otherwise the chat gets one more reply for it once this turn ends (use-generate).
     if (isStreaming) {
       const activeChatData = useChatStore.getState().activeChat;
       const cachedCharacters = qc.getQueryData<Array<{ id: string; data: unknown }>>(characterKeys.list());
@@ -599,6 +603,7 @@ export function ConversationInput({
           invalidateGalleryImagesForManagedAttachments(qc, activeChatId, managedAttachments);
         }
         requestChatScrollToBottom({ chatId: activeChatId, behavior: "auto" });
+        if (groupResponseOrder !== "manual") markMessageSentDuringReply(activeChatId);
       } catch (error) {
         let rollbackFailed = false;
         if (preparedManagedAttachments?.createdGalleryIds.length) {

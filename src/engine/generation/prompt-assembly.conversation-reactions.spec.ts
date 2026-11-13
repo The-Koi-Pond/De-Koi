@@ -115,6 +115,34 @@ describe("conversation reactions in the prompt", () => {
     expect(history).toContain("i got the job\n(Juno reacted 🎉)");
     expect(history).toContain("SAM. cake. now\n(The user reacted ❤️)");
   });
+
+  it("says when a reply landed after texts it never saw, so the next reply answers them", async () => {
+    const result = await assembleGenerationPrompt(conversationStorage(juno), {
+      chat: { id: "chat-1", mode: "conversation", characterIds: ["juno"], metadata: {} },
+      storedMessages: [
+        { id: "user-1", role: "user", content: "what should i draw" },
+        { id: "user-2", role: "user", content: "actually a gun" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          characterId: "juno",
+          content: "a frog. always a frog",
+          extra: { answersUserVersion: { messageId: "user-1", index: 0 } },
+        },
+      ],
+      connection: { provider: "openai", model: "qa-model" },
+      request: {},
+      latestUserInput: "",
+    });
+
+    const history = result.messages
+      .filter((message) => message.role !== "system")
+      .map((message) => message.content)
+      .join("\n");
+    expect(history).toContain(
+      "a frog. always a frog\n(The user sent the message just before this one while this text was being written; this text did not answer it.)",
+    );
+  });
 });
 
 describe("conversation photos in the prompt", () => {

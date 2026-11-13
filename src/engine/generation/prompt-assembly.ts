@@ -25,6 +25,7 @@ import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/rege
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
 import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
 import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
+import { messagesSentDuringReplies, sentDuringReplyHistoryNote } from "../modes/chat/core/sent-during-reply";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
 import { VOICE_CALL_DELIVERY_INSTRUCTION } from "../modes/chat/voice-call/delivery-tags";
@@ -3381,19 +3382,24 @@ interface HistoryPromptSelection {
 
 /**
  * Notes after a Conversation message: "(sent a photo: …)" for a character's photo, so the model knows what it
- * sent, and "(Sam reacted ❤️)" for a reaction, so the character knows how a text landed.
+ * sent, "(Sam sent the message just before this one while this text was being written …)" so the next reply
+ * answers it, and "(Sam reacted ❤️)" for a reaction, so the character knows how a text landed.
  */
 function conversationReactionNote(
   characters: GenerationCharacterContext[],
   personaName: string | null,
+  storedMessages: readonly JsonRecord[],
 ): (message: JsonRecord) => string {
   const names = new Map(characters.map((character) => [character.id, character.name]));
+  const userName = personaName?.trim() || "The user";
+  const sentDuring = messagesSentDuringReplies(storedMessages);
   return (message) =>
     [
       readString(message.role) === "assistant" ? sentPhotoHistoryNote(message.extra) : "",
       readString(message.role) === "assistant" ? voiceNoteHistoryNote(message.extra) : "",
+      sentDuringReplyHistoryNote(sentDuring.get(readString(message.id)) ?? 0, userName),
       reactionHistoryNote(readMessageReactions(message.extra), (by) =>
-        by === USER_REACTOR ? personaName?.trim() || "The user" : (names.get(by) ?? "Someone"),
+        by === USER_REACTOR ? userName : (names.get(by) ?? "Someone"),
       ),
     ]
       .filter(Boolean)
@@ -4492,7 +4498,9 @@ export async function assembleGenerationPrompt(
     historyLimit,
     chatMeta.excludePastReasoning === false,
     conversationFocus?.includeAssistantHistory ?? true,
-    chatMode === "conversation" ? conversationReactionNote(characters, persona?.name ?? null) : undefined,
+    chatMode === "conversation"
+      ? conversationReactionNote(characters, persona?.name ?? null, input.storedMessages)
+      : undefined,
   );
   const compactedSourceHistory =
     !reusableContext && shouldCompactHistoryForSummary(input.chat, selectedPreset, summary)
