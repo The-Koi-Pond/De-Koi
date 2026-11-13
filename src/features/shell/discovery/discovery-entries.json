@@ -1285,8 +1285,10 @@
     "id": "swipes-rerolls",
     "title": "Swipes And Rerolls",
     "category": "Advanced",
-    "summary": "Move between alternate generations, regenerate replies, amend the latest response with a targeted instruction, and optionally use your draft as guidance for the next retry.",
+    "summary": "Move between alternate generations, regenerate replies, amend the latest response with a targeted instruction, and optionally use your draft as guidance for the next retry. In a texting chat, the send button with an empty box retries after your unanswered message and becomes Keep going after a character's text, asking them for another one.",
     "keywords": [
+      "keep going",
+      "continue",
       "swipe",
       "swipes",
       "reroll",
