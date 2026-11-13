@@ -53,6 +53,7 @@ import { personaKeys } from "../../../catalog/personas/index";
 import type { GenerationReplayInput } from "../../../../engine/generation/generation-replay";
 import { findPersonaSnapshotForChat } from "../../../../engine/generation/persona-snapshot";
 import { readNonNegativeInteger } from "../../../../engine/generation/runtime-records";
+import { latestMessageSentDuringReply } from "../../../../engine/modes/chat/core/sent-during-reply";
 import { worldStatePatchFromAgentData } from "../../../../engine/generation/world-state-agent-result";
 import {
   applyQuestUpdatesToPlayerStats,
@@ -69,6 +70,7 @@ import {
   MEMORY_EMBEDDING_UNAVAILABLE_TITLE,
 } from "../lib/memory-embedding-guidance";
 import { acquireChatGenerationController, releaseChatGenerationController } from "../lib/chat-generation-controller";
+import { takeMessageSentDuringReply } from "../lib/sent-during-reply";
 import type { IntegrationGateway } from "../../../../engine/capabilities/integrations";
 import { isRecord, readString } from "../../../../engine/shared/value-readers";
 
@@ -1385,6 +1387,7 @@ export async function runGenerationWithUi(
   if (!controller) return false;
 
   let received = "";
+  let turnFinished = false;
   let receivedAnyContent = false;
   let receivedTurnContent = false;
   let receivedThinking = false;
@@ -1978,6 +1981,7 @@ export async function runGenerationWithUi(
     }
     await flushLiveGenerationBuffers();
     scheduleChatQueryRefresh(queryClient, chatId);
+    turnFinished = true;
     return receivedAnyContent;
   } catch (error) {
     if (!isAbortError(error)) {
@@ -2008,6 +2012,26 @@ export async function runGenerationWithUi(
     } else {
       drainAgentResultEffects();
     }
+    // A failed or stopped turn leaves the messages for the Retry button; a finished one answers them now.
+    if (takeMessageSentDuringReply(chatId) && turnFinished && !wasAborted) {
+      setTimeout(() => void answerMessagesSentDuringReply(queryClient, chatId, streamFactory), 0);
+    }
+  }
+}
+
+/** One more reply for messages the user sent while the last one was being written, if they are still unanswered. */
+async function answerMessagesSentDuringReply(
+  queryClient: QueryClient,
+  chatId: string,
+  streamFactory: GenerationStreamFactory,
+): Promise<void> {
+  try {
+    const messages = await storageApi.listChatMessages<Record<string, unknown>>(chatId);
+    if (!latestMessageSentDuringReply(messages)) return;
+    await runGenerationWithUi(queryClient, { chatId, connectionId: null }, streamFactory);
+  } catch (error) {
+    if (isReportedGenerationFailure(error) || isAbortError(error)) return;
+    toast.error(errorMessage(error));
   }
 }
 
