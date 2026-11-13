@@ -24,6 +24,7 @@ import { tranceCharacterColors } from "../lib/trance-colors";
 import { TrancePlayer } from "./TrancePlayer";
 import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
 import { TranceSessionOptions } from "./TranceSessionOptions";
+import { useDiscardUntouchedNewChat } from "../../shared/chat-ui/new-chat-drafts";
 
 export interface TranceModeRouteProps {
   activeChatId: string;
@@ -136,10 +137,11 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
     if (chat) useChatStore.getState().setActiveChat(chat);
   }, [chat]);
 
-  // New-chat setup opens the shared settings drawer and wizard in other modes; here the session form is the setup.
-  useEffect(() => {
-    useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
-  }, [activeChatId]);
+  // Started with New and left on the session form with nothing saved (no request or guide): drop it.
+  useDiscardUntouchedNewChat(
+    activeChatId,
+    !isLoading && !!chat && stage === "request" && !saveRequest.isPending && characterIds.length === 0,
+  );
 
   if (isLoading) {
     return (
