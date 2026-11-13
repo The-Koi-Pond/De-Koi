@@ -79,6 +79,7 @@ import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPriori
 import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
 import { characterWillNote } from "./character-will";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
+import { buildConversationSteeringGuidance } from "./conversation-steering";
 import { habitScanGuidance, readHabitScan } from "./habit-scan";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
@@ -2804,6 +2805,33 @@ function buildConversationFreshnessBlock(
 }
 
 /**
+ * What the user's own recent words ask of the next reply: a different approach after "that missed", the scene they
+ * asked for over the character's usual mood, and leading when they're unsure (see conversation-steering.ts).
+ */
+function buildConversationSteeringBlock(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+  names: ConversationFreshnessNames,
+): ChatMLMessage | null {
+  if (modeOf(input.chat) !== "conversation") return null;
+  const guidance = buildConversationSteeringGuidance({
+    messages: input.storedMessages,
+    latestUserInput: input.latestUserInput,
+    userName: names.userName,
+  });
+  if (!guidance) return null;
+  return {
+    role: "system",
+    contextKind: "prompt",
+    content: wrapContent(
+      ["Follow this for the next reply; it comes from the user's own words. Do not mention it.", guidance].join("\n"),
+      "conversation_steering",
+      wrapFormat,
+    ),
+  };
+}
+
+/**
  * Conversation notes that change every turn (the clock, the "conversation resumed" gap, the freshness hint).
  * They ride on the latest user turn instead of sitting among the system blocks: providers that hoist every
  * system message into one system prompt (Anthropic, Claude Subscription) would otherwise get a new system
@@ -2817,6 +2845,7 @@ function buildConversationTurnNotes(
   return [
     buildConversationPresenceBlock(input, wrapFormat),
     buildConversationFreshnessBlock(input, wrapFormat, names),
+    buildConversationSteeringBlock(input, wrapFormat, names),
   ].filter((block): block is ChatMLMessage => block !== null);
 }
 
