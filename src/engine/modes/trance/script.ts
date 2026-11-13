@@ -5,11 +5,18 @@ import type { LlmGateway } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
 import type { TranceEnding, TranceLine, TrancePhase, TranceScript, TranceState } from "../../contracts/types/trance";
 import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
+import { activeCharacterIds } from "../../generation/active-characters";
 import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString } from "../../generation/runtime-records";
 import { untilAborted } from "../../shared/until-aborted";
 import { userFacingError } from "../../shared/user-facing-error";
-import { buildTranceScriptMessages, pickTranceWayIn, tranceTooShortNote, type TranceCharacterCard } from "./prompts";
+import {
+  buildTranceScriptMessages,
+  pickTranceShape,
+  tranceSessionExcerpt,
+  tranceTooShortNote,
+  type TranceCharacterCard,
+} from "./prompts";
 import { readTranceState, tranceTargetLines } from "./request";
 
 /** The reply couldn't be read as a session; the message says what was wrong. */
@@ -153,13 +160,39 @@ function cardFromContext(character: {
   };
 }
 
+/** How many earlier scripts with the same guide the writer sees, so a new one doesn't repeat them. */
+const EARLIER_SESSIONS = 3;
+
+/**
+ * Excerpts of the latest scripts this guide wrote: this session's own script first when it's being rewritten,
+ * then other trance sessions with the same character, newest first.
+ */
+async function earlierTranceExcerpts(
+  storage: StorageGateway,
+  chatId: string,
+  characterId: string,
+  current: TranceScript | null,
+): Promise<string[][]> {
+  const others: TranceScript[] = [];
+  for (const row of await storage.list<unknown>("chats")) {
+    if (!isRecord(row) || readString(row.id) === chatId || readString(row.mode) !== "trance") continue;
+    if (!activeCharacterIds(row).includes(characterId)) continue;
+    const script = readTranceState(parseRecord(row.metadata))?.script;
+    if (script && script.lines.length > 0) others.push(script);
+  }
+  others.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return [...(current ? [current] : []), ...others]
+    .slice(0, EARLIER_SESSIONS)
+    .map((script) => tranceSessionExcerpt(script.lines));
+}
+
 const TRANCE_NO_CONNECTION = "Pick a model connection for this session first.";
 const TRANCE_NO_CHARACTER = "Pick a character to guide this session first.";
 
 export interface GenerateTranceScriptOptions {
   signal?: AbortSignal;
   now?: () => Date;
-  /** Picks the way in; Math.random by default. */
+  /** Picks the way in, deepener and thread; Math.random by default. */
   random?: () => number;
 }
 
@@ -187,14 +220,15 @@ export async function generateTranceScript(
   const card = cardFromContext(character);
   const target = tranceTargetLines(state.request.minutes);
   const maxTokens = tranceReplyTokens(target);
-  // One way in per script, kept across retries.
-  const wayIn = pickTranceWayIn(options.random);
+  // One way in, deepener and thread per script, kept across retries.
+  const shape = pickTranceShape(options.random);
+  const earlier = await earlierTranceExcerpts(deps.storage, chatId, character.id, state.script);
   const call = (retry?: { previous: string; note: string }) =>
     untilAborted(
       deps.llm.complete(
         {
           connectionId,
-          messages: buildTranceScriptMessages(state.request, card, wayIn, retry),
+          messages: buildTranceScriptMessages(state.request, card, shape, earlier, retry),
           parameters: { maxTokens, temperature: 1 },
         },
         signal,

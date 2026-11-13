@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 // Headings are markdown, not XML: a seeded outgoing-prompt regex strips XML-like tags.
 import type { LlmMessage } from "../../capabilities/llm";
-import type { TranceFeature, TranceMood, TranceRequest } from "../../contracts/types/trance";
+import type { TranceFeature, TranceLine, TranceMood, TrancePhase, TranceRequest } from "../../contracts/types/trance";
 import { TRANCE_ENDING_LABELS, tranceTargetLines } from "./request";
 
 /** The character as the script writer sees them. */
@@ -114,10 +114,70 @@ export const TRANCE_WAYS_IN = [
   "Your voice: attention on your words alone, everything else growing distant and unimportant.",
 ] as const;
 
-/** A random way in; `random` is injectable so tests can pick one. */
-export function pickTranceWayIn(random: () => number = Math.random): string {
-  const index = Math.min(TRANCE_WAYS_IN.length - 1, Math.floor(random() * TRANCE_WAYS_IN.length));
-  return TRANCE_WAYS_IN[Math.max(0, index)]!;
+/**
+ * How the session goes deeper. Left alone, models deepen nearly every session with a count down from ten, so the
+ * plain countdown lives only among the ways in and these are everything else.
+ */
+export const TRANCE_DEEPENERS = [
+  "Stacking: each line lets one more small thing go quiet or settle, so the depth adds up line by line, with no counting.",
+  "Fading words: your lines grow shorter and sparser, words dropping away, until single words carry them down.",
+  "Losing the count: they count down slowly in their head while you keep talking over it, and the numbers blur and slip away; losing count means it's working.",
+  "Doubling: each time they notice one small thing (a breath out, a blink, the end of one of your lines), they can go twice as deep, and twice again.",
+  "Echoes: you say something, then say it again more softly, and again, each echo taking them a little further down.",
+  "Far and near: everything outside your words grows smaller and further away, while the space inside grows quieter, roomier and warmer.",
+  "Half-listening: you tell them something slow and small, and let them sink while they only half follow it, the telling trailing off as they go.",
+] as const;
+
+/**
+ * How the character's world shows up. One per script keeps the card from being recited: left alone, models work
+ * through the description item by item (every place, person and pastime) and land on the same favourite images.
+ */
+export const TRANCE_THREADS = [
+  "One place: a single place from their world, felt through two or three senses and returned to, never toured.",
+  "One object: a single thing they'd have at hand, held, looked at and given meaning for this listener.",
+  "A habit: something they do as a matter of course (closing up for the night, mending, tending, a small ritual of theirs), done slowly alongside the listener.",
+  "Voice alone: no scenery at all. Their world shows only in how they talk, what they notice and what they call the listener.",
+  "The hour: just the time and the air around them (late night, rain, first light, a fire burning down), and nothing else from their world.",
+  "Their own invention: an image they'd make up on the spot for this listener, in their style, not taken from their description.",
+] as const;
+
+/** The techniques for one script, picked at random and kept across retries. */
+export interface TranceSessionShape {
+  wayIn: string;
+  deepener: string;
+  thread: string;
+}
+
+function pickFrom<T>(options: readonly T[], random: () => number): T {
+  const index = Math.min(options.length - 1, Math.floor(random() * options.length));
+  return options[Math.max(0, index)]!;
+}
+
+/** A random way in, deepener and thread; `random` is injectable so tests can pick them. */
+export function pickTranceShape(random: () => number = Math.random): TranceSessionShape {
+  return {
+    wayIn: pickFrom(TRANCE_WAYS_IN, random),
+    deepener: pickFrom(TRANCE_DEEPENERS, random),
+    thread: pickFrom(TRANCE_THREADS, random),
+  };
+}
+
+const EXCERPT_PER_PHASE: Partial<Record<TrancePhase, number>> = {
+  pretalk: 2,
+  induction: 2,
+  deepener: 3,
+  suggestions: 3,
+};
+
+/** The first lines of each section of an earlier script: enough to show its setting, images and turns of phrase. */
+export function tranceSessionExcerpt(lines: readonly TranceLine[]): string[] {
+  const taken: Partial<Record<TrancePhase, number>> = {};
+  return lines.flatMap((line) => {
+    const used = taken[line.phase] ?? 0;
+    if (used >= (EXCERPT_PER_PHASE[line.phase] ?? 0)) return [];
+    taken[line.phase] = used + 1;
+    return [line.text];
+  });
 }
 
 function sectionShares(target: number, ending: TranceRequest["ending"]): string {
@@ -146,21 +206,27 @@ export function buildTranceSystemPrompt(): string {
     "## How to hypnotise someone who may not feel it",
     "- Start permissive: might, may, perhaps, can. Become more direct only once the deepener is under way.",
     "- Before suggesting anything, describe what is already true: they are reading, breathing, sitting or lying somewhere, the screen is there.",
-    "- Never state a feeling as fact before pacing it. Every suggested sensation gets an alternative: heavy, or light, or something else entirely, and any of it is right.",
-    "- Early on, let them know that a wandering mind and feeling little at first are normal and part of it.",
+    "- Never state a feeling as fact before pacing it. Suggested sensations get alternatives (heavy, or light, or something else entirely, and any of it is right), worded differently each time rather than one stock either-or.",
+    "- Somewhere early, once and in passing, let them know that a wandering mind and feeling little at first are normal and part of it. It needn't be in the pretalk, and it's never a disclaimer.",
     "- Never scold, test, or make them wrong. Whatever they notice is the right thing to notice.",
     "- Before the ending, include one line that covers both outcomes: if they are deep they can enjoy it, and if not, they are simply rested.",
-    "- Skip the stock relaxation opening: no dropping or lowering the shoulders, no loosening or slackening the jaw, no relaxing the forehead or tongue, and no head-to-toe body scan. Build the induction around the way in you are given.",
+    "- Skip the stock relaxation opening: no dropping or lowering the shoulders, no loosening or slackening the jaw, no relaxing the forehead or tongue, and no head-to-toe body scan. Build the induction around the way in you are given and the deepener around the deepener you are given.",
+    "- Count down at most once in the whole session; the wake count up is separate.",
     "",
     "## Make it theirs",
-    "- The listener picked this character to guide them. Every section should sound unmistakably like them: their way of talking, what they'd call someone in their care, their humour, warmth or sternness, their habits of speech from the examples.",
-    "- Take the imagery from the character's own world (their places, objects, sounds, people and pastimes from the description and setting) instead of generic relaxation imagery, and keep coming back to it in every section, not only in a mention or two.",
-    "- A line picked at random from the middle of the session should still sound like this character, not like any hypnotist.",
+    "- The listener picked this character to guide them. Their voice is what matters most: how they talk, what they'd call someone in their care, their humour, warmth or sternness, the rhythm of their example lines. A line picked at random from the middle should still sound like them, not like any hypnotist.",
+    "- Their world is seasoning, not a checklist. Follow the thread you are given and leave the rest of their description alone. Don't name other people from their life, list their interests, possessions or past, or remind the listener who they are; the listener already knows. A detail belongs only where the character would naturally reach for it in that moment.",
+    "- Let one image carry the session and grow, instead of changing scenery every section.",
+    "",
+    "## Keep it fresh",
+    "- Don't open by telling them how they arrived (tired, stressed and so on); let their mood shape how you speak instead.",
+    "- Don't settle into a template. Vary line length and rhythm, and use any pattern (a run of lines with the same shape, a scene detail on every number) once at most.",
+    "- If earlier sessions with this guide are listed, this one must feel new to someone who heard them: a different setting, different images, a different opening and none of their phrases.",
     "",
     "## Care",
     "- Stay fully in the character's voice and attitude, teasing or commanding if that's who they are, but never mock, threaten or frighten the listener.",
     "- No trigger words or suggestions that last after the session. Only the good feeling stays; everything else returns to normal.",
-    "- Wake ending: count up from 1 to 10 with short lines between the numbers, and finish with them fully awake, aware of the room, alert and feeling good.",
+    "- Wake ending: count up from 1 to 10 with short lines between some of the numbers, and finish with them fully awake, aware of the room, alert and feeling good.",
     "- Sleep ending: no count. Invite them to let the screen go when they're ready, and suggest deep, restful sleep and waking at their usual time feeling refreshed.",
     "",
     "## Reply format",
@@ -179,7 +245,12 @@ export function buildTranceSystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCharacterCard, wayIn: string): string {
+export function buildTranceRequestPrompt(
+  request: TranceRequest,
+  card: TranceCharacterCard,
+  shape: TranceSessionShape,
+  earlier: readonly string[][] = [],
+): string {
   const target = tranceTargetLines(request.minutes);
   const features = request.features.map((feature) => `- ${FEATURE_RULES[feature]}`);
   const moods = request.moods.map((mood) => MOOD_OPENINGS[mood]);
@@ -190,7 +261,9 @@ export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCha
     "## This session",
     `- Type: ${TYPE_TONES[request.type]}`,
     `- Goal: ${CATEGORY_GOALS[request.category]}`,
-    `- Way in (the induction's main technique, told in your own style): ${wayIn}`,
+    `- Way in (the induction's main technique, told in your own style): ${shape.wayIn}`,
+    `- Deepener (how the deepener takes them down, in your own style): ${shape.deepener}`,
+    `- Thread (how your world shows up; the rest of your description stays out): ${shape.thread}`,
     `- Ending: ${TRANCE_ENDING_LABELS[request.ending]}`,
     `- Length: about ${request.minutes} minutes, so about ${target} lines before the exits:`,
     sectionShares(target, request.ending),
@@ -215,6 +288,14 @@ export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCha
           ...(request.moodNote ? [`In their words: ${request.moodNote}`] : []),
         ]
       : []),
+    ...(earlier.length > 0
+      ? [
+          "",
+          "## Earlier sessions with this guide",
+          "The listener has heard these. Take this one somewhere new: no shared setting, images, opening or phrases.",
+          ...earlier.flatMap((lines, index) => [`Session ${index + 1}:`, ...lines.map((line) => `> ${line}`)]),
+        ]
+      : []),
     "",
     `Write the whole session now as ${card.name.trim() || "the character"}.`,
   ].join("\n");
@@ -228,12 +309,13 @@ export function tranceTooShortNote(received: number, target: number): string {
 export function buildTranceScriptMessages(
   request: TranceRequest,
   card: TranceCharacterCard,
-  wayIn: string,
+  shape: TranceSessionShape,
+  earlier: readonly string[][],
   retry?: { previous: string; note: string },
 ): LlmMessage[] {
   const messages: LlmMessage[] = [
     { role: "system", content: buildTranceSystemPrompt() },
-    { role: "user", content: buildTranceRequestPrompt(request, card, wayIn) },
+    { role: "user", content: buildTranceRequestPrompt(request, card, shape, earlier) },
   ];
   if (retry) {
     messages.push({ role: "assistant", content: retry.previous }, { role: "user", content: retry.note });

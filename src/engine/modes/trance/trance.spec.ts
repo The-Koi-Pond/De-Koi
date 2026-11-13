@@ -5,7 +5,15 @@ import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import { filterAgentIdsForChatMode } from "../../contracts/types/agent";
 import { getEffectiveMemoryRecallEnabled } from "../../contracts/types/chat";
 import type { TranceRequest, TranceState } from "../../contracts/types/trance";
-import { buildTranceRequestPrompt, buildTranceSystemPrompt, pickTranceWayIn, TRANCE_WAYS_IN } from "./prompts";
+import {
+  buildTranceRequestPrompt,
+  buildTranceSystemPrompt,
+  pickTranceShape,
+  TRANCE_DEEPENERS,
+  TRANCE_THREADS,
+  TRANCE_WAYS_IN,
+  tranceSessionExcerpt,
+} from "./prompts";
 import {
   createTranceState,
   defaultTranceRequest,
@@ -153,26 +161,78 @@ describe("trance prompt", () => {
     expect(system).not.toMatch(/<[a-z]+>/);
   });
 
-  it("asks for the character's own voice and world throughout, and bans the stock shoulders-and-jaw opening", () => {
+  it("asks for the character's voice, keeps their description from being recited, and bans the stock opening", () => {
     const system = buildTranceSystemPrompt();
     expect(system).toMatch(/## Make it theirs/);
-    expect(system).toMatch(/keep coming back to it in every section/);
     expect(system).toMatch(/not like any hypnotist/);
+    expect(system).toMatch(/seasoning, not a checklist/);
+    expect(system).toMatch(/Don't name other people from their life/);
+    expect(system).not.toMatch(/keep coming back to it in every section/);
     expect(system).toMatch(/no dropping or lowering the shoulders, no loosening or slackening the jaw/);
+    expect(system).toMatch(/Count down at most once/);
+    expect(system).toMatch(/## Keep it fresh/);
   });
 
-  it("picks a way in at random, one of the known techniques", () => {
-    expect(pickTranceWayIn(() => 0)).toBe(TRANCE_WAYS_IN[0]);
-    expect(pickTranceWayIn(() => 0.999999)).toBe(TRANCE_WAYS_IN.at(-1));
-    const prompt = buildTranceRequestPrompt(request, { name: "Jester" }, TRANCE_WAYS_IN[3]);
+  it("picks a way in, deepener and thread at random, and puts them in the request", () => {
+    expect(pickTranceShape(() => 0)).toEqual({
+      wayIn: TRANCE_WAYS_IN[0],
+      deepener: TRANCE_DEEPENERS[0],
+      thread: TRANCE_THREADS[0],
+    });
+    const last = pickTranceShape(() => 0.999999);
+    expect(last.wayIn).toBe(TRANCE_WAYS_IN.at(-1));
+    expect(last.deepener).toBe(TRANCE_DEEPENERS.at(-1));
+    expect(last.thread).toBe(TRANCE_THREADS.at(-1));
+    const draws = [0.4, 0.1, 0.7];
+    const mixed = pickTranceShape(() => draws.shift()!);
+    expect(mixed.wayIn).toBe(TRANCE_WAYS_IN[3]);
+    expect(mixed.deepener).toBe(TRANCE_DEEPENERS[0]);
+    expect(mixed.thread).toBe(TRANCE_THREADS[4]);
+    const prompt = buildTranceRequestPrompt(request, { name: "Jester" }, mixed);
     expect(prompt).toContain(`Way in (the induction's main technique, told in your own style): ${TRANCE_WAYS_IN[3]}`);
+    expect(prompt).toContain(`Deepener (how the deepener takes them down, in your own style): ${TRANCE_DEEPENERS[0]}`);
+    expect(prompt).toContain(TRANCE_THREADS[4]);
+    expect(prompt).not.toMatch(/## Earlier sessions/);
+  });
+
+  it("no deepener is a plain count down: that's what models fall back to on their own", () => {
+    for (const deepener of TRANCE_DEEPENERS) expect(deepener).not.toMatch(/count(?:ing)? down from/i);
+  });
+
+  it("lists earlier sessions with the guide so the new one goes somewhere else", () => {
+    const prompt = buildTranceRequestPrompt(
+      request,
+      { name: "Jester" },
+      pickTranceShape(() => 0),
+      [["The boat is moving.", "Ten."], ["The tent is quiet."]],
+    );
+    expect(prompt).toMatch(/## Earlier sessions with this guide/);
+    expect(prompt).toMatch(/Session 1:\n> The boat is moving\.\n> Ten\.\nSession 2:\n> The tent is quiet\./);
+  });
+
+  it("excerpts the first lines of each section of an earlier script", () => {
+    const lines = (["pretalk", "induction", "deepener", "suggestions", "wake"] as const).flatMap((phase) =>
+      [1, 2, 3, 4].map((n) => ({ phase, text: `${phase} ${n}` })),
+    );
+    expect(tranceSessionExcerpt(lines)).toEqual([
+      "pretalk 1",
+      "pretalk 2",
+      "induction 1",
+      "induction 2",
+      "deepener 1",
+      "deepener 2",
+      "deepener 3",
+      "suggestions 1",
+      "suggestions 2",
+      "suggestions 3",
+    ]);
   });
 
   it("puts the character, mood, idea and length in the request", () => {
     const prompt = buildTranceRequestPrompt(
       request,
       { name: "Jester", description: "{{char}} teases {{user}}." },
-      TRANCE_WAYS_IN[0],
+      pickTranceShape(() => 0),
     );
     expect(prompt).toMatch(/### Jester/);
     expect(prompt).toMatch(/Jester teases the listener\./);
@@ -273,6 +333,9 @@ function storageFor(state: TranceState | null, chat: Record<string, unknown> = {
         return { id, data: { name: "Jester", description: "A clown." } } as T;
       return null;
     },
+    async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+      return (entity === "chats" ? [...chats.values()] : []) as T[];
+    },
     async update(entity: StorageEntity, id: string, value: Record<string, unknown>) {
       updates.push(value);
       if (entity === "chats") chats.set(id, { ...chats.get(id), ...value });
@@ -326,13 +389,58 @@ describe("generateTranceScript", () => {
     const next = await generateTranceScript({ storage, llm }, "s1", { random: () => 0.5 });
     expect(complete).toHaveBeenCalledTimes(2);
     expect(next.script?.lines.length).toBe(3 + 90 + 10);
-    // The retry keeps the same way in as the first try.
-    const wayIns = complete.mock.calls.map(
+    // The retry keeps the same way in, deepener and thread as the first try.
+    const shapes = complete.mock.calls.map(
       (call) =>
-        (call as unknown as [{ messages: Array<{ content: string }> }])[0].messages[1]!.content.match(/Way in .*/)?.[0],
+        (call as unknown as [{ messages: Array<{ content: string }> }])[0].messages[1]!.content.match(
+          /Way in [^\n]*\n[^\n]*\n[^\n]*/,
+        )?.[0],
     );
-    expect(wayIns[0]).toContain(TRANCE_WAYS_IN[4]);
-    expect(wayIns[1]).toBe(wayIns[0]);
+    expect(shapes[0]).toContain(TRANCE_WAYS_IN[4]);
+    expect(shapes[0]).toContain(TRANCE_DEEPENERS[3]);
+    expect(shapes[0]).toContain(TRANCE_THREADS[3]);
+    expect(shapes[1]).toBe(shapes[0]);
+  });
+
+  it("shows the writer this guide's latest earlier scripts, so a new one doesn't repeat them", async () => {
+    const script = (first: string, createdAt: string) => ({
+      lines: [{ phase: "pretalk" as const, text: first }],
+      exits: { gentle: [], calm: [] },
+      connectionId: "conn",
+      createdAt,
+    });
+    const own = { ...state, script: script("This session, first try.", "2026-11-12T05:00:00Z") };
+    const { storage, chats } = storageFor(own);
+    const trance = (id: string, characterIds: string[], first: string | null, createdAt = "2026-11-10T00:00:00Z") =>
+      chats.set(id, {
+        id,
+        mode: "trance",
+        characterIds,
+        metadata: { trance: { ...state, script: first ? script(first, createdAt) : null } },
+      });
+    trance("old", ["jester"], "Oldest.", "2026-11-01T00:00:00Z");
+    trance("new", ["jester"], "Newest other.", "2026-11-11T00:00:00Z");
+    trance("mid", ["jester"], "Middle.", "2026-11-05T00:00:00Z");
+    trance("someone-else", ["pierrot"], "Not this guide.");
+    trance("unwritten", ["jester"], null);
+    chats.set("chat", { id: "chat", mode: "conversation", characterIds: ["jester"], metadata: {} });
+
+    const { llm, complete } = llmReplying(reply({ main: 30 }));
+    await generateTranceScript({ storage, llm }, "s1");
+    const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    const earlier = sent.messages[1]!.content.split("## Earlier sessions with this guide")[1] ?? "";
+    expect(earlier).toMatch(
+      /Session 1:\n> This session, first try\.\nSession 2:\n> Newest other\.\nSession 3:\n> Middle\./,
+    );
+    expect(earlier).not.toMatch(/Oldest|Not this guide/);
+  });
+
+  it("leaves the earlier-sessions part out for a first session with this guide", async () => {
+    const { storage } = storageFor(state);
+    const { llm, complete } = llmReplying(reply({ main: 30 }));
+    await generateTranceScript({ storage, llm }, "s1");
+    const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    expect(sent.messages[1]!.content).not.toMatch(/Earlier sessions/);
   });
 
   it("keeps a short script when the retry is no better, showing its real length", async () => {
@@ -547,7 +655,11 @@ describe("session ideas", () => {
 
   it("tells the script writer to open with the lines that were previewed", () => {
     const [chosen] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
-    const prompt = buildTranceRequestPrompt(chosen!.request, { name: "Jester" }, TRANCE_WAYS_IN[0]);
+    const prompt = buildTranceRequestPrompt(
+      chosen!.request,
+      { name: "Jester" },
+      pickTranceShape(() => 0),
+    );
     expect(prompt).toMatch(/## The session they picked/);
     expect(prompt).toMatch(/Title: The Quiet Box/);
     expect(prompt).toMatch(/word for word/);
