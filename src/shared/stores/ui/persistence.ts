@@ -18,6 +18,8 @@ import {
   SIDEBAR_WIDTH_MIN,
   TRANCE_BACKDROPS,
   TRANCE_VOICE_MODES,
+  TRANCE_PACES,
+  TRANCE_BUTTON_WORDS,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerPanelSizeProfile,
   normalizeConversationMessageStyle,
@@ -218,6 +220,8 @@ export function partializeUiState(state: UIState) {
     roleplaySceneSound: state.roleplaySceneSound,
     tranceBackdrop: state.tranceBackdrop,
     tranceVoice: state.tranceVoice,
+    trancePace: state.trancePace,
+    tranceButtonWords: state.tranceButtonWords,
     sceneAmbientVolume: state.sceneAmbientVolume,
     sceneEffectsVolume: state.sceneEffectsVolume,
     hudPosition: state.hudPosition,
@@ -326,6 +330,13 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.tranceVoice = (TRANCE_VOICE_MODES as readonly unknown[]).includes(persisted.tranceVoice)
     ? persisted.tranceVoice
     : "off";
+  persisted.trancePace = (TRANCE_PACES as readonly unknown[]).includes(persisted.trancePace)
+    ? persisted.trancePace
+    : "press";
+  // Missing for people who used Trance before the choice existed: they get the quiet words too.
+  persisted.tranceButtonWords = (TRANCE_BUTTON_WORDS as readonly unknown[]).includes(persisted.tranceButtonWords)
+    ? persisted.tranceButtonWords
+    : "quiet";
   delete persisted.trackerPanelWidth;
 
   return persisted;

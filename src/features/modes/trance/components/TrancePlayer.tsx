@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { LifeBuoy, Volume2, VolumeX } from "lucide-react";
+import { LifeBuoy, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import type {
   TranceAfter,
   TranceEnding,
@@ -9,9 +9,13 @@ import type {
   TranceScript,
 } from "../../../../engine/contracts/types/trance";
 import { TRANCE_NOTE_LIMIT } from "../../../../engine/modes/trance/request";
-import { TRANCE_STOP_LINE, tranceButtonLabel } from "../../../../engine/modes/trance/session";
+import { TRANCE_STOP_LINE, tranceButtonLabel, type TranceButtonStyle } from "../../../../engine/modes/trance/session";
 import { cn } from "../../../../shared/lib/utils";
-import type { TranceBackdrop as TranceBackdropKind, TranceVoiceMode } from "../../../../shared/stores/ui/model";
+import type {
+  TranceBackdrop as TranceBackdropKind,
+  TrancePace,
+  TranceVoiceMode,
+} from "../../../../shared/stores/ui/model";
 import { useTranceVoice } from "../hooks/use-trance-voice";
 import { TranceBackdrop, type TranceShade } from "./TranceBackdrop";
 import type { TranceCharacterColors } from "../lib/trance-colors";
@@ -25,7 +29,7 @@ interface PlayerLine {
   phase?: TrancePhase;
 }
 
-/** Eyes closed: the quiet after a line is spoken before the next one starts. Longer while going deep. */
+/** Moving on by itself: the quiet after a line is spoken (or read) before the next one starts. Longer while going deep. */
 const PAUSE_AFTER_MS: Record<TrancePhase | "exit", number> = {
   pretalk: 900,
   induction: 1400,
@@ -38,16 +42,55 @@ const PAUSE_AFTER_MS: Record<TrancePhase | "exit", number> = {
 
 const FADE_MS = 900;
 
-function exitLines(lines: readonly string[], lastWord: string): PlayerLine[] {
+/** Moving on by itself without a voice: time to read a line slowly, before the pause after it. */
+const READ_BASE_MS = 1200;
+const READ_MS_PER_WORD = 350;
+
+function tranceReadingMs(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return READ_BASE_MS + words * READ_MS_PER_WORD;
+}
+
+/** The ways out are bright this long at the start so people see where they are; after that, only when the pointer is near. */
+const CONTROLS_INTRO_MS = 6000;
+/** How close (px) the pointer comes to the ways out before they brighten. */
+const CONTROLS_NEAR_PX = 160;
+
+/** True while the pointer is within `radius` px of a button inside the element (as of the last pointer move or tap). */
+function usePointerNear(ref: { current: HTMLElement | null }, radius: number): boolean {
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const onPointer = (event: PointerEvent) => {
+      const buttons = ref.current ? [...ref.current.querySelectorAll("button")] : [];
+      setNear(
+        buttons.some((button) => {
+          const rect = button.getBoundingClientRect();
+          const dx = Math.max(rect.left - event.clientX, 0, event.clientX - rect.right);
+          const dy = Math.max(rect.top - event.clientY, 0, event.clientY - rect.bottom);
+          return Math.hypot(dx, dy) <= radius;
+        }),
+      );
+    };
+    window.addEventListener("pointermove", onPointer);
+    window.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("pointermove", onPointer);
+      window.removeEventListener("pointerdown", onPointer);
+    };
+  }, [radius, ref]);
+  return near;
+}
+
+function exitLines(lines: readonly string[], lastWord: string, style: TranceButtonStyle): PlayerLine[] {
   let previous: string | null = null;
   return lines.map((text, index) => {
-    const button = index === lines.length - 1 ? lastWord : tranceButtonLabel("exit", text, previous);
+    const button = index === lines.length - 1 ? lastWord : tranceButtonLabel("exit", text, previous, style);
     previous = button;
     return { text, button };
   });
 }
 
-function mainLines(lines: readonly TranceLine[], ending: TranceEnding): PlayerLine[] {
+function mainLines(lines: readonly TranceLine[], ending: TranceEnding, style: TranceButtonStyle): PlayerLine[] {
   let previous: string | null = null;
   return lines.map((line, index) => {
     const last = index === lines.length - 1;
@@ -55,7 +98,7 @@ function mainLines(lines: readonly TranceLine[], ending: TranceEnding): PlayerLi
       ? ending === "wake"
         ? "I'm awake"
         : "Goodnight"
-      : tranceButtonLabel(line.phase, line.text, previous);
+      : tranceButtonLabel(line.phase, line.text, previous, style);
     previous = button;
     return { text: line.text, button, phase: line.phase };
   });
@@ -202,6 +245,8 @@ export function TrancePlayer({
   onFinish,
   backdrop = "plain",
   voiceMode = "off",
+  pace = "press",
+  buttonWords = "quiet",
   characterId = null,
   characterName = "",
   colors = null,
@@ -213,6 +258,9 @@ export function TrancePlayer({
   onFinish: (after: TranceAfter) => void;
   backdrop?: TranceBackdropKind;
   voiceMode?: TranceVoiceMode;
+  /** "auto" moves on by itself; eyes closed with a working voice always does. */
+  pace?: TrancePace;
+  buttonWords?: TranceButtonStyle;
   characterId?: string | null;
   characterName?: string;
   /** The guide's colours; null keeps the session's own. */
@@ -229,21 +277,35 @@ export function TrancePlayer({
   const [exitMenuOpen, setExitMenuOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [paused, setPaused] = useState(false);
   const voice = useTranceVoice({ enabled: voiceMode !== "off" && !muted, characterId, characterName });
-  const handsFree = voiceMode === "eyes-closed" && voice.active && !voice.error;
+  // Eyes closed needs the voice to carry it; "On its own" works with or without one.
+  const eyesClosed = voiceMode === "eyes-closed" && voice.active && !voice.error;
+  const movesOnItsOwn = pace === "auto" || eyesClosed;
+  const handsFree = movesOnItsOwn && !paused;
+  // A working voice decides when a line is done; otherwise a reading timer does.
+  const speechCarries = voice.active && !voice.error;
+  const controlsRef = useRef<HTMLDivElement | null>(null);
+  const pointerNear = usePointerNear(controlsRef, CONTROLS_NEAR_PX);
+  const [intro, setIntro] = useState(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setIntro(false), CONTROLS_INTRO_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const tracks = useMemo<Record<Track, PlayerLine[]>>(() => {
     const stop: PlayerLine[] = [{ text: TRANCE_STOP_LINE, button: "I'm back" }];
     // A saved script always has both exits; one without them (older or edited data) still gets a way out.
-    const exit = (lines: readonly string[], lastWord: string) => (lines.length ? exitLines(lines, lastWord) : stop);
+    const exit = (lines: readonly string[], lastWord: string) =>
+      lines.length ? exitLines(lines, lastWord, buttonWords) : stop;
     return {
-      main: mainLines(script.lines, ending),
+      main: mainLines(script.lines, ending, buttonWords),
       gentle: exit(script.exits.gentle, "I'm awake"),
       calm: exit(script.exits.calm, "I'm okay"),
       stop,
       realert: exit(script.exits.gentle, "I'm awake"),
     };
-  }, [ending, script]);
+  }, [buttonWords, ending, script]);
   const lines = tracks[track];
   const line = lines[Math.min(index, lines.length - 1)]!;
   const previousLine = index > 0 ? lines[index - 1] : null;
@@ -295,35 +357,39 @@ export function TrancePlayer({
     return { kind: "wake", progress: count > 1 ? (index - first) / (count - 1) : 1 };
   }, [index, line.phase, lines, track]);
 
-  // The latest advance, for the timer that moves on by itself with eyes closed.
+  // The latest advance, for the timers that move on by themselves.
   const advanceRef = useRef(advance);
   useEffect(() => {
     advanceRef.current = advance;
   }, [advance]);
 
-  // Each line is spoken as it appears; with eyes closed, the next one follows after a pause. Opening the way-out
+  // Each line is spoken as it appears; moving on by itself, the next one follows after a pause. Opening the way-out
   // menu, the after-check and the dark sleep screen are quiet.
   const { speak, stop: stopVoice, active: voiceOn } = voice;
-  // Read when a line ends, not as a dependency: a voice error turning hands-free off must not re-speak the line.
-  const handsFreeRef = useRef(handsFree);
+  // Each speak gets a number; `spokenRun` is the number whose line played to the end. Hands-free isn't a dependency
+  // here: a voice error or a pause must not re-speak the line.
+  const speakRun = useRef(0);
+  const [spokenRun, setSpokenRun] = useState<number | null>(null);
   useEffect(() => {
-    handsFreeRef.current = handsFree;
-  }, [handsFree]);
-  useEffect(() => {
+    speakRun.current += 1;
     if (showingAfter || sleeping || exitMenuOpen || !voiceOn) {
       stopVoice();
       return;
     }
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = speakRun.current;
     const upcoming = lines.slice(index + 1).map((item) => item.text);
-    const pause = PAUSE_AFTER_MS[track === "main" ? (line.phase ?? "induction") : "exit"];
-    speak(line.text, upcoming, () => {
-      if (handsFreeRef.current) timer = setTimeout(() => advanceRef.current(), pause);
-    });
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
+    speak(line.text, upcoming, () => setSpokenRun(run));
   }, [exitMenuOpen, index, line, lines, showingAfter, sleeping, speak, stopVoice, track, voiceOn]);
+
+  // Moving on by itself: after the voice finishes the line (or, with no working voice, after a slow reading time),
+  // wait the phase's pause, then go on. Pausing clears the wait; carrying on starts it again.
+  useEffect(() => {
+    if (!handsFree || showingAfter || sleeping || exitMenuOpen) return;
+    if (speechCarries && spokenRun !== speakRun.current) return;
+    const pause = PAUSE_AFTER_MS[track === "main" ? (line.phase ?? "induction") : "exit"];
+    const timer = setTimeout(() => advanceRef.current(), (speechCarries ? 0 : tranceReadingMs(line.text)) + pause);
+    return () => clearTimeout(timer);
+  }, [exitMenuOpen, handsFree, line, showingAfter, sleeping, speechCarries, spokenRun, track]);
 
   // Space, Enter or 1 moves on; Escape opens the way out. Typing in the after-check is left alone.
   useEffect(() => {
@@ -387,10 +453,36 @@ export function TrancePlayer({
   }
 
   const inExit = track !== "main";
+  // The ways out stay findable but quiet: low contrast unless it's the start, the pointer comes near, or they're focused.
+  const controlsBright = intro || pointerNear || exitMenuOpen;
   return (
     <div className="relative isolate flex min-h-full flex-1 flex-col bg-[#0d0b1a] text-[#ece8ff]">
       <TranceBackdrop kind={backdrop} shade={shade} guide={colors?.palettes ?? null} />
-      <div className="relative z-10 flex min-h-[3.75rem] items-center justify-end gap-2 p-3">
+      <div
+        ref={controlsRef}
+        data-testid="trance-controls"
+        data-bright={controlsBright ? "true" : "false"}
+        className={cn(
+          "relative z-10 flex min-h-[3.75rem] items-center justify-end gap-2 p-3 transition-opacity duration-700 focus-within:opacity-100",
+          controlsBright ? "opacity-100" : "opacity-25",
+        )}
+      >
+        {movesOnItsOwn && (
+          <button
+            type="button"
+            onClick={() => {
+              setPaused(!paused);
+              // Back to the main button, so Space keeps moving on instead of toggling the pause.
+              buttonRef.current?.focus({ preventScroll: true });
+            }}
+            aria-pressed={paused}
+            aria-label={paused ? "Carry on by itself" : "Pause"}
+            title={paused ? "Carry on by itself" : "Pause"}
+            className="rounded-full border border-[#ece8ff]/20 p-2 text-[#ece8ff]/70 hover:text-[#ece8ff]"
+          >
+            {paused ? <Play size="1rem" aria-hidden="true" /> : <Pause size="1rem" aria-hidden="true" />}
+          </button>
+        )}
         {voiceMode !== "off" && (voice.active || muted) && (
           <button
             type="button"
@@ -402,7 +494,7 @@ export function TrancePlayer({
             aria-pressed={muted}
             aria-label={muted ? "Turn the voice back on" : "Mute the voice"}
             title={muted ? "Turn the voice back on" : "Mute the voice"}
-            className="mr-auto rounded-full border border-[#ece8ff]/20 p-2 text-[#ece8ff]/70 hover:text-[#ece8ff]"
+            className="rounded-full border border-[#ece8ff]/20 p-2 text-[#ece8ff]/70 hover:text-[#ece8ff]"
           >
             {muted ? <VolumeX size="1rem" aria-hidden="true" /> : <Volume2 size="1rem" aria-hidden="true" />}
           </button>
@@ -412,7 +504,7 @@ export function TrancePlayer({
             type="button"
             onClick={() => setExitMenuOpen((open) => !open)}
             aria-expanded={exitMenuOpen}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[#ece8ff]/20 px-3 py-1.5 text-sm text-[#ece8ff]/70 hover:text-[#ece8ff]"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-[#ece8ff]/20 px-3 py-1.5 text-sm text-[#ece8ff]/70 hover:text-[#ece8ff]"
           >
             <LifeBuoy size="1rem" aria-hidden="true" />I need out
           </button>
@@ -464,7 +556,8 @@ export function TrancePlayer({
           role="status"
           className="relative z-10 mx-auto max-w-md rounded-full bg-black/40 px-4 py-1.5 text-center text-xs text-[#ece8ff]/80"
         >
-          The voice stopped ({voice.error}). Read on and press to go on.
+          The voice stopped ({voice.error}).{" "}
+          {handsFree ? "The words carry on by themselves." : "Read on and press to go on."}
         </p>
       )}
 
@@ -506,7 +599,11 @@ export function TrancePlayer({
           ref={buttonRef}
           type="button"
           onClick={advance}
-          className="min-w-[12rem] rounded-full bg-[#ece8ff]/10 px-8 py-3 text-[clamp(1rem,2.6vmin,1.375rem)] text-[#ece8ff] transition-colors hover:bg-[#ece8ff]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a993ff]"
+          className={cn(
+            "min-w-[12rem] rounded-full bg-[#ece8ff]/10 px-8 py-3 text-[clamp(1rem,2.6vmin,1.375rem)] text-[#ece8ff] transition-[background-color,opacity] duration-700 hover:bg-[#ece8ff]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#a993ff]",
+            // Moving on by itself, the button only skips ahead, so it stays in the background.
+            handsFree && "opacity-30 hover:opacity-100",
+          )}
           style={
             colors
               ? { color: colors.words, backgroundColor: `${colors.words}1f`, outlineColor: colors.words }

@@ -7,17 +7,24 @@ import { isRecord, parseRecord, readString } from "../../generation/runtime-reco
 import { createTranceState, readTranceState, withTranceRun } from "./request";
 
 /**
- * The button under each line. Pressing it is a small yes, so the words follow the session: agreement while going
- * down, waking words on the way up.
+ * Affirming words: pressing the button is a small yes, so the words follow the session, agreement while going down
+ * and waking words on the way up (Nimja's style). Some people find being told what they feel pulls them out, so
+ * quiet words that claim nothing are the default.
  */
-const BUTTON_WORDS: Record<"down" | "wake" | "sleep" | "exit", readonly string[]> = {
+const AFFIRMING_WORDS: Record<"down" | "wake" | "sleep" | "exit", readonly string[]> = {
   down: ["Yes", "Yes...", "Mmmm...", "So nice", "Feels nice"],
   wake: ["Slowly waking", "More aware", "Almost awake", "Feeling brighter"],
   sleep: ["Mmmm...", "Drifting", "So heavy", "Sleepy"],
   exit: ["Okay", "Coming up", "More aware", "Almost awake"],
 };
 
-const PRETALK_WORDS = ["Okay", "Yes", "Ready"];
+const AFFIRMING_PRETALK = ["Okay", "Yes", "Ready"];
+
+/** Words that only mean "go on": they say nothing about how the listener feels. */
+const QUIET_WORDS = ["Go on", "Okay", "Next"];
+
+/** "quiet" never names a feeling; "affirming" uses Nimja-style agreement words. */
+export type TranceButtonStyle = "quiet" | "affirming";
 
 function hash(text: string): number {
   let value = 0;
@@ -25,21 +32,24 @@ function hash(text: string): number {
   return value;
 }
 
+function buttonWords(phase: TrancePhase | "exit", style: TranceButtonStyle): readonly string[] {
+  if (style === "quiet") return QUIET_WORDS;
+  if (phase === "pretalk") return AFFIRMING_PRETALK;
+  if (phase === "wake" || phase === "sleep" || phase === "exit") return AFFIRMING_WORDS[phase];
+  return AFFIRMING_WORDS.down;
+}
+
 /**
  * The button word for a line: picked from the line's text so a replay shows the same words, and never the same word
  * as the line before it.
  */
-export function tranceButtonLabel(phase: TrancePhase | "exit", text: string, previous: string | null): string {
-  const words =
-    phase === "pretalk"
-      ? PRETALK_WORDS
-      : phase === "wake"
-        ? BUTTON_WORDS.wake
-        : phase === "sleep"
-          ? BUTTON_WORDS.sleep
-          : phase === "exit"
-            ? BUTTON_WORDS.exit
-            : BUTTON_WORDS.down;
+export function tranceButtonLabel(
+  phase: TrancePhase | "exit",
+  text: string,
+  previous: string | null,
+  style: TranceButtonStyle,
+): string {
+  const words = buttonWords(phase, style);
   const start = hash(text) % words.length;
   for (let offset = 0; offset < words.length; offset += 1) {
     const word = words[(start + offset) % words.length]!;
