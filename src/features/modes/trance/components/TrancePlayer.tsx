@@ -285,6 +285,11 @@ export function TrancePlayer({
   const handsFree = movesOnItsOwn && !paused;
   // A working voice decides when a line is done; otherwise a reading timer does.
   const speechCarries = voice.active && !voice.error;
+  // Whether any of this run moved on by itself or was spoken: only silently pressed runs measure reading speed.
+  const movedOnItsOwn = useRef(false);
+  useEffect(() => {
+    if (movesOnItsOwn || speechCarries) movedOnItsOwn.current = true;
+  }, [movesOnItsOwn, speechCarries]);
   const controlsRef = useRef<HTMLDivElement | null>(null);
   const pointerNear = usePointerNear(controlsRef, CONTROLS_NEAR_PX);
   const [intro, setIntro] = useState(true);
@@ -444,6 +449,8 @@ export function TrancePlayer({
               ...after,
               finishedBy,
               seconds: Math.round(((endedAt.current ?? Date.now()) - startedAt.current) / 1000),
+              pace: movedOnItsOwn.current ? "auto" : "press",
+              ...(finishedBy === "completed" ? { lines: tracks.main.length } : {}),
               at: new Date().toISOString(),
             })
           }

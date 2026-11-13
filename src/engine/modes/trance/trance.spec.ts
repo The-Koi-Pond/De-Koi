@@ -21,7 +21,9 @@ import {
   readTranceState,
   tranceEstimatedMinutes,
   tranceStage,
+  tranceReadingPace,
   tranceTargetLines,
+  TRANCE_MAX_LINES,
   quickTranceRequest,
   withTranceRun,
   TRANCE_RUN_LIMIT,
@@ -102,6 +104,36 @@ describe("trance request", () => {
     expect(tranceTargetLines(10)).toBe(100);
     expect(tranceEstimatedMinutes(100)).toBe(10);
     expect(tranceEstimatedMinutes(3)).toBe(1);
+  });
+
+  it("writes for a reader's own pace, capped so one call can write it", () => {
+    expect(tranceTargetLines(5, 30)).toBe(150);
+    expect(tranceTargetLines(20, 30)).toBe(TRANCE_MAX_LINES);
+    expect(tranceEstimatedMinutes(150, 30)).toBe(5);
+    expect(tranceEstimatedMinutes(300, 30)).toBe(10);
+  });
+
+  it("learns the reading pace from real runs and ignores runs that weren't reading", () => {
+    // Real pressed-through runs from the Pi: 52 lines in 88 s and 207 s, 79 lines in 153 s, and a run left open.
+    const runs = [
+      { lines: 52, seconds: 88 },
+      { lines: 52, seconds: 207 },
+      { lines: 79, seconds: 153 },
+      { lines: 79, seconds: 1182 },
+    ];
+    expect(tranceReadingPace(runs)).toBe(30);
+    expect(tranceReadingPace([{ lines: 60, seconds: 180 }])).toBe(20);
+    expect(tranceReadingPace([{ lines: 50, seconds: 600 }])).toBe(10);
+    expect(tranceReadingPace([])).toBe(10);
+  });
+
+  it("keeps a run's pace and line count, and drops bad ones", () => {
+    const base = { finishedBy: "completed" as const, rating: null, fullyAwake: null, note: "", seconds: 90, at: "x" };
+    let state = withTranceRun(createTranceState(defaultTranceRequest()), { ...base, pace: "press", lines: 52 });
+    expect(state.runs[0]).toMatchObject({ pace: "press", lines: 52 });
+    state = withTranceRun(state, { ...base, pace: "sideways" as never, lines: -3 });
+    expect(state.runs[0]).not.toHaveProperty("pace");
+    expect(state.runs[0]).not.toHaveProperty("lines");
   });
 
   it("keeps runs newest first and capped", () => {
@@ -357,6 +389,39 @@ function llmReplying(...replies: string[]) {
 
 describe("generateTranceScript", () => {
   const state = createTranceState(defaultTranceRequest());
+
+  it("writes a pressed-through session for the reader's past pace, and remembers the pace", async () => {
+    const { storage, chats } = storageFor(state);
+    const finished = (seconds: number, extra: Record<string, unknown> = {}) => ({
+      finishedBy: "completed",
+      rating: null,
+      fullyAwake: null,
+      note: "",
+      seconds,
+      at: "2026-11-12T00:00:00Z",
+      lines: 60,
+      ...extra,
+    });
+    chats.set("past", {
+      id: "past",
+      mode: "trance",
+      characterIds: ["pierrot"],
+      metadata: {
+        trance: { ...state, runs: [finished(180), finished(150), finished(600, { pace: "auto" })] },
+      },
+    });
+    const pressed = llmReplying(reply({ main: 30 }));
+    const next = await generateTranceScript({ storage, llm: pressed.llm }, "s1", { pace: "press" });
+    const prompt = (pressed.complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0]
+      .messages[1]!.content;
+    // 60 lines in 180 s and 150 s: 20 and 24 a minute, median 22; the run that moved on by itself is left out.
+    expect(prompt).toContain("about 10 minutes, so about 220 lines");
+    expect(next.script?.linesPerMinute).toBe(22);
+
+    const spoken = llmReplying(reply({ main: 30 }));
+    const aloud = await generateTranceScript({ storage, llm: spoken.llm }, "s1", { pace: "auto" });
+    expect(aloud.script?.linesPerMinute).toBe(10);
+  });
 
   it("writes and stores the script in the character's voice", async () => {
     const { storage, patches } = storageFor(state);

@@ -26,6 +26,7 @@ import { triggerDownload } from "../../../../shared/api/download-payload";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
+import { useUIStore } from "../../../../shared/stores/ui.store";
 
 export function useTranceChat(chatId: string) {
   const chatQuery = useChat(chatId);
@@ -66,7 +67,10 @@ export function useTranceScript(chatId: string) {
       controller.current?.abort();
       const next = new AbortController();
       controller.current = next;
-      return generateTranceScript({ storage: storageApi, llm: llmApi }, chatId, { signal: next.signal });
+      // Read silently and pressed through: written for the listener's own reading speed.
+      const ui = useUIStore.getState();
+      const pace = ui.trancePace === "press" && ui.tranceVoice === "off" ? "press" : "auto";
+      return generateTranceScript({ storage: storageApi, llm: llmApi }, chatId, { signal: next.signal, pace });
     },
     onSettled: invalidate,
   });
