@@ -250,8 +250,9 @@ export function buildTranceRequestPrompt(
   card: TranceCharacterCard,
   shape: TranceSessionShape,
   earlier: readonly string[][] = [],
+  /** Lines to write before the exits; by default the length at the spoken pace. */
+  target = tranceTargetLines(request.minutes),
 ): string {
-  const target = tranceTargetLines(request.minutes);
   const features = request.features.map((feature) => `- ${FEATURE_RULES[feature]}`);
   const moods = request.moods.map((mood) => MOOD_OPENINGS[mood]);
   return [
@@ -312,10 +313,11 @@ export function buildTranceScriptMessages(
   shape: TranceSessionShape,
   earlier: readonly string[][],
   retry?: { previous: string; note: string },
+  target?: number,
 ): LlmMessage[] {
   const messages: LlmMessage[] = [
     { role: "system", content: buildTranceSystemPrompt() },
-    { role: "user", content: buildTranceRequestPrompt(request, card, shape, earlier) },
+    { role: "user", content: buildTranceRequestPrompt(request, card, shape, earlier, target) },
   ];
   if (retry) {
     messages.push({ role: "assistant", content: retry.previous }, { role: "user", content: retry.note });

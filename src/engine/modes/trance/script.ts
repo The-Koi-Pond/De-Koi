@@ -3,7 +3,14 @@
 // ──────────────────────────────────────────────
 import type { LlmGateway } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
-import type { TranceEnding, TranceLine, TrancePhase, TranceScript, TranceState } from "../../contracts/types/trance";
+import type {
+  TranceEnding,
+  TranceLine,
+  TrancePaceMode,
+  TrancePhase,
+  TranceScript,
+  TranceState,
+} from "../../contracts/types/trance";
 import { extractLeadingThinkingBlocks } from "../../generation-core/llm/inline-thinking";
 import { activeCharacterIds } from "../../generation/active-characters";
 import { loadCharacters } from "../../generation/prompt-assembly";
@@ -17,7 +24,13 @@ import {
   tranceTooShortNote,
   type TranceCharacterCard,
 } from "./prompts";
-import { readTranceState, tranceTargetLines } from "./request";
+import {
+  readTranceState,
+  TRANCE_LINES_PER_MINUTE,
+  tranceReadingPace,
+  tranceTargetLines,
+  type TranceReadingSample,
+} from "./request";
 
 /** The reply couldn't be read as a session; the message says what was wrong. */
 export class TranceScriptParseError extends Error {
@@ -186,6 +199,25 @@ async function earlierTranceExcerpts(
     .map((script) => tranceSessionExcerpt(script.lines));
 }
 
+/**
+ * Reading speed of every finished, silently pressed run in any trance session. Runs saved before the pace was
+ * recorded count too, measured against their session's script; `tranceReadingPace` drops ones that weren't reading.
+ */
+async function pressedRunSamples(storage: StorageGateway): Promise<TranceReadingSample[]> {
+  const samples: TranceReadingSample[] = [];
+  for (const row of await storage.list<unknown>("chats")) {
+    if (!isRecord(row) || readString(row.mode) !== "trance") continue;
+    const state = readTranceState(parseRecord(row.metadata));
+    if (!state) continue;
+    for (const run of state.runs) {
+      if (run.finishedBy !== "completed" || run.seconds === null || run.pace === "auto") continue;
+      const lines = run.lines ?? state.script?.lines.length ?? 0;
+      samples.push({ lines, seconds: run.seconds });
+    }
+  }
+  return samples;
+}
+
 const TRANCE_NO_CONNECTION = "Pick a model connection for this session first.";
 const TRANCE_NO_CHARACTER = "Pick a character to guide this session first.";
 
@@ -194,6 +226,11 @@ export interface GenerateTranceScriptOptions {
   now?: () => Date;
   /** Picks the way in, deepener and thread; Math.random by default. */
   random?: () => number;
+  /**
+   * How this device plays sessions: "press" (reading silently, pressing on) is written for the listener's own
+   * reading speed; "auto" (lines move on by themselves or are spoken) for the slow spoken pace. Default "auto".
+   */
+  pace?: TrancePaceMode;
 }
 
 /**
@@ -218,7 +255,9 @@ export async function generateTranceScript(
   if (!character) throw userFacingError(TRANCE_NO_CHARACTER);
 
   const card = cardFromContext(character);
-  const target = tranceTargetLines(state.request.minutes);
+  const linesPerMinute =
+    options.pace === "press" ? tranceReadingPace(await pressedRunSamples(deps.storage)) : TRANCE_LINES_PER_MINUTE;
+  const target = tranceTargetLines(state.request.minutes, linesPerMinute);
   const maxTokens = tranceReplyTokens(target);
   // One way in, deepener and thread per script, kept across retries.
   const shape = pickTranceShape(options.random);
@@ -228,7 +267,7 @@ export async function generateTranceScript(
       deps.llm.complete(
         {
           connectionId,
-          messages: buildTranceScriptMessages(state.request, card, shape, earlier, retry),
+          messages: buildTranceScriptMessages(state.request, card, shape, earlier, retry, target),
           parameters: { maxTokens, temperature: 1 },
         },
         signal,
@@ -261,6 +300,7 @@ export async function generateTranceScript(
     exits: parsed.exits,
     connectionId,
     createdAt: (options.now?.() ?? new Date()).toISOString(),
+    linesPerMinute,
   };
   const next: TranceState = { ...state, script };
   await deps.storage.patchChatMetadata(chatId, { trance: next });

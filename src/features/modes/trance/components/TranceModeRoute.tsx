@@ -222,7 +222,9 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
 
   const request = state!.request;
   const writeError = errorText(script.error, "The session couldn't be written. Try again.");
-  const minutes = state?.script ? tranceEstimatedMinutes(state.script.lines.length) : request.minutes;
+  const minutes = state?.script
+    ? tranceEstimatedMinutes(state.script.lines.length, state.script.linesPerMinute)
+    : request.minutes;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

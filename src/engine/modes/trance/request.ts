@@ -74,18 +74,52 @@ export const TRANCE_ENDING_LABELS: Record<TranceEnding, string> = {
 export const TRANCE_NOTE_LIMIT = 600;
 
 /**
- * Lines per minute of session: one short line read slowly, a beat to let it land, and a press. The estimate the
- * script length and the shown length both come from.
+ * Lines per minute when lines move on by themselves or are spoken: one short line at a slow pace and a beat to let
+ * it land. Someone pressing through silently reads faster; their pace comes from their own runs
+ * (`tranceReadingPace`).
  */
-const TRANCE_LINES_PER_MINUTE = 10;
+export const TRANCE_LINES_PER_MINUTE = 10;
+/** The fastest pace a script is written for, so a quick reader's sessions don't turn into a wall of lines. */
+const TRANCE_MAX_LINES_PER_MINUTE = 30;
+/** Longest script one call writes; longer asks keep this many lines and show their real length. */
+export const TRANCE_MAX_LINES = 300;
 
-export function tranceTargetLines(minutes: number): number {
-  return Math.round(minutes * TRANCE_LINES_PER_MINUTE);
+function paceOrDefault(linesPerMinute: number | undefined): number {
+  return typeof linesPerMinute === "number" && Number.isFinite(linesPerMinute) && linesPerMinute > 0
+    ? linesPerMinute
+    : TRANCE_LINES_PER_MINUTE;
 }
 
-/** About how long a script reads, in whole minutes (at least 1). */
-export function tranceEstimatedMinutes(lineCount: number): number {
-  return Math.max(1, Math.round(lineCount / TRANCE_LINES_PER_MINUTE));
+export function tranceTargetLines(minutes: number, linesPerMinute?: number): number {
+  return Math.min(TRANCE_MAX_LINES, Math.round(minutes * paceOrDefault(linesPerMinute)));
+}
+
+/** About how long a script reads at the pace it was written for, in whole minutes (at least 1). */
+export function tranceEstimatedMinutes(lineCount: number, linesPerMinute?: number): number {
+  return Math.max(1, Math.round(lineCount / paceOrDefault(linesPerMinute)));
+}
+
+/** A finished run's reading speed, for `tranceReadingPace`. */
+export interface TranceReadingSample {
+  lines: number;
+  seconds: number;
+}
+
+/**
+ * The pace to write a pressed-through session for: the median of the listener's finished runs (lines a minute),
+ * between 10 and 30. A run far slower than reading (left open, fell asleep) or impossibly fast says nothing about
+ * reading, so it is left out. No usable runs: 10.
+ */
+export function tranceReadingPace(samples: readonly TranceReadingSample[]): number {
+  const rates = samples
+    .filter((sample) => sample.lines > 0 && sample.seconds > 0)
+    .map((sample) => sample.lines / (sample.seconds / 60))
+    .filter((rate) => rate >= 6 && rate <= 60)
+    .sort((a, b) => a - b);
+  if (rates.length === 0) return TRANCE_LINES_PER_MINUTE;
+  const middle = rates.length / 2;
+  const median = rates.length % 2 ? rates[Math.floor(middle)]! : (rates[middle - 1]! + rates[middle]!) / 2;
+  return Math.round(Math.min(TRANCE_MAX_LINES_PER_MINUTE, Math.max(TRANCE_LINES_PER_MINUTE, median)));
 }
 
 /** Night, for "Just put me under": from 9 pm to 5 am a session ends in sleep. */
@@ -228,6 +262,9 @@ export function normalizeTranceScript(value: unknown): TranceScript | null {
     exits: normalizeExits(value.exits),
     connectionId: readString(value.connectionId).trim() || null,
     createdAt: readString(value.createdAt),
+    ...(typeof value.linesPerMinute === "number" && Number.isFinite(value.linesPerMinute) && value.linesPerMinute > 0
+      ? { linesPerMinute: Math.round(value.linesPerMinute) }
+      : {}),
   };
 }
 
@@ -248,6 +285,10 @@ function normalizeRun(value: unknown): TranceAfter | null {
       typeof value.seconds === "number" && Number.isFinite(value.seconds) && value.seconds >= 0
         ? Math.round(value.seconds)
         : null,
+    ...(value.pace === "press" || value.pace === "auto" ? { pace: value.pace } : {}),
+    ...(typeof value.lines === "number" && Number.isInteger(value.lines) && value.lines > 0
+      ? { lines: value.lines }
+      : {}),
     at: readString(value.at),
   };
 }

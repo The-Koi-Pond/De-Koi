@@ -89,7 +89,12 @@ export interface TranceScript {
   /** The connection that wrote it, for the session's details. */
   connectionId: string | null;
   createdAt: string;
+  /** The reading pace it was written for (lines a minute); length estimates use it. Older scripts: 10. */
+  linesPerMinute?: number;
 }
+
+/** How a run moved on: the listener pressing through silently, or lines moving on by themselves / spoken aloud. */
+export type TrancePaceMode = "press" | "auto";
 
 /** How the listener left a run of the session. */
 export type TranceFinish = "completed" | "gentle" | "calm" | "stop";
@@ -104,6 +109,10 @@ export interface TranceAfter {
   note: string;
   /** Seconds from Start to the last line read (or the way out finishing); null when unknown. */
   seconds: number | null;
+  /** How the run moved on; missing on runs saved before it was recorded. */
+  pace?: TrancePaceMode;
+  /** Session lines shown (not counting a way out); missing on older runs. */
+  lines?: number;
   at: string;
 }
 
