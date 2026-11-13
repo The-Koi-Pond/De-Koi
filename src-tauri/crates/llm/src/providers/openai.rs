@@ -69,6 +69,10 @@ pub(crate) async fn stream_openai_compatible(
         "stream": true,
         "max_tokens": request_max_tokens(&request, 1024),
     });
+    // Token usage in a stream is opt-in on these providers: without it the reply's usage is never reported.
+    if stream_usage_is_opt_in(&request.connection.provider) {
+        body["stream_options"] = json!({ "include_usage": true });
+    }
     if !request.tools.is_empty() {
         body["tools"] = Value::Array(
             request
@@ -1173,6 +1177,12 @@ pub(crate) fn openai_message(message: &LlmMessage) -> Value {
         object.insert("tool_calls".to_string(), tool_calls.clone());
     }
     Value::Object(object)
+}
+
+/// Providers whose chat-completions streams send `usage` only when `stream_options.include_usage` is set
+/// (OpenAI, and NanoGPT per its streaming protocol docs).
+fn stream_usage_is_opt_in(provider: &str) -> bool {
+    matches!(provider, "openai" | "nanogpt")
 }
 
 pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
