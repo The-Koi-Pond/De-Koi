@@ -186,7 +186,7 @@ async function earlierTranceExcerpts(
     .map((script) => tranceSessionExcerpt(script.lines));
 }
 
-const TRANCE_NO_CONNECTION ="Pick a model connection for this session first.";
+const TRANCE_NO_CONNECTION = "Pick a model connection for this session first.";
 const TRANCE_NO_CHARACTER = "Pick a character to guide this session first.";
 
 export interface GenerateTranceScriptOptions {

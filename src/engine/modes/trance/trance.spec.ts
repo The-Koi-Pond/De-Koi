@@ -200,10 +200,12 @@ describe("trance prompt", () => {
   });
 
   it("lists earlier sessions with the guide so the new one goes somewhere else", () => {
-    const prompt = buildTranceRequestPrompt(request, { name: "Jester" }, pickTranceShape(() => 0), [
-      ["The boat is moving.", "Ten."],
-      ["The tent is quiet."],
-    ]);
+    const prompt = buildTranceRequestPrompt(
+      request,
+      { name: "Jester" },
+      pickTranceShape(() => 0),
+      [["The boat is moving.", "Ten."], ["The tent is quiet."]],
+    );
     expect(prompt).toMatch(/## Earlier sessions with this guide/);
     expect(prompt).toMatch(/Session 1:\n> The boat is moving\.\n> Ten\.\nSession 2:\n> The tent is quiet\./);
   });
@@ -427,7 +429,9 @@ describe("generateTranceScript", () => {
     await generateTranceScript({ storage, llm }, "s1");
     const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
     const earlier = sent.messages[1]!.content.split("## Earlier sessions with this guide")[1] ?? "";
-    expect(earlier).toMatch(/Session 1:\n> This session, first try\.\nSession 2:\n> Newest other\.\nSession 3:\n> Middle\./);
+    expect(earlier).toMatch(
+      /Session 1:\n> This session, first try\.\nSession 2:\n> Newest other\.\nSession 3:\n> Middle\./,
+    );
     expect(earlier).not.toMatch(/Oldest|Not this guide/);
   });
 
@@ -651,7 +655,11 @@ describe("session ideas", () => {
 
   it("tells the script writer to open with the lines that were previewed", () => {
     const [chosen] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
-    const prompt = buildTranceRequestPrompt(chosen!.request, { name: "Jester" }, pickTranceShape(() => 0));
+    const prompt = buildTranceRequestPrompt(
+      chosen!.request,
+      { name: "Jester" },
+      pickTranceShape(() => 0),
+    );
     expect(prompt).toMatch(/## The session they picked/);
     expect(prompt).toMatch(/Title: The Quiet Box/);
     expect(prompt).toMatch(/word for word/);

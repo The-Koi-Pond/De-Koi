@@ -3,13 +3,7 @@
 // ──────────────────────────────────────────────
 // Headings are markdown, not XML: a seeded outgoing-prompt regex strips XML-like tags.
 import type { LlmMessage } from "../../capabilities/llm";
-import type {
-  TranceFeature,
-  TranceLine,
-  TranceMood,
-  TrancePhase,
-  TranceRequest,
-} from "../../contracts/types/trance";
+import type { TranceFeature, TranceLine, TranceMood, TrancePhase, TranceRequest } from "../../contracts/types/trance";
 import { TRANCE_ENDING_LABELS, tranceTargetLines } from "./request";
 
 /** The character as the script writer sees them. */
