@@ -77,7 +77,7 @@ function buildTrancePitchSystemPrompt(exact: boolean): string {
     "## Each suggestion",
     "- title: a short, evocative name (2 to 6 words).",
     "- summary: one plain sentence saying what happens and how it should feel. No jargon.",
-    "- sample: the first 3 or 4 lines of the session, exactly as they would appear, in the character's voice: second person, short lines, permissive wording (might, perhaps, can), describing what is already true before suggesting anything. Never mention buttons, the app or stopping.",
+    "- sample: the first 3 or 4 lines of the session, exactly as they would appear, in the character's voice: second person, short lines, permissive wording (might, perhaps, can), describing what is already true before suggesting anything. Never mention buttons, the app or stopping. Skip the stock opening (dropping shoulders, loosening the jaw, a body scan); open with something only this character would say.",
     `- type: one of ${optionList(TRANCE_TYPES)}.`,
     `- category: one of ${optionList(TRANCE_CATEGORIES)}.`,
     `- features: any of ${optionList(TRANCE_FEATURES)}; "arousal" and "orgasm" only with an erotic or kinky type.`,

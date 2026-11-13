@@ -2,8 +2,12 @@ import type { ReactNode } from "react";
 import { Volume2 } from "lucide-react";
 import {
   TRANCE_BACKDROPS,
+  TRANCE_BUTTON_WORDS,
+  TRANCE_PACES,
   TRANCE_VOICE_MODES,
   type TranceBackdrop,
+  type TranceButtonWords,
+  type TrancePace,
   type TranceVoiceMode,
 } from "../../../../shared/stores/ui/model";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -23,6 +27,22 @@ const VOICE_LABELS: Record<TranceVoiceMode, { label: string; detail: string }> =
   "eyes-closed": {
     label: "Eyes closed",
     detail: "Each line is spoken and the next one follows by itself, so you can close your eyes and listen.",
+  },
+};
+
+const PACE_LABELS: Record<TrancePace, { label: string; detail: string }> = {
+  press: { label: "I press", detail: "Each line waits until you press the button (or Space)." },
+  auto: {
+    label: "On its own",
+    detail: "Each line moves on by itself at a slow reading pace. You can pause, or press to skip ahead.",
+  },
+};
+
+const BUTTON_WORD_LABELS: Record<TranceButtonWords, { label: string; detail: string }> = {
+  quiet: { label: "Quiet", detail: "The button just says “Go on” or “Okay”, never how you should feel." },
+  affirming: {
+    label: "Affirming",
+    detail: "The button says “Yes…”, “Feels nice” and so on, so each press is a small yes.",
   },
 };
 
@@ -56,7 +76,12 @@ export function TranceSessionOptions({
   const setBackdrop = useUIStore((state) => state.setTranceBackdrop);
   const voiceMode = useUIStore((state) => state.tranceVoice);
   const setVoiceMode = useUIStore((state) => state.setTranceVoice);
+  const pace = useUIStore((state) => state.trancePace);
+  const setPace = useUIStore((state) => state.setTrancePace);
+  const buttonWords = useUIStore((state) => state.tranceButtonWords);
+  const setButtonWords = useUIStore((state) => state.setTranceButtonWords);
   const setup = useTranceVoiceSetup(characterId, characterName);
+  const eyesClosed = setup.available && voiceMode === "eyes-closed";
 
   return (
     <section className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-left">
@@ -72,6 +97,34 @@ export function TranceSessionOptions({
             ))}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">{BACKDROP_LABELS[backdrop].detail}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[0.8125rem] font-semibold text-[var(--foreground)]">Moving on</span>
+          <div role="group" aria-label="Moving on" className="flex flex-wrap gap-1.5">
+            {TRANCE_PACES.map((kind) => (
+              <Choice key={kind} selected={pace === kind} onClick={() => setPace(kind)}>
+                {PACE_LABELS[kind].label}
+              </Choice>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {eyesClosed
+              ? "With eyes closed, each line moves on by itself after it's spoken, whichever you pick."
+              : PACE_LABELS[pace].detail}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[0.8125rem] font-semibold text-[var(--foreground)]">Button words</span>
+          <div role="group" aria-label="Button words" className="flex flex-wrap gap-1.5">
+            {TRANCE_BUTTON_WORDS.map((kind) => (
+              <Choice key={kind} selected={buttonWords === kind} onClick={() => setButtonWords(kind)}>
+                {BUTTON_WORD_LABELS[kind].label}
+              </Choice>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)]">{BUTTON_WORD_LABELS[buttonWords].detail}</p>
         </div>
 
         <div className="flex flex-col gap-1.5">

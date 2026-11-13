@@ -11,6 +11,12 @@ export type TranceBackdrop = (typeof TRANCE_BACKDROPS)[number];
 export const TRANCE_VOICE_MODES = ["off", "read-along", "eyes-closed"] as const;
 export type TranceVoiceMode = (typeof TRANCE_VOICE_MODES)[number];
 
+export const TRANCE_PACES = ["press", "auto"] as const;
+export type TrancePace = (typeof TRANCE_PACES)[number];
+
+export const TRANCE_BUTTON_WORDS = ["quiet", "affirming"] as const;
+export type TranceButtonWords = (typeof TRANCE_BUTTON_WORDS)[number];
+
 export type { QuoteFormat, TextBlipMode };
 
 export type Panel =
@@ -524,6 +530,10 @@ export interface UIState {
   tranceBackdrop: TranceBackdrop;
   /** Whether a trance session is read aloud, and whether it moves on by itself (eyes closed). Off by default (it costs credits). */
   tranceVoice: TranceVoiceMode;
+  /** Whether trance lines wait for a press or move on by themselves (always by themselves with eyes closed). */
+  trancePace: TrancePace;
+  /** The words on a trance session's button: quiet ("Go on") or affirming ("Feels nice"). */
+  tranceButtonWords: TranceButtonWords;
   /** 0 to 1. */
   sceneAmbientVolume: number;
   /** 0 to 1. */
@@ -706,6 +716,8 @@ export interface UIState {
   setRoleplaySceneSound: (v: boolean) => void;
   setTranceBackdrop: (v: TranceBackdrop) => void;
   setTranceVoice: (v: TranceVoiceMode) => void;
+  setTrancePace: (v: TrancePace) => void;
+  setTranceButtonWords: (v: TranceButtonWords) => void;
   setSceneAmbientVolume: (v: number) => void;
   setSceneEffectsVolume: (v: number) => void;
   setHudPosition: (v: HudPosition) => void;

@@ -121,6 +121,8 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const [playing, setPlaying] = useState(false);
   const backdrop = useUIStore((state) => state.tranceBackdrop);
   const voiceMode = useUIStore((state) => state.tranceVoice);
+  const pace = useUIStore((state) => state.trancePace);
+  const buttonWords = useUIStore((state) => state.tranceButtonWords);
   const stage = tranceStage(state);
   const characterIds = useMemo(() => chat?.characterIds ?? [], [chat?.characterIds]);
   const { data: characterRows } = useChatSurfaceCharacterSummariesByIds(
@@ -177,6 +179,8 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           onFinish={(after: TranceAfter) => recordRun.mutate(after, { onSuccess: () => setPlaying(false) })}
           backdrop={backdrop}
           voiceMode={voiceMode}
+          pace={pace}
+          buttonWords={buttonWords}
           characterId={characterIds[0] ?? null}
           characterName={characterName}
           colors={colors}
@@ -257,9 +261,11 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
               Settle in somewhere comfortable.{" "}
               {voiceMode === "eyes-closed"
                 ? "Close your eyes whenever you like and listen; each line follows by itself."
-                : "Read each line as it comes and press the button (or Space) to go on."}{" "}
+                : pace === "auto"
+                  ? "Each line moves on by itself; pause at the top if you want a moment."
+                  : "Read each line as it comes and press the button (or Space) to go on."}{" "}
               <strong className="font-semibold text-[var(--foreground)]">I need out</strong> is always at the top if you
-              want to stop.
+              want to stop. It stays dim so it won't catch your eye, and it always works.
             </p>
             <button
               type="button"

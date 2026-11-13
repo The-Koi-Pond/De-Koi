@@ -5,7 +5,7 @@ import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
 import { filterAgentIdsForChatMode } from "../../contracts/types/agent";
 import { getEffectiveMemoryRecallEnabled } from "../../contracts/types/chat";
 import type { TranceRequest, TranceState } from "../../contracts/types/trance";
-import { buildTranceRequestPrompt, buildTranceSystemPrompt } from "./prompts";
+import { buildTranceRequestPrompt, buildTranceSystemPrompt, pickTranceWayIn, TRANCE_WAYS_IN } from "./prompts";
 import {
   createTranceState,
   defaultTranceRequest,
@@ -153,8 +153,27 @@ describe("trance prompt", () => {
     expect(system).not.toMatch(/<[a-z]+>/);
   });
 
+  it("asks for the character's own voice and world throughout, and bans the stock shoulders-and-jaw opening", () => {
+    const system = buildTranceSystemPrompt();
+    expect(system).toMatch(/## Make it theirs/);
+    expect(system).toMatch(/keep coming back to it in every section/);
+    expect(system).toMatch(/not like any hypnotist/);
+    expect(system).toMatch(/no dropping or lowering the shoulders, no loosening or slackening the jaw/);
+  });
+
+  it("picks a way in at random, one of the known techniques", () => {
+    expect(pickTranceWayIn(() => 0)).toBe(TRANCE_WAYS_IN[0]);
+    expect(pickTranceWayIn(() => 0.999999)).toBe(TRANCE_WAYS_IN.at(-1));
+    const prompt = buildTranceRequestPrompt(request, { name: "Jester" }, TRANCE_WAYS_IN[3]);
+    expect(prompt).toContain(`Way in (the induction's main technique, told in your own style): ${TRANCE_WAYS_IN[3]}`);
+  });
+
   it("puts the character, mood, idea and length in the request", () => {
-    const prompt = buildTranceRequestPrompt(request, { name: "Jester", description: "{{char}} teases {{user}}." });
+    const prompt = buildTranceRequestPrompt(
+      request,
+      { name: "Jester", description: "{{char}} teases {{user}}." },
+      TRANCE_WAYS_IN[0],
+    );
     expect(prompt).toMatch(/### Jester/);
     expect(prompt).toMatch(/Jester teases the listener\./);
     expect(prompt).toMatch(/anxious/);
@@ -201,17 +220,33 @@ describe("parseTranceReply", () => {
 });
 
 describe("tranceButtonLabel", () => {
-  it("follows the phase and never repeats the previous word", () => {
+  it("affirming words follow the phase and never repeat the previous word", () => {
     expect(["Slowly waking", "More aware", "Almost awake", "Feeling brighter"]).toContain(
-      tranceButtonLabel("wake", "3...", null),
+      tranceButtonLabel("wake", "3...", null, "affirming"),
     );
     let previous: string | null = null;
     for (const text of ["a", "b", "c", "d", "e", "f", "g"]) {
-      const label = tranceButtonLabel("deepener", text, previous);
+      const label = tranceButtonLabel("deepener", text, previous, "affirming");
       expect(label).not.toBe(previous);
       previous = label;
     }
-    expect(tranceButtonLabel("induction", "same", null)).toBe(tranceButtonLabel("induction", "same", null));
+    expect(tranceButtonLabel("induction", "same", null, "affirming")).toBe(
+      tranceButtonLabel("induction", "same", null, "affirming"),
+    );
+  });
+
+  it("quiet words never name a feeling, in any phase", () => {
+    const seen = new Set<string>();
+    for (const phase of ["pretalk", "induction", "deepener", "suggestions", "wake", "sleep", "exit"] as const) {
+      let previous: string | null = null;
+      for (const text of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+        const label = tranceButtonLabel(phase, text, previous, "quiet");
+        expect(label).not.toBe(previous);
+        seen.add(label);
+        previous = label;
+      }
+    }
+    expect([...seen].sort()).toEqual(["Go on", "Next", "Okay"]);
   });
 });
 
@@ -288,9 +323,16 @@ describe("generateTranceScript", () => {
   it("asks again when far too short and keeps the longer script", async () => {
     const { storage } = storageFor(state);
     const { llm, complete } = llmReplying(reply({ main: 5 }), reply({ main: 30 }));
-    const next = await generateTranceScript({ storage, llm }, "s1");
+    const next = await generateTranceScript({ storage, llm }, "s1", { random: () => 0.5 });
     expect(complete).toHaveBeenCalledTimes(2);
     expect(next.script?.lines.length).toBe(3 + 90 + 10);
+    // The retry keeps the same way in as the first try.
+    const wayIns = complete.mock.calls.map(
+      (call) =>
+        (call as unknown as [{ messages: Array<{ content: string }> }])[0].messages[1]!.content.match(/Way in .*/)?.[0],
+    );
+    expect(wayIns[0]).toContain(TRANCE_WAYS_IN[4]);
+    expect(wayIns[1]).toBe(wayIns[0]);
   });
 
   it("keeps a short script when the retry is no better, showing its real length", async () => {
@@ -505,7 +547,7 @@ describe("session ideas", () => {
 
   it("tells the script writer to open with the lines that were previewed", () => {
     const [chosen] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
-    const prompt = buildTranceRequestPrompt(chosen!.request, { name: "Jester" });
+    const prompt = buildTranceRequestPrompt(chosen!.request, { name: "Jester" }, TRANCE_WAYS_IN[0]);
     expect(prompt).toMatch(/## The session they picked/);
     expect(prompt).toMatch(/Title: The Quiet Box/);
     expect(prompt).toMatch(/word for word/);

@@ -9,7 +9,7 @@ import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString } from "../../generation/runtime-records";
 import { untilAborted } from "../../shared/until-aborted";
 import { userFacingError } from "../../shared/user-facing-error";
-import { buildTranceScriptMessages, tranceTooShortNote, type TranceCharacterCard } from "./prompts";
+import { buildTranceScriptMessages, pickTranceWayIn, tranceTooShortNote, type TranceCharacterCard } from "./prompts";
 import { readTranceState, tranceTargetLines } from "./request";
 
 /** The reply couldn't be read as a session; the message says what was wrong. */
@@ -159,6 +159,8 @@ const TRANCE_NO_CHARACTER = "Pick a character to guide this session first.";
 export interface GenerateTranceScriptOptions {
   signal?: AbortSignal;
   now?: () => Date;
+  /** Picks the way in; Math.random by default. */
+  random?: () => number;
 }
 
 /**
@@ -185,12 +187,14 @@ export async function generateTranceScript(
   const card = cardFromContext(character);
   const target = tranceTargetLines(state.request.minutes);
   const maxTokens = tranceReplyTokens(target);
+  // One way in per script, kept across retries.
+  const wayIn = pickTranceWayIn(options.random);
   const call = (retry?: { previous: string; note: string }) =>
     untilAborted(
       deps.llm.complete(
         {
           connectionId,
-          messages: buildTranceScriptMessages(state.request, card, retry),
+          messages: buildTranceScriptMessages(state.request, card, wayIn, retry),
           parameters: { maxTokens, temperature: 1 },
         },
         signal,

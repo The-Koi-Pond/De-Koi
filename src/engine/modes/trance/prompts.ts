@@ -99,6 +99,27 @@ const CATEGORY_GOALS: Record<TranceRequest["category"], string> = {
     "Effect: one clear, temporary hypnotic effect (heaviness, stuck hand, a feeling on a word) built up and enjoyed.",
 };
 
+/**
+ * Ways into trance. One is picked at random for each script so sessions don't all open the same way (left alone,
+ * models open nearly every session by dropping the shoulders and loosening the jaw).
+ */
+export const TRANCE_WAYS_IN = [
+  "Breath: follow the breath, counting out-breaths down from ten, each count settling them a little further.",
+  "Fixation: give them one thing to rest their eyes on (a word on the screen, or something from your world they can picture) and let the eyes tire and soften from looking.",
+  "Countdown: a slow count down from twenty, each number a step deeper, with your voice between the numbers.",
+  "Descent: lead them down through a place from your own world (stairs, a path, a lift, water), each step taking them deeper.",
+  "Hands: attention on the hands (warmth, weight, tingling or stillness) and let that feeling spread from there.",
+  "Sounds: notice the sounds around them, near and far, and let each one become part of going down instead of a distraction.",
+  "Yes-set: a run of plainly true things about this moment (they are here, the words are here, they are breathing), piling up until agreeing turns into drifting.",
+  "Your voice: attention on your words alone, everything else growing distant and unimportant.",
+] as const;
+
+/** A random way in; `random` is injectable so tests can pick one. */
+export function pickTranceWayIn(random: () => number = Math.random): string {
+  const index = Math.min(TRANCE_WAYS_IN.length - 1, Math.floor(random() * TRANCE_WAYS_IN.length));
+  return TRANCE_WAYS_IN[Math.max(0, index)]!;
+}
+
 function sectionShares(target: number, ending: TranceRequest["ending"]): string {
   const share = (fraction: number) => Math.max(3, Math.round(target * fraction));
   return [
@@ -129,6 +150,12 @@ export function buildTranceSystemPrompt(): string {
     "- Early on, let them know that a wandering mind and feeling little at first are normal and part of it.",
     "- Never scold, test, or make them wrong. Whatever they notice is the right thing to notice.",
     "- Before the ending, include one line that covers both outcomes: if they are deep they can enjoy it, and if not, they are simply rested.",
+    "- Skip the stock relaxation opening: no dropping or lowering the shoulders, no loosening or slackening the jaw, no relaxing the forehead or tongue, and no head-to-toe body scan. Build the induction around the way in you are given.",
+    "",
+    "## Make it theirs",
+    "- The listener picked this character to guide them. Every section should sound unmistakably like them: their way of talking, what they'd call someone in their care, their humour, warmth or sternness, their habits of speech from the examples.",
+    "- Take the imagery from the character's own world (their places, objects, sounds, people and pastimes from the description and setting) instead of generic relaxation imagery, and keep coming back to it in every section, not only in a mention or two.",
+    "- A line picked at random from the middle of the session should still sound like this character, not like any hypnotist.",
     "",
     "## Care",
     "- Stay fully in the character's voice and attitude, teasing or commanding if that's who they are, but never mock, threaten or frighten the listener.",
@@ -152,7 +179,7 @@ export function buildTranceSystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCharacterCard): string {
+export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCharacterCard, wayIn: string): string {
   const target = tranceTargetLines(request.minutes);
   const features = request.features.map((feature) => `- ${FEATURE_RULES[feature]}`);
   const moods = request.moods.map((mood) => MOOD_OPENINGS[mood]);
@@ -163,6 +190,7 @@ export function buildTranceRequestPrompt(request: TranceRequest, card: TranceCha
     "## This session",
     `- Type: ${TYPE_TONES[request.type]}`,
     `- Goal: ${CATEGORY_GOALS[request.category]}`,
+    `- Way in (the induction's main technique, told in your own style): ${wayIn}`,
     `- Ending: ${TRANCE_ENDING_LABELS[request.ending]}`,
     `- Length: about ${request.minutes} minutes, so about ${target} lines before the exits:`,
     sectionShares(target, request.ending),
@@ -200,11 +228,12 @@ export function tranceTooShortNote(received: number, target: number): string {
 export function buildTranceScriptMessages(
   request: TranceRequest,
   card: TranceCharacterCard,
+  wayIn: string,
   retry?: { previous: string; note: string },
 ): LlmMessage[] {
   const messages: LlmMessage[] = [
     { role: "system", content: buildTranceSystemPrompt() },
-    { role: "user", content: buildTranceRequestPrompt(request, card) },
+    { role: "user", content: buildTranceRequestPrompt(request, card, wayIn) },
   ];
   if (retry) {
     messages.push({ role: "assistant", content: retry.previous }, { role: "user", content: retry.note });

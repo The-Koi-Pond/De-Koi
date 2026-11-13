@@ -5,25 +5,31 @@ import type { TranceAfter, TranceScript } from "../../../../engine/contracts/typ
 import { TRANCE_STOP_LINE } from "../../../../engine/modes/trance/session";
 import { TrancePlayer } from "./TrancePlayer";
 
-// The voice hook is faked: tests see what was spoken and decide when a line has finished or failed.
-const voice = vi.hoisted(() => ({
-  active: false,
-  error: null as string | null,
-  spoken: [] as string[],
-  ended: null as (() => void) | null,
-  stops: 0,
-}));
+// The voice hook is faked: tests see what was spoken and decide when a line has finished or failed. Like the real
+// hook, speak and stop keep the same identity across renders.
+const voice = vi.hoisted(() => {
+  const state = {
+    active: false,
+    error: null as string | null,
+    spoken: [] as string[],
+    ended: null as (() => void) | null,
+    stops: 0,
+    speak: (text: string, _upcoming: readonly string[], whenEnded?: () => void) => {
+      state.spoken.push(text);
+      state.ended = whenEnded ?? null;
+    },
+    stop: () => {
+      state.stops += 1;
+    },
+  };
+  return state;
+});
 vi.mock("../hooks/use-trance-voice", () => ({
   useTranceVoice: ({ enabled }: { enabled: boolean }) => ({
     active: enabled && voice.active,
     error: voice.error,
-    speak: (text: string, _upcoming: readonly string[], whenEnded?: () => void) => {
-      voice.spoken.push(text);
-      voice.ended = whenEnded ?? null;
-    },
-    stop: () => {
-      voice.stops += 1;
-    },
+    speak: voice.speak,
+    stop: voice.stop,
   }),
 }));
 
@@ -64,6 +70,8 @@ describe("TrancePlayer", () => {
     extra: {
       voiceMode?: "off" | "read-along" | "eyes-closed";
       backdrop?: "drift" | "breathe" | "spiral" | "plain";
+      pace?: "press" | "auto";
+      buttonWords?: "quiet" | "affirming";
     } = {},
   ) {
     act(() => {
@@ -198,6 +206,92 @@ describe("TrancePlayer", () => {
     render(vi.fn(), script, { voiceMode: "eyes-closed" });
     expect(container.textContent).toContain("The voice stopped (quota exceeded)");
     expect(line()).toBe("You're reading this.");
+  });
+
+  it("uses quiet button words unless affirming ones are picked", () => {
+    const mainButton = () => container.querySelectorAll<HTMLButtonElement>("div.flex.justify-center button")[0]!;
+    render(vi.fn());
+    expect(["Go on", "Okay", "Next"]).toContain(mainButton().textContent);
+    next();
+    expect(["Go on", "Okay", "Next"]).toContain(mainButton().textContent);
+    act(() => root?.unmount());
+    root = null;
+    render(vi.fn(), script, { buttonWords: "affirming" });
+    expect(["Yes", "Yes...", "Mmmm...", "So nice", "Feels nice"]).toContain(mainButton().textContent);
+  });
+
+  it("moves on by itself without a voice, timed by the line, and pauses on request", () => {
+    vi.useFakeTimers();
+    try {
+      render(vi.fn(), script, { pace: "auto" });
+      // "You're reading this." = 3 words: 1200 + 3 x 350 reading, then the induction pause of 1400.
+      act(() => vi.advanceTimersByTime(3600));
+      expect(line()).toBe("You're reading this.");
+      act(() => vi.advanceTimersByTime(100));
+      expect(line()).toBe("Deeper now.");
+      act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Pause"]')!.click());
+      act(() => vi.advanceTimersByTime(20000));
+      expect(line()).toBe("Deeper now.");
+      act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Carry on by itself"]')!.click());
+      // "Deeper now." = 2 words: 1200 + 700, then the deepener pause of 1800.
+      act(() => vi.advanceTimersByTime(3700));
+      expect(line()).toBe("Ten. Wide awake.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("with eyes closed, a pause after a line ends holds it, and carrying on goes on after the pause", () => {
+    vi.useFakeTimers();
+    try {
+      voice.active = true;
+      render(vi.fn(), script, { voiceMode: "eyes-closed" });
+      act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Pause"]')!.click());
+      act(() => voice.ended?.());
+      act(() => vi.advanceTimersByTime(10000));
+      expect(line()).toBe("You're reading this.");
+      act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Carry on by itself"]')!.click());
+      act(() => vi.advanceTimersByTime(1400));
+      expect(line()).toBe("Deeper now.");
+      // Only one line moved on: the next one waits for its own speech to end.
+      act(() => vi.advanceTimersByTime(10000));
+      expect(line()).toBe("Deeper now.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("has no pause button when the reader presses to go on", () => {
+    render(vi.fn());
+    expect(container.querySelector('button[aria-label="Pause"]')).toBeNull();
+  });
+
+  it("dims the ways out after the start until the pointer comes near", () => {
+    vi.useFakeTimers();
+    try {
+      render(vi.fn());
+      const controls = () => container.querySelector<HTMLElement>('[data-testid="trance-controls"]')!;
+      expect(controls().dataset.bright).toBe("true");
+      act(() => vi.advanceTimersByTime(6000));
+      expect(controls().dataset.bright).toBe("false");
+      expect(controls().className).toContain("opacity-25");
+      const rect = { left: 800, right: 900, top: 0, bottom: 60, width: 100, height: 60, x: 800, y: 0 };
+      vi.spyOn(button(/I need out/), "getBoundingClientRect").mockReturnValue({
+        ...rect,
+        toJSON: () => rect,
+      } as DOMRect);
+      act(() => window.dispatchEvent(new MouseEvent("pointermove", { clientX: 300, clientY: 500 })));
+      expect(controls().dataset.bright).toBe("false");
+      act(() => window.dispatchEvent(new MouseEvent("pointermove", { clientX: 760, clientY: 100 })));
+      expect(controls().dataset.bright).toBe("true");
+      // Still there and still works while dim.
+      act(() => window.dispatchEvent(new MouseEvent("pointermove", { clientX: 0, clientY: 900 })));
+      act(() => button(/I need out/).click());
+      expect(button(/Just stop/)).toBeTruthy();
+      expect(controls().dataset.bright).toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("draws the chosen backdrop behind the words", () => {
