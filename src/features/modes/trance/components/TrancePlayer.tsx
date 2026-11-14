@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { LifeBuoy, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { AudioLines, LifeBuoy, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import type {
   TranceAfter,
   TranceEnding,
@@ -12,12 +12,15 @@ import { TRANCE_NOTE_LIMIT } from "../../../../engine/modes/trance/request";
 import { TRANCE_STOP_LINE, tranceButtonLabel, type TranceButtonStyle } from "../../../../engine/modes/trance/session";
 import { cn } from "../../../../shared/lib/utils";
 import type {
+  TranceAmbience,
   TranceBackdrop as TranceBackdropKind,
   TrancePace,
   TranceVoiceMode,
 } from "../../../../shared/stores/ui/model";
+import { useTranceAmbience } from "../hooks/use-trance-ambience";
 import { useKeepScreenOn, type KeepScreenOnProblem } from "../hooks/use-keep-screen-on";
 import { useTranceVoice } from "../hooks/use-trance-voice";
+import { SOUNDSCAPE_NAMES, tranceSoundscapeFor } from "../lib/trance-ambience";
 import { TranceBackdrop, type TranceShade } from "./TranceBackdrop";
 import type { TranceCharacterColors } from "../lib/trance-colors";
 
@@ -311,6 +314,8 @@ export function TrancePlayer({
   characterId = null,
   characterName = "",
   colors = null,
+  ambience = "off",
+  ambienceVolume = 0.5,
 }: {
   script: TranceScript;
   ending: TranceEnding;
@@ -326,6 +331,9 @@ export function TrancePlayer({
   characterName?: string;
   /** The guide's colours; null keeps the session's own. */
   colors?: TranceCharacterColors | null;
+  /** The sound underneath: picked from the script, a fixed one, or none. */
+  ambience?: TranceAmbience;
+  ambienceVolume?: number;
 }) {
   const [track, setTrack] = useState<Track>("main");
   const [index, setIndex] = useState(0);
@@ -392,6 +400,12 @@ export function TrancePlayer({
   // Moving on by itself, nobody touches the device, so the screen is kept on. Pausing, the after-check and the dark
   // sleep screen let it turn off again.
   const screenProblem = useKeepScreenOn(handsFree && !showingAfter && !sleeping);
+  const soundscape = useMemo(() => tranceSoundscapeFor(ambience, script), [ambience, script]);
+  const [soundOff, setSoundOff] = useState(false);
+  // The sound plays through the session and the ways out, drifts away on the sleep screen, and stops for "Just stop"
+  // and the after-check.
+  const ambienceMode = soundOff || showingAfter || track === "stop" ? "off" : sleeping ? "sleep" : "on";
+  const sound = useTranceAmbience({ soundscape, volume: ambienceVolume, mode: ambienceMode });
 
   const startTrack = useCallback((next: Track) => {
     setExitMenuOpen(false);
@@ -566,6 +580,26 @@ export function TrancePlayer({
             {paused ? <Play size="1rem" aria-hidden="true" /> : <Pause size="1rem" aria-hidden="true" />}
           </button>
         )}
+        {soundscape && (
+          <button
+            type="button"
+            onClick={() => {
+              setSoundOff(!soundOff);
+              // Back to the main button, so Space keeps moving on instead of toggling the sound.
+              buttonRef.current?.focus({ preventScroll: true });
+            }}
+            aria-pressed={!soundOff}
+            aria-label={`${SOUNDSCAPE_NAMES[soundscape]} sound: ${soundOff ? "off" : "on"}`}
+            title={soundOff ? "Turn the sound back on" : "Turn the sound off"}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border border-[#ece8ff]/20 px-3 py-1.5 text-sm text-[#ece8ff]/70 hover:text-[#ece8ff]",
+              soundOff && "line-through decoration-[#ece8ff]/50",
+            )}
+          >
+            <AudioLines size="1rem" aria-hidden="true" />
+            {SOUNDSCAPE_NAMES[soundscape]}
+          </button>
+        )}
         {voiceMode !== "off" && (voice.active || muted) && (
           <button
             type="button"
@@ -640,6 +674,15 @@ export function TrancePlayer({
           className="relative z-10 mx-auto max-w-md rounded-full bg-black/40 px-4 py-1.5 text-center text-xs text-[#ece8ff]/80"
         >
           {SCREEN_PROBLEM_TEXT[screenProblem]}
+        </p>
+      )}
+
+      {sound.waitingForTap && !soundOff && (
+        <p
+          role="status"
+          className="relative z-10 mx-auto max-w-md rounded-full bg-black/40 px-4 py-1.5 text-center text-xs text-[#ece8ff]/80"
+        >
+          The sound starts when you tap or press a key.
         </p>
       )}
 

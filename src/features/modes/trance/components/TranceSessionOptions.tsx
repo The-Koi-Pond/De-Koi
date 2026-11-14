@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
-import { Volume2 } from "lucide-react";
+import { AudioLines, Volume2 } from "lucide-react";
 import {
+  TRANCE_AMBIENCES,
   TRANCE_BACKDROPS,
   TRANCE_BUTTON_WORDS,
   TRANCE_PACES,
   TRANCE_VOICE_MODES,
+  type TranceAmbience,
   type TranceBackdrop,
   type TranceButtonWords,
   type TrancePace,
@@ -14,6 +16,7 @@ import { useUIStore } from "../../../../shared/stores/ui.store";
 import { cn } from "../../../../shared/lib/utils";
 import { keepScreenOnSupport } from "../hooks/use-keep-screen-on";
 import { useTranceVoiceSetup } from "../hooks/use-trance-voice";
+import { SOUNDSCAPE_NAMES } from "../lib/trance-ambience";
 
 const BACKDROP_LABELS: Record<TranceBackdrop, { label: string; detail: string }> = {
   drift: { label: "Drift", detail: "Soft colour clouds wandering slowly behind the words." },
@@ -21,6 +24,23 @@ const BACKDROP_LABELS: Record<TranceBackdrop, { label: string; detail: string }>
   spiral: { label: "Spiral", detail: "A faint spiral turning very slowly." },
   plain: { label: "Plain", detail: "Just the words on a dark screen." },
 };
+
+const AMBIENCE_DETAILS: Record<TranceAmbience, string> = {
+  auto: "Picked from the session's own words: rain if it talks about rain, waves for the sea, wind, chimes, or soft synth chords.",
+  rain: "Steady rain, with drops landing here and there.",
+  ocean: "Slow waves rolling in and drawing back.",
+  wind: "Wind rising and falling, a little different in each ear.",
+  chimes: "Wind chimes now and then over a quiet hush.",
+  pad: "Slow, warm synth chords that melt into each other.",
+  binaural: "A slow 6 Hz pulse made by two close tones, one in each ear. Use headphones.",
+  off: "Quiet. Only the voice, if it reads to you.",
+};
+
+function ambienceLabel(kind: TranceAmbience): string {
+  if (kind === "auto") return "Picked for you";
+  if (kind === "off") return "Off";
+  return SOUNDSCAPE_NAMES[kind];
+}
 
 const VOICE_LABELS: Record<TranceVoiceMode, { label: string; detail: string }> = {
   off: { label: "Off", detail: "Read it yourself, one line at a time." },
@@ -65,7 +85,7 @@ function Choice({ selected, onClick, children }: { selected: boolean; onClick: (
   );
 }
 
-/** How the session looks and sounds on this device: the backdrop and read-aloud. */
+/** How the session looks and sounds on this device: the backdrop, the sound underneath and read-aloud. */
 export function TranceSessionOptions({
   characterId,
   characterName,
@@ -81,6 +101,10 @@ export function TranceSessionOptions({
   const setPace = useUIStore((state) => state.setTrancePace);
   const buttonWords = useUIStore((state) => state.tranceButtonWords);
   const setButtonWords = useUIStore((state) => state.setTranceButtonWords);
+  const ambience = useUIStore((state) => state.tranceAmbience);
+  const setAmbience = useUIStore((state) => state.setTranceAmbience);
+  const ambienceVolume = useUIStore((state) => state.tranceAmbienceVolume);
+  const setAmbienceVolume = useUIStore((state) => state.setTranceAmbienceVolume);
   const setup = useTranceVoiceSetup(characterId, characterName);
   const eyesClosed = setup.available && voiceMode === "eyes-closed";
   const screenProblem = pace === "auto" || eyesClosed ? keepScreenOnSupport() : null;
@@ -99,6 +123,39 @@ export function TranceSessionOptions({
             ))}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">{BACKDROP_LABELS[backdrop].detail}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-1.5 text-[0.8125rem] font-semibold text-[var(--foreground)]">
+            <AudioLines size="0.875rem" aria-hidden="true" />
+            Sound
+          </span>
+          <div role="group" aria-label="Sound" className="flex flex-wrap gap-1.5">
+            {TRANCE_AMBIENCES.map((kind) => (
+              <Choice key={kind} selected={ambience === kind} onClick={() => setAmbience(kind)}>
+                {ambienceLabel(kind)}
+              </Choice>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {AMBIENCE_DETAILS[ambience]}
+            {ambience !== "off" && " Made on this device, so it's free and works offline."}
+          </p>
+          {ambience !== "off" && (
+            <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              Volume
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(ambienceVolume * 100)}
+                onChange={(event) => setAmbienceVolume(Number(event.target.value) / 100)}
+                aria-label="Sound volume"
+                className="w-40 accent-[var(--primary)]"
+              />
+            </label>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
