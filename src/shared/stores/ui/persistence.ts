@@ -20,6 +20,7 @@ import {
   TRANCE_VOICE_MODES,
   TRANCE_PACES,
   TRANCE_BUTTON_WORDS,
+  TRANCE_AMBIENCES,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerPanelSizeProfile,
   normalizeConversationMessageStyle,
@@ -222,6 +223,8 @@ export function partializeUiState(state: UIState) {
     tranceVoice: state.tranceVoice,
     trancePace: state.trancePace,
     tranceButtonWords: state.tranceButtonWords,
+    tranceAmbience: state.tranceAmbience,
+    tranceAmbienceVolume: state.tranceAmbienceVolume,
     sceneAmbientVolume: state.sceneAmbientVolume,
     sceneEffectsVolume: state.sceneEffectsVolume,
     hudPosition: state.hudPosition,
@@ -337,6 +340,13 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.tranceButtonWords = (TRANCE_BUTTON_WORDS as readonly unknown[]).includes(persisted.tranceButtonWords)
     ? persisted.tranceButtonWords
     : "quiet";
+  persisted.tranceAmbience = (TRANCE_AMBIENCES as readonly unknown[]).includes(persisted.tranceAmbience)
+    ? persisted.tranceAmbience
+    : "auto";
+  persisted.tranceAmbienceVolume =
+    typeof persisted.tranceAmbienceVolume === "number" && Number.isFinite(persisted.tranceAmbienceVolume)
+      ? Math.min(1, Math.max(0, persisted.tranceAmbienceVolume))
+      : 0.5;
   delete persisted.trackerPanelWidth;
 
   return persisted;

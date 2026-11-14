@@ -123,6 +123,8 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const voiceMode = useUIStore((state) => state.tranceVoice);
   const pace = useUIStore((state) => state.trancePace);
   const buttonWords = useUIStore((state) => state.tranceButtonWords);
+  const ambience = useUIStore((state) => state.tranceAmbience);
+  const ambienceVolume = useUIStore((state) => state.tranceAmbienceVolume);
   const stage = tranceStage(state);
   const characterIds = useMemo(() => chat?.characterIds ?? [], [chat?.characterIds]);
   const { data: characterRows } = useChatSurfaceCharacterSummariesByIds(
@@ -184,6 +186,8 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           characterId={characterIds[0] ?? null}
           characterName={characterName}
           colors={colors}
+          ambience={ambience}
+          ambienceVolume={ambienceVolume}
         />
       </div>
     );

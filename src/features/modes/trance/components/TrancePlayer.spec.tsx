@@ -33,6 +33,14 @@ vi.mock("../hooks/use-trance-voice", () => ({
   }),
 }));
 
+const ambience = vi.hoisted(() => ({ calls: [] as { soundscape: string | null; volume: number; mode: string }[] }));
+vi.mock("../hooks/use-trance-ambience", () => ({
+  useTranceAmbience: (args: { soundscape: string | null; volume: number; mode: string }) => {
+    ambience.calls.push(args);
+    return { waitingForTap: false };
+  },
+}));
+
 const script: TranceScript = {
   lines: [
     { phase: "induction", text: "You're reading this." },
@@ -54,6 +62,7 @@ describe("TrancePlayer", () => {
     voice.spoken = [];
     voice.ended = null;
     voice.stops = 0;
+    ambience.calls = [];
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -72,6 +81,8 @@ describe("TrancePlayer", () => {
       backdrop?: "drift" | "breathe" | "spiral" | "plain";
       pace?: "press" | "auto";
       buttonWords?: "quiet" | "affirming";
+      ambience?: "auto" | "rain" | "ocean" | "wind" | "chimes" | "pad" | "binaural" | "off";
+      ambienceVolume?: number;
     } = {},
   ) {
     act(() => {
@@ -459,6 +470,71 @@ describe("TrancePlayer", () => {
       expect(line()).toBe("Deeper now.");
       expect(leaving()).toBeNull();
       expect(animations).toHaveLength(0);
+    });
+  });
+
+  describe("the sound underneath", () => {
+    const rainy: TranceScript = {
+      ...script,
+      lines: [
+        { phase: "induction", text: "Hear the rain on the window." },
+        { phase: "deepener", text: "Every drop of rain takes you deeper." },
+        { phase: "wake", text: "Ten. Wide awake." },
+      ],
+    };
+    const latest = () => ambience.calls.at(-1)!;
+    const soundButton = () =>
+      container.querySelector<HTMLButtonElement>('button[aria-label$="sound: on"], button[aria-label$="sound: off"]');
+
+    it("plays the sound the session talks about, named on a button so it can be found and turned off", () => {
+      render(vi.fn(), rainy, { ambience: "auto", ambienceVolume: 0.3 });
+      expect(latest()).toEqual({ soundscape: "rain", volume: 0.3, mode: "on" });
+      expect(soundButton()?.textContent).toBe("Rain");
+      act(() => soundButton()!.click());
+      expect(latest().mode).toBe("off");
+      expect(soundButton()?.getAttribute("aria-label")).toBe("Rain sound: off");
+      act(() => soundButton()!.click());
+      expect(latest().mode).toBe("on");
+    });
+
+    it("keeps playing through a way out but stops for Just stop and the after-check", () => {
+      render(vi.fn(), rainy, { ambience: "pad" });
+      act(() => button(/I need out/).click());
+      act(() => button(/Wake me gently/).click());
+      expect(latest()).toMatchObject({ soundscape: "pad", mode: "on" });
+      act(() => button(/I need out/).click());
+      act(() => button(/Just stop/).click());
+      expect(latest().mode).toBe("off");
+      next();
+      expect(container.textContent).toContain("How do you feel now?");
+      expect(latest().mode).toBe("off");
+    });
+
+    it("drifts away on the sleep screen", () => {
+      act(() => {
+        root ??= createRoot(container);
+        root.render(
+          <TrancePlayer
+            script={rainy}
+            ending="sleep"
+            saving={false}
+            saveError={null}
+            onFinish={vi.fn()}
+            ambience="ocean"
+          />,
+        );
+      });
+      next();
+      next();
+      next();
+      expect(button("I'm back")).toBeTruthy();
+      expect(latest()).toMatchObject({ soundscape: "ocean", mode: "sleep" });
+    });
+
+    it("plays nothing and shows no button when the sound is off", () => {
+      render(vi.fn(), rainy, { ambience: "off" });
+      expect(latest().soundscape).toBeNull();
+      expect(soundButton()).toBeNull();
     });
   });
 });

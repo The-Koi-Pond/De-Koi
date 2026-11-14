@@ -17,6 +17,13 @@ export type TrancePace = (typeof TRANCE_PACES)[number];
 export const TRANCE_BUTTON_WORDS = ["quiet", "affirming"] as const;
 export type TranceButtonWords = (typeof TRANCE_BUTTON_WORDS)[number];
 
+/** The sounds a trance session can play underneath, all made on the device. */
+const TRANCE_SOUNDSCAPES = ["rain", "ocean", "wind", "chimes", "pad", "binaural"] as const;
+export type TranceSoundscape = (typeof TRANCE_SOUNDSCAPES)[number];
+/** "auto" picks a soundscape from the session's own words. */
+export const TRANCE_AMBIENCES = ["auto", ...TRANCE_SOUNDSCAPES, "off"] as const;
+export type TranceAmbience = (typeof TRANCE_AMBIENCES)[number];
+
 export type { QuoteFormat, TextBlipMode };
 
 export type Panel =
@@ -534,6 +541,10 @@ export interface UIState {
   trancePace: TrancePace;
   /** The words on a trance session's button: quiet ("Go on") or affirming ("Feels nice"). */
   tranceButtonWords: TranceButtonWords;
+  /** The sound under a trance session: picked from the session, a fixed one, or none. */
+  tranceAmbience: TranceAmbience;
+  /** How loud that sound is, 0 to 1. */
+  tranceAmbienceVolume: number;
   /** 0 to 1. */
   sceneAmbientVolume: number;
   /** 0 to 1. */
@@ -718,6 +729,8 @@ export interface UIState {
   setTranceVoice: (v: TranceVoiceMode) => void;
   setTrancePace: (v: TrancePace) => void;
   setTranceButtonWords: (v: TranceButtonWords) => void;
+  setTranceAmbience: (v: TranceAmbience) => void;
+  setTranceAmbienceVolume: (v: number) => void;
   setSceneAmbientVolume: (v: number) => void;
   setSceneEffectsVolume: (v: number) => void;
   setHudPosition: (v: HudPosition) => void;
