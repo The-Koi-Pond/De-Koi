@@ -302,4 +302,118 @@ describe("TrancePlayer", () => {
     render(vi.fn(), script, { backdrop: "drift" });
     expect(container.querySelectorAll(".trance-drift-cloud")).toHaveLength(3);
   });
+
+  describe("keeping the screen on", () => {
+    let held: { released: boolean }[];
+    let requests: number;
+    let refuse: boolean;
+    const original = Object.getOwnPropertyDescriptor(navigator, "wakeLock");
+    const secure = Object.getOwnPropertyDescriptor(window, "isSecureContext");
+    const flush = () => act(async () => {});
+    const holding = () => held.filter((lock) => !lock.released).length;
+
+    beforeEach(() => {
+      held = [];
+      requests = 0;
+      refuse = false;
+      Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+      Object.defineProperty(navigator, "wakeLock", {
+        configurable: true,
+        value: {
+          request: () => {
+            requests += 1;
+            if (refuse) return Promise.reject(new DOMException("Battery saver", "NotAllowedError"));
+            const lock = {
+              released: false,
+              release: () => {
+                lock.released = true;
+                return Promise.resolve();
+              },
+            };
+            held.push(lock);
+            return Promise.resolve(lock);
+          },
+        },
+      });
+    });
+
+    afterEach(() => {
+      if (original) Object.defineProperty(navigator, "wakeLock", original);
+      else delete (navigator as { wakeLock?: unknown }).wakeLock;
+      if (secure) Object.defineProperty(window, "isSecureContext", secure);
+      else delete (window as { isSecureContext?: unknown }).isSecureContext;
+    });
+
+    it("holds the screen on only while moving on by itself, and lets go when paused or finished", async () => {
+      render(vi.fn(), script, { pace: "auto" });
+      await flush();
+      expect(holding()).toBe(1);
+      act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Pause"]')!.click());
+      await flush();
+      expect(holding()).toBe(0);
+      act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Carry on by itself"]')!.click());
+      await flush();
+      expect(holding()).toBe(1);
+      next();
+      next();
+      next();
+      await flush();
+      expect(container.textContent).toContain("How do you feel now?");
+      expect(holding()).toBe(0);
+    });
+
+    it("lets go on the dark sleep screen", async () => {
+      act(() => {
+        root ??= createRoot(container);
+        root.render(
+          <TrancePlayer
+            script={script}
+            ending="sleep"
+            saving={false}
+            saveError={null}
+            onFinish={vi.fn()}
+            pace="auto"
+          />,
+        );
+      });
+      await flush();
+      expect(holding()).toBe(1);
+      next();
+      next();
+      next();
+      await flush();
+      expect(button("I'm back")).toBeTruthy();
+      expect(holding()).toBe(0);
+    });
+
+    it("takes it again when the page comes back, since the browser drops it while hidden", async () => {
+      render(vi.fn(), script, { pace: "auto" });
+      await flush();
+      held[0]!.released = true;
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await flush();
+      expect(requests).toBe(2);
+      expect(holding()).toBe(1);
+    });
+
+    it("never asks when the reader presses to go on", async () => {
+      render(vi.fn());
+      await flush();
+      expect(requests).toBe(0);
+    });
+
+    it("says so when the screen can't be kept on", async () => {
+      refuse = true;
+      render(vi.fn(), script, { pace: "auto" });
+      await flush();
+      expect(container.textContent).toContain("the device wouldn't keep it on");
+      act(() => root?.unmount());
+      root = null;
+      Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+      render(vi.fn(), script, { pace: "auto" });
+      await flush();
+      expect(container.textContent).toContain("browsers only keep it on over https");
+      expect(requests).toBe(1);
+    });
+  });
 });
