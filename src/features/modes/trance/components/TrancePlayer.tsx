@@ -16,6 +16,7 @@ import type {
   TrancePace,
   TranceVoiceMode,
 } from "../../../../shared/stores/ui/model";
+import { useKeepScreenOn, type KeepScreenOnProblem } from "../hooks/use-keep-screen-on";
 import { useTranceVoice } from "../hooks/use-trance-voice";
 import { TranceBackdrop, type TranceShade } from "./TranceBackdrop";
 import type { TranceCharacterColors } from "../lib/trance-colors";
@@ -41,6 +42,12 @@ const PAUSE_AFTER_MS: Record<TrancePhase | "exit", number> = {
 };
 
 const FADE_MS = 900;
+
+const SCREEN_PROBLEM_TEXT: Record<KeepScreenOnProblem, string> = {
+  insecure: "Your screen may turn off by itself: browsers only keep it on over https. Give it a longer screen timeout.",
+  unsupported: "Your screen may turn off by itself: this browser can't keep it on. Give it a longer screen timeout.",
+  refused: "Your screen may turn off by itself: the device wouldn't keep it on (battery saver?).",
+};
 
 /** Moving on by itself without a voice: time to read a line slowly, before the pause after it. */
 const READ_BASE_MS = 1200;
@@ -316,6 +323,9 @@ export function TrancePlayer({
   const previousLine = index > 0 ? lines[index - 1] : null;
   const showingAfter = finishedBy !== null && !sleeping && track !== "realert";
   const fadeRef = useFadeIn(`${track}:${index}`);
+  // Moving on by itself, nobody touches the device, so the screen is kept on. Pausing, the after-check and the dark
+  // sleep screen let it turn off again.
+  const screenProblem = useKeepScreenOn(handsFree && !showingAfter && !sleeping);
 
   const startTrack = useCallback((next: Track) => {
     setExitMenuOpen(false);
@@ -556,6 +566,15 @@ export function TrancePlayer({
             <span className="block text-xs text-[#ece8ff]/50">Straight back to the room.</span>
           </button>
         </div>
+      )}
+
+      {screenProblem && controlsBright && (
+        <p
+          role="status"
+          className="relative z-10 mx-auto max-w-md rounded-full bg-black/40 px-4 py-1.5 text-center text-xs text-[#ece8ff]/80"
+        >
+          {SCREEN_PROBLEM_TEXT[screenProblem]}
+        </p>
       )}
 
       {voice.error && (

@@ -12,6 +12,7 @@ import {
 } from "../../../../shared/stores/ui/model";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { cn } from "../../../../shared/lib/utils";
+import { keepScreenOnSupport } from "../hooks/use-keep-screen-on";
 import { useTranceVoiceSetup } from "../hooks/use-trance-voice";
 
 const BACKDROP_LABELS: Record<TranceBackdrop, { label: string; detail: string }> = {
@@ -82,6 +83,7 @@ export function TranceSessionOptions({
   const setButtonWords = useUIStore((state) => state.setTranceButtonWords);
   const setup = useTranceVoiceSetup(characterId, characterName);
   const eyesClosed = setup.available && voiceMode === "eyes-closed";
+  const screenProblem = pace === "auto" || eyesClosed ? keepScreenOnSupport() : null;
 
   return (
     <section className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-left">
@@ -112,6 +114,10 @@ export function TranceSessionOptions({
             {eyesClosed
               ? "With eyes closed, each line moves on by itself after it's spoken, whichever you pick."
               : PACE_LABELS[pace].detail}
+            {screenProblem === "insecure" &&
+              " Browsers only keep the screen on over https, so give your screen a longer timeout first."}
+            {screenProblem === "unsupported" &&
+              " This browser can't keep the screen on, so give your screen a longer timeout first."}
           </p>
         </div>
 
