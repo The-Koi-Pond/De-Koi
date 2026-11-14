@@ -15,6 +15,7 @@ const BUTTON_CLASS = "rounded-lg px-3 py-2 text-xs font-semibold";
 export function EncounterEnd(props: {
   result: EncounterResult;
   summaryStatus: EncounterSummaryStatus;
+  summaryError: string | null;
   onRetrySummary: () => void;
   onClose: () => void;
 }) {
@@ -49,6 +50,7 @@ export function EncounterEnd(props: {
         <div className="space-y-2">
           <p role="alert" className="text-xs text-red-800 dark:text-red-300">
             Failed to generate summary.
+            {props.summaryError && ` ${props.summaryError}`}
           </p>
           <div className="flex justify-center gap-2">
             <button

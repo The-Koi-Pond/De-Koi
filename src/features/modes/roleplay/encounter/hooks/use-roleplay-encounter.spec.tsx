@@ -11,6 +11,7 @@ import type {
   EncounterSettings,
   EncounterTurnOutcome,
 } from "../../../../../engine/modes/roleplay/encounter/encounter-types";
+import { ModelRouteError } from "../../../../../engine/generation/model-routing";
 import { userFacingError } from "../../../../../engine/shared/user-facing-error";
 import { useRoleplayEncounterStore } from "../../../../../shared/stores/roleplay-encounter.store";
 import { chatKeys } from "../../../../catalog/chats/index";
@@ -130,6 +131,23 @@ describe("useRoleplayEncounter", () => {
     });
   });
 
+  it("shows a broken Encounters route's message at setup, on a turn and on the summary", async () => {
+    const routeError = new ModelRouteError("encounters", "gone", "missing", "gone");
+    service.startEncounterFight.mockRejectedValueOnce(routeError);
+    encounter.openSetup("chat-a");
+    await act(() => encounter.begin(settings));
+    expect(state().encounter).toMatchObject({ stage: "start-failed", startError: routeError.message });
+
+    await startFight();
+    service.resolveEncounterTurn.mockRejectedValueOnce(routeError);
+    await act(() => encounter.sendAction("Strike"));
+    expect(state().encounter).toMatchObject({ stage: "fighting", turnError: routeError.message });
+
+    service.writeEncounterSummary.mockRejectedValueOnce(routeError);
+    await act(() => encounter.conclude());
+    expect(state().encounter).toMatchObject({ summaryStatus: "failed", summaryError: routeError.message });
+  });
+
   it("writes the summary after a winning turn and refreshes the chat's messages", async () => {
     await startFight();
     service.resolveEncounterTurn.mockResolvedValueOnce(victory);
@@ -154,7 +172,8 @@ describe("useRoleplayEncounter", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
     await act(() => encounter.conclude());
-    expect(state().encounter).toMatchObject({ result: "interrupted", summaryStatus: "failed" });
+    // Only a Helper Models route error explains itself; a provider's own wording stays off the end screen.
+    expect(state().encounter).toMatchObject({ result: "interrupted", summaryStatus: "failed", summaryError: null });
     expect(invalidate).not.toHaveBeenCalled();
 
     service.writeEncounterSummary.mockResolvedValueOnce("Cut short.");
