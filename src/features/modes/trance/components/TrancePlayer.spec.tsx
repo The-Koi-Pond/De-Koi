@@ -416,4 +416,49 @@ describe("TrancePlayer", () => {
       expect(requests).toBe(1);
     });
   });
+
+  describe("moving between lines", () => {
+    let animations: { keyframes: Keyframe[]; onfinish: (() => void) | null; cancelled: boolean }[];
+    const leaving = () => container.querySelector('[data-testid="trance-leaving-line"]');
+
+    beforeEach(() => {
+      animations = [];
+      HTMLElement.prototype.animate = function (keyframes) {
+        const animation = { keyframes: keyframes as Keyframe[], onfinish: null, cancelled: false, cancel() {} };
+        animation.cancel = () => {
+          animation.cancelled = true;
+        };
+        animations.push(animation);
+        return animation as unknown as Animation;
+      };
+    });
+
+    afterEach(() => {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    });
+
+    it("lets the finished line sink away instead of vanishing, then removes it", () => {
+      render(vi.fn());
+      expect(leaving()).toBeNull();
+      next();
+      expect(line()).toBe("Deeper now.");
+      expect(leaving()?.textContent).toBe("You're reading this.");
+      expect(leaving()?.closest('[aria-hidden="true"]')).toBeTruthy();
+      const out = animations.find((animation) => JSON.stringify(animation.keyframes).includes("blur(4px)"))!;
+      expect(out).toBeTruthy();
+      act(() => out.onfinish?.());
+      expect(leaving()).toBeNull();
+      expect(line()).toBe("Deeper now.");
+    });
+
+    it("swaps lines straight away for people who asked for less motion", () => {
+      window.matchMedia = ((query: string) => ({ matches: query.includes("reduce") })) as typeof window.matchMedia;
+      render(vi.fn());
+      next();
+      expect(line()).toBe("Deeper now.");
+      expect(leaving()).toBeNull();
+      expect(animations).toHaveLength(0);
+    });
+  });
 });

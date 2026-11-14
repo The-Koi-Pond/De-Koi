@@ -42,6 +42,10 @@ const PAUSE_AFTER_MS: Record<TrancePhase | "exit", number> = {
 };
 
 const FADE_MS = 900;
+/** How long a finished line takes to sink away. */
+const LEAVE_MS = 900;
+/** The new line waits this long before fading in, while the old one is already going. */
+const LINE_IN_DELAY_MS = 450;
 
 const SCREEN_PROBLEM_TEXT: Record<KeepScreenOnProblem, string> = {
   insecure: "Your screen may turn off by itself: browsers only keep it on over https. Give it a longer screen timeout.",
@@ -111,23 +115,73 @@ function mainLines(lines: readonly TranceLine[], ending: TranceEnding, style: Tr
   });
 }
 
-/** Fades a line in; skipped for people who asked for less motion. */
-function useFadeIn(key: string) {
-  const ref = useRef<HTMLParagraphElement | null>(null);
+function prefersLessMotion(): boolean {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+/**
+ * Fades an element in whenever `key` changes; skipped for people who asked for less motion. With no `to` keyframe it
+ * ends at the element's own opacity, so a dimmed line stays dimmed.
+ */
+function useFadeIn<T extends HTMLElement>(key: string, keyframes: Keyframe[], options: KeyframeAnimationOptions) {
+  const ref = useRef<T | null>(null);
+  const settings = useRef({ keyframes, options });
   useEffect(() => {
     const element = ref.current;
-    if (!element || typeof element.animate !== "function") return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const animation = element.animate(
-      [
-        { opacity: 0, transform: "translateY(0.35em)" },
-        { opacity: 1, transform: "translateY(0)" },
-      ],
-      { duration: FADE_MS, easing: "ease-out" },
-    );
+    if (!element || typeof element.animate !== "function" || prefersLessMotion()) return;
+    const animation = element.animate(settings.current.keyframes, settings.current.options);
     return () => animation.cancel();
   }, [key]);
   return ref;
+}
+
+const LINE_IN: Keyframe[] = [
+  { opacity: 0, transform: "translateY(0.35em)" },
+  { opacity: 1, transform: "translateY(0)" },
+];
+// The new line starts as the old one is already sinking away, so the two never sit sharp on top of each other.
+const LINE_IN_OPTIONS: KeyframeAnimationOptions = {
+  duration: FADE_MS,
+  delay: LINE_IN_DELAY_MS,
+  easing: "ease-out",
+  fill: "backwards",
+};
+const EARLIER_IN: Keyframe[] = [{ opacity: 0 }];
+const EARLIER_IN_OPTIONS: KeyframeAnimationOptions = { duration: LEAVE_MS, easing: "ease-in-out" };
+// The finished line sinks back into the dark: smaller, softer, then gone.
+const LINE_OUT: Keyframe[] = [
+  { opacity: 1, transform: "translateY(0) scale(1)", filter: "blur(0)" },
+  // Mostly gone before the new line starts to show, so the two are never readable on top of each other.
+  { opacity: 0.12, offset: 0.5 },
+  { opacity: 0, transform: "translateY(-0.5em) scale(0.92)", filter: "blur(4px)" },
+];
+
+/** The line that was just left, drawn over the new one while it sinks away. Gone when its fade ends. */
+function LeavingLine({ text, style, onDone }: { text: string; style?: CSSProperties; onDone: () => void }) {
+  const ref = useRef<HTMLParagraphElement | null>(null);
+  const done = useRef(onDone);
+  useEffect(() => {
+    done.current = onDone;
+  }, [onDone]);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const animation = element.animate(LINE_OUT, { duration: LEAVE_MS, easing: "ease-out", fill: "forwards" });
+    animation.onfinish = () => done.current();
+    return () => animation.cancel();
+  }, []);
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <p
+        ref={ref}
+        data-testid="trance-leaving-line"
+        className="trance-line max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
+        style={style}
+      >
+        {text}
+      </p>
+    </div>
+  );
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -322,7 +376,19 @@ export function TrancePlayer({
   const line = lines[Math.min(index, lines.length - 1)]!;
   const previousLine = index > 0 ? lines[index - 1] : null;
   const showingAfter = finishedBy !== null && !sleeping && track !== "realert";
-  const fadeRef = useFadeIn(`${track}:${index}`);
+  const lineKey = `${track}:${index}`;
+  const fadeRef = useFadeIn<HTMLParagraphElement>(lineKey, LINE_IN, LINE_IN_OPTIONS);
+  const earlierRef = useFadeIn<HTMLParagraphElement>(lineKey, EARLIER_IN, EARLIER_IN_OPTIONS);
+  // The line on screen and the one sinking away after it. Set while rendering, so the old line never blinks out for a
+  // frame between the two.
+  const [shownLine, setShownLine] = useState({ key: lineKey, text: line.text });
+  const [leavingLine, setLeavingLine] = useState<{ key: string; text: string } | null>(null);
+  if (shownLine.key !== lineKey) {
+    setShownLine({ key: lineKey, text: line.text });
+    const canFade = typeof HTMLElement !== "undefined" && typeof HTMLElement.prototype.animate === "function";
+    setLeavingLine(canFade && !prefersLessMotion() ? shownLine : null);
+  }
+  const clearLeaving = useCallback(() => setLeavingLine(null), []);
   // Moving on by itself, nobody touches the device, so the screen is kept on. Pausing, the after-check and the dark
   // sleep screen let it turn off again.
   const screenProblem = useKeepScreenOn(handsFree && !showingAfter && !sleeping);
@@ -589,6 +655,7 @@ export function TrancePlayer({
 
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-6 text-center">
         <p
+          ref={earlierRef}
           aria-hidden="true"
           className={cn(
             "max-w-3xl text-[clamp(1rem,2.4vmin,1.5rem)] leading-snug",
@@ -608,15 +675,25 @@ export function TrancePlayer({
               {characterName}
             </span>
           )}
-          <p
-            key={`${track}:${index}`}
-            ref={fadeRef}
-            aria-live="polite"
-            className="trance-line max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
-            style={colors ? { color: colors.words } : undefined}
-          >
-            {line.text}
-          </p>
+          <div className="relative flex justify-center">
+            {leavingLine && (
+              <LeavingLine
+                key={leavingLine.key}
+                text={leavingLine.text}
+                style={colors ? { color: colors.words } : undefined}
+                onDone={clearLeaving}
+              />
+            )}
+            <p
+              key={lineKey}
+              ref={fadeRef}
+              aria-live="polite"
+              className="trance-line max-w-3xl text-[clamp(1.6rem,4.6vmin,3.25rem)] font-medium leading-snug"
+              style={colors ? { color: colors.words } : undefined}
+            >
+              {line.text}
+            </p>
+          </div>
         </div>
       </div>
 
