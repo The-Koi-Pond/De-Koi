@@ -3,7 +3,7 @@
     "id": "conversation-mode",
     "title": "Conversation Mode",
     "category": "Chat modes",
-    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first (now and then with a selfie, set per character from never to sometimes), slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies.",
+    "summary": "Text characters the way you text friends: one-on-one or group chats, per-character bubble styles, statuses and schedules, characters who can message you first (now and then with a selfie, set per character from never to sometimes), slash commands, editing a text you sent and resending it (your old wording and its reply stay one tap away), translation of messages and drafts (you can cancel it), and guards against repetitive replies. To carry a chat on in person, press Make from this at the top and pick A roleplay: the chat's model writes the story so far into the new roleplay's summaries and opens it on a scene that picks up from your texts, and the two are linked so each knows what happens in the other.",
     "keywords": [
       "dm",
       "chat",
@@ -22,10 +22,13 @@
       "edit",
       "resend",
       "edit and resend",
-      "versions"
+      "versions",
+      "make from this",
+      "carry on",
+      "continue as roleplay"
     ],
     "audience": "Users who want companion-style chats, quick conversations, or character group messages.",
-    "where": "Home > Conversation, then the chat setup wizard and chat settings drawer.",
+    "where": "Home > Conversation, then the chat setup wizard and chat settings drawer. From a chat: Make from this at the top, then A roleplay.",
     "actions": [
       {
         "type": "open-mode-setup",
@@ -56,7 +59,7 @@
     "id": "roleplay-mode",
     "title": "Roleplay Mode",
     "category": "Chat modes",
-    "summary": "Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character (with a note showing what changed and a way to restore the original), and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents.",
+    "summary": "Long-form story roleplay in the narration style you choose. It steers the AI away from repeating itself, gently corrects replies that act for your character (with a note showing what changed and a way to restore the original), and can translate messages and drafts. Includes character narration, controls to start and end scenes, sprites, backgrounds, lorebooks, trackers, and optional agents. To keep texting a character after a scene, press Make from this at the top (on a phone, the sparkle button or the ⋮ menu) and pick A chat with them: the roleplay's model writes the story so far into the new chat's summaries and has the character text you first, and the two are linked so each knows what happens in the other.",
     "keywords": [
       "rp",
       "story",
@@ -77,10 +80,13 @@
       "concluded scene",
       "sprites",
       "background",
-      "adventure"
+      "adventure",
+      "make from this",
+      "carry on",
+      "continue as chat"
     ],
     "audience": "Users who want immersive scenes and creative writing rather than quick texting.",
-    "where": "Home > Roleplay, then the setup wizard and Chat Settings > Roleplay Quality.",
+    "where": "Home > Roleplay, then the setup wizard and Chat Settings > Roleplay Quality. From a roleplay: Make from this at the top, then A chat with a character.",
     "actions": [
       {
         "type": "open-mode-setup",

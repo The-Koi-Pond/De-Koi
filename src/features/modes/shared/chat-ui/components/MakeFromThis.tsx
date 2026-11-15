@@ -1,10 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Feather, Loader2, MessagesSquare, Orbit, Square } from "lucide-react";
+import { Drama, Feather, Loader2, MessageCircle, MessagesSquare, Orbit, Square } from "lucide-react";
 
 import { FANFIC_SOURCE_MODES } from "../../../../../engine/modes/fanfic/from-chat";
 import { TRANCE_SOURCE_MODES } from "../../../../../engine/modes/trance/source";
+import { canLinkCarriedChat, carryOnTarget } from "../../../../../engine/shared/carry-on";
 import { Modal } from "../../../../../shared/components/ui/Modal";
 import { useChatSurfaceCharacterSummariesByIds } from "../../../../catalog/characters/index";
+import { useCarryChatOn } from "../hooks/use-carry-chat-on";
 import { useStartFanficFromChat } from "../hooks/use-start-fanfic-from-chat";
 import { useStartTranceFromChat } from "../hooks/use-start-trance-from-chat";
 
@@ -13,6 +15,8 @@ export interface MakeFromThisSource {
   id: string;
   mode: string;
   characterIds?: readonly string[] | null;
+  /** Whether it is already linked to another chat (conversation ↔ roleplay). */
+  linked?: boolean;
 }
 
 function Option({
@@ -75,7 +79,8 @@ function Working({ text, onStop }: { text: string; onStop: () => void }) {
 
 /**
  * Everything that can be made from a chat, roleplay or fic, in one list: a fic retelling it, a trance with one of its
- * characters, and (for a fic) a roleplay or chat that carries on from it. Nothing changes the source.
+ * characters, a roleplay or chat that carries it on in the other mode, and (for a fic) a roleplay or chat that carries
+ * on from it. Nothing changes the source.
  */
 export function MakeFromThisOptions({
   source,
@@ -87,6 +92,7 @@ export function MakeFromThisOptions({
 }) {
   const fic = useStartFanficFromChat();
   const trance = useStartTranceFromChat();
+  const carry = useCarryChatOn();
   const ids = useMemo(() => (source.characterIds ?? []).filter((id) => id.trim()), [source.characterIds]);
   const { data: rows } = useChatSurfaceCharacterSummariesByIds(ids, ids.length > 0);
   const guides = useMemo(
@@ -98,9 +104,11 @@ export function MakeFromThisOptions({
     [rows],
   );
   const [picked, setPicked] = useState("");
-  const guideId = picked && ids.includes(picked) ? picked : (ids[0] ?? "");
-  const guideName = guides.find((guide) => guide.id === guideId)?.name;
-  const busy = !!fic.drafting || !!trance.drafting;
+  const whoId = picked && ids.includes(picked) ? picked : (ids[0] ?? "");
+  const whoName = guides.find((guide) => guide.id === whoId)?.name;
+  const carryTo = carryOnTarget(source.mode);
+  const willLink = canLinkCarriedChat(source.mode, !!source.linked);
+  const busy = !!fic.drafting || !!trance.drafting || !!carry.carrying;
 
   return (
     <div className="flex flex-col gap-2">
@@ -116,6 +124,12 @@ export function MakeFromThisOptions({
           onStop={trance.stop}
         />
       )}
+      {carry.carrying && (
+        <Working
+          text={carry.carrying === source.id ? "Reading this and setting up where it picks up…" : "Carrying a chat on…"}
+          onStop={carry.stop}
+        />
+      )}
       {FANFIC_SOURCE_MODES.has(source.mode) && (
         <Option
           icon={<Feather size="1.1rem" aria-hidden="true" />}
@@ -125,35 +139,53 @@ export function MakeFromThisOptions({
           onClick={() => void fic.start(source.id)}
         />
       )}
+      {ids.length > 1 && guides.length > 1 && (TRANCE_SOURCE_MODES.has(source.mode) || carryTo === "conversation") && (
+        <label className="flex items-center gap-2 px-1 text-xs text-[var(--muted-foreground)]">
+          With
+          <select
+            value={whoId}
+            onChange={(event) => setPicked(event.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+          >
+            {guides.map((guide) => (
+              <option key={guide.id} value={guide.id}>
+                {guide.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {TRANCE_SOURCE_MODES.has(source.mode) && (
         <Option
           icon={<Orbit size="1.1rem" aria-hidden="true" />}
-          title={guideName && ids.length === 1 ? `A trance with ${guideName}` : "A trance"}
+          title={whoName ? `A trance with ${whoName}` : "A trance"}
           detail={
             ids.length === 0
               ? "Add a character first: a trance needs someone to guide it."
               : "A hypnosis session built from what happened here. It opens on three ideas; nothing is written until you pick one."
           }
           disabled={busy || ids.length === 0}
-          onClick={() => void trance.start(source.id, guideId)}
-        >
-          {ids.length > 1 && guides.length > 1 && (
-            <label className="flex items-center gap-2 pl-12 text-xs text-[var(--muted-foreground)]">
-              Guided by
-              <select
-                value={guideId}
-                onChange={(event) => setPicked(event.target.value)}
-                className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2 py-1.5 text-xs text-[var(--foreground)]"
-              >
-                {guides.map((guide) => (
-                  <option key={guide.id} value={guide.id}>
-                    {guide.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </Option>
+          onClick={() => void trance.start(source.id, whoId)}
+        />
+      )}
+      {carryTo && (
+        <Option
+          icon={
+            carryTo === "roleplay" ? (
+              <Drama size="1.1rem" aria-hidden="true" />
+            ) : (
+              <MessageCircle size="1.1rem" aria-hidden="true" />
+            )
+          }
+          title={carryTo === "roleplay" ? "A roleplay" : whoName ? `A chat with ${whoName}` : "A chat"}
+          detail={
+            ids.length === 0
+              ? "Add a character first: they carry it on."
+              : `${carryTo === "roleplay" ? "Meet in person, in a scene that picks up from these texts" : "Texts that pick up after this roleplay"}, with the story so far in its memory.${willLink ? " The two stay linked, so each knows what happens in the other." : ""}`
+          }
+          disabled={busy || ids.length === 0}
+          onClick={() => void carry.start(source.id, whoId)}
+        />
       )}
       {onContinueAsChat && (
         <Option

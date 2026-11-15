@@ -1623,7 +1623,7 @@ export function ChatRoleplaySurface({
           <MakeFromThisDialog
             open={makeFromOpen}
             onClose={() => setMakeFromOpen(false)}
-            source={{ id: chat.id, mode: chat.mode, characterIds: chat.characterIds }}
+            source={{ id: chat.id, mode: chat.mode, characterIds: chat.characterIds, linked: !!chat.connectedChatId }}
           />
         )}
 

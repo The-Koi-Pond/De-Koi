@@ -1886,7 +1886,7 @@ export function ConversationView({
       <MakeFromThisDialog
         open={makeFromOpen}
         onClose={() => setMakeFromOpen(false)}
-        source={{ id: chatId, mode: "conversation", characterIds: chatCharIds }}
+        source={{ id: chatId, mode: "conversation", characterIds: chatCharIds, linked: !!onSwitchChat }}
       />
 
       {/* More options top sheet */}

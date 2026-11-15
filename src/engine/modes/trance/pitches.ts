@@ -20,7 +20,8 @@ import { parseGameJsonish } from "../../shared/parsing-jsonish";
 import { untilAborted } from "../../shared/until-aborted";
 import { userFacingError } from "../../shared/user-facing-error";
 import { renderTranceCharacterCard, type TranceCharacterCard } from "./prompts";
-import { loadTranceSourceContext, renderTranceSource, tranceSourceBudget, type TranceSourceContext } from "./source";
+import { sourceTranscriptBudget } from "../../shared/text/chat-source";
+import { loadTranceSourceContext, renderTranceSource, type TranceSourceContext } from "./source";
 import {
   TRANCE_CATEGORY_LABELS,
   TRANCE_FEATURE_LABELS,
@@ -250,7 +251,7 @@ export async function suggestTrancePitches(
     ? await loadTranceSourceContext(
         deps.storage,
         sourceChatId,
-        await tranceSourceBudget(deps.storage, connectionId, maxTokens),
+        await sourceTranscriptBudget(deps.storage, connectionId, maxTokens),
       )
     : null;
   const messages = buildTrancePitchMessages(input, card, source);
