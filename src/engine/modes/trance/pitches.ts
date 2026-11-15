@@ -20,6 +20,7 @@ import { parseGameJsonish } from "../../shared/parsing-jsonish";
 import { untilAborted } from "../../shared/until-aborted";
 import { userFacingError } from "../../shared/user-facing-error";
 import { renderTranceCharacterCard, type TranceCharacterCard } from "./prompts";
+import { loadTranceSourceContext, renderTranceSource, tranceSourceBudget, type TranceSourceContext } from "./source";
 import {
   TRANCE_CATEGORY_LABELS,
   TRANCE_FEATURE_LABELS,
@@ -48,11 +49,15 @@ export interface SuggestTranceInput {
   exact?: TranceRequest | null;
   /** Titles already shown, so "Show me others" brings new ones. */
   avoidTitles?: string[];
+  /** The chat, roleplay or fic the session is made from: every suggestion grows out of it. */
+  sourceChatId?: string | null;
 }
 
 const SUGGESTION_COUNT = 3;
 const MIN_SAMPLE_LINES = 2;
 const REPLY_TOKENS = 1800;
+/** Suggestions made from a chat also say what each draws on. */
+const SOURCE_REPLY_TOKENS = 2600;
 
 /** The reply couldn't be read as suggestions. */
 export class TrancePitchParseError extends Error {
@@ -67,7 +72,25 @@ export class TrancePitchParseError extends Error {
 
 const optionList = (values: readonly string[]) => values.map((value) => `"${value}"`).join(", ");
 
-function buildTrancePitchSystemPrompt(exact: boolean): string {
+/** The rules for suggestions that grow out of a chat, roleplay or fic. */
+function sourceRules(source: TranceSourceContext, exact: boolean): string[] {
+  const kind = source.kind;
+  return [
+    `- basis: 1 to 3 plain sentences naming exactly what from the ${kind} this session draws on (a place, what the character calls the listener, a moment or promise they share), for whoever writes the full session. Call the listener "the listener" there, not by name.`,
+    "",
+    `## Made from a ${kind}`,
+    `The listener wants a session that grows out of the ${kind} below. Build ${exact ? "it" : "every suggestion"} from it: its places and images, the bond between the character and the listener, the names and phrases the character uses for them, the feeling it had.${exact ? "" : " Each suggestion picks a different thread."}`,
+    kind === "fic"
+      ? "- Speak to the listener as a reader who has been through this story with the character."
+      : `- The listener is ${source.listener} there; speak to them the way the character did by the end.`,
+    "- A pet name the character gave them is welcome; never use their character's name (the session is for the person reading it) and never guess their gender.",
+    "- The character speaks as themself, to the listener: never about themself in the third person, even when the source is told that way.",
+    "- Don't retell it or quote long stretches; a detail or two they will recognise is enough.",
+    "- Keep to what it shows; don't invent shared history.",
+  ];
+}
+
+function buildTrancePitchSystemPrompt(exact: boolean, source: TranceSourceContext | null): string {
   return [
     exact
       ? "You give a taste of one text hypnosis session before it is written, in the voice of a character."
@@ -84,6 +107,7 @@ function buildTrancePitchSystemPrompt(exact: boolean): string {
     `- minutes: one of ${TRANCE_LENGTHS.join(", ")}.`,
     `- ending: one of ${optionList(TRANCE_ENDINGS)}.`,
     "- idea: the session's theme or central image in one short phrase.",
+    ...(source ? sourceRules(source, exact) : []),
     ...(exact
       ? []
       : [
@@ -92,16 +116,22 @@ function buildTrancePitchSystemPrompt(exact: boolean): string {
           `- Exactly ${SUGGESTION_COUNT} suggestions that feel clearly different from each other (goal, imagery, pace).`,
           "- The first is gentle and simple: a safe pick for someone who just wants to feel better.",
           "- The others can lean into the character's own style and anything they said.",
-          '- Nothing sexual (type "erotic", or arousal or orgasm) unless their words or idea ask for it.',
+          source
+            ? `- Nothing sexual (type "erotic" or "kinky", or arousal or orgasm) unless the ${source.kind} itself was sexual or their words or idea ask for it.`
+            : '- Nothing sexual (type "erotic", or arousal or orgasm) unless their words or idea ask for it.',
           "- Fit how they feel. If they gave an idea, every suggestion builds on it.",
         ]),
     "",
     "## Reply format",
-    'Reply with JSON only: {"pitches": [{"title": "", "summary": "", "sample": [""], "type": "", "category": "", "features": [], "minutes": 10, "ending": "", "idea": ""}]}',
+    `Reply with JSON only: {"pitches": [{"title": "", "summary": "", "sample": [""], "type": "", "category": "", "features": [], "minutes": 10, "ending": "", "idea": ""${source ? ', "basis": ""' : ""}}]}`,
   ].join("\n");
 }
 
-function buildTrancePitchUserPrompt(input: SuggestTranceInput, card: TranceCharacterCard): string {
+function buildTrancePitchUserPrompt(
+  input: SuggestTranceInput,
+  card: TranceCharacterCard,
+  source: TranceSourceContext | null,
+): string {
   const feelings = [
     ...input.moods.map((mood) => TRANCE_MOOD_LABELS[mood]),
     ...(input.moodNote ? [`in their words: ${input.moodNote}`] : []),
@@ -110,6 +140,7 @@ function buildTrancePitchUserPrompt(input: SuggestTranceInput, card: TranceChara
   return [
     "## The character",
     renderTranceCharacterCard(card),
+    ...(source ? ["", renderTranceSource(source)] : []),
     "",
     "## How they feel today",
     feelings.length ? feelings.join("; ") : "They didn't say.",
@@ -131,10 +162,14 @@ function buildTrancePitchUserPrompt(input: SuggestTranceInput, card: TranceChara
   ].join("\n");
 }
 
-function buildTrancePitchMessages(input: SuggestTranceInput, card: TranceCharacterCard): LlmMessage[] {
+function buildTrancePitchMessages(
+  input: SuggestTranceInput,
+  card: TranceCharacterCard,
+  source: TranceSourceContext | null,
+): LlmMessage[] {
   return [
-    { role: "system", content: buildTrancePitchSystemPrompt(!!input.exact) },
-    { role: "user", content: buildTrancePitchUserPrompt(input, card) },
+    { role: "system", content: buildTrancePitchSystemPrompt(!!input.exact, source) },
+    { role: "user", content: buildTrancePitchUserPrompt(input, card, source) },
   ];
 }
 
@@ -170,11 +205,15 @@ export function parseTrancePitchReply(raw: string, input: SuggestTranceInput): T
       : [];
     if (!title || sample.length < MIN_SAMPLE_LINES) return [];
     const settings = input.exact ? { ...input.exact } : { ...item, idea: readString(item.idea).trim() || input.idea };
+    // What a session made from a chat draws on: a preview keeps the one it was given (it may have been edited).
+    const fromSource = input.sourceChatId ? readString(item.basis).trim() : "";
+    const basis = input.exact ? input.exact.basis || fromSource : fromSource;
     const request = normalizeTranceRequest({
       ...settings,
       moods: input.moods,
       moodNote: input.moodNote,
       pitch: { title, summary, sample },
+      basis,
     });
     return [{ title, summary, request }];
   });
@@ -205,10 +244,19 @@ export async function suggestTrancePitches(
     scenario: character.scenario,
     mesExample: character.mesExample,
   };
-  const messages = buildTrancePitchMessages(input, card);
+  const sourceChatId = input.sourceChatId?.trim() || null;
+  const maxTokens = sourceChatId ? SOURCE_REPLY_TOKENS : REPLY_TOKENS;
+  const source = sourceChatId
+    ? await loadTranceSourceContext(
+        deps.storage,
+        sourceChatId,
+        await tranceSourceBudget(deps.storage, connectionId, maxTokens),
+      )
+    : null;
+  const messages = buildTrancePitchMessages(input, card, source);
   for (let attempt = 0; ; attempt += 1) {
     const raw = await untilAborted(
-      deps.llm.complete({ connectionId, messages, parameters: { maxTokens: REPLY_TOKENS, temperature: 1 } }, signal),
+      deps.llm.complete({ connectionId, messages, parameters: { maxTokens, temperature: 1 } }, signal),
       signal,
     );
     try {

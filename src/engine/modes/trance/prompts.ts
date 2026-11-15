@@ -270,6 +270,14 @@ export function buildTranceRequestPrompt(
     sectionShares(target, request.ending),
     ...(features.length > 0 ? ["", "## Picked features", ...features] : []),
     ...(request.idea ? ["", "## Their idea", request.idea] : []),
+    ...(request.basis
+      ? [
+          "",
+          "## What you and the listener share",
+          "This session grows out of a story the listener lived with you. Speak to them as someone who was there: the place, what you call them, a moment you both remember. Weave in one or two of these where they fit; don't retell the story.",
+          request.basis,
+        ]
+      : []),
     ...(request.pitch
       ? [
           "",

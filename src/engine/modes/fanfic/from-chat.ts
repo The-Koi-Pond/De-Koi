@@ -17,6 +17,7 @@ import { resolveBackgroundTextConnection } from "../../generation/background-llm
 import { effectiveMaxContext } from "../../generation/context-window";
 import { loadCharacters, loadPersona } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
+import { chatTranscriptLines, fitTranscript } from "../../shared/text/chat-transcript";
 import { userFacingError } from "../../shared/user-facing-error";
 import {
   completeFanficJson,
@@ -59,49 +60,6 @@ export function readFanficSource(metadata: unknown): FanficSource | null {
   const chatId = readString(raw.chatId).trim();
   if (raw.version !== 1 || !chatId) return null;
   return { version: 1, chatId, mode: readString(raw.mode), name: readString(raw.name) };
-}
-
-interface Speaker {
-  role: string;
-  name: string;
-  content: string;
-  note: boolean;
-}
-
-/** The chat's messages in order, each with who said it. Hidden notes (scene summaries) stay in, marked as notes. */
-function speakers(
-  messages: readonly JsonRecord[],
-  names: { characters: Map<string, string>; only: string | null; persona: string },
-): Speaker[] {
-  return [...messages]
-    .filter((message) => ["user", "assistant", "narrator"].includes(readString(message.role)))
-    .filter((message) => readString(message.content).trim())
-    .sort((a, b) => readString(a.createdAt).localeCompare(readString(b.createdAt)))
-    .map((message) => {
-      const role = readString(message.role);
-      const name =
-        role === "user"
-          ? names.persona
-          : role === "narrator"
-            ? "Narrator"
-            : (names.characters.get(readString(message.characterId)) ?? names.only ?? "Character");
-      const extra = parseRecord(message.extra);
-      return { role, name, content: readString(message.content).trim(), note: extra.hiddenFromUser === true };
-    });
-}
-
-/** The newest lines that fit in `maxChars`, oldest first, and how many earlier ones were left out. */
-function transcript(lines: readonly Speaker[], maxChars: number): { text: string; left: number } {
-  const kept: string[] = [];
-  let used = 0;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index]!;
-    const text = line.note ? `(Story note) ${line.content}` : `${line.name}: ${line.content}`;
-    if (used + text.length > maxChars && kept.length > 0) return { text: kept.join("\n\n"), left: index + 1 };
-    kept.unshift(text);
-    used += text.length + 2;
-  }
-  return { text: kept.join("\n\n"), left: 0 };
 }
 
 function profile(name: string, description: string): string {
@@ -220,7 +178,7 @@ export async function startFanficFromChat(
     loadPersona(deps.storage, chat),
   ]);
   const personaName = persona?.name.trim() || "The user's character";
-  const lines = speakers(messages.filter(isRecord), {
+  const lines = chatTranscriptLines(messages.filter(isRecord), {
     characters: new Map(characters.map((character) => [character.id, character.name])),
     only: characters.length === 1 ? characters[0]!.name : null,
     persona: personaName,
@@ -245,7 +203,7 @@ export async function startFanficFromChat(
     deps.llm,
     {
       connectionId: connection.id,
-      messages: buildMessages({ ...frame, transcript: transcript(lines, budget.proseChars) }),
+      messages: buildMessages({ ...frame, transcript: fitTranscript(lines, budget.proseChars) }),
       maxTokens: budget.replyTokens,
     },
     parseDraft,

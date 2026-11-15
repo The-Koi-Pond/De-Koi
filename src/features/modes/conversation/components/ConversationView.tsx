@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   Phone,
   ScrollText,
+  Sparkles,
 } from "lucide-react";
 import { ConversationMessage } from "./ConversationMessage";
 import { ConversationInput } from "./ConversationInput";
@@ -82,7 +83,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { conversationSettingsApi, conversationSettingsKeys } from "../../../../shared/api/conversation-settings-api";
 import type { CharacterMap, MessageSelectionToggle, PeekPromptOptions, PersonaInfo } from "../../shared/chat-ui/types";
 import type { SaveMomentSource } from "../../shared/chat-ui/index";
-import { useJumpToMessage } from "../../shared/chat-ui/index";
+import { MakeFromThisButton, MakeFromThisDialog, useJumpToMessage } from "../../shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { useUpdateChatMetadata } from "../../../catalog/chats/index";
 import { useGenerate } from "../../../runtime/generation/index";
@@ -577,6 +578,7 @@ export function ConversationView({
   const [mobileWorldInfoOpen, setMobileWorldInfoOpen] = useState(false);
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
   // The chat a voice call was started in. Switching chats ends the call instead of carrying it into another chat.
   const [voiceCallChatId, setVoiceCallChatId] = useState<string | null>(null);
   const voiceCallOpen = voiceCallChatId === chatId;
@@ -954,6 +956,19 @@ export function ConversationView({
             <Phone size="1.1rem" />
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            setMoreMenuOpen(false);
+            setToolsSheetOpen(false);
+            setMakeFromOpen(true);
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--primary)] transition-all active:scale-90 hover:bg-[var(--accent)]/30"
+          title="Make from this"
+          aria-label="Make from this"
+        >
+          <Sparkles size="1.1rem" />
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -1545,6 +1560,7 @@ export function ConversationView({
                   <Phone size="0.875rem" />
                 </button>
               )}
+              <MakeFromThisButton onClick={() => setMakeFromOpen(true)} className="max-md:hidden" />
               <button
                 onClick={onOpenGallery}
                 className="flex items-center justify-center rounded-lg bg-[var(--card)]/80 p-1.5 text-foreground/80 backdrop-blur-sm transition-colors hover:bg-[var(--card)] hover:text-foreground dark:bg-black/30 dark:hover:bg-black/50"
@@ -1867,6 +1883,12 @@ export function ConversationView({
         </>
       )}
 
+      <MakeFromThisDialog
+        open={makeFromOpen}
+        onClose={() => setMakeFromOpen(false)}
+        source={{ id: chatId, mode: "conversation", characterIds: chatCharIds }}
+      />
+
       {/* More options top sheet */}
       {moreMenuOpen && (
         <>
@@ -1884,6 +1906,20 @@ export function ConversationView({
             style={{ top: "calc(3.25rem + env(safe-area-inset-top))" }}
           >
             <div className="flex flex-col py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  skipSheetFocusRestoreRef.current = true;
+                  setMoreMenuOpen(false);
+                  setMakeFromOpen(true);
+                }}
+                className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-400 to-pink-500 text-white shadow-sm">
+                  <Sparkles size="0.9rem" />
+                </div>
+                <span className="text-sm font-medium text-[var(--foreground)]">Make a fic, trance and more</span>
+              </button>
               {chatGroupId && (
                 <div className="relative">
                   <button

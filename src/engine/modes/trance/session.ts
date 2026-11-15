@@ -109,7 +109,8 @@ export async function saveTranceRequest(storage: StorageGateway, input: SaveTran
     ...(name ? { name } : {}),
   });
   try {
-    await storage.patchChatMetadata(input.chatId, { trance: state });
+    // A session made from a chat stops opening on its drafted ideas once a request is saved.
+    await storage.patchChatMetadata(input.chatId, { trance: state, tranceDraft: null });
   } catch (error) {
     try {
       await storage.update("chats", input.chatId, previous);
