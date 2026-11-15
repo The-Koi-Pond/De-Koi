@@ -25,16 +25,20 @@ function list(names: readonly string[]): string {
 }
 
 /**
- * Continues the fic as a roleplay or a texting chat that picks up after the last chapter: who the requester plays
- * (their persona or a fic character) and who the AI plays. Characters with no card get one written from the fic.
+ * Continues the fic as a roleplay or a texting chat that picks up after the last chapter, or branches off after an
+ * earlier one: who the requester plays (their persona or a fic character) and who the AI plays. Characters with no
+ * card get one written from the fic.
  */
 export function FanficContinuePanel({
   chatId,
   state,
+  chapters,
   busy,
 }: {
   chatId: string;
   state: FanficState;
+  /** The labels of the chapters the story builds on, in reading order ("1", "2", "2.5", …). */
+  chapters: readonly string[];
   /** While the fic is writing. */
   busy: boolean;
 }) {
@@ -58,6 +62,11 @@ export function FanficContinuePanel({
   const hasCard = (name: string) => cardNames.some((entry) => sameName(entry, name));
 
   const [mode, setMode] = useState<FanficChatMode>("roleplay");
+  const last = chapters.at(-1) ?? "";
+  const [afterPick, setAfterPick] = useState<string | null>(null);
+  // A pick that is no longer a chapter (rewritten or deleted) falls back to the last one.
+  const after = afterPick && chapters.includes(afterPick) ? afterPick : last;
+  const branching = after !== last;
   const [playAs, setPlayAs] = useState<string>(YOURSELF);
   const [picked, setPicked] = useState<string[] | null>(null);
   const others = cast.filter((name) => playAs === YOURSELF || !sameName(name, playAs));
@@ -82,8 +91,32 @@ export function FanficContinuePanel({
   return (
     <FanficSection
       title="Continue as a roleplay or chat"
-      hint="Picks up after the last chapter. The story so far goes into the new chat's summary, and the chat is linked to this fic so each knows what happens in the other. The fic stays as it is."
+      hint="Picks up after the chapter you choose, with the story so far in the new chat's summary. After the last chapter, the chat is linked to this fic so each knows what happens in the other; after an earlier one, it branches off and goes its own way. The fic stays as it is."
     >
+      {chapters.length > 1 && (
+        <FanficField
+          label="Picks up after"
+          htmlFor={`fanfic-continue-after-${chatId}`}
+          hint={
+            branching
+              ? `Branches off: the chat only knows the story up to chapter ${after}, and isn't linked to the fic.`
+              : undefined
+          }
+        >
+          <select
+            id={`fanfic-continue-after-${chatId}`}
+            value={after}
+            onChange={(event) => setAfterPick(event.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-[0.8125rem] text-[var(--foreground)]"
+          >
+            {chapters.map((label) => (
+              <option key={label} value={label}>
+                {`Chapter ${label}${label === last ? " (the last one)" : ""}`}
+              </option>
+            ))}
+          </select>
+        </FanficField>
+      )}
       <FanficField label="Continue as">
         <FanficSegmented<FanficChatMode>
           label="Continue as"
@@ -175,6 +208,7 @@ export function FanficContinuePanel({
                 mode,
                 cast: chosen,
                 playAs: playAs === YOURSELF ? { kind: "persona" } : { kind: "character", name: playAs },
+                afterChapter: after || null,
               })
             }
           >

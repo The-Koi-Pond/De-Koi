@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { readString } from "../../../../engine/generation/runtime-records";
+import { parseRecord, readString } from "../../../../engine/generation/runtime-records";
 import { startChatFromFanfic, type StartChatFromFanficInput } from "../../../../engine/modes/fanfic/to-chat";
 import { llmApi } from "../../../../shared/api/llm-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -37,8 +37,12 @@ export function useFanficToChat(ficChatId: string) {
           queryClient.invalidateQueries({ queryKey: personaKeys.list }),
         ]);
         useChatStore.getState().setActiveChatId(readString(chat.id));
+        const kind = input.mode === "roleplay" ? "roleplay" : "chat";
+        const branchedAfter = readString(parseRecord(parseRecord(chat.metadata).fanficOrigin).afterChapter);
         toast.success(
-          `The ${input.mode === "roleplay" ? "roleplay" : "chat"} picks up after the last chapter. The story so far is in its summary.`,
+          branchedAfter
+            ? `The ${kind} branches off after chapter ${branchedAfter}. The story up to there is in its summary.`
+            : `The ${kind} picks up after the last chapter. The story so far is in its summary.`,
         );
       } catch (error) {
         if (!controller.signal.aborted) {
