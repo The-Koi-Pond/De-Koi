@@ -63,6 +63,10 @@ function boundarySlice(text: string, maxChars: number, fromEnd: boolean): string
   return (bounded.length >= Math.floor(maxChars * 0.6) ? bounded : source).trim();
 }
 
+function wholeText(value: string | undefined): string | undefined {
+  return compactText(value, Number.POSITIVE_INFINITY);
+}
+
 function compactText(value: string | undefined, maxChars: number): string | undefined {
   const text = readString(value)
     .replace(/\s+\n/g, "\n")
@@ -173,14 +177,19 @@ function focusedCharacter<T extends FocusableConversationCharacter>(
   userName: string,
 ): T {
   const isTarget = character.id === targetCharacterId;
+  // Lore is compacted to keep the prompt focused, but the speaking character's own instructions are rules, not lore:
+  // cutting a long system prompt to its first and last few lines dropped whole sections (limits, how to handle
+  // "more", what not to lecture about) once a chat passed 20 replies, and the character changed mid-chat.
   return {
     ...character,
     description: compactText(character.description, 450) ?? "",
     personality: compactText(character.personality, 320),
     scenario: compactText(character.scenario, 240),
     backstory: compactText(character.backstory, 200),
-    systemPrompt: compactText(character.systemPrompt, 650),
-    postHistoryInstructions: compactText(character.postHistoryInstructions, 400),
+    systemPrompt: isTarget ? wholeText(character.systemPrompt) : compactText(character.systemPrompt, 650),
+    postHistoryInstructions: isTarget
+      ? wholeText(character.postHistoryInstructions)
+      : compactText(character.postHistoryInstructions, 400),
     memories: compactMemories(character.memories),
     mesExample: isTarget
       ? isFocusedConversationVoiceExamples(character.mesExample)
