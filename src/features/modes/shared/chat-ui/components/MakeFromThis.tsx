@@ -108,6 +108,7 @@ export function MakeFromThisOptions({
   const whoName = guides.find((guide) => guide.id === whoId)?.name;
   const carryTo = carryOnTarget(source.mode);
   const willLink = canLinkCarriedChat(source.mode, !!source.linked);
+  const isTrance = source.mode === "trance";
   const busy = !!fic.drafting || !!trance.drafting || !!carry.carrying;
 
   return (
@@ -134,7 +135,11 @@ export function MakeFromThisOptions({
         <Option
           icon={<Feather size="1.1rem" aria-hidden="true" />}
           title="A fic"
-          detail="Retells this story as chapters. You check the request before anything is written, and the two stay linked."
+          detail={
+            isTrance
+              ? "Retells this session as a story. You check the request before anything is written."
+              : "Retells this story as chapters. You check the request before anything is written, and the two stay linked."
+          }
           disabled={busy}
           onClick={() => void fic.start(source.id)}
         />
@@ -177,11 +182,21 @@ export function MakeFromThisOptions({
               <MessageCircle size="1.1rem" aria-hidden="true" />
             )
           }
-          title={carryTo === "roleplay" ? "A roleplay" : whoName ? `A chat with ${whoName}` : "A chat"}
+          title={
+            carryTo === "roleplay"
+              ? "A roleplay"
+              : isTrance
+                ? `Talk it over with ${whoName || "your guide"}`
+                : whoName
+                  ? `A chat with ${whoName}`
+                  : "A chat"
+          }
           detail={
             ids.length === 0
               ? "Add a character first: they carry it on."
-              : `${carryTo === "roleplay" ? "Meet in person, in a scene that picks up from these texts" : "Texts that pick up after this roleplay"}, with the story so far in its memory.${willLink ? " The two stay linked, so each knows what happens in the other." : ""}`
+              : isTrance
+                ? `Texts from ${whoName || "your guide"} after the session, checking in on how it went, with the session in the chat's memory.`
+                : `${carryTo === "roleplay" ? "Meet in person, in a scene that picks up from these texts" : "Texts that pick up after this roleplay"}, with the story so far in its memory.${willLink ? " The two stay linked, so each knows what happens in the other." : ""}`
           }
           disabled={busy || ids.length === 0}
           onClick={() => void carry.start(source.id, whoId)}

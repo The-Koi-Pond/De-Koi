@@ -28,6 +28,7 @@ import { TrancePlayer } from "./TrancePlayer";
 import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
 import { TranceSessionOptions } from "./TranceSessionOptions";
 import { TranceStartFromChat } from "./TranceStartFromChat";
+import { MakeFromThisButton, MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { useDiscardUntouchedNewChat } from "../../shared/chat-ui/new-chat-drafts";
 
 export interface TranceModeRouteProps {
@@ -123,6 +124,7 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const recordRun = useTranceRecordRun(activeChatId);
   const [editing, setEditing] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
   const backdrop = useUIStore((state) => state.tranceBackdrop);
   const voiceMode = useUIStore((state) => state.tranceVoice);
   const pace = useUIStore((state) => state.trancePace);
@@ -354,8 +356,17 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
               <SlidersHorizontal size="0.875rem" aria-hidden="true" />
               Change settings
             </button>
+            {/* Talk it over with the guide, or turn the session into a fic. */}
+            {stage === "ready" && characterIds.length > 0 && (
+              <MakeFromThisButton onClick={() => setMakeFromOpen(true)} className="py-1.5 text-sm" />
+            )}
           </div>
         )}
+        <MakeFromThisDialog
+          open={makeFromOpen}
+          onClose={() => setMakeFromOpen(false)}
+          source={{ id: activeChatId, mode: "trance", characterIds }}
+        />
         {stage === "ready" && writeError && (
           <p role="alert" className="text-sm text-[var(--foreground)]">
             {writeError}
