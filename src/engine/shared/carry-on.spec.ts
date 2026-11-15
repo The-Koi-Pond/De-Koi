@@ -4,11 +4,35 @@ import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageEntity, StorageGateway } from "../capabilities/storage";
 import { canLinkCarriedChat, carryChatOn, carryOnTarget } from "./carry-on";
 import { normalizeChatSummaryMetadata } from "./text/chat-summary-entries";
+import { fitTranscript, tranceSessionLines } from "./text/chat-transcript";
+
+const tranceMetadata = {
+  trance: {
+    version: 1,
+    request: {
+      moods: ["tired"],
+      moodNote: "long shift",
+      idea: "the lighthouse lamp",
+      pitch: { title: "Lamp Watch", summary: "Breathe with the lens.", sample: [] },
+    },
+    script: {
+      lines: [
+        { phase: "pretalk", text: "Sit, little moth." },
+        { phase: "pretalk", text: "The lamp does the work tonight." },
+        { phase: "induction", text: "In while it sweeps the water." },
+        { phase: "wake", text: "Three, two, one. Awake." },
+      ],
+    },
+    runs: [{ finishedBy: "completed", rating: 8, fullyAwake: true, note: "the stairs bit helped" }],
+  },
+};
 
 const setupReply = (opening: string) =>
   JSON.stringify({ storySoFar: "Rook washed up at the lighthouse and Vex took them in.", opening });
 
-function setup(options: { mode?: string; messages?: Record<string, unknown>[] } = {}) {
+function setup(
+  options: { mode?: string; messages?: Record<string, unknown>[]; metadata?: Record<string, unknown> } = {},
+) {
   const chats = new Map<string, Record<string, unknown>>([
     [
       "src",
@@ -19,7 +43,7 @@ function setup(options: { mode?: string; messages?: Record<string, unknown>[] } 
         characterIds: ["vex", "pip"],
         personaId: "me",
         connectionId: "src-conn",
-        metadata: { summary: "Earlier, Rook stole a map.", activeLorebookIds: ["coast"] },
+        metadata: options.metadata ?? { summary: "Earlier, Rook stole a map.", activeLorebookIds: ["coast"] },
       },
     ],
   ]);
@@ -154,7 +178,51 @@ describe("carrying a chat on in the other mode", () => {
       "nothing in this chat",
     );
     await expect(carryChatOn({ storage: setup({ mode: "fanfic" }).storage, llm }, { chatId: "src" })).rejects.toThrow(
-      "Only chats and roleplays",
+      "Only chats, roleplays and trance sessions",
+    );
+  });
+
+  it("reads a trance session as its parts in the guide's voice, with how the listener felt before and after", () => {
+    const lines = tranceSessionLines(tranceMetadata, { guide: "Vex", listener: "Rook" });
+    expect(fitTranscript(lines, 10_000).text).toBe(
+      [
+        "The session: Lamp Watch: Breathe with the lens.",
+        "Rook: (Before the session, how I feel) tired. long shift",
+        "Vex (pretalk): Sit, little moth. The lamp does the work tonight.",
+        "Vex (induction): In while it sweeps the water.",
+        "Vex (wake): Three, two, one. Awake.",
+        "Rook: (After the session) I finished the session; felt 8/10; said: the stairs bit helped.",
+      ].join("\n\n"),
+    );
+    // Nothing to read until a script is written.
+    expect(
+      tranceSessionLines({ trance: { request: {}, script: null, runs: [] } }, { guide: "Vex", listener: "Rook" }),
+    ).toEqual([]);
+  });
+
+  it("talks a trance session over with its guide, in texts", async () => {
+    const { storage, created, sent } = setup({ mode: "trance", messages: [], metadata: tranceMetadata });
+    const { llm, requests } = llmReplying(setupReply("how are you feeling, moth?"));
+    const chat = await carryChatOn({ storage, llm }, { chatId: "src" });
+
+    const [system, user] = requests[0]!.messages;
+    expect(system!.content).toContain('Vex guided Rook through the hypnosis session "Gull Rock"');
+    expect(system!.content).toContain("so they can talk it over");
+    expect(system!.content).toContain("no new hypnosis");
+    expect(user!.content).toContain("## The hypnosis session, in order");
+    expect(user!.content).toContain("Vex (induction): In while it sweeps the water.");
+    expect(user!.content).toContain("said: the stairs bit helped");
+
+    expect(chat).toMatchObject({ name: "Gull Rock (chat)", mode: "conversation", characterIds: ["vex"] });
+    expect(normalizeChatSummaryMetadata(chat.metadata as Record<string, unknown>).entries[0]).toMatchObject({
+      title: "The session: Gull Rock",
+    });
+    expect(sent[0]).toMatchObject({ characterId: "vex", content: "how are you feeling, moth?" });
+    expect(created).toHaveLength(1);
+
+    const unwritten = setup({ mode: "trance", messages: [], metadata: { trance: { script: null } } });
+    await expect(carryChatOn({ storage: unwritten.storage, llm }, { chatId: "src" })).rejects.toThrow(
+      "This session hasn't been written yet",
     );
   });
 
@@ -162,9 +230,11 @@ describe("carrying a chat on in the other mode", () => {
     expect(carryOnTarget("roleplay")).toBe("conversation");
     expect(carryOnTarget("visual_novel")).toBe("conversation");
     expect(carryOnTarget("conversation")).toBe("roleplay");
+    expect(carryOnTarget("trance")).toBe("conversation");
     expect(carryOnTarget("fanfic")).toBeNull();
     expect(canLinkCarriedChat("roleplay", false)).toBe(true);
     expect(canLinkCarriedChat("roleplay", true)).toBe(false);
     expect(canLinkCarriedChat("visual_novel", false)).toBe(false);
+    expect(canLinkCarriedChat("trance", false)).toBe(false);
   });
 });

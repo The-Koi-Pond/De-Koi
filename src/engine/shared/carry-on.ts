@@ -1,9 +1,9 @@
 // ──────────────────────────────────────────────
-// Carrying a chat on as a roleplay, or a roleplay on as a chat
+// Carrying a chat on as a roleplay, a roleplay on as a chat, or talking a trance session over with its guide
 // ──────────────────────────────────────────────
 // The source's model reads it and sets up a new chat in the other mode that picks up where it stopped: the story so far
 // goes in as the new chat's summary (shown and editable in its summaries), and it opens on a first message in the new
-// mode's style. The characters, persona, model and lorebooks come along; the source itself is left as it is. Linking
+// mode's style. A trance session carries on as texts with its guide, who checks in on how it went. The characters, persona, model and lorebooks come along; the source itself is left as it is. Linking
 // the two (the existing conversation ↔ roleplay link) is the caller's step, since it goes through the chat commands.
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -13,7 +13,7 @@ import { isRecord, parseRecord, readString, type JsonRecord } from "../generatio
 import { parseGameJsonish } from "./parsing-jsonish";
 import { appendChatSummaryEntryToMetadata } from "./text/chat-summary-entries";
 import { sourceConnectionId, sourceTranscriptBudget } from "./text/chat-source";
-import { chatTranscriptLines, fitTranscript } from "./text/chat-transcript";
+import { chatTranscriptLines, fitTranscript, tranceSessionLines } from "./text/chat-transcript";
 import { untilAborted } from "./until-aborted";
 import { userFacingError } from "./user-facing-error";
 
@@ -24,6 +24,7 @@ const TARGETS: Record<string, CarryOnMode> = {
   conversation: "roleplay",
   roleplay: "conversation",
   visual_novel: "conversation",
+  trance: "conversation",
 };
 
 /** The mode a chat of this mode carries on as, or null when it can't. */
@@ -50,6 +51,8 @@ function profile(name: string, description: string): string {
 
 function buildMessages(args: {
   sourceName: string;
+  /** What the source is, as the prompt names it. */
+  from: "texting chat" | "roleplay" | "hypnosis session";
   target: CarryOnMode;
   cast: string[];
   user: string;
@@ -57,25 +60,31 @@ function buildMessages(args: {
   summary: string;
   transcript: { text: string; left: number };
 }): LlmMessage[] {
-  const { target, cast, user } = args;
+  const { from, target, cast, user } = args;
   const castList = cast.join(", ");
-  const from = target === "roleplay" ? "texting chat" : "roleplay";
+  const trance = from === "hypnosis session";
   const rules = [
-    `You are carrying the ${from} "${args.sourceName}" on as a ${target === "roleplay" ? "roleplay, where they are together in person" : "texting chat"}. ${user} is the user's own character; the AI plays ${castList}.`,
+    trance
+      ? `${cast[0]} guided ${user} through the hypnosis session "${args.sourceName}". You are setting up a texting chat between them for afterwards, so they can talk it over. ${user} is the user; the AI plays ${cast[0]}.`
+      : `You are carrying the ${from} "${args.sourceName}" on as a ${target === "roleplay" ? "roleplay, where they are together in person" : "texting chat"}. ${user} is the user's own character; the AI plays ${castList}.`,
     "Keep to what the source shows: don't invent history, and don't soften or heighten it.",
     "",
     "Reply with one JSON object and nothing else:",
     "{",
-    `  "storySoFar": a recap of the ${from} for the new chat's memory: what happened, in order, in plain past-tense sentences; then where things stand now: where everyone is, what each of them knows, their promises, running jokes and open threads. Facts only, no prose style, at most ${RECAP_MAX_CHARS - 1000} characters,`,
-    target === "roleplay"
-      ? `  "opening": the roleplay's first message, written for ${castList}: a scene where they are with ${user} in person, picking up from where the texts left off (a plan they made, a meeting, or a little later), in the tone they have built. Third-person narration with dialogue, like a roleplay reply, two to four paragraphs. Give ${user} something to react to, and never write ${user}'s actions, words or thoughts.`
-      : `  "opening": ${cast[0]}'s first text to ${user}, sent some time after the roleplay's latest scene (or right after, when that fits): one to three short texts separated by blank lines, in ${cast[0]}'s own voice, the way they would type on a phone. No narration and no actions.`,
+    trance
+      ? `  "storySoFar": a recap of the session for the chat's memory: what it was for, the images, phrases and suggestions ${cast[0]} used, how it ended, and how ${user} felt before and said it went after. Facts only, no prose style, at most ${RECAP_MAX_CHARS - 1000} characters,`
+      : `  "storySoFar": a recap of the ${from} for the new chat's memory: what happened, in order, in plain past-tense sentences; then where things stand now: where everyone is, what each of them knows, their promises, running jokes and open threads. Facts only, no prose style, at most ${RECAP_MAX_CHARS - 1000} characters,`,
+    trance
+      ? `  "opening": ${cast[0]}'s first text to ${user} after the session: checking in on how they feel now and inviting them to talk it over, in ${cast[0]}'s own voice, the way they would type on a phone. One to three short texts separated by blank lines. No narration, no actions, and no new hypnosis.`
+      : target === "roleplay"
+        ? `  "opening": the roleplay's first message, written for ${castList}: a scene where they are with ${user} in person, picking up from where the texts left off (a plan they made, a meeting, or a little later), in the tone they have built. Third-person narration with dialogue, like a roleplay reply, two to four paragraphs. Give ${user} something to react to, and never write ${user}'s actions, words or thoughts.`
+        : `  "opening": ${cast[0]}'s first text to ${user}, sent some time after the roleplay's latest scene (or right after, when that fits): one to three short texts separated by blank lines, in ${cast[0]}'s own voice, the way they would type on a phone. No narration and no actions.`,
     "}",
   ].join("\n");
   const sections = [
     `## Who is in it\n${args.profiles.join("\n\n")}`,
     args.summary.trim() ? `## Earlier, in summary\n${args.summary.trim()}` : "",
-    `## The ${from}, oldest first${args.transcript.left > 0 ? ` (the first ${args.transcript.left} messages are left out; the summary covers them when there is one)` : ""}\n${args.transcript.text}`,
+    `## The ${from}${trance ? ", in order" : ", oldest first"}${args.transcript.left > 0 ? ` (the first ${args.transcript.left} messages are left out; the summary covers them when there is one)` : ""}\n${args.transcript.text}`,
   ].filter(Boolean);
   return [
     { role: "system", content: rules },
@@ -112,7 +121,8 @@ export async function carryChatOn(
   const chat = await deps.storage.get<JsonRecord>("chats", input.chatId);
   if (!isRecord(chat)) throw userFacingError("That chat is no longer here.");
   const target = carryOnTarget(readString(chat.mode).trim());
-  if (!target) throw userFacingError("Only chats and roleplays can be carried on in the other mode.");
+  if (!target) throw userFacingError("Only chats, roleplays and trance sessions can be carried on like this.");
+  const fromTrance = readString(chat.mode) === "trance";
   const [messages, characters, persona] = await Promise.all([
     deps.storage.listChatMessages<JsonRecord>(input.chatId),
     loadCharacters(deps.storage, chat),
@@ -122,12 +132,20 @@ export async function carryChatOn(
   const cast = target === "roleplay" ? characters : picked ? [picked] : [];
   if (cast.length === 0) throw userFacingError("This chat has no character to carry it on with.");
   const user = persona?.name.trim() || "The user's character";
-  const lines = chatTranscriptLines(messages.filter(isRecord), {
-    characters: new Map(characters.map((character) => [character.id, character.name])),
-    only: characters.length === 1 ? characters[0]!.name : null,
-    persona: user,
-  });
-  if (!lines.some((line) => !line.note)) throw userFacingError("There's nothing in this chat to carry on yet.");
+  const lines = fromTrance
+    ? tranceSessionLines(chat.metadata, { guide: cast[0]!.name, listener: user })
+    : chatTranscriptLines(messages.filter(isRecord), {
+        characters: new Map(characters.map((character) => [character.id, character.name])),
+        only: characters.length === 1 ? characters[0]!.name : null,
+        persona: user,
+      });
+  if (!lines.some((line) => !line.note)) {
+    throw userFacingError(
+      fromTrance
+        ? "This session hasn't been written yet, so there's nothing to talk over."
+        : "There's nothing in this chat to carry on yet.",
+    );
+  }
 
   const connectionId = await sourceConnectionId(deps.storage, chat);
   const sourceName = readString(chat.name).trim() || "Untitled";
@@ -135,6 +153,7 @@ export async function carryChatOn(
   const messagesFor = (transcript: { text: string; left: number }) =>
     buildMessages({
       sourceName,
+      from: fromTrance ? "hypnosis session" : target === "roleplay" ? "texting chat" : "roleplay",
       target,
       cast: cast.map((character) => character.name),
       user,
@@ -164,7 +183,7 @@ export async function carryChatOn(
   // Nothing is saved until the setup is in hand, so a failed or stopped setup leaves nothing behind.
   const summary = appendChatSummaryEntryToMetadata(
     {},
-    { title: `The story so far: ${sourceName}`, content: setup.storySoFar },
+    { title: `${fromTrance ? "The session" : "The story so far"}: ${sourceName}`, content: setup.storySoFar },
   );
   const created = await deps.storage.create<JsonRecord>("chats", {
     name: `${sourceName} (${target === "roleplay" ? "roleplay" : "chat"})`,

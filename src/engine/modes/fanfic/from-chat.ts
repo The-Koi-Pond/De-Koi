@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
-// Turning a chat or roleplay into a fic
+// Turning a chat, roleplay or trance session into a fic
 // ──────────────────────────────────────────────
-// The chat's model reads what happened in it and drafts an AO3-style request for a fic that retells that story. A new
+// The chat's model reads what happened in it and drafts an AO3-style request for a fic that retells that story (for a
+// trance session: the session itself, as a scene between the guide and the listener). A new
 // fic starts from the draft: the request form opens filled in, the requester changes anything and starts the fic as
 // usual. Nothing is planned or written until then, and the chat itself is left as it is.
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
@@ -17,7 +18,7 @@ import { resolveBackgroundTextConnection } from "../../generation/background-llm
 import { effectiveMaxContext } from "../../generation/context-window";
 import { loadCharacters, loadPersona } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
-import { chatTranscriptLines, fitTranscript } from "../../shared/text/chat-transcript";
+import { chatTranscriptLines, fitTranscript, tranceSessionLines } from "../../shared/text/chat-transcript";
 import { userFacingError } from "../../shared/user-facing-error";
 import {
   completeFanficJson,
@@ -32,7 +33,7 @@ import { FANFIC_LINK_MODES, linkFanficChat } from "./links";
 import { defaultFanficRequest, normalizeFanficRequest } from "./request";
 
 /** The chat modes a fic can be made from. */
-export const FANFIC_SOURCE_MODES: ReadonlySet<string> = new Set(["conversation", "roleplay", "visual_novel"]);
+export const FANFIC_SOURCE_MODES: ReadonlySet<string> = new Set(["conversation", "roleplay", "visual_novel", "trance"]);
 
 /** Where a fic made from a chat came from (`metadata.fanficSource`). */
 export interface FanficSource {
@@ -68,7 +69,7 @@ function profile(name: string, description: string): string {
 }
 
 const RULES = [
-  "You turn a chat or roleplay into a request for a fanfic that retells its story as prose. The person who had the chat wants it written up as a fic, the way they would request one on AO3. Read the whole chat and fill in the request for them.",
+  "You turn a chat, roleplay or hypnosis session into a request for a fanfic that retells its story as prose. The person who had the chat wants it written up as a fic, the way they would request one on AO3. Read the whole chat and fill in the request for them. A hypnosis session (a character guiding the user's character into trance, in parts) is retold as the scene it was: the two of them, what the guide said and did to them, and how it felt.",
   "",
   "Reply with one JSON object and nothing else:",
   "{",
@@ -170,7 +171,9 @@ export async function startFanficFromChat(
   const chat = await deps.storage.get<JsonRecord>("chats", input.chatId);
   if (!isRecord(chat)) throw userFacingError("That chat is no longer here.");
   const mode = readString(chat.mode).trim();
-  if (!FANFIC_SOURCE_MODES.has(mode)) throw userFacingError("Only chats and roleplays can be turned into a fic.");
+  if (!FANFIC_SOURCE_MODES.has(mode)) {
+    throw userFacingError("Only chats, roleplays and trance sessions can be turned into a fic.");
+  }
 
   const [messages, characters, persona] = await Promise.all([
     deps.storage.listChatMessages<JsonRecord>(input.chatId),
@@ -178,12 +181,21 @@ export async function startFanficFromChat(
     loadPersona(deps.storage, chat),
   ]);
   const personaName = persona?.name.trim() || "The user's character";
-  const lines = chatTranscriptLines(messages.filter(isRecord), {
-    characters: new Map(characters.map((character) => [character.id, character.name])),
-    only: characters.length === 1 ? characters[0]!.name : null,
-    persona: personaName,
-  });
-  if (!lines.some((line) => !line.note)) throw userFacingError("There's nothing in this chat to turn into a fic yet.");
+  const lines =
+    mode === "trance"
+      ? tranceSessionLines(chat.metadata, { guide: characters[0]?.name || "The guide", listener: personaName })
+      : chatTranscriptLines(messages.filter(isRecord), {
+          characters: new Map(characters.map((character) => [character.id, character.name])),
+          only: characters.length === 1 ? characters[0]!.name : null,
+          persona: personaName,
+        });
+  if (!lines.some((line) => !line.note)) {
+    throw userFacingError(
+      mode === "trance"
+        ? "This session hasn't been written yet, so there's nothing to turn into a fic."
+        : "There's nothing in this chat to turn into a fic yet.",
+    );
+  }
 
   const connection = await draftConnection(deps.storage, chat);
   const frame = {

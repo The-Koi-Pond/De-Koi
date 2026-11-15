@@ -44,7 +44,7 @@ export function useStartFanficFromChat() {
         );
         await queryClient.invalidateQueries({ queryKey: chatKeys.list() });
         useChatStore.getState().setActiveChatId(readString(fic.id));
-        toast.success("The fic's request is filled in from the chat. Change anything, then start the fic.");
+        toast.success("The fic's request is filled in from it. Change anything, then start the fic.");
       } catch (error) {
         if (!controller.signal.aborted) {
           toast.error(toUserMessage(error, { fallback: "Couldn't turn the chat into a fic. Try again." }));
