@@ -30,7 +30,7 @@ Focus context only for long single-speaker Conversation generations:
 Once active:
 
 - Keep the default/custom Conversation system prompt, preset instructions, depth instructions, lorebook context, presence/freshness/schedule context, linked-chat context, Conversation prose guidance, and hidden command contracts.
-- Replace the full prompt-facing character payload with bounded identity/voice fields. Preserve the beginning and end of long fields so typing rules at the end of a card survive.
+- Replace the full prompt-facing character payload with bounded identity/voice fields. Preserve the beginning and end of long fields so typing rules at the end of a card survive. The speaking character's own system prompt and post-history instructions stay whole (see "Update 2026-11-15").
 - Omit roleplay-shaped first messages, appearance-only material, creator notes, public profile, and behavioral interpretation from the focused character payload.
 - Prefer up to two clean card dialogue samples converted to plain Conversation dialogue; fill any remaining slots with early, non-roleplay Conversation pairs.
 - Keep the normal Conversation transcript (see "Update 2026-11-06": this used to be only the newest five messages).
@@ -69,3 +69,11 @@ Evidence (Opus 5.5 writer, conversation quality lab, 30-text games, 12 per side,
 The focused card, voice examples and bounded memory budgets stay: they were the part of the August fix that carried the voice evidence. The August drift was measured on GLM-5.2; a weaker model that drifts on its own long history can still be capped with the chat's `contextMessageLimit`.
 
 Run the focused spec, neighboring Conversation/prompt-priority specs, TypeScript validation, architecture validation, and whitespace checks.
+
+## Update 2026-11-15: keep the speaking character's own instructions whole
+
+Compacting the system prompt to 650 characters (head and tail) treated author instructions like lore. Long Pro Dom cards keep their behaviour rules in the middle of an 8,000 to 11,000 character system prompt, so after 20 replies the character lost them mid-chat: in real Harlequin and Jester chats he started lecturing, telling invented cautionary stories, and refusing "a little more", none of which the card allows.
+
+The speaking character's `system_prompt` and `post_history_instructions` now stay whole. Description, personality, scenario, backstory and memories are still compacted, and so is everything about peers in a targeted group turn.
+
+Evidence (Gemini 4 Argon, the chats' own model, replaying real late moments through `assembleGenerationPrompt`): with the rules cut, the replies reproduced the real lectures; with them kept and the card's rules sharpened, Jester started the scene and gave "a little more" 3 of 3 times each and Harlequin stopped lecturing 6 of 6 times, while a real-distress probe still dropped the scene 3 of 3. Sharper card text alone did not help while the rules were being cut.

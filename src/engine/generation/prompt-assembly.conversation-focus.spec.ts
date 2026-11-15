@@ -111,7 +111,7 @@ function longCharacter(id = "mira", name = "Mira"): Record<string, unknown> {
       name,
       description: `IDENTITY_HEAD ${"BLOATED_DESCRIPTION_MIDDLE ".repeat(500)} IDENTITY_TAIL`,
       personality: `PERSONALITY_HEAD ${"personality filler ".repeat(120)} PERSONALITY_TAIL`,
-      system_prompt: `SYSTEM_HEAD ${"voice filler ".repeat(180)} SYSTEM_TAIL_TYPING_RULE`,
+      system_prompt: `SYSTEM_HEAD ${"voice filler ".repeat(90)} SYSTEM_MIDDLE_RULE ${"voice filler ".repeat(90)} SYSTEM_TAIL_TYPING_RULE`,
       mes_example:
         '<START> {{user}}: show me how you talk\n\n{{char}}: CARD_ROLEPLAY_SENTINEL *Mira crosses the room.* "This is not texting."',
       first_mes: "CARD_FIRST_MESSAGE_SENTINEL *Mira waves.*",
@@ -159,6 +159,9 @@ describe("long Conversation context focus", () => {
     expect(text).toContain("IDENTITY_HEAD");
     expect(text).toContain("IDENTITY_TAIL");
     expect(text).toContain("SYSTEM_TAIL_TYPING_RULE");
+    // The speaking character's own instructions are rules, not lore: a rule in the middle of a long system prompt
+    // used to be cut once the chat passed 20 replies.
+    expect(text).toContain("SYSTEM_MIDDLE_RULE");
     expect(text).toContain("CURRENT_USER_SENTINEL");
     expect(text).toContain('[memory: target="Character Name", summary="brief memory"]');
     expect(text).not.toContain("CARD_ROLEPLAY_SENTINEL");
@@ -168,12 +171,15 @@ describe("long Conversation context focus", () => {
     expect(promptText(history)).toContain("old user turn 2");
     expect(text).toContain("OLD_ASSISTANT_DRIFT_20");
     expect(text.match(/BLOATED_DESCRIPTION_MIDDLE/g)?.length ?? 0).toBeLessThan(25);
-    // The card is still compacted: everything but the transcript stays small. The fixed per-turn prose style note
-    // is not context bloat. The freshness note reacts to this fixture's repetitive replies; it has its own small cap.
+    // The card's lore is still compacted: everything but the transcript and the character's own system prompt stays
+    // small. The fixed per-turn prose style note is not context bloat. The freshness note reacts to this fixture's
+    // repetitive replies; it has its own small cap.
     const context = promptText(result.messages.filter((message) => message.contextKind !== "history"));
     const freshnessNote = /<conversation_freshness>[\s\S]*?<\/conversation_freshness>/.exec(text)?.[0] ?? "";
     expect(freshnessNote.length).toBeLessThan(600);
-    expect(context.replace(PROSE_STYLE_NOTE, "").replace(freshnessNote, "").length).toBeLessThan(7_000);
+    expect(
+      context.replace(PROSE_STYLE_NOTE, "").replace(freshnessNote, "").replaceAll("voice filler ", "").length,
+    ).toBeLessThan(7_000);
   });
 
   it("keeps the assistant replies that give follow-up questions their referents", async () => {
