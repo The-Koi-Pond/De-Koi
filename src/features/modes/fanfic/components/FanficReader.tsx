@@ -1834,7 +1834,14 @@ export function FanficReader({
         source={{ id: chatId, mode: "fanfic", characterIds: chat?.characterIds }}
         onContinueAsChat={() => setShowContinue(true)}
       />
-      {showContinue && chapterCount > 0 && <FanficContinuePanel chatId={chatId} state={state} busy={generating} />}
+      {showContinue && chapterCount > 0 && (
+        <FanficContinuePanel
+          chatId={chatId}
+          state={state}
+          chapters={canonLine.map((chapter) => chapter.label)}
+          busy={generating}
+        />
+      )}
       {showContinue && <FanficLinkedChatsPanel chatId={chatId} />}
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={canonLine} ledger={ledger} busy={generating} />

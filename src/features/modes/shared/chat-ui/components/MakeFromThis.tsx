@@ -191,7 +191,7 @@ export function MakeFromThisOptions({
         <Option
           icon={<MessagesSquare size="1.1rem" aria-hidden="true" />}
           title="A roleplay or chat"
-          detail="Carries the story on after the last chapter: you play your persona or one of its characters."
+          detail="Carries the story on after the last chapter or any earlier one: you play your persona or one of its characters."
           disabled={busy}
           onClick={onContinueAsChat}
         />
