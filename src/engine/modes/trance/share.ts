@@ -25,7 +25,7 @@ const TRANCE_SHARE_VERSION = 1;
 /**
  * A written session someone can play in their own De-Koi without a model call. It carries the script, the
  * settings it was written for and the guide's name. It never carries how the sharer felt (moods and their own
- * words), their past runs or their connection.
+ * words), what it drew on from their chats, their past runs or their connection.
  */
 export interface TranceShareFile {
   type: typeof TRANCE_SHARE_TYPE;
@@ -49,7 +49,8 @@ export function buildTranceShare(state: TranceState, guideName: string, now: Dat
     version: TRANCE_SHARE_VERSION,
     exportedAt: now.toISOString(),
     guideName: guideName.trim(),
-    request: { ...state.request, moods: [], moodNote: "" },
+    // What the sharer's own chat held stays private; the script already carries what it drew on.
+    request: { ...state.request, moods: [], moodNote: "", basis: "" },
     script: { lines: state.script.lines, exits: state.script.exits, createdAt: state.script.createdAt },
   };
 }
@@ -78,7 +79,7 @@ export function parseTranceShare(value: unknown): SharedTrance {
   }
   const script = normalizeTranceScript({ ...parseRecord(value.script), connectionId: null });
   if (!script) throw new TranceShareError("That shared trance has no lines to play.");
-  const request = { ...normalizeTranceRequest(value.request), moods: [], moodNote: "" };
+  const request = { ...normalizeTranceRequest(value.request), moods: [], moodNote: "", basis: "" };
   return { guideName: readString(value.guideName).trim().slice(0, 120), request, script };
 }
 

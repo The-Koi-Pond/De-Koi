@@ -64,7 +64,7 @@ import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
 import { EncounterLauncher, LazyEncounterHost } from "../encounter/components/EncounterLauncher";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
-import { ChatCommonOverlays } from "../../shared/chat-ui/index";
+import { ChatCommonOverlays, MakeFromThisButton, MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { useJumpToMessage } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton } from "../../../runtime/visuals/index";
 import type { SpriteDisplayMode } from "../../../runtime/visuals/sprite-display-modes";
@@ -991,6 +991,7 @@ export function ChatRoleplaySurface({
   const { setRightSlot } = useTopBarActions();
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
   const moreMenuBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const branchSelectorRef = useRef<ChatBranchSelectorHandle | null>(null);
@@ -1112,6 +1113,19 @@ export function ChatRoleplaySurface({
     }
     setRightSlot(
       <>
+        <button
+          type="button"
+          onClick={() => {
+            setMoreMenuOpen(false);
+            setToolsSheetOpen(false);
+            setMakeFromOpen(true);
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--primary)] transition-all active:scale-90 hover:bg-[var(--accent)]/30"
+          title="Make from this"
+          aria-label="Make from this"
+        >
+          <Sparkles size="1.15rem" />
+        </button>
         <button
           ref={moreMenuBtnRef}
           type="button"
@@ -1246,6 +1260,7 @@ export function ChatRoleplaySurface({
                   </div>
                 )}
                 <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5">
+                  {chat && <MakeFromThisButton onClick={() => setMakeFromOpen(true)} />}
                   <ChatBranchSelector
                     activeChatId={activeChatId}
                     activeChatName={chat?.name}
@@ -1604,6 +1619,14 @@ export function ChatRoleplaySurface({
           </>
         )}
 
+        {chat && (
+          <MakeFromThisDialog
+            open={makeFromOpen}
+            onClose={() => setMakeFromOpen(false)}
+            source={{ id: chat.id, mode: chat.mode, characterIds: chat.characterIds }}
+          />
+        )}
+
         {/* More options top sheet */}
         {moreMenuOpen &&
           createPortal(
@@ -1624,6 +1647,20 @@ export function ChatRoleplaySurface({
                 </p>
 
                 <div className="flex flex-col pb-3">
+                  {/* Make a fic, trance and more from this */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      setMakeFromOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-400 to-pink-500 text-white shadow-sm">
+                      <Sparkles size="0.9rem" />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Make a fic, trance and more</span>
+                  </button>
                   {/* Branches */}
                   {chat?.groupId && (
                     <div

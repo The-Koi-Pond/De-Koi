@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { chatKeys, useChat } from "../../../catalog/chats/index";
 import type { TranceAfter, TranceState } from "../../../../engine/contracts/types/trance";
+import { baseTranceOnChat } from "../../../../engine/modes/trance/from-chat";
 import { readTranceState } from "../../../../engine/modes/trance/request";
 import { generateTranceScript } from "../../../../engine/modes/trance/script";
 import {
@@ -126,6 +127,31 @@ export function useTrancePitches() {
       controller.current = next;
       return suggestTrancePitches({ storage: storageApi, llm: llmApi }, input, next.signal);
     },
+  });
+  const stop = useCallback(() => controller.current?.abort(), []);
+  return { ...mutation, stop };
+}
+
+/**
+ * Bases this new, still-empty session on a chat, roleplay or fic: three ideas drawn from it, guided by its first
+ * character. `stop` drops the call; nothing is saved then.
+ */
+export function useBaseTranceOnChat(chatId: string) {
+  const invalidate = useInvalidateChat(chatId);
+  const controller = useRef<AbortController | null>(null);
+  const mutation = useMutation({
+    meta: { handlesOwnErrors: true },
+    mutationFn: (sourceChatId: string): Promise<void> => {
+      controller.current?.abort();
+      const next = new AbortController();
+      controller.current = next;
+      return baseTranceOnChat(
+        { storage: storageApi, llm: llmApi },
+        { tranceChatId: chatId, chatId: sourceChatId },
+        { signal: next.signal },
+      );
+    },
+    onSettled: invalidate,
   });
   const stop = useCallback(() => controller.current?.abort(), []);
   return { ...mutation, stop };

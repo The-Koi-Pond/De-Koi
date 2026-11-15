@@ -23,6 +23,7 @@ import {
   TRANCE_MOOD_LABELS,
   TRANCE_NOTE_LIMIT,
   TRANCE_TYPE_LABELS,
+  TRANCE_BASIS_LIMIT,
   quickTranceRequest,
   tranceFeaturesForType,
   tranceTagSummary,
@@ -174,6 +175,9 @@ export function TranceRequestForm({
   initialCharacterId,
   initialConnectionId,
   initialPath = null,
+  initialIdeas = [],
+  sourceChatId = null,
+  sourceName = null,
   submitting,
   error,
   onSubmit,
@@ -183,6 +187,11 @@ export function TranceRequestForm({
   initialCharacterId: string | null;
   initialConnectionId: string | null;
   initialPath?: TranceSetupPath | null;
+  /** Ideas already drafted (a session made from a chat opens on them). */
+  initialIdeas?: TrancePitch[];
+  /** The chat, roleplay or fic this session is made from: new ideas and previews keep drawing on it. */
+  sourceChatId?: string | null;
+  sourceName?: string | null;
   submitting: boolean;
   error: string | null;
   onSubmit: (submit: TranceRequestSubmit) => void;
@@ -192,14 +201,18 @@ export function TranceRequestForm({
   const [characterId, setCharacterId] = useState(initialCharacterId ?? "");
   const [characterFilter, setCharacterFilter] = useState("");
   const [connectionId, setConnectionId] = useState(initialConnectionId ?? "");
-  const [path, setPath] = useState<TranceSetupPath | null>(initialPath);
+  const [path, setPath] = useState<TranceSetupPath | null>(initialPath ?? (initialIdeas.length > 0 ? "ideas" : null));
   const [ownWords, setOwnWords] = useState(!!initial.moodNote);
-  const [ideas, setIdeas] = useState<TrancePitch[]>([]);
+  const [ideas, setIdeas] = useState<TrancePitch[]>(initialIdeas);
   const [preview, setPreview] = useState<TrancePitch | null>(null);
   const suggest = useTrancePitches();
   const pathSection = useRef<HTMLDivElement | null>(null);
-  // Opening ideas or the builder brings it into view; on a phone it would otherwise start below the fold.
+  // Opening ideas or the builder brings it into view; on a phone it would otherwise start below the fold. A session
+  // that opens on drafted ideas starts at the top instead, so how they feel comes first.
+  const openedOn = useRef(initialIdeas.length > 0 ? path : null);
   useEffect(() => {
+    if (path === openedOn.current) return;
+    openedOn.current = null;
     if (path) pathSection.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }, [path]);
   const { data: connectionRows } = useConnections();
@@ -228,7 +241,12 @@ export function TranceRequestForm({
   const effectiveConnectionId = connectionId || (connections.length === 1 ? connections[0]!.id : "");
   const ready = !!characterId && !!effectiveConnectionId;
   const busy = submitting || suggest.isPending;
-  const quick = quickTranceRequest({ moods: request.moods, moodNote: request.moodNote, now: new Date() });
+  const quick = quickTranceRequest({
+    moods: request.moods,
+    moodNote: request.moodNote,
+    now: new Date(),
+    basis: request.basis,
+  });
 
   // A change to the settings makes an earlier preview stale.
   const update = (patch: Partial<TranceRequest>) => {
@@ -270,6 +288,7 @@ export function TranceRequestForm({
         moodNote: request.moodNote,
         idea: request.idea,
         avoidTitles: more ? ideas.map((pitch) => pitch.title) : [],
+        sourceChatId,
       },
       { onSuccess: setIdeas },
     );
@@ -285,6 +304,7 @@ export function TranceRequestForm({
         moodNote: request.moodNote,
         idea: request.idea,
         exact: built(),
+        sourceChatId,
       },
       { onSuccess: (pitches) => setPreview(pitches[0] ?? null) },
     );
@@ -302,7 +322,9 @@ export function TranceRequestForm({
         <Orbit size="1.25rem" className="text-[var(--primary)]" aria-hidden="true" />
         <div>
           <h2 className="text-base font-bold text-[var(--foreground)]">New trance session</h2>
-          <p className="text-xs text-[var(--muted-foreground)]">You'll read it one line at a time.</p>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {sourceName ? `Made from ${sourceName}. ` : ""}You'll read it one line at a time.
+          </p>
         </div>
       </header>
 
@@ -417,7 +439,14 @@ export function TranceRequestForm({
 
       <div ref={pathSection} className="scroll-mt-2" />
       {path === "ideas" && (
-        <Section title="Ideas" hint="Each one shows how it would open.">
+        <Section
+          title="Ideas"
+          hint={
+            sourceName
+              ? `Drawn from ${sourceName}. Each one shows how it would open.`
+              : "Each one shows how it would open."
+          }
+        >
           <div className="flex flex-col gap-1.5">
             <label htmlFor="trance-ideas-idea" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
               Anything you'd like in it? (optional)
@@ -445,7 +474,8 @@ export function TranceRequestForm({
               key={pitch.title}
               pitch={pitch}
               disabled={!ready || busy}
-              onWrite={() => send(pitch.request)}
+              // How they feel now, even when the ideas were drafted before they said.
+              onWrite={() => send({ ...pitch.request, moods: request.moods, moodNote: request.moodNote })}
               onTweak={() => tweak(pitch)}
             />
           ))}
@@ -521,6 +551,21 @@ export function TranceRequestForm({
               onChange={(event) => update({ idea: event.target.value })}
             />
           </div>
+          {(sourceName || request.basis) && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="trance-basis" className="text-[0.8125rem] font-semibold text-[var(--foreground)]">
+                {sourceName ? `What it draws on from ${sourceName}` : "What it draws on"}
+              </label>
+              <textarea
+                id="trance-basis"
+                className={cn(inputClass, "min-h-[4rem] resize-y")}
+                placeholder="Places, what they call you, a moment you share"
+                maxLength={TRANCE_BASIS_LIMIT}
+                value={request.basis}
+                onChange={(event) => update({ basis: event.target.value })}
+              />
+            </div>
+          )}
           {suggest.isPending && (
             <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
               <Loader2 size="1rem" className="animate-spin" aria-hidden="true" />

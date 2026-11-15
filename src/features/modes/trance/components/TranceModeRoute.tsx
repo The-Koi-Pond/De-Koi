@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Loader2, Orbit, Play, RefreshCw, Share2, SlidersHorizontal } from "lucide-react";
 import { useChatSurfaceCharacterSummariesByIds } from "../../../catalog/characters/index";
+import { useChat } from "../../../catalog/chats/index";
 import type { TranceAfter, TranceFinish, TranceState } from "../../../../engine/contracts/types/trance";
+import { readTranceDraftPitches } from "../../../../engine/modes/trance/from-chat";
+import { readTranceSource } from "../../../../engine/modes/trance/source";
 import {
   TRANCE_ENDING_LABELS,
   defaultTranceRequest,
@@ -24,6 +27,7 @@ import { tranceCharacterColors } from "../lib/trance-colors";
 import { TrancePlayer } from "./TrancePlayer";
 import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
 import { TranceSessionOptions } from "./TranceSessionOptions";
+import { TranceStartFromChat } from "./TranceStartFromChat";
 import { useDiscardUntouchedNewChat } from "../../shared/chat-ui/new-chat-drafts";
 
 export interface TranceModeRouteProps {
@@ -127,6 +131,12 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   const ambienceVolume = useUIStore((state) => state.tranceAmbienceVolume);
   const stage = tranceStage(state);
   const characterIds = useMemo(() => chat?.characterIds ?? [], [chat?.characterIds]);
+  // A session made from a chat, roleplay or fic: it opens on ideas drawn from it, and new ideas keep drawing on it
+  // while that chat is still here.
+  const draftIdeas = useMemo(() => readTranceDraftPitches(chat?.metadata), [chat?.metadata]);
+  const source = useMemo(() => readTranceSource(chat?.metadata), [chat?.metadata]);
+  const { data: sourceChat } = useChat(source?.chatId ?? null);
+  const sourceName = sourceChat ? sourceChat.name?.trim() || source?.name || "your chat" : null;
   const { data: characterRows } = useChatSurfaceCharacterSummariesByIds(
     characterIds.slice(0, 1),
     characterIds.length > 0,
@@ -209,8 +219,15 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
   if (stage === "request" || editing) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {stage === "request" && <OpenSharedTrance chatId={activeChatId} />}
+        {stage === "request" && draftIdeas.length === 0 && (
+          <>
+            <TranceStartFromChat chatId={activeChatId} />
+            <OpenSharedTrance chatId={activeChatId} />
+          </>
+        )}
         <TranceRequestForm
+          // Basing the session on a chat brings a new guide and ideas: the form starts again with them.
+          key={source?.chatId ?? "own"}
           initial={state?.request ?? defaultTranceRequest()}
           initialCharacterId={characterIds[0] ?? null}
           initialConnectionId={chat.connectionId ?? null}
@@ -218,6 +235,9 @@ export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
           error={errorText(saveRequest.error, "The session couldn't be saved. Try again.")}
           onSubmit={submit}
           initialPath={stage === "request" ? null : "build"}
+          initialIdeas={stage === "request" ? draftIdeas : []}
+          sourceChatId={sourceChat ? source!.chatId : null}
+          sourceName={sourceName}
           onCancel={stage === "request" ? undefined : () => setEditing(false)}
         />
       </div>

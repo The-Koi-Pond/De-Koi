@@ -72,6 +72,8 @@ export const TRANCE_ENDING_LABELS: Record<TranceEnding, string> = {
 
 /** Max characters in the free-text fields, so a pasted wall of text can't crowd out the instructions. */
 export const TRANCE_NOTE_LIMIT = 600;
+/** Max characters of what a session made from a chat draws on. */
+export const TRANCE_BASIS_LIMIT = 1200;
 
 /**
  * Lines per minute when lines move on by themselves or are spoken: one short line at a slow pace and a beat to let
@@ -133,7 +135,13 @@ function isNight(now: Date): boolean {
  * 20 minutes drifting to sleep. Restless moods get fractionation (rising a little before dropping deeper helps a
  * busy mind settle). How they feel still shapes the script itself.
  */
-export function quickTranceRequest(input: { moods: TranceMood[]; moodNote: string; now: Date }): TranceRequest {
+export function quickTranceRequest(input: {
+  moods: TranceMood[];
+  moodNote: string;
+  now: Date;
+  /** What a session made from a chat draws on; a quick session keeps it. */
+  basis?: string;
+}): TranceRequest {
   const night = isNight(input.now);
   const restless = input.moods.some((mood) => mood === "wired" || mood === "anxious" || mood === "stressed");
   return normalizeTranceRequest({
@@ -144,6 +152,7 @@ export function quickTranceRequest(input: { moods: TranceMood[]; moodNote: strin
     features: restless ? ["fractionation"] : [],
     moods: input.moods,
     moodNote: input.moodNote,
+    basis: input.basis ?? "",
   });
 }
 
@@ -167,6 +176,7 @@ export function defaultTranceRequest(): TranceRequest {
     minutes: 10,
     ending: "wake",
     pitch: null,
+    basis: "",
   };
 }
 
@@ -174,8 +184,8 @@ function oneOf<T extends string>(value: unknown, options: readonly T[], fallback
   return typeof value === "string" && (options as readonly string[]).includes(value) ? (value as T) : fallback;
 }
 
-function clip(value: unknown): string {
-  return readString(value).trim().slice(0, TRANCE_NOTE_LIMIT);
+function clip(value: unknown, limit = TRANCE_NOTE_LIMIT): string {
+  return readString(value).trim().slice(0, limit);
 }
 
 /** Features the session's type allows: arousal and orgasm only fit erotic or kinky sessions. */
@@ -218,6 +228,7 @@ export function normalizeTranceRequest(value: unknown): TranceRequest {
     minutes: minutes as TranceLength,
     ending: oneOf(record.ending, TRANCE_ENDINGS, defaults.ending),
     pitch: normalizePitchChoice(record.pitch),
+    basis: clip(record.basis, TRANCE_BASIS_LIMIT),
   };
 }
 

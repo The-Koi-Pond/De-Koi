@@ -117,6 +117,7 @@ import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
 import { FanficComments, type FanficCommentUses } from "./FanficComments";
+import { MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { FanficContinuePanel } from "./FanficContinuePanel";
 import { FanficLinkedChatsPanel } from "./FanficLinkedChatsPanel";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
@@ -283,6 +284,7 @@ function WorkHeader({
   onToggleEditor,
   showContinue,
   onToggleContinue,
+  onMakeFrom,
 }: {
   chatId: string;
   busy: boolean;
@@ -306,6 +308,8 @@ function WorkHeader({
   onToggleEditor: () => void;
   showContinue: boolean;
   onToggleContinue: () => void;
+  /** Opens the "Make from this" picker (a trance, or a roleplay or chat that carries on). */
+  onMakeFrom: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
@@ -376,7 +380,13 @@ function WorkHeader({
           )}
         </div>
       )}
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap gap-2">
+        {chapterCount > 0 && (
+          <FanficButton onClick={onMakeFrom}>
+            <Sparkles size="0.9rem" aria-hidden="true" />
+            Make from this
+          </FanficButton>
+        )}
         <FanficButton onClick={toggleTools} aria-expanded={toolsShown} aria-controls={`fanfic-tools-${chatId}`}>
           <SlidersHorizontal size="0.9rem" aria-hidden="true" />
           {toolsShown ? "Hide tools" : "Tools"}
@@ -1603,6 +1613,7 @@ export function FanficReader({
   const [showLedger, setShowLedger] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
   const [showContinue, setShowContinue] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [nextNotes, setNextNotes] = useState("");
   const bannedPhrases = useMemo(() => fanficBannedPhrases(state), [state]);
@@ -1815,6 +1826,13 @@ export function FanficReader({
         onToggleEditor={() => setShowEditor((open) => !open)}
         showContinue={showContinue}
         onToggleContinue={() => setShowContinue((open) => !open)}
+        onMakeFrom={() => setMakeFromOpen(true)}
+      />
+      <MakeFromThisDialog
+        open={makeFromOpen}
+        onClose={() => setMakeFromOpen(false)}
+        source={{ id: chatId, mode: "fanfic", characterIds: chat?.characterIds }}
+        onContinueAsChat={() => setShowContinue(true)}
       />
       {showContinue && chapterCount > 0 && <FanficContinuePanel chatId={chatId} state={state} busy={generating} />}
       {showContinue && <FanficLinkedChatsPanel chatId={chatId} />}

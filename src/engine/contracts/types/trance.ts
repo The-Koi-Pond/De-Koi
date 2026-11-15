@@ -64,6 +64,11 @@ export interface TranceRequest {
   ending: TranceEnding;
   /** The picked idea, when the request came from a suggestion or preview; null when built by hand. */
   pitch: TrancePitchChoice | null;
+  /**
+   * For a session made from a chat, roleplay or fic: the shared details it draws on (places, what the guide calls
+   * the listener, a moment they share). Empty otherwise, and on sessions saved before it existed.
+   */
+  basis: string;
 }
 
 /** The parts of a session, in reading order. `wake` and `sleep` are the two possible endings. */
