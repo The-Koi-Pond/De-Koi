@@ -2,8 +2,6 @@
 // Trance mode: the chat, roleplay or fic a session is made from
 // ──────────────────────────────────────────────
 import type { StorageGateway } from "../../capabilities/storage";
-import { LOCAL_SIDECAR_CONNECTION_ID, LOCAL_SIDECAR_MODEL } from "../../contracts/types/sidecar";
-import { effectiveMaxContext } from "../../generation/context-window";
 import { loadCharacters, loadPersona } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { chatTranscriptLines, fitTranscript } from "../../shared/text/chat-transcript";
@@ -49,38 +47,6 @@ export interface TranceSourceContext {
   transcript: string;
   /** How many earlier messages were left out. */
   left: number;
-}
-
-const TRANSCRIPT_DEFAULT_CHARS = 40_000;
-const TRANSCRIPT_MAX_CHARS = 60_000;
-const TRANSCRIPT_MIN_CHARS = 2_000;
-const CHARS_PER_TOKEN = 3;
-/** Room kept for the instructions and the character card around the transcript. */
-const FRAME_TOKENS = 3_000;
-
-/** A connection's stored row; the built-in local model has none, so it gets its synthetic one. */
-async function connectionRow(storage: StorageGateway, connectionId: string): Promise<JsonRecord | null> {
-  const stored = await storage.get<JsonRecord>("connections", connectionId);
-  if (isRecord(stored)) return stored;
-  return connectionId === LOCAL_SIDECAR_CONNECTION_ID
-    ? { id: connectionId, provider: "sidecar", model: LOCAL_SIDECAR_MODEL }
-    : null;
-}
-
-/** How much of the source fits beside a call on this connection that may reply with up to `replyTokens`. */
-export async function tranceSourceBudget(
-  storage: StorageGateway,
-  connectionId: string,
-  replyTokens: number,
-): Promise<number> {
-  const connection = await connectionRow(storage, connectionId);
-  const window = connection ? effectiveMaxContext(connection, {}) : 0;
-  if (!(window > 0)) return TRANSCRIPT_DEFAULT_CHARS;
-  const chars = (window - replyTokens - FRAME_TOKENS) * CHARS_PER_TOKEN;
-  if (chars < TRANSCRIPT_MIN_CHARS) {
-    throw userFacingError("This model's context is too small to read the chat. Pick a model with a larger context.");
-  }
-  return Math.min(TRANSCRIPT_MAX_CHARS, chars);
 }
 
 /**

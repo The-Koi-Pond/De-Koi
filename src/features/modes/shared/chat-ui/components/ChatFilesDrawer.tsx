@@ -399,7 +399,9 @@ function MakeFromChatSection({ chat, chatId }: { chat: Chat; chatId: string }) {
       <p className="text-[0.625rem] font-medium uppercase tracking-wider text-[var(--muted-foreground)]/60">
         Make Something From This
       </p>
-      <MakeFromThisOptions source={{ id: chatId, mode: chat.mode, characterIds: chat.characterIds }} />
+      <MakeFromThisOptions
+        source={{ id: chatId, mode: chat.mode, characterIds: chat.characterIds, linked: !!chat.connectedChatId }}
+      />
     </div>
   );
 }

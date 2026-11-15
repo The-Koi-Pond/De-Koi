@@ -6,16 +6,13 @@
 // it, or builds their own) and nothing is written until then. The source itself is left as it is.
 import type { LlmGateway } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
-import { LOCAL_SIDECAR_CONNECTION_ID } from "../../contracts/types/sidecar";
-import { resolveBackgroundTextConnection } from "../../generation/background-llm-connection";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
+import { sourceConnectionId } from "../../shared/text/chat-source";
 import { userFacingError } from "../../shared/user-facing-error";
 import { suggestTrancePitches, type TrancePitch } from "./pitches";
 import { normalizeTranceRequest, readTranceState } from "./request";
 import { isAppMadeTranceName } from "./session";
 import { TRANCE_SOURCE_MODES, type TranceSource } from "./source";
-
-const NO_CONNECTION = "Add a model connection first, then try again.";
 
 /** The ideas a session made from a chat opens on, until a request is saved (`metadata.tranceDraft`). */
 export function readTranceDraftPitches(metadata: unknown): TrancePitch[] {
@@ -34,16 +31,6 @@ function characterIds(chat: JsonRecord): string[] {
   return Array.isArray(chat.characterIds)
     ? chat.characterIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
-}
-
-/** The source's own model, else the app's default text model. */
-async function sourceConnection(storage: StorageGateway, chat: JsonRecord): Promise<string> {
-  const own = readString(chat.connectionId).trim();
-  if (own && (own === LOCAL_SIDECAR_CONNECTION_ID || isRecord(await storage.get("connections", own)))) return own;
-  const fallback = await resolveBackgroundTextConnection(storage).catch(() => null);
-  const id = readString(fallback?.id).trim();
-  if (!id) throw userFacingError(NO_CONNECTION);
-  return id;
 }
 
 async function characterName(storage: StorageGateway, characterId: string): Promise<string> {
@@ -74,7 +61,7 @@ async function draftFromChat(
   const guideId = wanted && ids.includes(wanted) ? wanted : ids[0];
   if (!guideId) throw userFacingError("This chat has no character to guide a trance.");
 
-  const connectionId = await sourceConnection(deps.storage, chat);
+  const connectionId = await sourceConnectionId(deps.storage, chat);
   const pitches = await suggestTrancePitches(
     deps,
     { connectionId, characterId: guideId, moods: [], moodNote: "", idea: "", sourceChatId: input.chatId },
