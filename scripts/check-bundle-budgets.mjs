@@ -12,6 +12,8 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // and summary engines left the boot shell. It grew back to 282.0 KiB, then
   // fell to 253.3 KiB once the Deki-senpai API and sidebar, the image prompt
   // compiler, and the tracker helpers behind two package indexes left it.
+  // Features grew it back to 299.6 KiB; it fell to 296.4 KiB once the Tauri
+  // window module loaded on first use instead of riding in vendor-tauri.
   homeJs: 300 * 1024,
   // Measured 1695.2 KiB after dropping framer-motion (#1343) and @dnd-kit
   // before it (down from 1730.4 KiB). Spend this margin on features before
