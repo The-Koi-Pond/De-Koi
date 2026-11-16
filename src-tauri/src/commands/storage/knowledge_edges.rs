@@ -430,6 +430,27 @@ pub(crate) fn purge_memory_edges(rows: &mut Vec<Value>, memory_id: &str) {
     rows.retain(|row| string(row.get("memoryId")) != memory_id);
 }
 
+/// One-time sweep for edges whose memory no longer exists: deleting a chat with its memories used to leave the
+/// memories' edges behind, still active.
+pub(crate) fn prune_orphaned_edges(storage: &marinara_storage::FileStorage) -> AppResult<usize> {
+    storage.update_collections_atomically(
+        vec![super::canonical_memory::MEMORY_COLLECTION, COLLECTION],
+        |collections| {
+            let (memory_collections, edge_collections) = collections.split_at_mut(1);
+            let memory_ids = memory_collections[0]
+                .rows()
+                .iter()
+                .map(|memory| string(memory.get("id")))
+                .filter(|id| !id.is_empty())
+                .collect::<HashSet<_>>();
+            let edges = edge_collections[0].rows_mut();
+            let before = edges.len();
+            edges.retain(|edge| memory_ids.contains(&string(edge.get("memoryId"))));
+            Ok(before - edges.len())
+        },
+    )
+}
+
 pub(crate) fn invalidate_message_sources(
     rows: &mut [Value],
     message_ids: &[String],
@@ -611,6 +632,41 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn startup_sweep_drops_only_edges_whose_memory_is_gone() {
+        let state = test_state("orphan-sweep");
+        seed_memory(&state, "memory-1");
+        seed_memory(&state, "memory-2");
+        upsert_edge(&state, input("active", &["message-1"])).unwrap();
+        let mut second = input("active", &["message-2"]);
+        second["memoryId"] = json!("memory-2");
+        upsert_edge(&state, second).unwrap();
+        // How a chat delete used to remove a memory: the memory row went, its edge stayed.
+        state
+            .storage
+            .update_collections_atomically(
+                vec![crate::storage_commands::canonical_memory::MEMORY_COLLECTION],
+                |collections| {
+                    collections[0]
+                        .rows_mut()
+                        .retain(|memory| memory["id"] != "memory-2");
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(prune_orphaned_edges(&state.storage).unwrap(), 1);
+        assert_eq!(prune_orphaned_edges(&state.storage).unwrap(), 0);
+        let remaining = state
+            .storage
+            .list(COLLECTION)
+            .unwrap()
+            .into_iter()
+            .map(|edge| edge["memoryId"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(remaining, vec!["memory-1"]);
     }
 
     #[test]
