@@ -73,9 +73,13 @@ const CONVERSATION_ASK_PATTERNS: readonly RegExp[] = [
   /\bi\s+(?:want|need)\s+(?:it|this)\s+to\s+be\s+(?:more\s+)?\w+/i,
 ];
 
-// "I don't know" only as an answer ("I dunno, whatever", "idk what"), not "I don't know why he's like that".
+// "I don't know" and "idk" only as an answer ("I dunno, whatever", "idk what", "idk lol"), not "I don't know why he's
+// like that" or filler inside one ("Blue idk it's dark", "so idk blame that").
 const UNSURE_PATTERN =
-  /\b(?:i\s+(?:dunno|don['’]?t\s+know|do\s+not\s+know|have\s+no\s+idea)(?=\s*(?:[,.!?…~]|$|what\b|which\b|how\b|lol\b|tbh\b))|i\s+can['’]?t\s+(?:figure\s+out|decide|think\s+of)|idk|not\s+sure\s+what|whatever\s+(?:you\s+(?:want|think|like)|is\s+\w+)|(?:you|u)\s+(?:pick|choose|decide)|up\s+to\s+you|surprise\s+me|(?:too\s+)?(?:tired|drained|exhausted|fried)\s+to\s+(?:think|decide|choose)|no\s+energy)\b/i;
+  /\b(?:(?:i\s+(?:dunno|don['’]?t\s+know|do\s+not\s+know|have\s+no\s+idea)|idk)(?=\s*(?:[,.!?…~]|$|what\b|which\b|how\b|lol\b|tbh\b))|i\s+can['’]?t\s+(?:figure\s+out|decide|think\s+of)|not\s+sure\s+what|whatever\s+(?:you\s+(?:want|think|like)|is\s+\w+)|(?:you|u)\s+(?:pick|choose|decide)|up\s+to\s+you|surprise\s+me|(?:too\s+)?(?:tired|drained|exhausted|fried)\s+to\s+(?:think|decide|choose)|no\s+energy)\b/i;
+
+// Leading straight into a task skipped past someone saying they're bad at something; meet that first.
+const HURT_FIRST = "If they also sound hurt or hard on themselves, answer that first, in a line or two.";
 
 function hidden(message: SteeringMessage): boolean {
   return (
@@ -162,7 +166,7 @@ function conversationLines(texts: readonly string[], latest: string, user: strin
 
   if (isUnsureMessage(latest)) {
     lines.push(
-      `${user} sounds unsure or low on energy right now (${quote(latest, 60)}). Lead: choose one concrete thing yourself and go with it. Don't hand the choice back, offer a this-or-that, or ask them to describe what they want.`,
+      `${user} sounds unsure or low on energy right now (${quote(latest, 60)}). ${HURT_FIRST} Then lead: choose one concrete thing yourself and go with it. Don't hand the choice back, offer a this-or-that, or ask them to describe what they want.`,
     );
   }
   return lines;
@@ -201,7 +205,7 @@ function roleplayLines(texts: readonly string[], latest: string, user: string): 
 
   if (isUnsureMessage(latest, "roleplay")) {
     lines.push(
-      `${user} sounds unsure or low on energy right now (${quote(latest, 60)}). Lead: choose one concrete thing yourself and move the scene with it. Don't hand the choice back, offer a this-or-that, or ask them to describe what they want.`,
+      `${user} sounds unsure or low on energy right now (${quote(latest, 60)}). ${HURT_FIRST} Then lead: choose one concrete thing yourself and move the scene with it. Don't hand the choice back, offer a this-or-that, or ask them to describe what they want.`,
     );
   }
   return lines;
