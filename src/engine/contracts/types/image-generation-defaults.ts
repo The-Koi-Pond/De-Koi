@@ -35,6 +35,8 @@ export interface NovelAiDefaults {
   undesiredContentPreset: number;
   /** How strongly character reference images steer the picture (0-1). Higher keeps a character's look closer. */
   referenceStrength: number;
+  /** How closely character references are copied (0-1). Lower lets poses and small details loosen up; the look stays. */
+  referenceFidelity: number;
 }
 
 export interface ImageGenerationDefaultsProfile {

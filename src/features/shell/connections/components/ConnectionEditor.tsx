@@ -2620,6 +2620,14 @@ function ImageGenerationDefaultsPanel({
                     integer={false}
                     onCommit={(referenceStrength) => updateNovelAi({ referenceStrength })}
                   />
+                  <NumberSetting
+                    label="Reference Fidelity"
+                    value={novelai.referenceFidelity}
+                    min={0}
+                    max={1}
+                    integer={false}
+                    onCommit={(referenceFidelity) => updateNovelAi({ referenceFidelity })}
+                  />
                 </>
               )}
             </div>

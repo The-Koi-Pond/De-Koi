@@ -30,6 +30,15 @@ describe("image generation defaults", () => {
     expect(profile.comfyui?.uploadPlaceholderOnMissingReference).toBe(true);
   });
 
+  it("keeps the NovelAI reference fidelity, clamped to 0-1, and defaults it to full", () => {
+    const read = (novelai: Record<string, unknown>) =>
+      normalizeImageGenerationProfile({ service: "novelai", novelai }, "novelai").profile.novelai?.referenceFidelity;
+
+    expect(read({ referenceFidelity: 0.5 })).toBe(0.5);
+    expect(read({ referenceFidelity: 3 })).toBe(1);
+    expect(read({})).toBe(1);
+  });
+
   it("defaults restored image controls to disabled/null", () => {
     const profile = createDefaultImageGenerationProfile("comfyui");
 
