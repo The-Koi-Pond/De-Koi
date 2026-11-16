@@ -85,13 +85,13 @@ describe("reply steering", () => {
   // Roleplay pushback from real scenes: said in character, often drawn out.
   it("hears in-character pushback", () => {
     for (const text of [
-      `"Mnnnn, harleeeeey, that isn't what I meaaaaan~~~"`,
-      'I groan. "You two are completely reversing this. I do not think you realize the situation. You have it so backwards."',
+      `"Mnnnn, nooo, that isn't what I meaaaaan~~~"`,
+      'I groan. "You two are completely reversing this. You have it so backwards."',
       "you've got it all backwards",
     ]) {
       expect(isReplyRedirect(text), text).toBe(true);
     }
-    expect(isSceneAsk("Let's lean into the ravenous and drinking and moaning more")).toBe(true);
+    expect(isSceneAsk("Let's lean into the spooky part more")).toBe(true);
     expect(isSceneAsk("Can you make him more possessive?")).toBe(true);
   });
 
@@ -99,11 +99,11 @@ describe("reply steering", () => {
     for (const text of [
       "I watch, perplexed",
       "I don't understand how this machine works",
-      '"Bit more boring than just the two of you coming over here and both making out with me."',
+      '"Bit more boring than the plan we had."',
       'I flop onto the pillows. "Enough bickering."',
-      '"Noooo~" I sit in his lap, giggling.',
+      '"Noooo~" I laugh and shove his shoulder.',
       `"You want to train.... The thing in my reflection? Isn't it an illusion?"`,
-      'I lick and nip at his neck gently. "You can give me more orders. I like being trained."',
+      '*I lean on the railing.* "You can give me more orders. I like being useful."',
     ]) {
       expect(isReplyRedirect(text), text).toBe(false);
     }
@@ -114,21 +114,21 @@ describe("reply steering", () => {
       mode: "roleplay",
       userName: "Chai",
       messages: [
-        user('"What if you were a professional dom. What would that be like...hehe~"'),
+        user('"What if you were a famous chef. What would that be like...hehe~"'),
         reply(`"I'd be fired on my first day, dear one."`),
         user(
-          '"I guess the hot part to me would be you knowing so much. Treating it like it was something very clean and professional~"',
+          '"I guess the fun part to me would be you knowing so much. Treating it like it was something very clean and professional~"',
         ),
-        reply(`"Fine. Let's be clinical." He pushes your knee outward. "Knees apart."`),
-        user(`"Mnnnn, harleeeeey, that isn't what I meaaaaan~~~"`),
+        reply(`"Fine. Let's be clinical." He sets the knife down. "Hands flat."`),
+        user(`"Mnnnn, nooo, that isn't what I meaaaaan~~~"`),
       ],
     });
     expect(guidance).toContain(
-      `Chai's last message pushes back on how your previous reply took the scene: ""Mnnnn, harleeeeey, that isn't what I meaaaaan~~~"".`,
+      `Chai's last message pushes back on how your previous reply took the scene: ""Mnnnn, nooo, that isn't what I meaaaaan~~~"".`,
     );
     expect(guidance).toContain("not just their character reacting to something in the story");
     expect(guidance).toContain(
-      `The message your previous reply answered says what they were after: ""I guess the hot part to me would be you knowing so much.`,
+      `The message your previous reply answered says what they were after: ""I guess the fun part to me would be you knowing so much.`,
     );
     expect(guidance).toContain("Don't make them explain it again");
     expect(guidance).not.toContain("redirected");
