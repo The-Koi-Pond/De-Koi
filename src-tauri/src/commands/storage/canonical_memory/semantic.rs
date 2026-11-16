@@ -365,15 +365,16 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         },
         model,
     };
-    // Memory Recall usually embedded this exact text with this connection and model moments ago.
+    // Memory Recall embeds this exact text with this connection and model as the turn starts: use that vector, or
+    // wait for that call while it is still out, instead of sending the text again.
     let query_key = QueryEmbeddingKey::new(
         &identity.connection_id,
         &identity.provider,
         &identity.model,
         &query_text,
     );
-    let cached_query_vector = state.query_embeddings()?.get(&query_key, Instant::now());
-    let query_vector = match cached_query_vector {
+    let shared_query_vector = state.query_embeddings()?.lookup(&query_key, Instant::now());
+    let query_vector = match shared_query_vector.vector().await {
         Some(vector) => vector.as_ref().clone(),
         None => {
             let mut query_embeddings = super::super::prompts::embed_texts(
@@ -398,24 +399,46 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         ));
     }
     let dimensions = query_vector.len();
-    // Only memories whose vectors aren't cached are looked up in the index collection, which means reading all
-    // of it: with every candidate cached, the reply skips that read.
-    let cached = cached_semantic_vectors(state, &memories, &identity, dimensions)?;
+    let mut vectors = cached_semantic_vectors(state, &memories, &identity, dimensions)?;
     let uncached = memories
         .iter()
-        .filter(|memory| !cached.contains_key(&read_string(memory.get("id"))))
+        .filter(|memory| !vectors.contains_key(&read_string(memory.get("id"))))
         .cloned()
         .collect::<Vec<_>>();
-    let mut plan = if uncached.is_empty() {
-        SemanticIndexPlan {
-            cached_vectors: HashMap::new(),
-            missing_memory_ids: Vec::new(),
+    if !uncached.is_empty() {
+        if vectors.is_empty() {
+            // Nothing to rank with yet (first search, a restart, a new embedding model): fill in now.
+            vectors.extend(
+                fill_semantic_vectors(state, &connection, &identity, dimensions, &uncached).await?,
+            );
+        } else {
+            // Usually memories saved since the last reply, from messages still in the recent chat. Embedding them
+            // here put one or two more provider calls (and a read of the whole index) in front of every reply after
+            // a capture, so rank with the vectors at hand and fill these in for the next search.
+            spawn_semantic_vector_fill(state, connection, identity.clone(), dimensions, uncached);
         }
-    } else {
-        let index_rows = semantic_index_rows_for_candidates(state, &uncached, &identity)?;
-        semantic_index_plan(&uncached, &index_rows, &identity, dimensions)
-    };
-    plan.cached_vectors.extend(cached);
+    }
+    Ok(Value::Array(rank_semantic_matches(
+        &memories,
+        &vectors,
+        &query_vector,
+        &identity,
+        threshold,
+        limit,
+    )))
+}
+
+/// Vectors for `memories` (none cached): stored index rows where fresh, the rest embedded and stored.
+async fn fill_semantic_vectors(
+    state: &AppState,
+    connection: &Value,
+    identity: &SemanticIndexIdentity,
+    dimensions: usize,
+    memories: &[Value],
+) -> AppResult<HashMap<String, Vec<f64>>> {
+    // Looking memories up in the index collection means reading all of it, so only uncached ones get here.
+    let index_rows = semantic_index_rows_for_candidates(state, memories, identity)?;
+    let plan = semantic_index_plan(memories, &index_rows, identity, dimensions);
     let by_id = memories
         .iter()
         .map(|memory| (read_string(memory.get("id")), memory))
@@ -437,7 +460,7 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
     let embeddings = if texts.is_empty() {
         Vec::new()
     } else {
-        super::super::prompts::embed_texts(&connection, &identity.model, &texts).await?
+        super::super::prompts::embed_texts(connection, &identity.model, &texts).await?
     };
     if embeddings.len() != texts.len() {
         return Err(AppError::new(
@@ -455,19 +478,58 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
             ));
         }
         let memory_id = read_string(memory.get("id"));
-        new_rows.push(semantic_index_row(memory, &identity, vector.clone())?);
+        new_rows.push(semantic_index_row(memory, identity, vector.clone())?);
         vectors.insert(memory_id, vector);
     }
-    replace_semantic_index_rows(state, &identity, new_rows)?;
-    remember_semantic_vectors(state, &memories, &vectors, &identity)?;
-    Ok(Value::Array(rank_semantic_matches(
-        &memories,
-        &vectors,
-        &query_vector,
-        &identity,
-        threshold,
-        limit,
-    )))
+    replace_semantic_index_rows(state, identity, new_rows)?;
+    remember_semantic_vectors(state, memories, &vectors, identity)?;
+    Ok(vectors)
+}
+
+/// Fills vectors for `memories` after the search returns. Memories another fill is already working on are skipped,
+/// so back-to-back replies don't embed the same memory twice. A failure is logged; the next search tries again.
+fn spawn_semantic_vector_fill(
+    state: &AppState,
+    connection: Value,
+    identity: SemanticIndexIdentity,
+    dimensions: usize,
+    memories: Vec<Value>,
+) {
+    let keys = memories
+        .iter()
+        .map(|memory| semantic_vector_key(memory, &identity))
+        .collect::<Vec<_>>();
+    let claimed = match state.semantic_vectors() {
+        Ok(mut cache) => cache.claim_fill(&keys),
+        Err(error) => {
+            eprintln!("semantic memory vector fill skipped: {}", error.message);
+            return;
+        }
+    };
+    let memories = memories
+        .into_iter()
+        .zip(&keys)
+        .filter(|(_, key)| claimed.contains(key))
+        .map(|(memory, _)| memory)
+        .collect::<Vec<_>>();
+    if memories.is_empty() {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        if let Err(error) =
+            fill_semantic_vectors(&state, &connection, &identity, dimensions, &memories).await
+        {
+            eprintln!(
+                "semantic memory vector fill failed for {} memories: {}",
+                memories.len(),
+                error.message
+            );
+        }
+        if let Ok(mut cache) = state.semantic_vectors() {
+            cache.release_fill(&claimed);
+        }
+    });
 }
 
 #[cfg(test)]

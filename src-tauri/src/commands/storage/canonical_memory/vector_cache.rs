@@ -7,7 +7,7 @@
 // is fresh: the embedding identity, the memory id, its `updatedAt` and its content hash. A hit is the vector a
 // fresh stored row holds; anything else misses and is read from storage as before.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 /// Vectors kept at most. A 1,536-dimension vector is 12 KB, so this caps the cache near 12 MB.
@@ -27,6 +27,8 @@ pub(crate) struct SemanticVectorCache {
     vectors: HashMap<SemanticVectorKey, Arc<Vec<f64>>>,
     /// Insertion order, oldest first, for evicting once full.
     order: VecDeque<SemanticVectorKey>,
+    /// Vectors a background fill is computing now (see `spawn_semantic_vector_fill` in `semantic.rs`).
+    filling: HashSet<SemanticVectorKey>,
 }
 
 impl SemanticVectorCache {
@@ -45,6 +47,18 @@ impl SemanticVectorCache {
                 self.vectors.remove(&oldest);
             }
         }
+    }
+
+    /// Marks the keys no other fill is working on as being filled, and returns them.
+    pub(crate) fn claim_fill(&mut self, keys: &[SemanticVectorKey]) -> HashSet<SemanticVectorKey> {
+        keys.iter()
+            .filter(|key| self.filling.insert((*key).clone()))
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn release_fill(&mut self, keys: &HashSet<SemanticVectorKey>) {
+        self.filling.retain(|key| !keys.contains(key));
     }
 
     #[cfg(test)]

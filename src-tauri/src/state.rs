@@ -369,6 +369,17 @@ impl AppState {
             .map_err(|_| AppError::new("lock_error", "Query embedding cache lock poisoned"))
     }
 
+    /// Registers a query embedding call so a memory search for the same text waits for it.
+    pub(crate) fn begin_query_embedding(
+        &self,
+        key: crate::storage_commands::canonical_memory::QueryEmbeddingKey,
+    ) -> Option<crate::storage_commands::canonical_memory::QueryEmbeddingTicket> {
+        crate::storage_commands::canonical_memory::QueryEmbeddingTicket::begin(
+            &self.query_embeddings,
+            key,
+        )
+    }
+
     pub fn background_path(&self, path: &str) -> AppResult<PathBuf> {
         let managed = PathBuf::from(self.backgrounds.absolute_path_string(path)?);
         if managed.exists() {
