@@ -88,6 +88,7 @@ const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV3";
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
+const ORPHANED_KNOWLEDGE_EDGES_MIGRATION_KEY: &str = "orphanedKnowledgeEdgesV1";
 const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
 const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
@@ -237,6 +238,13 @@ impl AppState {
             ORPHANED_MEMORY_JOBS_MIGRATION_KEY,
             |storage| {
                 crate::storage_commands::chats::prune_orphaned_memory_jobs(storage).map(|_| ())
+            },
+        )?;
+        run_startup_migration_once(
+            &state.storage,
+            ORPHANED_KNOWLEDGE_EDGES_MIGRATION_KEY,
+            |storage| {
+                crate::storage_commands::knowledge_edges::prune_orphaned_edges(storage).map(|_| ())
             },
         )?;
         run_startup_migration_once(
