@@ -4,9 +4,9 @@ import {
 } from "../../../../engine/generation/effective-embedding-configuration";
 import { isRecord, readString, type JsonRecord } from "../../../../engine/generation/runtime-records";
 
-export const MEMORY_EMBEDDING_UNAVAILABLE_TITLE = "Memory Recall is using local matching";
+export const MEMORY_EMBEDDING_UNAVAILABLE_TITLE = "Memory is matching by keywords";
 export const MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION =
-  "Semantic recall is off because no usable Embedding Model is configured. Memory Recall still works with local matching. Open the connection and fill in Embedding Model, or choose an embedding-capable Embedding Connection.";
+  "Characters still remember things, but they find them by matching words, not meaning. Optional: to match by meaning, open the connection and set an Embedding Model, or pick an Embedding Connection that has one.";
 
 export function resolveMemoryEmbeddingGuidance(
   chat: JsonRecord,

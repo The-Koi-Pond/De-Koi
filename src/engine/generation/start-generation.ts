@@ -464,7 +464,7 @@ function memoryEmbeddingUnavailableWarning(
     code: "memory_embedding_unavailable",
     severity: "warning",
     message:
-      "Memory Recall is using local matching because no usable Embedding Model is configured. Open Connections to configure one for semantic recall.",
+      "Memory is matching by keywords: no usable Embedding Model is set. Characters still remember things; set one in Connections to match by meaning.",
     agentNames: [],
     connectionId: configuration.connectionId,
     connectionName: configuration.connectionName,

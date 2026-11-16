@@ -481,7 +481,7 @@ describe("showAgentWarningToast", () => {
     const warning = {
       code: "memory_embedding_unavailable",
       severity: "warning",
-      message: "Memory Recall is using local matching.",
+      message: "Memory is matching by keywords.",
       agentNames: [],
       connectionId: "conn-memory",
       connectionName: "Memory connection",
