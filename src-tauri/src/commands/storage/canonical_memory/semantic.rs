@@ -1,3 +1,4 @@
+use super::query_embedding_cache::QueryEmbeddingKey;
 use super::vector_cache::SemanticVectorKey;
 use super::{batch_queries, query_memories_batch, read_string, sha256_hash, INDEX_COLLECTION};
 use crate::state::AppState;
@@ -6,6 +7,7 @@ use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 const DEFAULT_SIMILARITY_THRESHOLD: f64 = 0.28;
 const DEFAULT_RESULT_LIMIT: usize = 24;
@@ -363,16 +365,32 @@ pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> Ap
         },
         model,
     };
-    let mut query_embeddings =
-        super::super::prompts::embed_texts(&connection, &identity.model, &[query_text.as_str()])
+    // Memory Recall usually embedded this exact text with this connection and model moments ago.
+    let query_key = QueryEmbeddingKey::new(
+        &identity.connection_id,
+        &identity.provider,
+        &identity.model,
+        &query_text,
+    );
+    let cached_query_vector = state.query_embeddings()?.get(&query_key, Instant::now());
+    let query_vector = match cached_query_vector {
+        Some(vector) => vector.as_ref().clone(),
+        None => {
+            let mut query_embeddings = super::super::prompts::embed_texts(
+                &connection,
+                &identity.model,
+                &[query_text.as_str()],
+            )
             .await?;
-    if query_embeddings.len() != 1 {
-        return Err(AppError::new(
-            "embedding_error",
-            "Embedding provider returned a mismatched query vector count",
-        ));
-    }
-    let query_vector = query_embeddings.remove(0);
+            if query_embeddings.len() != 1 {
+                return Err(AppError::new(
+                    "embedding_error",
+                    "Embedding provider returned a mismatched query vector count",
+                ));
+            }
+            query_embeddings.remove(0)
+        }
+    };
     if query_vector.is_empty() || query_vector.iter().any(|value| !value.is_finite()) {
         return Err(AppError::new(
             "embedding_error",

@@ -7,10 +7,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
+#[path = "canonical_memory/query_embedding_cache.rs"]
+mod query_embedding_cache;
 #[path = "canonical_memory/semantic.rs"]
 mod semantic;
 #[path = "canonical_memory/vector_cache.rs"]
 mod vector_cache;
+pub(crate) use query_embedding_cache::{QueryEmbeddingCache, QueryEmbeddingKey};
 pub(crate) use semantic::query_memories_semantic;
 pub(crate) use vector_cache::SemanticVectorCache;
 

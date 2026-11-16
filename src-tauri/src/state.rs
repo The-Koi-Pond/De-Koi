@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use crate::performance_diagnostics::log_span;
 use crate::seed_defaults::seed_bundled_defaults;
 use crate::storage_commands::{
-    canonical_memory::SemanticVectorCache,
+    canonical_memory::{QueryEmbeddingCache, SemanticVectorCache},
     character_version_media::cleanup_orphaned_character_version_media,
     character_version_retention::prune_character_versions,
     contracts,
@@ -46,6 +46,9 @@ pub struct AppState {
     background_jobs_lock: Arc<Mutex<()>>,
     /// Parsed memory vectors kept between semantic memory searches (see `canonical_memory/vector_cache.rs`).
     semantic_vectors: Arc<Mutex<SemanticVectorCache>>,
+    /// The user's message embedded for this reply, reused by the memory search
+    /// (see `canonical_memory/query_embedding_cache.rs`).
+    query_embeddings: Arc<Mutex<QueryEmbeddingCache>>,
 }
 
 struct BackgroundWorkerLease {
@@ -140,6 +143,7 @@ impl AppState {
             background_workers: Arc::new(Mutex::new(HashMap::new())),
             background_jobs_lock: Arc::new(Mutex::new(())),
             semantic_vectors: Arc::new(Mutex::new(SemanticVectorCache::default())),
+            query_embeddings: Arc::new(Mutex::new(QueryEmbeddingCache::default())),
         };
         let character_version_media_ready = match run_startup_migration_once(
             &state.storage,
@@ -355,6 +359,14 @@ impl AppState {
         self.semantic_vectors
             .lock()
             .map_err(|_| AppError::new("lock_error", "Semantic vector cache lock poisoned"))
+    }
+
+    pub(crate) fn query_embeddings(
+        &self,
+    ) -> AppResult<std::sync::MutexGuard<'_, QueryEmbeddingCache>> {
+        self.query_embeddings
+            .lock()
+            .map_err(|_| AppError::new("lock_error", "Query embedding cache lock poisoned"))
     }
 
     pub fn background_path(&self, path: &str) -> AppResult<PathBuf> {

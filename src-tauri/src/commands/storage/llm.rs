@@ -254,6 +254,21 @@ pub(crate) async fn llm_embed(state: &AppState, body: Value) -> AppResult<Value>
         let texts = chunk.iter().map(String::as_str).collect::<Vec<_>>();
         embeddings.extend(prompts::embed_texts(&connection, &model, &texts).await?);
     }
+    // A reply's Memory Recall embeds the user's message alone; the semantic memory search reuses that vector
+    // instead of embedding the same text again (see `canonical_memory/query_embedding_cache.rs`).
+    if let ([text], [vector]) = (inputs.as_slice(), embeddings.as_slice()) {
+        if connection_id != "request" {
+            let provider = connection
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            state.query_embeddings()?.insert(
+                canonical_memory::QueryEmbeddingKey::new(&connection_id, provider, &model, text),
+                vector.clone(),
+                std::time::Instant::now(),
+            );
+        }
+    }
     let data = embeddings
         .into_iter()
         .enumerate()
@@ -2680,6 +2695,136 @@ mod tests {
 
         assert_eq!(error.code, "invalid_input");
         assert!(error.message.contains("does not support embeddings"));
+    }
+
+    /// Answers every embedding request with one small vector per input and records the inputs it was sent.
+    async fn serve_recording_embedding_requests() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test embedding server should bind");
+        let address = listener
+            .local_addr()
+            .expect("test embedding server address should be readable");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buffer = vec![0_u8; 16 * 1024];
+                let read = stream.read(&mut buffer).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let body: Value = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .and_then(|body| serde_json::from_str(body).ok())
+                    .unwrap_or(Value::Null);
+                let inputs = match &body["input"] {
+                    Value::String(text) => vec![text.clone()],
+                    Value::Array(items) => items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let data = inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| json!({ "index": index, "embedding": [1.0, 0.0] }))
+                    .collect::<Vec<_>>();
+                recorded.lock().unwrap().extend(inputs);
+                let body = json!({ "data": data }).to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+        (format!("http://{address}/v1"), seen)
+    }
+
+    #[tokio::test]
+    async fn memory_search_reuses_the_recall_embedding_of_the_same_message() {
+        let state = test_state("memory-search-reuses-recall-embedding");
+        let (base_url, seen) = serve_recording_embedding_requests().await;
+        state
+            .storage
+            .upsert_with_id(
+                "connections",
+                "embedding-connection",
+                json!({
+                    "provider": "openai",
+                    "baseUrl": base_url,
+                    "apiKey": "sk-test-key",
+                    "embeddingModel": "test-embedding-model"
+                }),
+            )
+            .expect("connection should be stored");
+        canonical_memory::create_memory(
+            &state,
+            json!({
+                "id": "memory-key",
+                "kind": "fact",
+                "status": "active",
+                "scope": { "kind": "chat", "id": "chat-1" },
+                "content": "The brass key is under the lighthouse mat.",
+                "confidence": 0.9,
+                "provenance": { "sourceChatId": "chat-1", "messageIds": ["message-1"] }
+            }),
+        )
+        .expect("memory should be stored");
+        let message = "where did we leave the brass key?";
+
+        // Memory Recall embeds the user's message as the reply starts.
+        llm_embed(
+            &state,
+            json!({
+                "connectionId": "embedding-connection",
+                "model": "test-embedding-model",
+                "input": [message]
+            }),
+        )
+        .await
+        .expect("recall embedding should succeed");
+        let matches = canonical_memory::query_memories_semantic(
+            &state,
+            json!({
+                "queryText": message,
+                "connectionId": "embedding-connection",
+                "queries": [{ "scope": { "kind": "chat", "id": "chat-1" } }]
+            }),
+        )
+        .await
+        .expect("memory search should succeed");
+
+        assert_eq!(matches.as_array().map(Vec::len), Some(1));
+        let sent = |text: &str| {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .filter(|input| input.as_str() == text)
+                .count()
+        };
+        assert_eq!(
+            sent(message),
+            1,
+            "the message must reach the provider once, not again for the memory search: {:?}",
+            seen.lock().unwrap()
+        );
+
+        // A message Memory Recall did not embed is embedded by the search itself.
+        let other = "something else entirely";
+        canonical_memory::query_memories_semantic(
+            &state,
+            json!({
+                "queryText": other,
+                "connectionId": "embedding-connection",
+                "queries": [{ "scope": { "kind": "chat", "id": "chat-1" } }]
+            }),
+        )
+        .await
+        .expect("memory search should succeed");
+        assert_eq!(sent(other), 1);
     }
 
     #[test]
