@@ -702,6 +702,25 @@ fn content_type_for_path(path: &FsPath) -> &'static str {
     }
 }
 
+/// ` entity=<name>` for a storage command that names its entity, so a slow `storage_list` in the request log can
+/// be traced to one collection. Only short plain names are logged; anything else logs nothing.
+fn invoke_entity_log_note(request: &InvokeRequest) -> String {
+    request
+        .args
+        .as_ref()
+        .and_then(|args| args.get("entity"))
+        .and_then(Value::as_str)
+        .filter(|entity| {
+            !entity.is_empty()
+                && entity.len() <= 64
+                && entity
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
+        .map(|entity| format!(" entity={entity}"))
+        .unwrap_or_default()
+}
+
 async fn invoke(
     State(state): State<HttpState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -710,8 +729,9 @@ async fn invoke(
     Json(request): Json<InvokeRequest>,
 ) -> Response {
     let command = request.command.clone();
+    let entity_note = invoke_entity_log_note(&request);
     let started = Instant::now();
-    request_log(format!("invoke {command} started"));
+    request_log(format!("invoke {command} started{entity_note}"));
     let rate_limit =
         state
             .controls
@@ -745,7 +765,7 @@ async fn invoke(
     match dispatch_for_runtime_owner(&state.app, request, runtime_owner).await {
         Ok(value) => {
             request_log(format!(
-                "invoke {command} ok in {}ms",
+                "invoke {command} ok in {}ms{entity_note}",
                 started.elapsed().as_millis()
             ));
             let mut response = Json(value).into_response();
@@ -756,7 +776,7 @@ async fn invoke(
         }
         Err(error) => {
             request_log(format!(
-                "invoke {command} error code={} message={} in {}ms",
+                "invoke {command} error code={} message={} in {}ms{entity_note}",
                 error.code,
                 error.message,
                 started.elapsed().as_millis()

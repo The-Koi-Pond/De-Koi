@@ -4,13 +4,16 @@ use marinara_core::{new_id, now_iso, AppError, AppResult};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
+#[path = "canonical_memory/query_embedding_cache.rs"]
+mod query_embedding_cache;
 #[path = "canonical_memory/semantic.rs"]
 mod semantic;
 #[path = "canonical_memory/vector_cache.rs"]
 mod vector_cache;
+pub(crate) use query_embedding_cache::{QueryEmbeddingCache, QueryEmbeddingKey};
 pub(crate) use semantic::query_memories_semantic;
 pub(crate) use vector_cache::SemanticVectorCache;
 
@@ -1595,32 +1598,62 @@ pub(crate) fn query_memory_index(state: &AppState, body: Value) -> AppResult<Val
             "memory index query body must be an object",
         ));
     }
-    let mut seen = HashSet::new();
-    let mut memories = Vec::new();
     let classified = (!query_uses_epistemic_policy(&body))
         .then(|| classified_memory_ids(state))
         .transpose()?;
-    for row in state.storage.list(INDEX_COLLECTION)? {
+    let memories = fresh_indexed_memories(state)?
+        .into_iter()
+        .filter(|memory| {
+            memory_allowed_by_query(memory, &body)
+                && classified
+                    .as_ref()
+                    .is_none_or(|ids| !ids.contains(&read_string(memory.get("id"))))
+        })
+        .collect();
+    Ok(Value::Array(memories))
+}
+
+/// Memories whose index row matches their current `updatedAt`, once each, in index order.
+///
+/// Both reads are whole-collection on purpose. Fetching each memory by id costs a disk lookup per index row
+/// whenever the memory collection is not cached (a by-id read never fills the cache), which was about half a
+/// second per reply with ~1.5k rows. One list fills the cache and serves every lookup. Index rows also carry
+/// embedding vectors, most of that collection's size, so only `memoryId` and `canonicalUpdatedAt` are read; the
+/// projected read skips the vectors and is cached.
+fn fresh_indexed_memories(state: &AppState) -> AppResult<Vec<Value>> {
+    let fields = ["memoryId".to_string(), "canonicalUpdatedAt".to_string()];
+    let index_rows = state
+        .storage
+        .list_projected(INDEX_COLLECTION, &fields, &Map::new())?;
+    if index_rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let memories_by_id = state
+        .storage
+        .list(MEMORY_COLLECTION)?
+        .into_iter()
+        .filter_map(|memory| {
+            let memory_id = read_string(memory.get("id"));
+            (!memory_id.is_empty()).then_some((memory_id, memory))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut seen = HashSet::new();
+    let mut indexed = Vec::new();
+    for row in index_rows {
         let memory_id = read_string(row.get("memoryId"));
         if memory_id.is_empty() || seen.contains(&memory_id) {
             continue;
         }
-        let Ok(memory) = get_memory(state, &memory_id) else {
+        let Some(memory) = memories_by_id.get(&memory_id) else {
             continue;
         };
         if memory.get("updatedAt") != row.get("canonicalUpdatedAt") {
             continue;
         }
         seen.insert(memory_id);
-        if memory_allowed_by_query(&memory, &body)
-            && classified
-                .as_ref()
-                .is_none_or(|ids| !ids.contains(&read_string(memory.get("id"))))
-        {
-            memories.push(memory);
-        }
+        indexed.push(memory.clone());
     }
-    Ok(Value::Array(memories))
+    Ok(indexed)
 }
 
 pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResult<Value> {
@@ -1628,22 +1661,7 @@ pub(crate) fn query_memory_index_batch(state: &AppState, body: Value) -> AppResu
     if queries.is_empty() {
         return Ok(Value::Array(Vec::new()));
     }
-    let mut seen = HashSet::new();
-    let mut indexed = Vec::new();
-    for row in state.storage.list(INDEX_COLLECTION)? {
-        let memory_id = read_string(row.get("memoryId"));
-        if memory_id.is_empty() || seen.contains(&memory_id) {
-            continue;
-        }
-        let Ok(memory) = get_memory(state, &memory_id) else {
-            continue;
-        };
-        if memory.get("updatedAt") != row.get("canonicalUpdatedAt") {
-            continue;
-        }
-        seen.insert(memory_id);
-        indexed.push(memory);
-    }
+    let indexed = fresh_indexed_memories(state)?;
     let mut emitted = HashSet::new();
     let mut memories = Vec::new();
     let classified = classified_memory_ids(state)?;
