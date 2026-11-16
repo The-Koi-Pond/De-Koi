@@ -802,6 +802,67 @@ describe("startGeneration Memory Recall preflight", () => {
     expect(assistantMessages.at(-1)?.content).toBe("You hid the key under the blue lantern.");
   });
 
+  // The recall query used to be embedded only once prompt assembly reached Memory Recall, after the user message
+  // was saved: on a Raspberry Pi that is about a second of waiting before the model is called.
+  it("starts the recall embedding before the user message is saved and embeds it once", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage({
+      metadata: { enableMemoryRecall: true, memoryRecallReadBehindMessages: 1, contextMessageLimit: 2 },
+    });
+    const llm = memoryAwareLlm(calls);
+    const deps = { storage: harness.storage, llm, integrations: {} as IntegrationGateway };
+    for (const userMessage of [
+      "I hid the key under the blue lantern.",
+      "The night market is loud.",
+      "Mira waved from the bridge.",
+    ]) {
+      await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage }));
+    }
+    await vi.waitFor(async () => {
+      expect(await harness.storage.listChatMemories<Record<string, unknown>>("chat-1")).not.toHaveLength(0);
+    });
+
+    const question = "Where did I hide the key?";
+    const embeddedQuestion = () =>
+      vi
+        .mocked(llm.embed!)
+        .mock.calls.filter(([request]) => JSON.stringify(request.texts) === JSON.stringify([question]));
+    let embeddedBeforeSave: boolean | null = null;
+    const createChatMessage = harness.storage.createChatMessage.bind(harness.storage);
+    harness.storage.createChatMessage = (async (chatId: string, value: Record<string, unknown>) => {
+      if (value.role === "user" && value.content === question) embeddedBeforeSave = embeddedQuestion().length > 0;
+      return createChatMessage(chatId, value);
+    }) as typeof harness.storage.createChatMessage;
+
+    await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage: question }));
+
+    expect(embeddedBeforeSave).toBe(true);
+    expect(embeddedQuestion()).toHaveLength(1);
+    expect(
+      calls
+        .at(-1)
+        ?.messages.map((message) => message.content)
+        .join("\n"),
+    ).toContain("I hid the key under the blue lantern.");
+  });
+
+  it("spends no early recall embedding on a chat with no memories yet", async () => {
+    const harness = memoryRecallStorage();
+    const llm = memoryAwareLlm([]);
+    const deps = { storage: harness.storage, llm, integrations: {} as IntegrationGateway };
+    const message = "Hello there.";
+    let embedsBeforeSave: number | null = null;
+    const createChatMessage = harness.storage.createChatMessage.bind(harness.storage);
+    harness.storage.createChatMessage = (async (chatId: string, value: Record<string, unknown>) => {
+      if (value.role === "user") embedsBeforeSave = vi.mocked(llm.embed!).mock.calls.length;
+      return createChatMessage(chatId, value);
+    }) as typeof harness.storage.createChatMessage;
+
+    await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage: message }));
+
+    expect(embedsBeforeSave).toBe(0);
+  });
+
   it("migrates old imported memory, injects fallback index recall, and captures the next canonical memory", async () => {
     const calls: LlmRequest[] = [];
     const harness = memoryRecallStorage();

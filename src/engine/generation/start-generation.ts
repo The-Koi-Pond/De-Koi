@@ -457,6 +457,57 @@ function generationEmbeddingSource(llm: LlmGateway, configuration: EffectiveEmbe
   };
 }
 
+type GenerationEmbeddingSource = NonNullable<ReturnType<typeof generationEmbeddingSource>>;
+
+interface EarlyRecallEmbedding {
+  configuration: EffectiveEmbeddingConfiguration;
+  source: GenerationEmbeddingSource;
+}
+
+/**
+ * Memory Recall embeds the user's message once prompt assembly reaches it, after the message is saved and the
+ * history is loaded. Start that call as the turn starts instead, so the wait overlaps that work, and let the turn
+ * reuse the source (its cache holds the call) when the turn ends up on the same embedding setup. Only for a plain
+ * send to one character, where the recall query is exactly the prepared message; anything else embeds as before.
+ */
+function startEarlyRecallEmbedding(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  internalOptions: InternalStartGenerationOptions,
+  prepared: PreparedUserInput,
+): Promise<EarlyRecallEmbedding | null> | null {
+  const text = prepared.content;
+  if (!deps.llm.embed || !text.trim() || prepared.images.length > 0) return null;
+  if (readString(internalOptions.latestUserInput).trim() || internalOptions.groupTurnChild === true) return null;
+  if (input.impersonate === true || input.textsFirst === true) return null;
+  if (readString(input.regenerateMessageId).trim() || readString(input.continueMessageId).trim()) return null;
+  if (activeCharacterIds(chat).length > 1 || !shouldRefreshMemoryRecall(chat)) return null;
+  return (async () => {
+    const [connection, memories] = await Promise.all([
+      resolveGenerationConnection(deps.storage, chat, input),
+      deps.storage.listChatMemories<unknown>(readString(chat.id), { limit: 1 }),
+    ]);
+    const configuration = await resolveEffectiveEmbeddingConfiguration(deps.storage, chat, connection);
+    const source = generationEmbeddingSource(deps.llm, configuration);
+    if (!source) return null;
+    // A chat with no memories yet skips the recall embedding, so it doesn't get one early either. Recall awaits this
+    // same promise and handles its failure; the catch only keeps an early failure from going unhandled.
+    if (memories.length > 0) source.embed([text]).catch(() => undefined);
+    return { configuration, source };
+  })().catch(() => null);
+}
+
+async function turnEmbeddingSourceFor(
+  llm: LlmGateway,
+  configuration: EffectiveEmbeddingConfiguration,
+  early: Promise<EarlyRecallEmbedding | null> | null,
+): Promise<GenerationEmbeddingSource | null> {
+  const started = early ? await early : null;
+  if (started && JSON.stringify(started.configuration) === JSON.stringify(configuration)) return started.source;
+  return generationEmbeddingSource(llm, configuration);
+}
+
 function memoryEmbeddingUnavailableWarning(
   configuration: Extract<EffectiveEmbeddingConfiguration, { available: false }>,
 ): GenerationMemoryEmbeddingUnavailableWarning {
@@ -5434,6 +5485,7 @@ async function* startGenerationImpl(
   const saveUserMessageStartedAt = generationTimingStartedAt();
   yield { type: "phase", data: "Saving message..." };
   const preparedUserInput = await prepareUserInput(deps.storage, input, chat, loadTurnRegexScripts);
+  const earlyRecallEmbedding = startEarlyRecallEmbedding(deps, chat, input, internalOptions, preparedUserInput);
   let savesUserMessage = false;
   let savedUserMessage: unknown | null = null;
   let storedMessages: JsonRecord[] | null = null;
@@ -5648,7 +5700,7 @@ async function* startGenerationImpl(
   const agentEvents: AgentResult[] = [];
   const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
   const agentInjectionOverrides = normalizedAgentInjectionOverrides(input);
-  const turnEmbeddingSource = generationEmbeddingSource(deps.llm, embeddingConfiguration);
+  const turnEmbeddingSource = await turnEmbeddingSourceFor(deps.llm, embeddingConfiguration, earlyRecallEmbedding);
 
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
